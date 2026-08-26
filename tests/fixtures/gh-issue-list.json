@@ -1,0 +1,20 @@
+[
+  {
+    "number": 17,
+    "title": "Show stale repository snapshots",
+    "labels": [
+      {"name": "tasks.md"},
+      {"name": "priority/P1"},
+      {"name": "observability"}
+    ],
+    "assignees": [{"login": "ned2"}],
+    "url": "https://github.com/example/project/issues/17"
+  },
+  {
+    "number": 21,
+    "title": "Keep unknown blocker state",
+    "labels": [{"name": "tasks.md"}],
+    "assignees": [],
+    "url": "https://github.com/example/project/issues/21"
+  }
+]

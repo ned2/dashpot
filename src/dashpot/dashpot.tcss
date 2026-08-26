@@ -1,0 +1,82 @@
+Screen {
+    layout: vertical;
+}
+
+#source-status {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    background: $surface;
+}
+
+#body {
+    height: 1fr;
+    overflow-x: auto;
+}
+
+Screen.-wide #body {
+    layout: horizontal;
+}
+
+Screen.-compact #body {
+    layout: vertical;
+}
+
+#queue-pane {
+    width: 3fr;
+    height: 1fr;
+    border: round $primary-darken-2;
+}
+
+#detail-pane {
+    width: 2fr;
+    height: 1fr;
+    border: round $primary-darken-2;
+}
+
+Screen.-compact Header {
+    display: none;
+}
+
+Screen.-compact #queue-pane {
+    width: 1fr;
+    height: 2fr;
+}
+
+Screen.-compact #detail-pane {
+    width: 1fr;
+    height: 1fr;
+}
+
+.pane-title {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#queue {
+    height: 1fr;
+}
+
+#detail {
+    height: 1fr;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+#diagnostics {
+    height: auto;
+    max-height: 5;
+    padding: 0 1;
+    color: $text-muted;
+    background: $surface;
+    overflow-y: auto;
+}
+
+#diagnostics.-has-messages {
+    color: $warning;
+}
+
+Screen.-compact #diagnostics {
+    max-height: 3;
+}
