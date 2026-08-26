@@ -10,15 +10,45 @@ import pytest
 from dashpot import cli
 from dashpot.agents import ProcessIdentity
 from dashpot.hook import publish_from_stream
-from dashpot.model import ProjectTarget, WorkspaceEntry, WorkspaceSnapshot
+from dashpot.model import (
+    Repository,
+    RepositoryAnchor,
+    ResolvedProject,
+    Workspace,
+    WorkspaceSnapshot,
+    Worktree,
+)
+from dashpot.workspace import WorkspaceResolution
+
+
+def project(root: Path) -> ResolvedProject:
+    return ResolvedProject(
+        "project:test",
+        "Test Project",
+        "repository:test",
+        ("test",),
+        (str(root),),
+        str(root),
+    )
+
+
+def repository(root: Path) -> Repository:
+    return Repository(
+        str(root),
+        root.name,
+        "main",
+        "abc123",
+        False,
+        [Worktree(str(root), "abc123", "main")],
+    )
 
 
 def test_workspace_argument_accepts_named_and_bare_paths(tmp_path: Path) -> None:
     named = cli.parse_workspace_argument(f"portable={tmp_path}")
     bare = cli.parse_workspace_argument(str(tmp_path))
 
-    assert named == WorkspaceEntry("portable", str(tmp_path))
-    assert bare == WorkspaceEntry(tmp_path.name, str(tmp_path))
+    assert named == Workspace("portable", (RepositoryAnchor(str(tmp_path)),))
+    assert bare == Workspace(tmp_path.name, (RepositoryAnchor(str(tmp_path)),))
 
 
 def test_workspace_argument_infers_name_from_resolved_dot_path(
@@ -28,7 +58,9 @@ def test_workspace_argument_infers_name_from_resolved_dot_path(
 
     workspace = cli.parse_workspace_argument(".")
 
-    assert workspace == WorkspaceEntry(tmp_path.name, str(tmp_path))
+    assert workspace == Workspace(
+        tmp_path.name, (RepositoryAnchor(str(tmp_path)),)
+    )
 
 
 @pytest.mark.parametrize("value", ["", "=", "name="])
@@ -44,11 +76,50 @@ def test_no_argument_cli_defaults_to_configured_current_project(
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args([])
 
-    with mock.patch.object(cli, "load_workspace_entries") as load_entries:
+    resolution = WorkspaceResolution([project(tmp_path)], [])
+    with mock.patch.object(cli, "observe_repository", return_value=repository(tmp_path)), \
+        mock.patch.object(cli, "load_workspaces") as load_workspaces, \
+        mock.patch.object(
+            cli, "resolve_workspace_projects", return_value=resolution
+        ) as resolve:
         collector = cli.create_collector(args)
 
-    load_entries.assert_not_called()
-    assert collector.targets == [ProjectTarget(tmp_path.name, ".", str(tmp_path))]
+    load_workspaces.assert_not_called()
+    resolve.assert_called_once_with(
+        [Workspace(tmp_path.name, (RepositoryAnchor(str(tmp_path)),))],
+        timeout=10.0,
+    )
+    assert collector.projects == [project(tmp_path)]
+
+
+def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_root = tmp_path / "project"
+    nested = project_root / "src" / "package"
+    nested.mkdir(parents=True)
+    (project_root / ".dashpot.json").write_text("{}")
+    monkeypatch.chdir(nested)
+    args = cli.build_parser().parse_args([])
+    resolution = WorkspaceResolution([project(project_root)], [])
+
+    with mock.patch.object(
+        cli, "observe_repository", return_value=repository(project_root)
+    ), mock.patch.object(
+        cli, "resolve_workspace_projects", return_value=resolution
+    ) as resolve:
+        collector = cli.create_collector(args)
+
+    resolve.assert_called_once_with(
+        [
+            Workspace(
+                project_root.name,
+                (RepositoryAnchor(str(project_root)),),
+            )
+        ],
+        timeout=10.0,
+    )
+    assert collector.projects == [project(project_root)]
 
 
 def test_explicit_config_takes_precedence_over_current_project(
@@ -64,13 +135,17 @@ def test_explicit_config_takes_precedence_over_current_project(
 
     with mock.patch.object(
         cli,
-        "load_workspace_entries",
-        return_value=[WorkspaceEntry("configured", str(configured))],
-    ) as load_entries:
+        "load_workspaces",
+        return_value=[Workspace("configured", (RepositoryAnchor(str(configured)),))],
+    ) as load_workspaces, mock.patch.object(
+        cli,
+        "resolve_workspace_projects",
+        return_value=WorkspaceResolution([project(configured)], []),
+    ):
         collector = cli.create_collector(args)
 
-    load_entries.assert_called_once_with(config)
-    assert collector.targets == [ProjectTarget("configured", ".", str(configured))]
+    load_workspaces.assert_called_once_with(config)
+    assert collector.projects == [project(configured)]
 
 
 def test_explicit_workspace_takes_precedence_over_config(
@@ -83,11 +158,16 @@ def test_explicit_workspace_takes_precedence_over_config(
         ["--workspace", str(workspace), "--config", str(tmp_path / "unused.json")]
     )
 
-    with mock.patch.object(cli, "load_workspace_entries") as load_entries:
+    with mock.patch.object(cli, "load_workspaces") as load_workspaces, \
+        mock.patch.object(
+            cli,
+            "resolve_workspace_projects",
+            return_value=WorkspaceResolution([project(workspace)], []),
+        ):
         collector = cli.create_collector(args)
 
-    load_entries.assert_not_called()
-    assert collector.targets == [ProjectTarget("explicit", ".", str(workspace))]
+    load_workspaces.assert_not_called()
+    assert collector.projects == [project(workspace)]
 
 
 def test_no_argument_cli_falls_back_to_standard_workspace_config(
@@ -103,13 +183,17 @@ def test_no_argument_cli_falls_back_to_standard_workspace_config(
     with mock.patch.object(cli, "default_workspace_config", return_value=config):
         with mock.patch.object(
             cli,
-            "load_workspace_entries",
-            return_value=[WorkspaceEntry("configured", str(configured))],
-        ) as load_entries:
+            "load_workspaces",
+            return_value=[Workspace("configured", (RepositoryAnchor(str(configured)),))],
+        ) as load_workspaces, mock.patch.object(
+            cli,
+            "resolve_workspace_projects",
+            return_value=WorkspaceResolution([project(configured)], []),
+        ):
             collector = cli.create_collector(args)
 
-    load_entries.assert_called_once_with(config)
-    assert collector.targets == [ProjectTarget("configured", ".", str(configured))]
+    load_workspaces.assert_called_once_with(config)
+    assert collector.projects == [project(configured)]
 
 
 def test_json_mode_prints_snapshot() -> None:

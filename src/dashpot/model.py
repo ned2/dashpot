@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, TypeAlias
 
 
@@ -50,6 +50,9 @@ class AgentRun:
 
 @dataclass(slots=True)
 class ProjectSnapshot:
+    project_id: str
+    display_label: str
+    repository_id: str
     collected_at: str
     issue_source_status: SourceStatus
     issue_source_attempted_at: str
@@ -62,23 +65,34 @@ class ProjectSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class WorkspaceEntry:
-    name: str
-    root: str
+class RepositoryAnchor:
+    path: str
 
 
 @dataclass(frozen=True, slots=True)
-class ProjectTarget:
-    workspace: str
-    repository: str
-    root: str
+class Workspace:
+    name: str
+    anchors: tuple[RepositoryAnchor, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedProject:
+    project_id: str
+    display_label: str
+    repository_id: str
+    workspaces: tuple[str, ...]
+    anchors: tuple[str, ...]
+    primary_anchor: str
 
 
 @dataclass(slots=True)
 class ProjectObservation:
-    workspace: str
-    repository: str
-    root: str
+    project_id: str
+    display_label: str
+    repository_id: str
+    workspaces: list[str]
+    anchors: list[str]
+    primary_anchor: str
     status: SourceStatus
     elapsed_ms: int
     snapshot: ProjectSnapshot | None
@@ -90,6 +104,7 @@ class WorkspaceSnapshot:
     collected_at: str
     elapsed_ms: int
     projects: list[ProjectObservation]
+    diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
 def to_jsonable(value: Any) -> Any:

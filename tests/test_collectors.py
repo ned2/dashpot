@@ -17,18 +17,19 @@ from dashpot.agents import (
     publish_hook_event,
     write_hook_record,
 )
-from dashpot.collect import ProjectCollector, WorkspaceCollector, discover_project_targets
+from dashpot.collect import ProjectCollector, WorkspaceCollector
+from dashpot.commands import CommandResult
 from dashpot.issue_sources import IssueSource
 from dashpot.model import (
     AgentRun,
     Diagnostic,
     ProjectSnapshot,
-    ProjectTarget,
     Repository,
-    WorkspaceEntry,
+    ResolvedProject,
     Worktree,
+    to_jsonable,
 )
-from dashpot.repository import parse_worktrees
+from dashpot.repository import observe_github_repository_identity, parse_worktrees
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +46,38 @@ def repository(root: str = "/repo") -> Repository:
         "abc123",
         False,
         [Worktree(root, "abc123", "main")],
+    )
+
+
+def resolved_project(
+    root: str = "/repo", project_id: str = "project:example"
+) -> ResolvedProject:
+    return ResolvedProject(
+        project_id,
+        "Example",
+        "repository:example",
+        ("test",),
+        (root,),
+        root,
+    )
+
+
+def project_snapshot(
+    root: str = "/repo", issues: list[dict] | None = None
+) -> ProjectSnapshot:
+    return ProjectSnapshot(
+        project_id="project:example",
+        display_label="Example",
+        repository_id="repository:example",
+        collected_at="2026-08-24T15:00:00Z",
+        issue_source_status="fresh",
+        issue_source_attempted_at="2026-08-24T15:00:00Z",
+        issue_source_last_good_at="2026-08-24T15:00:00Z",
+        repository=repository(root),
+        issues=issues or [issue()],
+        issue_runs={"I_example/project#7": []},
+        agent_runs=[],
+        diagnostics=[],
     )
 
 
@@ -65,6 +98,15 @@ class FakeSource(IssueSource):
         return [issue()]
 
 
+class EmptySource(IssueSource):
+    @property
+    def name(self) -> str:
+        return "empty"
+
+    def _collect(self) -> list[dict]:
+        return []
+
+
 class RepositoryTests(unittest.TestCase):
     def test_worktree_parser_keeps_branch_and_detached_state(self) -> None:
         raw = """worktree /repo
@@ -81,6 +123,30 @@ detached
         self.assertEqual("main", result[0].branch)
         self.assertIsNone(result[1].branch)
 
+    def test_github_repository_identity_uses_durable_node_id(self) -> None:
+        calls: list[tuple[list[str], Path, float]] = []
+
+        def runner(args, cwd, timeout):
+            calls.append((list(args), cwd, timeout))
+            return CommandResult(
+                list(args),
+                0,
+                json.dumps(
+                    {"node_id": "R_dashpot", "full_name": "ned2/dashpot"}
+                ),
+                "",
+            )
+
+        result = observe_github_repository_identity(
+            Path("/repo"), "ned2/dashpot", 7, runner
+        )
+
+        self.assertEqual(("R_dashpot", "ned2/dashpot"), result)
+        self.assertEqual(
+            [(["gh", "api", "repos/ned2/dashpot"], Path("/repo"), 7)],
+            calls,
+        )
+
 
 class ProjectCollectorTests(unittest.TestCase):
     def test_combines_declared_and_observed_state(self) -> None:
@@ -95,7 +161,7 @@ class ProjectCollectorTests(unittest.TestCase):
             "example/project#7",
         )
         collector = ProjectCollector(
-            Path("/repo"),
+            resolved_project(),
             FakeSource(),
             repository_observer=lambda _root: repository(),
             agent_observer=lambda _repository: ([observed], [Diagnostic("agent", "info", "ok")]),
@@ -107,8 +173,26 @@ class ProjectCollectorTests(unittest.TestCase):
             ["codex-session:1"], snapshot.issue_runs["I_example/project#7"]
         )
         self.assertEqual("Build observer", snapshot.issues[0]["title"])
+        self.assertEqual("project:example", snapshot.project_id)
+        self.assertEqual("Example", snapshot.display_label)
         self.assertEqual([observed], snapshot.agent_runs)
         self.assertEqual("agent", snapshot.diagnostics[0].source)
+
+    def test_empty_issue_project_retains_identity_and_display_label(self) -> None:
+        collector = ProjectCollector(
+            resolved_project(),
+            EmptySource(),
+            repository_observer=lambda _root: repository(),
+            agent_observer=lambda _repository: ([], []),
+        )
+
+        snapshot = collector.refresh()
+        payload = to_jsonable(snapshot)
+
+        self.assertEqual([], snapshot.issues)
+        self.assertEqual("project:example", payload["projectId"])
+        self.assertEqual("Example", payload["displayLabel"])
+        self.assertEqual("repository:example", payload["repositoryId"])
 
 
 class HookObserverTests(unittest.TestCase):
@@ -271,28 +355,41 @@ class FakeProjectCollector:
 
 
 class WorkspaceCollectorTests(unittest.TestCase):
-    def test_one_failed_project_does_not_blank_the_workspace(self) -> None:
-        good_snapshot = ProjectSnapshot(
-            "2026-08-24T15:00:00Z",
-            "fresh",
-            "2026-08-24T15:00:00Z",
-            "2026-08-24T15:00:00Z",
-            repository("/good"),
-            [issue()],
-            {"I_example/project#7": []},
-            [],
-            [],
+    def test_grouped_clone_target_collects_project_once(self) -> None:
+        grouped = ResolvedProject(
+            "project:example",
+            "Example",
+            "repository:example",
+            ("personal",),
+            ("/clone-one", "/clone-two"),
+            "/clone-one",
         )
+        factory_calls: list[ResolvedProject] = []
 
-        def factory(root, **_kwargs):
-            if root == Path("/bad"):
+        def factory(current_target, **_kwargs):
+            factory_calls.append(current_target)
+            return FakeProjectCollector(project_snapshot("/clone-one"))
+
+        collector = WorkspaceCollector([grouped], factory=factory)
+
+        with mock.patch.object(Path, "is_dir", return_value=True):
+            snapshot = collector.refresh()
+
+        self.assertEqual([grouped], factory_calls)
+        self.assertEqual(1, len(snapshot.projects))
+
+    def test_one_failed_project_does_not_blank_the_workspace(self) -> None:
+        good_snapshot = project_snapshot("/good")
+
+        def factory(current_target, **_kwargs):
+            if current_target.primary_anchor == "/bad":
                 raise RuntimeError("fixture failure")
             return FakeProjectCollector(good_snapshot)
 
         collector = WorkspaceCollector(
             [
-                ProjectTarget("test", "good", "/good"),
-                ProjectTarget("test", "bad", "/bad"),
+                resolved_project("/good", "project:good"),
+                resolved_project("/bad", "project:bad"),
             ],
             factory=factory,
         )
@@ -306,38 +403,11 @@ class WorkspaceCollectorTests(unittest.TestCase):
         )
         self.assertIn("fixture failure", snapshot.projects[1].diagnostics[0].message)
 
-    def test_discovers_marked_root_and_immediate_child_once(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / ".dashpot.json").write_text("{}")
-            child = root / "child"
-            child.mkdir()
-            (child / ".dashpot.json").write_text("{}")
-            nested = child / "nested"
-            nested.mkdir()
-            (nested / ".dashpot.json").write_text("{}")
-
-            targets = discover_project_targets(
-                [WorkspaceEntry("one", str(root)), WorkspaceEntry("duplicate", str(root))]
-            )
-
-        self.assertEqual([".", "child"], [target.repository for target in targets])
-
     def test_overlapping_refreshes_are_serialized(self) -> None:
         active = 0
         maximum_active = 0
         counter_lock = threading.Lock()
-        good_snapshot = ProjectSnapshot(
-            "2026-08-24T15:00:00Z",
-            "fresh",
-            "2026-08-24T15:00:00Z",
-            "2026-08-24T15:00:00Z",
-            repository("/repo"),
-            [issue()],
-            {"I_example/project#7": []},
-            [],
-            [],
-        )
+        good_snapshot = project_snapshot()
 
         class SlowCollector:
             def refresh(self) -> ProjectSnapshot:
@@ -351,8 +421,8 @@ class WorkspaceCollectorTests(unittest.TestCase):
                 return good_snapshot
 
         collector = WorkspaceCollector(
-            [ProjectTarget("test", "repo", "/repo")],
-            factory=lambda _root, **_kwargs: SlowCollector(),  # type: ignore[arg-type]
+            [resolved_project()],
+            factory=lambda _target, **_kwargs: SlowCollector(),  # type: ignore[arg-type]
         )
         results: list[ProjectSnapshot] = []
 

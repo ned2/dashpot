@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import concurrent.futures
-import json
-import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Callable, Sequence
 
 from .agents import observe_hook_runs
 from .correlation import correlate_issues
@@ -18,13 +16,11 @@ from .model import (
     Diagnostic,
     ProjectObservation,
     ProjectSnapshot,
-    ProjectTarget,
     Repository,
-    WorkspaceEntry,
+    ResolvedProject,
     WorkspaceSnapshot,
 )
 from .project_config import (
-    PROJECT_CONFIG_NAME,
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
     load_project_config,
@@ -39,12 +35,13 @@ RepositoryObserver = Callable[[Path], Repository]
 class ProjectCollector:
     def __init__(
         self,
-        root: Path,
+        project: ResolvedProject,
         source: IssueSource,
         repository_observer: RepositoryObserver = observe_repository,
         agent_observer: AgentObserver = observe_hook_runs,
     ) -> None:
-        self.root = root
+        self.project = project
+        self.root = Path(project.primary_anchor)
         self.source = source
         self.repository_observer = repository_observer
         self.agent_observer = agent_observer
@@ -65,6 +62,9 @@ class ProjectCollector:
             for diagnostic in issue_observation.diagnostics
         ]
         return ProjectSnapshot(
+            project_id=self.project.project_id,
+            display_label=self.project.display_label,
+            repository_id=self.project.repository_id,
             collected_at=utc_now(),
             issue_source_status=issue_observation.status,
             issue_source_attempted_at=issue_observation.attempted_at,
@@ -78,14 +78,22 @@ class ProjectCollector:
 
 
 def create_project_collector(
-    repository_path: str | Path = ".",
+    project: ResolvedProject,
     timeout: float = 10,
     state_dir: Path | None = None,
 ) -> ProjectCollector:
-    requested_root = Path(repository_path).resolve()
+    requested_root = Path(project.primary_anchor)
     repository = observe_repository(requested_root)
     root = Path(repository.root)
     config = load_project_config(root)
+    if (
+        config.project_id != project.project_id
+        or config.display_label != project.display_label
+        or config.repository_id != project.repository_id
+    ):
+        raise RuntimeError(
+            f"Project configuration changed after resolving Repository Anchor {root}"
+        )
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
         repository_reference = github_repo_from_remote(root)
         if not repository_reference:
@@ -96,7 +104,7 @@ def create_project_collector(
         source: IssueSource = GitHubIssuesSource(
             root,
             project_id=config.project_id,
-            repository_id=config.issue_source.repository_id,
+            repository_id=config.repository_id,
             repository_reference=repository_reference,
             timeout=timeout,
         )
@@ -109,7 +117,7 @@ def create_project_collector(
     else:  # pragma: no cover - exhaustive guard for future source kinds.
         raise RuntimeError("unsupported configured Issue Source")
     return ProjectCollector(
-        root,
+        project,
         source,
         agent_observer=lambda current: observe_hook_runs(current, state_dir),
     )
@@ -120,15 +128,17 @@ class WorkspaceCollector:
 
     def __init__(
         self,
-        targets: Sequence[ProjectTarget],
+        projects: Sequence[ResolvedProject],
         timeout: float = 10,
         state_dir: Path | None = None,
         factory: Callable[..., ProjectCollector] = create_project_collector,
+        diagnostics: Sequence[Diagnostic] = (),
     ) -> None:
-        self.targets = list(targets)
+        self.projects = list(projects)
         self.timeout = timeout
         self.state_dir = state_dir
         self.factory = factory
+        self.diagnostics = list(diagnostics)
         self.collectors: dict[str, ProjectCollector] = {}
         self.refresh_lock = threading.Lock()
 
@@ -141,35 +151,44 @@ class WorkspaceCollector:
 
     def _refresh(self) -> WorkspaceSnapshot:
         started = time.monotonic()
-        worker_count = max(1, min(8, len(self.targets)))
+        worker_count = max(1, min(8, len(self.projects)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
-            futures = [pool.submit(self.refresh_one, target) for target in self.targets]
+            futures = [
+                pool.submit(self.refresh_one, project) for project in self.projects
+            ]
             projects = [future.result() for future in futures]
         return WorkspaceSnapshot(
             collected_at=utc_now(),
             elapsed_ms=round((time.monotonic() - started) * 1000),
             projects=projects,
+            diagnostics=list(self.diagnostics),
         )
 
-    def refresh_one(self, target: ProjectTarget) -> ProjectObservation:
+    def refresh_one(self, project: ResolvedProject) -> ProjectObservation:
         started = time.monotonic()
-        root = Path(target.root)
+        root = Path(project.primary_anchor)
         try:
             if not root.is_dir():
-                raise RuntimeError(f"repository root does not exist or is not a directory: {root}")
-            collector = self.collectors.get(target.root)
+                raise RuntimeError(
+                    "repository root does not exist or is not a directory: "
+                    f"{root}"
+                )
+            collector = self.collectors.get(project.project_id)
             if collector is None:
                 collector = self.factory(
-                    root,
+                    project,
                     timeout=self.timeout,
                     state_dir=self.state_dir,
                 )
-                self.collectors[target.root] = collector
+                self.collectors[project.project_id] = collector
             snapshot = collector.refresh()
             return ProjectObservation(
-                target.workspace,
-                target.repository,
-                target.root,
+                project.project_id,
+                project.display_label,
+                project.repository_id,
+                list(project.workspaces),
+                list(project.anchors),
+                project.primary_anchor,
                 snapshot.issue_source_status,
                 round((time.monotonic() - started) * 1000),
                 snapshot,
@@ -177,81 +196,21 @@ class WorkspaceCollector:
             )
         except (OSError, RuntimeError) as exc:
             return ProjectObservation(
-                target.workspace,
-                target.repository,
-                target.root,
+                project.project_id,
+                project.display_label,
+                project.repository_id,
+                list(project.workspaces),
+                list(project.anchors),
+                project.primary_anchor,
                 "unavailable",
                 round((time.monotonic() - started) * 1000),
                 None,
                 [
                     Diagnostic(
-                        f"workspace:{target.workspace}/{target.repository}",
+                        f"project:{project.project_id}",
                         "error",
                         str(exc),
+                        "project-collection",
                     )
                 ],
             )
-
-
-def default_workspace_config() -> Path:
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(config_home).expanduser() if config_home else Path.home() / ".config"
-    return base / "dashpot" / "workspaces.json"
-
-
-def load_workspace_entries(path: Path) -> list[WorkspaceEntry]:
-    try:
-        raw: Any = json.loads(path.read_text())
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"workspace config not found: {path}") from exc
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"cannot read workspace config {path}: {exc}") from exc
-    if not isinstance(raw, dict) or not isinstance(raw.get("workspaces"), list):
-        raise RuntimeError(f"workspace config {path} must contain a workspaces array")
-    entries: list[WorkspaceEntry] = []
-    for index, item in enumerate(raw["workspaces"]):
-        if not isinstance(item, dict):
-            raise RuntimeError(f"workspace entry {index} must be an object")
-        name = item.get("name")
-        root = item.get("root")
-        if not isinstance(name, str) or not name.strip():
-            raise RuntimeError(f"workspace entry {index} needs a non-empty name")
-        if not isinstance(root, str) or not root.strip():
-            raise RuntimeError(f"workspace entry {index} needs a non-empty root")
-        entries.append(WorkspaceEntry(name.strip(), str(Path(root).expanduser().resolve())))
-    return entries
-
-
-def discover_project_targets(entries: Sequence[WorkspaceEntry]) -> list[ProjectTarget]:
-    targets: list[ProjectTarget] = []
-    seen: set[Path] = set()
-    for entry in entries:
-        entry_root = Path(entry.root)
-        roots = discover_repository_roots(entry_root)
-        for root in roots:
-            canonical = root.resolve()
-            if canonical in seen:
-                continue
-            seen.add(canonical)
-            repository = "." if canonical == entry_root else canonical.name
-            targets.append(ProjectTarget(entry.name, repository, str(canonical)))
-    return targets
-
-
-def discover_repository_roots(workspace_root: Path) -> list[Path]:
-    def has_project_config(path: Path) -> bool:
-        return (path / PROJECT_CONFIG_NAME).is_file()
-
-    roots: list[Path] = []
-    if has_project_config(workspace_root):
-        roots.append(workspace_root)
-    try:
-        children = sorted(workspace_root.iterdir(), key=lambda child: child.name)
-    except OSError:
-        return roots
-    for child in children:
-        if child.name.startswith(".") or child.name == "node_modules":
-            continue
-        if child.is_dir() and has_project_config(child):
-            roots.append(child)
-    return roots

@@ -15,9 +15,9 @@ A Project is a durable body of work rooted in exactly one Git repository and
 has exactly one active Issue Source. GitHub-backed Projects require that
 repository to be hosted on GitHub; other Git repositories use Dashpot's local
 Markdown representation. Both sources produce the same Issue profile.
-Project Identity and Issue Identity are opaque and stable, while references,
-URLs, file locations, repository hosting, branches, and checkout paths are
-mutable facts.
+Project Identity, Repository Identity, and Issue Identity are opaque and
+stable, while the Project Display Label, references, URLs, file locations,
+repository hosting, branches, and checkout paths are mutable facts.
 
 Dashpot will remove TASKS.md as a dependency and will own the local Markdown
 format, parser, schema evolution, and conformance fixtures. The canonical model
@@ -56,7 +56,11 @@ clones require separate anchors.
 ## Consequences
 
 - Tracked `.dashpot.json` Project configuration carries a backend-independent
-  Project Identity and exactly one Issue Source definition.
+  Project Identity, Project Display Label, durable Repository Identity, and
+  exactly one Issue Source definition.
+- Workspace configuration explicitly lists Repository Anchors. Each anchor is
+  validated before anchors are grouped by Project Identity; conflicting
+  Repository identities make that Project unavailable rather than merging it.
 - A GitHub Issue transferred to another repository preserves Issue Identity
   when GitHub does, but changes Project membership, reference, and location.
 - Clones and worktrees preserve Project Identity. Forks and intentional copies

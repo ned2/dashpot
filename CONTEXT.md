@@ -16,6 +16,10 @@ The single logical Git repository that roots a Project. Its hosting location and
 local checkouts may change without changing the Project.
 _Avoid_: Repository when referring to a checkout path
 
+**Repository Identity**:
+A stable opaque identity for a Git Repository, independent of remote URLs and
+local checkouts.
+
 **Issue**:
 A declared unit of Project work conforming to Dashpot's source-neutral Issue
 model. An Issue may be represented on GitHub or in local Markdown.
@@ -43,6 +47,11 @@ A Project has exactly one active Issue Source.
 **Project Identity**:
 A stable opaque identity for a Project, independent of repository hosting and
 local filesystem location.
+
+**Project Display Label**:
+A mutable, human-readable label for a Project. It helps people recognize a
+Project but never participates in identity.
+_Avoid_: Project name when identity is intended
 
 **Issue Identity**:
 A stable opaque identity for an Issue, independent of its reference and

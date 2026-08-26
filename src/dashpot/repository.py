@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+from typing import Any
 
-from .commands import run_command
+from .commands import CommandRunner, run_command
 from .model import Repository, Worktree
 
 
@@ -52,6 +54,36 @@ def github_repo_from_remote(root: Path) -> str | None:
         return None
     match = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$", remote)
     return match.group(1) if match else None
+
+
+def observe_github_repository_identity(
+    root: Path,
+    reference: str,
+    timeout: float = 10,
+    runner: CommandRunner = run_command,
+) -> tuple[str, str]:
+    """Resolve a mutable GitHub reference to its durable Repository identity."""
+    result = runner(["gh", "api", f"repos/{reference}"], root, timeout)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"gh api exited {result.returncode}"
+        raise RuntimeError(f"cannot resolve GitHub repository {reference}: {detail}")
+    try:
+        payload: Any = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"GitHub returned malformed repository metadata for {reference}: {exc.msg}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"GitHub returned malformed repository metadata for {reference}"
+        )
+    repository_id = payload.get("node_id")
+    observed_reference = payload.get("full_name")
+    if not isinstance(repository_id, str) or not repository_id:
+        raise RuntimeError(f"GitHub repository {reference} has no durable identity")
+    if not isinstance(observed_reference, str) or not observed_reference:
+        raise RuntimeError(f"GitHub repository {reference} has no full name")
+    return repository_id, observed_reference
 
 
 def is_within(path: Path, parent: Path) -> bool:

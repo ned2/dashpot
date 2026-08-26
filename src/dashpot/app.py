@@ -143,10 +143,14 @@ class DashpotApp(App[None]):
             )
         except Exception as exc:  # UI boundary: source failures must not exit the app.
             if not worker.is_cancelled:
-                self.post_message(WorkspaceRefreshFinished(generation, trigger, error=str(exc)))
+                self.post_message(
+                    WorkspaceRefreshFinished(generation, trigger, error=str(exc))
+                )
             return
         if not worker.is_cancelled:
-            self.post_message(WorkspaceRefreshFinished(generation, trigger, snapshot=snapshot))
+            self.post_message(
+                WorkspaceRefreshFinished(generation, trigger, snapshot=snapshot)
+            )
 
     def on_workspace_refresh_finished(self, message: WorkspaceRefreshFinished) -> None:
         if message.generation != self.refresh_generation:
@@ -238,6 +242,10 @@ class DashpotApp(App[None]):
         if self.ui_error:
             messages.append(self.ui_error)
         if self.snapshot:
+            messages.extend(
+                f"{diagnostic.source}: {diagnostic.message}"
+                for diagnostic in self.snapshot.diagnostics
+            )
             for project in self.snapshot.projects:
                 diagnostics = list(project.diagnostics)
                 if project.snapshot:
@@ -263,7 +271,7 @@ def build_rows(
         issues = project.snapshot.issues if project.snapshot else []
         runs = project.snapshot.agent_runs if project.snapshot else []
         if not issues and not runs:
-            key = f"project:{project.root}"
+            key = f"project:{project.project_id}"
             contexts[key] = RowContext(project)
             cells_by_key[key] = (
                 status_mark(project.status),
@@ -307,7 +315,8 @@ def build_rows(
 def project_detail_text(project: ProjectObservation) -> str:
     lines = [
         f"Status: {project.status}",
-        f"Root: {project.root}",
+        f"Workspaces: {', '.join(project.workspaces)}",
+        f"Anchor: {project.primary_anchor}",
     ]
     snapshot = project.snapshot
     if snapshot:
@@ -392,9 +401,7 @@ def selection_detail_text(context: RowContext) -> str:
 
 
 def project_label(project: ProjectObservation) -> str:
-    if project.repository == ".":
-        return project.workspace
-    return f"{project.workspace}/{project.repository}"
+    return project.display_label
 
 
 def status_mark(status: str) -> str:

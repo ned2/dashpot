@@ -9,7 +9,7 @@ import pytest
 from dashpot.collect import create_project_collector
 from dashpot.github_issues import GitHubIssuesSource
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
-from dashpot.model import Repository, Worktree
+from dashpot.model import Repository, ResolvedProject, Worktree
 from dashpot.project_config import (
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
@@ -22,7 +22,14 @@ PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 def write_config(root: Path, issue_source: dict) -> None:
     (root / ".dashpot.json").write_text(
-        json.dumps({"projectId": PROJECT_ID, "issueSource": issue_source})
+        json.dumps(
+            {
+                "projectId": PROJECT_ID,
+                "displayLabel": "Dashpot",
+                "repositoryId": "R_dashpot",
+                "issueSource": issue_source,
+            }
+        )
     )
 
 
@@ -37,13 +44,26 @@ def repository(root: Path) -> Repository:
     )
 
 
+def project(root: Path) -> ResolvedProject:
+    return ResolvedProject(
+        PROJECT_ID,
+        "Dashpot",
+        "R_dashpot",
+        ("test",),
+        (str(root),),
+        str(root),
+    )
+
+
 def test_loads_github_project_configuration(tmp_path: Path) -> None:
-    write_config(tmp_path, {"kind": "github", "repositoryId": "R_dashpot"})
+    write_config(tmp_path, {"kind": "github"})
 
     config = load_project_config(tmp_path)
 
     assert config.project_id == PROJECT_ID
-    assert config.issue_source == GitHubIssueSourceConfig("github", "R_dashpot")
+    assert config.display_label == "Dashpot"
+    assert config.repository_id == "R_dashpot"
+    assert config.issue_source == GitHubIssueSourceConfig("github")
 
 
 def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
@@ -60,7 +80,7 @@ def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
     ("source", "message"),
     [
         ({"kind": "markdown", "path": "../outside"}, "repository-relative"),
-        ({"kind": "github"}, "missing fields: repositoryId"),
+        ({"kind": "github", "repositoryId": "nested"}, "unexpected fields"),
         ({"kind": "unknown"}, "must be 'github' or 'markdown'"),
     ],
 )
@@ -79,7 +99,7 @@ def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
     with mock.patch(
         "dashpot.collect.observe_repository", return_value=repository(tmp_path)
     ):
-        collector = create_project_collector(tmp_path)
+        collector = create_project_collector(project(tmp_path))
 
     assert isinstance(collector.source, LocalMarkdownIssuesSource)
     assert collector.source.project_id == PROJECT_ID
@@ -89,14 +109,14 @@ def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
 def test_project_collector_builds_github_source_for_github_anchor(
     tmp_path: Path,
 ) -> None:
-    write_config(tmp_path, {"kind": "github", "repositoryId": "R_dashpot"})
+    write_config(tmp_path, {"kind": "github"})
 
     with mock.patch(
         "dashpot.collect.observe_repository", return_value=repository(tmp_path)
     ), mock.patch(
         "dashpot.collect.github_repo_from_remote", return_value="ned2/dashpot"
     ):
-        collector = create_project_collector(tmp_path)
+        collector = create_project_collector(project(tmp_path))
 
     assert isinstance(collector.source, GitHubIssuesSource)
     assert collector.source.project_id == PROJECT_ID
@@ -105,10 +125,10 @@ def test_project_collector_builds_github_source_for_github_anchor(
 
 
 def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None:
-    write_config(tmp_path, {"kind": "github", "repositoryId": "R_dashpot"})
+    write_config(tmp_path, {"kind": "github"})
 
     with mock.patch(
         "dashpot.collect.observe_repository", return_value=repository(tmp_path)
     ), mock.patch("dashpot.collect.github_repo_from_remote", return_value=None):
         with pytest.raises(RuntimeError, match="GitHub origin remote"):
-            create_project_collector(tmp_path)
+            create_project_collector(project(tmp_path))

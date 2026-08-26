@@ -41,17 +41,42 @@ Open the TUI for one or more projects:
 cd /path/to/configured/project
 uv run dashpot
 
-uv run dashpot --workspace my-project=/path/to/project
-uv run dashpot --workspace first=/path/one --workspace second=/path/two
+uv run dashpot --workspace personal=/path/to/project
+uv run dashpot --workspace personal=/path/first-clone \
+  --workspace personal=/path/second-clone
 ```
 
 Without arguments, Dashpot observes the current directory when it contains
-`.dashpot.json`. Outside a configured Project it discovers Projects from
-Dashpot's `~/.config/dashpot/workspaces.json`. Explicit `--workspace`
-arguments take precedence; use `--config` to select a different workspace
-inventory. Use `r` to refresh, the arrow keys to move, and `q` to quit. The
-default 15-second polling period can be changed with `--refresh-seconds`; zero
-disables polling.
+`.dashpot.json`. Outside a configured Project it loads explicit Repository
+Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
+`--workspace` arguments each name one anchor and take precedence; repeat the
+same Workspace name to include independent clones. Use `--config` to select a
+different Workspace inventory. Use `r` to refresh, the arrow keys to move, and
+`q` to quit. The default 15-second polling period can be changed with
+`--refresh-seconds`; zero disables polling.
+
+A Workspace inventory stores named groupings and anchor paths, never discovered
+or persisted worktree paths:
+
+```json
+{
+  "workspaces": [
+    {
+      "name": "personal",
+      "anchors": [
+        "/home/me/projects/dashpot",
+        "/home/me/independent-clones/dashpot"
+      ]
+    }
+  ]
+}
+```
+
+Relative anchor paths are resolved relative to the inventory file. Every anchor
+is validated independently, and clones with the same Project Identity and
+Repository Identity are presented as one Project. Anchor order is significant:
+the first valid anchor for a Project supplies its display label and is the
+authoritative checkout used for Issue collection.
 
 The same collector has a headless JSON interface:
 
@@ -59,18 +84,24 @@ The same collector has a headless JSON interface:
 uv run dashpot --workspace my-project=/path/to/project --json
 ```
 
+The TUI uses each Project's mutable display label. Headless snapshots also
+include its durable `projectId` and `repositoryId`, along with Workspace names
+and Repository Anchors, so automation and diagnostics do not depend on labels or
+paths for identity.
+
 ## Project configuration
 
-Every Repository Anchor has a tracked `.dashpot.json` containing its stable
-Project Identity and active Issue Source. A GitHub-backed Project looks like
-this:
+Every Repository Anchor has a tracked `.dashpot.json` containing stable Project
+and Repository identities, a mutable display label, and the active Issue Source.
+A GitHub-backed Project looks like this:
 
 ```json
 {
   "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
+  "displayLabel": "Dashpot",
+  "repositoryId": "R_kgDOUEerrg",
   "issueSource": {
-    "kind": "github",
-    "repositoryId": "R_kgDOUEerrg"
+    "kind": "github"
   }
 }
 ```
@@ -82,6 +113,8 @@ relative file or directory:
 ```json
 {
   "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
+  "displayLabel": "Dashpot",
+  "repositoryId": "repository:01947e42-4f18-74d1-b25f-329ef29b270c",
   "issueSource": {
     "kind": "markdown",
     "path": "issues"

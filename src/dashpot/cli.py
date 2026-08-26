@@ -7,17 +7,19 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .app import DashpotApp
-from .collect import (
-    WorkspaceCollector,
-    default_workspace_config,
-    discover_project_targets,
-    load_workspace_entries,
-)
-from .model import WorkspaceEntry, to_jsonable
+from .collect import WorkspaceCollector
+from .model import RepositoryAnchor, Workspace, to_jsonable
 from .project_config import PROJECT_CONFIG_NAME
+from .repository import observe_repository
+from .workspace import (
+    default_workspace_config,
+    load_workspaces,
+    merge_workspaces,
+    resolve_workspace_projects,
+)
 
 
-def parse_workspace_argument(value: str) -> WorkspaceEntry:
+def parse_workspace_argument(value: str) -> Workspace:
     if "=" in value:
         name, raw_root = value.split("=", 1)
     else:
@@ -25,7 +27,10 @@ def parse_workspace_argument(value: str) -> WorkspaceEntry:
         name = Path(raw_root).expanduser().resolve().name
     if not name.strip() or not raw_root.strip():
         raise argparse.ArgumentTypeError("workspace must be PATH or NAME=PATH")
-    return WorkspaceEntry(name.strip(), str(Path(raw_root).expanduser().resolve()))
+    return Workspace(
+        name.strip(),
+        (RepositoryAnchor(str(Path(raw_root).expanduser().resolve())),),
+    )
 
 
 def non_negative_float(value: str) -> float:
@@ -56,7 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=parse_workspace_argument,
         default=[],
         metavar="[NAME=]PATH",
-        help="workspace root (repeatable); defaults to the Dashpot workspace config",
+        help=(
+            "repository anchor in a named Workspace (repeatable); defaults to "
+            "the Dashpot workspace config"
+        ),
     )
     parser.add_argument(
         "--config",
@@ -93,23 +101,30 @@ def build_parser() -> argparse.ArgumentParser:
 
 def create_collector(args: argparse.Namespace) -> WorkspaceCollector:
     if args.workspace:
-        entries: list[WorkspaceEntry] = args.workspace
+        workspaces = merge_workspaces(args.workspace)
     elif args.config is not None:
-        entries = load_workspace_entries(args.config.expanduser())
+        workspaces = load_workspaces(args.config.expanduser())
     else:
         current = Path.cwd().resolve()
-        if (current / PROJECT_CONFIG_NAME).is_file():
-            entries = [WorkspaceEntry(current.name, str(current))]
+        try:
+            repository_root = Path(observe_repository(current).root)
+        except RuntimeError:
+            repository_root = current
+        if (repository_root / PROJECT_CONFIG_NAME).is_file():
+            workspaces = [
+                Workspace(
+                    repository_root.name,
+                    (RepositoryAnchor(str(repository_root)),),
+                )
+            ]
         else:
-            entries = load_workspace_entries(default_workspace_config())
-    targets = discover_project_targets(entries)
-    if not targets:
-        roots = ", ".join(entry.root for entry in entries)
-        raise RuntimeError(f"no Dashpot Projects discovered under: {roots}")
+            workspaces = load_workspaces(default_workspace_config())
+    resolution = resolve_workspace_projects(workspaces, timeout=args.timeout)
     return WorkspaceCollector(
-        targets,
+        resolution.projects,
         timeout=args.timeout,
         state_dir=args.state_dir.expanduser() if args.state_dir else None,
+        diagnostics=resolution.diagnostics,
     )
 
 

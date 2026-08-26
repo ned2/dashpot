@@ -62,6 +62,9 @@ def workspace_snapshot(
         worktrees=[Worktree("/repo", "abcdef123456", "main")],
     )
     project_snapshot = ProjectSnapshot(
+        project_id="project:test-repo",
+        display_label="Test Repository",
+        repository_id="repository:test-repo",
         collected_at=NOW,
         issue_source_status=status,
         issue_source_attempted_at=NOW,
@@ -73,9 +76,12 @@ def workspace_snapshot(
         diagnostics=diagnostics or [],
     )
     project = ProjectObservation(
-        workspace="test",
-        repository="repo",
-        root="/repo",
+        project_id="project:test-repo",
+        display_label="Test Repository",
+        repository_id="repository:test-repo",
+        workspaces=["test"],
+        anchors=["/repo"],
+        primary_anchor="/repo",
         status=status,
         elapsed_ms=elapsed_ms,
         snapshot=project_snapshot,
@@ -159,7 +165,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         ]
         assert app.selected_row_key == "I_test/repo#1"
         assert "Status: fresh" in project_detail
-        assert "Root: /repo" in project_detail
+        assert "Anchor: /repo" in project_detail
         assert "test/repo" not in project_detail
         assert "Refresh:" not in project_detail
         assert "First" in selection_detail
@@ -225,6 +231,27 @@ async def test_failed_refresh_keeps_last_good_rows_and_shows_diagnostic() -> Non
 
 
 @pytest.mark.asyncio
+async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
+    snapshot = workspace_snapshot()
+    snapshot.diagnostics.append(
+        Diagnostic(
+            "project:conflicted",
+            "error",
+            "Project Identity project:conflicted has conflicting Repository identities",
+            "project-repository-conflict",
+        )
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: app.snapshot is snapshot)
+
+        rendered = str(app.query_one("#diagnostics", Static).render())
+        assert "project:conflicted" in rendered
+        assert "conflicting Repository identities" in rendered
+
+
+@pytest.mark.asyncio
 async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
     run = AgentRun(
         id="codex-session:42",
@@ -264,12 +291,13 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         assert_context_above_full_width_queue(app)
 
 
-def test_workspace_root_uses_workspace_name_without_dot_suffix() -> None:
+def test_project_uses_display_label_independent_of_workspace_and_anchor() -> None:
     project = workspace_snapshot().projects[0]
-    project.workspace = "portable"
-    project.repository = "."
+    project.display_label = "Portable Project"
+    project.workspaces = ["personal", "client"]
+    project.primary_anchor = "/moved/checkout"
 
-    assert project_label(project) == "portable"
+    assert project_label(project) == "Portable Project"
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
