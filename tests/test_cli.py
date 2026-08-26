@@ -21,6 +21,16 @@ def test_workspace_argument_accepts_named_and_bare_paths(tmp_path: Path) -> None
     assert bare == WorkspaceEntry(tmp_path.name, str(tmp_path))
 
 
+def test_workspace_argument_infers_name_from_resolved_dot_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    workspace = cli.parse_workspace_argument(".")
+
+    assert workspace == WorkspaceEntry(tmp_path.name, str(tmp_path))
+
+
 @pytest.mark.parametrize("value", ["", "=", "name="])
 def test_workspace_argument_rejects_incomplete_values(value: str) -> None:
     with pytest.raises(Exception, match="workspace must be"):

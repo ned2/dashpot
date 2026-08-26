@@ -21,7 +21,7 @@ def parse_workspace_argument(value: str) -> WorkspaceEntry:
         name, raw_root = value.split("=", 1)
     else:
         raw_root = value
-        name = Path(raw_root).expanduser().name
+        name = Path(raw_root).expanduser().resolve().name
     if not name.strip() or not raw_root.strip():
         raise argparse.ArgumentTypeError("workspace must be PATH or NAME=PATH")
     return WorkspaceEntry(name.strip(), str(Path(raw_root).expanduser().resolve()))
