@@ -28,8 +28,20 @@ Screen.-compact #body {
     border: round $primary-darken-2;
 }
 
-#detail-pane {
+#detail-column {
     width: 2fr;
+    height: 1fr;
+}
+
+#project-pane {
+    width: 1fr;
+    height: auto;
+    margin-bottom: 1;
+    border: round $primary-darken-2;
+}
+
+#selection-pane {
+    width: 1fr;
     height: 1fr;
     border: round $primary-darken-2;
 }
@@ -40,12 +52,14 @@ Screen.-compact Header {
 
 Screen.-compact #queue-pane {
     width: 1fr;
-    height: 2fr;
+    height: 1fr;
+    min-height: 6;
 }
 
-Screen.-compact #detail-pane {
+Screen.-compact #detail-column {
     width: 1fr;
-    height: 1fr;
+    height: 2fr;
+    min-height: 12;
 }
 
 .pane-title {
@@ -58,7 +72,12 @@ Screen.-compact #detail-pane {
     height: 1fr;
 }
 
-#detail {
+#project-detail {
+    height: auto;
+    padding: 0 1;
+}
+
+#selection-detail {
     height: 1fr;
     padding: 0 1;
     overflow-y: auto;

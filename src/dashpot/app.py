@@ -79,9 +79,13 @@ class DashpotApp(App[None]):
             with Vertical(id="queue-pane"):
                 yield Static("WORK", classes="pane-title")
                 yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
-            with Vertical(id="detail-pane"):
-                yield Static("DETAIL", classes="pane-title")
-                yield Static("Select a row", id="detail")
+            with Vertical(id="detail-column"):
+                with Vertical(id="project-pane"):
+                    yield Static("PROJECT STATUS", classes="pane-title")
+                    yield Static("Select a row", id="project-detail")
+                with Vertical(id="selection-pane"):
+                    yield Static("WORK ITEM", id="selection-title", classes="pane-title")
+                    yield Static("Select a row", id="selection-detail")
         yield Static("No diagnostics", id="diagnostics")
         yield Footer()
 
@@ -192,7 +196,11 @@ class DashpotApp(App[None]):
         self.rendered_cells = desired_cells
         if not table.row_count:
             self.selected_row_key = None
-            self.query_one("#detail", Static).update("No work items or observed runs")
+            self.query_one("#project-detail", Static).update("No project selected")
+            self.query_one("#selection-title", Static).update("SELECTION")
+            self.query_one("#selection-detail", Static).update(
+                "No work items or observed runs"
+            )
             return
         if prior_key in desired_contexts:
             selected_index = table.get_row_index(prior_key)
@@ -216,7 +224,13 @@ class DashpotApp(App[None]):
         if context is None:
             return
         self.selected_row_key = key
-        self.query_one("#detail", Static).update(detail_text(context))
+        self.query_one("#project-detail", Static).update(
+            project_detail_text(context.project)
+        )
+        self.query_one("#selection-title", Static).update(selection_title(context))
+        self.query_one("#selection-detail", Static).update(
+            selection_detail_text(context)
+        )
 
     def update_status(self) -> None:
         status = self.query_one("#source-status", Label)
@@ -307,13 +321,10 @@ def build_rows(
     return contexts, cells_by_key
 
 
-def detail_text(context: RowContext) -> str:
-    project = context.project
+def project_detail_text(project: ProjectObservation) -> str:
     lines = [
-        project_label(project),
         f"Status: {project.status}",
         f"Root: {project.root}",
-        f"Refresh: {project.elapsed_ms} ms",
     ]
     snapshot = project.snapshot
     if snapshot:
@@ -326,6 +337,20 @@ def detail_text(context: RowContext) -> str:
                 f"Observed agents: {len(snapshot.agent_runs)}",
             ]
         )
+    return "\n".join(lines)
+
+
+def selection_title(context: RowContext) -> str:
+    if context.item:
+        return "WORK ITEM"
+    if context.run:
+        return "AGENT RUN"
+    return "SELECTION"
+
+
+def selection_detail_text(context: RowContext) -> str:
+    lines: list[str] = []
+    snapshot = context.project.snapshot
     if context.item:
         current = context.item
         location = "-"
@@ -333,7 +358,6 @@ def detail_text(context: RowContext) -> str:
             location = current.location.url or current.location.file or "-"
         lines.extend(
             [
-                "",
                 current.title,
                 f"Key: {current.key}",
                 f"Priority: {current.priority}",
@@ -372,7 +396,6 @@ def detail_text(context: RowContext) -> str:
         run = context.run
         lines.extend(
             [
-                "",
                 f"Unmatched {run.harness} run",
                 f"Run: {run.id}",
                 f"State: {run.state}",

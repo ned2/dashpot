@@ -7,7 +7,12 @@ from threading import Event, Lock
 import pytest
 from textual.widgets import DataTable, Label, Static
 
-from dashpot.app import DashpotApp, build_rows, detail_text, project_label
+from dashpot.app import (
+    DashpotApp,
+    build_rows,
+    project_label,
+    selection_detail_text,
+)
 from dashpot.model import (
     AgentRun,
     Diagnostic,
@@ -108,10 +113,24 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: app.snapshot is snapshot)
         table = app.query_one("#queue", DataTable)
+        project_detail = str(app.query_one("#project-detail", Static).render())
+        selection_detail = str(app.query_one("#selection-detail", Static).render())
 
         assert table.row_count == 2
         assert app.selected_row_key == "github:test/repo#1"
-        assert "First" in str(app.query_one("#detail", Static).render())
+        assert "Status: fresh" in project_detail
+        assert "Root: /repo" in project_detail
+        assert "test/repo" not in project_detail
+        assert "Refresh:" not in project_detail
+        assert "First" in selection_detail
+        assert "Status:" not in selection_detail
+        assert str(app.query_one("#selection-title", Static).render()) == "WORK ITEM"
+        project_pane = app.query_one("#project-pane")
+        selection_pane = app.query_one("#selection-pane")
+        diagnostics = app.query_one("#diagnostics", Static)
+        assert project_pane.region.y < selection_pane.region.y
+        assert selection_pane.region.height >= 3
+        assert selection_pane.region.bottom <= diagnostics.region.y
         assert "1 project  1 fresh" in str(
             app.query_one("#source-status", Label).render()
         )
@@ -185,7 +204,10 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
         await wait_until(lambda: app.snapshot is snapshot)
 
         assert app.selected_row_key == "run:codex-session:42"
-        assert "Unmatched codex run" in str(app.query_one("#detail", Static).render())
+        assert "Unmatched codex run" in str(
+            app.query_one("#selection-detail", Static).render()
+        )
+        assert str(app.query_one("#selection-title", Static).render()) == "AGENT RUN"
 
 
 @pytest.mark.asyncio
@@ -228,7 +250,9 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(snapshot)
 
     assert cells[item.key][5] == "Ⅱ1"
-    assert "codex-session:42 (waiting, issue/1)" in detail_text(contexts[item.key])
+    assert "codex-session:42 (waiting, issue/1)" in selection_detail_text(
+        contexts[item.key]
+    )
 
 
 class RacingCollector:
@@ -269,6 +293,8 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
             collector.release.set()
             await asyncio.sleep(0.1)
             assert app.snapshot is new
-            assert "New result" in str(app.query_one("#detail", Static).render())
+            assert "New result" in str(
+                app.query_one("#selection-detail", Static).render()
+            )
     finally:
         collector.release.set()
