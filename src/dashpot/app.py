@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -11,10 +13,10 @@ from textual.timer import Timer
 from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Static
 
-from .model import AgentRun, ProjectObservation, Task, WorkspaceSnapshot
+from .model import AgentRun, Issue, ProjectObservation, WorkspaceSnapshot
 
 
-COLUMN_KEYS = ("status", "project", "priority", "assignee", "sessions", "title")
+COLUMN_KEYS = ("status", "project", "priority", "assignees", "sessions", "title")
 
 
 class SnapshotCollector(Protocol):
@@ -24,7 +26,7 @@ class SnapshotCollector(Protocol):
 @dataclass(frozen=True, slots=True)
 class RowContext:
     project: ProjectObservation
-    task: Task | None = None
+    issue: Issue | None = None
     run: AgentRun | None = None
 
 
@@ -70,6 +72,9 @@ class DashpotApp(App[None]):
         self.rows_by_key: dict[str, RowContext] = {}
         self.rendered_cells: dict[str, tuple[str, ...]] = {}
         self.ui_error: str | None = None
+        self.refresh_executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="dashpot-refresh"
+        )
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -79,7 +84,7 @@ class DashpotApp(App[None]):
                     yield Static("PROJECT STATUS", classes="pane-title")
                     yield Static("Select a row", id="project-detail")
                 with Vertical(id="selection-pane"):
-                    yield Static("TASK", id="selection-title", classes="pane-title")
+                    yield Static("ISSUE", id="selection-title", classes="pane-title")
                     yield Static("Select a row", id="selection-detail")
             with Vertical(id="queue-pane"):
                 yield Static("WORK", classes="pane-title")
@@ -92,7 +97,7 @@ class DashpotApp(App[None]):
         table.add_column("S", key="status")
         table.add_column("PROJECT", key="project")
         table.add_column("PRI", key="priority")
-        table.add_column("ASSIGNEE", key="assignee")
+        table.add_column("ASSIGNEES", key="assignees")
         table.add_column("SESSIONS", key="sessions")
         table.add_column("TITLE", key="title")
         table.focus()
@@ -111,6 +116,9 @@ class DashpotApp(App[None]):
                 name="workspace refresh",
             )
 
+    def on_unmount(self) -> None:
+        self.refresh_executor.shutdown(wait=False, cancel_futures=True)
+
     def action_refresh(self) -> None:
         if self.refresh_timer is not None:
             self.refresh_timer.reset()
@@ -124,14 +132,15 @@ class DashpotApp(App[None]):
     @work(
         name="workspace refresh",
         group="refresh",
-        thread=True,
         exclusive=True,
         exit_on_error=False,
     )
-    def refresh_workspace(self, generation: int, trigger: str) -> None:
+    async def refresh_workspace(self, generation: int, trigger: str) -> None:
         worker = get_current_worker()
         try:
-            snapshot = self.collector.refresh()
+            snapshot = await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor, self.collector.refresh
+            )
         except Exception as exc:  # UI boundary: source failures must not exit the app.
             if not worker.is_cancelled:
                 self.post_message(WorkspaceRefreshFinished(generation, trigger, error=str(exc)))
@@ -179,7 +188,7 @@ class DashpotApp(App[None]):
                             key,
                             column,
                             new_value,
-                            update_width=column in {"project", "assignee", "title"},
+                            update_width=column in {"project", "assignees", "title"},
                         )
             if table.row_count:
                 table.sort("project", "priority", "title")
@@ -191,7 +200,7 @@ class DashpotApp(App[None]):
             self.query_one("#project-detail", Static).update("No project selected")
             self.query_one("#selection-title", Static).update("SELECTION")
             self.query_one("#selection-detail", Static).update(
-                "No tasks or observed runs"
+                "No Issues or observed runs"
             )
             return
         if prior_key in desired_contexts:
@@ -251,9 +260,9 @@ def build_rows(
     cells_by_key: dict[str, tuple[str, ...]] = {}
     for project in snapshot.projects:
         label = project_label(project)
-        tasks = project.snapshot.tasks if project.snapshot else []
+        issues = project.snapshot.issues if project.snapshot else []
         runs = project.snapshot.agent_runs if project.snapshot else []
-        if not tasks and not runs:
+        if not issues and not runs:
             key = f"project:{project.root}"
             contexts[key] = RowContext(project)
             cells_by_key[key] = (
@@ -262,19 +271,22 @@ def build_rows(
                 "-",
                 "unassigned",
                 "-",
-                "source unavailable" if project.status == "unavailable" else "no tasks",
+                "source unavailable" if project.status == "unavailable" else "no Issues",
             )
-        matched_runs = {run_id for task in tasks for run_id in task.observed_runs}
-        for task in tasks:
-            key = task.key
-            contexts[key] = RowContext(project, task=task)
+        issue_runs = project.snapshot.issue_runs if project.snapshot else {}
+        matched_runs = {
+            run_id for run_ids in issue_runs.values() for run_id in run_ids
+        }
+        for issue in issues:
+            key = issue["id"]
+            contexts[key] = RowContext(project, issue=issue)
             cells_by_key[key] = (
                 status_mark(project.status),
                 label,
-                task.priority,
-                task.declared_claimant or "unassigned",
-                observed_run_summary(task, runs),
-                task.title,
+                issue_priority(issue),
+                ", ".join(issue["assignees"]) or "unassigned",
+                observed_run_summary(issue["id"], issue_runs, runs),
+                issue["title"],
             )
         for run in runs:
             if run.id in matched_runs:
@@ -312,8 +324,8 @@ def project_detail_text(project: ProjectObservation) -> str:
 
 
 def selection_title(context: RowContext) -> str:
-    if context.task:
-        return "TASK"
+    if context.issue:
+        return "ISSUE"
     if context.run:
         return "AGENT RUN"
     return "SELECTION"
@@ -322,35 +334,35 @@ def selection_title(context: RowContext) -> str:
 def selection_detail_text(context: RowContext) -> str:
     lines: list[str] = []
     snapshot = context.project.snapshot
-    if context.task:
-        current = context.task
-        location = "-"
-        if current.location:
-            location = current.location.url or current.location.file or "-"
+    if context.issue:
+        current = context.issue
+        location = issue_location(current)
+        observed_run_ids = snapshot.issue_runs.get(current["id"], []) if snapshot else []
         lines.extend(
             [
-                current.title,
-                f"Key: {current.key}",
-                f"Priority: {current.priority}",
-                f"Assignee: {current.declared_claimant or 'unassigned'}",
+                current["title"],
+                f"Reference: {current['reference']}",
+                f"State: {current['state']}",
+                f"Priority: {issue_priority(current)}",
+                f"Assignees: {', '.join(current['assignees']) or 'unassigned'}",
                 f"Location: {location}",
-                f"Tags: {', '.join(current.tags) or '-'}",
+                f"Labels: {', '.join(current['labels']) or '-'}",
             ]
         )
         observed = (
             {
                 run.id: run
                 for run in snapshot.agent_runs
-                if run.id in current.observed_runs
+                if run.id in observed_run_ids
             }
             if snapshot
             else {}
         )
         lines.append("Agent sessions:")
-        if not current.observed_runs:
+        if not observed_run_ids:
             lines.append("  -")
         else:
-            for run_id in current.observed_runs:
+            for run_id in observed_run_ids:
                 run = observed.get(run_id)
                 if run is None:
                     lines.append(f"  {run_id} (missing observation)")
@@ -369,7 +381,7 @@ def selection_detail_text(context: RowContext) -> str:
                 f"Unmatched {run.harness} run",
                 f"Run: {run.id}",
                 f"State: {run.state}",
-                f"Task reference: {run.declared_work_key or '-'}",
+                f"Issue reference: {run.declared_issue_reference or '-'}",
                 f"Worktree: {run.worktree or '-'}",
                 f"Branch: {run.branch or '-'}",
                 f"Working directory: {run.working_directory or '-'}",
@@ -393,10 +405,12 @@ def run_state_mark(state: str) -> str:
     return {"running": "▶", "waiting": "Ⅱ", "unknown": "?"}.get(state, "?")
 
 
-def observed_run_summary(task: Task, runs: list[AgentRun]) -> str:
+def observed_run_summary(
+    issue_id: str, issue_runs: dict[str, list[str]], runs: list[AgentRun]
+) -> str:
     by_id = {run.id: run for run in runs}
     counts = {"running": 0, "waiting": 0, "unknown": 0}
-    for run_id in task.observed_runs:
+    for run_id in issue_runs.get(issue_id, []):
         run = by_id.get(run_id)
         state = run.state if run else "unknown"
         counts[state] += 1
@@ -406,3 +420,29 @@ def observed_run_summary(task: Task, runs: list[AgentRun]) -> str:
         if counts[state]
     )
     return summary or "0"
+
+
+def issue_priority(issue: Issue) -> str:
+    priorities = {
+        "priority/p0": "P0",
+        "priority/p1": "P1",
+        "priority/p2": "P2",
+        "priority/p3": "P3",
+        "critical": "P0",
+        "high": "P1",
+        "medium": "P2",
+        "low": "P3",
+    }
+    values = [
+        priorities[label.casefold()]
+        for label in issue["labels"]
+        if label.casefold() in priorities
+    ]
+    return min(values, default="P2")
+
+
+def issue_location(issue: Issue) -> str:
+    location = issue["location"]
+    if location["kind"] == "github":
+        return location["url"]
+    return f"{location['path']}:{location['line']}"

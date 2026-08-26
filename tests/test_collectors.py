@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import threading
@@ -17,35 +18,51 @@ from dashpot.agents import (
     write_hook_record,
 )
 from dashpot.collect import ProjectCollector, WorkspaceCollector, discover_project_targets
+from dashpot.issue_sources import IssueSource
 from dashpot.model import (
     AgentRun,
     Diagnostic,
     ProjectSnapshot,
     ProjectTarget,
     Repository,
-    Task,
     WorkspaceEntry,
     Worktree,
 )
 from dashpot.repository import parse_worktrees
-from dashpot.sources import TaskSource
+
+
+ROOT = Path(__file__).resolve().parents[1]
+ISSUE_FIXTURE = json.loads(
+    (ROOT / "conformance" / "issue" / "fixtures" / "github.json").read_text()
+)
 
 
 def repository(root: str = "/repo") -> Repository:
-    return Repository(root, Path(root).name, "main", "abc123", False, [Worktree(root, "abc123", "main")])
+    return Repository(
+        root,
+        Path(root).name,
+        "main",
+        "abc123",
+        False,
+        [Worktree(root, "abc123", "main")],
+    )
 
 
-def task(key: str = "github:example/project#7") -> Task:
-    return Task(key, "github-issues", "Build observer", "P1", [], "ned2", "unknown", None)
+def issue(reference: str = "example/project#7") -> dict:
+    value = copy.deepcopy(ISSUE_FIXTURE)
+    value["reference"] = reference
+    value["id"] = f"I_{reference}"
+    value["title"] = "Build observer"
+    return value
 
 
-class FakeSource(TaskSource):
+class FakeSource(IssueSource):
     @property
     def name(self) -> str:
         return "fake"
 
-    def collect(self) -> list[Task]:
-        return [task()]
+    def _collect(self) -> list[dict]:
+        return [issue()]
 
 
 class RepositoryTests(unittest.TestCase):
@@ -54,7 +71,7 @@ class RepositoryTests(unittest.TestCase):
 HEAD abc123
 branch refs/heads/main
 
-worktree /repo-task
+worktree /repo-worktree
 HEAD def456
 detached
 """
@@ -75,7 +92,7 @@ class ProjectCollectorTests(unittest.TestCase):
             "/repo",
             "/repo",
             "main",
-            "github:example/project#7",
+            "example/project#7",
         )
         collector = ProjectCollector(
             Path("/repo"),
@@ -86,7 +103,10 @@ class ProjectCollectorTests(unittest.TestCase):
 
         snapshot = collector.refresh()
 
-        self.assertEqual(["codex-session:1"], snapshot.tasks[0].observed_runs)
+        self.assertEqual(
+            ["codex-session:1"], snapshot.issue_runs["I_example/project#7"]
+        )
+        self.assertEqual("Build observer", snapshot.issues[0]["title"])
         self.assertEqual([observed], snapshot.agent_runs)
         self.assertEqual("agent", snapshot.diagnostics[0].source)
 
@@ -110,7 +130,7 @@ class HookObserverTests(unittest.TestCase):
                 "cwd": "/repo",
                 "repositoryRoot": "/repo",
                 "branch": "main",
-                "declaredWorkKey": "github:example/project#7",
+                "declaredIssueReference": "example/project#7",
                 "event": "Stop" if state == "waiting" else "PreToolUse",
                 "lastActivityAt": "2026-08-24T15:00:00Z",
                 "sessionProcess": process.as_record() if process else None,
@@ -129,7 +149,7 @@ class HookObserverTests(unittest.TestCase):
         )
 
         self.assertEqual("waiting", runs[0].state)
-        self.assertEqual("github:example/project#7", runs[0].declared_work_key)
+        self.assertEqual("example/project#7", runs[0].declared_issue_reference)
         self.assertEqual([], diagnostics)
 
     def test_ended_and_orphaned_records_are_not_active(self) -> None:
@@ -168,7 +188,7 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual([], runs)
         self.assertIn("unsupported record", diagnostics[0].message)
 
-    def test_resume_event_preserves_initial_task_binding(self) -> None:
+    def test_resume_event_preserves_initial_issue_binding(self) -> None:
         base_event = {
             "session_id": "resume-me",
             "cwd": "/repo",
@@ -177,7 +197,7 @@ class HookObserverTests(unittest.TestCase):
         publish_hook_event(
             base_event,
             self.state_dir,
-            environ={"DASHPOT_TASK_REF": "github:example/project#7"},
+            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
             process=self.process,
         )
 
@@ -189,7 +209,7 @@ class HookObserverTests(unittest.TestCase):
         )
 
         record = json.loads((self.state_dir / "resume-me.json").read_text())
-        self.assertEqual("github:example/project#7", record["declaredWorkKey"])
+        self.assertEqual("example/project#7", record["declaredIssueReference"])
         self.assertEqual("waiting", record["state"])
 
     def test_nearest_codex_process_skips_sandbox_helper(self) -> None:
@@ -258,7 +278,8 @@ class WorkspaceCollectorTests(unittest.TestCase):
             "2026-08-24T15:00:00Z",
             "2026-08-24T15:00:00Z",
             repository("/good"),
-            [task()],
+            [issue()],
+            {"I_example/project#7": []},
             [],
             [],
         )
@@ -279,19 +300,22 @@ class WorkspaceCollectorTests(unittest.TestCase):
         with mock.patch.object(Path, "is_dir", return_value=True):
             snapshot = collector.refresh()
 
-        self.assertEqual(["fresh", "unavailable"], [project.status for project in snapshot.projects])
+        self.assertEqual(
+            ["fresh", "unavailable"],
+            [project.status for project in snapshot.projects],
+        )
         self.assertIn("fixture failure", snapshot.projects[1].diagnostics[0].message)
 
     def test_discovers_marked_root_and_immediate_child_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / ".tasksmd.json").write_text("{}")
+            (root / ".dashpot.json").write_text("{}")
             child = root / "child"
             child.mkdir()
-            (child / "TASKS.md").write_text("# Tasks")
+            (child / ".dashpot.json").write_text("{}")
             nested = child / "nested"
             nested.mkdir()
-            (nested / "TASKS.md").write_text("# Nested")
+            (nested / ".dashpot.json").write_text("{}")
 
             targets = discover_project_targets(
                 [WorkspaceEntry("one", str(root)), WorkspaceEntry("duplicate", str(root))]
@@ -309,7 +333,8 @@ class WorkspaceCollectorTests(unittest.TestCase):
             "2026-08-24T15:00:00Z",
             "2026-08-24T15:00:00Z",
             repository("/repo"),
-            [task()],
+            [issue()],
+            {"I_example/project#7": []},
             [],
             [],
         )

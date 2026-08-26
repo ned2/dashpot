@@ -124,6 +124,7 @@ def source(
         Path("/repo"),
         project_id=PROJECT_ID,
         repository_id=REPOSITORY_ID,
+        repository_reference="ned2/dashpot",
         runner=runner,
         clock=lambda: next(times),
     )
@@ -285,7 +286,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             expected_issues=[expected_fixture()],
         )
         query = runner.calls[0][0][4]
-        self.assertIn("states: [OPEN]", query)
+        self.assertIn("states: [OPEN, CLOSED]", query)
         self.assertNotIn("tasks.md", query)
         self.assertIn(f"repositoryId={REPOSITORY_ID}", runner.calls[0][0])
         self.assertNotIn("owner=ned2", runner.calls[0][0])
@@ -497,6 +498,24 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         )
 
         observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual(
+            "github-repository-identity", observation.diagnostics[0].code
+        )
+
+    def test_repository_anchor_origin_must_match_configured_repository(self) -> None:
+        runner = SequenceRunner([completed(issue_page([raw_fixture()]))])
+        github = GitHubIssuesSource(
+            Path("/repo"),
+            project_id=PROJECT_ID,
+            repository_id=REPOSITORY_ID,
+            repository_reference="someone/fork",
+            runner=runner,
+            clock=lambda: "2026-08-26T10:00:00Z",
+        )
+
+        observation = github.refresh()
 
         self.assertEqual("unavailable", observation.status)
         self.assertEqual(

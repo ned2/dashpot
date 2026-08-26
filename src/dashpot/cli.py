@@ -14,6 +14,7 @@ from .collect import (
     load_workspace_entries,
 )
 from .model import WorkspaceEntry, to_jsonable
+from .project_config import PROJECT_CONFIG_NAME
 
 
 def parse_workspace_argument(value: str) -> WorkspaceEntry:
@@ -47,7 +48,7 @@ def positive_float(value: str) -> float:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dashpot",
-        description="Passively observe TASKS.md work, repositories, and agent runs.",
+        description="Passively observe Issues, repositories, and agent runs.",
     )
     parser.add_argument(
         "--workspace",
@@ -55,17 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=parse_workspace_argument,
         default=[],
         metavar="[NAME=]PATH",
-        help="workspace root (repeatable); defaults to the TASKS.md workspace config",
+        help="workspace root (repeatable); defaults to the Dashpot workspace config",
     )
     parser.add_argument(
         "--config",
         type=Path,
         help=(
-            "TASKS.md workspace config; by default, observe the configured current "
+            "Dashpot workspace config; by default, observe the configured current "
             "project or fall back to the standard workspace config"
         ),
     )
-    parser.add_argument("--tasks-command", default="tasks")
     parser.add_argument("--timeout", type=positive_float, default=10.0)
     parser.add_argument(
         "--refresh-seconds",
@@ -98,17 +98,16 @@ def create_collector(args: argparse.Namespace) -> WorkspaceCollector:
         entries = load_workspace_entries(args.config.expanduser())
     else:
         current = Path.cwd().resolve()
-        if (current / "TASKS.md").is_file() or (current / ".tasksmd.json").is_file():
+        if (current / PROJECT_CONFIG_NAME).is_file():
             entries = [WorkspaceEntry(current.name, str(current))]
         else:
             entries = load_workspace_entries(default_workspace_config())
     targets = discover_project_targets(entries)
     if not targets:
         roots = ", ".join(entry.root for entry in entries)
-        raise RuntimeError(f"no TASKS.md projects discovered under: {roots}")
+        raise RuntimeError(f"no Dashpot Projects discovered under: {roots}")
     return WorkspaceCollector(
         targets,
-        tasks_command=args.tasks_command,
         timeout=args.timeout,
         state_dir=args.state_dir.expanduser() if args.state_dir else None,
     )

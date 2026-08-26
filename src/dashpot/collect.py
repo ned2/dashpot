@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from .agents import observe_hook_runs
-from .correlation import correlate
+from .correlation import correlate_issues
+from .github_issues import GitHubIssuesSource
+from .issue_sources import IssueSource, utc_now
+from .local_markdown_issues import LocalMarkdownIssuesSource
 from .model import (
     AgentRun,
     Diagnostic,
@@ -20,8 +23,13 @@ from .model import (
     WorkspaceEntry,
     WorkspaceSnapshot,
 )
-from .repository import github_repo_from_remote, load_config, observe_repository
-from .sources import GitHubIssuesSource, LocalTasksSource, TaskSource, now_iso, optional_string
+from .project_config import (
+    PROJECT_CONFIG_NAME,
+    GitHubIssueSourceConfig,
+    LocalMarkdownIssueSourceConfig,
+    load_project_config,
+)
+from .repository import github_repo_from_remote, observe_repository
 
 
 AgentObserver = Callable[[Repository], tuple[list[AgentRun], list[Diagnostic]]]
@@ -32,7 +40,7 @@ class ProjectCollector:
     def __init__(
         self,
         root: Path,
-        source: TaskSource,
+        source: IssueSource,
         repository_observer: RepositoryObserver = observe_repository,
         agent_observer: AgentObserver = observe_hook_runs,
     ) -> None:
@@ -43,19 +51,27 @@ class ProjectCollector:
 
     def refresh(self) -> ProjectSnapshot:
         repository = self.repository_observer(self.root)
-        task_observation = self.source.refresh()
+        issue_observation = self.source.refresh()
         agent_runs, agent_diagnostics = self.agent_observer(repository)
-        correlate(task_observation.tasks, agent_runs)
+        issue_runs = correlate_issues(issue_observation.issues, agent_runs)
         diagnostics = list(agent_diagnostics)
-        if task_observation.diagnostic:
-            diagnostics.insert(0, task_observation.diagnostic)
+        diagnostics[0:0] = [
+            Diagnostic(
+                diagnostic.source,
+                diagnostic.severity,
+                diagnostic.message,
+                diagnostic.code,
+            )
+            for diagnostic in issue_observation.diagnostics
+        ]
         return ProjectSnapshot(
-            collected_at=now_iso(),
-            task_source_status=task_observation.status,
-            task_source_attempted_at=task_observation.attempted_at,
-            task_source_last_good_at=task_observation.last_good_at,
+            collected_at=utc_now(),
+            issue_source_status=issue_observation.status,
+            issue_source_attempted_at=issue_observation.attempted_at,
+            issue_source_last_good_at=issue_observation.last_good_at,
             repository=repository,
-            tasks=task_observation.tasks,
+            issues=issue_observation.issues,
+            issue_runs=issue_runs,
             agent_runs=agent_runs,
             diagnostics=diagnostics,
         )
@@ -63,28 +79,35 @@ class ProjectCollector:
 
 def create_project_collector(
     repository_path: str | Path = ".",
-    backend_override: str | None = None,
-    github_repo: str | None = None,
-    github_label: str | None = None,
-    tasks_command: str = "tasks",
     timeout: float = 10,
     state_dir: Path | None = None,
 ) -> ProjectCollector:
     requested_root = Path(repository_path).resolve()
     repository = observe_repository(requested_root)
     root = Path(repository.root)
-    config = load_config(root)
-    backend = backend_override or optional_string(config.get("backend")) or "tasks-md"
-    if backend not in {"tasks-md", "github-issues"}:
-        raise RuntimeError(f"unsupported configured backend: {backend!r}")
-    if backend == "github-issues":
-        repo = github_repo or optional_string(config.get("repo")) or github_repo_from_remote(root)
-        if not repo:
-            raise RuntimeError("GitHub backend needs config repo or a GitHub origin remote")
-        label = github_label or optional_string(config.get("label")) or "tasks.md"
-        source: TaskSource = GitHubIssuesSource(root, repo, label, timeout)
-    else:
-        source = LocalTasksSource(root, tasks_command, timeout)
+    config = load_project_config(root)
+    if isinstance(config.issue_source, GitHubIssueSourceConfig):
+        repository_reference = github_repo_from_remote(root)
+        if not repository_reference:
+            raise RuntimeError(
+                "A GitHub Issue Source requires the Repository Anchor to have "
+                "a GitHub origin remote"
+            )
+        source: IssueSource = GitHubIssuesSource(
+            root,
+            project_id=config.project_id,
+            repository_id=config.issue_source.repository_id,
+            repository_reference=repository_reference,
+            timeout=timeout,
+        )
+    elif isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
+        source = LocalMarkdownIssuesSource(
+            root,
+            project_id=config.project_id,
+            issues_path=Path(config.issue_source.path),
+        )
+    else:  # pragma: no cover - exhaustive guard for future source kinds.
+        raise RuntimeError("unsupported configured Issue Source")
     return ProjectCollector(
         root,
         source,
@@ -98,13 +121,11 @@ class WorkspaceCollector:
     def __init__(
         self,
         targets: Sequence[ProjectTarget],
-        tasks_command: str = "tasks",
         timeout: float = 10,
         state_dir: Path | None = None,
         factory: Callable[..., ProjectCollector] = create_project_collector,
     ) -> None:
         self.targets = list(targets)
-        self.tasks_command = tasks_command
         self.timeout = timeout
         self.state_dir = state_dir
         self.factory = factory
@@ -112,7 +133,7 @@ class WorkspaceCollector:
         self.refresh_lock = threading.Lock()
 
     def refresh(self) -> WorkspaceSnapshot:
-        # Textual can cancel a thread worker but cannot stop its Python thread.
+        # Textual can cancel the refresh coroutine but cannot stop its executor call.
         # Serialize generations so stateful last-good source caches are never
         # refreshed concurrently by a superseding UI request.
         with self.refresh_lock:
@@ -125,7 +146,7 @@ class WorkspaceCollector:
             futures = [pool.submit(self.refresh_one, target) for target in self.targets]
             projects = [future.result() for future in futures]
         return WorkspaceSnapshot(
-            collected_at=now_iso(),
+            collected_at=utc_now(),
             elapsed_ms=round((time.monotonic() - started) * 1000),
             projects=projects,
         )
@@ -140,7 +161,6 @@ class WorkspaceCollector:
             if collector is None:
                 collector = self.factory(
                     root,
-                    tasks_command=self.tasks_command,
                     timeout=self.timeout,
                     state_dir=self.state_dir,
                 )
@@ -150,7 +170,7 @@ class WorkspaceCollector:
                 target.workspace,
                 target.repository,
                 target.root,
-                snapshot.task_source_status,
+                snapshot.issue_source_status,
                 round((time.monotonic() - started) * 1000),
                 snapshot,
                 [],
@@ -163,14 +183,20 @@ class WorkspaceCollector:
                 "unavailable",
                 round((time.monotonic() - started) * 1000),
                 None,
-                [Diagnostic(f"workspace:{target.workspace}/{target.repository}", "error", str(exc))],
+                [
+                    Diagnostic(
+                        f"workspace:{target.workspace}/{target.repository}",
+                        "error",
+                        str(exc),
+                    )
+                ],
             )
 
 
 def default_workspace_config() -> Path:
     config_home = os.environ.get("XDG_CONFIG_HOME")
     base = Path(config_home).expanduser() if config_home else Path.home() / ".config"
-    return base / "tasks-md" / "workspaces.json"
+    return base / "dashpot" / "workspaces.json"
 
 
 def load_workspace_entries(path: Path) -> list[WorkspaceEntry]:
@@ -201,7 +227,7 @@ def discover_project_targets(entries: Sequence[WorkspaceEntry]) -> list[ProjectT
     seen: set[Path] = set()
     for entry in entries:
         entry_root = Path(entry.root)
-        roots = discover_repository_roots(entry_root) or [entry_root]
+        roots = discover_repository_roots(entry_root)
         for root in roots:
             canonical = root.resolve()
             if canonical in seen:
@@ -213,11 +239,11 @@ def discover_project_targets(entries: Sequence[WorkspaceEntry]) -> list[ProjectT
 
 
 def discover_repository_roots(workspace_root: Path) -> list[Path]:
-    def has_task_source(path: Path) -> bool:
-        return (path / "TASKS.md").is_file() or (path / ".tasksmd.json").is_file()
+    def has_project_config(path: Path) -> bool:
+        return (path / PROJECT_CONFIG_NAME).is_file()
 
     roots: list[Path] = []
-    if has_task_source(workspace_root):
+    if has_project_config(workspace_root):
         roots.append(workspace_root)
     try:
         children = sorted(workspace_root.iterdir(), key=lambda child: child.name)
@@ -226,6 +252,6 @@ def discover_repository_roots(workspace_root: Path) -> list[Path]:
     for child in children:
         if child.name.startswith(".") or child.name == "node_modules":
             continue
-        if child.is_dir() and has_task_source(child):
+        if child.is_dir() and has_project_config(child):
             roots.append(child)
     return roots

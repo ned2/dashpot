@@ -16,7 +16,7 @@ from .repository import git, is_within
 
 
 SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
-TASK_REF = re.compile(r"^[a-z][a-z0-9-]*:\S+$")
+ISSUE_REFERENCE = re.compile(r"^\S+$")
 EVENT_STATES: dict[str, str] = {
     "SessionStart": "running",
     "UserPromptSubmit": "running",
@@ -152,9 +152,9 @@ def build_hook_record(
         raise RuntimeError(f"unsupported hook event: {event_name}")
     cwd = Path(require_string(event.get("cwd"), "cwd")).expanduser().resolve()
     environment = environ if environ is not None else os.environ
-    task_ref = environment.get("DASHPOT_TASK_REF") or None
-    if task_ref and not TASK_REF.fullmatch(task_ref):
-        raise RuntimeError("DASHPOT_TASK_REF must be a qualified, whitespace-free work key")
+    issue_reference = environment.get("DASHPOT_ISSUE_REF") or None
+    if issue_reference and not ISSUE_REFERENCE.fullmatch(issue_reference):
+        raise RuntimeError("DASHPOT_ISSUE_REF must be a whitespace-free Issue Reference")
     try:
         repository_root = git(cwd, "rev-parse", "--show-toplevel", timeout=2)
         branch = git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2)
@@ -169,7 +169,7 @@ def build_hook_record(
         "cwd": str(cwd),
         "repositoryRoot": repository_root,
         "branch": branch,
-        "declaredWorkKey": task_ref,
+        "declaredIssueReference": issue_reference,
         "event": event_name,
         "source": event.get("source"),
         "turnId": event.get("turn_id"),
@@ -183,11 +183,15 @@ def write_hook_record(record: dict[str, Any], directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     session_id = str(record["sessionId"])
     destination = directory / f"{session_id}.json"
-    if record.get("declaredWorkKey") is None and destination.exists():
+    if record.get("declaredIssueReference") is None and destination.exists():
         try:
             previous: Any = json.loads(destination.read_text())
-            if isinstance(previous, dict) and isinstance(previous.get("declaredWorkKey"), str):
-                record["declaredWorkKey"] = previous["declaredWorkKey"]
+            if isinstance(previous, dict) and isinstance(
+                previous.get("declaredIssueReference"), str
+            ):
+                record["declaredIssueReference"] = previous[
+                    "declaredIssueReference"
+                ]
         except (OSError, json.JSONDecodeError):
             pass
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{session_id}.", dir=directory)
@@ -280,7 +284,11 @@ def record_to_run(
         )
     cwd_path = Path(cwd).resolve()
     worktree = next(
-        (candidate for candidate in repository.worktrees if is_within(cwd_path, Path(candidate.path))),
+        (
+            candidate
+            for candidate in repository.worktrees
+            if is_within(cwd_path, Path(candidate.path))
+        ),
         None,
     )
     return (
@@ -292,7 +300,9 @@ def record_to_run(
             repository_root=repository.root,
             worktree=worktree.path if worktree else None,
             branch=optional_string(raw.get("branch")) or (worktree.branch if worktree else None),
-            declared_work_key=optional_string(raw.get("declaredWorkKey")),
+            declared_issue_reference=optional_string(
+                raw.get("declaredIssueReference")
+            ),
             working_directory=cwd,
             last_activity_at=optional_string(raw.get("lastActivityAt")),
         ),

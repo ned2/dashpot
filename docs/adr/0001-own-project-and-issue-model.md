@@ -55,14 +55,14 @@ clones require separate anchors.
 
 ## Consequences
 
-- Project configuration must carry a tracked, backend-independent Project
-  Identity and an Issue Source definition.
+- Tracked `.dashpot.json` Project configuration carries a backend-independent
+  Project Identity and exactly one Issue Source definition.
 - A GitHub Issue transferred to another repository preserves Issue Identity
   when GitHub does, but changes Project membership, reference, and location.
 - Clones and worktrees preserve Project Identity. Forks and intentional copies
   must receive a new identity; conflicting repository identities require a
   diagnostic rather than silent aggregation.
-- Existing `.tasksmd.json` configuration, Task keys, hook bindings, terminology,
-  and tests require an explicit migration.
+- Legacy `.tasksmd.json` configuration and Task-oriented hook bindings are not
+  read implicitly; migration will be an explicit future workflow.
 - Named Workspaces earn their place only as saved Project groupings; worktree
   state and target diagnostics remain runtime observations.

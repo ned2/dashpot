@@ -40,7 +40,7 @@ def test_workspace_argument_rejects_incomplete_values(value: str) -> None:
 def test_no_argument_cli_defaults_to_configured_current_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".tasksmd.json").write_text("{}")
+    (tmp_path / ".dashpot.json").write_text("{}")
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args([])
 
@@ -54,9 +54,10 @@ def test_no_argument_cli_defaults_to_configured_current_project(
 def test_explicit_config_takes_precedence_over_current_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".tasksmd.json").write_text("{}")
+    (tmp_path / ".dashpot.json").write_text("{}")
     configured = tmp_path / "configured"
     configured.mkdir()
+    (configured / ".dashpot.json").write_text("{}")
     config = tmp_path / "workspaces.json"
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args(["--config", str(config)])
@@ -77,6 +78,7 @@ def test_explicit_workspace_takes_precedence_over_config(
 ) -> None:
     workspace = tmp_path / "explicit"
     workspace.mkdir()
+    (workspace / ".dashpot.json").write_text("{}")
     args = cli.build_parser().parse_args(
         ["--workspace", str(workspace), "--config", str(tmp_path / "unused.json")]
     )
@@ -93,6 +95,7 @@ def test_no_argument_cli_falls_back_to_standard_workspace_config(
 ) -> None:
     configured = tmp_path / "configured"
     configured.mkdir()
+    (configured / ".dashpot.json").write_text("{}")
     config = tmp_path / "workspaces.json"
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args([])

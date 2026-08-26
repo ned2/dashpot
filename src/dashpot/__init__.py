@@ -3,19 +3,17 @@
 from .model import (
     AgentRun,
     Diagnostic,
-    Location,
+    Issue,
     ProjectSnapshot,
     Repository,
-    Task,
     WorkspaceSnapshot,
 )
 
 __all__ = [
     "AgentRun",
     "Diagnostic",
-    "Location",
+    "Issue",
     "ProjectSnapshot",
     "Repository",
-    "Task",
     "WorkspaceSnapshot",
 ]

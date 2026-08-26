@@ -7,7 +7,7 @@ coding-agent runs. It makes the small but important project-management pause
 visible before another prompt or agent adds more motion.
 
 Like its mechanical namesake, Dashpot is intended to reduce oscillation without
-stopping progress. It observes; it does not claim tasks, edit issues, mutate
+stopping progress. It observes; it does not assign or edit Issues, mutate
 repositories, or control agent sessions.
 
 > [!NOTE]
@@ -16,14 +16,14 @@ repositories, or control agent sessions.
 
 ## What it observes
 
-- TASKS.md projects using either local Markdown or GitHub Issues
+- Projects with either GitHub Issues or Dashpot's Local Issue Markdown
 - git branch, worktree, HEAD, and dirty state
 - Codex lifecycle records published through an opt-in hook
 - source freshness, failures, and last-good state
-- explicit task-to-agent correlation through qualified work keys
+- explicit Issue-to-agent correlation through Issue References
 
-Each source remains independent in the read model. A failed issue refresh, for
-example, does not erase the last good task list or hide repository facts.
+Each source remains independent in the read model. A failed Issue refresh, for
+example, does not erase the last good Issue collection or hide repository facts.
 
 ## Development setup
 
@@ -46,8 +46,8 @@ uv run dashpot --workspace first=/path/one --workspace second=/path/two
 ```
 
 Without arguments, Dashpot observes the current directory when it contains
-`TASKS.md` or `.tasksmd.json`. Outside a configured project it discovers projects
-from TASKS.md's `~/.config/tasks-md/workspaces.json`. Explicit `--workspace`
+`.dashpot.json`. Outside a configured Project it discovers Projects from
+Dashpot's `~/.config/dashpot/workspaces.json`. Explicit `--workspace`
 arguments take precedence; use `--config` to select a different workspace
 inventory. Use `r` to refresh, the arrow keys to move, and `q` to quit. The
 default 15-second polling period can be changed with `--refresh-seconds`; zero
@@ -59,21 +59,39 @@ The same collector has a headless JSON interface:
 uv run dashpot --workspace my-project=/path/to/project --json
 ```
 
-## Task sources
+## Project configuration
 
-A project's `.tasksmd.json` selects its source. A GitHub Issues project looks
-like this:
+Every Repository Anchor has a tracked `.dashpot.json` containing its stable
+Project Identity and active Issue Source. A GitHub-backed Project looks like
+this:
 
 ```json
 {
-  "backend": "github-issues",
-  "repo": "owner/repository",
-  "label": "tasks.md"
+  "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
+  "issueSource": {
+    "kind": "github",
+    "repositoryId": "R_kgDOUEerrg"
+  }
 }
 ```
 
-GitHub collection uses the authenticated `gh` CLI. Local Markdown collection
-uses the `tasks` executable and its JSON output.
+The Repository Anchor must have a GitHub `origin`; collection uses the
+authenticated `gh` CLI. A Local Issue Markdown Project selects a repository-
+relative file or directory:
+
+```json
+{
+  "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
+  "issueSource": {
+    "kind": "markdown",
+    "path": "issues"
+  }
+}
+```
+
+The owned file grammar is documented in
+[`conformance/issue/local-markdown.md`](conformance/issue/local-markdown.md).
+Both adapters are currently read-only.
 
 ## Codex observation
 
@@ -81,10 +99,10 @@ Installing Dashpot provides the no-stdout `dashpot-codex-hook` publisher.
 [`examples/codex-hooks.json`](examples/codex-hooks.json) shows the opt-in Codex
 hook configuration. No hook is installed automatically.
 
-Start a task-bound Codex session by passing its qualified work key:
+Start an Issue-bound Codex session by passing its current Issue Reference:
 
 ```bash
-DASHPOT_TASK_REF=github:owner/repository#123 codex
+DASHPOT_ISSUE_REF=owner/repository#123 codex
 ```
 
 Hook records are stored under the platform's normal application-state location.

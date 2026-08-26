@@ -1,35 +1,38 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
-from .model import AgentRun, Task
+from .model import AgentRun
 
 
-def correlate(tasks: list[Task], runs: list[AgentRun]) -> None:
-    by_key = {task.key: task for task in tasks}
-    for task in tasks:
-        task.observed_runs.clear()
+def correlate_issues(
+    issues: list[dict[str, Any]], runs: list[AgentRun]
+) -> dict[str, list[str]]:
+    by_reference = {issue["reference"]: issue["id"] for issue in issues}
+    issue_runs = {issue["id"]: [] for issue in issues}
     for run in runs:
-        if not run.declared_work_key:
-            run.declared_work_key = explicit_key_from_branch(run.branch, tasks)
-        if run.declared_work_key and run.declared_work_key in by_key:
-            by_key[run.declared_work_key].observed_runs.append(run.id)
+        if not run.declared_issue_reference:
+            run.declared_issue_reference = issue_reference_from_branch(
+                run.branch, issues
+            )
+        issue_id = by_reference.get(run.declared_issue_reference or "")
+        if issue_id:
+            issue_runs[issue_id].append(run.id)
+    return issue_runs
 
 
-def explicit_key_from_branch(branch: str | None, tasks: list[Task]) -> str | None:
+def issue_reference_from_branch(
+    branch: str | None, issues: list[dict[str, Any]]
+) -> str | None:
     if not branch:
         return None
-    if branch.startswith("task/") and branch.removeprefix("task/"):
-        source = "tasks-md"
-        suffix = f":{branch.removeprefix('task/')}"
-    elif re.fullmatch(r"issue/[1-9][0-9]*", branch):
-        source = "github-issues"
+    if re.fullmatch(r"issue/[1-9][0-9]*", branch):
         suffix = f"#{branch.removeprefix('issue/')}"
+        matches = [issue["reference"] for issue in issues if issue["reference"].endswith(suffix)]
+    elif branch.startswith("issue/") and branch.removeprefix("issue/"):
+        reference = branch.removeprefix("issue/")
+        matches = [issue["reference"] for issue in issues if issue["reference"] == reference]
     else:
         return None
-    matches = [
-        task.key
-        for task in tasks
-        if task.source == source and task.key.endswith(suffix)
-    ]
     return matches[0] if len(matches) == 1 else None

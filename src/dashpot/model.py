@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from dataclasses import asdict, dataclass
+from typing import Any, Literal, TypeAlias
 
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
-BlockedState = bool | Literal["unknown"]
 RunState = Literal["running", "waiting", "unknown"]
+Issue: TypeAlias = dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -14,35 +14,7 @@ class Diagnostic:
     source: str
     severity: Literal["info", "warning", "error"]
     message: str
-
-
-@dataclass(slots=True)
-class Location:
-    file: str | None = None
-    line: int | None = None
-    url: str | None = None
-
-
-@dataclass(slots=True)
-class Task:
-    key: str
-    source: str
-    title: str
-    priority: str
-    tags: list[str]
-    declared_claimant: str | None
-    declared_blocked: BlockedState
-    location: Location | None
-    observed_runs: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class TaskObservation:
-    status: SourceStatus
-    attempted_at: str
-    last_good_at: str | None
-    tasks: list[Task]
-    diagnostic: Diagnostic | None = None
+    code: str | None = None
 
 
 @dataclass(slots=True)
@@ -71,7 +43,7 @@ class AgentRun:
     repository_root: str | None
     worktree: str | None
     branch: str | None
-    declared_work_key: str | None
+    declared_issue_reference: str | None
     working_directory: str | None = None
     last_activity_at: str | None = None
 
@@ -79,11 +51,12 @@ class AgentRun:
 @dataclass(slots=True)
 class ProjectSnapshot:
     collected_at: str
-    task_source_status: SourceStatus
-    task_source_attempted_at: str
-    task_source_last_good_at: str | None
+    issue_source_status: SourceStatus
+    issue_source_attempted_at: str
+    issue_source_last_good_at: str | None
     repository: Repository
-    tasks: list[Task]
+    issues: list[Issue]
+    issue_runs: dict[str, list[str]]
     agent_runs: list[AgentRun]
     diagnostics: list[Diagnostic]
 

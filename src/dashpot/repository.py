@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
-from typing import Any
 
 from .commands import run_command
 from .model import Repository, Worktree
@@ -45,19 +43,6 @@ def parse_worktrees(raw: str) -> list[Worktree]:
             key, value = line.split(" ", 1)
             current[key] = value
     return worktrees
-
-
-def load_config(root: Path) -> dict[str, Any]:
-    path = root / ".tasksmd.json"
-    if not path.exists():
-        return {}
-    try:
-        value = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"cannot read {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise RuntimeError(f"{path} must contain a JSON object")
-    return value
 
 
 def github_repo_from_remote(root: Path) -> str | None:

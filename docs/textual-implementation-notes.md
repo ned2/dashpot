@@ -35,7 +35,7 @@ widgets such as `DataTable`. [Reactivity: recompose](https://textual.textualize.
 Use `on_mount()` only for operations which require the table itself to be mounted:
 add stable columns and focus it. Start the first refresh and install the timer in
 the app's `on_ready()` handler. The implementation tests found that an effectively
-instant thread worker started from the app's mount handler can deliver a row event
+initial refresh worker started from the app's mount handler can deliver a row event
 before later sibling widgets are queryable; waiting for the ready phase removes
 that startup race. Keep construction side-effect free so tests can instantiate the
 app without touching GitHub, subprocesses, or the filesystem.
@@ -47,7 +47,7 @@ Use a small amount of app-owned state:
 - `snapshot: var[WorkspaceSnapshot | None]`
 - `refresh_generation: var[int]`
 - `refreshing: var[bool]`
-- `selected_work_key: var[str | None]`
+- `selected_issue_id: var[str | None]`
 - a non-reactive, wholesale-replaced `rows_by_key` lookup for rendering details
 
 `var` retains watchers and other reactive behavior but does not automatically
@@ -76,7 +76,7 @@ refresh worker ── immutable WorkspaceSnapshot / failure message ──▶ Ap
                                                                   │
                                                       RowHighlighted message
                                                                   │
-                                                                  └──▶ selected_work_key
+                                                                  └──▶ selected_issue_id
 ```
 
 Textual messages are queued and processed by each app/widget's asyncio message
@@ -86,8 +86,9 @@ between a blocking collector and the main-thread UI. [Events and messages](https
 
 ## Refresh concurrency
 
-The existing collector is synchronous and starts subprocesses, so run it as a
-thread worker rather than in a message or timer handler. Textual notes that a
+The collector is synchronous and starts subprocesses, so dispatch it to an
+explicitly owned executor from an async worker rather than running it in a
+message or timer handler. Textual notes that a
 handler doing work longer than a few milliseconds prevents other messages from
 being processed. [Workers: concurrency](https://textual.textualize.io/guide/workers/#concurrency)
 
@@ -97,13 +98,18 @@ Use a dedicated worker group:
 @work(
     name="workspace refresh",
     group="refresh",
-    thread=True,
     exclusive=True,
     exit_on_error=False,
 )
-def refresh_workspace(self, generation: int) -> None:
-    ...
+async def refresh_workspace(self, generation: int) -> None:
+    snapshot = await asyncio.get_running_loop().run_in_executor(
+        self.refresh_executor, self.collector.refresh
+    )
 ```
+
+Owning the bounded executor gives the app an explicit shutdown point and avoids
+coupling test and process shutdown to asyncio's global default executor. Shut it
+down from `on_unmount()` with queued work cancelled.
 
 `exclusive=True` cancels previous workers in the same group, so manual and timed
 refreshes do not compete to update the display. `exit_on_error=False` is important
@@ -111,9 +117,9 @@ for an observer: the Textual default is to exit the app when a worker raises.
 [The `work` decorator API](https://textual.textualize.io/api/work/) and [worker
 error behavior](https://textual.textualize.io/guide/workers/#worker-errors)
 
-Thread cancellation is cooperative. Textual cannot stop a Python thread in the
-same way it cancels an async coroutine; a thread worker must inspect
-`get_current_worker().is_cancelled`. Consequently:
+Cancellation is cooperative at the executor boundary. Cancelling the async
+worker does not stop a collector call already running in a Python thread, so the
+worker must inspect `get_current_worker().is_cancelled`. Consequently:
 
 1. Increment `refresh_generation` on the UI thread before starting each refresh.
 2. Run only `collector.refresh()` in the worker.
@@ -124,18 +130,14 @@ same way it cancels an async coroutine; a thread worker must inspect
    are bounded even while a thread is inside a command.
 
 Also serialize calls at the stateful workspace-collector boundary. Cancelling a
-Textual thread worker does not terminate its Python thread, so a replacement can
+Textual worker does not terminate its executor call, so a replacement can
 otherwise enter the same source adapter while the cancelled generation is still
 updating its in-memory last-good cache. Serialization still lets independent
 projects fan out inside one generation, while the UI generation check prevents
 the completed older result from being accepted.
 
-The generation check is still necessary: a superseded thread may finish after its
-replacement. Textual's thread-worker guidance also says not to call UI methods or
-set reactives from the thread; use `call_from_thread()` for a single callback or,
-preferably here, post a custom result message and update all UI state in its
-handler. [Workers: thread workers and posting
-messages](https://textual.textualize.io/guide/workers/#thread-workers)
+The generation check is still necessary: a superseded call may finish after its
+replacement. Post a custom result message and update all UI state in its handler.
 
 Set the periodic trigger with `set_interval()` and keep the returned `Timer`.
 Timers can be paused, resumed, reset, and stopped. Reset the interval after a
@@ -146,13 +148,12 @@ worker and generation guard cover overlap after an event has been delivered.
 API](https://textual.textualize.io/api/message_pump/#textual.message_pump.MessagePump.set_interval)
 
 On normal app exit, Textual cancels workers tied to the app/DOM node. Still retain
-collector command timeouts and cancellation checks because thread work is not
+collector command timeouts and cancellation checks because executor work is not
 force-cancellable. [Workers: lifetime](https://textual.textualize.io/guide/workers/#worker-lifetime)
 
 ## Updating the `DataTable`
 
-Use the qualified observer work key as the Textual row key, for example
-`github:ned2/env#2` or the local qualified key. For a project placeholder row, use
+Use stable Issue Identity as the Textual row key. For a Project placeholder row, use
 a stable project identity such as `project:<canonical-root>`, not a project or row
 index. Add explicit stable column keys as well. Textual row keys remain valid when
 rows move because of deletion or sorting; coordinates do not.
@@ -160,7 +161,7 @@ rows move because of deletion or sorting; coordinates do not.
 
 Set `cursor_type="row"`. Arrow navigation then emits `DataTable.RowHighlighted`,
 whose message carries both the stable `row_key` and current row coordinate. Drive
-the detail pane and `selected_work_key` from that message.
+the detail pane and selected row identity from that message.
 [DataTable cursors and messages](https://textual.textualize.io/widgets/data_table/#cursors)
 
 On each accepted snapshot:
@@ -192,7 +193,7 @@ machinery. [DataTable update API](https://textual.textualize.io/widgets/data_tab
 
 Do not use the prototype's current `work:<project-index>:<item-index>` keys. They
 identify presentation positions, so a refresh which inserts or reorders work can
-silently move the user's selection to another task.
+silently move the user's selection to another Issue.
 
 ## Responsive layout
 
@@ -249,14 +250,14 @@ place. [`App.notify()`](https://textual.textualize.io/api/app/#textual.app.App.n
 
 Use `panic()` only for an unrecoverable invariant violation; it exits and prints
 an error. Use `exit(return_code=..., message=...)` for a graceful startup/config
-failure. Normal GitHub, TASKS.md, or process-observation failures are recoverable
+failure. Normal GitHub, Local Issue Markdown, or process-observation failures are recoverable
 source diagnostics and should not terminate the TUI. [`panic()` and
 `exit()`](https://textual.textualize.io/api/app/#textual.app.App.panic)
 
 ## Test plan
 
 Keep collector/read-model tests synchronous and framework-free. Give app tests a
-fake collector or an explicit initial snapshot; never make live `gh` or TASKS.md
+fake collector or an explicit initial snapshot; never make live `gh` or filesystem
 calls in routine UI tests.
 
 Use async pytest with `pytest-asyncio`. `App.run_test()` starts a headless app and
@@ -337,7 +338,8 @@ makes the framework choice and its upgrade cost explicit and reversible.
    lockfile, and external TCSS.
 3. Compose the long-lived queue/detail/status/diagnostic widgets.
 4. Give every table row and column a stable domain key.
-5. Implement manual refresh through a named exclusive thread-worker group,
+5. Implement manual refresh through a named exclusive async-worker group and an
+   app-owned executor,
    cancellation check, generation guard, and main-thread result message.
 6. Add incremental keyed table reconciliation and selection restoration.
 7. Add the periodic timer and cold-load-only loading state.
