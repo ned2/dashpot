@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from dashpot.issue_profile import semantically_equivalent_v1
-from dashpot.local_markdown_issues import LocalMarkdownIssuesV1Source
+from dashpot.issue_profile import semantically_equivalent
+from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from issue_source_conformance import (
     assert_fresh_observation,
     assert_stale_observation,
@@ -16,9 +16,9 @@ from issue_source_conformance import (
 
 
 ROOT = Path(__file__).parents[1]
-RAW_FIXTURE = ROOT / "tests" / "fixtures" / "local-markdown-v1" / "ISSUES.md"
+RAW_FIXTURE = ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
 EXPECTED_FIXTURE = (
-    ROOT / "conformance" / "issue" / "v1" / "fixtures" / "markdown.json"
+    ROOT / "conformance" / "issue" / "fixtures" / "markdown.json"
 )
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
@@ -42,9 +42,9 @@ def local_document(*, issue_id: str, reference: str, title: str) -> str:
     )
 
 
-class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
-    def test_refresh_matches_the_v1_conformance_fixture(self) -> None:
-        source = LocalMarkdownIssuesV1Source(
+class LocalMarkdownIssuesSourceTests(unittest.TestCase):
+    def test_refresh_matches_the_conformance_fixture(self) -> None:
+        source = LocalMarkdownIssuesSource(
             RAW_FIXTURE.parent,
             issues_path=Path("ISSUES.md"),
             project_id=PROJECT_ID,
@@ -81,7 +81,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
                 )
             )
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
@@ -96,50 +96,25 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             [issue["location"]["path"] for issue in observation.issues],
         )
 
-    def test_future_document_version_is_an_unsupported_version_diagnostic(self) -> None:
+    def test_version_genealogy_is_not_part_of_local_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             document = local_document(
-                issue_id="I_future",
-                reference="future",
-                title="From the future",
-            ).replace('"schemaVersion": 1', '"schemaVersion": 2')
-            (root / "future.md").write_text(document)
+                issue_id="I_versioned",
+                reference="versioned",
+                title="Versioned",
+            ).replace("{", '{\n  "schemaVersion": 1,', 1)
+            (root / "versioned.md").write_text(document)
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
-                issues_path=Path("future.md"),
-                project_id=PROJECT_ID,
-            ).refresh()
-
-        assert_unavailable_observation(
-            self,
-            observation,
-            attempted_at=observation.attempted_at,
-            source_name="local-markdown-issues-v1",
-            diagnostic_code="markdown-unsupported-version",
-        )
-
-    def test_boolean_is_not_a_local_schema_version(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            document = local_document(
-                issue_id="I_boolean_version",
-                reference="boolean-version",
-                title="Boolean version",
-            ).replace('"schemaVersion": 1', '"schemaVersion": true')
-            (root / "boolean-version.md").write_text(document)
-
-            observation = LocalMarkdownIssuesV1Source(
-                root,
-                issues_path=Path("boolean-version.md"),
+                issues_path=Path("versioned.md"),
                 project_id=PROJECT_ID,
             ).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual(
-            "markdown-unsupported-version", observation.diagnostics[0].code
-        )
+        self.assertEqual("markdown-profile", observation.diagnostics[0].code)
+        self.assertIn("schemaVersion", observation.diagnostics[0].message)
 
     def test_configured_path_cannot_escape_the_repository_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -155,7 +130,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
                 )
             )
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("../outside.md"),
                 project_id=PROJECT_ID,
@@ -181,7 +156,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             )
             (issues / "linked.md").symlink_to(outside)
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
@@ -192,7 +167,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
 
     def test_missing_source_is_not_an_empty_issue_collection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 Path(temporary_directory),
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
@@ -207,7 +182,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             root = Path(temporary_directory)
             issue_path = root / "issue.md"
             issue_path.touch()
-            source = LocalMarkdownIssuesV1Source(
+            source = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issue.md"),
                 project_id=PROJECT_ID,
@@ -223,7 +198,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             self,
             observation,
             attempted_at="2026-08-26T10:00:00Z",
-            source_name="local-markdown-issues-v1",
+            source_name="local-markdown-issues",
             diagnostic_code="markdown-permission",
         )
 
@@ -232,7 +207,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             root = Path(temporary_directory)
             (root / "issues").mkdir()
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
@@ -256,7 +231,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
                     )
                 )
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
@@ -282,7 +257,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             times = iter(
                 ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"]
             )
-            source = LocalMarkdownIssuesV1Source(
+            source = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issue.md"),
                 project_id=PROJECT_ID,
@@ -300,7 +275,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             stale,
             attempted_at="2026-08-26T10:01:00Z",
             last_good_at="2026-08-26T10:00:00Z",
-            source_name="local-markdown-issues-v1",
+            source_name="local-markdown-issues",
             diagnostic_code="markdown-malformed",
             expected_issues=expected,
         )
@@ -313,12 +288,12 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
                 reference="override",
                 title="Override",
             ).replace(
-                '"schemaVersion": 1,',
-                '"schemaVersion": 1,\n  "projectId": "project:other",',
+                '"id": "I_override",',
+                '"id": "I_override",\n  "projectId": "project:other",',
             )
             (root / "override.md").write_text(document)
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("override.md"),
                 project_id=PROJECT_ID,
@@ -341,7 +316,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             )
             (root / "duplicate-key.md").write_text(document)
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("duplicate-key.md"),
                 project_id=PROJECT_ID,
@@ -365,7 +340,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             )
             (issues / "bad.md").write_text("not a Local Issue")
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
@@ -397,7 +372,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
             ).replace("A complete local Issue.", body)
             (root / "body.md").write_text(document)
 
-            observation = LocalMarkdownIssuesV1Source(
+            observation = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("body.md"),
                 project_id=PROJECT_ID,
@@ -419,7 +394,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
                     title="Moved",
                 )
             )
-            source = LocalMarkdownIssuesV1Source(
+            source = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
@@ -431,7 +406,7 @@ class LocalMarkdownIssuesV1SourceTests(unittest.TestCase):
 
             after = source.refresh().issues[0]
 
-        self.assertTrue(semantically_equivalent_v1(before, after))
+        self.assertTrue(semantically_equivalent(before, after))
         self.assertEqual(before["updatedAt"], after["updatedAt"])
         self.assertEqual("issues/original.md", before["location"]["path"])
         self.assertEqual("issues/nested/moved.md", after["location"]["path"])

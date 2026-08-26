@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .commands import CommandRunner, run_command
-from .issue_profile import IssueProfileError, conform_issue_v1
+from .issue_profile import IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
 
@@ -27,7 +27,7 @@ _CONNECTION_FIELDS = {
 }
 
 _ISSUES_QUERY = """
-query DashpotIssuesV1($repositoryId: ID!, $cursor: String) {
+query DashpotIssues($repositoryId: ID!, $cursor: String) {
   node(id: $repositoryId) {
     ... on Repository {
       id
@@ -87,8 +87,8 @@ class GitHubIssueNormalizationError(ValueError):
     """A GraphQL Issue node is incomplete, malformed, or from another repository."""
 
 
-class GitHubIssuesV1Source(IssueSource):
-    """Collect all open GitHub Issues as complete Issue profile v1 snapshots."""
+class GitHubIssuesSource(IssueSource):
+    """Collect all open GitHub Issues as complete Issue snapshots."""
 
     def __init__(
         self,
@@ -109,7 +109,7 @@ class GitHubIssuesV1Source(IssueSource):
 
     @property
     def name(self) -> str:
-        return "github-issues-v1"
+        return "github-issues"
 
     def _collect(self) -> list[dict[str, Any]]:
         records = self._collect_issue_nodes()
@@ -118,7 +118,7 @@ class GitHubIssuesV1Source(IssueSource):
         for record in records:
             complete_record = self._complete_nested_connections(record)
             try:
-                issue = normalize_github_issue_v1(
+                issue = normalize_github_issue(
                     complete_record,
                     project_id=self.project_id,
                     repository_id=self.repository_id,
@@ -239,10 +239,10 @@ class GitHubIssuesV1Source(IssueSource):
         return data
 
 
-def normalize_github_issue_v1(
+def normalize_github_issue(
     record: Mapping[str, Any], *, project_id: str, repository_id: str
 ) -> dict[str, Any]:
-    """Normalize one completely fetched GitHub GraphQL Issue node to profile v1."""
+    """Normalize one completely fetched GitHub GraphQL Issue node."""
 
     if not isinstance(record, Mapping):
         raise GitHubIssueNormalizationError("GitHub Issue must be an object")
@@ -271,7 +271,7 @@ def normalize_github_issue_v1(
     if state_reason is not None:
         if not isinstance(state_reason, str) or state_reason not in _STATE_REASONS:
             raise GitHubIssueNormalizationError(
-                "issue.stateReason is not supported by Issue profile v1"
+                "issue.stateReason is not supported by the Issue profile"
             )
         state_reason = _STATE_REASONS[state_reason]
 
@@ -286,7 +286,6 @@ def normalize_github_issue_v1(
         )
 
     profile = {
-        "profileVersion": 1,
         "id": _required_string(_required(record, "id", "issue"), "issue.id"),
         "projectId": project_id,
         "reference": f"{repository_reference}#{number}",
@@ -329,10 +328,10 @@ def normalize_github_issue_v1(
         },
     }
     try:
-        return conform_issue_v1(profile)
+        return conform_issue(profile)
     except IssueProfileError as exc:
         raise GitHubIssueNormalizationError(
-            f"GitHub Issue does not conform to profile v1: {exc}"
+            f"GitHub Issue does not conform to the Issue profile: {exc}"
         ) from exc
 
 
@@ -490,7 +489,7 @@ def _next_cursor(end_cursor: Any, seen: set[str], subject: str) -> str:
 
 def _nested_connection_query(connection_name: str, item_field: str) -> str:
     return (
-        "query DashpotIssueConnectionV1($id: ID!, $cursor: String!) { "
+        "query DashpotIssueConnection($id: ID!, $cursor: String!) { "
         "node(id: $id) { ... on Issue { "
         f"connection: {connection_name}(first: {_PAGE_SIZE}, after: $cursor) {{ "
         f"nodes {{ {item_field} }} "

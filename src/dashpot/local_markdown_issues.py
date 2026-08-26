@@ -4,13 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .issue_profile import IssueProfileError, conform_issue_v1
+from .issue_profile import IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
 
-LOCAL_MARKDOWN_SCHEMA_VERSION = 1
 _LOCAL_METADATA_KEYS = {
-    "schemaVersion",
     "id",
     "reference",
     "state",
@@ -35,8 +33,8 @@ class LocalMarkdownIssueError(ValueError):
         self.code = code
 
 
-class LocalMarkdownIssuesV1Source(IssueSource):
-    """Collect Issue profile v1 snapshots from local Markdown documents."""
+class LocalMarkdownIssuesSource(IssueSource):
+    """Collect complete Issue snapshots from local Markdown documents."""
 
     def __init__(
         self,
@@ -53,7 +51,7 @@ class LocalMarkdownIssuesV1Source(IssueSource):
 
     @property
     def name(self) -> str:
-        return "local-markdown-issues-v1"
+        return "local-markdown-issues"
 
     def _collect(self) -> list[dict[str, Any]]:
         try:
@@ -62,7 +60,8 @@ class LocalMarkdownIssuesV1Source(IssueSource):
             if not path.is_relative_to(root):
                 raise IssueSourceRefreshError(
                     "markdown-path",
-                    "Configured Local Issue path must stay inside the Repository Anchor",
+                    "Configured Local Issue path must stay inside the "
+                    "Repository Anchor",
                 )
             if not path.exists():
                 raise IssueSourceRefreshError(
@@ -80,7 +79,7 @@ class LocalMarkdownIssuesV1Source(IssueSource):
                     )
                 relative_path = issue_path.relative_to(root).as_posix()
                 try:
-                    issue = parse_local_markdown_issue_v1(
+                    issue = parse_local_markdown_issue(
                         issue_path.read_text(encoding="utf-8"),
                         project_id=self.project_id,
                         path=relative_path,
@@ -110,10 +109,10 @@ class LocalMarkdownIssuesV1Source(IssueSource):
         return issues
 
 
-def parse_local_markdown_issue_v1(
+def parse_local_markdown_issue(
     text: str, *, project_id: str, path: str
 ) -> dict[str, Any]:
-    """Parse one version 1 Local Issue Markdown document."""
+    """Parse one Local Issue Markdown document."""
 
     lines = text.splitlines()
     if not lines or lines[0] != "---":
@@ -134,17 +133,6 @@ def parse_local_markdown_issue_v1(
     if not isinstance(metadata, dict):
         raise LocalMarkdownIssueError("Local Issue front matter must be an object")
     metadata = dict(metadata)
-    if "schemaVersion" not in metadata:
-        raise LocalMarkdownIssueError("Local Issue is missing schemaVersion")
-    schema_version = metadata["schemaVersion"]
-    if (
-        not isinstance(schema_version, int)
-        or isinstance(schema_version, bool)
-        or schema_version != LOCAL_MARKDOWN_SCHEMA_VERSION
-    ):
-        raise LocalMarkdownIssueError(
-            "schemaVersion must be 1", code="markdown-unsupported-version"
-        )
     missing = sorted(_LOCAL_METADATA_KEYS - set(metadata))
     unexpected = sorted(set(metadata) - _LOCAL_METADATA_KEYS)
     if missing:
@@ -157,8 +145,6 @@ def parse_local_markdown_issue_v1(
             f"Local Issue metadata has unexpected fields: {', '.join(unexpected)}",
             code="markdown-profile",
         )
-    metadata.pop("schemaVersion")
-
     title_line = front_matter_end + 1
     while title_line < len(lines) and not lines[title_line]:
         title_line += 1
@@ -172,15 +158,11 @@ def parse_local_markdown_issue_v1(
         body_lines = body_lines[1:]
 
     profile = {
-        "profileVersion": 1,
         "projectId": project_id,
         "title": title,
         "body": "\n".join(body_lines),
         **metadata,
-        "origin": {
-            "kind": "markdown",
-            "schemaVersion": schema_version,
-        },
+        "origin": {"kind": "markdown"},
         "location": {
             "kind": "markdown",
             "path": path,
@@ -188,10 +170,10 @@ def parse_local_markdown_issue_v1(
         },
     }
     try:
-        return conform_issue_v1(profile)
+        return conform_issue(profile)
     except IssueProfileError as exc:
         raise LocalMarkdownIssueError(
-            f"Local Issue does not conform to profile v1: {exc}",
+            f"Local Issue does not conform to the Issue profile: {exc}",
             code="markdown-profile",
         ) from exc
 

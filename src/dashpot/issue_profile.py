@@ -8,10 +8,7 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 
-ISSUE_PROFILE_VERSION = 1
-
 _ISSUE_KEYS = {
-    "profileVersion",
     "id",
     "projectId",
     "reference",
@@ -39,20 +36,14 @@ class IssueProfileError(ValueError):
     """A source record cannot satisfy the complete Issue profile."""
 
 
-def conform_issue_v1(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Validate and canonicalize one complete version 1 Issue snapshot."""
+def conform_issue(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate and canonicalize one complete Issue snapshot."""
 
     if not isinstance(value, Mapping):
         raise IssueProfileError("issue must be an object")
     issue = copy.deepcopy(dict(value))
     _require_keys(issue, _ISSUE_KEYS, "issue")
 
-    if (
-        not isinstance(issue["profileVersion"], int)
-        or isinstance(issue["profileVersion"], bool)
-        or issue["profileVersion"] != ISSUE_PROFILE_VERSION
-    ):
-        raise IssueProfileError("profileVersion must be 1")
     for key in ("id", "projectId", "reference", "title"):
         _require_non_empty_string(issue[key], key)
     if not isinstance(issue["body"], str):
@@ -109,21 +100,21 @@ def conform_issue_v1(value: Mapping[str, Any]) -> dict[str, Any]:
     return issue
 
 
-def semantic_projection_v1(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the source-neutral facts used for v1 semantic equivalence."""
+def semantic_projection(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the source-neutral facts used for semantic equivalence."""
 
-    issue = conform_issue_v1(value)
+    issue = conform_issue(value)
     del issue["origin"]
     del issue["location"]
     return issue
 
 
-def semantically_equivalent_v1(
+def semantically_equivalent(
     left: Mapping[str, Any], right: Mapping[str, Any]
 ) -> bool:
-    """Compare complete v1 Issues after excluding provenance and location."""
+    """Compare complete Issues after excluding provenance and location."""
 
-    return semantic_projection_v1(left) == semantic_projection_v1(right)
+    return semantic_projection(left) == semantic_projection(right)
 
 
 def _require_keys(value: dict[str, Any], expected: set[str], path: str) -> None:
@@ -189,13 +180,7 @@ def _validate_origin(value: Any) -> None:
             raise IssueProfileError("origin.number must be a positive integer")
         return
     if kind == "markdown":
-        _require_keys(value, {"kind", "schemaVersion"}, "origin")
-        if (
-            not isinstance(value["schemaVersion"], int)
-            or isinstance(value["schemaVersion"], bool)
-            or value["schemaVersion"] != 1
-        ):
-            raise IssueProfileError("origin.schemaVersion must be 1")
+        _require_keys(value, {"kind"}, "origin")
         return
     raise IssueProfileError("origin.kind must be 'github' or 'markdown'")
 

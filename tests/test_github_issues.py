@@ -8,8 +8,8 @@ from pathlib import Path
 from dashpot.commands import CommandResult
 from dashpot.github_issues import (
     GitHubIssueNormalizationError,
-    GitHubIssuesV1Source,
-    normalize_github_issue_v1,
+    GitHubIssuesSource,
+    normalize_github_issue,
 )
 from issue_source_conformance import (
     assert_fresh_observation,
@@ -19,9 +19,9 @@ from issue_source_conformance import (
 
 
 ROOT = Path(__file__).parents[1]
-RAW_FIXTURE = ROOT / "tests" / "fixtures" / "github-issue-v1.json"
+RAW_FIXTURE = ROOT / "tests" / "fixtures" / "github-issue.json"
 EXPECTED_FIXTURE = (
-    ROOT / "conformance" / "issue" / "v1" / "fixtures" / "github.json"
+    ROOT / "conformance" / "issue" / "fixtures" / "github.json"
 )
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 REPOSITORY_ID = "R_kgDOUEerrg"
@@ -36,7 +36,7 @@ def expected_fixture() -> dict:
 
 
 def normalize(record: dict, **overrides) -> dict:
-    return normalize_github_issue_v1(
+    return normalize_github_issue(
         record,
         project_id=overrides.get("project_id", PROJECT_ID),
         repository_id=overrides.get("repository_id", REPOSITORY_ID),
@@ -118,9 +118,9 @@ class SequenceRunner:
 
 def source(
     runner: SequenceRunner, timestamps: list[str] | None = None
-) -> GitHubIssuesV1Source:
+) -> GitHubIssuesSource:
     times = iter(timestamps or ["2026-08-26T10:00:00Z"])
-    return GitHubIssuesV1Source(
+    return GitHubIssuesSource(
         Path("/repo"),
         project_id=PROJECT_ID,
         repository_id=REPOSITORY_ID,
@@ -129,8 +129,8 @@ def source(
     )
 
 
-class GitHubIssueNormalizerV1Tests(unittest.TestCase):
-    def test_complete_graphql_issue_matches_the_v1_conformance_fixture(self) -> None:
+class GitHubIssueNormalizerTests(unittest.TestCase):
+    def test_complete_graphql_issue_matches_the_conformance_fixture(self) -> None:
         self.assertEqual(expected_fixture(), normalize(raw_fixture()))
 
     def test_plural_assignees_and_all_relationships_are_preserved(self) -> None:
@@ -259,7 +259,7 @@ class GitHubIssueNormalizerV1Tests(unittest.TestCase):
         record["stateReason"] = "FUTURE_REASON"
 
         with self.assertRaisesRegex(
-            GitHubIssueNormalizationError, "not supported by Issue profile v1"
+            GitHubIssueNormalizationError, "not supported by the Issue profile"
         ):
             normalize(record)
 
@@ -272,7 +272,7 @@ class GitHubIssueNormalizerV1Tests(unittest.TestCase):
         self.assertEqual(before, record)
 
 
-class GitHubIssuesV1SourceTests(unittest.TestCase):
+class GitHubIssuesSourceTests(unittest.TestCase):
     def test_refresh_collects_all_profile_fields_without_a_marker_label(self) -> None:
         runner = SequenceRunner([completed(issue_page([raw_fixture()]))])
 
@@ -418,7 +418,7 @@ class GitHubIssuesV1SourceTests(unittest.TestCase):
             self,
             observation,
             attempted_at="2026-08-26T10:00:00Z",
-            source_name="github-issues-v1",
+            source_name="github-issues",
             diagnostic_code="github-network",
         )
 
@@ -458,7 +458,7 @@ class GitHubIssuesV1SourceTests(unittest.TestCase):
             stale,
             attempted_at="2026-08-26T10:01:00Z",
             last_good_at="2026-08-26T10:00:00Z",
-            source_name="github-issues-v1",
+            source_name="github-issues",
             diagnostic_code="github-rate-limit",
             expected_issues=[expected_fixture()],
         )

@@ -1,10 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Dashpot Issue profile version 1",
+  "title": "Dashpot Issue profile",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "profileVersion",
     "id",
     "projectId",
     "reference",
@@ -25,7 +24,6 @@
     "location"
   ],
   "properties": {
-    "profileVersion": { "const": 1 },
     "id": { "$ref": "#/$defs/nonEmptyString" },
     "projectId": { "$ref": "#/$defs/nonEmptyString" },
     "reference": { "$ref": "#/$defs/nonEmptyString" },
@@ -70,10 +68,9 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "schemaVersion"],
+          "required": ["kind"],
           "properties": {
-            "kind": { "const": "markdown" },
-            "schemaVersion": { "const": 1 }
+            "kind": { "const": "markdown" }
           }
         }
       ]

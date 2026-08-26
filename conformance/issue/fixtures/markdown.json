@@ -1,5 +1,4 @@
 {
-  "profileVersion": 1,
   "id": "I_kwDOUEerrs8AAAABOSTptQ",
   "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
   "reference": "ned2/dashpot#9",
@@ -21,13 +20,10 @@
   "createdAt": "2026-08-26T05:33:04Z",
   "updatedAt": "2026-08-26T08:32:48Z",
   "closedAt": null,
-  "origin": {
-    "kind": "markdown",
-    "schemaVersion": 1
-  },
+  "origin": { "kind": "markdown" },
   "location": {
     "kind": "markdown",
     "path": "ISSUES.md",
-    "line": 24
+    "line": 23
   }
 }

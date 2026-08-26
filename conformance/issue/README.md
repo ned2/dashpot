@@ -1,14 +1,9 @@
-# Issue profile conformance, version 1
+# Issue profile conformance
 
-Version 1 defines the complete, source-neutral Issue snapshot that every
+This contract defines the complete, source-neutral Issue snapshot that every
 Dashpot Issue Source must produce. The JSON Schema describes its shape;
 `dashpot.issue_profile` owns validation, collection canonicalization, and
 semantic equivalence.
-
-The profile version changes when a source would need to emit different fields,
-values, availability semantics, or equivalence behavior. Adding a new source
-does not create a new profile version if it can satisfy this contract without
-loss.
 
 ## Complete snapshots
 
@@ -27,7 +22,6 @@ source deletion.
 
 | Field | Rule |
 |---|---|
-| `profileVersion` | Integer `1`. |
 | `id` | Required opaque Issue Identity. Never derived from text or location. |
 | `projectId` | Required opaque identity of the declaring Project. |
 | `reference` | Required mutable human-readable Issue Reference. |
@@ -50,8 +44,7 @@ source deletion.
 
 Labels, assignees, and relationship collections are canonicalized by ascending
 Unicode code-point order. Their input order is not Issue semantics. Duplicate
-values are invalid rather than silently discarded. A future need for ranked
-sub-Issues requires a later profile version.
+values are invalid rather than silently discarded.
 
 An open Issue has `closedAt: null` and may have `stateReason: reopened`; a closed
 Issue may have `stateReason: completed`, `duplicate`, `not-planned`, or `null`.
@@ -60,8 +53,8 @@ Issue may have `stateReason: completed`, `duplicate`, `not-planned`, or `null`.
 
 Two records are semantically equivalent when their canonical profiles are equal
 after removing `origin` and `location`. Every other field, including identity,
-Project membership, reference, lifecycle timestamps, and profile version,
-participates in equality.
+Project membership, reference, and lifecycle timestamps, participates in
+equality.
 
 Consequently, moving a Local Issue changes only `location` and does not change
 `updatedAt`. A GitHub repository rename changes the Issue Reference and is an
@@ -72,16 +65,16 @@ earlier snapshot.
 ## Source rules
 
 A GitHub origin contains the durable repository identity and native Issue
-number. Its location is the current HTTPS Issue URL. A Markdown origin contains
-the local schema version. Its location is resolved relative to the configured
-Repository Anchor; absolute checkout paths never enter the Issue profile.
+number. Its location is the current HTTPS Issue URL. A Markdown origin records
+its source kind. Its location is resolved relative to the configured Repository
+Anchor; absolute checkout paths never enter the Issue profile.
 The owned file grammar, discovery rules, and failure behavior are defined by
 the [Local Issue Markdown schema](local-markdown.md).
 
 Changing the active Issue Source is a migration, not a refresh toggle. Migration
 must validate a complete replacement collection, preserve explicit identities,
 establish references and provenance for the destination source, then replace the
-source atomically. Version 1 does not define Issue mutation operations.
+source atomically. The profile does not define Issue mutation operations.
 
 ## Fixtures
 
@@ -91,7 +84,7 @@ source atomically. Version 1 does not define Issue mutation operations.
 - `fixtures/semantic.json` is their shared semantic projection.
 
 The raw Local Markdown input fixture lives at
-[`tests/fixtures/local-markdown-v1/ISSUES.md`](../../../tests/fixtures/local-markdown-v1/ISSUES.md).
+[`tests/fixtures/local-markdown/ISSUES.md`](../../tests/fixtures/local-markdown/ISSUES.md).
 
 Adapters conform when they produce these outputs from their corresponding raw
 source fixtures. Raw transport and Markdown parsing fixtures belong to the

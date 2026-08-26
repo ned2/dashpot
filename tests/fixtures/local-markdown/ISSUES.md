@@ -1,6 +1,5 @@
 ---
 {
-  "schemaVersion": 1,
   "id": "I_kwDOUEerrs8AAAABOSTptQ",
   "reference": "ned2/dashpot#9",
   "state": "open",

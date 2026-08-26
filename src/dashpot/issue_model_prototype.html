@@ -255,7 +255,6 @@
       });
 
       const localRecord = () => ({
-        schemaVersion: 1,
         id: "I_kwDOUEerrs8AAAABOSTptQ",
         reference: "ned2/dashpot#9",
         title: "Replace TASKS.md with an owned Project and Issue model",
@@ -329,7 +328,7 @@
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
           closedAt: record.closedAt,
-          origin: { kind: "markdown", schemaVersion: record.schemaVersion },
+          origin: { kind: "markdown" },
           location: { kind: "file", file: record.file, line: record.line }
         };
       }

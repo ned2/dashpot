@@ -14,7 +14,7 @@ evidence is recorded in the
 A Project is a durable body of work rooted in exactly one Git repository and
 has exactly one active Issue Source. GitHub-backed Projects require that
 repository to be hosted on GitHub; other Git repositories use Dashpot's local
-Markdown representation. Both sources produce the same versioned Issue profile.
+Markdown representation. Both sources produce the same Issue profile.
 Project Identity and Issue Identity are opaque and stable, while references,
 URLs, file locations, repository hosting, branches, and checkout paths are
 mutable facts.
@@ -26,12 +26,12 @@ entire evolving object graph. Assignment is plural, blocking is represented by
 Issue relationships, and priority is a derived interpretation rather than an
 intrinsic Issue field.
 
-The executable version 1 profile contract and fixtures live in
-[`conformance/issue/v1`](../../conformance/issue/v1/README.md). Issue adapters
-produce complete snapshots under the availability and equality rules recorded
-in [ADR 0002](0002-require-complete-issue-profile-snapshots.md). The owned
-[Local Issue Markdown schema](../../conformance/issue/v1/local-markdown.md)
-versions its file grammar independently from the Issue profile.
+The executable profile contract and fixtures live in
+[`conformance/issue`](../../conformance/issue/README.md). Issue adapters produce
+complete snapshots under the availability and equality rules recorded in
+[ADR 0002](0002-require-complete-issue-profile-snapshots.md). The owned
+[Local Issue Markdown format](../../conformance/issue/local-markdown.md) defines
+its file grammar.
 
 A Workspace is a named local grouping of Projects. Its configuration records a
 repository anchor for each Project, not individual worktrees. On refresh,
@@ -56,7 +56,7 @@ clones require separate anchors.
 ## Consequences
 
 - Project configuration must carry a tracked, backend-independent Project
-  Identity and a versioned Issue Source definition.
+  Identity and an Issue Source definition.
 - A GitHub Issue transferred to another repository preserves Issue Identity
   when GitHub does, but changes Project membership, reference, and location.
 - Clones and worktrees preserve Project Identity. Forks and intentional copies
