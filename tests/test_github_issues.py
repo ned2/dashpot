@@ -11,6 +11,11 @@ from dashpot.github_issues import (
     GitHubIssuesV1Source,
     normalize_github_issue_v1,
 )
+from issue_source_conformance import (
+    assert_fresh_observation,
+    assert_stale_observation,
+    assert_unavailable_observation,
+)
 
 
 ROOT = Path(__file__).parents[1]
@@ -273,9 +278,12 @@ class GitHubIssuesV1SourceTests(unittest.TestCase):
 
         observation = source(runner).refresh()
 
-        self.assertEqual("fresh", observation.status)
-        self.assertEqual([expected_fixture()], observation.issues)
-        self.assertEqual([], observation.diagnostics)
+        assert_fresh_observation(
+            self,
+            observation,
+            attempted_at="2026-08-26T10:00:00Z",
+            expected_issues=[expected_fixture()],
+        )
         query = runner.calls[0][0][4]
         self.assertIn("states: [OPEN]", query)
         self.assertNotIn("tasks.md", query)
@@ -406,10 +414,13 @@ class GitHubIssuesV1SourceTests(unittest.TestCase):
 
         observation = source(runner).refresh()
 
-        self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
-        self.assertEqual("github-network", observation.diagnostics[0].code)
-        self.assertEqual("error", observation.diagnostics[0].severity)
+        assert_unavailable_observation(
+            self,
+            observation,
+            attempted_at="2026-08-26T10:00:00Z",
+            source_name="github-issues-v1",
+            diagnostic_code="github-network",
+        )
 
     def test_transport_failures_have_distinct_diagnostic_codes(self) -> None:
         cases = [
@@ -442,11 +453,15 @@ class GitHubIssuesV1SourceTests(unittest.TestCase):
 
         stale = github.refresh()
 
-        self.assertEqual("stale", stale.status)
-        self.assertEqual("2026-08-26T10:00:00Z", stale.last_good_at)
-        self.assertEqual(expected_fixture(), stale.issues[0])
-        self.assertEqual("github-rate-limit", stale.diagnostics[0].code)
-        self.assertEqual("warning", stale.diagnostics[0].severity)
+        assert_stale_observation(
+            self,
+            stale,
+            attempted_at="2026-08-26T10:01:00Z",
+            last_good_at="2026-08-26T10:00:00Z",
+            source_name="github-issues-v1",
+            diagnostic_code="github-rate-limit",
+            expected_issues=[expected_fixture()],
+        )
 
     def test_graphql_errors_are_diagnostics_and_partial_data_is_discarded(self) -> None:
         response = json.dumps(

@@ -75,6 +75,8 @@ A GitHub origin contains the durable repository identity and native Issue
 number. Its location is the current HTTPS Issue URL. A Markdown origin contains
 the local schema version. Its location is resolved relative to the configured
 Repository Anchor; absolute checkout paths never enter the Issue profile.
+The owned file grammar, discovery rules, and failure behavior are defined by
+the [Local Issue Markdown schema](local-markdown.md).
 
 Changing the active Issue Source is a migration, not a refresh toggle. Migration
 must validate a complete replacement collection, preserve explicit identities,
@@ -87,6 +89,9 @@ source atomically. Version 1 does not define Issue mutation operations.
 - `fixtures/markdown.json` is the expected canonical output of the Markdown
   adapter for the same Issue.
 - `fixtures/semantic.json` is their shared semantic projection.
+
+The raw Local Markdown input fixture lives at
+[`tests/fixtures/local-markdown-v1/ISSUES.md`](../../../tests/fixtures/local-markdown-v1/ISSUES.md).
 
 Adapters conform when they produce these outputs from their corresponding raw
 source fixtures. Raw transport and Markdown parsing fixtures belong to the

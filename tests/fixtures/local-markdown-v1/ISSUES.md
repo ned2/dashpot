@@ -1,13 +1,11 @@
+---
 {
-  "profileVersion": 1,
+  "schemaVersion": 1,
   "id": "I_kwDOUEerrs8AAAABOSTptQ",
-  "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
   "reference": "ned2/dashpot#9",
-  "title": "Replace TASKS.md with an owned Project and Issue model",
-  "body": "Adopt one Project per Git repository and one compatible Issue profile.",
   "state": "open",
   "stateReason": null,
-  "labels": ["enhancement", "needs-triage", "priority/P1"],
+  "labels": ["needs-triage", "enhancement", "priority/P1"],
   "assignees": ["ned2", "octocat"],
   "author": "ned2",
   "relationships": {
@@ -20,14 +18,9 @@
   "milestone": "v1",
   "createdAt": "2026-08-26T05:33:04Z",
   "updatedAt": "2026-08-26T08:32:48Z",
-  "closedAt": null,
-  "origin": {
-    "kind": "markdown",
-    "schemaVersion": 1
-  },
-  "location": {
-    "kind": "markdown",
-    "path": "ISSUES.md",
-    "line": 24
-  }
+  "closedAt": null
 }
+---
+# Replace TASKS.md with an owned Project and Issue model
+
+Adopt one Project per Git repository and one compatible Issue profile.
