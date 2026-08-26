@@ -14,7 +14,7 @@ from textual.widgets import DataTable, Footer, Header, Label, Static
 from .model import AgentRun, ProjectObservation, WorkItem, WorkspaceSnapshot
 
 
-COLUMN_KEYS = ("status", "project", "priority", "claim", "blocked", "run", "title")
+COLUMN_KEYS = ("status", "project", "priority", "assignee", "sessions", "title")
 
 
 class SnapshotCollector(Protocol):
@@ -94,9 +94,8 @@ class DashpotApp(App[None]):
         table.add_column("S", key="status")
         table.add_column("PROJECT", key="project")
         table.add_column("PRI", key="priority")
-        table.add_column("CLAIM", key="claim")
-        table.add_column("BLOCK", key="blocked")
-        table.add_column("RUN", key="run")
+        table.add_column("ASSIGNEE", key="assignee")
+        table.add_column("SESSIONS", key="sessions")
         table.add_column("TITLE", key="title")
         table.focus()
 
@@ -187,7 +186,7 @@ class DashpotApp(App[None]):
                             key,
                             column,
                             new_value,
-                            update_width=column in {"project", "claim", "title"},
+                            update_width=column in {"project", "assignee", "title"},
                         )
             if table.row_count:
                 table.sort("project", "priority", "title")
@@ -286,8 +285,7 @@ def build_rows(
                 status_mark(project.status),
                 label,
                 "-",
-                "-",
-                "-",
+                "unassigned",
                 "-",
                 "source unavailable" if project.status == "unavailable" else "no work items",
             )
@@ -299,8 +297,7 @@ def build_rows(
                 status_mark(project.status),
                 label,
                 current.priority,
-                current.declared_claimant or "-",
-                blocker_mark(current.declared_blocked),
+                current.declared_claimant or "unassigned",
                 observed_run_summary(current, runs),
                 current.title,
             )
@@ -313,8 +310,7 @@ def build_rows(
                 run_state_mark(run.state),
                 label,
                 "-",
-                "-",
-                "-",
+                "unassigned",
                 run.state,
                 f"Unmatched {run.harness} run",
             )
@@ -361,8 +357,7 @@ def selection_detail_text(context: RowContext) -> str:
                 current.title,
                 f"Key: {current.key}",
                 f"Priority: {current.priority}",
-                f"Declared claimant: {current.declared_claimant or '-'}",
-                f"Declared blocked: {current.declared_blocked}",
+                f"Assignee: {current.declared_claimant or 'unassigned'}",
                 f"Location: {location}",
                 f"Tags: {', '.join(current.tags) or '-'}",
             ]
@@ -376,7 +371,7 @@ def selection_detail_text(context: RowContext) -> str:
             if snapshot
             else {}
         )
-        lines.append("Observed runs:")
+        lines.append("Agent sessions:")
         if not current.observed_runs:
             lines.append("  -")
         else:
@@ -417,14 +412,6 @@ def project_label(project: ProjectObservation) -> str:
 
 def status_mark(status: str) -> str:
     return {"fresh": "●", "stale": "◐", "unavailable": "!"}.get(status, "?")
-
-
-def blocker_mark(value: bool | str) -> str:
-    if value is True:
-        return "yes"
-    if value is False:
-        return "no"
-    return "?"
 
 
 def run_state_mark(state: str) -> str:

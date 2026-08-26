@@ -8,6 +8,7 @@ import pytest
 from textual.widgets import DataTable, Label, Static
 
 from dashpot.app import (
+    COLUMN_KEYS,
     DashpotApp,
     build_rows,
     project_label,
@@ -117,6 +118,22 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         selection_detail = str(app.query_one("#selection-detail", Static).render())
 
         assert table.row_count == 2
+        assert COLUMN_KEYS == (
+            "status",
+            "project",
+            "priority",
+            "assignee",
+            "sessions",
+            "title",
+        )
+        assert [str(column.label) for column in table.columns.values()] == [
+            "S",
+            "PROJECT",
+            "PRI",
+            "ASSIGNEE",
+            "SESSIONS",
+            "TITLE",
+        ]
         assert app.selected_row_key == "github:test/repo#1"
         assert "Status: fresh" in project_detail
         assert "Root: /repo" in project_detail
@@ -124,6 +141,10 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert "Refresh:" not in project_detail
         assert "First" in selection_detail
         assert "Status:" not in selection_detail
+        assert "Assignee: unassigned" in selection_detail
+        assert "Agent sessions:" in selection_detail
+        assert "Declared" not in selection_detail
+        assert "blocked" not in selection_detail.lower()
         assert str(app.query_one("#selection-title", Static).render()) == "WORK ITEM"
         project_pane = app.query_one("#project-pane")
         selection_pane = app.query_one("#selection-pane")
@@ -234,6 +255,7 @@ def test_workspace_root_uses_workspace_name_without_dot_suffix() -> None:
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     item = work_item("github:test/repo#1", "First")
+    item.declared_claimant = "ned2"
     item.observed_runs = ["codex-session:42"]
     run = AgentRun(
         id="codex-session:42",
@@ -249,10 +271,12 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
 
     contexts, cells = build_rows(snapshot)
 
-    assert cells[item.key][5] == "Ⅱ1"
-    assert "codex-session:42 (waiting, issue/1)" in selection_detail_text(
-        contexts[item.key]
-    )
+    assert len(cells[item.key]) == len(COLUMN_KEYS) == 6
+    assert cells[item.key][3] == "ned2"
+    assert cells[item.key][4] == "Ⅱ1"
+    detail = selection_detail_text(contexts[item.key])
+    assert "Assignee: ned2" in detail
+    assert "codex-session:42 (waiting, issue/1)" in detail
 
 
 class RacingCollector:
