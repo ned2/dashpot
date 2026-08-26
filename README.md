@@ -132,7 +132,9 @@ relative file or directory:
 
 The owned file grammar is documented in
 [`conformance/issue/local-markdown.md`](conformance/issue/local-markdown.md).
-Both adapters are currently read-only.
+By default, both adapters collect the complete source inventory, including open
+and closed Issues; Dashpot does not apply a lifecycle filter. Both adapters are
+currently read-only.
 
 ## Codex observation
 

@@ -88,7 +88,7 @@ class GitHubIssueNormalizationError(ValueError):
 
 
 class GitHubIssuesSource(IssueSource):
-    """Collect all open GitHub Issues as complete Issue snapshots."""
+    """Collect open and closed GitHub Issues as complete Issue snapshots."""
 
     def __init__(
         self,
