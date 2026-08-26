@@ -6,9 +6,8 @@ Dashpot is a passive terminal view of declared work, repository state, and activ
 coding-agent runs. It makes the small but important project-management pause
 visible before another prompt or agent adds more motion.
 
-Like its mechanical namesake, Dashpot is intended to reduce oscillation without
-stopping progress. It observes; it does not claim tasks, edit issues, mutate
-repositories, or control agent sessions.
+Like its [mechanical namesake](https://en.wikipedia.org/wiki/Dashpot), Dashpot is intended to reduce oscillation without
+stopping progress.
 
 > [!NOTE]
 > Dashpot is an early implementation extracted from a successful research spike.
