@@ -1,6 +1,6 @@
 # Dashpot
 
-Useful damping for agent-driven projects.
+_Useful damping for agent-driven projects._
 
 Dashpot is a passive terminal view of declared work, repository state, and active
 coding-agent runs. It makes the small but important project-management pause
