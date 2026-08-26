@@ -1,15 +1,70 @@
 # Dashpot
 
-Dashpot observes declared project tasks and agent sessions without controlling
-either.
+Dashpot observes project Issues, repositories, worktrees, and agent sessions
+without controlling them.
 
 ## Language
 
-**Task**:
-A declared unit of project work presented through TASKS.md. A Task may be stored
-locally or represented by a backend entity such as a GitHub Issue.
-_Avoid_: Work item
+### Declared work
+
+**Project**:
+A durable body of work rooted in exactly one Git Repository. It remains the same
+Project across checkout moves, clones, branches, and worktrees.
+
+**Git Repository**:
+The single logical Git repository that roots a Project. Its hosting location and
+local checkouts may change without changing the Project.
+_Avoid_: Repository when referring to a checkout path
+
+**Issue**:
+A declared unit of Project work conforming to Dashpot's source-neutral Issue
+model. An Issue may be represented on GitHub or in local Markdown.
+_Avoid_: Task, work item
 
 **GitHub Issue**:
-The GitHub Issues backend representation of a Task.
-_Avoid_: Issue as the source-neutral name for every Task
+The GitHub Issues representation of an Issue.
+
+**Local Issue**:
+The local Markdown representation of an Issue.
+
+**Issue Source**:
+The authoritative representation through which a Project declares its Issues.
+A Project has exactly one active Issue Source.
+
+**Project Identity**:
+A stable opaque identity for a Project, independent of repository hosting and
+local filesystem location.
+
+**Issue Identity**:
+A stable opaque identity for an Issue, independent of its reference and
+location.
+
+**Issue Reference**:
+A mutable, human-readable shorthand for an Issue, such as `ned2/dashpot#9` or a
+local slug.
+
+**Issue Location**:
+An actionable, mutable locator for an Issue, such as a GitHub URL or a Markdown
+file and line number.
+
+### Observation
+
+**Workspace**:
+A named observation scope selecting Projects that Dashpot presents together. It
+is a local grouping concept and never participates in Project or Issue identity.
+
+**Repository Anchor**:
+A configured local checkout through which Dashpot locates a Project and asks Git
+for its linked worktrees. It is also the authoritative checkout for Local Issues.
+
+**Worktree**:
+A local working tree of a Project's Git Repository, including its main working
+tree and any Git-linked working trees.
+
+**Observation Target**:
+A Worktree Dashpot discovered and refreshes at runtime. It is observed state,
+not persisted Workspace membership or durable identity.
+
+**Observation Location**:
+Where an agent session is executing, such as a branch, Worktree, or working
+directory. It is evidence about execution, never Project or Issue identity.
