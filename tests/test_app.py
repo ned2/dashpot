@@ -5,7 +5,7 @@ from collections.abc import Callable
 from threading import Event, Lock
 
 import pytest
-from textual.widgets import DataTable, Label, Static
+from textual.widgets import DataTable, Static
 
 from dashpot.app import (
     COLUMN_KEYS,
@@ -168,9 +168,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         diagnostics = app.query_one("#diagnostics", Static)
         assert_context_above_full_width_queue(app)
         assert app.query_one("#queue-pane").region.bottom <= diagnostics.region.y
-        assert "1 project  1 fresh" in str(
-            app.query_one("#source-status", Label).render()
-        )
         assert not app.query_one("#diagnostics", Static).has_class("-has-messages")
 
 

@@ -9,7 +9,7 @@ from textual.containers import Container, Vertical
 from textual.message import Message
 from textual.timer import Timer
 from textual.worker import get_current_worker
-from textual.widgets import DataTable, Footer, Header, Label, Static
+from textual.widgets import DataTable, Footer, Header, Static
 
 from .model import AgentRun, ProjectObservation, Task, WorkspaceSnapshot
 
@@ -65,7 +65,6 @@ class DashpotApp(App[None]):
         self.refresh_seconds = refresh_seconds
         self.snapshot = initial_snapshot
         self.refresh_generation = 0
-        self.refreshing = False
         self.refresh_timer: Timer | None = None
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, RowContext] = {}
@@ -74,7 +73,6 @@ class DashpotApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label("Waiting for first refresh", id="source-status")
         with Container(id="body"):
             with Container(id="detail-row"):
                 with Vertical(id="project-pane"):
@@ -121,8 +119,6 @@ class DashpotApp(App[None]):
     def request_refresh(self, trigger: str) -> None:
         self.refresh_generation += 1
         generation = self.refresh_generation
-        self.refreshing = True
-        self.update_status()
         self.refresh_workspace(generation, trigger)
 
     @work(
@@ -146,11 +142,9 @@ class DashpotApp(App[None]):
     def on_workspace_refresh_finished(self, message: WorkspaceRefreshFinished) -> None:
         if message.generation != self.refresh_generation:
             return
-        self.refreshing = False
         self.query_one("#queue", DataTable).loading = False
         if message.error is not None:
             self.ui_error = f"Refresh failed: {message.error}"
-            self.update_status()
             self.update_diagnostics()
             if message.trigger == "manual":
                 self.notify(self.ui_error, severity="error", title="Dashpot refresh")
@@ -162,7 +156,6 @@ class DashpotApp(App[None]):
     def accept_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
         self.snapshot = snapshot
         self.reconcile_rows(snapshot)
-        self.update_status()
         self.update_diagnostics()
 
     def reconcile_rows(self, snapshot: WorkspaceSnapshot) -> None:
@@ -229,24 +222,6 @@ class DashpotApp(App[None]):
         self.query_one("#selection-title", Static).update(selection_title(context))
         self.query_one("#selection-detail", Static).update(
             selection_detail_text(context)
-        )
-
-    def update_status(self) -> None:
-        status = self.query_one("#source-status", Label)
-        if self.snapshot is None:
-            status.update("Refreshing…" if self.refreshing else "Waiting for first refresh")
-            return
-        projects = self.snapshot.projects
-        fresh = sum(project.status == "fresh" for project in projects)
-        stale = sum(project.status == "stale" for project in projects)
-        unavailable = sum(project.status == "unavailable" for project in projects)
-        prefix = "Refreshing…  " if self.refreshing else ""
-        suffix = f"  ERROR: {self.ui_error}" if self.ui_error else ""
-        project_count = len(projects)
-        project_word = "project" if project_count == 1 else "projects"
-        status.update(
-            f"{prefix}{project_count} {project_word}  {fresh} fresh  {stale} stale  "
-            f"{unavailable} unavailable  {self.snapshot.elapsed_ms} ms{suffix}"
         )
 
     def update_diagnostics(self) -> None:

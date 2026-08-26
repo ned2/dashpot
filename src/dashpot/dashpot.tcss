@@ -2,13 +2,6 @@ Screen {
     layout: vertical;
 }
 
-#source-status {
-    height: 1;
-    padding: 0 1;
-    color: $text-muted;
-    background: $surface;
-}
-
 #body {
     height: 1fr;
     layout: vertical;
