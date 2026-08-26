@@ -63,6 +63,10 @@ clones require separate anchors.
   Repository identities make that Project unavailable rather than merging it.
 - A GitHub Issue transferred to another repository preserves Issue Identity
   when GitHub does, but changes Project membership, reference, and location.
+- Agent Runs bind to globally unique Issue Identity at Workspace scope.
+  References and branch conventions are resolution hints; a successful hint is
+  persisted as identity before Dashpot reports the relationship. Execution
+  location and Issue membership therefore remain independent across transfers.
 - Clones and worktrees preserve Project Identity. Forks and intentional copies
   must receive a new identity; conflicting repository identities require a
   diagnostic rather than silent aggregation.

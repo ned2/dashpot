@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Literal, TypeAlias
 
 
@@ -43,8 +43,10 @@ class AgentRun:
     process_or_session: str
     state: RunState
     observation_target: str | None
+    observation_project_id: str
     branch: str | None
-    declared_issue_reference: str | None
+    issue_id: str | None
+    issue_reference_hint: str | None
     working_directory: str | None = None
     last_activity_at: str | None = None
 
@@ -60,8 +62,6 @@ class ProjectSnapshot:
     issue_source_last_good_at: str | None
     observation_targets: list[ObservationTarget]
     issues: list[Issue]
-    issue_runs: dict[str, list[str]]
-    agent_runs: list[AgentRun]
     diagnostics: list[Diagnostic]
 
 
@@ -105,15 +105,21 @@ class WorkspaceSnapshot:
     collected_at: str
     elapsed_ms: int
     projects: list[ProjectObservation]
+    agent_runs: list[AgentRun] = field(default_factory=list)
+    issue_runs: dict[str, list[str]] = field(default_factory=dict)
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
 def to_jsonable(value: Any) -> Any:
     if hasattr(value, "__dataclass_fields__"):
-        value = asdict(value)
+        return {
+            camel_case(item.name): to_jsonable(getattr(value, item.name))
+            for item in fields(value)
+            if getattr(value, item.name) is not None
+        }
     if isinstance(value, dict):
         return {
-            camel_case(key): to_jsonable(item)
+            key: to_jsonable(item)
             for key, item in value.items()
             if item is not None
         }

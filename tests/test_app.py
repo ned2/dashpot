@@ -72,8 +72,6 @@ def workspace_snapshot(
         issue_source_last_good_at=NOW if status != "unavailable" else None,
         observation_targets=[target],
         issues=list(issues),
-        issue_runs={item["id"]: [] for item in issues},
-        agent_runs=runs or [],
         diagnostics=diagnostics or [],
     )
     project = ProjectObservation(
@@ -88,7 +86,13 @@ def workspace_snapshot(
         snapshot=project_snapshot,
         diagnostics=[],
     )
-    return WorkspaceSnapshot(NOW, elapsed_ms, [project])
+    return WorkspaceSnapshot(
+        NOW,
+        elapsed_ms,
+        [project],
+        agent_runs=runs or [],
+        issue_runs={item["id"]: [] for item in issues},
+    )
 
 
 class SequenceCollector:
@@ -294,8 +298,10 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
         process_or_session="42",
         state="waiting",
         observation_target="/repo",
+        observation_project_id="project:test-repo",
         branch="main",
-        declared_issue_reference=None,
+        issue_id="I_raw_identity",
+        issue_reference_hint="owner/repository#404",
     )
     snapshot = workspace_snapshot(runs=[run])
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
@@ -307,6 +313,9 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
         assert "Unmatched codex run" in str(
             app.query_one("#selection-detail", Static).render()
         )
+        detail = str(app.query_one("#selection-detail", Static).render())
+        assert "owner/repository#404" in detail
+        assert "I_raw_identity" not in detail
         assert str(app.query_one("#selection-title", Static).render()) == "AGENT RUN"
 
 
@@ -343,11 +352,13 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
         process_or_session="42",
         state="waiting",
         observation_target="/repo",
+        observation_project_id="project:test-repo",
         branch="issue/1",
-        declared_issue_reference=selected_issue["reference"],
+        issue_id=selected_issue["id"],
+        issue_reference_hint=selected_issue["reference"],
     )
     snapshot = workspace_snapshot(selected_issue, runs=[run])
-    snapshot.projects[0].snapshot.issue_runs[selected_issue["id"]] = [run.id]
+    snapshot.issue_runs[selected_issue["id"]] = [run.id]
 
     contexts, cells = build_rows(snapshot)
 
@@ -357,6 +368,32 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     detail = selection_detail_text(contexts[selected_issue["id"]])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail
+
+
+def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> None:
+    duplicated = issue("test/repo#1", "First")
+    snapshot = workspace_snapshot(duplicated)
+    second = copy.deepcopy(snapshot.projects[0])
+    second.project_id = "project:other-repo"
+    second.display_label = "Other Repository"
+    second.repository_id = "repository:other-repo"
+    second.snapshot.project_id = second.project_id
+    second.snapshot.display_label = second.display_label
+    second.snapshot.repository_id = second.repository_id
+    snapshot.projects.append(second)
+
+    contexts, cells = build_rows(snapshot)
+
+    expected = {
+        f"issue:project:test-repo:{duplicated['id']}",
+        f"issue:project:other-repo:{duplicated['id']}",
+    }
+    assert set(cells) == expected
+    assert set(contexts) == expected
+    assert {context.project.project_id for context in contexts.values()} == {
+        "project:test-repo",
+        "project:other-repo",
+    }
 
 
 class RacingCollector:

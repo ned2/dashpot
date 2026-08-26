@@ -3,11 +3,15 @@ from __future__ import annotations
 import concurrent.futures
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .agents import observe_hook_runs
-from .correlation import correlate_issues
+from .agent_bindings import (
+    BindingPromoter,
+    resolve_issue_bindings,
+)
+from .agents import HookRecordStore, observe_hook_runs, state_directory
 from .github_issues import GitHubIssuesSource
 from .issue_sources import IssueSource, utc_now
 from .local_markdown_issues import LocalMarkdownIssuesSource
@@ -33,8 +37,9 @@ from .repository import (
 )
 
 
-AgentObserver = Callable[
-    [Sequence[ObservationTarget]], tuple[list[AgentRun], list[Diagnostic]]
+WorkspaceAgentObserver = Callable[
+    [Mapping[str, Sequence[ObservationTarget]]],
+    tuple[list[AgentRun], list[Diagnostic]],
 ]
 ObservationTargetObserver = Callable[
     [Sequence[Path]], ObservationTargetInventory
@@ -47,13 +52,11 @@ class ProjectCollector:
         project: ResolvedProject,
         source: IssueSource,
         target_observer: ObservationTargetObserver = observe_observation_targets,
-        agent_observer: AgentObserver = observe_hook_runs,
     ) -> None:
         self.project = project
         self.root = Path(project.primary_anchor)
         self.source = source
         self.target_observer = target_observer
-        self.agent_observer = agent_observer
 
     def refresh(self) -> ProjectSnapshot:
         issue_observation = self.source.refresh()
@@ -73,11 +76,7 @@ class ProjectCollector:
                     )
                 ],
             )
-        agent_runs, agent_diagnostics = self.agent_observer(
-            target_inventory.targets
-        )
-        issue_runs = correlate_issues(issue_observation.issues, agent_runs)
-        diagnostics = [*target_inventory.diagnostics, *agent_diagnostics]
+        diagnostics = list(target_inventory.diagnostics)
         diagnostics[0:0] = [
             Diagnostic(
                 diagnostic.source,
@@ -97,8 +96,6 @@ class ProjectCollector:
             issue_source_last_good_at=issue_observation.last_good_at,
             observation_targets=target_inventory.targets,
             issues=issue_observation.issues,
-            issue_runs=issue_runs,
-            agent_runs=agent_runs,
             diagnostics=diagnostics,
         )
 
@@ -147,7 +144,6 @@ def create_project_collector(
         target_observer=lambda anchors: observe_observation_targets(
             anchors, timeout=timeout
         ),
-        agent_observer=lambda targets: observe_hook_runs(targets, state_dir),
     )
 
 
@@ -161,12 +157,20 @@ class WorkspaceCollector:
         state_dir: Path | None = None,
         factory: Callable[..., ProjectCollector] = create_project_collector,
         diagnostics: Sequence[Diagnostic] = (),
+        agent_observer: WorkspaceAgentObserver | None = None,
+        binding_promoter: BindingPromoter | None = None,
     ) -> None:
         self.projects = list(projects)
         self.timeout = timeout
         self.state_dir = state_dir
         self.factory = factory
         self.diagnostics = list(diagnostics)
+        self.agent_observer = agent_observer or (
+            lambda targets: observe_hook_runs(targets, self.state_dir)
+        )
+        self.binding_promoter = binding_promoter or HookRecordStore(
+            self.state_dir or state_directory()
+        ).promote
         self.collectors: dict[str, ProjectCollector] = {}
         self.refresh_lock = threading.Lock()
 
@@ -185,11 +189,41 @@ class WorkspaceCollector:
                 pool.submit(self.refresh_one, project) for project in self.projects
             ]
             projects = [future.result() for future in futures]
+        targets_by_project = {
+            project.project_id: project.snapshot.observation_targets
+            for project in projects
+            if project.snapshot is not None
+        }
+        try:
+            agent_runs, agent_diagnostics = self.agent_observer(
+                targets_by_project
+            )
+        except (OSError, RuntimeError) as exc:
+            agent_runs = []
+            agent_diagnostics = [
+                Diagnostic(
+                    "workspace",
+                    "warning",
+                    f"Cannot observe Agent Runs: {exc}",
+                    "agent-observation",
+                )
+            ]
+        binding_result = resolve_issue_bindings(
+            projects,
+            agent_runs,
+            self.binding_promoter,
+        )
         return WorkspaceSnapshot(
             collected_at=utc_now(),
             elapsed_ms=round((time.monotonic() - started) * 1000),
             projects=projects,
-            diagnostics=list(self.diagnostics),
+            agent_runs=binding_result.agent_runs,
+            issue_runs=binding_result.issue_runs,
+            diagnostics=[
+                *self.diagnostics,
+                *agent_diagnostics,
+                *binding_result.diagnostics,
+            ],
         )
 
     def refresh_one(self, project: ResolvedProject) -> ProjectObservation:

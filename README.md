@@ -20,7 +20,7 @@ repositories, or control agent sessions.
 - git branch, worktree, HEAD, and dirty state
 - Codex lifecycle records published through an opt-in hook
 - source freshness, failures, and last-good state
-- explicit Issue-to-agent correlation through Issue References
+- durable Agent Run bindings through opaque Issue Identity
 
 Each source remains independent in the read model. A failed Issue refresh, for
 example, does not erase the last good Issue collection or hide repository facts.
@@ -140,15 +140,32 @@ Installing Dashpot provides the no-stdout `dashpot-codex-hook` publisher.
 [`examples/codex-hooks.json`](examples/codex-hooks.json) shows the opt-in Codex
 hook configuration. No hook is installed automatically.
 
-Start an Issue-bound Codex session by passing its current Issue Reference:
+Start an Issue-bound Codex session by passing its opaque Issue Identity:
+
+```bash
+DASHPOT_ISSUE_ID=I_kwDOUEerrs8AAAABOSTptQ codex
+```
+
+An Issue Reference can be supplied as a one-time human-facing hint when the
+identity is not convenient:
 
 ```bash
 DASHPOT_ISSUE_REF=owner/repository#123 codex
 ```
 
+Dashpot resolves explicit Reference hints, or an `issue/...` branch convention,
+only when they identify exactly one Issue in the Agent Run's observed Project.
+It then atomically persists the resulting Issue Identity. Ambiguous, stale, or
+temporarily unverifiable hints remain unbound and produce diagnostics rather
+than guesses. Once established, the binding survives repository renames, Issue
+Reference edits, Local Issue moves, and transfers between configured Projects.
+The ordinary TUI continues to show current References; raw identities remain in
+headless output and diagnostics.
+
 Hook records are stored under the platform's normal application-state location.
-Set `DASHPOT_STATE_DIR` to override it. The TUI only reads and validates these
-records.
+Set `DASHPOT_STATE_DIR` to override it. Dashpot reads and validates these records;
+when a hint resolves unambiguously, collection atomically promotes it to a durable
+Issue Identity binding before presenting the relationship.
 
 ## Design
 

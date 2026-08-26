@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from dashpot.agents import (
+    HookRecordStore,
     ProcessIdentity,
     nearest_codex_process,
     observe_hook_runs,
@@ -17,6 +18,7 @@ from dashpot.agents import (
     publish_hook_event,
     write_hook_record,
 )
+from dashpot.agent_bindings import IssueBindingPromotion
 from dashpot.collect import ProjectCollector, WorkspaceCollector
 from dashpot.commands import CommandResult
 from dashpot.issue_sources import IssueSource
@@ -80,9 +82,7 @@ def project_snapshot(
         issue_source_attempted_at="2026-08-24T15:00:00Z",
         issue_source_last_good_at="2026-08-24T15:00:00Z",
         observation_targets=[observation_target(root)],
-        issues=issues or [issue()],
-        issue_runs={"I_example/project#7": []},
-        agent_runs=[],
+        issues=[issue()] if issues is None else issues,
         diagnostics=[],
     )
 
@@ -150,43 +150,25 @@ class RepositoryTests(unittest.TestCase):
 
 
 class ProjectCollectorTests(unittest.TestCase):
-    def test_combines_declared_and_observed_state(self) -> None:
-        observed = AgentRun(
-            id="codex-session:1",
-            harness="codex",
-            process_or_session="1 hook",
-            state="running",
-            observation_target="/repo",
-            branch="main",
-            declared_issue_reference="example/project#7",
-        )
+    def test_combines_issue_and_target_observations(self) -> None:
         collector = ProjectCollector(
             resolved_project(),
             FakeSource(),
             target_observer=lambda _anchors: target_inventory(),
-            agent_observer=lambda _targets: (
-                [observed],
-                [Diagnostic("agent", "info", "ok")],
-            ),
         )
 
         snapshot = collector.refresh()
 
-        self.assertEqual(
-            ["codex-session:1"], snapshot.issue_runs["I_example/project#7"]
-        )
         self.assertEqual("Build observer", snapshot.issues[0]["title"])
         self.assertEqual("project:example", snapshot.project_id)
         self.assertEqual("Example", snapshot.display_label)
-        self.assertEqual([observed], snapshot.agent_runs)
-        self.assertEqual("agent", snapshot.diagnostics[0].source)
+        self.assertEqual("/repo", snapshot.observation_targets[0].path)
 
     def test_empty_issue_project_retains_identity_and_display_label(self) -> None:
         collector = ProjectCollector(
             resolved_project(),
             EmptySource(),
             target_observer=lambda _anchors: target_inventory(),
-            agent_observer=lambda _targets: ([], []),
         )
 
         snapshot = collector.refresh()
@@ -227,7 +209,6 @@ class ProjectCollectorTests(unittest.TestCase):
             project,
             source,
             target_observer=observe_targets,
-            agent_observer=lambda _targets: ([], []),
         )
 
         snapshot = collector.refresh()
@@ -259,7 +240,6 @@ class ProjectCollectorTests(unittest.TestCase):
             target_observer=lambda _anchors: ObservationTargetInventory(
                 [target], []
             ),
-            agent_observer=lambda _targets: ([], []),
         )
 
         snapshot = collector.refresh()
@@ -275,7 +255,6 @@ class ProjectCollectorTests(unittest.TestCase):
             target_observer=lambda _anchors: (_ for _ in ()).throw(
                 RuntimeError("target discovery crashed")
             ),
-            agent_observer=lambda _targets: ([], []),
         )
 
         snapshot = collector.refresh()
@@ -306,14 +285,14 @@ class HookObserverTests(unittest.TestCase):
     ) -> None:
         write_hook_record(
             {
-                "version": 1,
+                "version": 2,
                 "sessionId": session_id,
                 "harness": "codex",
                 "state": state,
                 "cwd": cwd,
                 "repositoryRoot": repository_root,
                 "branch": "main",
-                "declaredIssueReference": "example/project#7",
+                "issueReferenceHint": "example/project#7",
                 "event": "Stop" if state == "waiting" else "PreToolUse",
                 "lastActivityAt": "2026-08-24T15:00:00Z",
                 "sessionProcess": process.as_record() if process else None,
@@ -325,14 +304,14 @@ class HookObserverTests(unittest.TestCase):
         self.write("live", "waiting", self.process)
 
         runs, diagnostics = observe_hook_runs(
-            [observation_target()],
+            {"project:example": [observation_target()]},
             self.state_dir,
             lookup=lambda _pid: self.process,
             isolated=False,
         )
 
         self.assertEqual("waiting", runs[0].state)
-        self.assertEqual("example/project#7", runs[0].declared_issue_reference)
+        self.assertEqual("example/project#7", runs[0].issue_reference_hint)
         self.assertEqual([], diagnostics)
 
     def test_linked_worktree_record_is_associated_with_its_target(self) -> None:
@@ -347,7 +326,7 @@ class HookObserverTests(unittest.TestCase):
         )
 
         runs, diagnostics = observe_hook_runs(
-            [observation_target(), linked],
+            {"project:example": [observation_target(), linked]},
             self.state_dir,
             lookup=lambda _pid: self.process,
             isolated=False,
@@ -366,7 +345,7 @@ class HookObserverTests(unittest.TestCase):
         )
 
         runs, diagnostics = observe_hook_runs(
-            [observation_target()],
+            {"project:example": [observation_target()]},
             self.state_dir,
             lookup=lambda _pid: self.process,
             isolated=False,
@@ -380,7 +359,7 @@ class HookObserverTests(unittest.TestCase):
         self.write("orphaned", "running", self.process)
 
         runs, diagnostics = observe_hook_runs(
-            [observation_target()],
+            {"project:example": [observation_target()]},
             self.state_dir,
             lookup=lambda _pid: None,
             isolated=False,
@@ -394,7 +373,7 @@ class HookObserverTests(unittest.TestCase):
         self.write("sandboxed", "running", self.process)
 
         runs, diagnostics = observe_hook_runs(
-            [observation_target()],
+            {"project:example": [observation_target()]},
             self.state_dir,
             lookup=lambda _pid: None,
             isolated=True,
@@ -407,11 +386,38 @@ class HookObserverTests(unittest.TestCase):
         (self.state_dir / "bad.json").write_text(json.dumps({"version": 99}))
 
         runs, diagnostics = observe_hook_runs(
-            [observation_target()], self.state_dir
+            {"project:example": [observation_target()]}, self.state_dir
         )
 
         self.assertEqual([], runs)
         self.assertIn("unsupported record", diagnostics[0].message)
+
+    def test_whitespace_issue_identity_makes_record_invalid(self) -> None:
+        self.write("invalid-identity", "waiting", self.process)
+        path = self.state_dir / "invalid-identity.json"
+        record = json.loads(path.read_text())
+        record["issueId"] = "not an identity"
+        path.write_text(json.dumps(record))
+
+        runs, diagnostics = observe_hook_runs(
+            {"project:example": [observation_target()]}, self.state_dir
+        )
+
+        self.assertEqual([], runs)
+        self.assertIn("issueId must be a whitespace-free", diagnostics[0].message)
+
+    def test_record_session_must_match_filename(self) -> None:
+        self.write("actual-session", "waiting", self.process)
+        (self.state_dir / "actual-session.json").rename(
+            self.state_dir / "different-session.json"
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            {"project:example": [observation_target()]}, self.state_dir
+        )
+
+        self.assertEqual([], runs)
+        self.assertIn("does not match its filename", diagnostics[0].message)
 
     def test_resume_event_preserves_initial_issue_binding(self) -> None:
         base_event = {
@@ -422,7 +428,10 @@ class HookObserverTests(unittest.TestCase):
         publish_hook_event(
             base_event,
             self.state_dir,
-            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
+            environ={
+                "DASHPOT_ISSUE_ID": "I_stable",
+                "DASHPOT_ISSUE_REF": "example/project#7",
+            },
             process=self.process,
         )
 
@@ -434,8 +443,198 @@ class HookObserverTests(unittest.TestCase):
         )
 
         record = json.loads((self.state_dir / "resume-me.json").read_text())
-        self.assertEqual("example/project#7", record["declaredIssueReference"])
+        self.assertEqual(2, record["version"])
+        self.assertEqual("I_stable", record["issueId"])
+        self.assertEqual("example/project#7", record["issueReferenceHint"])
         self.assertEqual("waiting", record["state"])
+
+    def test_write_rejects_malformed_issue_values(self) -> None:
+        record = {
+            "version": 2,
+            "sessionId": "invalid-write",
+            "issueId": "not an identity",
+            "issueReferenceHint": "example/project#7",
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "whitespace-free"):
+            write_hook_record(record, self.state_dir)
+
+        self.assertFalse((self.state_dir / "invalid-write.json").exists())
+
+    def test_reference_promotion_persists_identity_without_losing_lifecycle(
+        self,
+    ) -> None:
+        event = {
+            "session_id": "promote-me",
+            "cwd": "/repo",
+            "hook_event_name": "Stop",
+        }
+        publish_hook_event(
+            event,
+            self.state_dir,
+            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
+            process=self.process,
+        )
+        observed = json.loads((self.state_dir / "promote-me.json").read_text())
+
+        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(
+            IssueBindingPromotion(
+                "codex-session:promote-me",
+                "I_promoted",
+                "reference",
+                "example/project#7",
+                "/repo",
+                observed["lastActivityAt"],
+            )
+        )
+
+        record = json.loads((self.state_dir / "promote-me.json").read_text())
+        self.assertTrue(succeeded)
+        self.assertIsNone(diagnostic)
+        self.assertEqual("I_promoted", record["issueId"])
+        self.assertEqual("waiting", record["state"])
+        self.assertEqual("Stop", record["event"])
+
+    def test_changed_hint_rejects_stale_promotion_without_losing_new_event(
+        self,
+    ) -> None:
+        base = {"session_id": "racing", "cwd": "/repo"}
+        publish_hook_event(
+            {**base, "hook_event_name": "SessionStart"},
+            self.state_dir,
+            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
+            process=self.process,
+        )
+        observed = json.loads((self.state_dir / "racing.json").read_text())
+        promotion = IssueBindingPromotion(
+            "codex-session:racing",
+            "I_old",
+            "reference",
+            "example/project#7",
+            "/repo",
+            observed["lastActivityAt"],
+        )
+        publish_hook_event(
+            {**base, "hook_event_name": "Stop"},
+            self.state_dir,
+            environ={"DASHPOT_ISSUE_REF": "example/project#8"},
+            process=self.process,
+        )
+
+        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(
+            promotion
+        )
+
+        record = json.loads((self.state_dir / "racing.json").read_text())
+        self.assertFalse(succeeded)
+        self.assertEqual("agent-issue-binding-race", diagnostic.code)
+        self.assertIsNone(record["issueId"])
+        self.assertEqual("example/project#8", record["issueReferenceHint"])
+        self.assertEqual("waiting", record["state"])
+
+    def test_concurrent_event_and_promotion_preserve_both_updates(self) -> None:
+        base = {"session_id": "concurrent", "cwd": "/repo"}
+        publish_hook_event(
+            {**base, "hook_event_name": "SessionStart"},
+            self.state_dir,
+            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
+            process=self.process,
+        )
+        store = HookRecordStore(self.state_dir)
+        observed = json.loads((self.state_dir / "concurrent.json").read_text())
+        promotion = IssueBindingPromotion(
+            "codex-session:concurrent",
+            "I_concurrent",
+            "reference",
+            "example/project#7",
+            "/repo",
+            observed["lastActivityAt"],
+        )
+        barrier = threading.Barrier(3)
+        failures: list[Exception] = []
+        promotion_results: list[tuple[bool, Diagnostic | None]] = []
+
+        def publish() -> None:
+            barrier.wait()
+            try:
+                publish_hook_event(
+                    {**base, "hook_event_name": "Stop"},
+                    self.state_dir,
+                    environ={},
+                    process=self.process,
+                )
+            except Exception as exc:  # pragma: no cover - asserted below.
+                failures.append(exc)
+
+        def promote() -> None:
+            barrier.wait()
+            try:
+                promotion_results.append(store.promote(promotion))
+            except Exception as exc:  # pragma: no cover - asserted below.
+                failures.append(exc)
+
+        publisher = threading.Thread(target=publish)
+        promoter = threading.Thread(target=promote)
+        publisher.start()
+        promoter.start()
+        barrier.wait()
+        publisher.join()
+        promoter.join()
+
+        record = json.loads((self.state_dir / "concurrent.json").read_text())
+        self.assertEqual([], failures)
+        self.assertEqual("waiting", record["state"])
+        succeeded, diagnostic = promotion_results[0]
+        if succeeded:
+            self.assertIsNone(diagnostic)
+            self.assertEqual("I_concurrent", record["issueId"])
+        else:
+            self.assertEqual("agent-issue-binding-race", diagnostic.code)
+            self.assertIsNone(record["issueId"])
+
+    def test_changed_target_rejects_stale_promotion(self) -> None:
+        base = {"session_id": "moved", "cwd": "/repo"}
+        publish_hook_event(
+            {**base, "hook_event_name": "SessionStart"},
+            self.state_dir,
+            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
+            process=self.process,
+        )
+        path = self.state_dir / "moved.json"
+        observed = json.loads(path.read_text())
+        promotion = IssueBindingPromotion(
+            "codex-session:moved",
+            "I_old_project",
+            "reference",
+            "example/project#7",
+            "/repo",
+            observed["lastActivityAt"],
+        )
+        moved = {**observed, "cwd": "/other", "repositoryRoot": "/other"}
+        HookRecordStore(self.state_dir).write(moved)
+
+        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(promotion)
+
+        record = json.loads(path.read_text())
+        self.assertFalse(succeeded)
+        self.assertEqual("agent-issue-binding-race", diagnostic.code)
+        self.assertIsNone(record["issueId"])
+
+    def test_unsafe_promotion_run_id_is_rejected(self) -> None:
+        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(
+            IssueBindingPromotion(
+                "codex-session:../escape",
+                "I_escape",
+                "reference",
+                "example/project#7",
+                "/repo",
+                "2026-08-27T00:00:00Z",
+            )
+        )
+
+        self.assertFalse(succeeded)
+        self.assertEqual("agent-issue-binding-conflict", diagnostic.code)
+        self.assertFalse((self.state_dir.parent / "escape.json").exists())
 
     def test_nearest_codex_process_skips_sandbox_helper(self) -> None:
         sandbox = ProcessIdentity(
@@ -496,6 +695,136 @@ class FakeProjectCollector:
 
 
 class WorkspaceCollectorTests(unittest.TestCase):
+    def test_workspace_correlates_run_to_transferred_issue_by_identity(self) -> None:
+        project_a = resolved_project("/project-a", "project-a")
+        project_b = resolved_project("/project-b", "project-b")
+        snapshot_a = project_snapshot("/project-a", [])
+        snapshot_a.project_id = "project-a"
+        transferred = issue("new/repository#70")
+        transferred["id"] = "I_stable"
+        transferred["projectId"] = "project-b"
+        snapshot_b = project_snapshot("/project-b", [transferred])
+        snapshot_b.project_id = "project-b"
+        run = AgentRun(
+            id="codex-session:transfer",
+            harness="codex",
+            process_or_session="transfer hook",
+            state="running",
+            observation_target="/project-a",
+            observation_project_id="project-a",
+            branch="issue/old/repository#7",
+            issue_id="I_stable",
+            issue_reference_hint="old/repository#7",
+        )
+
+        def factory(project, **_kwargs):
+            snapshot = snapshot_a if project.project_id == "project-a" else snapshot_b
+            return FakeProjectCollector(snapshot)
+
+        collector = WorkspaceCollector(
+            [project_a, project_b],
+            factory=factory,
+            agent_observer=lambda _targets: ([run], []),
+        )
+
+        with mock.patch.object(Path, "is_dir", return_value=True):
+            snapshot = collector.refresh()
+
+        self.assertEqual([run], snapshot.agent_runs)
+        self.assertEqual({"I_stable": [run.id]}, snapshot.issue_runs)
+
+    def test_workspace_claims_hint_relationship_only_after_promotion(self) -> None:
+        current_project = resolved_project("/project-a", "project-a")
+        current_issue = issue("owner/repository#15")
+        current_issue["id"] = "I_promoted"
+        current_issue["projectId"] = "project-a"
+        current_snapshot = project_snapshot("/project-a", [current_issue])
+        current_snapshot.project_id = "project-a"
+        hinted_run = AgentRun(
+            id="codex-session:hinted",
+            harness="codex",
+            process_or_session="hinted hook",
+            state="running",
+            observation_target="/project-a",
+            observation_project_id="project-a",
+            branch="main",
+            issue_id=None,
+            issue_reference_hint="owner/repository#15",
+        )
+        promotions: list[IssueBindingPromotion] = []
+
+        def promote(binding):
+            promotions.append(binding)
+            return True, None
+
+        collector = WorkspaceCollector(
+            [current_project],
+            factory=lambda _project, **_kwargs: FakeProjectCollector(
+                current_snapshot
+            ),
+            agent_observer=lambda _targets: ([hinted_run], []),
+            binding_promoter=promote,
+        )
+
+        with mock.patch.object(Path, "is_dir", return_value=True):
+            snapshot = collector.refresh()
+
+        self.assertEqual(1, len(promotions))
+        self.assertEqual({"I_promoted": [hinted_run.id]}, snapshot.issue_runs)
+        self.assertEqual("I_promoted", snapshot.agent_runs[0].issue_id)
+        self.assertIsNone(hinted_run.issue_id)
+        payload = to_jsonable(snapshot)
+        self.assertEqual("I_promoted", payload["agentRuns"][0]["issueId"])
+        self.assertEqual(
+            "project-a", payload["agentRuns"][0]["observationProjectId"]
+        )
+        self.assertEqual(
+            [hinted_run.id], payload["issueRuns"]["I_promoted"]
+        )
+
+    def test_failed_promotion_leaves_hint_unbound_for_that_refresh(self) -> None:
+        current_project = resolved_project("/project-a", "project-a")
+        current_issue = issue("owner/repository#15")
+        current_issue["id"] = "I_not_persisted"
+        current_issue["projectId"] = "project-a"
+        current_snapshot = project_snapshot("/project-a", [current_issue])
+        current_snapshot.project_id = "project-a"
+        hinted_run = AgentRun(
+            id="codex-session:failed-promotion",
+            harness="codex",
+            process_or_session="failed hook",
+            state="running",
+            observation_target="/project-a",
+            observation_project_id="project-a",
+            branch="main",
+            issue_id=None,
+            issue_reference_hint="owner/repository#15",
+        )
+
+        collector = WorkspaceCollector(
+            [current_project],
+            factory=lambda _project, **_kwargs: FakeProjectCollector(
+                current_snapshot
+            ),
+            agent_observer=lambda _targets: ([hinted_run], []),
+            binding_promoter=lambda promotion: (
+                False,
+                Diagnostic(
+                    promotion.agent_run_id,
+                    "warning",
+                    "record changed",
+                    "agent-issue-binding-race",
+                ),
+            ),
+        )
+
+        with mock.patch.object(Path, "is_dir", return_value=True):
+            snapshot = collector.refresh()
+
+        self.assertEqual({"I_not_persisted": []}, snapshot.issue_runs)
+        self.assertIsNone(snapshot.agent_runs[0].issue_id)
+        self.assertEqual("agent-issue-binding-race", snapshot.diagnostics[0].code)
+
     def test_grouped_clone_target_collects_project_once(self) -> None:
         grouped = ResolvedProject(
             "project:example",
@@ -511,7 +840,11 @@ class WorkspaceCollectorTests(unittest.TestCase):
             factory_calls.append(current_target)
             return FakeProjectCollector(project_snapshot("/clone-one"))
 
-        collector = WorkspaceCollector([grouped], factory=factory)
+        collector = WorkspaceCollector(
+            [grouped],
+            factory=factory,
+            agent_observer=lambda _targets: ([], []),
+        )
 
         with mock.patch.object(Path, "is_dir", return_value=True):
             snapshot = collector.refresh()
@@ -533,6 +866,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
                 resolved_project("/bad", "project:bad"),
             ],
             factory=factory,
+            agent_observer=lambda _targets: ([], []),
         )
 
         with mock.patch.object(Path, "is_dir", return_value=True):
@@ -543,6 +877,25 @@ class WorkspaceCollectorTests(unittest.TestCase):
             [project.status for project in snapshot.projects],
         )
         self.assertIn("fixture failure", snapshot.projects[1].diagnostics[0].message)
+
+    def test_agent_observer_failure_does_not_blank_projects(self) -> None:
+        collector = WorkspaceCollector(
+            [resolved_project()],
+            factory=lambda _project, **_kwargs: FakeProjectCollector(
+                project_snapshot()
+            ),
+            agent_observer=lambda _targets: (_ for _ in ()).throw(
+                RuntimeError("agent observation crashed")
+            ),
+        )
+
+        with mock.patch.object(Path, "is_dir", return_value=True):
+            snapshot = collector.refresh()
+
+        self.assertEqual(1, len(snapshot.projects))
+        self.assertIsNotNone(snapshot.projects[0].snapshot)
+        self.assertEqual([], snapshot.agent_runs)
+        self.assertEqual("agent-observation", snapshot.diagnostics[0].code)
 
     def test_overlapping_refreshes_are_serialized(self) -> None:
         active = 0
@@ -564,6 +917,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
         collector = WorkspaceCollector(
             [resolved_project()],
             factory=lambda _target, **_kwargs: SlowCollector(),  # type: ignore[arg-type]
+            agent_observer=lambda _targets: ([], []),
         )
         results: list[ProjectSnapshot] = []
 

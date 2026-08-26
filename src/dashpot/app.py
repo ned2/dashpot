@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol
@@ -28,6 +29,7 @@ class RowContext:
     project: ProjectObservation
     issue: Issue | None = None
     run: AgentRun | None = None
+    observed_runs: tuple[AgentRun, ...] = ()
 
 
 class WorkspaceRefreshFinished(Message):
@@ -230,7 +232,10 @@ class DashpotApp(App[None]):
             return
         self.selected_row_key = key
         self.query_one("#project-detail", Static).update(
-            project_detail_text(context.project)
+            project_detail_text(
+                context.project,
+                self.snapshot.agent_runs if self.snapshot else [],
+            )
         )
         self.query_one("#selection-title", Static).update(selection_title(context))
         self.query_one("#selection-detail", Static).update(
@@ -268,11 +273,26 @@ def build_rows(
 ) -> tuple[dict[str, RowContext], dict[str, tuple[str, ...]]]:
     contexts: dict[str, RowContext] = {}
     cells_by_key: dict[str, tuple[str, ...]] = {}
+    runs = snapshot.agent_runs
+    issue_runs = snapshot.issue_runs
+    matched_runs = {
+        run_id for run_ids in issue_runs.values() for run_id in run_ids
+    }
+    issue_id_counts = Counter(
+        issue["id"]
+        for project in snapshot.projects
+        if project.snapshot
+        for issue in project.snapshot.issues
+    )
     for project in snapshot.projects:
         label = project_label(project)
         issues = project.snapshot.issues if project.snapshot else []
-        runs = project.snapshot.agent_runs if project.snapshot else []
-        if not issues and not runs:
+        project_has_unmatched_run = any(
+            run.id not in matched_runs
+            and run.observation_project_id == project.project_id
+            for run in runs
+        )
+        if not issues and not project_has_unmatched_run:
             key = f"project:{project.project_id}"
             contexts[key] = RowContext(project)
             cells_by_key[key] = (
@@ -283,13 +303,20 @@ def build_rows(
                 "-",
                 "source unavailable" if project.status == "unavailable" else "no Issues",
             )
-        issue_runs = project.snapshot.issue_runs if project.snapshot else {}
-        matched_runs = {
-            run_id for run_ids in issue_runs.values() for run_id in run_ids
-        }
         for issue in issues:
-            key = issue["id"]
-            contexts[key] = RowContext(project, issue=issue)
+            key = (
+                issue["id"]
+                if issue_id_counts[issue["id"]] == 1
+                else f"issue:{project.project_id}:{issue['id']}"
+            )
+            observed = tuple(
+                run
+                for run in runs
+                if run.id in issue_runs.get(issue["id"], [])
+            )
+            contexts[key] = RowContext(
+                project, issue=issue, observed_runs=observed
+            )
             cells_by_key[key] = (
                 status_mark(project.status),
                 label,
@@ -298,23 +325,30 @@ def build_rows(
                 observed_run_summary(issue["id"], issue_runs, runs),
                 issue["title"],
             )
-        for run in runs:
-            if run.id in matched_runs:
-                continue
-            key = f"run:{run.id}"
-            contexts[key] = RowContext(project, run=run)
-            cells_by_key[key] = (
-                run_state_mark(run.state),
-                label,
-                "-",
-                "unassigned",
-                run.state,
-                f"Unmatched {run.harness} run",
-            )
+    projects_by_id = {project.project_id: project for project in snapshot.projects}
+    for run in runs:
+        if run.id in matched_runs:
+            continue
+        project = projects_by_id.get(run.observation_project_id)
+        if project is None:
+            continue
+        label = project_label(project)
+        key = f"run:{run.id}"
+        contexts[key] = RowContext(project, run=run)
+        cells_by_key[key] = (
+            run_state_mark(run.state),
+            label,
+            "-",
+            "unassigned",
+            run.state,
+            f"Unmatched {run.harness} run",
+        )
     return contexts, cells_by_key
 
 
-def project_detail_text(project: ProjectObservation) -> str:
+def project_detail_text(
+    project: ProjectObservation, agent_runs: Sequence[AgentRun] = ()
+) -> str:
     lines = [
         f"Status: {project.status}",
         f"Workspaces: {', '.join(project.workspaces)}",
@@ -334,13 +368,17 @@ def project_detail_text(project: ProjectObservation) -> str:
             )
             run_count = sum(
                 run.observation_target == target.path
-                for run in snapshot.agent_runs
+                for run in agent_runs
             )
             lines.append(
                 f"  {branch}@{target.head[:8]} {state} · {target.elapsed_ms} ms · "
                 f"{run_count} agent{'s' if run_count != 1 else ''} · {target.path}"
             )
-        lines.append(f"Observed agents: {len(snapshot.agent_runs)}")
+        observed_count = sum(
+            run.observation_project_id == project.project_id
+            for run in agent_runs
+        )
+        lines.append(f"Observed agents: {observed_count}")
     return "\n".join(lines)
 
 
@@ -354,11 +392,9 @@ def selection_title(context: RowContext) -> str:
 
 def selection_detail_text(context: RowContext) -> str:
     lines: list[str] = []
-    snapshot = context.project.snapshot
     if context.issue:
         current = context.issue
         location = issue_location(current)
-        observed_run_ids = snapshot.issue_runs.get(current["id"], []) if snapshot else []
         lines.extend(
             [
                 current["title"],
@@ -370,24 +406,11 @@ def selection_detail_text(context: RowContext) -> str:
                 f"Labels: {', '.join(current['labels']) or '-'}",
             ]
         )
-        observed = (
-            {
-                run.id: run
-                for run in snapshot.agent_runs
-                if run.id in observed_run_ids
-            }
-            if snapshot
-            else {}
-        )
         lines.append("Agent sessions:")
-        if not observed_run_ids:
+        if not context.observed_runs:
             lines.append("  -")
         else:
-            for run_id in observed_run_ids:
-                run = observed.get(run_id)
-                if run is None:
-                    lines.append(f"  {run_id} (missing observation)")
-                    continue
+            for run in context.observed_runs:
                 location = (
                     run.branch
                     or run.observation_target
@@ -402,7 +425,7 @@ def selection_detail_text(context: RowContext) -> str:
                 f"Unmatched {run.harness} run",
                 f"Run: {run.id}",
                 f"State: {run.state}",
-                f"Issue reference: {run.declared_issue_reference or '-'}",
+                f"Issue hint: {run.issue_reference_hint or '-'}",
                 f"Observation target: {run.observation_target or '-'}",
                 f"Branch: {run.branch or '-'}",
                 f"Working directory: {run.working_directory or '-'}",

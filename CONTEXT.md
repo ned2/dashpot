@@ -54,8 +54,8 @@ Project but never participates in identity.
 _Avoid_: Project name when identity is intended
 
 **Issue Identity**:
-A stable opaque identity for an Issue, independent of its reference and
-location.
+A stable opaque identity for an Issue, globally unique within Dashpot's Issue
+universe and independent of its Project membership, reference, and location.
 
 **Issue Reference**:
 A mutable, human-readable shorthand for an Issue, such as `ned2/dashpot#9` or a
@@ -86,3 +86,13 @@ not persisted Workspace membership or durable identity.
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.
+
+**Issue Binding**:
+A durable association between an Agent Run and an Issue by Issue Identity. It
+survives changes to Project membership, Issue Reference, and Issue Location and
+is observed relationship state rather than part of the Issue entity.
+
+**Issue Hint**:
+A mutable Issue Reference or `issue/...` branch convention used only to
+establish an Issue Binding. A hint never becomes identity and must resolve
+unambiguously within the Agent Run's observed Project.
