@@ -57,13 +57,14 @@ def issue_page(
     has_next_page: bool = False,
     end_cursor: str | None = None,
     repository_id: str = REPOSITORY_ID,
+    repository_reference: str = "ned2/dashpot",
 ) -> str:
     return json.dumps(
         {
             "data": {
                 "node": {
                     "id": repository_id,
-                    "nameWithOwner": "ned2/dashpot",
+                    "nameWithOwner": repository_reference,
                     "issues": {
                         "nodes": nodes,
                         "pageInfo": {
@@ -124,7 +125,6 @@ def source(
         Path("/repo"),
         project_id=PROJECT_ID,
         repository_id=REPOSITORY_ID,
-        repository_reference="ned2/dashpot",
         runner=runner,
         clock=lambda: next(times),
     )
@@ -504,22 +504,36 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             "github-repository-identity", observation.diagnostics[0].code
         )
 
-    def test_repository_anchor_origin_must_match_configured_repository(self) -> None:
-        runner = SequenceRunner([completed(issue_page([raw_fixture()]))])
+    def test_repository_rename_uses_current_reference_after_identity_match(self) -> None:
+        renamed = raw_fixture()
+        renamed["repository"]["nameWithOwner"] = "ned2/renamed-dashpot"
+        renamed["url"] = "https://github.com/ned2/renamed-dashpot/issues/9"
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page(
+                        [renamed], repository_reference="ned2/renamed-dashpot"
+                    )
+                )
+            ]
+        )
         github = GitHubIssuesSource(
             Path("/repo"),
             project_id=PROJECT_ID,
             repository_id=REPOSITORY_ID,
-            repository_reference="someone/fork",
             runner=runner,
             clock=lambda: "2026-08-26T10:00:00Z",
         )
 
         observation = github.refresh()
 
-        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("fresh", observation.status)
         self.assertEqual(
-            "github-repository-identity", observation.diagnostics[0].code
+            "ned2/renamed-dashpot#9", observation.issues[0]["reference"]
+        )
+        self.assertEqual(
+            "https://github.com/ned2/renamed-dashpot/issues/9",
+            observation.issues[0]["location"]["url"],
         )
 
     def test_missing_repository_is_a_repository_diagnostic(self) -> None:

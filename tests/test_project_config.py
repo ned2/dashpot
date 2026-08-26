@@ -110,7 +110,6 @@ def test_project_collector_builds_github_source_for_github_anchor(
     assert isinstance(collector.source, GitHubIssuesSource)
     assert collector.source.project_id == PROJECT_ID
     assert collector.source.repository_id == "R_dashpot"
-    assert collector.source.repository_reference == "ned2/dashpot"
 
 
 def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None:

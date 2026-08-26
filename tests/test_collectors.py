@@ -22,6 +22,7 @@ from dashpot.agent_bindings import IssueBindingPromotion
 from dashpot.collect import ProjectCollector, WorkspaceCollector
 from dashpot.commands import CommandResult
 from dashpot.issue_sources import IssueSource
+from dashpot.issue_profile import conform_issue
 from dashpot.model import (
     AgentRun,
     Diagnostic,
@@ -178,6 +179,28 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual("project:example", payload["projectId"])
         self.assertEqual("Example", payload["displayLabel"])
         self.assertEqual("repository:example", payload["repositoryId"])
+
+    def test_headless_issue_json_preserves_required_null_fields(self) -> None:
+        complete = issue()
+        complete.update(
+            {
+                "stateReason": None,
+                "author": None,
+                "issueType": None,
+                "milestone": None,
+                "closedAt": None,
+            }
+        )
+        complete["relationships"]["parent"] = None
+        snapshot = project_snapshot(issues=[complete])
+
+        serialized = to_jsonable(snapshot)["issues"][0]
+
+        self.assertEqual(complete, conform_issue(serialized))
+        self.assertIsNone(serialized["stateReason"])
+        self.assertIsNone(serialized["relationships"]["parent"])
+        self.assertIsNone(serialized["issueType"])
+        self.assertIsNone(serialized["milestone"])
 
     def test_observes_all_anchors_but_refreshes_issues_once(self) -> None:
         source = CountingSource()

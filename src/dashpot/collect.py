@@ -127,7 +127,6 @@ def create_project_collector(
             root,
             project_id=config.project_id,
             repository_id=config.repository_id,
-            repository_reference=repository_reference,
             timeout=timeout,
         )
     elif isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):

@@ -15,6 +15,7 @@ from dashpot.app import (
     DashpotApp,
     build_rows,
     project_label,
+    row_key,
     selection_detail_text,
 )
 from dashpot.model import (
@@ -168,7 +169,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "SESSIONS",
             "TITLE",
         ]
-        assert app.selected_row_key == "I_test/repo#1"
+        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert "Status: fresh" in project_detail
         assert "Anchor: /repo" in project_detail
         assert "Observation Targets: 1" in project_detail
@@ -205,15 +206,16 @@ async def test_refresh_preserves_selection_by_stable_row_key() -> None:
 
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
-        table.move_cursor(row=table.get_row_index("I_test/repo#2"), animate=False)
-        await wait_until(lambda: app.selected_row_key == "I_test/repo#2")
+        selected_key = row_key("issue", "I_test/repo#2")
+        table.move_cursor(row=table.get_row_index(selected_key), animate=False)
+        await wait_until(lambda: app.selected_row_key == selected_key)
 
         await app.run_action("refresh")
         await wait_until(lambda: app.snapshot is second)
 
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
-        assert selected == "I_test/repo#2"
-        assert app.selected_row_key == "I_test/repo#2"
+        assert selected == selected_key
+        assert app.selected_row_key == selected_key
         assert table.row_count == 3
 
 
@@ -309,7 +311,7 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: app.snapshot is snapshot)
 
-        assert app.selected_row_key == "run:codex-session:42"
+        assert app.selected_row_key == row_key("run", "codex-session:42")
         assert "Unmatched codex run" in str(
             app.query_one("#selection-detail", Static).render()
         )
@@ -362,10 +364,11 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
 
     contexts, cells = build_rows(snapshot)
 
-    assert len(cells[selected_issue["id"]]) == len(COLUMN_KEYS) == 6
-    assert cells[selected_issue["id"]][3] == "ned2"
-    assert cells[selected_issue["id"]][4] == "Ⅱ1"
-    detail = selection_detail_text(contexts[selected_issue["id"]])
+    selected_key = row_key("issue", selected_issue["id"])
+    assert len(cells[selected_key]) == len(COLUMN_KEYS) == 6
+    assert cells[selected_key][3] == "ned2"
+    assert cells[selected_key][4] == "Ⅱ1"
+    detail = selection_detail_text(contexts[selected_key])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail
 
@@ -385,8 +388,8 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
     contexts, cells = build_rows(snapshot)
 
     expected = {
-        f"issue:project:test-repo:{duplicated['id']}",
-        f"issue:project:other-repo:{duplicated['id']}",
+        row_key("issue", "project:test-repo", duplicated["id"]),
+        row_key("issue", "project:other-repo", duplicated["id"]),
     }
     assert set(cells) == expected
     assert set(contexts) == expected
@@ -394,6 +397,78 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
         "project:test-repo",
         "project:other-repo",
     }
+
+
+def test_opaque_issue_identity_cannot_collide_with_unmatched_run_row() -> None:
+    colliding_run_id = "codex-session:42"
+    colliding_issue = issue(f"run:{colliding_run_id}", "Collision proof")
+    colliding_issue["id"] = f"run:{colliding_run_id}"
+    run = AgentRun(
+        id=colliding_run_id,
+        harness="codex",
+        process_or_session="42",
+        state="waiting",
+        observation_target="/repo",
+        observation_project_id="project:test-repo",
+        branch="main",
+        issue_id=None,
+        issue_reference_hint=None,
+    )
+
+    contexts, cells = build_rows(workspace_snapshot(colliding_issue, runs=[run]))
+
+    assert set(contexts) == set(cells) == {
+        row_key("issue", colliding_issue["id"]),
+        row_key("run", colliding_run_id),
+    }
+
+
+def test_opaque_issue_identity_cannot_collide_with_project_placeholder() -> None:
+    colliding_issue = issue("owner/repository#1", "Collision proof")
+    colliding_issue["id"] = "project:empty"
+    snapshot = workspace_snapshot(colliding_issue)
+    empty = copy.deepcopy(snapshot.projects[0])
+    empty.project_id = "empty"
+    empty.display_label = "Empty"
+    empty.snapshot.project_id = "empty"
+    empty.snapshot.display_label = "Empty"
+    empty.snapshot.issues = []
+    snapshot.projects.append(empty)
+
+    contexts, cells = build_rows(snapshot)
+
+    assert set(contexts) == set(cells) == {
+        row_key("issue", colliding_issue["id"]),
+        row_key("project", "empty"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
+    transferred = issue("old/repository#7", "Transfer me")
+    first = workspace_snapshot(transferred)
+    second = copy.deepcopy(first)
+    second.projects[0].project_id = "project:new-repository"
+    second.projects[0].display_label = "New Repository"
+    second.projects[0].snapshot.project_id = "project:new-repository"
+    second.projects[0].snapshot.display_label = "New Repository"
+    second.projects[0].snapshot.issues[0]["projectId"] = "project:new-repository"
+    second.projects[0].snapshot.issues[0]["reference"] = "new/repository#70"
+    selected_key = row_key("issue", transferred["id"])
+    app = DashpotApp(
+        SequenceCollector(second), refresh_seconds=0, initial_snapshot=first
+    )
+
+    async with app.run_test(size=(80, 24)):
+        assert app.selected_row_key == selected_key
+
+        await app.run_action("refresh")
+        await wait_until(lambda: app.snapshot is second)
+
+        assert app.selected_row_key == selected_key
+        assert "Transfer me" in str(
+            app.query_one("#selection-detail", Static).render()
+        )
 
 
 class RacingCollector:

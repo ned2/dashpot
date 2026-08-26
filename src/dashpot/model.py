@@ -118,11 +118,7 @@ def to_jsonable(value: Any) -> Any:
             if getattr(value, item.name) is not None
         }
     if isinstance(value, dict):
-        return {
-            key: to_jsonable(item)
-            for key, item in value.items()
-            if item is not None
-        }
+        return {key: to_jsonable(item) for key, item in value.items()}
     if isinstance(value, list):
         return [to_jsonable(item) for item in value]
     return value

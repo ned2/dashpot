@@ -47,7 +47,7 @@ Use a small amount of app-owned state:
 - `snapshot: var[WorkspaceSnapshot | None]`
 - `refresh_generation: var[int]`
 - `refreshing: var[bool]`
-- `selected_issue_id: var[str | None]`
+- `selected_row_key: str | None`
 - a non-reactive, wholesale-replaced `rows_by_key` lookup for rendering details
 
 `var` retains watchers and other reactive behavior but does not automatically
@@ -76,7 +76,7 @@ refresh worker ── immutable WorkspaceSnapshot / failure message ──▶ Ap
                                                                   │
                                                       RowHighlighted message
                                                                   │
-                                                                  └──▶ selected_issue_id
+                                                                  └──▶ selected_row_key
 ```
 
 Textual messages are queued and processed by each app/widget's asyncio message
@@ -153,10 +153,13 @@ force-cancellable. [Workers: lifetime](https://textual.textualize.io/guide/worke
 
 ## Updating the `DataTable`
 
-Use stable Issue Identity as the Textual row key. For a Project placeholder row, use
-a stable project identity such as `project:<canonical-root>`, not a project or row
-index. Add explicit stable column keys as well. Textual row keys remain valid when
-rows move because of deletion or sorting; coordinates do not.
+Encode the row kind and opaque stable identities into every Textual row key. A
+normal Issue row uses globally unique Issue Identity so selection survives a
+Project transfer; only an identity-conflict fallback also includes Project
+Identity. Project placeholders and Agent Runs use separately tagged encodings.
+This prevents opaque identities from colliding across row kinds. Add explicit
+stable column keys as well. Textual row keys remain valid when rows move because
+of deletion or sorting; coordinates do not.
 [DataTable keys](https://textual.textualize.io/widgets/data_table/#keys)
 
 Set `cursor_type="row"`. Arrow navigation then emits `DataTable.RowHighlighted`,

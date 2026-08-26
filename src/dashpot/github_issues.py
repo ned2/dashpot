@@ -96,7 +96,6 @@ class GitHubIssuesSource(IssueSource):
         *,
         project_id: str,
         repository_id: str,
-        repository_reference: str,
         timeout: float = 20,
         runner: CommandRunner = run_command,
         clock: Clock | None = None,
@@ -105,7 +104,6 @@ class GitHubIssuesSource(IssueSource):
         self.root = root
         self.project_id = project_id
         self.repository_id = repository_id
-        self.repository_reference = repository_reference
         self.timeout = timeout
         self.runner = runner
 
@@ -160,14 +158,7 @@ class GitHubIssuesSource(IssueSource):
                     "github-repository-identity",
                     "GitHub repository identity does not match Project configuration",
                 )
-            observed_reference = _response_string(
-                repository, "nameWithOwner", "data.repository"
-            )
-            if observed_reference.casefold() != self.repository_reference.casefold():
-                raise IssueSourceRefreshError(
-                    "github-repository-identity",
-                    "GitHub repository does not match the Repository Anchor origin",
-                )
+            _response_string(repository, "nameWithOwner", "data.repository")
             issues = _response_object(repository, "issues", "data.repository")
             page_nodes, has_next, end_cursor = _connection_page(
                 issues, "data.repository.issues"

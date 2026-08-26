@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -293,7 +294,7 @@ def build_rows(
             for run in runs
         )
         if not issues and not project_has_unmatched_run:
-            key = f"project:{project.project_id}"
+            key = row_key("project", project.project_id)
             contexts[key] = RowContext(project)
             cells_by_key[key] = (
                 status_mark(project.status),
@@ -305,9 +306,9 @@ def build_rows(
             )
         for issue in issues:
             key = (
-                issue["id"]
+                row_key("issue", issue["id"])
                 if issue_id_counts[issue["id"]] == 1
-                else f"issue:{project.project_id}:{issue['id']}"
+                else row_key("issue", project.project_id, issue["id"])
             )
             observed = tuple(
                 run
@@ -333,7 +334,7 @@ def build_rows(
         if project is None:
             continue
         label = project_label(project)
-        key = f"run:{run.id}"
+        key = row_key("run", run.id)
         contexts[key] = RowContext(project, run=run)
         cells_by_key[key] = (
             run_state_mark(run.state),
@@ -344,6 +345,11 @@ def build_rows(
             f"Unmatched {run.harness} run",
         )
     return contexts, cells_by_key
+
+
+def row_key(kind: str, *identities: str) -> str:
+    """Encode opaque identities into an unambiguous Textual row key."""
+    return json.dumps([kind, *identities], ensure_ascii=False, separators=(",", ":"))
 
 
 def project_detail_text(
