@@ -21,6 +21,15 @@ A declared unit of Project work conforming to Dashpot's source-neutral Issue
 model. An Issue may be represented on GitHub or in local Markdown.
 _Avoid_: Task, work item
 
+**Issue Profile**:
+The versioned, source-neutral set of facts every Issue Source must provide for
+an Issue. A profile is complete; unavailable source facts are observation
+failures rather than ambiguous Issue values.
+
+**Issue Provenance**:
+Source-specific evidence identifying the representation from which an Issue was
+observed. Provenance does not participate in semantic equivalence.
+
 **GitHub Issue**:
 The GitHub Issues representation of an Issue.
 

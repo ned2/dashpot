@@ -26,6 +26,11 @@ entire evolving object graph. Assignment is plural, blocking is represented by
 Issue relationships, and priority is a derived interpretation rather than an
 intrinsic Issue field.
 
+The executable version 1 profile contract and fixtures live in
+[`conformance/issue/v1`](../../conformance/issue/v1/README.md). Issue adapters
+produce complete snapshots under the availability and equality rules recorded
+in [ADR 0002](0002-require-complete-issue-profile-snapshots.md).
+
 A Workspace is a named local grouping of Projects. Its configuration records a
 repository anchor for each Project, not individual worktrees. On refresh,
 Dashpot asks Git for the repository's current worktrees and treats them as

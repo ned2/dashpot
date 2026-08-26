@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dashpot Issue profile version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profileVersion",
+    "id",
+    "projectId",
+    "reference",
+    "title",
+    "body",
+    "state",
+    "stateReason",
+    "labels",
+    "assignees",
+    "author",
+    "relationships",
+    "issueType",
+    "milestone",
+    "createdAt",
+    "updatedAt",
+    "closedAt",
+    "origin",
+    "location"
+  ],
+  "properties": {
+    "profileVersion": { "const": 1 },
+    "id": { "$ref": "#/$defs/nonEmptyString" },
+    "projectId": { "$ref": "#/$defs/nonEmptyString" },
+    "reference": { "$ref": "#/$defs/nonEmptyString" },
+    "title": { "$ref": "#/$defs/nonEmptyString" },
+    "body": { "type": "string" },
+    "state": { "enum": ["open", "closed"] },
+    "stateReason": {
+      "type": ["string", "null"],
+      "enum": ["completed", "not-planned", "reopened", null]
+    },
+    "labels": { "$ref": "#/$defs/stringSet" },
+    "assignees": { "$ref": "#/$defs/stringSet" },
+    "author": { "$ref": "#/$defs/optionalString" },
+    "relationships": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent", "subIssues", "blockedBy", "blocking"],
+      "properties": {
+        "parent": { "$ref": "#/$defs/optionalString" },
+        "subIssues": { "$ref": "#/$defs/stringSet" },
+        "blockedBy": { "$ref": "#/$defs/stringSet" },
+        "blocking": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "issueType": { "$ref": "#/$defs/optionalString" },
+    "milestone": { "$ref": "#/$defs/optionalString" },
+    "createdAt": { "$ref": "#/$defs/optionalTimestamp" },
+    "updatedAt": { "$ref": "#/$defs/optionalTimestamp" },
+    "closedAt": { "$ref": "#/$defs/optionalTimestamp" },
+    "origin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "repositoryId", "number"],
+          "properties": {
+            "kind": { "const": "github" },
+            "repositoryId": { "$ref": "#/$defs/nonEmptyString" },
+            "number": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "schemaVersion"],
+          "properties": {
+            "kind": { "const": "markdown" },
+            "schemaVersion": { "const": 1 }
+          }
+        }
+      ]
+    },
+    "location": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "url"],
+          "properties": {
+            "kind": { "const": "github" },
+            "url": { "type": "string", "format": "uri", "pattern": "^https://" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path", "line"],
+          "properties": {
+            "kind": { "const": "markdown" },
+            "path": { "$ref": "#/$defs/nonEmptyString" },
+            "line": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "open" } } },
+      "then": {
+        "properties": {
+          "stateReason": { "enum": ["reopened", null] },
+          "closedAt": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "closed" } } },
+      "then": {
+        "properties": {
+          "stateReason": { "enum": ["completed", "not-planned", null] }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "optionalString": {
+      "anyOf": [
+        { "$ref": "#/$defs/nonEmptyString" },
+        { "type": "null" }
+      ]
+    },
+    "optionalTimestamp": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    }
+  }
+}
