@@ -10,7 +10,7 @@ import pytest
 from dashpot import cli
 from dashpot.agents import ProcessIdentity
 from dashpot.hook import publish_from_stream
-from dashpot.model import WorkspaceEntry, WorkspaceSnapshot
+from dashpot.model import ProjectTarget, WorkspaceEntry, WorkspaceSnapshot
 
 
 def test_workspace_argument_accepts_named_and_bare_paths(tmp_path: Path) -> None:
@@ -35,6 +35,78 @@ def test_workspace_argument_infers_name_from_resolved_dot_path(
 def test_workspace_argument_rejects_incomplete_values(value: str) -> None:
     with pytest.raises(Exception, match="workspace must be"):
         cli.parse_workspace_argument(value)
+
+
+def test_no_argument_cli_defaults_to_configured_current_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".tasksmd.json").write_text("{}")
+    monkeypatch.chdir(tmp_path)
+    args = cli.build_parser().parse_args([])
+
+    with mock.patch.object(cli, "load_workspace_entries") as load_entries:
+        collector = cli.create_collector(args)
+
+    load_entries.assert_not_called()
+    assert collector.targets == [ProjectTarget(tmp_path.name, ".", str(tmp_path))]
+
+
+def test_explicit_config_takes_precedence_over_current_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".tasksmd.json").write_text("{}")
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    config = tmp_path / "workspaces.json"
+    monkeypatch.chdir(tmp_path)
+    args = cli.build_parser().parse_args(["--config", str(config)])
+
+    with mock.patch.object(
+        cli,
+        "load_workspace_entries",
+        return_value=[WorkspaceEntry("configured", str(configured))],
+    ) as load_entries:
+        collector = cli.create_collector(args)
+
+    load_entries.assert_called_once_with(config)
+    assert collector.targets == [ProjectTarget("configured", ".", str(configured))]
+
+
+def test_explicit_workspace_takes_precedence_over_config(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "explicit"
+    workspace.mkdir()
+    args = cli.build_parser().parse_args(
+        ["--workspace", str(workspace), "--config", str(tmp_path / "unused.json")]
+    )
+
+    with mock.patch.object(cli, "load_workspace_entries") as load_entries:
+        collector = cli.create_collector(args)
+
+    load_entries.assert_not_called()
+    assert collector.targets == [ProjectTarget("explicit", ".", str(workspace))]
+
+
+def test_no_argument_cli_falls_back_to_standard_workspace_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    config = tmp_path / "workspaces.json"
+    monkeypatch.chdir(tmp_path)
+    args = cli.build_parser().parse_args([])
+
+    with mock.patch.object(cli, "default_workspace_config", return_value=config):
+        with mock.patch.object(
+            cli,
+            "load_workspace_entries",
+            return_value=[WorkspaceEntry("configured", str(configured))],
+        ) as load_entries:
+            collector = cli.create_collector(args)
+
+    load_entries.assert_called_once_with(config)
+    assert collector.targets == [ProjectTarget("configured", ".", str(configured))]
 
 
 def test_json_mode_prints_snapshot() -> None:

@@ -60,8 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=default_workspace_config(),
-        help="TASKS.md workspace config used when --workspace is omitted",
+        help=(
+            "TASKS.md workspace config; by default, observe the configured current "
+            "project or fall back to the standard workspace config"
+        ),
     )
     parser.add_argument("--tasks-command", default="tasks")
     parser.add_argument("--timeout", type=positive_float, default=10.0)
@@ -90,9 +92,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def create_collector(args: argparse.Namespace) -> WorkspaceCollector:
-    entries: list[WorkspaceEntry] = args.workspace or load_workspace_entries(
-        args.config.expanduser()
-    )
+    if args.workspace:
+        entries: list[WorkspaceEntry] = args.workspace
+    elif args.config is not None:
+        entries = load_workspace_entries(args.config.expanduser())
+    else:
+        current = Path.cwd().resolve()
+        if (current / "TASKS.md").is_file() or (current / ".tasksmd.json").is_file():
+            entries = [WorkspaceEntry(current.name, str(current))]
+        else:
+            entries = load_workspace_entries(default_workspace_config())
     targets = discover_project_targets(entries)
     if not targets:
         roots = ", ".join(entry.root for entry in entries)

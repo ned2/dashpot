@@ -38,14 +38,20 @@ uv run pytest -q
 Open the TUI for one or more projects:
 
 ```bash
+cd /path/to/configured/project
+uv run dashpot
+
 uv run dashpot --workspace my-project=/path/to/project
 uv run dashpot --workspace first=/path/one --workspace second=/path/two
 ```
 
-Without `--workspace`, Dashpot discovers projects from TASKS.md's
-`~/.config/tasks-md/workspaces.json`. Use `r` to refresh, the arrow keys to move,
-and `q` to quit. The default 15-second polling period can be changed with
-`--refresh-seconds`; zero disables polling.
+Without arguments, Dashpot observes the current directory when it contains
+`TASKS.md` or `.tasksmd.json`. Outside a configured project it discovers projects
+from TASKS.md's `~/.config/tasks-md/workspaces.json`. Explicit `--workspace`
+arguments take precedence; use `--config` to select a different workspace
+inventory. Use `r` to refresh, the arrow keys to move, and `q` to quit. The
+default 15-second polling period can be changed with `--refresh-seconds`; zero
+disables polling.
 
 The same collector has a headless JSON interface:
 
