@@ -23,13 +23,13 @@ from dashpot.issue_sources import IssueSource
 from dashpot.model import (
     AgentRun,
     Diagnostic,
+    ObservationTarget,
+    ObservationTargetInventory,
     ProjectSnapshot,
-    Repository,
     ResolvedProject,
-    Worktree,
     to_jsonable,
 )
-from dashpot.repository import observe_github_repository_identity, parse_worktrees
+from dashpot.repository import observe_github_repository_identity
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,15 +38,21 @@ ISSUE_FIXTURE = json.loads(
 )
 
 
-def repository(root: str = "/repo") -> Repository:
-    return Repository(
+def observation_target(root: str = "/repo") -> ObservationTarget:
+    return ObservationTarget(
         root,
-        Path(root).name,
-        "main",
         "abc123",
+        "main",
         False,
-        [Worktree(root, "abc123", "main")],
+        False,
+        "available",
+        2,
+        [],
     )
+
+
+def target_inventory(root: str = "/repo") -> ObservationTargetInventory:
+    return ObservationTargetInventory([observation_target(root)], [])
 
 
 def resolved_project(
@@ -73,7 +79,7 @@ def project_snapshot(
         issue_source_status="fresh",
         issue_source_attempted_at="2026-08-24T15:00:00Z",
         issue_source_last_good_at="2026-08-24T15:00:00Z",
-        repository=repository(root),
+        observation_targets=[observation_target(root)],
         issues=issues or [issue()],
         issue_runs={"I_example/project#7": []},
         agent_runs=[],
@@ -107,22 +113,17 @@ class EmptySource(IssueSource):
         return []
 
 
+class CountingSource(FakeSource):
+    def __init__(self) -> None:
+        super().__init__()
+        self.collection_count = 0
+
+    def _collect(self) -> list[dict]:
+        self.collection_count += 1
+        return super()._collect()
+
+
 class RepositoryTests(unittest.TestCase):
-    def test_worktree_parser_keeps_branch_and_detached_state(self) -> None:
-        raw = """worktree /repo
-HEAD abc123
-branch refs/heads/main
-
-worktree /repo-worktree
-HEAD def456
-detached
-"""
-
-        result = parse_worktrees(raw)
-
-        self.assertEqual("main", result[0].branch)
-        self.assertIsNone(result[1].branch)
-
     def test_github_repository_identity_uses_durable_node_id(self) -> None:
         calls: list[tuple[list[str], Path, float]] = []
 
@@ -151,20 +152,22 @@ detached
 class ProjectCollectorTests(unittest.TestCase):
     def test_combines_declared_and_observed_state(self) -> None:
         observed = AgentRun(
-            "codex-session:1",
-            "codex",
-            "1 hook",
-            "running",
-            "/repo",
-            "/repo",
-            "main",
-            "example/project#7",
+            id="codex-session:1",
+            harness="codex",
+            process_or_session="1 hook",
+            state="running",
+            observation_target="/repo",
+            branch="main",
+            declared_issue_reference="example/project#7",
         )
         collector = ProjectCollector(
             resolved_project(),
             FakeSource(),
-            repository_observer=lambda _root: repository(),
-            agent_observer=lambda _repository: ([observed], [Diagnostic("agent", "info", "ok")]),
+            target_observer=lambda _anchors: target_inventory(),
+            agent_observer=lambda _targets: (
+                [observed],
+                [Diagnostic("agent", "info", "ok")],
+            ),
         )
 
         snapshot = collector.refresh()
@@ -182,8 +185,8 @@ class ProjectCollectorTests(unittest.TestCase):
         collector = ProjectCollector(
             resolved_project(),
             EmptySource(),
-            repository_observer=lambda _root: repository(),
-            agent_observer=lambda _repository: ([], []),
+            target_observer=lambda _anchors: target_inventory(),
+            agent_observer=lambda _targets: ([], []),
         )
 
         snapshot = collector.refresh()
@@ -193,6 +196,94 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual("project:example", payload["projectId"])
         self.assertEqual("Example", payload["displayLabel"])
         self.assertEqual("repository:example", payload["repositoryId"])
+
+    def test_observes_all_anchors_but_refreshes_issues_once(self) -> None:
+        source = CountingSource()
+        project = ResolvedProject(
+            "project:example",
+            "Example",
+            "repository:example",
+            ("personal",),
+            ("/clone-one", "/clone-two"),
+            "/clone-one",
+        )
+        target = ObservationTarget(
+            "/clone-two-linked",
+            "def456",
+            "feature",
+            False,
+            True,
+            "available",
+            7,
+            [],
+        )
+        observed_anchors: list[Path] = []
+
+        def observe_targets(anchors):
+            observed_anchors.extend(anchors)
+            return ObservationTargetInventory([target], [])
+
+        collector = ProjectCollector(
+            project,
+            source,
+            target_observer=observe_targets,
+            agent_observer=lambda _targets: ([], []),
+        )
+
+        snapshot = collector.refresh()
+
+        self.assertEqual([Path("/clone-one"), Path("/clone-two")], observed_anchors)
+        self.assertEqual([target], snapshot.observation_targets)
+        self.assertEqual(1, len(snapshot.issues))
+        self.assertEqual(1, source.collection_count)
+        self.assertEqual(
+            "/clone-two-linked",
+            to_jsonable(snapshot)["observationTargets"][0]["path"],
+        )
+
+    def test_unavailable_target_does_not_degrade_issue_source(self) -> None:
+        target = observation_target()
+        target.availability = "unavailable"
+        target.dirty = None
+        target.diagnostics.append(
+            Diagnostic(
+                "target:/repo",
+                "warning",
+                "target unavailable",
+                "target-inaccessible",
+            )
+        )
+        collector = ProjectCollector(
+            resolved_project(),
+            FakeSource(),
+            target_observer=lambda _anchors: ObservationTargetInventory(
+                [target], []
+            ),
+            agent_observer=lambda _targets: ([], []),
+        )
+
+        snapshot = collector.refresh()
+
+        self.assertEqual("fresh", snapshot.issue_source_status)
+        self.assertEqual(1, len(snapshot.issues))
+        self.assertEqual("unavailable", snapshot.observation_targets[0].availability)
+
+    def test_target_observer_failure_preserves_fresh_issues(self) -> None:
+        collector = ProjectCollector(
+            resolved_project(),
+            FakeSource(),
+            target_observer=lambda _anchors: (_ for _ in ()).throw(
+                RuntimeError("target discovery crashed")
+            ),
+            agent_observer=lambda _targets: ([], []),
+        )
+
+        snapshot = collector.refresh()
+
+        self.assertEqual("fresh", snapshot.issue_source_status)
+        self.assertEqual(1, len(snapshot.issues))
+        self.assertEqual([], snapshot.observation_targets)
+        self.assertEqual("target-discovery", snapshot.diagnostics[0].code)
 
 
 class HookObserverTests(unittest.TestCase):
@@ -204,15 +295,23 @@ class HookObserverTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def write(self, session_id: str, state: str, process: ProcessIdentity | None = None) -> None:
+    def write(
+        self,
+        session_id: str,
+        state: str,
+        process: ProcessIdentity | None = None,
+        *,
+        cwd: str = "/repo",
+        repository_root: str = "/repo",
+    ) -> None:
         write_hook_record(
             {
                 "version": 1,
                 "sessionId": session_id,
                 "harness": "codex",
                 "state": state,
-                "cwd": "/repo",
-                "repositoryRoot": "/repo",
+                "cwd": cwd,
+                "repositoryRoot": repository_root,
                 "branch": "main",
                 "declaredIssueReference": "example/project#7",
                 "event": "Stop" if state == "waiting" else "PreToolUse",
@@ -226,7 +325,7 @@ class HookObserverTests(unittest.TestCase):
         self.write("live", "waiting", self.process)
 
         runs, diagnostics = observe_hook_runs(
-            repository(),
+            [observation_target()],
             self.state_dir,
             lookup=lambda _pid: self.process,
             isolated=False,
@@ -236,12 +335,52 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual("example/project#7", runs[0].declared_issue_reference)
         self.assertEqual([], diagnostics)
 
+    def test_linked_worktree_record_is_associated_with_its_target(self) -> None:
+        linked = observation_target("/repo-linked")
+        linked.branch = "feature"
+        self.write(
+            "linked",
+            "running",
+            self.process,
+            cwd="/repo-linked/src",
+            repository_root="/repo-linked",
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            [observation_target(), linked],
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual("/repo-linked", runs[0].observation_target)
+
+    def test_recorded_root_and_cwd_must_resolve_to_the_same_target(self) -> None:
+        self.write(
+            "mismatch",
+            "running",
+            self.process,
+            cwd="/outside-project",
+            repository_root="/repo",
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            [observation_target()],
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], runs)
+        self.assertEqual("agent-target-mismatch", diagnostics[0].code)
+
     def test_ended_and_orphaned_records_are_not_active(self) -> None:
         self.write("ended", "ended", self.process)
         self.write("orphaned", "running", self.process)
 
         runs, diagnostics = observe_hook_runs(
-            repository(),
+            [observation_target()],
             self.state_dir,
             lookup=lambda _pid: None,
             isolated=False,
@@ -255,7 +394,7 @@ class HookObserverTests(unittest.TestCase):
         self.write("sandboxed", "running", self.process)
 
         runs, diagnostics = observe_hook_runs(
-            repository(),
+            [observation_target()],
             self.state_dir,
             lookup=lambda _pid: None,
             isolated=True,
@@ -267,7 +406,9 @@ class HookObserverTests(unittest.TestCase):
     def test_malformed_record_becomes_diagnostic(self) -> None:
         (self.state_dir / "bad.json").write_text(json.dumps({"version": 99}))
 
-        runs, diagnostics = observe_hook_runs(repository(), self.state_dir)
+        runs, diagnostics = observe_hook_runs(
+            [observation_target()], self.state_dir
+        )
 
         self.assertEqual([], runs)
         self.assertIn("unsupported record", diagnostics[0].message)

@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 
-from dashpot.model import Repository, RepositoryAnchor, Workspace, Worktree
+from dashpot.model import RepositoryAnchor, Workspace
 from dashpot.workspace import load_workspaces, resolve_workspace_projects
 
 
@@ -34,16 +34,8 @@ def write_project(
     )
 
 
-def repository_observer(path: Path) -> Repository:
-    root = path.resolve()
-    return Repository(
-        str(root),
-        root.name,
-        "main",
-        "abc123",
-        False,
-        [Worktree(str(root), "abc123", "main")],
-    )
+def root_observer(path: Path) -> Path:
+    return path.resolve()
 
 
 def workspace(name: str, *roots: Path) -> Workspace:
@@ -101,7 +93,7 @@ def test_independent_clones_resolve_to_one_project_with_one_primary_anchor(
 
     result = resolve_workspace_projects(
         [workspace("personal", first, second)],
-        repository_observer=repository_observer,
+        root_observer=root_observer,
     )
 
     assert result.diagnostics == []
@@ -121,13 +113,13 @@ def test_same_project_can_belong_to_two_workspaces_and_each_anchor_is_validated(
     write_project(root)
     observed: list[Path] = []
 
-    def observe(path: Path) -> Repository:
+    def observe(path: Path) -> Path:
         observed.append(path)
-        return repository_observer(path)
+        return root_observer(path)
 
     result = resolve_workspace_projects(
         [workspace("personal", root), workspace("client", root)],
-        repository_observer=observe,
+        root_observer=observe,
     )
 
     assert observed == [root.resolve(), root.resolve()]
@@ -145,7 +137,7 @@ def test_display_label_drift_does_not_split_project_identity(
 
     result = resolve_workspace_projects(
         [workspace("personal", primary, stale_clone)],
-        repository_observer=repository_observer,
+        root_observer=root_observer,
     )
 
     assert result.diagnostics == []
@@ -160,10 +152,10 @@ def test_moving_checkout_changes_only_anchor_location(tmp_path: Path) -> None:
     write_project(after)
 
     old = resolve_workspace_projects(
-        [workspace("personal", before)], repository_observer=repository_observer
+        [workspace("personal", before)], root_observer=root_observer
     ).projects[0]
     moved = resolve_workspace_projects(
-        [workspace("personal", after)], repository_observer=repository_observer
+        [workspace("personal", after)], root_observer=root_observer
     ).projects[0]
 
     assert old.project_id == moved.project_id
@@ -182,7 +174,7 @@ def test_conflicting_repository_identities_never_form_a_project(
 
     result = resolve_workspace_projects(
         [workspace("personal", original, copied)],
-        repository_observer=repository_observer,
+        root_observer=root_observer,
     )
 
     assert result.projects == []
@@ -211,7 +203,7 @@ def test_conflicting_issue_sources_never_form_a_project(tmp_path: Path) -> None:
     ):
         result = resolve_workspace_projects(
             [workspace("personal", github_clone, markdown_clone)],
-            repository_observer=repository_observer,
+            root_observer=root_observer,
             github_identity_observer=lambda _root, _reference, _timeout: (
                 "R_dashpot",
                 "ned2/dashpot",
@@ -238,7 +230,7 @@ def test_github_fork_retaining_project_identity_is_diagnosed(
     ):
         result = resolve_workspace_projects(
             [workspace("personal", fork)],
-            repository_observer=repository_observer,
+            root_observer=root_observer,
             github_identity_observer=lambda _root, _reference, _timeout: (
                 "R_fork",
                 "someone/fork",

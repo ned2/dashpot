@@ -10,7 +10,7 @@ from .app import DashpotApp
 from .collect import WorkspaceCollector
 from .model import RepositoryAnchor, Workspace, to_jsonable
 from .project_config import PROJECT_CONFIG_NAME
-from .repository import observe_repository
+from .repository import worktree_root
 from .workspace import (
     default_workspace_config,
     load_workspaces,
@@ -107,14 +107,14 @@ def create_collector(args: argparse.Namespace) -> WorkspaceCollector:
     else:
         current = Path.cwd().resolve()
         try:
-            repository_root = Path(observe_repository(current).root)
+            project_root = worktree_root(current)
         except RuntimeError:
-            repository_root = current
-        if (repository_root / PROJECT_CONFIG_NAME).is_file():
+            project_root = current
+        if (project_root / PROJECT_CONFIG_NAME).is_file():
             workspaces = [
                 Workspace(
-                    repository_root.name,
-                    (RepositoryAnchor(str(repository_root)),),
+                    project_root.name,
+                    (RepositoryAnchor(str(project_root)),),
                 )
             ]
         else:

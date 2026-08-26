@@ -11,12 +11,10 @@ from dashpot import cli
 from dashpot.agents import ProcessIdentity
 from dashpot.hook import publish_from_stream
 from dashpot.model import (
-    Repository,
     RepositoryAnchor,
     ResolvedProject,
     Workspace,
     WorkspaceSnapshot,
-    Worktree,
 )
 from dashpot.workspace import WorkspaceResolution
 
@@ -29,17 +27,6 @@ def project(root: Path) -> ResolvedProject:
         ("test",),
         (str(root),),
         str(root),
-    )
-
-
-def repository(root: Path) -> Repository:
-    return Repository(
-        str(root),
-        root.name,
-        "main",
-        "abc123",
-        False,
-        [Worktree(str(root), "abc123", "main")],
     )
 
 
@@ -77,7 +64,7 @@ def test_no_argument_cli_defaults_to_configured_current_project(
     args = cli.build_parser().parse_args([])
 
     resolution = WorkspaceResolution([project(tmp_path)], [])
-    with mock.patch.object(cli, "observe_repository", return_value=repository(tmp_path)), \
+    with mock.patch.object(cli, "worktree_root", return_value=tmp_path), \
         mock.patch.object(cli, "load_workspaces") as load_workspaces, \
         mock.patch.object(
             cli, "resolve_workspace_projects", return_value=resolution
@@ -104,7 +91,7 @@ def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
     resolution = WorkspaceResolution([project(project_root)], [])
 
     with mock.patch.object(
-        cli, "observe_repository", return_value=repository(project_root)
+        cli, "worktree_root", return_value=project_root
     ), mock.patch.object(
         cli, "resolve_workspace_projects", return_value=resolution
     ) as resolve:

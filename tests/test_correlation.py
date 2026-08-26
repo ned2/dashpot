@@ -14,8 +14,7 @@ def run(reference: str | None = None, branch: str | None = None) -> AgentRun:
         harness="codex",
         process_or_session="1 hook",
         state="running",
-        repository_root="/repo",
-        worktree="/repo",
+        observation_target="/repo",
         branch=branch,
         declared_issue_reference=reference,
     )

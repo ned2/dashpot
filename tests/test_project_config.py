@@ -9,7 +9,7 @@ import pytest
 from dashpot.collect import create_project_collector
 from dashpot.github_issues import GitHubIssuesSource
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
-from dashpot.model import Repository, ResolvedProject, Worktree
+from dashpot.model import ResolvedProject
 from dashpot.project_config import (
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
@@ -30,17 +30,6 @@ def write_config(root: Path, issue_source: dict) -> None:
                 "issueSource": issue_source,
             }
         )
-    )
-
-
-def repository(root: Path) -> Repository:
-    return Repository(
-        str(root),
-        root.name,
-        "main",
-        "abc123",
-        False,
-        [Worktree(str(root), "abc123", "main")],
     )
 
 
@@ -97,7 +86,7 @@ def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
     write_config(tmp_path, {"kind": "markdown", "path": "issues"})
 
     with mock.patch(
-        "dashpot.collect.observe_repository", return_value=repository(tmp_path)
+        "dashpot.collect.worktree_root", return_value=tmp_path
     ):
         collector = create_project_collector(project(tmp_path))
 
@@ -112,7 +101,7 @@ def test_project_collector_builds_github_source_for_github_anchor(
     write_config(tmp_path, {"kind": "github"})
 
     with mock.patch(
-        "dashpot.collect.observe_repository", return_value=repository(tmp_path)
+        "dashpot.collect.worktree_root", return_value=tmp_path
     ), mock.patch(
         "dashpot.collect.github_repo_from_remote", return_value="ned2/dashpot"
     ):
@@ -128,7 +117,7 @@ def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None
     write_config(tmp_path, {"kind": "github"})
 
     with mock.patch(
-        "dashpot.collect.observe_repository", return_value=repository(tmp_path)
+        "dashpot.collect.worktree_root", return_value=tmp_path
     ), mock.patch("dashpot.collect.github_repo_from_remote", return_value=None):
         with pytest.raises(RuntimeError, match="GitHub origin remote"):
             create_project_collector(project(tmp_path))

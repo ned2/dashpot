@@ -14,10 +14,11 @@ from .local_markdown_issues import LocalMarkdownIssuesSource
 from .model import (
     AgentRun,
     Diagnostic,
+    ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
-    Repository,
     ResolvedProject,
+    ObservationTargetInventory,
     WorkspaceSnapshot,
 )
 from .project_config import (
@@ -25,11 +26,19 @@ from .project_config import (
     LocalMarkdownIssueSourceConfig,
     load_project_config,
 )
-from .repository import github_repo_from_remote, observe_repository
+from .repository import (
+    github_repo_from_remote,
+    observe_observation_targets,
+    worktree_root,
+)
 
 
-AgentObserver = Callable[[Repository], tuple[list[AgentRun], list[Diagnostic]]]
-RepositoryObserver = Callable[[Path], Repository]
+AgentObserver = Callable[
+    [Sequence[ObservationTarget]], tuple[list[AgentRun], list[Diagnostic]]
+]
+ObservationTargetObserver = Callable[
+    [Sequence[Path]], ObservationTargetInventory
+]
 
 
 class ProjectCollector:
@@ -37,21 +46,38 @@ class ProjectCollector:
         self,
         project: ResolvedProject,
         source: IssueSource,
-        repository_observer: RepositoryObserver = observe_repository,
+        target_observer: ObservationTargetObserver = observe_observation_targets,
         agent_observer: AgentObserver = observe_hook_runs,
     ) -> None:
         self.project = project
         self.root = Path(project.primary_anchor)
         self.source = source
-        self.repository_observer = repository_observer
+        self.target_observer = target_observer
         self.agent_observer = agent_observer
 
     def refresh(self) -> ProjectSnapshot:
-        repository = self.repository_observer(self.root)
         issue_observation = self.source.refresh()
-        agent_runs, agent_diagnostics = self.agent_observer(repository)
+        try:
+            target_inventory = self.target_observer(
+                [Path(anchor) for anchor in self.project.anchors]
+            )
+        except (OSError, RuntimeError) as exc:
+            target_inventory = ObservationTargetInventory(
+                [],
+                [
+                    Diagnostic(
+                        f"project:{self.project.project_id}",
+                        "warning",
+                        f"Cannot discover Observation Targets: {exc}",
+                        "target-discovery",
+                    )
+                ],
+            )
+        agent_runs, agent_diagnostics = self.agent_observer(
+            target_inventory.targets
+        )
         issue_runs = correlate_issues(issue_observation.issues, agent_runs)
-        diagnostics = list(agent_diagnostics)
+        diagnostics = [*target_inventory.diagnostics, *agent_diagnostics]
         diagnostics[0:0] = [
             Diagnostic(
                 diagnostic.source,
@@ -69,7 +95,7 @@ class ProjectCollector:
             issue_source_status=issue_observation.status,
             issue_source_attempted_at=issue_observation.attempted_at,
             issue_source_last_good_at=issue_observation.last_good_at,
-            repository=repository,
+            observation_targets=target_inventory.targets,
             issues=issue_observation.issues,
             issue_runs=issue_runs,
             agent_runs=agent_runs,
@@ -83,8 +109,7 @@ def create_project_collector(
     state_dir: Path | None = None,
 ) -> ProjectCollector:
     requested_root = Path(project.primary_anchor)
-    repository = observe_repository(requested_root)
-    root = Path(repository.root)
+    root = worktree_root(requested_root)
     config = load_project_config(root)
     if (
         config.project_id != project.project_id
@@ -119,7 +144,10 @@ def create_project_collector(
     return ProjectCollector(
         project,
         source,
-        agent_observer=lambda current: observe_hook_runs(current, state_dir),
+        target_observer=lambda anchors: observe_observation_targets(
+            anchors, timeout=timeout
+        ),
+        agent_observer=lambda targets: observe_hook_runs(targets, state_dir),
     )
 
 

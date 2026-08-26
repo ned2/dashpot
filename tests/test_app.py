@@ -20,12 +20,11 @@ from dashpot.app import (
 from dashpot.model import (
     AgentRun,
     Diagnostic,
+    ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
-    Repository,
     SourceStatus,
     WorkspaceSnapshot,
-    Worktree,
 )
 
 
@@ -53,13 +52,15 @@ def workspace_snapshot(
     diagnostics: list[Diagnostic] | None = None,
     elapsed_ms: int = 12,
 ) -> WorkspaceSnapshot:
-    repository = Repository(
-        root="/repo",
-        name="repo",
-        branch="main",
+    target = ObservationTarget(
+        path="/repo",
         head="abcdef123456",
+        branch="main",
+        detached=False,
         dirty=False,
-        worktrees=[Worktree("/repo", "abcdef123456", "main")],
+        availability="available",
+        elapsed_ms=3,
+        diagnostics=[],
     )
     project_snapshot = ProjectSnapshot(
         project_id="project:test-repo",
@@ -69,7 +70,7 @@ def workspace_snapshot(
         issue_source_status=status,
         issue_source_attempted_at=NOW,
         issue_source_last_good_at=NOW if status != "unavailable" else None,
-        repository=repository,
+        observation_targets=[target],
         issues=list(issues),
         issue_runs={item["id"]: [] for item in issues},
         agent_runs=runs or [],
@@ -166,6 +167,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert app.selected_row_key == "I_test/repo#1"
         assert "Status: fresh" in project_detail
         assert "Anchor: /repo" in project_detail
+        assert "Observation Targets: 1" in project_detail
+        assert "main@abcdef12 clean" in project_detail
+        assert "0 agents · /repo" in project_detail
         assert "test/repo" not in project_detail
         assert "Refresh:" not in project_detail
         assert "First" in selection_detail
@@ -252,14 +256,44 @@ async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
 
 
 @pytest.mark.asyncio
+async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    target = snapshot.projects[0].snapshot.observation_targets[0]
+    target.availability = "unavailable"
+    target.branch = None
+    target.detached = False
+    target.dirty = None
+    target.diagnostics.append(
+        Diagnostic(
+            "target:/repo",
+            "warning",
+            "Observation Target is prunable",
+            "target-prunable",
+        )
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: app.snapshot is snapshot)
+
+        assert app.query_one("#queue", DataTable).row_count == 1
+        assert "prunable" in str(app.query_one("#diagnostics", Static).render())
+        assert "unavailable" in str(
+            app.query_one("#project-detail", Static).render()
+        )
+        assert "unknown@abcdef12" in str(
+            app.query_one("#project-detail", Static).render()
+        )
+
+
+@pytest.mark.asyncio
 async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
     run = AgentRun(
         id="codex-session:42",
         harness="codex",
         process_or_session="42",
         state="waiting",
-        repository_root="/repo",
-        worktree="/repo",
+        observation_target="/repo",
         branch="main",
         declared_issue_reference=None,
     )
@@ -308,8 +342,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
         harness="codex",
         process_or_session="42",
         state="waiting",
-        repository_root="/repo",
-        worktree="/repo",
+        observation_target="/repo",
         branch="issue/1",
         declared_issue_reference=selected_issue["reference"],
     )

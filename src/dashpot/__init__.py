@@ -4,8 +4,8 @@ from .model import (
     AgentRun,
     Diagnostic,
     Issue,
+    ObservationTarget,
     ProjectSnapshot,
-    Repository,
     WorkspaceSnapshot,
 )
 
@@ -13,7 +13,7 @@ __all__ = [
     "AgentRun",
     "Diagnostic",
     "Issue",
+    "ObservationTarget",
     "ProjectSnapshot",
-    "Repository",
     "WorkspaceSnapshot",
 ]

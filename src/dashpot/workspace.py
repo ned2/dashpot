@@ -9,7 +9,6 @@ from typing import Any, Callable, Sequence
 
 from .model import (
     Diagnostic,
-    Repository,
     RepositoryAnchor,
     ResolvedProject,
     Workspace,
@@ -22,11 +21,11 @@ from .project_config import (
 from .repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
-    observe_repository,
+    worktree_root,
 )
 
 
-RepositoryObserver = Callable[[Path], Repository]
+RootObserver = Callable[[Path], Path]
 GitHubIdentityObserver = Callable[[Path, str, float], tuple[str, str]]
 
 
@@ -124,7 +123,7 @@ def resolve_workspace_projects(
     workspaces: Sequence[Workspace],
     *,
     timeout: float = 10,
-    repository_observer: RepositoryObserver = observe_repository,
+    root_observer: RootObserver = worktree_root,
     github_identity_observer: GitHubIdentityObserver = observe_github_repository_identity,
 ) -> WorkspaceResolution:
     """Validate every anchor, then group valid clones by Project Identity."""
@@ -138,7 +137,7 @@ def resolve_workspace_projects(
                         workspace.name,
                         anchor,
                         timeout,
-                        repository_observer,
+                        root_observer,
                         github_identity_observer,
                     )
                 )
@@ -216,7 +215,7 @@ def _resolve_anchor(
     workspace: str,
     anchor: RepositoryAnchor,
     timeout: float,
-    repository_observer: RepositoryObserver,
+    root_observer: RootObserver,
     github_identity_observer: GitHubIdentityObserver,
 ) -> _ResolvedAnchor:
     requested = Path(anchor.path)
@@ -225,8 +224,7 @@ def _resolve_anchor(
             "repository-anchor",
             f"Repository Anchor does not exist or is not a directory: {requested}"
         )
-    repository = repository_observer(requested)
-    root = Path(repository.root).resolve()
+    root = root_observer(requested).resolve()
     config = load_project_config(root)
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
         reference = github_repo_from_remote(root)

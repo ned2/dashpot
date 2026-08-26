@@ -78,6 +78,14 @@ Repository Identity are presented as one Project. Anchor order is significant:
 the first valid anchor for a Project supplies its display label and is the
 authoritative checkout used for Issue collection.
 
+On every refresh, Dashpot asks Git for the main and linked worktrees reachable
+from every configured anchor. These runtime Observation Targets are deduplicated
+by path and report branch or detached state, HEAD, dirty state, availability,
+elapsed time, and target-specific diagnostics. Locked, prunable, missing, and
+inaccessible targets remain visible without degrading the Project's Issue
+Source. Target inventory is never persisted, and Project-level Issues are still
+collected exactly once from the authoritative anchor.
+
 The same collector has a headless JSON interface:
 
 ```bash

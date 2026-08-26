@@ -250,6 +250,8 @@ class DashpotApp(App[None]):
                 diagnostics = list(project.diagnostics)
                 if project.snapshot:
                     diagnostics.extend(project.snapshot.diagnostics)
+                    for target in project.snapshot.observation_targets:
+                        diagnostics.extend(target.diagnostics)
                 messages.extend(
                     f"{project_label(project)} · {diagnostic.source}: {diagnostic.message}"
                     for diagnostic in diagnostics
@@ -320,15 +322,25 @@ def project_detail_text(project: ProjectObservation) -> str:
     ]
     snapshot = project.snapshot
     if snapshot:
-        repository = snapshot.repository
-        lines.extend(
-            [
-                f"Git: {repository.branch or 'detached'}@{repository.head[:8]}"
-                f" {'dirty' if repository.dirty else 'clean'}",
-                f"Worktrees: {len(repository.worktrees)}",
-                f"Observed agents: {len(snapshot.agent_runs)}",
-            ]
-        )
+        lines.append(f"Observation Targets: {len(snapshot.observation_targets)}")
+        for target in snapshot.observation_targets:
+            state = (
+                "unavailable"
+                if target.availability == "unavailable"
+                else "dirty" if target.dirty else "clean"
+            )
+            branch = target.branch or (
+                "detached" if target.detached else "unknown"
+            )
+            run_count = sum(
+                run.observation_target == target.path
+                for run in snapshot.agent_runs
+            )
+            lines.append(
+                f"  {branch}@{target.head[:8]} {state} · {target.elapsed_ms} ms · "
+                f"{run_count} agent{'s' if run_count != 1 else ''} · {target.path}"
+            )
+        lines.append(f"Observed agents: {len(snapshot.agent_runs)}")
     return "\n".join(lines)
 
 
@@ -378,7 +390,7 @@ def selection_detail_text(context: RowContext) -> str:
                     continue
                 location = (
                     run.branch
-                    or run.worktree
+                    or run.observation_target
                     or run.working_directory
                     or "unknown location"
                 )
@@ -391,7 +403,7 @@ def selection_detail_text(context: RowContext) -> str:
                 f"Run: {run.id}",
                 f"State: {run.state}",
                 f"Issue reference: {run.declared_issue_reference or '-'}",
-                f"Worktree: {run.worktree or '-'}",
+                f"Observation target: {run.observation_target or '-'}",
                 f"Branch: {run.branch or '-'}",
                 f"Working directory: {run.working_directory or '-'}",
                 f"Last activity: {run.last_activity_at or '-'}",

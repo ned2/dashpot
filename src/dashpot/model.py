@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeAlias
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
+TargetAvailability = Literal["available", "unavailable"]
 Issue: TypeAlias = dict[str, Any]
 
 
@@ -18,20 +19,21 @@ class Diagnostic:
 
 
 @dataclass(slots=True)
-class Worktree:
+class ObservationTarget:
     path: str
     head: str
     branch: str | None
+    detached: bool
+    dirty: bool | None
+    availability: TargetAvailability
+    elapsed_ms: int
+    diagnostics: list[Diagnostic]
 
 
 @dataclass(slots=True)
-class Repository:
-    root: str
-    name: str
-    branch: str | None
-    head: str
-    dirty: bool
-    worktrees: list[Worktree]
+class ObservationTargetInventory:
+    targets: list[ObservationTarget]
+    diagnostics: list[Diagnostic]
 
 
 @dataclass(slots=True)
@@ -40,8 +42,7 @@ class AgentRun:
     harness: str
     process_or_session: str
     state: RunState
-    repository_root: str | None
-    worktree: str | None
+    observation_target: str | None
     branch: str | None
     declared_issue_reference: str | None
     working_directory: str | None = None
@@ -57,7 +58,7 @@ class ProjectSnapshot:
     issue_source_status: SourceStatus
     issue_source_attempted_at: str
     issue_source_last_good_at: str | None
-    repository: Repository
+    observation_targets: list[ObservationTarget]
     issues: list[Issue]
     issue_runs: dict[str, list[str]]
     agent_runs: list[AgentRun]

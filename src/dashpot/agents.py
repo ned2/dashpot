@@ -9,9 +9,9 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 
-from .model import AgentRun, Diagnostic, Repository, RunState
+from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .repository import git, is_within
 
 
@@ -156,10 +156,10 @@ def build_hook_record(
     if issue_reference and not ISSUE_REFERENCE.fullmatch(issue_reference):
         raise RuntimeError("DASHPOT_ISSUE_REF must be a whitespace-free Issue Reference")
     try:
-        repository_root = git(cwd, "rev-parse", "--show-toplevel", timeout=2)
+        observed_target = git(cwd, "rev-parse", "--show-toplevel", timeout=2)
         branch = git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2)
     except RuntimeError:
-        repository_root = None
+        observed_target = None
         branch = None
     return {
         "version": 1,
@@ -167,7 +167,7 @@ def build_hook_record(
         "harness": "codex",
         "state": state,
         "cwd": str(cwd),
-        "repositoryRoot": repository_root,
+        "repositoryRoot": observed_target,
         "branch": branch,
         "declaredIssueReference": issue_reference,
         "event": event_name,
@@ -221,7 +221,7 @@ def publish_hook_event(
 
 
 def observe_hook_runs(
-    repository: Repository,
+    targets: Sequence[ObservationTarget],
     directory: Path | None = None,
     lookup: ProcessLookup = process_info,
     isolated: bool | None = None,
@@ -237,7 +237,9 @@ def observe_hook_runs(
             raw: Any = json.loads(path.read_text())
             if not isinstance(raw, dict) or raw.get("version") != 1:
                 raise ValueError("unsupported record shape or version")
-            run, diagnostic = record_to_run(raw, repository, lookup, namespace_isolated)
+            run, diagnostic = record_to_run(
+                raw, targets, lookup, namespace_isolated
+            )
             if run:
                 runs.append(run)
             if diagnostic:
@@ -251,7 +253,7 @@ def observe_hook_runs(
 
 def record_to_run(
     raw: dict[str, Any],
-    repository: Repository,
+    targets: Sequence[ObservationTarget],
     lookup: ProcessLookup,
     isolated: bool,
 ) -> tuple[AgentRun | None, Diagnostic | None]:
@@ -264,7 +266,10 @@ def record_to_run(
         return None, None
     if event_state not in {"running", "waiting"}:
         raise ValueError(f"unsupported active state: {event_state!r}")
-    if not belongs_to_repository(raw, cwd, repository):
+    target, target_diagnostic = locate_observation_target(raw, cwd, targets)
+    if target_diagnostic:
+        return None, target_diagnostic
+    if target is None:
         return None, None
 
     alive = process_is_same(raw.get("sessionProcess"), lookup, isolated)
@@ -282,24 +287,14 @@ def record_to_run(
             "warning",
             f"Codex run {session_id} liveness is unknown: host process identity is unavailable",
         )
-    cwd_path = Path(cwd).resolve()
-    worktree = next(
-        (
-            candidate
-            for candidate in repository.worktrees
-            if is_within(cwd_path, Path(candidate.path))
-        ),
-        None,
-    )
     return (
         AgentRun(
             id=f"codex-session:{session_id}",
             harness="codex",
             process_or_session=f"{session_id} hook",
             state=state,
-            repository_root=repository.root,
-            worktree=worktree.path if worktree else None,
-            branch=optional_string(raw.get("branch")) or (worktree.branch if worktree else None),
+            observation_target=target.path,
+            branch=optional_string(raw.get("branch")) or target.branch,
             declared_issue_reference=optional_string(
                 raw.get("declaredIssueReference")
             ),
@@ -310,11 +305,45 @@ def record_to_run(
     )
 
 
-def belongs_to_repository(raw: dict[str, Any], cwd: str, repository: Repository) -> bool:
+def locate_observation_target(
+    raw: dict[str, Any],
+    cwd: str,
+    targets: Sequence[ObservationTarget],
+) -> tuple[ObservationTarget | None, Diagnostic | None]:
+    available = [
+        target for target in targets if target.availability == "available"
+    ]
+    cwd_path = Path(cwd).resolve()
+    cwd_matches = [
+        target
+        for target in available
+        if is_within(cwd_path, Path(target.path).resolve())
+    ]
+    cwd_target = max(cwd_matches, key=lambda item: len(item.path), default=None)
     repository_root = optional_string(raw.get("repositoryRoot"))
-    if repository_root:
-        return Path(repository_root).resolve() == Path(repository.root).resolve()
-    return is_within(Path(cwd).resolve(), Path(repository.root).resolve())
+    if not repository_root:
+        return cwd_target, None
+    root_path = Path(repository_root).resolve()
+    root_target = next(
+        (
+            target
+            for target in available
+            if Path(target.path).resolve() == root_path
+        ),
+        None,
+    )
+    if root_target is None:
+        return None, None
+    if cwd_target is None or cwd_target.path != root_target.path:
+        session_id = optional_string(raw.get("sessionId")) or "unknown"
+        return None, Diagnostic(
+            "dashpot-codex-hook",
+            "warning",
+            f"Ignoring Codex run {session_id}: recorded Repository root and "
+            "working directory resolve to different Observation Targets",
+            "agent-target-mismatch",
+        )
+    return root_target, None
 
 
 def process_is_same(
