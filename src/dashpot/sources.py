@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .commands import CommandRunner, run_command
-from .model import BlockedState, Diagnostic, Location, TaskObservation, WorkItem
+from .model import BlockedState, Diagnostic, Location, Task, TaskObservation
 
 
 PRIORITY_FROM_LABEL = {
@@ -35,32 +35,32 @@ class TaskSource:
     """Backend adapter which preserves the last good value across refresh failures."""
 
     def __init__(self) -> None:
-        self._last_good: list[WorkItem] | None = None
+        self._last_good: list[Task] | None = None
         self._last_good_at: str | None = None
 
     @property
     def name(self) -> str:
         raise NotImplementedError
 
-    def collect(self) -> list[WorkItem]:
+    def collect(self) -> list[Task]:
         raise NotImplementedError
 
     def refresh(self) -> TaskObservation:
         attempted_at = now_iso()
         try:
-            work_items = self.collect()
+            tasks = self.collect()
         except RuntimeError as exc:
             severity = "warning" if self._last_good is not None else "error"
             return TaskObservation(
                 status="stale" if self._last_good is not None else "unavailable",
                 attempted_at=attempted_at,
                 last_good_at=self._last_good_at,
-                work_items=copy.deepcopy(self._last_good or []),
+                tasks=copy.deepcopy(self._last_good or []),
                 diagnostic=Diagnostic(self.name, severity, str(exc)),
             )
-        self._last_good = copy.deepcopy(work_items)
+        self._last_good = copy.deepcopy(tasks)
         self._last_good_at = attempted_at
-        return TaskObservation("fresh", attempted_at, attempted_at, work_items)
+        return TaskObservation("fresh", attempted_at, attempted_at, tasks)
 
 
 class LocalTasksSource(TaskSource):
@@ -81,12 +81,12 @@ class LocalTasksSource(TaskSource):
     def name(self) -> str:
         return "tasks-md"
 
-    def collect(self) -> list[WorkItem]:
+    def collect(self) -> list[Task]:
         result = self.runner([self.command, "list", "--json"], self.root, self.timeout)
         if result.returncode != 0:
             detail = result.stderr.strip() or f"exit {result.returncode}"
             raise RuntimeError(f"tasks list failed: {detail}")
-        items: list[WorkItem] = []
+        tasks: list[Task] = []
         for record in parse_json_array(result.stdout, "tasks list"):
             item_id = optional_string(record.get("id"))
             file = optional_string(record.get("file"))
@@ -101,8 +101,8 @@ class LocalTasksSource(TaskSource):
             blocked: BlockedState = (
                 record["blocked"] if isinstance(record.get("blocked"), bool) else "unknown"
             )
-            items.append(
-                WorkItem(
+            tasks.append(
+                Task(
                     key=f"tasks-md:{self.root}:{identity}",
                     source="tasks-md",
                     title=require_string(record, "summary", "tasks list"),
@@ -113,7 +113,7 @@ class LocalTasksSource(TaskSource):
                     location=Location(file=file, line=line) if file or line else None,
                 )
             )
-        return items
+        return tasks
 
 
 class GitHubIssuesSource(TaskSource):
@@ -136,7 +136,7 @@ class GitHubIssuesSource(TaskSource):
     def name(self) -> str:
         return "github-issues"
 
-    def collect(self) -> list[WorkItem]:
+    def collect(self) -> list[Task]:
         args = [
             "gh",
             "issue",
@@ -156,11 +156,11 @@ class GitHubIssuesSource(TaskSource):
         if result.returncode != 0:
             detail = result.stderr.strip() or f"exit {result.returncode}"
             raise RuntimeError(f"gh issue list failed: {detail}")
-        items = [self.normalize(record) for record in parse_json_array(result.stdout, "gh issue list")]
-        items.sort(key=lambda item: priority_rank(item.priority))
-        return items
+        tasks = [self.normalize(record) for record in parse_json_array(result.stdout, "gh issue list")]
+        tasks.sort(key=lambda task: priority_rank(task.priority))
+        return tasks
 
-    def normalize(self, record: dict[str, Any]) -> WorkItem:
+    def normalize(self, record: dict[str, Any]) -> Task:
         number = record.get("number")
         if not isinstance(number, int):
             raise RuntimeError("gh issue list item has no numeric issue number")
@@ -181,7 +181,7 @@ class GitHubIssuesSource(TaskSource):
             if label.lower() != self.label.lower()
             and label.lower() not in PRIORITY_FROM_LABEL
         ]
-        return WorkItem(
+        return Task(
             key=f"github:{self.repo}#{number}",
             source="github-issues",
             title=require_string(record, "title", "gh issue list"),

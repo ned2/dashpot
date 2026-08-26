@@ -21,7 +21,7 @@ from dashpot.model import (
     ProjectSnapshot,
     Repository,
     SourceStatus,
-    WorkItem,
+    Task,
     WorkspaceSnapshot,
     Worktree,
 )
@@ -30,8 +30,8 @@ from dashpot.model import (
 NOW = "2026-08-25T01:00:00Z"
 
 
-def work_item(key: str, title: str, priority: str = "P1") -> WorkItem:
-    return WorkItem(
+def task(key: str, title: str, priority: str = "P1") -> Task:
+    return Task(
         key=key,
         source="github-issues",
         title=title,
@@ -44,7 +44,7 @@ def work_item(key: str, title: str, priority: str = "P1") -> WorkItem:
 
 
 def workspace_snapshot(
-    *items: WorkItem,
+    *tasks: Task,
     runs: list[AgentRun] | None = None,
     status: SourceStatus = "fresh",
     diagnostics: list[Diagnostic] | None = None,
@@ -64,7 +64,7 @@ def workspace_snapshot(
         task_source_attempted_at=NOW,
         task_source_last_good_at=NOW if status != "unavailable" else None,
         repository=repository,
-        work_items=list(items),
+        tasks=list(tasks),
         agent_runs=runs or [],
         diagnostics=diagnostics or [],
     )
@@ -125,8 +125,8 @@ def assert_context_above_full_width_queue(app: DashpotApp) -> None:
 @pytest.mark.asyncio
 async def test_initial_refresh_populates_queue_and_detail() -> None:
     snapshot = workspace_snapshot(
-        work_item("github:test/repo#1", "First"),
-        work_item("github:test/repo#2", "Second", "P2"),
+        task("github:test/repo#1", "First"),
+        task("github:test/repo#2", "Second", "P2"),
     )
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
@@ -164,7 +164,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert "Agent sessions:" in selection_detail
         assert "Declared" not in selection_detail
         assert "blocked" not in selection_detail.lower()
-        assert str(app.query_one("#selection-title", Static).render()) == "WORK ITEM"
+        assert str(app.query_one("#selection-title", Static).render()) == "TASK"
         diagnostics = app.query_one("#diagnostics", Static)
         assert_context_above_full_width_queue(app)
         assert app.query_one("#queue-pane").region.bottom <= diagnostics.region.y
@@ -177,13 +177,13 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 @pytest.mark.asyncio
 async def test_refresh_preserves_selection_by_stable_row_key() -> None:
     first = workspace_snapshot(
-        work_item("github:test/repo#1", "First"),
-        work_item("github:test/repo#2", "Second", "P2"),
+        task("github:test/repo#1", "First"),
+        task("github:test/repo#2", "Second", "P2"),
     )
     second = workspace_snapshot(
-        work_item("github:test/repo#0", "Inserted", "P0"),
-        work_item("github:test/repo#1", "First renamed"),
-        work_item("github:test/repo#2", "Second", "P2"),
+        task("github:test/repo#0", "Inserted", "P0"),
+        task("github:test/repo#1", "First renamed"),
+        task("github:test/repo#2", "Second", "P2"),
     )
     app = DashpotApp(SequenceCollector(second), refresh_seconds=0, initial_snapshot=first)
 
@@ -203,7 +203,7 @@ async def test_refresh_preserves_selection_by_stable_row_key() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_refresh_keeps_last_good_rows_and_shows_diagnostic() -> None:
-    snapshot = workspace_snapshot(work_item("github:test/repo#1", "First"))
+    snapshot = workspace_snapshot(task("github:test/repo#1", "First"))
     app = DashpotApp(
         SequenceCollector(RuntimeError("GitHub is unavailable")),
         refresh_seconds=0,
@@ -249,7 +249,7 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
 
 @pytest.mark.asyncio
 async def test_layout_switches_at_horizontal_breakpoint() -> None:
-    snapshot = workspace_snapshot(work_item("github:test/repo#1", "First"))
+    snapshot = workspace_snapshot(task("github:test/repo#1", "First"))
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(60, 20)) as pilot:
@@ -271,9 +271,9 @@ def test_workspace_root_uses_workspace_name_without_dot_suffix() -> None:
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
-    item = work_item("github:test/repo#1", "First")
-    item.declared_claimant = "ned2"
-    item.observed_runs = ["codex-session:42"]
+    selected_task = task("github:test/repo#1", "First")
+    selected_task.declared_claimant = "ned2"
+    selected_task.observed_runs = ["codex-session:42"]
     run = AgentRun(
         id="codex-session:42",
         harness="codex",
@@ -282,16 +282,16 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
         repository_root="/repo",
         worktree="/repo",
         branch="issue/1",
-        declared_work_key=item.key,
+        declared_work_key=selected_task.key,
     )
-    snapshot = workspace_snapshot(item, runs=[run])
+    snapshot = workspace_snapshot(selected_task, runs=[run])
 
     contexts, cells = build_rows(snapshot)
 
-    assert len(cells[item.key]) == len(COLUMN_KEYS) == 6
-    assert cells[item.key][3] == "ned2"
-    assert cells[item.key][4] == "Ⅱ1"
-    detail = selection_detail_text(contexts[item.key])
+    assert len(cells[selected_task.key]) == len(COLUMN_KEYS) == 6
+    assert cells[selected_task.key][3] == "ned2"
+    assert cells[selected_task.key][4] == "Ⅱ1"
+    detail = selection_detail_text(contexts[selected_task.key])
     assert "Assignee: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail
 
@@ -318,9 +318,9 @@ class RacingCollector:
 
 @pytest.mark.asyncio
 async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
-    initial = workspace_snapshot(work_item("github:test/repo#1", "Initial"))
-    old = workspace_snapshot(work_item("github:test/repo#1", "Old result"))
-    new = workspace_snapshot(work_item("github:test/repo#1", "New result"))
+    initial = workspace_snapshot(task("github:test/repo#1", "Initial"))
+    old = workspace_snapshot(task("github:test/repo#1", "Old result"))
+    new = workspace_snapshot(task("github:test/repo#1", "New result"))
     collector = RacingCollector(old, new)
     app = DashpotApp(collector, refresh_seconds=0, initial_snapshot=initial)
 

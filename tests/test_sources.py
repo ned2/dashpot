@@ -43,11 +43,11 @@ class TaskSourceTests(unittest.TestCase):
         result = source.refresh()
 
         self.assertEqual("fresh", result.status)
-        self.assertEqual(3, len(result.work_items))
-        self.assertFalse(result.work_items[0].declared_blocked)
-        self.assertEqual("@agent-7", result.work_items[1].declared_claimant)
-        self.assertTrue(result.work_items[2].declared_blocked)
-        self.assertEqual("tasks-md:/fixture:TASKS.md:17", result.work_items[2].key)
+        self.assertEqual(3, len(result.tasks))
+        self.assertFalse(result.tasks[0].declared_blocked)
+        self.assertEqual("@agent-7", result.tasks[1].declared_claimant)
+        self.assertTrue(result.tasks[2].declared_blocked)
+        self.assertEqual("tasks-md:/fixture:TASKS.md:17", result.tasks[2].key)
 
     def test_failure_after_success_retains_last_good_data(self) -> None:
         source = LocalTasksSource(
@@ -61,7 +61,7 @@ class TaskSourceTests(unittest.TestCase):
         stale = source.refresh()
 
         self.assertEqual("stale", stale.status)
-        self.assertEqual(fresh.work_items, stale.work_items)
+        self.assertEqual(fresh.tasks, stale.tasks)
         self.assertEqual(fresh.last_good_at, stale.last_good_at)
         self.assertIn("malformed JSON", stale.diagnostic.message if stale.diagnostic else "")
 
@@ -74,7 +74,7 @@ class TaskSourceTests(unittest.TestCase):
         result = source.refresh()
 
         self.assertEqual("unavailable", result.status)
-        self.assertEqual([], result.work_items)
+        self.assertEqual([], result.tasks)
         self.assertIn("boom", result.diagnostic.message if result.diagnostic else "")
 
     def test_github_normalizes_labels_and_assignee(self) -> None:
@@ -83,22 +83,22 @@ class TaskSourceTests(unittest.TestCase):
 
         result = source.refresh()
 
-        item = result.work_items[0]
-        self.assertEqual("github:example/project#17", item.key)
-        self.assertEqual("P1", item.priority)
-        self.assertEqual(["observability"], item.tags)
-        self.assertEqual("ned2", item.declared_claimant)
-        self.assertEqual("unknown", item.declared_blocked)
+        task = result.tasks[0]
+        self.assertEqual("github:example/project#17", task.key)
+        self.assertEqual("P1", task.priority)
+        self.assertEqual(["observability"], task.tags)
+        self.assertEqual("ned2", task.declared_claimant)
+        self.assertEqual("unknown", task.declared_blocked)
         self.assertEqual("tasks.md", runner.calls[0][0][6])
 
 
 class CorrelationTests(unittest.TestCase):
     def test_only_explicit_branch_conventions_are_matched(self) -> None:
-        items = GitHubIssuesSource(
+        tasks = GitHubIssuesSource(
             Path("/fixture"),
             "example/project",
             runner=SequenceRunner([completed(fixture("gh-issue-list.json"))]),
-        ).refresh().work_items
+        ).refresh().tasks
         explicit = AgentRun(
             "process:1", "codex", "1", "running", "/fixture", "/fixture", "issue/17", None
         )
@@ -113,11 +113,11 @@ class CorrelationTests(unittest.TestCase):
             None,
         )
 
-        correlate(items, [explicit, fuzzy])
+        correlate(tasks, [explicit, fuzzy])
 
         self.assertEqual("github:example/project#17", explicit.declared_work_key)
         self.assertIsNone(fuzzy.declared_work_key)
-        self.assertEqual(["process:1"], items[0].observed_runs)
+        self.assertEqual(["process:1"], tasks[0].observed_runs)
 
 
 if __name__ == "__main__":

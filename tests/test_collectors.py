@@ -23,7 +23,7 @@ from dashpot.model import (
     ProjectSnapshot,
     ProjectTarget,
     Repository,
-    WorkItem,
+    Task,
     WorkspaceEntry,
     Worktree,
 )
@@ -35,8 +35,8 @@ def repository(root: str = "/repo") -> Repository:
     return Repository(root, Path(root).name, "main", "abc123", False, [Worktree(root, "abc123", "main")])
 
 
-def item(key: str = "github:example/project#7") -> WorkItem:
-    return WorkItem(key, "github-issues", "Build observer", "P1", [], "ned2", "unknown", None)
+def task(key: str = "github:example/project#7") -> Task:
+    return Task(key, "github-issues", "Build observer", "P1", [], "ned2", "unknown", None)
 
 
 class FakeSource(TaskSource):
@@ -44,8 +44,8 @@ class FakeSource(TaskSource):
     def name(self) -> str:
         return "fake"
 
-    def collect(self) -> list[WorkItem]:
-        return [item()]
+    def collect(self) -> list[Task]:
+        return [task()]
 
 
 class RepositoryTests(unittest.TestCase):
@@ -86,7 +86,7 @@ class ProjectCollectorTests(unittest.TestCase):
 
         snapshot = collector.refresh()
 
-        self.assertEqual(["codex-session:1"], snapshot.work_items[0].observed_runs)
+        self.assertEqual(["codex-session:1"], snapshot.tasks[0].observed_runs)
         self.assertEqual([observed], snapshot.agent_runs)
         self.assertEqual("agent", snapshot.diagnostics[0].source)
 
@@ -258,7 +258,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
             "2026-08-24T15:00:00Z",
             "2026-08-24T15:00:00Z",
             repository("/good"),
-            [item()],
+            [task()],
             [],
             [],
         )
@@ -309,7 +309,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
             "2026-08-24T15:00:00Z",
             "2026-08-24T15:00:00Z",
             repository("/repo"),
-            [item()],
+            [task()],
             [],
             [],
         )

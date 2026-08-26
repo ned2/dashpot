@@ -45,7 +45,7 @@ class ProjectCollector:
         repository = self.repository_observer(self.root)
         task_observation = self.source.refresh()
         agent_runs, agent_diagnostics = self.agent_observer(repository)
-        correlate(task_observation.work_items, agent_runs)
+        correlate(task_observation.tasks, agent_runs)
         diagnostics = list(agent_diagnostics)
         if task_observation.diagnostic:
             diagnostics.insert(0, task_observation.diagnostic)
@@ -55,7 +55,7 @@ class ProjectCollector:
             task_source_attempted_at=task_observation.attempted_at,
             task_source_last_good_at=task_observation.last_good_at,
             repository=repository,
-            work_items=task_observation.work_items,
+            tasks=task_observation.tasks,
             agent_runs=agent_runs,
             diagnostics=diagnostics,
         )

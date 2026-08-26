@@ -24,7 +24,7 @@ class Location:
 
 
 @dataclass(slots=True)
-class WorkItem:
+class Task:
     key: str
     source: str
     title: str
@@ -41,7 +41,7 @@ class TaskObservation:
     status: SourceStatus
     attempted_at: str
     last_good_at: str | None
-    work_items: list[WorkItem]
+    tasks: list[Task]
     diagnostic: Diagnostic | None = None
 
 
@@ -83,7 +83,7 @@ class ProjectSnapshot:
     task_source_attempted_at: str
     task_source_last_good_at: str | None
     repository: Repository
-    work_items: list[WorkItem]
+    tasks: list[Task]
     agent_runs: list[AgentRun]
     diagnostics: list[Diagnostic]
 

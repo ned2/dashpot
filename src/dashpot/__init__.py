@@ -6,7 +6,7 @@ from .model import (
     Location,
     ProjectSnapshot,
     Repository,
-    WorkItem,
+    Task,
     WorkspaceSnapshot,
 )
 
@@ -16,6 +16,6 @@ __all__ = [
     "Location",
     "ProjectSnapshot",
     "Repository",
-    "WorkItem",
+    "Task",
     "WorkspaceSnapshot",
 ]

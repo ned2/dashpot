@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import re
 
-from .model import AgentRun, WorkItem
+from .model import AgentRun, Task
 
 
-def correlate(work_items: list[WorkItem], runs: list[AgentRun]) -> None:
-    by_key = {item.key: item for item in work_items}
-    for item in work_items:
-        item.observed_runs.clear()
+def correlate(tasks: list[Task], runs: list[AgentRun]) -> None:
+    by_key = {task.key: task for task in tasks}
+    for task in tasks:
+        task.observed_runs.clear()
     for run in runs:
         if not run.declared_work_key:
-            run.declared_work_key = explicit_key_from_branch(run.branch, work_items)
+            run.declared_work_key = explicit_key_from_branch(run.branch, tasks)
         if run.declared_work_key and run.declared_work_key in by_key:
             by_key[run.declared_work_key].observed_runs.append(run.id)
 
 
-def explicit_key_from_branch(branch: str | None, work_items: list[WorkItem]) -> str | None:
+def explicit_key_from_branch(branch: str | None, tasks: list[Task]) -> str | None:
     if not branch:
         return None
     if branch.startswith("task/") and branch.removeprefix("task/"):
@@ -27,5 +27,9 @@ def explicit_key_from_branch(branch: str | None, work_items: list[WorkItem]) -> 
         suffix = f"#{branch.removeprefix('issue/')}"
     else:
         return None
-    matches = [item.key for item in work_items if item.source == source and item.key.endswith(suffix)]
+    matches = [
+        task.key
+        for task in tasks
+        if task.source == source and task.key.endswith(suffix)
+    ]
     return matches[0] if len(matches) == 1 else None

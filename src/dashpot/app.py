@@ -11,7 +11,7 @@ from textual.timer import Timer
 from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Label, Static
 
-from .model import AgentRun, ProjectObservation, WorkItem, WorkspaceSnapshot
+from .model import AgentRun, ProjectObservation, Task, WorkspaceSnapshot
 
 
 COLUMN_KEYS = ("status", "project", "priority", "assignee", "sessions", "title")
@@ -24,7 +24,7 @@ class SnapshotCollector(Protocol):
 @dataclass(frozen=True, slots=True)
 class RowContext:
     project: ProjectObservation
-    item: WorkItem | None = None
+    task: Task | None = None
     run: AgentRun | None = None
 
 
@@ -81,7 +81,7 @@ class DashpotApp(App[None]):
                     yield Static("PROJECT STATUS", classes="pane-title")
                     yield Static("Select a row", id="project-detail")
                 with Vertical(id="selection-pane"):
-                    yield Static("WORK ITEM", id="selection-title", classes="pane-title")
+                    yield Static("TASK", id="selection-title", classes="pane-title")
                     yield Static("Select a row", id="selection-detail")
             with Vertical(id="queue-pane"):
                 yield Static("WORK", classes="pane-title")
@@ -198,7 +198,7 @@ class DashpotApp(App[None]):
             self.query_one("#project-detail", Static).update("No project selected")
             self.query_one("#selection-title", Static).update("SELECTION")
             self.query_one("#selection-detail", Static).update(
-                "No work items or observed runs"
+                "No tasks or observed runs"
             )
             return
         if prior_key in desired_contexts:
@@ -276,9 +276,9 @@ def build_rows(
     cells_by_key: dict[str, tuple[str, ...]] = {}
     for project in snapshot.projects:
         label = project_label(project)
-        items = project.snapshot.work_items if project.snapshot else []
+        tasks = project.snapshot.tasks if project.snapshot else []
         runs = project.snapshot.agent_runs if project.snapshot else []
-        if not items and not runs:
+        if not tasks and not runs:
             key = f"project:{project.root}"
             contexts[key] = RowContext(project)
             cells_by_key[key] = (
@@ -287,19 +287,19 @@ def build_rows(
                 "-",
                 "unassigned",
                 "-",
-                "source unavailable" if project.status == "unavailable" else "no work items",
+                "source unavailable" if project.status == "unavailable" else "no tasks",
             )
-        matched_runs = {run_id for current in items for run_id in current.observed_runs}
-        for current in items:
-            key = current.key
-            contexts[key] = RowContext(project, item=current)
+        matched_runs = {run_id for task in tasks for run_id in task.observed_runs}
+        for task in tasks:
+            key = task.key
+            contexts[key] = RowContext(project, task=task)
             cells_by_key[key] = (
                 status_mark(project.status),
                 label,
-                current.priority,
-                current.declared_claimant or "unassigned",
-                observed_run_summary(current, runs),
-                current.title,
+                task.priority,
+                task.declared_claimant or "unassigned",
+                observed_run_summary(task, runs),
+                task.title,
             )
         for run in runs:
             if run.id in matched_runs:
@@ -337,8 +337,8 @@ def project_detail_text(project: ProjectObservation) -> str:
 
 
 def selection_title(context: RowContext) -> str:
-    if context.item:
-        return "WORK ITEM"
+    if context.task:
+        return "TASK"
     if context.run:
         return "AGENT RUN"
     return "SELECTION"
@@ -347,8 +347,8 @@ def selection_title(context: RowContext) -> str:
 def selection_detail_text(context: RowContext) -> str:
     lines: list[str] = []
     snapshot = context.project.snapshot
-    if context.item:
-        current = context.item
+    if context.task:
+        current = context.task
         location = "-"
         if current.location:
             location = current.location.url or current.location.file or "-"
@@ -418,10 +418,10 @@ def run_state_mark(state: str) -> str:
     return {"running": "▶", "waiting": "Ⅱ", "unknown": "?"}.get(state, "?")
 
 
-def observed_run_summary(item: WorkItem, runs: list[AgentRun]) -> str:
+def observed_run_summary(task: Task, runs: list[AgentRun]) -> str:
     by_id = {run.id: run for run in runs}
     counts = {"running": 0, "waiting": 0, "unknown": 0}
-    for run_id in item.observed_runs:
+    for run_id in task.observed_runs:
         run = by_id.get(run_id)
         state = run.state if run else "unknown"
         counts[state] += 1
