@@ -76,16 +76,16 @@ class DashpotApp(App[None]):
         yield Header()
         yield Label("Waiting for first refresh", id="source-status")
         with Container(id="body"):
-            with Vertical(id="queue-pane"):
-                yield Static("WORK", classes="pane-title")
-                yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
-            with Vertical(id="detail-column"):
+            with Container(id="detail-row"):
                 with Vertical(id="project-pane"):
                     yield Static("PROJECT STATUS", classes="pane-title")
                     yield Static("Select a row", id="project-detail")
                 with Vertical(id="selection-pane"):
                     yield Static("WORK ITEM", id="selection-title", classes="pane-title")
                     yield Static("Select a row", id="selection-detail")
+            with Vertical(id="queue-pane"):
+                yield Static("WORK", classes="pane-title")
+                yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
         yield Static("No diagnostics", id="diagnostics")
         yield Footer()
 

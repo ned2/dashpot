@@ -103,6 +103,25 @@ async def wait_until(
         await asyncio.sleep(0.01)
 
 
+def assert_context_above_full_width_queue(app: DashpotApp) -> None:
+    body = app.query_one("#body")
+    detail_row = app.query_one("#detail-row")
+    project_pane = app.query_one("#project-pane")
+    selection_pane = app.query_one("#selection-pane")
+    queue_pane = app.query_one("#queue-pane")
+
+    assert project_pane.region.y == selection_pane.region.y == detail_row.region.y
+    assert project_pane.region.x < selection_pane.region.x
+    assert project_pane.region.bottom <= queue_pane.region.y
+    assert selection_pane.region.bottom <= queue_pane.region.y
+    assert queue_pane.region.x == body.region.x
+    assert queue_pane.region.width == body.region.width
+    assert project_pane.region.height >= 4
+    assert selection_pane.region.height >= 4
+    assert queue_pane.region.height >= 6
+    assert abs(detail_row.region.height - queue_pane.region.height) <= 2
+
+
 @pytest.mark.asyncio
 async def test_initial_refresh_populates_queue_and_detail() -> None:
     snapshot = workspace_snapshot(
@@ -146,12 +165,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert "Declared" not in selection_detail
         assert "blocked" not in selection_detail.lower()
         assert str(app.query_one("#selection-title", Static).render()) == "WORK ITEM"
-        project_pane = app.query_one("#project-pane")
-        selection_pane = app.query_one("#selection-pane")
         diagnostics = app.query_one("#diagnostics", Static)
-        assert project_pane.region.y < selection_pane.region.y
-        assert selection_pane.region.height >= 3
-        assert selection_pane.region.bottom <= diagnostics.region.y
+        assert_context_above_full_width_queue(app)
+        assert app.query_one("#queue-pane").region.bottom <= diagnostics.region.y
         assert "1 project  1 fresh" in str(
             app.query_one("#source-status", Label).render()
         )
@@ -243,6 +259,7 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         await pilot.resize_terminal(120, 32)
         await pilot.pause()
         assert app.screen.has_class("-wide")
+        assert_context_above_full_width_queue(app)
 
 
 def test_workspace_root_uses_workspace_name_without_dot_suffix() -> None:

@@ -11,32 +11,29 @@ Screen {
 
 #body {
     height: 1fr;
+    layout: vertical;
     overflow-x: auto;
 }
 
-Screen.-wide #body {
+#detail-row {
+    width: 1fr;
+    height: 1fr;
+    min-height: 7;
+    margin-bottom: 1;
     layout: horizontal;
 }
 
-Screen.-compact #body {
-    layout: vertical;
-}
-
 #queue-pane {
-    width: 3fr;
+    width: 1fr;
     height: 1fr;
+    min-height: 6;
     border: round $primary-darken-2;
-}
-
-#detail-column {
-    width: 2fr;
-    height: 1fr;
 }
 
 #project-pane {
     width: 1fr;
-    height: auto;
-    margin-bottom: 1;
+    height: 1fr;
+    margin-right: 1;
     border: round $primary-darken-2;
 }
 
@@ -50,18 +47,6 @@ Screen.-compact Header {
     display: none;
 }
 
-Screen.-compact #queue-pane {
-    width: 1fr;
-    height: 1fr;
-    min-height: 6;
-}
-
-Screen.-compact #detail-column {
-    width: 1fr;
-    height: 2fr;
-    min-height: 12;
-}
-
 .pane-title {
     height: 1;
     padding: 0 1;
@@ -73,8 +58,9 @@ Screen.-compact #detail-column {
 }
 
 #project-detail {
-    height: auto;
+    height: 1fr;
     padding: 0 1;
+    overflow-y: auto;
 }
 
 #selection-detail {
