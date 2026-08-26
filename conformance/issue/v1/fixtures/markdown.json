@@ -7,7 +7,7 @@
   "body": "Adopt one Project per Git repository and one compatible Issue profile.",
   "state": "open",
   "stateReason": null,
-  "labels": ["needs-triage", "enhancement", "priority/P1"],
+  "labels": ["enhancement", "needs-triage", "priority/P1"],
   "assignees": ["ned2", "octocat"],
   "author": "ned2",
   "relationships": {

@@ -31,7 +31,12 @@ class IssueProfileV1Tests(unittest.TestCase):
         self.assertEqual(fixture("semantic.json"), semantic_projection_v1(markdown))
 
     def test_set_like_collections_are_canonicalized(self) -> None:
-        issue = conform_issue_v1(fixture("github.json"))
+        candidate = fixture("github.json")
+        candidate["labels"].reverse()
+        candidate["assignees"].reverse()
+        candidate["relationships"]["blockedBy"].reverse()
+
+        issue = conform_issue_v1(candidate)
 
         self.assertEqual(
             ["enhancement", "needs-triage", "priority/P1"], issue["labels"]

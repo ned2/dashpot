@@ -1,0 +1,47 @@
+{
+  "id": "I_kwDOUEerrs8AAAABOSTptQ",
+  "number": 9,
+  "url": "https://github.com/ned2/dashpot/issues/9",
+  "title": "Replace TASKS.md with an owned Project and Issue model",
+  "body": "Adopt one Project per Git repository and one compatible Issue profile.",
+  "state": "OPEN",
+  "stateReason": null,
+  "labels": {
+    "nodes": [
+      { "name": "priority/P1" },
+      { "name": "enhancement" },
+      { "name": "needs-triage" }
+    ],
+    "pageInfo": { "hasNextPage": false }
+  },
+  "assignees": {
+    "nodes": [
+      { "login": "octocat" },
+      { "login": "ned2" }
+    ],
+    "pageInfo": { "hasNextPage": false }
+  },
+  "author": { "login": "ned2" },
+  "parent": { "id": "I_parent_1" },
+  "subIssues": {
+    "nodes": [{ "id": "I_child_2" }, { "id": "I_child_1" }],
+    "pageInfo": { "hasNextPage": false }
+  },
+  "blockedBy": {
+    "nodes": [{ "id": "I_blocker_2" }, { "id": "I_blocker_1" }],
+    "pageInfo": { "hasNextPage": false }
+  },
+  "blocking": {
+    "nodes": [{ "id": "I_blocked_2" }, { "id": "I_blocked_1" }],
+    "pageInfo": { "hasNextPage": false }
+  },
+  "issueType": { "name": "Feature" },
+  "milestone": { "title": "v1" },
+  "createdAt": "2026-08-26T05:33:04Z",
+  "updatedAt": "2026-08-26T08:32:48Z",
+  "closedAt": null,
+  "repository": {
+    "id": "R_kgDOUEerrg",
+    "nameWithOwner": "ned2/dashpot"
+  }
+}

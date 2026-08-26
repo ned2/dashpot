@@ -7,14 +7,14 @@
   "body": "Adopt one Project per Git repository and one compatible Issue profile.",
   "state": "open",
   "stateReason": null,
-  "labels": ["priority/P1", "enhancement", "needs-triage"],
-  "assignees": ["octocat", "ned2"],
+  "labels": ["enhancement", "needs-triage", "priority/P1"],
+  "assignees": ["ned2", "octocat"],
   "author": "ned2",
   "relationships": {
     "parent": "I_parent_1",
-    "subIssues": ["I_child_2", "I_child_1"],
-    "blockedBy": ["I_blocker_2", "I_blocker_1"],
-    "blocking": ["I_blocked_2", "I_blocked_1"]
+    "subIssues": ["I_child_1", "I_child_2"],
+    "blockedBy": ["I_blocker_1", "I_blocker_2"],
+    "blocking": ["I_blocked_1", "I_blocked_2"]
   },
   "issueType": "Feature",
   "milestone": "v1",
@@ -23,7 +23,7 @@
   "closedAt": null,
   "origin": {
     "kind": "github",
-    "repositoryId": "R_kgDOL7TQ3Q",
+    "repositoryId": "R_kgDOUEerrg",
     "number": 9
   },
   "location": {

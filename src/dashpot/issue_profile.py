@@ -32,7 +32,7 @@ _ISSUE_KEYS = {
     "location",
 }
 _RELATIONSHIP_KEYS = {"parent", "subIssues", "blockedBy", "blocking"}
-_STATE_REASONS = {"completed", "not-planned", "reopened"}
+_STATE_REASONS = {"completed", "duplicate", "not-planned", "reopened"}
 
 
 class IssueProfileError(ValueError):
@@ -66,7 +66,8 @@ def conform_issue_v1(value: Mapping[str, Any]) -> dict[str, Any]:
         not isinstance(state_reason, str) or state_reason not in _STATE_REASONS
     ):
         raise IssueProfileError(
-            "stateReason must be null, 'completed', 'not-planned', or 'reopened'"
+            "stateReason must be null, 'completed', 'duplicate', 'not-planned', "
+            "or 'reopened'"
         )
     if state == "open" and state_reason not in {None, "reopened"}:
         raise IssueProfileError("an open Issue cannot have a closed stateReason")

@@ -34,7 +34,7 @@
     "state": { "enum": ["open", "closed"] },
     "stateReason": {
       "type": ["string", "null"],
-      "enum": ["completed", "not-planned", "reopened", null]
+      "enum": ["completed", "duplicate", "not-planned", "reopened", null]
     },
     "labels": { "$ref": "#/$defs/stringSet" },
     "assignees": { "$ref": "#/$defs/stringSet" },
@@ -116,7 +116,9 @@
       "if": { "properties": { "state": { "const": "closed" } } },
       "then": {
         "properties": {
-          "stateReason": { "enum": ["completed", "not-planned", null] }
+          "stateReason": {
+            "enum": ["completed", "duplicate", "not-planned", null]
+          }
         }
       }
     }

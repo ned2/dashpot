@@ -34,7 +34,7 @@ source deletion.
 | `title` | Required non-empty text. |
 | `body` | Required text; the empty string is valid. |
 | `state` | `open` or `closed`. |
-| `stateReason` | `completed`, `not-planned`, `reopened`, or `null`. |
+| `stateReason` | `completed`, `duplicate`, `not-planned`, `reopened`, or `null`. |
 | `labels` | Unique, case-preserving strings with set semantics. |
 | `assignees` | Unique source actor names with set semantics; assignment is not a claim. |
 | `author` | Source actor name or `null` when positively absent. |
@@ -54,7 +54,7 @@ values are invalid rather than silently discarded. A future need for ranked
 sub-Issues requires a later profile version.
 
 An open Issue has `closedAt: null` and may have `stateReason: reopened`; a closed
-Issue may have `stateReason: completed`, `not-planned`, or `null`.
+Issue may have `stateReason: completed`, `duplicate`, `not-planned`, or `null`.
 
 ## Semantic equivalence
 
@@ -85,7 +85,7 @@ source atomically. Version 1 does not define Issue mutation operations.
 
 - `fixtures/github.json` is the expected canonical output of the GitHub adapter.
 - `fixtures/markdown.json` is the expected canonical output of the Markdown
-  adapter for the same Issue, deliberately using different collection order.
+  adapter for the same Issue.
 - `fixtures/semantic.json` is their shared semantic projection.
 
 Adapters conform when they produce these outputs from their corresponding raw
