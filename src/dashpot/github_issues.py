@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import copy
+import json
+from pathlib import Path
 from typing import Any, Mapping
 
+from .commands import CommandRunner, run_command
 from .issue_profile import IssueProfileError, conform_issue_v1
+from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
 
 _STATE_REASONS = {
@@ -12,9 +17,226 @@ _STATE_REASONS = {
     "REOPENED": "reopened",
 }
 
+_PAGE_SIZE = 100
+_CONNECTION_FIELDS = {
+    "labels": "name",
+    "assignees": "login",
+    "subIssues": "id",
+    "blockedBy": "id",
+    "blocking": "id",
+}
+
+_ISSUES_QUERY = """
+query DashpotIssuesV1($repositoryId: ID!, $cursor: String) {
+  node(id: $repositoryId) {
+    ... on Repository {
+      id
+      nameWithOwner
+      issues(
+        first: 100
+        after: $cursor
+        states: [OPEN]
+        orderBy: {field: CREATED_AT, direction: ASC}
+      ) {
+        nodes {
+          id
+          number
+          url
+          title
+          body
+          state
+          stateReason
+          labels(first: 100) {
+            nodes { name }
+            pageInfo { hasNextPage endCursor }
+          }
+          assignees(first: 100) {
+            nodes { login }
+            pageInfo { hasNextPage endCursor }
+          }
+          author { login }
+          parent { id }
+          subIssues(first: 100) {
+            nodes { id }
+            pageInfo { hasNextPage endCursor }
+          }
+          blockedBy(first: 100) {
+            nodes { id }
+            pageInfo { hasNextPage endCursor }
+          }
+          blocking(first: 100) {
+            nodes { id }
+            pageInfo { hasNextPage endCursor }
+          }
+          issueType { name }
+          milestone { title }
+          createdAt
+          updatedAt
+          closedAt
+          repository { id nameWithOwner }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+""".strip()
+
 
 class GitHubIssueNormalizationError(ValueError):
     """A GraphQL Issue node is incomplete, malformed, or from another repository."""
+
+
+class GitHubIssuesV1Source(IssueSource):
+    """Collect all open GitHub Issues as complete Issue profile v1 snapshots."""
+
+    def __init__(
+        self,
+        root: Path,
+        *,
+        project_id: str,
+        repository_id: str,
+        timeout: float = 20,
+        runner: CommandRunner = run_command,
+        clock: Clock | None = None,
+    ) -> None:
+        super().__init__(clock=clock)
+        self.root = root
+        self.project_id = project_id
+        self.repository_id = repository_id
+        self.timeout = timeout
+        self.runner = runner
+
+    @property
+    def name(self) -> str:
+        return "github-issues-v1"
+
+    def _collect(self) -> list[dict[str, Any]]:
+        records = self._collect_issue_nodes()
+        issues: list[dict[str, Any]] = []
+        seen_issue_ids: set[str] = set()
+        for record in records:
+            complete_record = self._complete_nested_connections(record)
+            try:
+                issue = normalize_github_issue_v1(
+                    complete_record,
+                    project_id=self.project_id,
+                    repository_id=self.repository_id,
+                )
+            except GitHubIssueNormalizationError as exc:
+                raise IssueSourceRefreshError("github-profile", str(exc)) from exc
+            issue_id = issue["id"]
+            if issue_id in seen_issue_ids:
+                raise IssueSourceRefreshError(
+                    "github-pagination",
+                    f"GitHub returned duplicate Issue identity {issue_id}",
+                )
+            seen_issue_ids.add(issue_id)
+            issues.append(issue)
+        return issues
+
+    def _collect_issue_nodes(self) -> list[dict[str, Any]]:
+        nodes: list[dict[str, Any]] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            variables = {"repositoryId": self.repository_id}
+            if cursor is not None:
+                variables["cursor"] = cursor
+            data = self._graphql(_ISSUES_QUERY, variables)
+            if data.get("node") is None:
+                raise IssueSourceRefreshError(
+                    "github-repository",
+                    "Configured GitHub repository was not found or is inaccessible",
+                )
+            repository = _response_object(data, "node", "data")
+            observed_repository_id = _response_string(
+                repository, "id", "data.repository"
+            )
+            if observed_repository_id != self.repository_id:
+                raise IssueSourceRefreshError(
+                    "github-repository-identity",
+                    "GitHub repository identity does not match Project configuration",
+                )
+            issues = _response_object(repository, "issues", "data.repository")
+            page_nodes, has_next, end_cursor = _connection_page(
+                issues, "data.repository.issues"
+            )
+            nodes.extend(page_nodes)
+            if not has_next:
+                return nodes
+            cursor = _next_cursor(end_cursor, seen_cursors, "Issue collection")
+
+    def _complete_nested_connections(
+        self, record: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        complete = copy.deepcopy(dict(record))
+        issue_id = _response_string(complete, "id", "issue")
+        for connection_name, item_field in _CONNECTION_FIELDS.items():
+            connection = _response_object(complete, connection_name, "issue")
+            nodes, has_next, end_cursor = _connection_page(
+                connection, f"issue.{connection_name}"
+            )
+            seen_cursors: set[str] = set()
+            while has_next:
+                cursor = _next_cursor(
+                    end_cursor, seen_cursors, f"Issue {issue_id} {connection_name}"
+                )
+                data = self._graphql(
+                    _nested_connection_query(connection_name, item_field),
+                    {"id": issue_id, "cursor": cursor},
+                )
+                node = _response_object(data, "node", "data")
+                next_connection = _response_object(node, "connection", "data.node")
+                next_nodes, has_next, end_cursor = _connection_page(
+                    next_connection, f"issue.{connection_name}"
+                )
+                nodes.extend(next_nodes)
+            connection["nodes"] = nodes
+            connection["pageInfo"] = {"hasNextPage": False, "endCursor": end_cursor}
+        return complete
+
+    def _graphql(self, query: str, variables: Mapping[str, str]) -> Mapping[str, Any]:
+        args = ["gh", "api", "graphql", "-f", f"query={query}"]
+        for key, value in variables.items():
+            args.extend(["-f", f"{key}={value}"])
+        try:
+            result = self.runner(args, self.root, self.timeout)
+        except RuntimeError as exc:
+            raise IssueSourceRefreshError(
+                _classify_github_error(str(exc)), str(exc)
+            ) from exc
+        if result.returncode != 0:
+            message = result.stderr.strip() or (
+                f"gh api graphql exited {result.returncode}"
+            )
+            raise IssueSourceRefreshError(_classify_github_error(message), message)
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise IssueSourceRefreshError(
+                "github-malformed-response",
+                f"GitHub returned malformed JSON: {exc.msg}",
+            ) from exc
+        if not isinstance(payload, dict):
+            raise IssueSourceRefreshError(
+                "github-malformed-response", "GitHub response is not an object"
+            )
+        errors = payload.get("errors")
+        if errors is not None and not isinstance(errors, list):
+            raise IssueSourceRefreshError(
+                "github-malformed-response",
+                "GitHub response has a malformed GraphQL errors value",
+            )
+        if errors:
+            message = _graphql_error_message(errors)
+            raise IssueSourceRefreshError(_classify_github_error(message), message)
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            raise IssueSourceRefreshError(
+                "github-malformed-response", "GitHub response has no data object"
+            )
+        return data
 
 
 def normalize_github_issue_v1(
@@ -196,3 +418,127 @@ def _required_string_allow_empty(value: Any, path: str) -> str:
     if not isinstance(value, str):
         raise GitHubIssueNormalizationError(f"{path} must be a string")
     return value
+
+
+def _response_object(
+    value: Mapping[str, Any], field: str, path: str
+) -> dict[str, Any]:
+    if field not in value:
+        raise IssueSourceRefreshError(
+            "github-malformed-response", f"GitHub response has no {path}.{field}"
+        )
+    item = value[field]
+    if item is None and field == "repository":
+        raise IssueSourceRefreshError(
+            "github-repository", "GitHub repository was not found or is inaccessible"
+        )
+    if not isinstance(item, dict):
+        raise IssueSourceRefreshError(
+            "github-malformed-response", f"GitHub {path}.{field} is not an object"
+        )
+    return item
+
+
+def _response_string(value: Mapping[str, Any], field: str, path: str) -> str:
+    if field not in value:
+        raise IssueSourceRefreshError(
+            "github-malformed-response", f"GitHub response has no {path}.{field}"
+        )
+    item = value[field]
+    if not isinstance(item, str) or not item:
+        raise IssueSourceRefreshError(
+            "github-malformed-response",
+            f"GitHub {path}.{field} is not a non-empty string",
+        )
+    return item
+
+
+def _connection_page(
+    connection: Mapping[str, Any], path: str
+) -> tuple[list[dict[str, Any]], bool, Any]:
+    nodes = connection.get("nodes")
+    if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):
+        raise IssueSourceRefreshError(
+            "github-malformed-response", f"GitHub {path}.nodes is not an object array"
+        )
+    page_info = connection.get("pageInfo")
+    if not isinstance(page_info, Mapping):
+        raise IssueSourceRefreshError(
+            "github-malformed-response", f"GitHub {path}.pageInfo is not an object"
+        )
+    has_next = page_info.get("hasNextPage")
+    if not isinstance(has_next, bool):
+        raise IssueSourceRefreshError(
+            "github-malformed-response",
+            f"GitHub {path}.pageInfo.hasNextPage is not a Boolean",
+        )
+    return list(nodes), has_next, page_info.get("endCursor")
+
+
+def _next_cursor(end_cursor: Any, seen: set[str], subject: str) -> str:
+    if not isinstance(end_cursor, str) or not end_cursor:
+        raise IssueSourceRefreshError(
+            "github-pagination", f"{subject} has another page but no end cursor"
+        )
+    if end_cursor in seen:
+        raise IssueSourceRefreshError(
+            "github-pagination", f"{subject} repeated pagination cursor {end_cursor}"
+        )
+    seen.add(end_cursor)
+    return end_cursor
+
+
+def _nested_connection_query(connection_name: str, item_field: str) -> str:
+    return (
+        "query DashpotIssueConnectionV1($id: ID!, $cursor: String!) { "
+        "node(id: $id) { ... on Issue { "
+        f"connection: {connection_name}(first: {_PAGE_SIZE}, after: $cursor) {{ "
+        f"nodes {{ {item_field} }} "
+        "pageInfo { hasNextPage endCursor } "
+        "} } } }"
+    )
+
+
+def _graphql_error_message(errors: Any) -> str:
+    messages = [
+        error.get("message")
+        for error in errors
+        if isinstance(error, Mapping) and isinstance(error.get("message"), str)
+    ]
+    return "; ".join(messages) or "GitHub GraphQL request failed"
+
+
+def _classify_github_error(message: str) -> str:
+    normalized = message.casefold()
+    if "rate limit" in normalized:
+        return "github-rate-limit"
+    if any(
+        text in normalized
+        for text in ("bad credentials", "not logged", "authentication", "unauthorized")
+    ):
+        return "github-authentication"
+    if any(
+        text in normalized
+        for text in ("forbidden", "permission", "resource not accessible")
+    ):
+        return "github-permission"
+    if any(
+        text in normalized
+        for text in ("could not resolve to a repository", "repository not found")
+    ):
+        return "github-repository"
+    if "timed out" in normalized or "timeout" in normalized:
+        return "github-timeout"
+    if any(
+        text in normalized
+        for text in (
+            "network",
+            "connection",
+            "could not resolve host",
+            "error connecting",
+        )
+    ):
+        return "github-network"
+    if "command not found" in normalized:
+        return "github-cli-unavailable"
+    return "github-request"

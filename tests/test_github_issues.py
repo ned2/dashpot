@@ -5,8 +5,10 @@ import json
 import unittest
 from pathlib import Path
 
+from dashpot.commands import CommandResult
 from dashpot.github_issues import (
     GitHubIssueNormalizationError,
+    GitHubIssuesV1Source,
     normalize_github_issue_v1,
 )
 
@@ -33,6 +35,92 @@ def normalize(record: dict, **overrides) -> dict:
         record,
         project_id=overrides.get("project_id", PROJECT_ID),
         repository_id=overrides.get("repository_id", REPOSITORY_ID),
+    )
+
+
+def issue_record(number: int) -> dict:
+    record = raw_fixture()
+    record["id"] = f"I_issue_{number}"
+    record["number"] = number
+    record["url"] = f"https://github.com/ned2/dashpot/issues/{number}"
+    return record
+
+
+def issue_page(
+    nodes: list[dict],
+    *,
+    has_next_page: bool = False,
+    end_cursor: str | None = None,
+    repository_id: str = REPOSITORY_ID,
+) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "node": {
+                    "id": repository_id,
+                    "nameWithOwner": "ned2/dashpot",
+                    "issues": {
+                        "nodes": nodes,
+                        "pageInfo": {
+                            "hasNextPage": has_next_page,
+                            "endCursor": end_cursor,
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+
+def nested_page(
+    nodes: list[dict], *, has_next_page: bool = False, end_cursor: str | None = None
+) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "node": {
+                    "connection": {
+                        "nodes": nodes,
+                        "pageInfo": {
+                            "hasNextPage": has_next_page,
+                            "endCursor": end_cursor,
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+
+def completed(
+    stdout: str = "", stderr: str = "", returncode: int = 0
+) -> CommandResult:
+    return CommandResult([], returncode, stdout, stderr)
+
+
+class SequenceRunner:
+    def __init__(self, results: list[CommandResult | Exception]) -> None:
+        self.results = iter(results)
+        self.calls: list[tuple[list[str], Path, float]] = []
+
+    def __call__(self, args, cwd, timeout):
+        self.calls.append((list(args), cwd, timeout))
+        result = next(self.results)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def source(
+    runner: SequenceRunner, timestamps: list[str] | None = None
+) -> GitHubIssuesV1Source:
+    times = iter(timestamps or ["2026-08-26T10:00:00Z"])
+    return GitHubIssuesV1Source(
+        Path("/repo"),
+        project_id=PROJECT_ID,
+        repository_id=REPOSITORY_ID,
+        runner=runner,
+        clock=lambda: next(times),
     )
 
 
@@ -177,6 +265,255 @@ class GitHubIssueNormalizerV1Tests(unittest.TestCase):
         normalize(record)
 
         self.assertEqual(before, record)
+
+
+class GitHubIssuesV1SourceTests(unittest.TestCase):
+    def test_refresh_collects_all_profile_fields_without_a_marker_label(self) -> None:
+        runner = SequenceRunner([completed(issue_page([raw_fixture()]))])
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual([expected_fixture()], observation.issues)
+        self.assertEqual([], observation.diagnostics)
+        query = runner.calls[0][0][4]
+        self.assertIn("states: [OPEN]", query)
+        self.assertNotIn("tasks.md", query)
+        self.assertIn(f"repositoryId={REPOSITORY_ID}", runner.calls[0][0])
+        self.assertNotIn("owner=ned2", runner.calls[0][0])
+
+    def test_outer_pagination_collects_more_than_two_hundred_issues(self) -> None:
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page(
+                        [issue_record(number) for number in range(1, 101)],
+                        has_next_page=True,
+                        end_cursor="issues-100",
+                    )
+                ),
+                completed(
+                    issue_page(
+                        [issue_record(number) for number in range(101, 201)],
+                        has_next_page=True,
+                        end_cursor="issues-200",
+                    )
+                ),
+                completed(issue_page([issue_record(201)])),
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(201, len(observation.issues))
+        self.assertEqual("I_issue_1", observation.issues[0]["id"])
+        self.assertEqual("I_issue_201", observation.issues[-1]["id"])
+        self.assertEqual(3, len(runner.calls))
+        self.assertIn("cursor=issues-100", runner.calls[1][0])
+        self.assertIn("cursor=issues-200", runner.calls[2][0])
+
+    def test_repeated_outer_cursor_is_a_pagination_diagnostic(self) -> None:
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page(
+                        [issue_record(1)],
+                        has_next_page=True,
+                        end_cursor="issues-1",
+                    )
+                ),
+                completed(
+                    issue_page(
+                        [issue_record(2)],
+                        has_next_page=True,
+                        end_cursor="issues-1",
+                    )
+                ),
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-pagination", observation.diagnostics[0].code)
+
+    def test_every_nested_connection_is_completed_before_normalizing(self) -> None:
+        cases = {
+            "labels": ("name", "first-label", "later-label"),
+            "assignees": ("login", "first-user", "later-user"),
+            "subIssues": ("id", "I_first_child", "I_later_child"),
+            "blockedBy": ("id", "I_first_blocker", "I_later_blocker"),
+            "blocking": ("id", "I_first_blocked", "I_later_blocked"),
+        }
+        for connection_name, (item_field, first, later) in cases.items():
+            with self.subTest(connection=connection_name):
+                record = raw_fixture()
+                record[connection_name]["nodes"] = [{item_field: first}]
+                record[connection_name]["pageInfo"] = {
+                    "hasNextPage": True,
+                    "endCursor": f"{connection_name}-1",
+                }
+                runner = SequenceRunner(
+                    [
+                        completed(issue_page([record])),
+                        completed(nested_page([{item_field: later}])),
+                    ]
+                )
+
+                observation = source(runner).refresh()
+
+                self.assertEqual("fresh", observation.status)
+                self.assertIn(f"cursor={connection_name}-1", runner.calls[1][0])
+                self.assertIn(
+                    f"connection: {connection_name}", runner.calls[1][0][4]
+                )
+                if connection_name in {"labels", "assignees"}:
+                    actual = observation.issues[0][connection_name]
+                else:
+                    actual = observation.issues[0]["relationships"][connection_name]
+                self.assertEqual(sorted([first, later]), actual)
+
+    def test_repeated_nested_cursor_is_a_pagination_diagnostic(self) -> None:
+        record = raw_fixture()
+        record["labels"]["pageInfo"] = {
+            "hasNextPage": True,
+            "endCursor": "labels-1",
+        }
+        runner = SequenceRunner(
+            [
+                completed(issue_page([record])),
+                completed(
+                    nested_page(
+                        [{"name": "later"}],
+                        has_next_page=True,
+                        end_cursor="labels-1",
+                    )
+                ),
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-pagination", observation.diagnostics[0].code)
+        self.assertIn("repeated pagination cursor", observation.diagnostics[0].message)
+
+    def test_initial_network_failure_is_unavailable_with_no_issues(self) -> None:
+        runner = SequenceRunner(
+            [completed(stderr="error connecting to api.github.com", returncode=1)]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual([], observation.issues)
+        self.assertEqual("github-network", observation.diagnostics[0].code)
+        self.assertEqual("error", observation.diagnostics[0].severity)
+
+    def test_transport_failures_have_distinct_diagnostic_codes(self) -> None:
+        cases = [
+            (
+                completed(stderr="HTTP 401: Bad credentials", returncode=1),
+                "github-authentication",
+            ),
+            (RuntimeError("command timed out after 20s: gh"), "github-timeout"),
+            (RuntimeError("command not found: gh"), "github-cli-unavailable"),
+        ]
+        for result, expected_code in cases:
+            with self.subTest(code=expected_code):
+                observation = source(SequenceRunner([result])).refresh()
+                self.assertEqual("unavailable", observation.status)
+                self.assertEqual(expected_code, observation.diagnostics[0].code)
+
+    def test_failure_retains_a_deep_copy_of_last_good_issues(self) -> None:
+        runner = SequenceRunner(
+            [
+                completed(issue_page([raw_fixture()])),
+                completed(stderr="API rate limit exceeded", returncode=1),
+            ]
+        )
+        github = source(
+            runner,
+            ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"],
+        )
+        fresh = github.refresh()
+        fresh.issues[0]["title"] = "caller mutation"
+
+        stale = github.refresh()
+
+        self.assertEqual("stale", stale.status)
+        self.assertEqual("2026-08-26T10:00:00Z", stale.last_good_at)
+        self.assertEqual(expected_fixture(), stale.issues[0])
+        self.assertEqual("github-rate-limit", stale.diagnostics[0].code)
+        self.assertEqual("warning", stale.diagnostics[0].severity)
+
+    def test_graphql_errors_are_diagnostics_and_partial_data_is_discarded(self) -> None:
+        response = json.dumps(
+            {
+                "data": {"repository": {"issues": {"nodes": [raw_fixture()]}}},
+                "errors": [{"message": "Resource not accessible by integration"}],
+            }
+        )
+
+        observation = source(SequenceRunner([completed(response)])).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual([], observation.issues)
+        self.assertEqual("github-permission", observation.diagnostics[0].code)
+
+    def test_malformed_json_is_a_structured_diagnostic(self) -> None:
+        observation = source(SequenceRunner([completed("not-json")])).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-malformed-response", observation.diagnostics[0].code)
+
+    def test_malformed_graphql_errors_are_not_ignored(self) -> None:
+        response = json.dumps({"data": {"node": {}}, "errors": "not-an-array"})
+
+        observation = source(SequenceRunner([completed(response)])).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-malformed-response", observation.diagnostics[0].code)
+
+    def test_repository_identity_conflict_rejects_the_collection(self) -> None:
+        runner = SequenceRunner(
+            [completed(issue_page([raw_fixture()], repository_id="R_fork"))]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual(
+            "github-repository-identity", observation.diagnostics[0].code
+        )
+
+    def test_missing_repository_is_a_repository_diagnostic(self) -> None:
+        response = json.dumps({"data": {"node": None}})
+
+        observation = source(SequenceRunner([completed(response)])).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-repository", observation.diagnostics[0].code)
+
+    def test_one_malformed_issue_fails_the_whole_refresh(self) -> None:
+        malformed = issue_record(2)
+        del malformed["author"]
+        runner = SequenceRunner(
+            [completed(issue_page([issue_record(1), malformed]))]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual([], observation.issues)
+        self.assertEqual("github-profile", observation.diagnostics[0].code)
+
+    def test_empty_repository_is_a_fresh_empty_collection(self) -> None:
+        observation = source(SequenceRunner([completed(issue_page([]))])).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual([], observation.issues)
 
 
 if __name__ == "__main__":
