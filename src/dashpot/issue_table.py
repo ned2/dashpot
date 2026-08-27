@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from .issue_list import IssueListQuery, IssueListResult, IssueListRow
@@ -37,13 +37,43 @@ COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
 
 @dataclass(frozen=True, slots=True)
+class SortTerm:
+    column: ColumnKey
+    descending: bool = False
+
+
+DEFAULT_SORT = (
+    SortTerm("project"),
+    SortTerm("priority"),
+    SortTerm("title"),
+)
+
+
+@dataclass(frozen=True, slots=True)
 class IssueTableViewState:
     query: IssueListQuery = IssueListQuery()
     columns: tuple[ColumnKey, ...] = COLUMN_KEYS
+    sort: tuple[SortTerm, ...] = DEFAULT_SORT
+
+    def toggle_sort(self, column: ColumnKey) -> IssueTableViewState:
+        if len(self.sort) == 1 and self.sort[0].column == column:
+            term = replace(self.sort[0], descending=not self.sort[0].descending)
+        else:
+            term = SortTerm(column)
+        return replace(self, sort=(term,))
 
 
 def column_specs(columns: tuple[ColumnKey, ...]) -> tuple[ColumnSpec, ...]:
     return tuple(COLUMNS_BY_KEY[key] for key in columns)
+
+
+def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
+    term = next((term for term in sort if term.column == column.key), None)
+    if term is None:
+        marker = "↕"
+    else:
+        marker = "↓" if term.descending else "↑"
+    return f"{column.label} {marker}"
 
 
 def build_rows(

@@ -16,7 +16,12 @@ from dashpot.app import (
     selection_detail_text,
 )
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
-from dashpot.issue_table import COLUMN_KEYS, IssueTableViewState, build_rows
+from dashpot.issue_table import (
+    COLUMN_KEYS,
+    IssueTableViewState,
+    SortTerm,
+    build_rows,
+)
 from dashpot.model import (
     AgentRun,
     Diagnostic,
@@ -161,12 +166,12 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "title",
         )
         assert [str(column.label) for column in table.columns.values()] == [
-            "S",
-            "PROJECT",
-            "PRI",
-            "ASSIGNEES",
-            "SESSIONS",
-            "TITLE",
+            "S ↕",
+            "PROJECT ↑",
+            "PRI ↑",
+            "ASSIGNEES ↕",
+            "SESSIONS ↕",
+            "TITLE ↑",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert "Status: fresh" in project_detail
@@ -218,6 +223,41 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
         assert "Closed" in str(
             app.query_one("#selection-detail", Static).render()
         )
+
+
+@pytest.mark.asyncio
+async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Zebra"),
+        issue("test/repo#2", "Alpha"),
+    )
+    app = DashpotApp(
+        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        table = app.query_one("#queue", DataTable)
+        selected_key = row_key("issue", "I_test/repo#1")
+        table.move_cursor(row=table.get_row_index(selected_key), animate=False)
+        await wait_until(lambda: app.selected_row_key == selected_key)
+        title_key = next(key for key in table.columns if key.value == "title")
+
+        for _ in range(2):
+            table.post_message(
+                DataTable.HeaderSelected(
+                    table,
+                    title_key,
+                    table.get_column_index(title_key),
+                    table.columns[title_key].label,
+                )
+            )
+            await pilot.pause()
+
+        assert table.get_row_at(0)[-1] == "Zebra"
+        assert app.selected_row_key == selected_key
+        selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        assert selected == selected_key
+        assert str(table.columns[title_key].label) == "TITLE ↓"
 
 
 @pytest.mark.asyncio
@@ -386,6 +426,16 @@ def test_row_projection_respects_visible_column_order() -> None:
     selected_key = row_key("issue", selected_issue["id"])
     assert set(contexts) == {selected_key}
     assert cells[selected_key] == ("First", "ned2", "Test Repository")
+
+
+def test_selecting_a_sort_column_replaces_the_default_then_toggles_direction() -> None:
+    view = IssueTableViewState()
+
+    ascending = view.toggle_sort("title")
+    descending = ascending.toggle_sort("title")
+
+    assert ascending.sort == (SortTerm("title"),)
+    assert descending.sort == (SortTerm("title", descending=True),)
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:

@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Protocol
+from typing import Protocol, cast
 
+from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Container, Vertical
@@ -18,8 +19,10 @@ from .issue_list import (
     query_issue_list,
 )
 from .issue_table import (
+    ColumnKey,
     IssueTableViewState,
     build_rows,
+    column_label,
     column_specs,
     issue_priority,
 )
@@ -97,8 +100,61 @@ class DashpotApp(App[None]):
     def on_mount(self) -> None:
         table = self.query_one("#queue", DataTable)
         for column in column_specs(self.issue_view.columns):
-            table.add_column(column.label, key=column.key)
+            table.add_column(
+                column_label(column, self.issue_view.sort), key=column.key
+            )
         table.focus()
+
+    def on_data_table_header_selected(
+        self, event: DataTable.HeaderSelected
+    ) -> None:
+        column = cast(ColumnKey, str(event.column_key.value))
+        if column not in self.issue_view.columns:
+            return
+        table = event.data_table
+        prior_key, prior_index = self.current_selection(table)
+        self.issue_view = self.issue_view.toggle_sort(column)
+        self.update_sort_headers(table)
+        self.sort_rows(table)
+        if not table.row_count:
+            return
+        if prior_key in self.rows_by_key:
+            selected_index = table.get_row_index(prior_key)
+        else:
+            selected_index = min(prior_index, table.row_count - 1)
+        table.move_cursor(row=selected_index, column=0, animate=False)
+        selected_key = str(
+            table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        )
+        self.show_row(selected_key)
+
+    def update_sort_headers(self, table: DataTable[str]) -> None:
+        columns_by_name = {
+            str(key.value): column for key, column in table.columns.items()
+        }
+        for spec in column_specs(self.issue_view.columns):
+            columns_by_name[spec.key].label = Text(
+                column_label(spec, self.issue_view.sort)
+            )
+        table.refresh()
+
+    def sort_rows(self, table: DataTable[str]) -> None:
+        terms = tuple(
+            term
+            for term in self.issue_view.sort
+            if term.column in self.issue_view.columns
+        )
+        if not terms or not table.row_count:
+            return
+        directions = {term.descending for term in terms}
+        if len(directions) != 1:
+            raise RuntimeError(
+                "Textual sorting requires one direction across all sort terms"
+            )
+        table.sort(
+            *(term.column for term in terms),
+            reverse=terms[0].descending,
+        )
 
     def on_ready(self) -> None:
         table = self.query_one("#queue", DataTable)
@@ -198,13 +254,7 @@ class DashpotApp(App[None]):
                             update_width=column.update_width,
                         )
             if table.row_count:
-                sort_columns = tuple(
-                    column
-                    for column in ("project", "priority", "title")
-                    if column in self.issue_view.columns
-                )
-                if sort_columns:
-                    table.sort(*sort_columns)
+                self.sort_rows(table)
 
         self.rows_by_key = desired_contexts
         self.rendered_cells = desired_cells
