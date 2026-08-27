@@ -26,7 +26,7 @@ class StoreChange:
     revision: int
     kinds: frozenset[ObservationKind]
     project_ids: frozenset[str] = frozenset()
-    issue_ids: frozenset[str] = frozenset()
+    issue_keys: frozenset[tuple[str, str]] = frozenset()
     observation_target_keys: frozenset[tuple[str, str]] = frozenset()
     agent_run_ids: frozenset[str] = frozenset()
 
@@ -273,18 +273,25 @@ class WorkspaceObservationStore:
         before_workspace: tuple[str, int, list[Diagnostic]],
     ) -> StoreChange:
         project_ids = _changed_keys(before_projects, self._projects)
-        issue_ids = {
-            issue_id
-            for _project_id, issue_id in _changed_keys(
-                _issues_by_project(before_projects),
-                _issues_by_project(self._projects),
-            )
-        } | _changed_keys(before_issue_runs, self._issue_runs)
+        issue_keys = _changed_keys(
+            _issues_by_project(before_projects),
+            self._issues,
+        )
+        binding_issue_ids = _changed_keys(before_issue_runs, self._issue_runs)
         observation_target_keys = _changed_keys(
             _targets_by_project(before_projects),
             self._observation_targets,
         )
         agent_run_ids = _changed_keys(before_agent_runs, self._agent_runs)
+        binding_issue_ids.update(
+            issue_id
+            for bindings in (before_issue_runs, self._issue_runs)
+            for issue_id, run_ids in bindings.items()
+            if any(run_id in agent_run_ids for run_id in run_ids)
+        )
+        issue_keys.update(
+            key for key in self._issues if key[1] in binding_issue_ids
+        )
         kinds: set[ObservationKind] = set()
         if project_ids:
             kinds.add("projects")
@@ -296,7 +303,7 @@ class WorkspaceObservationStore:
             revision=self._revision,
             kinds=frozenset(kinds),
             project_ids=frozenset(project_ids),
-            issue_ids=frozenset(issue_ids),
+            issue_keys=frozenset(issue_keys),
             observation_target_keys=frozenset(observation_target_keys),
             agent_run_ids=frozenset(agent_run_ids),
         )

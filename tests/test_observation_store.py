@@ -134,7 +134,9 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
     assert change.revision == store.revision == result.revision == 2
     assert change.kinds == frozenset({"projects", "agent-runs"})
     assert change.project_ids == frozenset({"project:one"})
-    assert change.issue_ids == frozenset({"I_one", "I_two"})
+    assert change.issue_keys == frozenset(
+        {("project:one", "I_one"), ("project:one", "I_two")}
+    )
     assert change.observation_target_keys == frozenset(
         {("project:one", "/project:one")}
     )
@@ -290,6 +292,103 @@ def test_conflicting_issue_identities_remain_project_qualified() -> None:
     assert len(store.checkpoint().projects) == 2
 
 
+def test_change_reports_only_the_changed_project_qualified_issue() -> None:
+    duplicated = issue("I_shared", "Shared identity")
+    first = workspace(
+        project("project:one", copy.deepcopy(duplicated)),
+        project("project:two", copy.deepcopy(duplicated)),
+    )
+    store = WorkspaceObservationStore(first)
+    changed = copy.deepcopy(first)
+    changed.projects[0].snapshot.issues[0]["title"] = "Changed in one"
+
+    change = store.replace(changed)
+
+    assert change.issue_keys == frozenset({("project:one", "I_shared")})
+
+
+def test_binding_change_reports_every_conflicting_issue_key() -> None:
+    duplicated = issue("I_shared", "Shared identity")
+    store = WorkspaceObservationStore(
+        workspace(
+            project("project:one", copy.deepcopy(duplicated)),
+            project("project:two", copy.deepcopy(duplicated)),
+        )
+    )
+    observed_run = run("codex:shared", "project:one", "I_shared")
+
+    change = store.replace_agent_runs(
+        [observed_run], {"I_shared": [observed_run.id]}
+    )
+
+    assert change.issue_keys == frozenset(
+        {("project:one", "I_shared"), ("project:two", "I_shared")}
+    )
+
+
+def test_bound_run_record_change_reports_its_issue_key() -> None:
+    observed_run = run("codex:one", "project:one", "I_one")
+    store = WorkspaceObservationStore(
+        workspace(
+            project("project:one", issue("I_one", "First")),
+            runs=[observed_run],
+            issue_runs={"I_one": [observed_run.id]},
+        )
+    )
+    changed_run = copy.deepcopy(observed_run)
+    changed_run.state = "running"
+
+    change = store.replace_agent_runs(
+        [changed_run], {"I_one": [changed_run.id]}
+    )
+
+    assert change.issue_keys == frozenset({("project:one", "I_one")})
+
+
+def test_binding_transfer_reports_old_and_new_issue_keys() -> None:
+    observed_run = run("codex:one", "project:one", "I_one")
+    store = WorkspaceObservationStore(
+        workspace(
+            project(
+                "project:one",
+                issue("I_one", "First"),
+                issue("I_two", "Second"),
+            ),
+            runs=[observed_run],
+            issue_runs={"I_one": [observed_run.id]},
+        )
+    )
+    transferred = copy.deepcopy(observed_run)
+    transferred.issue_id = "I_two"
+
+    change = store.replace_agent_runs(
+        [transferred], {"I_two": [transferred.id]}
+    )
+
+    assert change.issue_keys == frozenset(
+        {("project:one", "I_one"), ("project:one", "I_two")}
+    )
+
+
+def test_binding_removal_and_missing_issue_do_not_fabricate_issue_keys() -> None:
+    observed_run = run("codex:one", "project:one", "I_one")
+    store = WorkspaceObservationStore(
+        workspace(
+            project("project:one", issue("I_one", "First")),
+            runs=[observed_run],
+            issue_runs={"I_one": [observed_run.id]},
+        )
+    )
+    missing = copy.deepcopy(observed_run)
+    missing.issue_id = "I_missing"
+
+    change = store.replace_agent_runs(
+        [missing], {"I_missing": [missing.id]}
+    )
+
+    assert change.issue_keys == frozenset({("project:one", "I_one")})
+
+
 def test_agent_run_observation_replaces_bindings_independently() -> None:
     selected_issue = issue("I_one", "First")
     store = WorkspaceObservationStore(
@@ -305,7 +404,7 @@ def test_agent_run_observation_replaces_bindings_independently() -> None:
     assert change.revision == result.revision == 2
     assert change.kinds == frozenset({"agent-runs"})
     assert change.project_ids == frozenset()
-    assert change.issue_ids == frozenset({"I_one"})
+    assert change.issue_keys == frozenset({("project:one", "I_one")})
     assert change.agent_run_ids == frozenset({observed_run.id})
     assert result.rows[0].observed_runs == (observed_run,)
     assert store.checkpoint().issue_runs == {"I_one": [observed_run.id]}
