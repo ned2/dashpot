@@ -12,6 +12,7 @@ from textual.app import App, ComposeResult
 from textual.content import Content
 from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
+from textual.theme import Theme
 from textual.timer import Timer
 from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
@@ -22,11 +23,13 @@ from .issue_list import IssueListQuery, IssueListRow
 from .issue_table import (
     ColumnKey,
     IssueTableViewState,
+    TableCell,
     build_rows,
     cells_match,
     column_label,
     column_specs,
     issue_priority,
+    issue_state_kind,
     searchable_columns,
     sort_key_for_terms,
 )
@@ -94,7 +97,7 @@ class DashpotApp(App[None]):
         self.refresh_timer: Timer | None = None
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
-        self.rendered_cells: dict[str, tuple[str, ...]] = {}
+        self.rendered_cells: dict[str, tuple[TableCell, ...]] = {}
         self.ui_error: str | None = None
         self.refresh_executor = ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="dashpot-refresh"
@@ -141,6 +144,7 @@ class DashpotApp(App[None]):
         table = self.query_one("#queue", DataTable)
         self.add_table_columns(table)
         table.focus()
+        self.theme_changed_signal.subscribe(self, self.on_theme_changed)
 
     def on_text_selected(self, event: events.TextSelected) -> None:
         """Copy arbitrary rendered-text selections when the drag finishes."""
@@ -149,7 +153,13 @@ class DashpotApp(App[None]):
         if selected_text:
             self.copy_to_clipboard(selected_text)
 
-    def add_table_columns(self, table: DataTable[str]) -> None:
+    def on_theme_changed(self, _theme: Theme) -> None:
+        """Re-render semantic table colors for the new theme brightness."""
+
+        if self.store.has_observations:
+            self.reconcile_rows()
+
+    def add_table_columns(self, table: DataTable[TableCell]) -> None:
         for column in column_specs(self.issue_view.columns):
             table.add_column(
                 column_label(column, self.issue_view.sort), key=column.key
@@ -194,7 +204,7 @@ class DashpotApp(App[None]):
     def apply_issue_sort(
         self,
         issue_view: IssueTableViewState,
-        table: DataTable[str] | None = None,
+        table: DataTable[TableCell] | None = None,
     ) -> None:
         if table is None:
             table = self.query_one("#queue", DataTable)
@@ -238,7 +248,7 @@ class DashpotApp(App[None]):
         if self.store.has_observations:
             self.reconcile_rows()
 
-    def update_sort_headers(self, table: DataTable[str]) -> None:
+    def update_sort_headers(self, table: DataTable[TableCell]) -> None:
         columns_by_name = {
             str(key.value): column for key, column in table.columns.items()
         }
@@ -248,7 +258,7 @@ class DashpotApp(App[None]):
             )
         table.refresh()
 
-    def sort_rows(self, table: DataTable[str]) -> None:
+    def sort_rows(self, table: DataTable[TableCell]) -> None:
         terms = tuple(
             term
             for term in self.issue_view.sort
@@ -351,6 +361,7 @@ class DashpotApp(App[None]):
         desired_contexts, desired_cells = build_rows(
             result,
             columns=self.issue_view.columns,
+            dark=self.current_theme.dark,
         )
         old_keys = set(self.rendered_cells)
         new_keys = set(desired_cells)
@@ -397,7 +408,9 @@ class DashpotApp(App[None]):
         selected_key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
         self.show_row(selected_key)
 
-    def current_selection(self, table: DataTable[str]) -> tuple[str | None, int]:
+    def current_selection(
+        self, table: DataTable[TableCell]
+    ) -> tuple[str | None, int]:
         if not table.row_count:
             return self.selected_row_key, 0
         key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
@@ -508,13 +521,7 @@ def selection_title(context: IssueListRow) -> str:
 def issue_pane_state_class(context: IssueListRow | None) -> str | None:
     if context is None or context.issue is None:
         return None
-    issue = context.issue
-    if issue["state"] == "open":
-        return "-issue-open"
-    return {
-        "not-planned": "-issue-not-planned",
-        "duplicate": "-issue-duplicate",
-    }.get(issue["stateReason"], "-issue-completed")
+    return f"-issue-{issue_state_kind(context.issue)}"
 
 
 def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:

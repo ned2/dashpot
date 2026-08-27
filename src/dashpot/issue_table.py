@@ -4,6 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from rich.text import Text
+
 from .issue_list import (
     IssueListQuery,
     IssueListResult,
@@ -15,6 +17,7 @@ from .model import Issue, RunState
 
 ColumnKey = Literal[
     "status",
+    "issue_state",
     "number",
     "title",
     "project",
@@ -22,6 +25,20 @@ ColumnKey = Literal[
     "assignees",
     "sessions",
 ]
+
+IssueStateKind = Literal[
+    "open",
+    "completed",
+    "not-planned",
+    "duplicate",
+]
+
+GITHUB_ISSUE_STATE_COLORS: dict[IssueStateKind, tuple[str, str]] = {
+    "open": ("#1f883d", "#238636"),
+    "completed": ("#8250df", "#8957e5"),
+    "not-planned": ("#59636e", "#656c76"),
+    "duplicate": ("#59636e", "#656c76"),
+}
 
 
 class IssueTableCell(str):
@@ -35,8 +52,28 @@ class IssueTableCell(str):
         return cell
 
 
+class IssueStateCell(Text):
+    """A semantic Issue-state value rendered as a colored block."""
+
+    __slots__ = ("sort_value", "state_kind")
+
+    def __init__(self, state_kind: IssueStateKind, *, dark: bool) -> None:
+        light_color, dark_color = GITHUB_ISSUE_STATE_COLORS[state_kind]
+        super().__init__("■", style=dark_color if dark else light_color)
+        self.state_kind = state_kind
+        self.sort_value = (
+            "open",
+            "completed",
+            "not-planned",
+            "duplicate",
+        ).index(state_kind)
+
+
+TableCell = IssueTableCell | IssueStateCell
+
+
 def _cell_sort_key(value: object) -> object:
-    if isinstance(value, IssueTableCell):
+    if isinstance(value, (IssueTableCell, IssueStateCell)):
         return value.sort_value
     return value
 
@@ -52,6 +89,7 @@ class ColumnSpec:
 
 COLUMN_SPECS = (
     ColumnSpec("status", "S"),
+    ColumnSpec("issue_state", "STATUS"),
     ColumnSpec(
         "number",
         "ID",
@@ -171,7 +209,13 @@ def searchable_columns() -> frozenset[IssueSearchField]:
     )
 
 
-def cells_match(left: str, right: str) -> bool:
+def cells_match(left: TableCell, right: TableCell) -> bool:
+    if isinstance(left, IssueStateCell) and isinstance(right, IssueStateCell):
+        return (
+            left.state_kind == right.state_kind
+            and left.style == right.style
+            and left.sort_value == right.sort_value
+        )
     if left != right:
         return False
     if isinstance(left, IssueTableCell) and isinstance(right, IssueTableCell):
@@ -206,22 +250,24 @@ def build_rows(
     result: IssueListResult,
     *,
     columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS,
-) -> tuple[dict[str, IssueListRow], dict[str, tuple[IssueTableCell, ...]]]:
+    dark: bool = True,
+) -> tuple[dict[str, IssueListRow], dict[str, tuple[TableCell, ...]]]:
     """Render queried rows into the requested presentation schema."""
     contexts: dict[str, IssueListRow] = {}
-    cells_by_key: dict[str, tuple[IssueTableCell, ...]] = {}
+    cells_by_key: dict[str, tuple[TableCell, ...]] = {}
     for row in result.rows:
         contexts[row.key] = row
-        values = _row_values(row)
+        values = _row_values(row, dark=dark)
         cells_by_key[row.key] = tuple(values[column] for column in columns)
     return contexts, cells_by_key
 
 
-def _row_values(row: IssueListRow) -> dict[ColumnKey, IssueTableCell]:
+def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     project = row.project
     if row.kind == "project":
         return {
             "status": status_cell(project.status),
+            "issue_state": IssueTableCell("-", 99),
             "number": IssueTableCell("-", float("inf")),
             "title": text_cell(row.empty_message or "no Issues"),
             "project": text_cell(project.display_label),
@@ -237,6 +283,7 @@ def _row_values(row: IssueListRow) -> dict[ColumnKey, IssueTableCell]:
         assignees = tuple(assignee.casefold() for assignee in issue["assignees"])
         return {
             "status": status_cell(project.status),
+            "issue_state": issue_state_cell(issue, dark=dark),
             "number": IssueTableCell(
                 f"#{issue['number']}", issue["number"]
             ),
@@ -253,6 +300,7 @@ def _row_values(row: IssueListRow) -> dict[ColumnKey, IssueTableCell]:
         raise RuntimeError("Issue-list Agent Run row is missing its Agent Run")
     return {
         "status": run_state_cell(run.state),
+        "issue_state": IssueTableCell("-", 99),
         "number": IssueTableCell("-", float("inf")),
         "title": text_cell(f"Unmatched {run.harness} run"),
         "project": text_cell(project.display_label),
@@ -269,6 +317,19 @@ def text_cell(value: str) -> IssueTableCell:
 def status_cell(status: str) -> IssueTableCell:
     rank = {"fresh": 0, "stale": 1, "unavailable": 2}.get(status, 3)
     return IssueTableCell(status_mark(status), rank)
+
+
+def issue_state_kind(issue: Issue) -> IssueStateKind:
+    if issue["state"] == "open":
+        return "open"
+    return {
+        "not-planned": "not-planned",
+        "duplicate": "duplicate",
+    }.get(issue["stateReason"], "completed")
+
+
+def issue_state_cell(issue: Issue, *, dark: bool) -> IssueStateCell:
+    return IssueStateCell(issue_state_kind(issue), dark=dark)
 
 
 def run_state_cell(state: str) -> IssueTableCell:

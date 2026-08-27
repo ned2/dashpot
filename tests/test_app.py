@@ -24,6 +24,7 @@ from dashpot.issue_table import (
     COLUMNS_BY_KEY,
     COLUMN_KEYS,
     DEFAULT_COLUMNS,
+    IssueStateCell,
     IssueTableCell,
     IssueTableViewState,
     SortTerm,
@@ -194,6 +195,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert not hasattr(app, "snapshot")
         assert COLUMN_KEYS == (
             "status",
+            "issue_state",
             "number",
             "title",
             "project",
@@ -203,6 +205,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         assert DEFAULT_COLUMNS == (
             "status",
+            "issue_state",
             "number",
             "title",
             "priority",
@@ -211,6 +214,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         assert [str(column.label) for column in table.columns.values()] == [
             "S ↕",
+            "STATUS ↕",
             "ID ↕",
             "TITLE ↑",
             "PRI ↑",
@@ -338,16 +342,26 @@ async def test_selection_pane_tracks_github_issue_state_colors(
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         pane = app.query_one("#selection-pane")
+        table = app.query_one("#queue", DataTable)
+        issue_key = row_key("issue", selected_issue["id"])
         selected_context = app.rows_by_key[app.selected_row_key]
+        state_cell = table.get_cell(issue_key, "issue_state")
 
         assert issue_pane_state_class(selected_context) == state_class
         assert pane.has_class(state_class)
         assert pane.styles.border_top[1].hex.casefold() == dark_color
+        assert isinstance(state_cell, IssueStateCell)
+        assert state_cell.plain == "■"
+        assert str(state_cell.style).casefold() == dark_color
 
         app.theme = "textual-light"
         await pilot.pause()
 
         assert pane.styles.border_top[1].hex.casefold() == light_color
+        light_state_cell = table.get_cell(issue_key, "issue_state")
+        assert isinstance(light_state_cell, IssueStateCell)
+        assert light_state_cell.plain == "■"
+        assert str(light_state_cell.style).casefold() == light_color
 
 
 @pytest.mark.asyncio
@@ -519,6 +533,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         await pilot.pause()
 
         assert app.issue_view.columns == (
+            "issue_state",
             "number",
             "title",
             "priority",
@@ -860,6 +875,19 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
         "#2",
         "#10",
     ]
+    states = [
+        IssueStateCell("duplicate", dark=True),
+        IssueStateCell("open", dark=True),
+        IssueStateCell("not-planned", dark=True),
+        IssueStateCell("completed", dark=True),
+    ]
+
+    assert [
+        cell.state_kind
+        for cell in sorted(
+            states, key=COLUMNS_BY_KEY["issue_state"].sort_key
+        )
+    ] == ["open", "completed", "not-planned", "duplicate"]
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
@@ -882,10 +910,10 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 6
-    assert cells[selected_key][1] == "#1"
-    assert cells[selected_key][4] == "ned2"
-    assert cells[selected_key][5] == "Ⅱ1"
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
+    assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
+    assert cells[selected_key][DEFAULT_COLUMNS.index("assignees")] == "ned2"
+    assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"
     detail = selection_detail_text(contexts[selected_key])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail
