@@ -11,13 +11,12 @@ import pytest
 from textual.widgets import DataTable, Static
 
 from dashpot.app import (
-    COLUMN_KEYS,
     DashpotApp,
-    build_rows,
     project_label,
     selection_detail_text,
 )
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
+from dashpot.issue_table import COLUMN_KEYS, IssueTableViewState, build_rows
 from dashpot.model import (
     AgentRun,
     Diagnostic,
@@ -206,7 +205,9 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
     app = DashpotApp(
         SequenceCollector(snapshot),
         refresh_seconds=0,
-        issue_query=IssueListQuery(states=frozenset({"closed"})),
+        issue_view=IssueTableViewState(
+            query=IssueListQuery(states=frozenset({"closed"}))
+        ),
     )
 
     async with app.run_test(size=(80, 24)):
@@ -371,6 +372,20 @@ def test_project_uses_display_label_independent_of_workspace_and_anchor() -> Non
     project.primary_anchor = "/moved/checkout"
 
     assert project_label(project) == "Portable Project"
+
+
+def test_row_projection_respects_visible_column_order() -> None:
+    selected_issue = issue("test/repo#1", "First")
+    selected_issue["assignees"] = ["ned2"]
+
+    contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(selected_issue)),
+        columns=("title", "assignees", "project"),
+    )
+
+    selected_key = row_key("issue", selected_issue["id"])
+    assert set(contexts) == {selected_key}
+    assert cells[selected_key] == ("First", "ned2", "Test Repository")
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:

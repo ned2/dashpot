@@ -14,15 +14,16 @@ from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Static
 
 from .issue_list import (
-    IssueListQuery,
-    IssueListResult,
     IssueListRow,
     query_issue_list,
 )
-from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnapshot
-
-
-COLUMN_KEYS = ("status", "project", "priority", "assignees", "sessions", "title")
+from .issue_table import (
+    IssueTableViewState,
+    build_rows,
+    column_specs,
+    issue_priority,
+)
+from .model import AgentRun, Issue, ProjectObservation, WorkspaceSnapshot
 
 
 class SnapshotCollector(Protocol):
@@ -60,13 +61,13 @@ class DashpotApp(App[None]):
         collector: SnapshotCollector,
         refresh_seconds: float = 15,
         initial_snapshot: WorkspaceSnapshot | None = None,
-        issue_query: IssueListQuery = IssueListQuery(),
+        issue_view: IssueTableViewState = IssueTableViewState(),
     ) -> None:
         super().__init__()
         self.collector = collector
         self.refresh_seconds = refresh_seconds
         self.snapshot = initial_snapshot
-        self.issue_query = issue_query
+        self.issue_view = issue_view
         self.refresh_generation = 0
         self.refresh_timer: Timer | None = None
         self.selected_row_key: str | None = None
@@ -95,12 +96,8 @@ class DashpotApp(App[None]):
 
     def on_mount(self) -> None:
         table = self.query_one("#queue", DataTable)
-        table.add_column("S", key="status")
-        table.add_column("PROJECT", key="project")
-        table.add_column("PRI", key="priority")
-        table.add_column("ASSIGNEES", key="assignees")
-        table.add_column("SESSIONS", key="sessions")
-        table.add_column("TITLE", key="title")
+        for column in column_specs(self.issue_view.columns):
+            table.add_column(column.label, key=column.key)
         table.focus()
 
     def on_ready(self) -> None:
@@ -176,7 +173,8 @@ class DashpotApp(App[None]):
         table = self.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
         desired_contexts, desired_cells = build_rows(
-            query_issue_list(snapshot, self.issue_query)
+            query_issue_list(snapshot, self.issue_view.query),
+            columns=self.issue_view.columns,
         )
         old_keys = set(self.rendered_cells)
         new_keys = set(desired_cells)
@@ -189,16 +187,24 @@ class DashpotApp(App[None]):
                     table.add_row(*cells, key=key)
                     continue
                 previous = self.rendered_cells[key]
-                for column, old_value, new_value in zip(COLUMN_KEYS, previous, cells):
+                for column, old_value, new_value in zip(
+                    column_specs(self.issue_view.columns), previous, cells
+                ):
                     if old_value != new_value:
                         table.update_cell(
                             key,
-                            column,
+                            column.key,
                             new_value,
-                            update_width=column in {"project", "assignees", "title"},
+                            update_width=column.update_width,
                         )
             if table.row_count:
-                table.sort("project", "priority", "title")
+                sort_columns = tuple(
+                    column
+                    for column in ("project", "priority", "title")
+                    if column in self.issue_view.columns
+                )
+                if sort_columns:
+                    table.sort(*sort_columns)
 
         self.rows_by_key = desired_contexts
         self.rendered_cells = desired_cells
@@ -267,52 +273,6 @@ class DashpotApp(App[None]):
         diagnostics.update(
             "\n".join(f"! {message}" for message in messages) or "No diagnostics"
         )
-
-
-def build_rows(
-    result: IssueListResult,
-) -> tuple[dict[str, IssueListRow], dict[str, tuple[str, ...]]]:
-    contexts: dict[str, IssueListRow] = {}
-    cells_by_key: dict[str, tuple[str, ...]] = {}
-    for row in result.rows:
-        project = row.project
-        label = project_label(project)
-        contexts[row.key] = row
-        if row.kind == "project":
-            cells_by_key[row.key] = (
-                status_mark(project.status),
-                label,
-                "-",
-                "unassigned",
-                "-",
-                row.empty_message or "no Issues",
-            )
-            continue
-        if row.kind == "issue":
-            issue = row.issue
-            if issue is None:
-                raise RuntimeError("Issue-list Issue row is missing its Issue")
-            cells_by_key[row.key] = (
-                status_mark(project.status),
-                label,
-                issue_priority(issue),
-                ", ".join(issue["assignees"]) or "unassigned",
-                observed_run_summary(row.session_states),
-                issue["title"],
-            )
-            continue
-        run = row.run
-        if run is None:
-            raise RuntimeError("Issue-list Agent Run row is missing its Agent Run")
-        cells_by_key[row.key] = (
-            run_state_mark(run.state),
-            label,
-            "-",
-            "unassigned",
-            run.state,
-            f"Unmatched {run.harness} run",
-        )
-    return contexts, cells_by_key
 
 
 def project_detail_text(
@@ -406,47 +366,6 @@ def selection_detail_text(context: IssueListRow) -> str:
 
 def project_label(project: ProjectObservation) -> str:
     return project.display_label
-
-
-def status_mark(status: str) -> str:
-    return {"fresh": "●", "stale": "◐", "unavailable": "!"}.get(status, "?")
-
-
-def run_state_mark(state: str) -> str:
-    return {"running": "▶", "waiting": "Ⅱ", "unknown": "?"}.get(state, "?")
-
-
-def observed_run_summary(
-    states: tuple[RunState, ...],
-) -> str:
-    counts = {"running": 0, "waiting": 0, "unknown": 0}
-    for state in states:
-        counts[state] += 1
-    summary = " ".join(
-        f"{run_state_mark(state)}{counts[state]}"
-        for state in ("running", "waiting", "unknown")
-        if counts[state]
-    )
-    return summary or "0"
-
-
-def issue_priority(issue: Issue) -> str:
-    priorities = {
-        "priority/p0": "P0",
-        "priority/p1": "P1",
-        "priority/p2": "P2",
-        "priority/p3": "P3",
-        "critical": "P0",
-        "high": "P1",
-        "medium": "P2",
-        "low": "P3",
-    }
-    values = [
-        priorities[label.casefold()]
-        for label in issue["labels"]
-        if label.casefold() in priorities
-    ]
-    return min(values, default="P2")
 
 
 def issue_location(issue: Issue) -> str:
