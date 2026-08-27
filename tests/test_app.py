@@ -29,6 +29,7 @@ from dashpot.issue_table import (
     IssueTableViewState,
     SortTerm,
     build_rows,
+    date_cell,
     searchable_columns,
 )
 from dashpot.local_markdown_issues import parse_local_markdown_issue
@@ -201,6 +202,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "project",
             "priority",
             "assignees",
+            "created",
+            "last_action",
             "sessions",
         )
         assert DEFAULT_COLUMNS == (
@@ -210,6 +213,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "title",
             "priority",
             "assignees",
+            "created",
+            "last_action",
             "sessions",
         )
         assert [str(column.label) for column in table.columns.values()] == [
@@ -219,6 +224,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "TITLE ↑",
             "PRI ↑",
             "ASSIGNEES ↕",
+            "CREATED ↕",
+            "LAST ACTION ↕",
             "SESSIONS ↕",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
@@ -537,8 +544,10 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "number",
             "title",
             "priority",
-            "sessions",
             "assignees",
+            "created",
+            "sessions",
+            "last_action",
         )
         assert [key.value for key in table.columns] == list(app.issue_view.columns)
         assert app.selected_row_key == selected_key
@@ -813,6 +822,33 @@ def test_issue_id_column_uses_the_project_local_number() -> None:
     )
 
 
+def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> None:
+    selected_issue = issue("test/repo#17", "Timestamp test")
+    selected_issue["createdAt"] = "2026-08-25T23:30:00Z"
+    selected_issue["updatedAt"] = "2026-08-27T01:15:00Z"
+
+    _contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(selected_issue)),
+        columns=("created", "last_action"),
+    )
+
+    assert cells[row_key("issue", selected_issue["id"])] == (
+        "2026-08-25",
+        "2026-08-27",
+    )
+    timestamps = [
+        date_cell(None),
+        date_cell("2026-08-27T01:15:00Z"),
+        date_cell("2026-08-27T00:30:00Z"),
+    ]
+    ordered = sorted(
+        timestamps, key=COLUMNS_BY_KEY["last_action"].sort_key
+    )
+    assert ordered[0] is timestamps[2]
+    assert ordered[1] is timestamps[1]
+    assert ordered[2] is timestamps[0]
+
+
 def test_local_markdown_number_is_the_table_id() -> None:
     document = (
         ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
@@ -910,7 +946,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 9
     assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
     assert cells[selected_key][DEFAULT_COLUMNS.index("assignees")] == "ned2"
     assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Literal
 
 from rich.text import Text
@@ -23,6 +24,8 @@ ColumnKey = Literal[
     "project",
     "priority",
     "assignees",
+    "created",
+    "last_action",
     "sessions",
 ]
 
@@ -114,6 +117,8 @@ COLUMN_SPECS = (
         update_width=True,
         search_field=IssueSearchField.ASSIGNEES,
     ),
+    ColumnSpec("created", "CREATED"),
+    ColumnSpec("last_action", "LAST ACTION"),
     ColumnSpec("sessions", "SESSIONS"),
 )
 COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
@@ -273,6 +278,8 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             "project": text_cell(project.display_label),
             "priority": IssueTableCell("-", 99),
             "assignees": IssueTableCell("unassigned", ()),
+            "created": date_cell(None),
+            "last_action": date_cell(None),
             "sessions": IssueTableCell("-", (0, 0, 0, 0)),
         }
     if row.kind == "issue":
@@ -293,6 +300,8 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             "assignees": IssueTableCell(
                 ", ".join(issue["assignees"]) or "unassigned", assignees
             ),
+            "created": date_cell(issue["createdAt"]),
+            "last_action": date_cell(issue["updatedAt"]),
             "sessions": run_summary_cell(row.session_states),
         }
     run = row.run
@@ -306,12 +315,21 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         "project": text_cell(project.display_label),
         "priority": IssueTableCell("-", 99),
         "assignees": IssueTableCell("unassigned", ()),
+        "created": date_cell(None),
+        "last_action": date_cell(None),
         "sessions": IssueTableCell(run.state, run_state_counts((run.state,))),
     }
 
 
 def text_cell(value: str) -> IssueTableCell:
     return IssueTableCell(value, value.casefold())
+
+
+def date_cell(timestamp: str | None) -> IssueTableCell:
+    if timestamp is None:
+        return IssueTableCell("-", float("inf"))
+    instant = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    return IssueTableCell(instant.date().isoformat(), instant.timestamp())
 
 
 def status_cell(status: str) -> IssueTableCell:
