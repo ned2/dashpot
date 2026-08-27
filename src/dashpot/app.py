@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from collections import Counter
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from typing import Protocol
 
 from textual import work
@@ -15,7 +13,13 @@ from textual.timer import Timer
 from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Static
 
-from .model import AgentRun, Issue, ProjectObservation, WorkspaceSnapshot
+from .issue_list import (
+    IssueListQuery,
+    IssueListResult,
+    IssueListRow,
+    query_issue_list,
+)
+from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnapshot
 
 
 COLUMN_KEYS = ("status", "project", "priority", "assignees", "sessions", "title")
@@ -23,14 +27,6 @@ COLUMN_KEYS = ("status", "project", "priority", "assignees", "sessions", "title"
 
 class SnapshotCollector(Protocol):
     def refresh(self) -> WorkspaceSnapshot: ...
-
-
-@dataclass(frozen=True, slots=True)
-class RowContext:
-    project: ProjectObservation
-    issue: Issue | None = None
-    run: AgentRun | None = None
-    observed_runs: tuple[AgentRun, ...] = ()
 
 
 class WorkspaceRefreshFinished(Message):
@@ -64,15 +60,17 @@ class DashpotApp(App[None]):
         collector: SnapshotCollector,
         refresh_seconds: float = 15,
         initial_snapshot: WorkspaceSnapshot | None = None,
+        issue_query: IssueListQuery = IssueListQuery(),
     ) -> None:
         super().__init__()
         self.collector = collector
         self.refresh_seconds = refresh_seconds
         self.snapshot = initial_snapshot
+        self.issue_query = issue_query
         self.refresh_generation = 0
         self.refresh_timer: Timer | None = None
         self.selected_row_key: str | None = None
-        self.rows_by_key: dict[str, RowContext] = {}
+        self.rows_by_key: dict[str, IssueListRow] = {}
         self.rendered_cells: dict[str, tuple[str, ...]] = {}
         self.ui_error: str | None = None
         self.refresh_executor = ThreadPoolExecutor(
@@ -177,7 +175,9 @@ class DashpotApp(App[None]):
     def reconcile_rows(self, snapshot: WorkspaceSnapshot) -> None:
         table = self.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
-        desired_contexts, desired_cells = build_rows(snapshot)
+        desired_contexts, desired_cells = build_rows(
+            query_issue_list(snapshot, self.issue_query)
+        )
         old_keys = set(self.rendered_cells)
         new_keys = set(desired_cells)
 
@@ -270,83 +270,41 @@ class DashpotApp(App[None]):
 
 
 def build_rows(
-    snapshot: WorkspaceSnapshot,
-) -> tuple[dict[str, RowContext], dict[str, tuple[str, ...]]]:
-    contexts: dict[str, RowContext] = {}
+    result: IssueListResult,
+) -> tuple[dict[str, IssueListRow], dict[str, tuple[str, ...]]]:
+    contexts: dict[str, IssueListRow] = {}
     cells_by_key: dict[str, tuple[str, ...]] = {}
-    runs = snapshot.agent_runs
-    issue_runs = snapshot.issue_runs
-    matched_runs = {
-        run_id for run_ids in issue_runs.values() for run_id in run_ids
-    }
-    issue_id_counts = Counter(
-        issue["id"]
-        for project in snapshot.projects
-        if project.snapshot
-        for issue in project.snapshot.issues
-    )
-    for project in snapshot.projects:
+    for row in result.rows:
+        project = row.project
         label = project_label(project)
-        issues = (
-            [
-                issue
-                for issue in project.snapshot.issues
-                if issue["state"] == "open"
-            ]
-            if project.snapshot
-            else []
-        )
-        project_has_unmatched_run = any(
-            run.id not in matched_runs
-            and run.observation_project_id == project.project_id
-            for run in runs
-        )
-        if not issues and not project_has_unmatched_run:
-            key = row_key("project", project.project_id)
-            contexts[key] = RowContext(project)
-            cells_by_key[key] = (
+        contexts[row.key] = row
+        if row.kind == "project":
+            cells_by_key[row.key] = (
                 status_mark(project.status),
                 label,
                 "-",
                 "unassigned",
                 "-",
-                "source unavailable"
-                if project.status == "unavailable"
-                else "no open Issues",
+                row.empty_message or "no Issues",
             )
-        for issue in issues:
-            key = (
-                row_key("issue", issue["id"])
-                if issue_id_counts[issue["id"]] == 1
-                else row_key("issue", project.project_id, issue["id"])
-            )
-            observed = tuple(
-                run
-                for run in runs
-                if run.id in issue_runs.get(issue["id"], [])
-            )
-            contexts[key] = RowContext(
-                project, issue=issue, observed_runs=observed
-            )
-            cells_by_key[key] = (
+            continue
+        if row.kind == "issue":
+            issue = row.issue
+            if issue is None:
+                raise RuntimeError("Issue-list Issue row is missing its Issue")
+            cells_by_key[row.key] = (
                 status_mark(project.status),
                 label,
                 issue_priority(issue),
                 ", ".join(issue["assignees"]) or "unassigned",
-                observed_run_summary(issue["id"], issue_runs, runs),
+                observed_run_summary(row.session_states),
                 issue["title"],
             )
-    projects_by_id = {project.project_id: project for project in snapshot.projects}
-    for run in runs:
-        if run.id in matched_runs:
             continue
-        project = projects_by_id.get(run.observation_project_id)
-        if project is None:
-            continue
-        label = project_label(project)
-        key = row_key("run", run.id)
-        contexts[key] = RowContext(project, run=run)
-        cells_by_key[key] = (
+        run = row.run
+        if run is None:
+            raise RuntimeError("Issue-list Agent Run row is missing its Agent Run")
+        cells_by_key[row.key] = (
             run_state_mark(run.state),
             label,
             "-",
@@ -355,11 +313,6 @@ def build_rows(
             f"Unmatched {run.harness} run",
         )
     return contexts, cells_by_key
-
-
-def row_key(kind: str, *identities: str) -> str:
-    """Encode opaque identities into an unambiguous Textual row key."""
-    return json.dumps([kind, *identities], ensure_ascii=False, separators=(",", ":"))
 
 
 def project_detail_text(
@@ -398,7 +351,7 @@ def project_detail_text(
     return "\n".join(lines)
 
 
-def selection_title(context: RowContext) -> str:
+def selection_title(context: IssueListRow) -> str:
     if context.issue:
         return "ISSUE"
     if context.run:
@@ -406,7 +359,7 @@ def selection_title(context: RowContext) -> str:
     return "SELECTION"
 
 
-def selection_detail_text(context: RowContext) -> str:
+def selection_detail_text(context: IssueListRow) -> str:
     lines: list[str] = []
     if context.issue:
         current = context.issue
@@ -464,13 +417,10 @@ def run_state_mark(state: str) -> str:
 
 
 def observed_run_summary(
-    issue_id: str, issue_runs: dict[str, list[str]], runs: list[AgentRun]
+    states: tuple[RunState, ...],
 ) -> str:
-    by_id = {run.id: run for run in runs}
     counts = {"running": 0, "waiting": 0, "unknown": 0}
-    for run_id in issue_runs.get(issue_id, []):
-        run = by_id.get(run_id)
-        state = run.state if run else "unknown"
+    for state in states:
         counts[state] += 1
     summary = " ".join(
         f"{run_state_mark(state)}{counts[state]}"

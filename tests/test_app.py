@@ -15,9 +15,9 @@ from dashpot.app import (
     DashpotApp,
     build_rows,
     project_label,
-    row_key,
     selection_detail_text,
 )
+from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.model import (
     AgentRun,
     Diagnostic,
@@ -192,6 +192,34 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 
 
 @pytest.mark.asyncio
+async def test_app_renders_the_injected_issue_list_query() -> None:
+    open_issue = issue("test/repo#1", "Open")
+    closed_issue = issue("test/repo#2", "Closed")
+    closed_issue.update(
+        {
+            "state": "closed",
+            "stateReason": "completed",
+            "closedAt": "2026-08-27T01:00:00Z",
+        }
+    )
+    snapshot = workspace_snapshot(open_issue, closed_issue)
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        issue_query=IssueListQuery(states=frozenset({"closed"})),
+    )
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: app.snapshot is snapshot)
+
+        assert app.query_one("#queue", DataTable).row_count == 1
+        assert app.selected_row_key == row_key("issue", closed_issue["id"])
+        assert "Closed" in str(
+            app.query_one("#selection-detail", Static).render()
+        )
+
+
+@pytest.mark.asyncio
 async def test_refresh_preserves_selection_by_stable_row_key() -> None:
     first = workspace_snapshot(
         issue("test/repo#1", "First"),
@@ -362,7 +390,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     snapshot = workspace_snapshot(selected_issue, runs=[run])
     snapshot.issue_runs[selected_issue["id"]] = [run.id]
 
-    contexts, cells = build_rows(snapshot)
+    contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
     assert len(cells[selected_key]) == len(COLUMN_KEYS) == 6
@@ -385,7 +413,7 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
     second.snapshot.repository_id = second.repository_id
     snapshot.projects.append(second)
 
-    contexts, cells = build_rows(snapshot)
+    contexts, cells = build_rows(query_issue_list(snapshot))
 
     expected = {
         row_key("issue", "project:test-repo", duplicated["id"]),
@@ -410,7 +438,9 @@ def test_default_issue_filter_shows_only_open_issues() -> None:
         }
     )
 
-    contexts, cells = build_rows(workspace_snapshot(open_issue, closed_issue))
+    contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(open_issue, closed_issue))
+    )
 
     assert set(contexts) == set(cells) == {row_key("issue", open_issue["id"])}
     assert cells[row_key("issue", open_issue["id"])][-1] == "Open"
@@ -426,7 +456,9 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
         }
     )
 
-    contexts, cells = build_rows(workspace_snapshot(closed_issue))
+    contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(closed_issue))
+    )
 
     project_key = row_key("project", "project:test-repo")
     assert set(contexts) == set(cells) == {project_key}
@@ -449,7 +481,9 @@ def test_opaque_issue_identity_cannot_collide_with_unmatched_run_row() -> None:
         issue_reference_hint=None,
     )
 
-    contexts, cells = build_rows(workspace_snapshot(colliding_issue, runs=[run]))
+    contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(colliding_issue, runs=[run]))
+    )
 
     assert set(contexts) == set(cells) == {
         row_key("issue", colliding_issue["id"]),
@@ -469,7 +503,7 @@ def test_opaque_issue_identity_cannot_collide_with_project_placeholder() -> None
     empty.snapshot.issues = []
     snapshot.projects.append(empty)
 
-    contexts, cells = build_rows(snapshot)
+    contexts, cells = build_rows(query_issue_list(snapshot))
 
     assert set(contexts) == set(cells) == {
         row_key("issue", colliding_issue["id"]),
