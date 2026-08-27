@@ -61,6 +61,25 @@ class IssueProfileTests(unittest.TestCase):
         moved["reference"] = "issue-model-uplift"
         self.assertFalse(semantically_equivalent(issue, moved))
 
+        moved = copy.deepcopy(issue)
+        moved["number"] = 41
+        self.assertFalse(semantically_equivalent(issue, moved))
+
+    def test_issue_number_is_a_required_positive_integer(self) -> None:
+        missing = fixture("github.json")
+        del missing["number"]
+        with self.assertRaisesRegex(IssueProfileError, "missing fields: number"):
+            conform_issue(missing)
+
+        for invalid in (None, 0, -1, "9", 9.0, True):
+            with self.subTest(invalid=invalid):
+                issue = fixture("github.json")
+                issue["number"] = invalid
+                with self.assertRaisesRegex(
+                    IssueProfileError, "number must be a positive integer"
+                ):
+                    conform_issue(issue)
+
     def test_moving_markdown_storage_does_not_change_updated_at(self) -> None:
         before = fixture("markdown.json")
         after = copy.deepcopy(before)

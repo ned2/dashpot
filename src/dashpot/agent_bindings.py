@@ -241,11 +241,11 @@ def _references_from_branch(
     branch: str, issues: Sequence[dict]
 ) -> set[str] | None:
     if re.fullmatch(r"issue/[1-9][0-9]*", branch):
-        suffix = f"#{branch.removeprefix('issue/')}"
+        number = int(branch.removeprefix("issue/"))
         return {
             issue["reference"]
             for issue in issues
-            if issue["reference"].endswith(suffix)
+            if issue["number"] == number
         }
     if branch.startswith("issue/") and branch.removeprefix("issue/"):
         return {branch.removeprefix("issue/")}

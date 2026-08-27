@@ -13,5 +13,5 @@ caller and prevents partially fetched Issues from masquerading as valid source
 deletions.
 
 Semantic equivalence canonicalizes set-like collections and excludes only
-source provenance and actionable location. A different reference, Project, or
-lifecycle fact remains an observable Issue change.
+source provenance and actionable location. A different number, reference,
+Project, or lifecycle fact remains an observable Issue change.

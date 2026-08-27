@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 _ISSUE_KEYS = {
     "id",
     "projectId",
+    "number",
     "reference",
     "title",
     "body",
@@ -46,6 +47,7 @@ def conform_issue(value: Mapping[str, Any]) -> dict[str, Any]:
 
     for key in ("id", "projectId", "reference", "title"):
         _require_non_empty_string(issue[key], key)
+    _require_positive_integer(issue["number"], "number")
     if not isinstance(issue["body"], str):
         raise IssueProfileError("body must be a string")
 
@@ -139,6 +141,15 @@ def _require_optional_string(value: Any, path: str) -> None:
         _require_non_empty_string(value, path)
 
 
+def _require_positive_integer(value: Any, path: str) -> None:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 1
+    ):
+        raise IssueProfileError(f"{path} must be a positive integer")
+
+
 def _canonical_string_set(value: Any, path: str) -> list[str]:
     if not isinstance(value, list):
         raise IssueProfileError(f"{path} must be an array")
@@ -170,14 +181,8 @@ def _validate_origin(value: Any) -> None:
         raise IssueProfileError("origin must be an object")
     kind = value.get("kind")
     if kind == "github":
-        _require_keys(value, {"kind", "repositoryId", "number"}, "origin")
+        _require_keys(value, {"kind", "repositoryId"}, "origin")
         _require_non_empty_string(value["repositoryId"], "origin.repositoryId")
-        if (
-            not isinstance(value["number"], int)
-            or isinstance(value["number"], bool)
-            or value["number"] < 1
-        ):
-            raise IssueProfileError("origin.number must be a positive integer")
         return
     if kind == "markdown":
         _require_keys(value, {"kind"}, "origin")

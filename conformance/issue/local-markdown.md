@@ -14,6 +14,7 @@ and body:
 ---
 {
   "id": "I_example",
+  "number": 16,
   "reference": "example",
   "state": "open",
   "stateReason": null,
@@ -59,6 +60,7 @@ The front matter requires exactly these fields:
 | Field | Meaning |
 |---|---|
 | `id` | Stable opaque Issue Identity. |
+| `number` | Positive Project-local Issue Number, assigned explicitly by the author. |
 | `reference` | Mutable human-readable Issue Reference. |
 | `state`, `stateReason` | Issue lifecycle facts. |
 | `labels`, `assignees`, `author` | Labels and source actor facts. |
@@ -89,11 +91,13 @@ configured path is unavailable, not empty. Paths and discovered symlinks that
 resolve outside the Repository Anchor are rejected.
 
 Every document must parse and conform before a refresh is accepted. One
-malformed record, duplicate Issue Identity, or read failure fails the whole new
-collection. The common Issue Source lifecycle then reports the last complete
+malformed record, duplicate Issue Identity, duplicate Issue Number, or read
+failure fails the whole new collection. Numbers are unique within the Project;
+gaps are valid and Dashpot does not allocate them while the source is
+read-only. The common Issue Source lifecycle then reports the last complete
 collection as stale when one exists, or unavailable otherwise. Diagnostics
-distinguish path, absence, permission, I/O, malformed syntax, profile, and
-duplicate-identity failures.
+distinguish path, absence, permission, I/O, malformed syntax, profile,
+duplicate-identity, and duplicate-number failures.
 
 The executable input example is
 [`tests/fixtures/local-markdown/ISSUES.md`](../../tests/fixtures/local-markdown/ISSUES.md),

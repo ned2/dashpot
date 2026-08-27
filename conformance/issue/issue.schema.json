@@ -6,6 +6,7 @@
   "required": [
     "id",
     "projectId",
+    "number",
     "reference",
     "title",
     "body",
@@ -26,6 +27,7 @@
   "properties": {
     "id": { "$ref": "#/$defs/nonEmptyString" },
     "projectId": { "$ref": "#/$defs/nonEmptyString" },
+    "number": { "type": "integer", "minimum": 1 },
     "reference": { "$ref": "#/$defs/nonEmptyString" },
     "title": { "$ref": "#/$defs/nonEmptyString" },
     "body": { "type": "string" },
@@ -58,11 +60,10 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "repositoryId", "number"],
+          "required": ["kind", "repositoryId"],
           "properties": {
             "kind": { "const": "github" },
-            "repositoryId": { "$ref": "#/$defs/nonEmptyString" },
-            "number": { "type": "integer", "minimum": 1 }
+            "repositoryId": { "$ref": "#/$defs/nonEmptyString" }
           }
         },
         {

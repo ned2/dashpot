@@ -1,6 +1,7 @@
 ---
 {
   "id": "I_kwDOUEerrs8AAAABOSTptQ",
+  "number": 9,
   "reference": "ned2/dashpot#9",
   "state": "open",
   "stateReason": null,

@@ -16,6 +16,7 @@ RowKind = Literal["issue", "project", "agent-run"]
 
 class IssueSearchField(StrEnum):
     PROJECT = "project"
+    NUMBER = "number"
     ASSIGNEES = "assignees"
     TITLE = "title"
 
@@ -24,6 +25,8 @@ class IssueSearchField(StrEnum):
     ) -> tuple[str, ...]:
         if self is IssueSearchField.PROJECT:
             return (project.display_label,)
+        if self is IssueSearchField.NUMBER:
+            return (f"#{issue['number']}",)
         if self is IssueSearchField.ASSIGNEES:
             return tuple(str(value) for value in issue.get("assignees", []))
         return (str(issue.get("title", "")),)

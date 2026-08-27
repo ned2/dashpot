@@ -57,6 +57,11 @@ _Avoid_: Project name when identity is intended
 A stable opaque identity for an Issue, globally unique within Dashpot's Issue
 universe and independent of its Project membership, reference, and location.
 
+**Issue Number**:
+A positive Project-local integer used as an Issue's compact human label, such
+as `#16`. It may change with Project membership and never participates in Issue
+identity.
+
 **Issue Reference**:
 A mutable, human-readable shorthand for an Issue, such as `ned2/dashpot#9` or a
 local slug.

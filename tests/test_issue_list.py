@@ -14,6 +14,7 @@ NOW = "2026-08-27T00:00:00Z"
 def issue(issue_id: str, state: str) -> dict:
     return {
         "id": issue_id,
+        "number": 1,
         "state": state,
         "title": issue_id,
         "labels": [],
@@ -104,6 +105,19 @@ def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> 
 
     assert result.matched_issue_count == 1
     assert result.observed_issue_count == 2
+    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+
+
+def test_text_query_matches_the_rendered_issue_number() -> None:
+    matching = issue("I_matching", "open")
+    matching["number"] = 17
+    hidden = issue("I_hidden", "open")
+    hidden["number"] = 18
+
+    result = query_issue_list(
+        workspace(matching, hidden), IssueListQuery(text="#17")
+    )
+
     assert [row.issue["id"] for row in result.rows] == ["I_matching"]
 
 

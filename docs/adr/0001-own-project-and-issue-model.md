@@ -16,8 +16,9 @@ has exactly one active Issue Source. GitHub-backed Projects require that
 repository to be hosted on GitHub; other Git repositories use Dashpot's local
 Markdown representation. Both sources produce the same Issue profile.
 Project Identity, Repository Identity, and Issue Identity are opaque and
-stable, while the Project Display Label, references, URLs, file locations,
-repository hosting, branches, and checkout paths are mutable facts.
+stable. Issue Number is a positive Project-local integer; references, numbers,
+URLs, file locations, repository hosting, branches, and checkout paths are
+mutable facts.
 
 Dashpot will remove TASKS.md as a dependency and will own the local Markdown
 format, parser, schema evolution, and conformance fixtures. The canonical model
@@ -62,7 +63,8 @@ clones require separate anchors.
   validated before anchors are grouped by Project Identity; conflicting
   Repository identities make that Project unavailable rather than merging it.
 - A GitHub Issue transferred to another repository preserves Issue Identity
-  when GitHub does, but changes Project membership, reference, and location.
+  when GitHub does, but may change Project membership, Issue Number, reference,
+  and location.
 - Agent Runs bind to globally unique Issue Identity at Workspace scope.
   References and branch conventions are resolution hints; a successful hint is
   persisted as identity before Dashpot reports the relationship. Execution

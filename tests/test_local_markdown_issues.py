@@ -23,11 +23,14 @@ EXPECTED_FIXTURE = (
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 
-def local_document(*, issue_id: str, reference: str, title: str) -> str:
+def local_document(
+    *, issue_id: str, reference: str, title: str, number: int = 9
+) -> str:
     fixture_lines = RAW_FIXTURE.read_text().splitlines()
     front_matter_end = fixture_lines.index("---", 1)
     metadata = json.loads("\n".join(fixture_lines[1:front_matter_end]))
     metadata["id"] = issue_id
+    metadata["number"] = number
     metadata["reference"] = reference
     return "\n".join(
         [
@@ -69,6 +72,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             (issues / "z-last.md").write_text(
                 local_document(
                     issue_id="I_last",
+                    number=2,
                     reference="last",
                     title="Last by path",
                 )
@@ -76,6 +80,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             (issues / "a-first.md").write_text(
                 local_document(
                     issue_id="I_first",
+                    number=1,
                     reference="first",
                     title="First by path",
                 )
@@ -115,6 +120,26 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
         self.assertEqual("unavailable", observation.status)
         self.assertEqual("markdown-profile", observation.diagnostics[0].code)
         self.assertIn("schemaVersion", observation.diagnostics[0].message)
+
+    def test_issue_number_is_required_local_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            document = local_document(
+                issue_id="I_missing_number",
+                reference="missing-number",
+                title="Missing number",
+            ).replace('  "number": 9,\n', "")
+            (root / "missing-number.md").write_text(document)
+
+            observation = LocalMarkdownIssuesSource(
+                root,
+                issues_path=Path("missing-number.md"),
+                project_id=PROJECT_ID,
+            ).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("markdown-profile", observation.diagnostics[0].code)
+        self.assertIn("missing fields: number", observation.diagnostics[0].message)
 
     def test_configured_path_cannot_escape_the_repository_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -242,6 +267,39 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
         self.assertEqual(
             "markdown-duplicate-identity", observation.diagnostics[0].code
         )
+
+    def test_duplicate_issue_number_fails_the_whole_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            issues = root / "issues"
+            issues.mkdir()
+            for filename, issue_id in (
+                ("first.md", "I_first"),
+                ("second.md", "I_second"),
+            ):
+                (issues / filename).write_text(
+                    local_document(
+                        issue_id=issue_id,
+                        number=17,
+                        reference=filename.removesuffix(".md"),
+                        title=issue_id,
+                    )
+                )
+
+            observation = LocalMarkdownIssuesSource(
+                root,
+                issues_path=Path("issues"),
+                project_id=PROJECT_ID,
+            ).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual([], observation.issues)
+        self.assertEqual(
+            "markdown-duplicate-number", observation.diagnostics[0].code
+        )
+        self.assertIn("Issue Number #17", observation.diagnostics[0].message)
+        self.assertIn("issues/first.md", observation.diagnostics[0].message)
+        self.assertIn("issues/second.md", observation.diagnostics[0].message)
 
     def test_failure_retains_a_deep_copy_of_last_good_issues(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -24,6 +24,7 @@ source deletion.
 |---|---|
 | `id` | Required opaque Issue Identity. Never derived from text or location. |
 | `projectId` | Required opaque identity of the declaring Project. |
+| `number` | Required positive Project-local Issue Number. Unique within a complete Project collection. |
 | `reference` | Required mutable human-readable Issue Reference. |
 | `title` | Required non-empty text. |
 | `body` | Required text; the empty string is valid. |
@@ -53,28 +54,29 @@ Issue may have `stateReason: completed`, `duplicate`, `not-planned`, or `null`.
 
 Two records are semantically equivalent when their canonical profiles are equal
 after removing `origin` and `location`. Every other field, including identity,
-Project membership, reference, and lifecycle timestamps, participates in
-equality.
+Project membership, number, reference, and lifecycle timestamps, participates
+in equality.
 
 Consequently, moving a Local Issue changes only `location` and does not change
 `updatedAt`. A GitHub repository rename changes the Issue Reference and is an
-observable semantic change even though Issue Identity is preserved. A GitHub
-Issue transfer also changes Project membership and is not equality with its
-earlier snapshot.
+observable semantic change even though Issue Identity and Issue Number are
+preserved. A GitHub Issue transfer may change Project membership and Issue
+Number and is not equality with its earlier snapshot.
 
 ## Source rules
 
-A GitHub origin contains the durable repository identity and native Issue
-number. Its location is the current HTTPS Issue URL. A Markdown origin records
-its source kind. Its location is resolved relative to the configured Repository
-Anchor; absolute checkout paths never enter the Issue profile.
+A GitHub origin contains the durable repository identity. Its location is the
+current HTTPS Issue URL. A Markdown origin records its source kind. Its
+location is resolved relative to the configured Repository Anchor; absolute
+checkout paths never enter the Issue profile.
 The owned file grammar, discovery rules, and failure behavior are defined by
 the [Local Issue Markdown schema](local-markdown.md).
 
 Changing the active Issue Source is a migration, not a refresh toggle. Migration
-must validate a complete replacement collection, preserve explicit identities,
-establish references and provenance for the destination source, then replace the
-source atomically. The profile does not define Issue mutation operations.
+must validate a complete replacement collection, preserve explicit identities
+and numbers, establish references and provenance for the destination source,
+then replace the source atomically. The profile does not define Issue mutation
+operations.
 
 ## Fixtures
 

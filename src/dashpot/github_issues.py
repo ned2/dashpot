@@ -115,6 +115,7 @@ class GitHubIssuesSource(IssueSource):
         records = self._collect_issue_nodes()
         issues: list[dict[str, Any]] = []
         seen_issue_ids: set[str] = set()
+        seen_issue_numbers: set[int] = set()
         for record in records:
             complete_record = self._complete_nested_connections(record)
             try:
@@ -131,7 +132,14 @@ class GitHubIssuesSource(IssueSource):
                     "github-pagination",
                     f"GitHub returned duplicate Issue identity {issue_id}",
                 )
+            issue_number = issue["number"]
+            if issue_number in seen_issue_numbers:
+                raise IssueSourceRefreshError(
+                    "github-pagination",
+                    f"GitHub returned duplicate Issue Number #{issue_number}",
+                )
             seen_issue_ids.add(issue_id)
+            seen_issue_numbers.add(issue_number)
             issues.append(issue)
         return issues
 
@@ -289,6 +297,7 @@ def normalize_github_issue(
     profile = {
         "id": _required_string(_required(record, "id", "issue"), "issue.id"),
         "projectId": project_id,
+        "number": number,
         "reference": f"{repository_reference}#{number}",
         "title": _required_string(
             _required(record, "title", "issue"), "issue.title"
@@ -319,7 +328,6 @@ def normalize_github_issue(
         "origin": {
             "kind": "github",
             "repositoryId": observed_repository_id,
-            "number": number,
         },
         "location": {
             "kind": "github",

@@ -106,8 +106,18 @@ def test_exact_reference_hint_plans_identity_promotion_in_observed_project() -> 
 
 
 def test_ambiguous_numeric_branch_hint_is_diagnosed_without_guessing() -> None:
-    first = {"id": "I_one", "projectId": "project-a", "reference": "one/repo#7"}
-    second = {"id": "I_two", "projectId": "project-a", "reference": "two/repo#7"}
+    first = {
+        "id": "I_one",
+        "projectId": "project-a",
+        "number": 7,
+        "reference": "one/repo#7",
+    }
+    second = {
+        "id": "I_two",
+        "projectId": "project-a",
+        "number": 7,
+        "reference": "two/repo#7",
+    }
 
     plan = plan_issue_bindings(
         [project("project-a", first, second)],
@@ -116,6 +126,32 @@ def test_ambiguous_numeric_branch_hint_is_diagnosed_without_guessing() -> None:
 
     assert plan.promotions == []
     assert plan.diagnostics[0].code == "agent-issue-hint-ambiguous"
+
+
+def test_numeric_branch_hint_resolves_local_reference_by_issue_number() -> None:
+    local_issue = {
+        "id": "I_local_17",
+        "projectId": "project-a",
+        "number": 17,
+        "reference": "local-planning-note",
+    }
+
+    plan = plan_issue_bindings(
+        [project("project-a", local_issue)],
+        [run(issue_id=None, reference_hint=None, branch="issue/17")],
+    )
+
+    assert plan.promotions == [
+        IssueBindingPromotion(
+            "codex-session:one",
+            "I_local_17",
+            "branch",
+            "issue/17",
+            "/project-a",
+            NOW,
+        )
+    ]
+    assert plan.diagnostics == []
 
 
 def test_explicit_stale_hint_does_not_fall_back_to_branch() -> None:

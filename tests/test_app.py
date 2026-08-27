@@ -20,12 +20,14 @@ from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.issue_table import (
     COLUMNS_BY_KEY,
     COLUMN_KEYS,
+    DEFAULT_COLUMNS,
     IssueTableCell,
     IssueTableViewState,
     SortTerm,
     build_rows,
     searchable_columns,
 )
+from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import (
     AgentRun,
     Diagnostic,
@@ -48,6 +50,9 @@ ISSUE_FIXTURE = json.loads(
 def issue(reference: str, title: str, priority: str = "P1") -> dict:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["id"] = f"I_{reference}"
+    number_text = reference.rpartition("#")[2]
+    if number_text.isdigit() and int(number_text) > 0:
+        value["number"] = int(number_text)
     value["reference"] = reference
     value["title"] = title
     value["labels"] = [f"priority/{priority.lower()}"]
@@ -165,19 +170,28 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert not hasattr(app, "snapshot")
         assert COLUMN_KEYS == (
             "status",
+            "number",
+            "title",
             "project",
             "priority",
             "assignees",
             "sessions",
+        )
+        assert DEFAULT_COLUMNS == (
+            "status",
+            "number",
             "title",
+            "priority",
+            "assignees",
+            "sessions",
         )
         assert [str(column.label) for column in table.columns.values()] == [
             "S ↕",
-            "PROJECT ↑",
+            "ID ↕",
+            "TITLE ↑",
             "PRI ↑",
             "ASSIGNEES ↕",
             "SESSIONS ↕",
-            "TITLE ↑",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert "Status: fresh" in project_detail
@@ -261,7 +275,7 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
             )
             await pilot.pause()
 
-        assert table.get_row_at(0)[-1] == "Zebra"
+        assert table.get_row_at(0)[table.get_column_index(title_key)] == "Zebra"
         assert app.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
@@ -282,14 +296,19 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
 
     async with app.run_test(size=(80, 24)) as pilot:
         table = app.query_one("#queue", DataTable)
+        title_key = next(key for key in table.columns if key.value == "title")
 
         await pilot.press("s")
         assert app.issue_view.sort == (SortTerm("priority"),)
-        assert table.get_row_at(0)[-1] == "Higher priority"
+        assert table.get_row_at(0)[table.get_column_index(title_key)] == (
+            "Higher priority"
+        )
 
         await pilot.press("shift+s")
         assert app.issue_view.sort == (SortTerm("priority", descending=True),)
-        assert table.get_row_at(0)[-1] == "Lower priority"
+        assert table.get_row_at(0)[table.get_column_index(title_key)] == (
+            "Lower priority"
+        )
 
 
 @pytest.mark.asyncio
@@ -353,18 +372,18 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         assert isinstance(editor, IssueColumnEditor)
         selections = editor.query_one("#column-editor-list")
         selections.deselect("status")
-        selections.highlighted = 5
+        selections.highlighted = editor.column_order.index("sessions")
         assert await pilot.click("#column-up")
         await pilot.pause()
         assert await pilot.click("#column-apply")
         await pilot.pause()
 
         assert app.issue_view.columns == (
-            "project",
-            "priority",
-            "assignees",
+            "number",
             "title",
+            "priority",
             "sessions",
+            "assignees",
         )
         assert [key.value for key in table.columns] == list(app.issue_view.columns)
         assert app.selected_row_key == selected_key
@@ -631,6 +650,44 @@ def test_row_projection_respects_visible_column_order() -> None:
     assert cells[selected_key] == ("First", "ned2", "Test Repository")
 
 
+def test_issue_id_column_uses_the_project_local_number() -> None:
+    selected_issue = issue("test/repo#17", "Reference test")
+
+    _contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(selected_issue)),
+        columns=("number",),
+    )
+
+    assert cells[row_key("issue", selected_issue["id"])] == (
+        "#17",
+    )
+
+
+def test_local_markdown_number_is_the_table_id() -> None:
+    document = (
+        ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
+    ).read_text()
+    document = document.replace(
+        '"id": "I_kwDOUEerrs8AAAABOSTptQ"', '"id": "I_local_17"'
+    ).replace(
+        '"number": 9', '"number": 17'
+    ).replace(
+        '"reference": "ned2/dashpot#9"', '"reference": "local-17"'
+    )
+    local_issue = parse_local_markdown_issue(
+        document,
+        project_id="project:test-repo",
+        path="issues/local-17.md",
+    )
+
+    _contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(local_issue)),
+        columns=("number",),
+    )
+
+    assert cells[row_key("issue", "I_local_17")] == ("#17",)
+
+
 def test_selecting_a_sort_column_replaces_the_default_then_toggles_direction() -> None:
     view = IssueTableViewState()
 
@@ -652,7 +709,7 @@ def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
 
 def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     assert searchable_columns() == frozenset(
-        {"project", "assignees", "title"}
+        {"number", "project", "assignees", "title"}
     )
     sessions = [
         IssueTableCell("Ⅱ10", (10, 0, 10, 0)),
@@ -662,6 +719,12 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     ordered = sorted(sessions, key=COLUMNS_BY_KEY["sessions"].sort_key)
 
     assert ordered == ["Ⅱ2", "Ⅱ10"]
+    numbers = [IssueTableCell("#10", 10), IssueTableCell("#2", 2)]
+
+    assert sorted(numbers, key=COLUMNS_BY_KEY["number"].sort_key) == [
+        "#2",
+        "#10",
+    ]
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
@@ -684,9 +747,10 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(COLUMN_KEYS) == 6
-    assert cells[selected_key][3] == "ned2"
-    assert cells[selected_key][4] == "Ⅱ1"
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 6
+    assert cells[selected_key][1] == "#1"
+    assert cells[selected_key][4] == "ned2"
+    assert cells[selected_key][5] == "Ⅱ1"
     detail = selection_detail_text(contexts[selected_key])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail
@@ -776,7 +840,9 @@ def test_default_issue_filter_shows_only_open_issues() -> None:
     )
 
     assert set(contexts) == set(cells) == {row_key("issue", open_issue["id"])}
-    assert cells[row_key("issue", open_issue["id"])][-1] == "Open"
+    assert cells[row_key("issue", open_issue["id"])][
+        DEFAULT_COLUMNS.index("title")
+    ] == "Open"
 
 
 def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
@@ -795,7 +861,9 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
 
     project_key = row_key("project", "project:test-repo")
     assert set(contexts) == set(cells) == {project_key}
-    assert cells[project_key][-1] == "no open Issues"
+    assert cells[project_key][DEFAULT_COLUMNS.index("title")] == (
+        "no open Issues"
+    )
 
 
 def test_opaque_issue_identity_cannot_collide_with_unmatched_run_row() -> None:
@@ -822,6 +890,9 @@ def test_opaque_issue_identity_cannot_collide_with_unmatched_run_row() -> None:
         row_key("issue", colliding_issue["id"]),
         row_key("run", colliding_run_id),
     }
+    assert cells[row_key("run", colliding_run_id)][
+        DEFAULT_COLUMNS.index("number")
+    ] == "-"
 
 
 def test_opaque_issue_identity_cannot_collide_with_project_placeholder() -> None:
@@ -854,6 +925,7 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     second.projects[0].snapshot.project_id = "project:new-repository"
     second.projects[0].snapshot.display_label = "New Repository"
     second.projects[0].snapshot.issues[0]["projectId"] = "project:new-repository"
+    second.projects[0].snapshot.issues[0]["number"] = 70
     second.projects[0].snapshot.issues[0]["reference"] = "new/repository#70"
     selected_key = row_key("issue", transferred["id"])
     app = DashpotApp(

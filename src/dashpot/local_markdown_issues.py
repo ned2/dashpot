@@ -10,6 +10,7 @@ from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
 _LOCAL_METADATA_KEYS = {
     "id",
+    "number",
     "reference",
     "state",
     "stateReason",
@@ -71,6 +72,7 @@ class LocalMarkdownIssuesSource(IssueSource):
             paths = sorted(path.rglob("*.md")) if path.is_dir() else [path]
             issues: list[dict[str, Any]] = []
             seen_issue_ids: set[str] = set()
+            issue_paths_by_number: dict[int, str] = {}
             for issue_path in paths:
                 if not issue_path.resolve().is_relative_to(root):
                     raise IssueSourceRefreshError(
@@ -94,7 +96,16 @@ class LocalMarkdownIssuesSource(IssueSource):
                         "markdown-duplicate-identity",
                         f"Local Markdown contains duplicate Issue identity {issue_id}",
                     )
+                issue_number = issue["number"]
+                previous_path = issue_paths_by_number.get(issue_number)
+                if previous_path is not None:
+                    raise IssueSourceRefreshError(
+                        "markdown-duplicate-number",
+                        f"Local Markdown Issue Number #{issue_number} appears in "
+                        f"both {previous_path} and {relative_path}",
+                    )
                 seen_issue_ids.add(issue_id)
+                issue_paths_by_number[issue_number] = relative_path
                 issues.append(issue)
         except LocalMarkdownIssueError as exc:
             raise IssueSourceRefreshError(exc.code, str(exc)) from exc

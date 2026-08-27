@@ -23,6 +23,7 @@ NOW = "2026-08-27T03:00:00Z"
 def issue(issue_id: str, title: str) -> dict:
     return {
         "id": issue_id,
+        "number": 1,
         "state": "open",
         "title": title,
         "labels": [],

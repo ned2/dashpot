@@ -1,6 +1,7 @@
 {
   "id": "I_kwDOUEerrs8AAAABOSTptQ",
   "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
+  "number": 9,
   "reference": "ned2/dashpot#9",
   "title": "Replace TASKS.md with an owned Project and Issue model",
   "body": "Adopt one Project per Git repository and one compatible Issue profile.",
@@ -24,6 +25,6 @@
   "location": {
     "kind": "markdown",
     "path": "ISSUES.md",
-    "line": 23
+    "line": 24
   }
 }

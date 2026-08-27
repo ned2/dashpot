@@ -159,6 +159,7 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
 
         self.assertEqual(before["id"], after["id"])
         self.assertEqual(before["projectId"], after["projectId"])
+        self.assertEqual(before["number"], after["number"])
         self.assertEqual("open-dashpot/dashpot#9", after["reference"])
         self.assertEqual(renamed["url"], after["location"]["url"])
 
@@ -180,8 +181,21 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
 
         self.assertEqual(before["id"], after["id"])
         self.assertEqual("project:operations", after["projectId"])
+        self.assertEqual(41, after["number"])
         self.assertEqual("open-dashpot/operations#41", after["reference"])
         self.assertEqual("R_operations", after["origin"]["repositoryId"])
+        self.assertNotIn("number", after["origin"])
+
+    def test_number_must_be_a_positive_integer(self) -> None:
+        for invalid in (None, 0, -1, "9", 9.0, True):
+            with self.subTest(invalid=invalid):
+                record = raw_fixture()
+                record["number"] = invalid
+                with self.assertRaisesRegex(
+                    GitHubIssueNormalizationError,
+                    "number must be a positive integer",
+                ):
+                    normalize(record)
 
     def test_conflicting_configured_repository_identity_is_rejected(self) -> None:
         with self.assertRaisesRegex(
@@ -321,6 +335,18 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         self.assertEqual(3, len(runner.calls))
         self.assertIn("cursor=issues-100", runner.calls[1][0])
         self.assertIn("cursor=issues-200", runner.calls[2][0])
+
+    def test_duplicate_issue_number_is_a_pagination_diagnostic(self) -> None:
+        first = issue_record(9)
+        second = issue_record(9)
+        second["id"] = "I_other_identity"
+        runner = SequenceRunner([completed(issue_page([first, second]))])
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-pagination", observation.diagnostics[0].code)
+        self.assertIn("duplicate Issue Number #9", observation.diagnostics[0].message)
 
     def test_repeated_outer_cursor_is_a_pagination_diagnostic(self) -> None:
         runner = SequenceRunner(

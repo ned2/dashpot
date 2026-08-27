@@ -15,11 +15,12 @@ from .model import Issue, RunState
 
 ColumnKey = Literal[
     "status",
+    "number",
+    "title",
     "project",
     "priority",
     "assignees",
     "sessions",
-    "title",
 ]
 
 
@@ -52,6 +53,17 @@ class ColumnSpec:
 COLUMN_SPECS = (
     ColumnSpec("status", "S"),
     ColumnSpec(
+        "number",
+        "ID",
+        search_field=IssueSearchField.NUMBER,
+    ),
+    ColumnSpec(
+        "title",
+        "TITLE",
+        update_width=True,
+        search_field=IssueSearchField.TITLE,
+    ),
+    ColumnSpec(
         "project",
         "PROJECT",
         update_width=True,
@@ -65,14 +77,11 @@ COLUMN_SPECS = (
         search_field=IssueSearchField.ASSIGNEES,
     ),
     ColumnSpec("sessions", "SESSIONS"),
-    ColumnSpec(
-        "title",
-        "TITLE",
-        update_width=True,
-        search_field=IssueSearchField.TITLE,
-    ),
 )
 COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
+DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
+    key for key in COLUMN_KEYS if key != "project"
+)
 COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
 
@@ -92,7 +101,7 @@ DEFAULT_SORT = (
 @dataclass(frozen=True, slots=True)
 class IssueTableViewState:
     query: IssueListQuery = IssueListQuery()
-    columns: tuple[ColumnKey, ...] = COLUMN_KEYS
+    columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS
     sort: tuple[SortTerm, ...] = DEFAULT_SORT
 
     def __post_init__(self) -> None:
@@ -107,8 +116,22 @@ class IssueTableViewState:
 
     def cycle_sort(self) -> IssueTableViewState:
         current = self.sort[0].column if self.sort else None
-        current_index = self.columns.index(current) if current in self.columns else -1
-        next_column = self.columns[(current_index + 1) % len(self.columns)]
+        if current in self.columns:
+            current_index = self.columns.index(current)
+            next_column = self.columns[(current_index + 1) % len(self.columns)]
+        elif current in COLUMN_KEYS:
+            current_index = COLUMN_KEYS.index(current)
+            following_columns = (
+                COLUMN_KEYS[current_index + 1 :]
+                + COLUMN_KEYS[: current_index + 1]
+            )
+            next_column = next(
+                column
+                for column in following_columns
+                if column in self.columns
+            )
+        else:
+            next_column = self.columns[0]
         return replace(self, sort=(SortTerm(next_column),))
 
     def reverse_sort(self) -> IssueTableViewState:
@@ -182,7 +205,7 @@ def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
 def build_rows(
     result: IssueListResult,
     *,
-    columns: tuple[ColumnKey, ...] = COLUMN_KEYS,
+    columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS,
 ) -> tuple[dict[str, IssueListRow], dict[str, tuple[IssueTableCell, ...]]]:
     """Render queried rows into the requested presentation schema."""
     contexts: dict[str, IssueListRow] = {}
@@ -199,11 +222,12 @@ def _row_values(row: IssueListRow) -> dict[ColumnKey, IssueTableCell]:
     if row.kind == "project":
         return {
             "status": status_cell(project.status),
+            "number": IssueTableCell("-", float("inf")),
+            "title": text_cell(row.empty_message or "no Issues"),
             "project": text_cell(project.display_label),
             "priority": IssueTableCell("-", 99),
             "assignees": IssueTableCell("unassigned", ()),
             "sessions": IssueTableCell("-", (0, 0, 0, 0)),
-            "title": text_cell(row.empty_message or "no Issues"),
         }
     if row.kind == "issue":
         issue = row.issue
@@ -213,24 +237,28 @@ def _row_values(row: IssueListRow) -> dict[ColumnKey, IssueTableCell]:
         assignees = tuple(assignee.casefold() for assignee in issue["assignees"])
         return {
             "status": status_cell(project.status),
+            "number": IssueTableCell(
+                f"#{issue['number']}", issue["number"]
+            ),
+            "title": text_cell(issue["title"]),
             "project": text_cell(project.display_label),
             "priority": IssueTableCell(priority, int(priority[1:])),
             "assignees": IssueTableCell(
                 ", ".join(issue["assignees"]) or "unassigned", assignees
             ),
             "sessions": run_summary_cell(row.session_states),
-            "title": text_cell(issue["title"]),
         }
     run = row.run
     if run is None:
         raise RuntimeError("Issue-list Agent Run row is missing its Agent Run")
     return {
         "status": run_state_cell(run.state),
+        "number": IssueTableCell("-", float("inf")),
+        "title": text_cell(f"Unmatched {run.harness} run"),
         "project": text_cell(project.display_label),
         "priority": IssueTableCell("-", 99),
         "assignees": IssueTableCell("unassigned", ()),
         "sessions": IssueTableCell(run.state, run_state_counts((run.state,))),
-        "title": text_cell(f"Unmatched {run.harness} run"),
     }
 
 

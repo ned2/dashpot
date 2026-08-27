@@ -92,6 +92,9 @@ def issue(reference: str = "example/project#7") -> dict:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["reference"] = reference
     value["id"] = f"I_{reference}"
+    number_text = reference.rpartition("#")[2]
+    if number_text.isdigit() and int(number_text) > 0:
+        value["number"] = int(number_text)
     value["title"] = "Build observer"
     return value
 
@@ -197,6 +200,8 @@ class ProjectCollectorTests(unittest.TestCase):
         serialized = to_jsonable(snapshot)["issues"][0]
 
         self.assertEqual(complete, conform_issue(serialized))
+        self.assertEqual(complete["number"], serialized["number"])
+        self.assertNotIn("number", serialized["origin"])
         self.assertIsNone(serialized["stateReason"])
         self.assertIsNone(serialized["relationships"]["parent"])
         self.assertIsNone(serialized["issueType"])
