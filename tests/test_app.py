@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import Event, Lock
 
 import pytest
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Input, Select, Static
 
 from dashpot.app import (
     DashpotApp,
@@ -258,6 +258,42 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
         assert str(table.columns[title_key].label) == "TITLE ↓"
+
+
+@pytest.mark.asyncio
+async def test_visible_filters_update_rows_and_observation_count() -> None:
+    closed_issue = issue("test/repo#3", "Archived Zebra")
+    closed_issue.update(
+        {
+            "state": "closed",
+            "stateReason": "completed",
+            "closedAt": "2026-08-27T01:00:00Z",
+        }
+    )
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Zebra"),
+        issue("test/repo#2", "Alpha"),
+        closed_issue,
+    )
+    app = DashpotApp(
+        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+    )
+
+    async with app.run_test(size=(100, 28)):
+        count = app.query_one("#issue-count", Static)
+        search = app.query_one("#issue-search", Input)
+        state = app.query_one("#issue-state", Select)
+
+        assert str(count.render()) == "2 of 3 Issues"
+        search.value = "zebra"
+        await wait_until(lambda: str(count.render()) == "1 of 3 Issues")
+        assert app.query_one("#queue", DataTable).row_count == 1
+
+        state.value = "closed"
+        await wait_until(
+            lambda: app.selected_row_key == row_key("issue", closed_issue["id"])
+        )
+        assert str(count.render()) == "1 of 3 Issues"
 
 
 @pytest.mark.asyncio

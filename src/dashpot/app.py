@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from typing import Protocol, cast
 
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
 from textual.timer import Timer
 from textual.worker import get_current_worker
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
 from .issue_list import (
+    IssueListQuery,
     IssueListRow,
     query_issue_list,
 )
@@ -92,7 +94,22 @@ class DashpotApp(App[None]):
                     yield Static("ISSUE", id="selection-title", classes="pane-title")
                     yield Static("Select a row", id="selection-detail")
             with Vertical(id="queue-pane"):
-                yield Static("WORK", classes="pane-title")
+                with Horizontal(id="queue-controls"):
+                    yield Static("WORK", classes="pane-title")
+                    yield Select(
+                        (("Open", "open"), ("Closed", "closed"), ("All", "all")),
+                        value=issue_state_filter_value(self.issue_view.query),
+                        allow_blank=False,
+                        compact=True,
+                        id="issue-state",
+                    )
+                    yield Input(
+                        value=self.issue_view.query.text,
+                        placeholder="Search Issues",
+                        compact=True,
+                        id="issue-search",
+                    )
+                    yield Static("0 of 0 Issues", id="issue-count")
                 yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
         yield Static("No diagnostics", id="diagnostics")
         yield Footer()
@@ -127,6 +144,30 @@ class DashpotApp(App[None]):
             table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         )
         self.show_row(selected_key)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "issue-search":
+            return
+        self.set_issue_query(replace(self.issue_view.query, text=event.value))
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "issue-state":
+            return
+        states = {
+            "open": frozenset({"open"}),
+            "closed": frozenset({"closed"}),
+            "all": frozenset({"open", "closed"}),
+        }.get(str(event.value))
+        if states is None:
+            return
+        self.set_issue_query(replace(self.issue_view.query, states=states))
+
+    def set_issue_query(self, query: IssueListQuery) -> None:
+        if query == self.issue_view.query:
+            return
+        self.issue_view = replace(self.issue_view, query=query)
+        if self.snapshot is not None:
+            self.reconcile_rows(self.snapshot)
 
     def update_sort_headers(self, table: DataTable[str]) -> None:
         columns_by_name = {
@@ -228,8 +269,12 @@ class DashpotApp(App[None]):
     def reconcile_rows(self, snapshot: WorkspaceSnapshot) -> None:
         table = self.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
+        result = query_issue_list(snapshot, self.issue_view.query)
+        self.query_one("#issue-count", Static).update(
+            f"{result.matched_issue_count} of {result.observed_issue_count} Issues"
+        )
         desired_contexts, desired_cells = build_rows(
-            query_issue_list(snapshot, self.issue_view.query),
+            result,
             columns=self.issue_view.columns,
         )
         old_keys = set(self.rendered_cells)
@@ -416,6 +461,14 @@ def selection_detail_text(context: IssueListRow) -> str:
 
 def project_label(project: ProjectObservation) -> str:
     return project.display_label
+
+
+def issue_state_filter_value(query: IssueListQuery) -> str:
+    if query.states == frozenset({"open"}):
+        return "open"
+    if query.states == frozenset({"closed"}):
+        return "closed"
+    return "all"
 
 
 def issue_location(issue: Issue) -> str:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dashpot.issue_list import query_issue_list
+from dashpot.issue_list import IssueListQuery, query_issue_list
 from dashpot.model import AgentRun, ProjectObservation, ProjectSnapshot, WorkspaceSnapshot
 
 
@@ -86,6 +86,20 @@ def test_default_query_explains_project_with_only_closed_issues() -> None:
     assert len(result.rows) == 1
     assert result.rows[0].kind == "project"
     assert result.rows[0].empty_message == "no open Issues"
+
+
+def test_text_query_matches_issue_fields_and_preserves_observed_count() -> None:
+    matching = issue("I_matching", "open")
+    matching["title"] = "Fix launch controls"
+    matching["labels"] = ["area/navigation"]
+    hidden = issue("I_hidden", "open")
+    observed = workspace(matching, hidden)
+
+    result = query_issue_list(observed, IssueListQuery(text="NAVIGATION"))
+
+    assert result.matched_issue_count == 1
+    assert result.observed_issue_count == 2
+    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
 
 
 def agent_run(session_id: str, *, issue_id: str | None) -> AgentRun:

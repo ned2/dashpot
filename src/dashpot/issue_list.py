@@ -15,6 +15,7 @@ RowKind = Literal["issue", "project", "agent-run"]
 @dataclass(frozen=True, slots=True)
 class IssueListQuery:
     states: frozenset[IssueState] = frozenset({"open"})
+    text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +60,12 @@ def query_issue_list(
     for project in snapshot.projects:
         issues = project.snapshot.issues if project.snapshot else []
         observed_issue_count += len(issues)
+        search = query.text.strip().casefold()
         visible_issues = [
-            issue for issue in issues if issue["state"] in query.states
+            issue
+            for issue in issues
+            if issue["state"] in query.states
+            and (not search or search in _searchable_issue_text(issue, project))
         ]
         project_has_unmatched_run = any(
             run.id not in matched_runs
@@ -136,6 +141,8 @@ def row_key(kind: str, *identities: str) -> str:
 
 
 def _empty_issue_message(query: IssueListQuery) -> str:
+    if query.text.strip():
+        return "no Issues match the current filters"
     if query.states == frozenset({"open"}):
         return "no open Issues"
     if query.states == frozenset({"closed"}):
@@ -143,3 +150,18 @@ def _empty_issue_message(query: IssueListQuery) -> str:
     if query.states == frozenset({"open", "closed"}):
         return "no Issues"
     return "no Issues match the current filters"
+
+
+def _searchable_issue_text(issue: Issue, project: ProjectObservation) -> str:
+    values = [
+        project.display_label,
+        str(issue.get("title", "")),
+        str(issue.get("reference", "")),
+        str(issue.get("body", "")),
+        *(str(label) for label in issue.get("labels", [])),
+        *(str(assignee) for assignee in issue.get("assignees", [])),
+    ]
+    milestone = issue.get("milestone")
+    if isinstance(milestone, dict):
+        values.append(str(milestone.get("title", "")))
+    return "\n".join(values).casefold()
