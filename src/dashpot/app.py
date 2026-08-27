@@ -20,9 +20,12 @@ from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 from .column_editor import IssueColumnEditor
 from .detail_fields import DetailFields, DetailItem, detail_items_text
 from .issue_list import IssueListQuery, IssueListRow
+from .issue_search import IssueSearchSort, parse_issue_search
 from .issue_table import (
     ColumnKey,
+    DEFAULT_SORT,
     IssueTableViewState,
+    SortTerm,
     TableCell,
     build_rows,
     cells_match,
@@ -92,13 +95,20 @@ class DashpotApp(App[None]):
         self.collector = collector
         self.refresh_seconds = refresh_seconds
         self.store = observation_store or WorkspaceObservationStore()
-        self.issue_view = issue_view
+        parsed_search = parse_issue_search(issue_view.query.text)
+        explicit_sort = issue_search_sort_terms(parsed_search.sort)
+        self.issue_view = (
+            replace(issue_view, sort=explicit_sort)
+            if explicit_sort is not None
+            else issue_view
+        )
         self.refresh_generation = 0
         self.refresh_timer: Timer | None = None
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
         self.rendered_cells: dict[str, tuple[TableCell, ...]] = {}
         self.ui_error: str | None = None
+        self.search_diagnostics = parsed_search.diagnostics
         self.refresh_executor = ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="dashpot-refresh"
         )
@@ -227,7 +237,13 @@ class DashpotApp(App[None]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "issue-search":
             return
-        self.set_issue_query(replace(self.issue_view.query, text=event.value))
+        parsed_search = parse_issue_search(event.value)
+        self.search_diagnostics = parsed_search.diagnostics
+        self.update_diagnostics()
+        self.set_issue_query(
+            replace(self.issue_view.query, text=event.value),
+            sort=issue_search_sort_terms(parsed_search.sort) or DEFAULT_SORT,
+        )
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id != "issue-state":
@@ -241,10 +257,20 @@ class DashpotApp(App[None]):
             return
         self.set_issue_query(replace(self.issue_view.query, states=states))
 
-    def set_issue_query(self, query: IssueListQuery) -> None:
-        if query == self.issue_view.query:
+    def set_issue_query(
+        self,
+        query: IssueListQuery,
+        *,
+        sort: tuple[SortTerm, ...] | None = None,
+    ) -> None:
+        next_sort = self.issue_view.sort if sort is None else sort
+        query_changed = query != self.issue_view.query
+        sort_changed = next_sort != self.issue_view.sort
+        if not query_changed and not sort_changed:
             return
-        self.issue_view = replace(self.issue_view, query=query)
+        self.issue_view = replace(self.issue_view, query=query, sort=next_sort)
+        if sort_changed:
+            self.update_sort_headers(self.query_one("#queue", DataTable))
         if self.store.has_observations:
             self.reconcile_rows()
 
@@ -361,29 +387,39 @@ class DashpotApp(App[None]):
         desired_contexts, desired_cells = build_rows(
             result,
             columns=self.issue_view.columns,
+            sort=self.issue_view.sort,
             dark=self.current_theme.dark,
         )
         old_keys = set(self.rendered_cells)
         new_keys = set(desired_cells)
+        hidden_sort = any(
+            term.column not in self.issue_view.columns
+            for term in self.issue_view.sort
+        )
 
         with self.batch_update():
-            for key in old_keys - new_keys:
-                table.remove_row(key)
-            for key, cells in desired_cells.items():
-                if key not in old_keys:
+            if hidden_sort:
+                table.clear()
+                for key, cells in desired_cells.items():
                     table.add_row(*cells, key=key)
-                    continue
-                previous = self.rendered_cells[key]
-                for column, old_value, new_value in zip(
-                    column_specs(self.issue_view.columns), previous, cells
-                ):
-                    if not cells_match(old_value, new_value):
-                        table.update_cell(
-                            key,
-                            column.key,
-                            new_value,
-                            update_width=column.update_width,
-                        )
+            else:
+                for key in old_keys - new_keys:
+                    table.remove_row(key)
+                for key, cells in desired_cells.items():
+                    if key not in old_keys:
+                        table.add_row(*cells, key=key)
+                        continue
+                    previous = self.rendered_cells[key]
+                    for column, old_value, new_value in zip(
+                        column_specs(self.issue_view.columns), previous, cells
+                    ):
+                        if not cells_match(old_value, new_value):
+                            table.update_cell(
+                                key,
+                                column.key,
+                                new_value,
+                                update_width=column.update_width,
+                            )
             if table.row_count:
                 self.sort_rows(table)
 
@@ -449,6 +485,7 @@ class DashpotApp(App[None]):
         messages: list[str] = []
         if self.ui_error:
             messages.append(self.ui_error)
+        messages.extend(f"Search: {message}" for message in self.search_diagnostics)
         messages.extend(
             (
                 f"{entry.project_label} · {entry.diagnostic.source}: "
@@ -516,6 +553,17 @@ def selection_title(context: IssueListRow) -> str:
     if context.run:
         return "AGENT RUN"
     return "SELECTION"
+
+
+def issue_search_sort_terms(
+    search_sort: IssueSearchSort | None,
+) -> tuple[SortTerm, ...] | None:
+    if search_sort is None:
+        return None
+    column: ColumnKey = (
+        "created" if search_sort.field == "created" else "last_action"
+    )
+    return (SortTerm(column, descending=search_sort.descending),)
 
 
 def issue_pane_state_class(context: IssueListRow | None) -> str | None:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
+from .issue_search import parse_issue_search
 from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnapshot
 
 
@@ -134,18 +135,18 @@ def _query_indexed_issue_list(
     rows: list[IssueListRow] = []
     observed_issue_count = 0
     matched_issue_count = 0
+    search_terms = tuple(
+        term.casefold() for term in parse_issue_search(query.text).terms
+    )
     for project in projects.values():
         project_issues = issues_by_project[project.project_id]
         observed_issue_count += len(project_issues)
-        search = query.text.strip().casefold()
         visible_issues = [
             issue
             for issue in project_issues
             if issue["state"] in query.states
-            and (
-                not search
-                or search
-                in _searchable_issue_text(issue, project, query.search_fields)
+            and _matches_search(
+                issue, project, query.search_fields, search_terms
             )
         ]
         project_has_unmatched_run = any(
@@ -226,7 +227,7 @@ def row_key(kind: str, *identities: str) -> str:
 
 
 def _empty_issue_message(query: IssueListQuery) -> str:
-    if query.text.strip():
+    if parse_issue_search(query.text).terms:
         return "no Issues match the current filters"
     if query.states == frozenset({"open"}):
         return "no open Issues"
@@ -248,3 +249,15 @@ def _searchable_issue_text(
         for value in field.values(issue, project)
     ]
     return "\n".join(values).casefold()
+
+
+def _matches_search(
+    issue: Issue,
+    project: ProjectObservation,
+    fields: frozenset[IssueSearchField],
+    terms: tuple[str, ...],
+) -> bool:
+    if not terms:
+        return True
+    searchable = _searchable_issue_text(issue, project, fields)
+    return all(term in searchable for term in terms)

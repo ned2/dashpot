@@ -121,6 +121,49 @@ def test_text_query_matches_the_rendered_issue_number() -> None:
     assert [row.issue["id"] for row in result.rows] == ["I_matching"]
 
 
+def test_unquoted_search_terms_are_anded_without_requiring_a_phrase() -> None:
+    matching = issue("I_matching", "open")
+    matching["title"] = "Clipboard support for terminal failure"
+    wrong_order = issue("I_wrong_order", "open")
+    wrong_order["title"] = "Failure while copying to clipboard"
+    missing_term = issue("I_missing", "open")
+    missing_term["title"] = "Clipboard behavior"
+
+    result = query_issue_list(
+        workspace(matching, wrong_order, missing_term),
+        IssueListQuery(text="clipboard failure"),
+    )
+
+    assert [row.issue["id"] for row in result.rows] == [
+        "I_matching",
+        "I_wrong_order",
+    ]
+
+
+def test_quoted_search_phrase_still_requires_contiguous_text() -> None:
+    matching = issue("I_matching", "open")
+    matching["title"] = "Clipboard failure in terminal"
+    separated = issue("I_separated", "open")
+    separated["title"] = "Clipboard support for terminal failure"
+
+    result = query_issue_list(
+        workspace(matching, separated),
+        IssueListQuery(text='"clipboard failure"'),
+    )
+
+    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+
+
+def test_sort_qualifier_does_not_participate_in_lexical_matching() -> None:
+    observed = workspace(issue("I_open", "open"))
+
+    result = query_issue_list(
+        observed, IssueListQuery(text="sort:created-asc")
+    )
+
+    assert [row.issue["id"] for row in result.rows] == ["I_open"]
+
+
 def test_query_rejects_duplicate_project_identities() -> None:
     observed = workspace(issue("I_open", "open"))
     observed.projects.append(copy.deepcopy(observed.projects[0]))

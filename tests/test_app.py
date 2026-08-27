@@ -501,6 +501,71 @@ async def test_default_sort_orders_last_action_newest_first_and_missing_last() -
 
 
 @pytest.mark.asyncio
+async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default() -> None:
+    recently_active = issue("test/repo#1", "Recently active")
+    recently_active["createdAt"] = "2026-08-01T01:00:00Z"
+    recently_active["updatedAt"] = "2026-08-28T01:00:00Z"
+    newly_created = issue("test/repo#2", "Newly created")
+    newly_created["createdAt"] = "2026-08-27T01:00:00Z"
+    newly_created["updatedAt"] = "2026-08-27T02:00:00Z"
+    snapshot = workspace_snapshot(recently_active, newly_created)
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(100, 24)) as pilot:
+        table = app.query_one("#queue", DataTable)
+        search = app.query_one("#issue-search", Input)
+        title_column = table.get_column_index("title")
+
+        assert table.get_row_at(0)[title_column] == "Recently active"
+
+        search.value = "sort:created-desc"
+        await wait_until(
+            lambda: app.issue_view.sort
+            == (SortTerm("created", descending=True),)
+        )
+        await pilot.pause()
+
+        assert "created" not in app.issue_view.columns
+        assert table.get_row_at(0)[title_column] == "Newly created"
+        assert app.selected_row_key == row_key(
+            "issue", recently_active["id"]
+        )
+
+        search.value = ""
+        await wait_until(lambda: app.issue_view.sort == DEFAULT_SORT)
+        await pilot.pause()
+
+        assert table.get_row_at(0)[title_column] == "Recently active"
+        assert app.selected_row_key == row_key(
+            "issue", recently_active["id"]
+        )
+
+
+@pytest.mark.asyncio
+async def test_unsupported_search_sort_is_reported_without_filtering_rows() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(100, 24)):
+        search = app.query_one("#issue-search", Input)
+        diagnostics = app.query_one("#diagnostics", Static)
+
+        search.value = "sort:comments-desc"
+        await wait_until(lambda: "Unsupported sort" in str(diagnostics.render()))
+
+        assert app.query_one("#queue", DataTable).row_count == 1
+        assert app.issue_view.sort == DEFAULT_SORT
+
+
+@pytest.mark.asyncio
 async def test_visible_filters_update_rows_and_observation_count() -> None:
     closed_issue = issue("test/repo#3", "Archived Zebra")
     closed_issue.update(

@@ -267,16 +267,36 @@ def build_rows(
     result: IssueListResult,
     *,
     columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS,
+    sort: tuple[SortTerm, ...] = (),
     dark: bool = True,
 ) -> tuple[dict[str, IssueListRow], dict[str, tuple[TableCell, ...]]]:
     """Render queried rows into the requested presentation schema."""
+    projected = [
+        (row, _row_values(row, dark=dark)) for row in result.rows
+    ]
+    if sort:
+        directions = {term.descending for term in sort}
+        if len(directions) != 1:
+            raise ValueError("Issue table sort terms must share one direction")
+        projected.sort(key=lambda item: _row_tie_break(item[0]))
+        projected.sort(
+            key=lambda item: sort_key_for_terms(sort)(
+                tuple(item[1][term.column] for term in sort)
+            ),
+            reverse=sort[0].descending,
+        )
+
     contexts: dict[str, IssueListRow] = {}
     cells_by_key: dict[str, tuple[TableCell, ...]] = {}
-    for row in result.rows:
+    for row, values in projected:
         contexts[row.key] = row
-        values = _row_values(row, dark=dark)
         cells_by_key[row.key] = tuple(values[column] for column in columns)
     return contexts, cells_by_key
+
+
+def _row_tie_break(row: IssueListRow) -> tuple[str, int, str]:
+    number = row.issue["number"] if row.issue is not None else 2**63 - 1
+    return row.project.project_id.casefold(), number, row.key
 
 
 def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
