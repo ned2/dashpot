@@ -442,3 +442,71 @@ def test_invalid_replacement_is_rejected_atomically() -> None:
 
     assert store.revision == 1
     assert store.checkpoint() == first
+
+
+def test_invalid_project_replacement_is_rejected_atomically() -> None:
+    first = workspace(project("project:one", issue("I_one", "First")))
+    store = WorkspaceObservationStore(first)
+    duplicated = project(
+        "project:one",
+        issue("I_shared", "First copy"),
+        issue("I_shared", "Second copy"),
+    )
+
+    with pytest.raises(ValueError, match="Duplicate Issue Identity"):
+        store.replace_project(duplicated)
+
+    assert store.revision == 1
+    assert store.checkpoint() == first
+
+
+def test_invalid_agent_run_replacement_is_rejected_atomically() -> None:
+    first = workspace(project("project:one", issue("I_one", "First")))
+    store = WorkspaceObservationStore(first)
+    duplicated = run("codex:one", "project:one", "I_one")
+
+    with pytest.raises(ValueError, match="Duplicate Agent Run Identity"):
+        store.replace_agent_runs(
+            [duplicated, copy.deepcopy(duplicated)],
+            {"I_one": [duplicated.id]},
+        )
+
+    assert store.revision == 1
+    assert store.checkpoint() == first
+
+
+def test_accepting_unchanged_state_advances_revision_without_changes() -> None:
+    observed = workspace(project("project:one", issue("I_one", "First")))
+    store = WorkspaceObservationStore(observed)
+
+    change = store.replace(copy.deepcopy(observed))
+
+    assert store.revision == change.revision == 2
+    assert change.kinds == frozenset()
+    assert change.project_ids == frozenset()
+    assert change.issue_keys == frozenset()
+    assert change.observation_target_keys == frozenset()
+    assert change.agent_run_ids == frozenset()
+
+
+def test_partial_replacements_isolate_store_owned_state() -> None:
+    store = WorkspaceObservationStore(
+        workspace(project("project:one", issue("I_one", "First")))
+    )
+    replacement_project = project(
+        "project:one", issue("I_two", "Second")
+    )
+    replacement_run = run("codex:two", "project:one", "I_two")
+    replacement_bindings = {"I_two": [replacement_run.id]}
+
+    store.replace_project(replacement_project)
+    store.replace_agent_runs([replacement_run], replacement_bindings)
+    replacement_project.snapshot.issues[0]["title"] = "Caller mutation"
+    replacement_run.state = "running"
+    replacement_bindings["I_two"].clear()
+
+    context = store.issue("I_two", project_id="project:one")
+    assert context is not None
+    assert context.issue["title"] == "Second"
+    assert context.observed_runs[0].state == "waiting"
+    assert store.checkpoint().issue_runs == {"I_two": ["codex:two"]}

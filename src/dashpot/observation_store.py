@@ -44,42 +44,56 @@ class ObservedDiagnostic:
     project_label: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _StoreState:
+    revision: int
+    collected_at: str
+    elapsed_ms: int
+    projects: dict[str, ProjectObservation]
+    issues: dict[tuple[str, str], Issue]
+    observation_targets: dict[tuple[str, str], ObservationTarget]
+    agent_runs: dict[str, AgentRun]
+    issue_runs: dict[str, list[str]]
+    diagnostics: list[Diagnostic]
+
+
 class WorkspaceObservationStore:
     """Own the latest accepted workspace observations and their read models."""
 
     def __init__(self, snapshot: WorkspaceSnapshot | None = None) -> None:
-        self._revision = 0
-        self._collected_at = ""
-        self._elapsed_ms = 0
-        self._projects: dict[str, ProjectObservation] = {}
-        self._issues: dict[tuple[str, str], Issue] = {}
-        self._observation_targets: dict[tuple[str, str], ObservationTarget] = {}
-        self._agent_runs: dict[str, AgentRun] = {}
-        self._issue_runs: dict[str, list[str]] = {}
-        self._diagnostics: list[Diagnostic] = []
+        self._state = _StoreState(
+            revision=0,
+            collected_at="",
+            elapsed_ms=0,
+            projects={},
+            issues={},
+            observation_targets={},
+            agent_runs={},
+            issue_runs={},
+            diagnostics=[],
+        )
         if snapshot is not None:
             self.replace(snapshot)
 
     @property
     def revision(self) -> int:
-        return self._revision
+        return self._state.revision
 
     @property
     def has_observations(self) -> bool:
-        return self._revision > 0
+        return self._state.revision > 0
 
     def replace(self, snapshot: WorkspaceSnapshot) -> StoreChange:
         """Atomically accept a complete collector checkpoint."""
+        before = self._state
         incoming = deepcopy(snapshot)
-        before_projects = deepcopy(self._projects)
-        before_agent_runs = deepcopy(self._agent_runs)
-        before_issue_runs = deepcopy(self._issue_runs)
-        before_workspace = self._workspace_metadata()
 
         accepted_projects: list[ProjectObservation] = []
         retained_issue_ids: set[str] = set()
         for project in incoming.projects:
-            accepted, retained = self._preserve_last_good(project)
+            accepted, retained = self._preserve_last_good(
+                project, before.projects
+            )
             accepted_projects.append(accepted)
             retained_issue_ids.update(retained)
         projects = _projects_by_id(accepted_projects)
@@ -94,41 +108,38 @@ class WorkspaceObservationStore:
             retained_issue_ids,
         )
 
-        self._projects = projects
-        self._issues = issues
-        self._observation_targets = observation_targets
-        self._agent_runs = agent_runs
-        self._issue_runs = issue_runs
-        self._collected_at = incoming.collected_at
-        self._elapsed_ms = incoming.elapsed_ms
-        self._diagnostics = incoming.diagnostics
-        self._revision += 1
-
-        return self._change(
-            before_projects,
-            before_agent_runs,
-            before_issue_runs,
-            before_workspace,
+        return self._commit(
+            _StoreState(
+                revision=before.revision,
+                collected_at=incoming.collected_at,
+                elapsed_ms=incoming.elapsed_ms,
+                projects=projects,
+                issues=issues,
+                observation_targets=observation_targets,
+                agent_runs=agent_runs,
+                issue_runs=issue_runs,
+                diagnostics=incoming.diagnostics,
+            )
         )
 
     def replace_project(self, observation: ProjectObservation) -> StoreChange:
         """Atomically replace one Project while retaining its last good data."""
-        before_projects = deepcopy(self._projects)
-        accepted, _retained = self._preserve_last_good(deepcopy(observation))
-        projects = deepcopy(self._projects)
+        before = self._state
+        accepted, _retained = self._preserve_last_good(
+            deepcopy(observation), before.projects
+        )
+        projects = dict(before.projects)
         projects[accepted.project_id] = accepted
         issues = _issues_by_project(projects)
         observation_targets = _targets_by_project(projects)
 
-        self._projects = projects
-        self._issues = issues
-        self._observation_targets = observation_targets
-        self._revision += 1
-        return self._change(
-            before_projects,
-            deepcopy(self._agent_runs),
-            deepcopy(self._issue_runs),
-            self._workspace_metadata(),
+        return self._commit(
+            replace(
+                before,
+                projects=projects,
+                issues=issues,
+                observation_targets=observation_targets,
+            )
         )
 
     def replace_agent_runs(
@@ -137,32 +148,30 @@ class WorkspaceObservationStore:
         issue_runs: Mapping[str, Sequence[str]],
     ) -> StoreChange:
         """Atomically replace Agent Runs and their accepted Issue bindings."""
-        before_agent_runs = deepcopy(self._agent_runs)
-        before_issue_runs = deepcopy(self._issue_runs)
+        before = self._state
         accepted_agent_runs = _agent_runs_by_id(deepcopy(agent_runs))
         accepted_issue_runs = {
             issue_id: list(run_ids) for issue_id, run_ids in issue_runs.items()
         }
 
-        self._agent_runs = accepted_agent_runs
-        self._issue_runs = accepted_issue_runs
-        self._revision += 1
-        return self._change(
-            deepcopy(self._projects),
-            before_agent_runs,
-            before_issue_runs,
-            self._workspace_metadata(),
+        return self._commit(
+            replace(
+                before,
+                agent_runs=accepted_agent_runs,
+                issue_runs=accepted_issue_runs,
+            )
         )
 
     def query_issues(
         self, query: IssueListQuery = IssueListQuery()
     ) -> IssueListResult:
+        state = self._state
         return query_issue_list(
-            self.checkpoint(), query, revision=self._revision
+            _checkpoint(state), query, revision=state.revision
         )
 
     def project(self, project_id: str) -> ProjectObservation | None:
-        project = self._projects.get(project_id)
+        project = self._state.projects.get(project_id)
         return deepcopy(project) if project is not None else None
 
     def issue(
@@ -171,9 +180,10 @@ class WorkspaceObservationStore:
         *,
         project_id: str | None = None,
     ) -> IssueContext | None:
+        state = self._state
         contexts = [
             context
-            for context in self._issue_contexts(issue_id)
+            for context in _issue_contexts(state, issue_id)
             if project_id is None or context.project.project_id == project_id
         ]
         if len(contexts) != 1:
@@ -181,11 +191,12 @@ class WorkspaceObservationStore:
         return deepcopy(contexts[0])
 
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
+        state = self._state
         entries = [
             ObservedDiagnostic(diagnostic)
-            for diagnostic in self._diagnostics
+            for diagnostic in state.diagnostics
         ]
-        for project in self._projects.values():
+        for project in state.projects.values():
             diagnostics = list(project.diagnostics)
             if project.snapshot is not None:
                 diagnostics.extend(project.snapshot.diagnostics)
@@ -199,19 +210,14 @@ class WorkspaceObservationStore:
 
     def checkpoint(self) -> WorkspaceSnapshot:
         """Return a detached serializable view of the latest accepted state."""
-        return WorkspaceSnapshot(
-            collected_at=self._collected_at,
-            elapsed_ms=self._elapsed_ms,
-            projects=deepcopy(list(self._projects.values())),
-            agent_runs=deepcopy(list(self._agent_runs.values())),
-            issue_runs=deepcopy(self._issue_runs),
-            diagnostics=deepcopy(self._diagnostics),
-        )
+        return _checkpoint(self._state)
 
     def _preserve_last_good(
-        self, incoming: ProjectObservation
+        self,
+        incoming: ProjectObservation,
+        projects: Mapping[str, ProjectObservation],
     ) -> tuple[ProjectObservation, frozenset[str]]:
-        previous = self._projects.get(incoming.project_id)
+        previous = projects.get(incoming.project_id)
         if (
             previous is None
             or previous.repository_id != incoming.repository_id
@@ -245,68 +251,77 @@ class WorkspaceObservationStore:
             )
         return incoming, frozenset()
 
-    def _issue_contexts(self, issue_id: str) -> list[IssueContext]:
-        runs_by_id = self._agent_runs
-        observed_runs = tuple(
-            runs_by_id[run_id]
-            for run_id in self._issue_runs.get(issue_id, [])
-            if run_id in runs_by_id
-        )
-        return [
-            IssueContext(self._projects[project_id], issue, observed_runs)
-            for (project_id, indexed_issue_id), issue in self._issues.items()
-            if indexed_issue_id == issue_id
-        ]
+    def _commit(self, candidate: _StoreState) -> StoreChange:
+        before = self._state
+        after = replace(candidate, revision=before.revision + 1)
+        change = _store_change(before, after)
+        self._state = after
+        return change
 
-    def _workspace_metadata(self) -> tuple[str, int, list[Diagnostic]]:
-        return (
-            self._collected_at,
-            self._elapsed_ms,
-            deepcopy(self._diagnostics),
-        )
 
-    def _change(
-        self,
-        before_projects: dict[str, ProjectObservation],
-        before_agent_runs: dict[str, AgentRun],
-        before_issue_runs: dict[str, list[str]],
-        before_workspace: tuple[str, int, list[Diagnostic]],
-    ) -> StoreChange:
-        project_ids = _changed_keys(before_projects, self._projects)
-        issue_keys = _changed_keys(
-            _issues_by_project(before_projects),
-            self._issues,
-        )
-        binding_issue_ids = _changed_keys(before_issue_runs, self._issue_runs)
-        observation_target_keys = _changed_keys(
-            _targets_by_project(before_projects),
-            self._observation_targets,
-        )
-        agent_run_ids = _changed_keys(before_agent_runs, self._agent_runs)
-        binding_issue_ids.update(
-            issue_id
-            for bindings in (before_issue_runs, self._issue_runs)
-            for issue_id, run_ids in bindings.items()
-            if any(run_id in agent_run_ids for run_id in run_ids)
-        )
-        issue_keys.update(
-            key for key in self._issues if key[1] in binding_issue_ids
-        )
-        kinds: set[ObservationKind] = set()
-        if project_ids:
-            kinds.add("projects")
-        if agent_run_ids or before_issue_runs != self._issue_runs:
-            kinds.add("agent-runs")
-        if before_workspace != self._workspace_metadata():
-            kinds.add("workspace")
-        return StoreChange(
-            revision=self._revision,
-            kinds=frozenset(kinds),
-            project_ids=frozenset(project_ids),
-            issue_keys=frozenset(issue_keys),
-            observation_target_keys=frozenset(observation_target_keys),
-            agent_run_ids=frozenset(agent_run_ids),
-        )
+def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
+    return WorkspaceSnapshot(
+        collected_at=state.collected_at,
+        elapsed_ms=state.elapsed_ms,
+        projects=deepcopy(list(state.projects.values())),
+        agent_runs=deepcopy(list(state.agent_runs.values())),
+        issue_runs=deepcopy(state.issue_runs),
+        diagnostics=deepcopy(state.diagnostics),
+    )
+
+
+def _issue_contexts(state: _StoreState, issue_id: str) -> list[IssueContext]:
+    observed_runs = tuple(
+        state.agent_runs[run_id]
+        for run_id in state.issue_runs.get(issue_id, [])
+        if run_id in state.agent_runs
+    )
+    return [
+        IssueContext(state.projects[project_id], issue, observed_runs)
+        for (project_id, indexed_issue_id), issue in state.issues.items()
+        if indexed_issue_id == issue_id
+    ]
+
+
+def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
+    project_ids = _changed_keys(before.projects, after.projects)
+    issue_keys = _changed_keys(before.issues, after.issues)
+    binding_issue_ids = _changed_keys(before.issue_runs, after.issue_runs)
+    observation_target_keys = _changed_keys(
+        before.observation_targets,
+        after.observation_targets,
+    )
+    agent_run_ids = _changed_keys(before.agent_runs, after.agent_runs)
+    binding_issue_ids.update(
+        issue_id
+        for bindings in (before.issue_runs, after.issue_runs)
+        for issue_id, run_ids in bindings.items()
+        if any(run_id in agent_run_ids for run_id in run_ids)
+    )
+    issue_keys.update(
+        key for key in after.issues if key[1] in binding_issue_ids
+    )
+    kinds: set[ObservationKind] = set()
+    if project_ids:
+        kinds.add("projects")
+    if agent_run_ids or before.issue_runs != after.issue_runs:
+        kinds.add("agent-runs")
+    if _workspace_metadata(before) != _workspace_metadata(after):
+        kinds.add("workspace")
+    return StoreChange(
+        revision=after.revision,
+        kinds=frozenset(kinds),
+        project_ids=frozenset(project_ids),
+        issue_keys=frozenset(issue_keys),
+        observation_target_keys=frozenset(observation_target_keys),
+        agent_run_ids=frozenset(agent_run_ids),
+    )
+
+
+def _workspace_metadata(
+    state: _StoreState,
+) -> tuple[str, int, list[Diagnostic]]:
+    return state.collected_at, state.elapsed_ms, state.diagnostics
 
 
 def _changed_keys(
