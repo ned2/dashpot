@@ -378,24 +378,10 @@ class DashpotApp(App[None]):
         self.show_row(str(event.row_key.value))
 
     def show_row(self, key: str) -> None:
-        context = self.rows_by_key.get(key)
+        row = self.rows_by_key.get(key)
+        context = self.store.detail_for(row) if row is not None else None
         if context is None:
             return
-        current_project = self.store.project(context.project.project_id)
-        if current_project is not None:
-            context = replace(context, project=current_project)
-        if context.issue is not None:
-            current_issue = self.store.issue(
-                context.issue["id"],
-                project_id=context.project.project_id,
-            )
-            if current_issue is not None:
-                context = replace(
-                    context,
-                    project=current_issue.project,
-                    issue=current_issue.issue,
-                    observed_runs=current_issue.observed_runs,
-                )
         self.selected_row_key = key
         self.query_one("#project-detail", Static).update(
             project_detail_text(

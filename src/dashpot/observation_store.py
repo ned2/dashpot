@@ -5,7 +5,13 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Literal, TypeVar
 
-from .issue_list import IssueListQuery, IssueListResult, query_issue_list
+from .issue_list import (
+    IssueListQuery,
+    IssueListResult,
+    IssueListRow,
+    query_issue_list,
+    row_key,
+)
 from .model import (
     AgentRun,
     Diagnostic,
@@ -190,6 +196,54 @@ class WorkspaceObservationStore:
             return None
         return deepcopy(contexts[0])
 
+    def detail_for(self, row: IssueListRow) -> IssueListRow | None:
+        """Resolve a queried row's identity against the current state."""
+        state = self._state
+        context: IssueListRow | None
+        if row.kind == "project":
+            project = state.projects.get(row.project.project_id)
+            context = (
+                IssueListRow(
+                    key=row.key,
+                    kind=row.kind,
+                    project=project,
+                    project_runs=_project_runs(state, project.project_id),
+                    empty_message=row.empty_message,
+                )
+                if project is not None
+                else None
+            )
+        elif row.kind == "issue" and row.issue is not None:
+            context = _issue_detail(state, row)
+        elif row.kind == "agent-run" and row.run is not None:
+            remains_unmatched = all(
+                row.run.id not in run_ids
+                for run_ids in state.issue_runs.values()
+            )
+            current_run = (
+                state.agent_runs.get(row.run.id) if remains_unmatched else None
+            )
+            project = (
+                state.projects.get(current_run.observation_project_id)
+                if current_run is not None
+                else None
+            )
+            context = (
+                IssueListRow(
+                    key=row.key,
+                    kind=row.kind,
+                    project=project,
+                    run=current_run,
+                    project_runs=_project_runs(state, project.project_id),
+                    empty_message=row.empty_message,
+                )
+                if project is not None and current_run is not None
+                else None
+            )
+        else:
+            context = None
+        return deepcopy(context)
+
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
         state = self._state
         entries = [
@@ -267,6 +321,61 @@ def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
         agent_runs=deepcopy(list(state.agent_runs.values())),
         issue_runs=deepcopy(state.issue_runs),
         diagnostics=deepcopy(state.diagnostics),
+    )
+
+
+def _issue_detail(
+    state: _StoreState, row: IssueListRow
+) -> IssueListRow | None:
+    issue_id = row.issue["id"]
+    if row.key == row_key("issue", issue_id):
+        matches = [
+            (project_id, issue)
+            for (project_id, indexed_issue_id), issue in state.issues.items()
+            if indexed_issue_id == issue_id
+        ]
+        if len(matches) != 1:
+            return None
+        project_id, current_issue = matches[0]
+    else:
+        project_id = row.project.project_id
+        current_issue = state.issues.get((project_id, issue_id))
+        if current_issue is None:
+            return None
+    project = state.projects.get(project_id)
+    if project is None:
+        return None
+    bound_run_ids = state.issue_runs.get(issue_id, [])
+    observed_runs = tuple(
+        state.agent_runs[run_id]
+        for run_id in bound_run_ids
+        if run_id in state.agent_runs
+    )
+    session_states = tuple(
+        state.agent_runs[run_id].state
+        if run_id in state.agent_runs
+        else "unknown"
+        for run_id in bound_run_ids
+    )
+    return IssueListRow(
+        key=row.key,
+        kind=row.kind,
+        project=project,
+        issue=current_issue,
+        observed_runs=observed_runs,
+        project_runs=_project_runs(state, project_id),
+        session_states=session_states,
+        empty_message=row.empty_message,
+    )
+
+
+def _project_runs(
+    state: _StoreState, project_id: str
+) -> tuple[AgentRun, ...]:
+    return tuple(
+        run
+        for run in state.agent_runs.values()
+        if run.observation_project_id == project_id
     )
 
 

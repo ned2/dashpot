@@ -510,3 +510,135 @@ def test_partial_replacements_isolate_store_owned_state() -> None:
     assert context.issue["title"] == "Second"
     assert context.observed_runs[0].state == "waiting"
     assert store.checkpoint().issue_runs == {"I_two": ["codex:two"]}
+
+
+def test_detail_for_refreshes_all_issue_and_project_run_fields() -> None:
+    store = WorkspaceObservationStore(
+        workspace(project("project:one", issue("I_one", "First")))
+    )
+    old_row = store.query_issues().rows[0]
+    observed_run = run("codex:one", "project:one", "I_one")
+
+    store.replace_agent_runs(
+        [observed_run], {"I_one": [observed_run.id, "missing-run"]}
+    )
+    detail = store.detail_for(old_row)
+
+    assert detail is not None
+    assert detail.observed_runs == (observed_run,)
+    assert detail.project_runs == (observed_run,)
+    assert detail.session_states == ("waiting", "unknown")
+
+
+def test_detail_for_refreshes_unmatched_run_and_follows_its_project() -> None:
+    initial_run = run("codex:one", "project:one", None)
+    store = WorkspaceObservationStore(
+        workspace(
+            project("project:one"),
+            project("project:two"),
+            runs=[initial_run],
+        )
+    )
+    old_row = next(
+        row for row in store.query_issues().rows if row.run is not None
+    )
+    moved_run = copy.deepcopy(initial_run)
+    moved_run.observation_project_id = "project:two"
+    moved_run.state = "running"
+
+    store.replace_agent_runs([moved_run], {})
+    detail = store.detail_for(old_row)
+
+    assert detail is not None
+    assert detail.project.project_id == "project:two"
+    assert detail.run == moved_run
+    assert detail.project_runs == (moved_run,)
+
+
+def test_detail_for_drops_unmatched_run_row_after_it_becomes_bound() -> None:
+    observed_run = run("codex:one", "project:one", None)
+    store = WorkspaceObservationStore(
+        workspace(
+            project("project:one", issue("I_one", "First")),
+            runs=[observed_run],
+        )
+    )
+    old_row = next(
+        row for row in store.query_issues().rows if row.run is not None
+    )
+
+    store.replace_agent_runs(
+        [observed_run], {"I_one": [observed_run.id]}
+    )
+
+    assert store.detail_for(old_row) is None
+
+
+def test_detail_for_keeps_conflicting_issues_project_qualified() -> None:
+    duplicated = issue("I_shared", "Original")
+    store = WorkspaceObservationStore(
+        workspace(
+            project("project:one", copy.deepcopy(duplicated)),
+            project("project:two", copy.deepcopy(duplicated)),
+        )
+    )
+    old_rows = {
+        row.project.project_id: row for row in store.query_issues().rows
+    }
+    changed = project("project:one", issue("I_shared", "Changed"))
+
+    store.replace_project(changed)
+
+    assert store.detail_for(old_rows["project:one"]).issue["title"] == "Changed"
+    assert store.detail_for(old_rows["project:two"]).issue["title"] == "Original"
+
+
+def test_detail_for_unique_issue_follows_transfer_but_not_ambiguity() -> None:
+    transferred = issue("I_shared", "Transfer")
+    store = WorkspaceObservationStore(
+        workspace(project("project:one", copy.deepcopy(transferred)))
+    )
+    old_row = store.query_issues().rows[0]
+
+    store.replace(
+        workspace(project("project:two", copy.deepcopy(transferred)))
+    )
+    moved = store.detail_for(old_row)
+
+    assert moved is not None
+    assert moved.project.project_id == "project:two"
+
+    store.replace(
+        workspace(
+            project("project:one", copy.deepcopy(transferred)),
+            project("project:two", copy.deepcopy(transferred)),
+        )
+    )
+    assert store.detail_for(old_row) is None
+
+
+def test_detail_for_returns_none_for_disappeared_domain_identities() -> None:
+    issue_store = WorkspaceObservationStore(
+        workspace(project("project:one", issue("I_one", "First")))
+    )
+    issue_row = issue_store.query_issues().rows[0]
+    issue_store.replace_project(project("project:one"))
+
+    observed_run = run("codex:one", "project:one", None)
+    run_store = WorkspaceObservationStore(
+        workspace(project("project:one"), runs=[observed_run])
+    )
+    run_row = next(
+        row for row in run_store.query_issues().rows if row.run is not None
+    )
+    run_store.replace_agent_runs([], {})
+
+    project_store = WorkspaceObservationStore(
+        workspace(project("project:one"))
+    )
+    project_row = project_store.query_issues().rows[0]
+    project_store.replace(workspace())
+
+    assert issue_store.detail_for(issue_row) is None
+    assert run_store.detail_for(run_row) is None
+    assert project_store.detail_for(project_row) is None

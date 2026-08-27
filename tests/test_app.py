@@ -692,6 +692,48 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     assert "codex-session:42 (waiting, issue/1)" in detail
 
 
+@pytest.mark.asyncio
+async def test_selection_detail_uses_one_current_store_projection() -> None:
+    selected_issue = issue("test/repo#1", "First")
+    snapshot = workspace_snapshot(selected_issue)
+    store = WorkspaceObservationStore(snapshot)
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=store,
+    )
+    observed_run = AgentRun(
+        id="codex-session:current",
+        harness="codex",
+        process_or_session="current",
+        state="running",
+        observation_target="/repo",
+        observation_project_id="project:test-repo",
+        branch="issue/current",
+        issue_id=selected_issue["id"],
+        issue_reference_hint=selected_issue["reference"],
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        selected_key = row_key("issue", selected_issue["id"])
+        await wait_until(lambda: app.selected_row_key == selected_key)
+        await pilot.pause()
+        stale_row = app.rows_by_key[selected_key]
+        assert stale_row.project_runs == ()
+
+        store.replace_agent_runs(
+            [observed_run], {selected_issue["id"]: [observed_run.id]}
+        )
+        app.show_row(selected_key)
+
+        assert "Observed agents: 1" in str(
+            app.query_one("#project-detail", Static).render()
+        )
+        assert "codex-session:current (running, issue/current)" in str(
+            app.query_one("#selection-detail", Static).render()
+        )
+
+
 def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> None:
     duplicated = issue("test/repo#1", "First")
     snapshot = workspace_snapshot(duplicated)
