@@ -76,14 +76,23 @@ class WorkspaceObservationStore:
         before_issue_runs = deepcopy(self._issue_runs)
         before_workspace = self._workspace_metadata()
 
-        accepted_projects = [
-            self._preserve_last_good(project) for project in incoming.projects
-        ]
+        accepted_projects: list[ProjectObservation] = []
+        retained_issue_ids: set[str] = set()
+        for project in incoming.projects:
+            accepted, retained = self._preserve_last_good(project)
+            accepted_projects.append(accepted)
+            retained_issue_ids.update(retained)
         projects = _projects_by_id(accepted_projects)
         issues = _issues_by_project(projects)
         observation_targets = _targets_by_project(projects)
         agent_runs = _agent_runs_by_id(incoming.agent_runs)
         issue_runs = deepcopy(incoming.issue_runs)
+        _restore_retained_issue_runs(
+            issue_runs,
+            agent_runs,
+            issues,
+            retained_issue_ids,
+        )
 
         self._projects = projects
         self._issues = issues
@@ -105,7 +114,7 @@ class WorkspaceObservationStore:
     def replace_project(self, observation: ProjectObservation) -> StoreChange:
         """Atomically replace one Project while retaining its last good data."""
         before_projects = deepcopy(self._projects)
-        accepted = self._preserve_last_good(deepcopy(observation))
+        accepted, _retained = self._preserve_last_good(deepcopy(observation))
         projects = deepcopy(self._projects)
         projects[accepted.project_id] = accepted
         issues = _issues_by_project(projects)
@@ -201,17 +210,40 @@ class WorkspaceObservationStore:
 
     def _preserve_last_good(
         self, incoming: ProjectObservation
-    ) -> ProjectObservation:
+    ) -> tuple[ProjectObservation, frozenset[str]]:
         previous = self._projects.get(incoming.project_id)
         if (
-            incoming.status == "unavailable"
-            and incoming.snapshot is None
-            and previous is not None
-            and previous.repository_id == incoming.repository_id
-            and previous.snapshot is not None
+            previous is None
+            or previous.repository_id != incoming.repository_id
+            or previous.snapshot is None
         ):
-            return replace(incoming, snapshot=deepcopy(previous.snapshot))
-        return incoming
+            return incoming, frozenset()
+        retained_issue_ids = frozenset(
+            issue["id"] for issue in previous.snapshot.issues
+        )
+        if incoming.snapshot is None and incoming.status == "unavailable":
+            return (
+                replace(incoming, snapshot=deepcopy(previous.snapshot)),
+                retained_issue_ids,
+            )
+        if (
+            incoming.snapshot is not None
+            and incoming.snapshot.issue_source_status == "unavailable"
+            and previous.snapshot.issue_source_last_good_at is not None
+        ):
+            snapshot = replace(
+                incoming.snapshot,
+                issue_source_status="stale",
+                issue_source_last_good_at=(
+                    previous.snapshot.issue_source_last_good_at
+                ),
+                issues=deepcopy(previous.snapshot.issues),
+            )
+            return (
+                replace(incoming, status="stale", snapshot=snapshot),
+                retained_issue_ids,
+            )
+        return incoming, frozenset()
 
     def _issue_contexts(self, issue_id: str) -> list[IssueContext]:
         runs_by_id = self._agent_runs
@@ -333,3 +365,20 @@ def _agent_runs_by_id(agent_runs: Sequence[AgentRun]) -> dict[str, AgentRun]:
             raise ValueError(f"Duplicate Agent Run Identity {run.id}")
         indexed[run.id] = run
     return indexed
+
+
+def _restore_retained_issue_runs(
+    issue_runs: dict[str, list[str]],
+    agent_runs: Mapping[str, AgentRun],
+    issues: Mapping[tuple[str, str], Issue],
+    retained_issue_ids: set[str],
+) -> None:
+    project_counts: dict[str, int] = {}
+    for _project_id, issue_id in issues:
+        project_counts[issue_id] = project_counts.get(issue_id, 0) + 1
+    for issue_id in retained_issue_ids:
+        if project_counts.get(issue_id) != 1:
+            continue
+        issue_runs[issue_id] = [
+            run.id for run in agent_runs.values() if run.issue_id == issue_id
+        ]

@@ -177,6 +177,97 @@ def test_unavailable_project_replacement_retains_last_good_snapshot() -> None:
     assert store.query_issues().observed_issue_count == 1
 
 
+def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() -> None:
+    available = project("project:one", issue("I_one", "Last good"))
+    observed_run = run("codex:one", "project:one", "I_one")
+    store = WorkspaceObservationStore(
+        workspace(
+            available,
+            runs=[observed_run],
+            issue_runs={"I_one": [observed_run.id]},
+        )
+    )
+    unavailable = copy.deepcopy(available)
+    unavailable.status = "fresh"
+    unavailable.snapshot.collected_at = "2026-08-27T04:00:00Z"
+    unavailable.snapshot.issue_source_status = "unavailable"
+    unavailable.snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
+    unavailable.snapshot.issue_source_last_good_at = None
+    unavailable.snapshot.issues = []
+    unavailable.snapshot.observation_targets = [
+        ObservationTarget(
+            path="/current-target",
+            head="def456",
+            branch="main",
+            detached=False,
+            dirty=True,
+            availability="available",
+            elapsed_ms=2,
+            diagnostics=[],
+        )
+    ]
+    unavailable.snapshot.diagnostics = [
+        Diagnostic("github", "error", "GitHub unavailable", "github-command")
+    ]
+
+    store.replace(workspace(unavailable, runs=[observed_run], issue_runs={}))
+    accepted = store.checkpoint().projects[0]
+
+    assert accepted.status == "stale"
+    assert accepted.snapshot.issue_source_status == "stale"
+    assert accepted.snapshot.issues[0]["title"] == "Last good"
+    assert accepted.snapshot.issue_source_last_good_at == NOW
+    assert accepted.snapshot.issue_source_attempted_at == "2026-08-27T04:00:00Z"
+    assert accepted.snapshot.collected_at == "2026-08-27T04:00:00Z"
+    assert accepted.snapshot.observation_targets[0].path == "/current-target"
+    assert accepted.snapshot.diagnostics == unavailable.snapshot.diagnostics
+    assert store.query_issues().rows[0].observed_runs == (observed_run,)
+
+
+def test_fresh_empty_issue_source_clears_prior_issues() -> None:
+    available = project("project:one", issue("I_one", "Last good"))
+    store = WorkspaceObservationStore(workspace(available))
+    empty = copy.deepcopy(available)
+    empty.snapshot.issues = []
+
+    store.replace_project(empty)
+
+    assert store.query_issues().observed_issue_count == 0
+    assert store.issue("I_one") is None
+
+
+def test_source_last_good_is_not_carried_across_repository_identity_change() -> None:
+    available = project("project:one", issue("I_one", "Last good"))
+    store = WorkspaceObservationStore(workspace(available))
+    unavailable = copy.deepcopy(available)
+    unavailable.repository_id = "repository:replacement"
+    unavailable.snapshot.repository_id = "repository:replacement"
+    unavailable.status = "unavailable"
+    unavailable.snapshot.issue_source_status = "unavailable"
+    unavailable.snapshot.issue_source_last_good_at = None
+    unavailable.snapshot.issues = []
+
+    store.replace_project(unavailable)
+
+    accepted = store.checkpoint().projects[0]
+    assert accepted.status == "unavailable"
+    assert accepted.snapshot.issues == []
+
+
+def test_adapter_supplied_stale_collection_remains_authoritative() -> None:
+    available = project("project:one", issue("I_one", "Old"))
+    store = WorkspaceObservationStore(workspace(available))
+    stale = copy.deepcopy(available)
+    stale.status = "stale"
+    stale.snapshot.issue_source_status = "stale"
+    stale.snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
+    stale.snapshot.issues[0]["title"] = "Adapter last good"
+
+    store.replace_project(stale)
+
+    assert store.issue("I_one").issue["title"] == "Adapter last good"
+
+
 def test_conflicting_issue_identities_remain_project_qualified() -> None:
     duplicated = issue("I_shared", "Shared identity")
     store = WorkspaceObservationStore(

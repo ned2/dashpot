@@ -463,6 +463,56 @@ async def test_unavailable_project_observation_keeps_last_good_issue_rows() -> N
 
 
 @pytest.mark.asyncio
+async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> None:
+    first = workspace_snapshot(issue("test/repo#1", "Last good"))
+    observed_run = AgentRun(
+        id="codex-session:16",
+        harness="codex",
+        process_or_session="16",
+        state="waiting",
+        observation_target="/repo",
+        observation_project_id="project:test-repo",
+        branch="issue/16-observation-store",
+        issue_id="I_test/repo#1",
+        issue_reference_hint="test/repo#1",
+    )
+    first.agent_runs = [observed_run]
+    first.issue_runs = {"I_test/repo#1": [observed_run.id]}
+    unavailable = copy.deepcopy(first)
+    unavailable.issue_runs = {}
+    project = unavailable.projects[0]
+    project.status = "unavailable"
+    project.snapshot.issue_source_status = "unavailable"
+    project.snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
+    project.snapshot.issue_source_last_good_at = None
+    project.snapshot.issues = []
+    project.snapshot.diagnostics = [
+        Diagnostic("github", "error", "GitHub unavailable", "github-command")
+    ]
+    app = DashpotApp(
+        SequenceCollector(unavailable),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(first),
+    )
+
+    async with app.run_test(size=(80, 24)):
+        await app.run_action("refresh")
+        await wait_until(lambda: app.store.revision == 2)
+
+        assert app.query_one("#queue", DataTable).row_count == 1
+        assert "Last good" in str(
+            app.query_one("#selection-detail", Static).render()
+        )
+        assert "Status: stale" in str(
+            app.query_one("#project-detail", Static).render()
+        )
+        assert "GitHub unavailable" in str(
+            app.query_one("#diagnostics", Static).render()
+        )
+        assert "Ⅱ1" in app.query_one("#queue", DataTable).get_row_at(0)
+
+
+@pytest.mark.asyncio
 async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
     snapshot = workspace_snapshot()
     snapshot.diagnostics.append(
