@@ -171,9 +171,12 @@ Issue Identity binding before presenting the relationship.
 
 ## Design
 
-The Textual interface sits on a headless `WorkspaceCollector.refresh()` contract.
-Collection happens off the UI thread, project sources refresh independently, and
-the table is reconciled by stable row keys. See
+`WorkspaceCollector.refresh()` still produces a complete serializable checkpoint,
+but it is no longer the application's retained state. The Textual interface
+accepts collector results into a process-local `WorkspaceObservationStore`, then
+queries source-neutral Issue-list read models carrying a store revision. Headless
+JSON is assembled through the same store's `checkpoint()` interface. Collection
+happens off the UI thread, and the table is reconciled by stable row keys. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
 

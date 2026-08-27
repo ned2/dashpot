@@ -2,6 +2,17 @@
 
 Research date: 2026-08-27
 
+## Implementation status
+
+The core architecture of Stages 1 and 2 is implemented. The Issue table now has
+explicit query and view state, and `WorkspaceObservationStore` owns the latest
+accepted observations, revisioned replacement, stable lookups, diagnostic
+projection, and checkpoint export. The optional composite-widget/fake-result
+test seam and detailed timing telemetry remain deferred. The collector still
+delivers whole `WorkspaceSnapshot` values into the store; Stage 3 will split
+their scheduling and delivery. Sections describing the old snapshot-owned
+application state remain below as the research baseline.
+
 ## Executive conclusion
 
 Dashpot's current `WorkspaceSnapshot -> build_rows()` path is adequate for the
@@ -137,11 +148,14 @@ Start with a process-local implementation behind a narrow interface. The exact
 names can change, but the responsibilities should look like:
 
 ```python
-class WorkspaceObservationStore(Protocol):
+class WorkspaceObservationStore:
+    def replace(self, snapshot: WorkspaceSnapshot) -> StoreChange: ...
     def replace_project(self, observation: ProjectObservation) -> StoreChange: ...
-    def replace_agent_runs(self, observation: AgentRunObservation) -> StoreChange: ...
+    def replace_agent_runs(self, agent_runs, issue_runs) -> StoreChange: ...
     def query_issues(self, query: IssueListQuery) -> IssueListResult: ...
-    def issue(self, issue_id: str) -> IssueContext | None: ...
+    def project(self, project_id: str) -> ProjectObservation | None: ...
+    def issue(self, issue_id: str, *, project_id=None) -> IssueContext | None: ...
+    def diagnostics(self) -> tuple[ObservedDiagnostic, ...]: ...
     def checkpoint(self) -> WorkspaceSnapshot: ...
 ```
 
@@ -244,7 +258,7 @@ observation facts and serialization.
 
 ## Staged migration
 
-### Stage 1: extract the read model, keep collection unchanged
+### Stage 1: extract the read model, keep collection unchanged — core implemented
 
 This is the next Issue-list-pane slice.
 
@@ -259,7 +273,7 @@ This supplies dynamic filters and sorts immediately, prevents table design from
 dictating data collection, and establishes the eventual store query without an
 infrastructure migration.
 
-### Stage 2: put the latest observations behind the in-memory store
+### Stage 2: put observations behind the in-memory store — core implemented
 
 Seed the store from a `WorkspaceSnapshot`, have the query module read the store,
 and make `checkpoint()` reproduce the existing headless shape. This is mostly a
@@ -416,6 +430,6 @@ The architectural commitments worth making now are:
 - persistence and transport optimizations must fit behind the observation-store
   and source interfaces.
 
-The concrete next move is Stage 1. It enables the planned grab bag of Issue-list
-uplifts while creating, rather than guessing at, the seam needed for later
-incremental collection.
+The concrete next move is Stage 3: independently schedule complete observations
+and publish each accepted result into the store without weakening source coverage
+or last-good semantics.

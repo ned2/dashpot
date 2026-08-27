@@ -35,6 +35,7 @@ from dashpot.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
+from dashpot.observation_store import WorkspaceObservationStore
 
 
 NOW = "2026-08-25T01:00:00Z"
@@ -155,12 +156,13 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)):
-        await wait_until(lambda: app.snapshot is snapshot)
+        await wait_until(lambda: app.store.revision == 1)
         table = app.query_one("#queue", DataTable)
         project_detail = str(app.query_one("#project-detail", Static).render())
         selection_detail = str(app.query_one("#selection-detail", Static).render())
 
         assert table.row_count == 2
+        assert not hasattr(app, "snapshot")
         assert COLUMN_KEYS == (
             "status",
             "project",
@@ -220,7 +222,7 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
     )
 
     async with app.run_test(size=(80, 24)):
-        await wait_until(lambda: app.snapshot is snapshot)
+        await wait_until(lambda: app.store.revision == 1)
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert app.selected_row_key == row_key("issue", closed_issue["id"])
@@ -236,7 +238,9 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
         issue("test/repo#2", "Alpha"),
     )
     app = DashpotApp(
-        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
     )
 
     async with app.run_test(size=(80, 24)) as pilot:
@@ -271,7 +275,9 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
         issue("test/repo#2", "Higher priority", "P0"),
     )
     app = DashpotApp(
-        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
     )
 
     async with app.run_test(size=(80, 24)) as pilot:
@@ -302,7 +308,9 @@ async def test_visible_filters_update_rows_and_observation_count() -> None:
         closed_issue,
     )
     app = DashpotApp(
-        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
     )
 
     async with app.run_test(size=(100, 28)):
@@ -329,7 +337,9 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         issue("test/repo#2", "Second"),
     )
     app = DashpotApp(
-        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
     )
 
     async with app.run_test(size=(100, 30)) as pilot:
@@ -373,7 +383,11 @@ async def test_refresh_preserves_selection_by_stable_row_key() -> None:
         issue("test/repo#1", "First renamed"),
         issue("test/repo#2", "Second", "P2"),
     )
-    app = DashpotApp(SequenceCollector(second), refresh_seconds=0, initial_snapshot=first)
+    app = DashpotApp(
+        SequenceCollector(second),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(first),
+    )
 
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
@@ -382,7 +396,7 @@ async def test_refresh_preserves_selection_by_stable_row_key() -> None:
         await wait_until(lambda: app.selected_row_key == selected_key)
 
         await app.run_action("refresh")
-        await wait_until(lambda: app.snapshot is second)
+        await wait_until(lambda: app.store.revision == 2)
 
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
@@ -396,19 +410,56 @@ async def test_failed_refresh_keeps_last_good_rows_and_shows_diagnostic() -> Non
     app = DashpotApp(
         SequenceCollector(RuntimeError("GitHub is unavailable")),
         refresh_seconds=0,
-        initial_snapshot=snapshot,
+        observation_store=WorkspaceObservationStore(snapshot),
     )
 
     async with app.run_test(size=(80, 24)):
         await app.run_action("refresh")
         await wait_until(lambda: app.ui_error is not None)
 
-        assert app.snapshot is snapshot
+        assert app.store.revision == 1
+        assert app.store.checkpoint() == snapshot
         assert app.query_one("#queue", DataTable).row_count == 1
         assert "GitHub is unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
         assert app.query_one("#diagnostics", Static).has_class("-has-messages")
+
+
+@pytest.mark.asyncio
+async def test_unavailable_project_observation_keeps_last_good_issue_rows() -> None:
+    first = workspace_snapshot(issue("test/repo#1", "Last good"))
+    unavailable = copy.deepcopy(first)
+    unavailable.projects[0].status = "unavailable"
+    unavailable.projects[0].snapshot = None
+    unavailable.projects[0].diagnostics = [
+        Diagnostic(
+            "project:test-repo",
+            "error",
+            "repository is unavailable",
+            "project-collection",
+        )
+    ]
+    app = DashpotApp(
+        SequenceCollector(unavailable),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(first),
+    )
+
+    async with app.run_test(size=(80, 24)):
+        await app.run_action("refresh")
+        await wait_until(lambda: app.store.revision == 2)
+
+        assert app.query_one("#queue", DataTable).row_count == 1
+        assert "Last good" in str(
+            app.query_one("#selection-detail", Static).render()
+        )
+        assert "Status: unavailable" in str(
+            app.query_one("#project-detail", Static).render()
+        )
+        assert "repository is unavailable" in str(
+            app.query_one("#diagnostics", Static).render()
+        )
 
 
 @pytest.mark.asyncio
@@ -425,7 +476,7 @@ async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)):
-        await wait_until(lambda: app.snapshot is snapshot)
+        await wait_until(lambda: app.store.revision == 1)
 
         rendered = str(app.query_one("#diagnostics", Static).render())
         assert "project:conflicted" in rendered
@@ -451,7 +502,7 @@ async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)):
-        await wait_until(lambda: app.snapshot is snapshot)
+        await wait_until(lambda: app.store.revision == 1)
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert "prunable" in str(app.query_one("#diagnostics", Static).render())
@@ -480,7 +531,7 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)):
-        await wait_until(lambda: app.snapshot is snapshot)
+        await wait_until(lambda: app.store.revision == 1)
 
         assert app.selected_row_key == row_key("run", "codex-session:42")
         assert "Unmatched codex run" in str(
@@ -498,7 +549,7 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(60, 20)) as pilot:
-        await wait_until(lambda: app.snapshot is snapshot)
+        await wait_until(lambda: app.store.revision == 1)
         assert app.screen.has_class("-compact")
 
         await pilot.resize_terminal(120, 32)
@@ -714,14 +765,16 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     second.projects[0].snapshot.issues[0]["reference"] = "new/repository#70"
     selected_key = row_key("issue", transferred["id"])
     app = DashpotApp(
-        SequenceCollector(second), refresh_seconds=0, initial_snapshot=first
+        SequenceCollector(second),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(first),
     )
 
     async with app.run_test(size=(80, 24)):
         assert app.selected_row_key == selected_key
 
         await app.run_action("refresh")
-        await wait_until(lambda: app.snapshot is second)
+        await wait_until(lambda: app.store.revision == 2)
 
         assert app.selected_row_key == selected_key
         assert "Transfer me" in str(
@@ -755,18 +808,22 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
     old = workspace_snapshot(issue("test/repo#1", "Old result"))
     new = workspace_snapshot(issue("test/repo#1", "New result"))
     collector = RacingCollector(old, new)
-    app = DashpotApp(collector, refresh_seconds=0, initial_snapshot=initial)
+    app = DashpotApp(
+        collector,
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(initial),
+    )
 
     try:
         async with app.run_test(size=(80, 24)):
             app.request_refresh("manual")
             await wait_until(collector.started.is_set)
             app.request_refresh("manual")
-            await wait_until(lambda: app.snapshot is new)
+            await wait_until(lambda: app.store.checkpoint() == new)
 
             collector.release.set()
             await asyncio.sleep(0.1)
-            assert app.snapshot is new
+            assert app.store.checkpoint() == new
             assert "New result" in str(
                 app.query_one("#selection-detail", Static).render()
             )

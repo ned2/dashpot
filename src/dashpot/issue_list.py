@@ -45,6 +45,7 @@ class IssueListRow:
     issue: Issue | None = None
     run: AgentRun | None = None
     observed_runs: tuple[AgentRun, ...] = ()
+    project_runs: tuple[AgentRun, ...] = ()
     session_states: tuple[RunState, ...] = ()
     empty_message: str | None = None
 
@@ -54,11 +55,14 @@ class IssueListResult:
     rows: tuple[IssueListRow, ...]
     matched_issue_count: int
     observed_issue_count: int
+    revision: int = 0
 
 
 def query_issue_list(
     snapshot: WorkspaceSnapshot,
     query: IssueListQuery = IssueListQuery(),
+    *,
+    revision: int = 0,
 ) -> IssueListResult:
     """Query source-neutral Issue-list rows from complete observed state."""
     issue_id_counts = Counter(
@@ -73,6 +77,14 @@ def query_issue_list(
         run_id for run_ids in issue_runs.values() for run_id in run_ids
     }
     runs_by_id = {run.id: run for run in runs}
+    runs_by_project = {
+        project.project_id: tuple(
+            run
+            for run in runs
+            if run.observation_project_id == project.project_id
+        )
+        for project in snapshot.projects
+    }
     rows: list[IssueListRow] = []
     observed_issue_count = 0
     matched_issue_count = 0
@@ -106,6 +118,7 @@ def query_issue_list(
                     row_key("project", project.project_id),
                     "project",
                     project,
+                    project_runs=runs_by_project[project.project_id],
                     empty_message=empty_message,
                 )
             )
@@ -133,6 +146,7 @@ def query_issue_list(
                     project,
                     issue=issue,
                     observed_runs=observed_runs,
+                    project_runs=runs_by_project[project.project_id],
                     session_states=session_states,
                 )
             )
@@ -149,12 +163,14 @@ def query_issue_list(
                 "agent-run",
                 project,
                 run=run,
+                project_runs=runs_by_project[project.project_id],
             )
         )
     return IssueListResult(
         tuple(rows),
         matched_issue_count,
         observed_issue_count,
+        revision,
     )
 
 

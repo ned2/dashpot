@@ -16,11 +16,7 @@ from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
 from .column_editor import IssueColumnEditor
-from .issue_list import (
-    IssueListQuery,
-    IssueListRow,
-    query_issue_list,
-)
+from .issue_list import IssueListQuery, IssueListRow
 from .issue_table import (
     ColumnKey,
     IssueTableViewState,
@@ -33,6 +29,7 @@ from .issue_table import (
     sort_key_for_terms,
 )
 from .model import AgentRun, Issue, ProjectObservation, WorkspaceSnapshot
+from .observation_store import WorkspaceObservationStore
 
 
 class SnapshotCollector(Protocol):
@@ -72,13 +69,13 @@ class DashpotApp(App[None]):
         self,
         collector: SnapshotCollector,
         refresh_seconds: float = 15,
-        initial_snapshot: WorkspaceSnapshot | None = None,
+        observation_store: WorkspaceObservationStore | None = None,
         issue_view: IssueTableViewState = IssueTableViewState(),
     ) -> None:
         super().__init__()
         self.collector = collector
         self.refresh_seconds = refresh_seconds
-        self.snapshot = initial_snapshot
+        self.store = observation_store or WorkspaceObservationStore()
         self.issue_view = issue_view
         self.refresh_generation = 0
         self.refresh_timer: Timer | None = None
@@ -149,8 +146,8 @@ class DashpotApp(App[None]):
         self.rows_by_key = {}
         self.rendered_cells = {}
         self.add_table_columns(table)
-        if self.snapshot is not None:
-            self.reconcile_rows(self.snapshot)
+        if self.store.has_observations:
+            self.reconcile_rows()
 
     def on_data_table_header_selected(
         self, event: DataTable.HeaderSelected
@@ -212,8 +209,8 @@ class DashpotApp(App[None]):
         if query == self.issue_view.query:
             return
         self.issue_view = replace(self.issue_view, query=query)
-        if self.snapshot is not None:
-            self.reconcile_rows(self.snapshot)
+        if self.store.has_observations:
+            self.reconcile_rows()
 
     def update_sort_headers(self, table: DataTable[str]) -> None:
         columns_by_name = {
@@ -246,11 +243,12 @@ class DashpotApp(App[None]):
 
     def on_ready(self) -> None:
         table = self.query_one("#queue", DataTable)
-        if self.snapshot is None:
+        if not self.store.has_observations:
             table.loading = True
             self.request_refresh("initial")
         else:
-            self.accept_snapshot(self.snapshot)
+            self.reconcile_rows()
+            self.update_diagnostics()
         if self.refresh_seconds > 0:
             self.refresh_timer = self.set_interval(
                 self.refresh_seconds,
@@ -309,18 +307,18 @@ class DashpotApp(App[None]):
             self.accept_snapshot(message.snapshot)
 
     def accept_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
-        self.snapshot = snapshot
-        self.reconcile_rows(snapshot)
+        self.store.replace(snapshot)
+        self.reconcile_rows()
         self.update_diagnostics()
 
-    def reconcile_rows(self, snapshot: WorkspaceSnapshot) -> None:
+    def reconcile_rows(self) -> None:
         table = self.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
         query = replace(
             self.issue_view.query,
             search_fields=searchable_columns(),
         )
-        result = query_issue_list(snapshot, query)
+        result = self.store.query_issues(query)
         self.query_one("#issue-count", Static).update(
             f"{result.matched_issue_count} of {result.observed_issue_count} Issues"
         )
@@ -383,11 +381,26 @@ class DashpotApp(App[None]):
         context = self.rows_by_key.get(key)
         if context is None:
             return
+        current_project = self.store.project(context.project.project_id)
+        if current_project is not None:
+            context = replace(context, project=current_project)
+        if context.issue is not None:
+            current_issue = self.store.issue(
+                context.issue["id"],
+                project_id=context.project.project_id,
+            )
+            if current_issue is not None:
+                context = replace(
+                    context,
+                    project=current_issue.project,
+                    issue=current_issue.issue,
+                    observed_runs=current_issue.observed_runs,
+                )
         self.selected_row_key = key
         self.query_one("#project-detail", Static).update(
             project_detail_text(
                 context.project,
-                self.snapshot.agent_runs if self.snapshot else [],
+                context.project_runs,
             )
         )
         self.query_one("#selection-title", Static).update(selection_title(context))
@@ -399,21 +412,15 @@ class DashpotApp(App[None]):
         messages: list[str] = []
         if self.ui_error:
             messages.append(self.ui_error)
-        if self.snapshot:
-            messages.extend(
-                f"{diagnostic.source}: {diagnostic.message}"
-                for diagnostic in self.snapshot.diagnostics
+        messages.extend(
+            (
+                f"{entry.project_label} · {entry.diagnostic.source}: "
+                f"{entry.diagnostic.message}"
+                if entry.project_label is not None
+                else f"{entry.diagnostic.source}: {entry.diagnostic.message}"
             )
-            for project in self.snapshot.projects:
-                diagnostics = list(project.diagnostics)
-                if project.snapshot:
-                    diagnostics.extend(project.snapshot.diagnostics)
-                    for target in project.snapshot.observation_targets:
-                        diagnostics.extend(target.diagnostics)
-                messages.extend(
-                    f"{project_label(project)} · {diagnostic.source}: {diagnostic.message}"
-                    for diagnostic in diagnostics
-                )
+            for entry in self.store.diagnostics()
+        )
         diagnostics = self.query_one("#diagnostics", Static)
         diagnostics.set_class(bool(messages), "-has-messages")
         diagnostics.update(

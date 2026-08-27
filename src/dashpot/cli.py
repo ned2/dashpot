@@ -9,6 +9,7 @@ from pathlib import Path
 from .app import DashpotApp
 from .collect import WorkspaceCollector
 from .model import RepositoryAnchor, Workspace, to_jsonable
+from .observation_store import WorkspaceObservationStore
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
 from .workspace import (
@@ -133,10 +134,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         collector = create_collector(args)
         if args.json or args.compact_json:
-            snapshot = collector.refresh()
+            store = WorkspaceObservationStore(collector.refresh())
             print(
                 json.dumps(
-                    to_jsonable(snapshot),
+                    to_jsonable(store.checkpoint()),
                     indent=None if args.compact_json else 2,
                 )
             )
