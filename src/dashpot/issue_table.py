@@ -55,12 +55,30 @@ class IssueTableViewState:
     columns: tuple[ColumnKey, ...] = COLUMN_KEYS
     sort: tuple[SortTerm, ...] = DEFAULT_SORT
 
+    def __post_init__(self) -> None:
+        _validate_columns(self.columns)
+
     def toggle_sort(self, column: ColumnKey) -> IssueTableViewState:
         if len(self.sort) == 1 and self.sort[0].column == column:
             term = replace(self.sort[0], descending=not self.sort[0].descending)
         else:
             term = SortTerm(column)
         return replace(self, sort=(term,))
+
+    def with_columns(
+        self, columns: tuple[ColumnKey, ...]
+    ) -> IssueTableViewState:
+        return replace(self, columns=columns)
+
+
+def _validate_columns(columns: tuple[ColumnKey, ...]) -> None:
+    if not columns:
+        raise ValueError("Issue table requires at least one visible column")
+    if len(set(columns)) != len(columns):
+        raise ValueError("Issue table columns contain duplicates")
+    unknown = tuple(column for column in columns if column not in COLUMNS_BY_KEY)
+    if unknown:
+        raise ValueError(f"Unknown Issue table columns: {', '.join(unknown)}")
 
 
 def column_specs(columns: tuple[ColumnKey, ...]) -> tuple[ColumnSpec, ...]:

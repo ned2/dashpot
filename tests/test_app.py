@@ -15,6 +15,7 @@ from dashpot.app import (
     project_label,
     selection_detail_text,
 )
+from dashpot.column_editor import IssueColumnEditor
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.issue_table import (
     COLUMN_KEYS,
@@ -297,6 +298,46 @@ async def test_visible_filters_update_rows_and_observation_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_column_editor_applies_visibility_and_order_without_losing_selection() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "First"),
+        issue("test/repo#2", "Second"),
+    )
+    app = DashpotApp(
+        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+    )
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        table = app.query_one("#queue", DataTable)
+        selected_key = row_key("issue", "I_test/repo#2")
+        table.move_cursor(row=table.get_row_index(selected_key), animate=False)
+        await wait_until(lambda: app.selected_row_key == selected_key)
+
+        await pilot.press("c")
+        editor = app.screen
+        assert isinstance(editor, IssueColumnEditor)
+        selections = editor.query_one("#column-editor-list")
+        selections.deselect("status")
+        selections.highlighted = 5
+        assert await pilot.click("#column-up")
+        await pilot.pause()
+        assert await pilot.click("#column-apply")
+        await pilot.pause()
+
+        assert app.issue_view.columns == (
+            "project",
+            "priority",
+            "assignees",
+            "title",
+            "sessions",
+        )
+        assert [key.value for key in table.columns] == list(app.issue_view.columns)
+        assert app.selected_row_key == selected_key
+        selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        assert selected == selected_key
+
+
+@pytest.mark.asyncio
 async def test_refresh_preserves_selection_by_stable_row_key() -> None:
     first = workspace_snapshot(
         issue("test/repo#1", "First"),
@@ -472,6 +513,15 @@ def test_selecting_a_sort_column_replaces_the_default_then_toggles_direction() -
 
     assert ascending.sort == (SortTerm("title"),)
     assert descending.sort == (SortTerm("title", descending=True),)
+
+
+def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
+    view = IssueTableViewState()
+
+    with pytest.raises(ValueError, match="at least one"):
+        view.with_columns(())
+    with pytest.raises(ValueError, match="duplicates"):
+        view.with_columns(("title", "title"))
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:

@@ -15,6 +15,7 @@ from textual.timer import Timer
 from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
+from .column_editor import IssueColumnEditor
 from .issue_list import (
     IssueListQuery,
     IssueListRow,
@@ -59,6 +60,7 @@ class DashpotApp(App[None]):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
+        ("c", "columns", "Columns"),
     ]
 
     def __init__(
@@ -116,11 +118,34 @@ class DashpotApp(App[None]):
 
     def on_mount(self) -> None:
         table = self.query_one("#queue", DataTable)
+        self.add_table_columns(table)
+        table.focus()
+
+    def add_table_columns(self, table: DataTable[str]) -> None:
         for column in column_specs(self.issue_view.columns):
             table.add_column(
                 column_label(column, self.issue_view.sort), key=column.key
             )
-        table.focus()
+
+    def action_columns(self) -> None:
+        self.push_screen(
+            IssueColumnEditor(self.issue_view.columns),
+            self.apply_issue_columns,
+        )
+
+    def apply_issue_columns(
+        self, columns: tuple[ColumnKey, ...] | None
+    ) -> None:
+        if columns is None or columns == self.issue_view.columns:
+            return
+        self.issue_view = self.issue_view.with_columns(columns)
+        table = self.query_one("#queue", DataTable)
+        table.clear(columns=True)
+        self.rows_by_key = {}
+        self.rendered_cells = {}
+        self.add_table_columns(table)
+        if self.snapshot is not None:
+            self.reconcile_rows(self.snapshot)
 
     def on_data_table_header_selected(
         self, event: DataTable.HeaderSelected

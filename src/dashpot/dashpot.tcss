@@ -107,3 +107,49 @@ Screen.-compact Header {
 Screen.-compact #diagnostics {
     max-height: 3;
 }
+
+IssueColumnEditor {
+    align: center middle;
+    background: $background 70%;
+}
+
+#column-editor-dialog {
+    width: 56;
+    height: auto;
+    max-height: 26;
+    padding: 1 2;
+    border: round $primary;
+    background: $surface;
+}
+
+#column-editor-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+#column-editor-help {
+    height: 2;
+    margin: 1 0;
+    color: $text-muted;
+}
+
+#column-editor-list {
+    height: 12;
+}
+
+#column-editor-error {
+    height: 1;
+    color: $error;
+}
+
+#column-editor-actions {
+    height: 3;
+    align-horizontal: right;
+}
+
+#column-editor-actions Button {
+    width: auto;
+    min-width: 8;
+    margin-left: 1;
+}
