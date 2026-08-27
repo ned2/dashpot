@@ -287,7 +287,15 @@ def build_rows(
     )
     for project in snapshot.projects:
         label = project_label(project)
-        issues = project.snapshot.issues if project.snapshot else []
+        issues = (
+            [
+                issue
+                for issue in project.snapshot.issues
+                if issue["state"] == "open"
+            ]
+            if project.snapshot
+            else []
+        )
         project_has_unmatched_run = any(
             run.id not in matched_runs
             and run.observation_project_id == project.project_id
@@ -302,7 +310,9 @@ def build_rows(
                 "-",
                 "unassigned",
                 "-",
-                "source unavailable" if project.status == "unavailable" else "no Issues",
+                "source unavailable"
+                if project.status == "unavailable"
+                else "no open Issues",
             )
         for issue in issues:
             key = (

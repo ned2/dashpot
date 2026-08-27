@@ -399,6 +399,40 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
     }
 
 
+def test_default_issue_filter_shows_only_open_issues() -> None:
+    open_issue = issue("test/repo#1", "Open")
+    closed_issue = issue("test/repo#2", "Closed")
+    closed_issue.update(
+        {
+            "state": "closed",
+            "stateReason": "completed",
+            "closedAt": "2026-08-27T01:00:00Z",
+        }
+    )
+
+    contexts, cells = build_rows(workspace_snapshot(open_issue, closed_issue))
+
+    assert set(contexts) == set(cells) == {row_key("issue", open_issue["id"])}
+    assert cells[row_key("issue", open_issue["id"])][-1] == "Open"
+
+
+def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
+    closed_issue = issue("test/repo#2", "Closed")
+    closed_issue.update(
+        {
+            "state": "closed",
+            "stateReason": "completed",
+            "closedAt": "2026-08-27T01:00:00Z",
+        }
+    )
+
+    contexts, cells = build_rows(workspace_snapshot(closed_issue))
+
+    project_key = row_key("project", "project:test-repo")
+    assert set(contexts) == set(cells) == {project_key}
+    assert cells[project_key][-1] == "no open Issues"
+
+
 def test_opaque_issue_identity_cannot_collide_with_unmatched_run_row() -> None:
     colliding_run_id = "codex-session:42"
     colliding_issue = issue(f"run:{colliding_run_id}", "Collision proof")

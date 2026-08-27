@@ -133,8 +133,8 @@ relative file or directory:
 The owned file grammar is documented in
 [`conformance/issue/local-markdown.md`](conformance/issue/local-markdown.md).
 By default, both adapters collect the complete source inventory, including open
-and closed Issues; Dashpot does not apply a lifecycle filter. Both adapters are
-currently read-only.
+and closed Issues; source collection does not apply a lifecycle filter. The TUI
+defaults its Work list to open Issues. Both adapters are currently read-only.
 
 ## Codex observation
 
