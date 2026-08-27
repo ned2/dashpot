@@ -242,6 +242,16 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert len({row.field_value.region.x for row in project_fields}) == 1
         assert len({row.field_value.region.x for row in issue_fields}) == 1
         assert all(row.field_name.styles.text_align == "left" for row in issue_fields)
+        assert app.ALLOW_SELECT
+        assert all(row.field_value.allow_select for row in project_fields + issue_fields)
+        assert not table.allow_select
+
+        location = issue_fields[0].field_value
+        assert await pilot.mouse_down(location, offset=(0, 0))
+        assert await pilot.mouse_up(location, offset=(5, 0))
+        await pilot.pause()
+        assert app.clipboard == issue_fields[0].item.value[:6]
+
         assert pane_title(app, "#project-pane") == "PROJECT STATUS"
         assert pane_title(app, "#selection-pane") == "#1: First"
         assert app.query_one("#selection-pane").has_class("-issue-open")

@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import Protocol, cast
 
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.content import Content
 from textual.containers import Container, Horizontal, Vertical
@@ -66,6 +66,9 @@ class DashpotApp(App[None]):
     SUB_TITLE = "passive workspace view"
     CSS_PATH = "dashpot.tcss"
     HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]
+    # Keep rendered detail and diagnostic text selectable. Interactive widgets
+    # such as DataTable opt out independently so mouse gestures remain theirs.
+    ALLOW_SELECT = True
 
     BINDINGS = [
         ("q", "quit", "Quit"),
@@ -138,6 +141,13 @@ class DashpotApp(App[None]):
         table = self.query_one("#queue", DataTable)
         self.add_table_columns(table)
         table.focus()
+
+    def on_text_selected(self, event: events.TextSelected) -> None:
+        """Copy arbitrary rendered-text selections when the drag finishes."""
+
+        selected_text = self.screen.get_selected_text()
+        if selected_text:
+            self.copy_to_clipboard(selected_text)
 
     def add_table_columns(self, table: DataTable[str]) -> None:
         for column in column_specs(self.issue_view.columns):
