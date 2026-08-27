@@ -8,14 +8,17 @@ from pathlib import Path
 from threading import Event, Lock
 
 import pytest
+from textual.content import Content
 from textual.widgets import DataTable, Input, Select, Static
 
 from dashpot.app import (
     DashpotApp,
+    issue_pane_state_class,
     project_label,
     selection_detail_text,
 )
 from dashpot.column_editor import IssueColumnEditor
+from dashpot.detail_fields import DetailFields
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.issue_table import (
     COLUMNS_BY_KEY,
@@ -152,6 +155,16 @@ def assert_context_above_full_width_queue(app: DashpotApp) -> None:
     assert abs(detail_row.region.height - queue_pane.region.height) <= 2
 
 
+def detail_plain(app: DashpotApp, selector: str) -> str:
+    return app.query_one(selector, DetailFields).plain
+
+
+def pane_title(app: DashpotApp, selector: str) -> str:
+    title = app.query_one(selector)._border_title
+    assert title is not None
+    return title.plain
+
+
 @pytest.mark.asyncio
 async def test_initial_refresh_populates_queue_and_detail() -> None:
     snapshot = workspace_snapshot(
@@ -160,11 +173,22 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
     )
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
-    async with app.run_test(size=(80, 24)):
+    async with app.run_test(size=(80, 24)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
         table = app.query_one("#queue", DataTable)
-        project_detail = str(app.query_one("#project-detail", Static).render())
-        selection_detail = str(app.query_one("#selection-detail", Static).render())
+        project_detail = detail_plain(app, "#project-detail")
+        selection_detail = detail_plain(app, "#selection-detail")
+        project_fields = [
+            row
+            for row in app.query_one("#project-detail", DetailFields).rows
+            if row.item.kind == "field"
+        ]
+        issue_fields = [
+            row
+            for row in app.query_one("#selection-detail", DetailFields).rows
+            if row.item.kind == "field"
+        ]
 
         assert table.row_count == 2
         assert not hasattr(app, "snapshot")
@@ -196,18 +220,35 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert "Status: fresh" in project_detail
         assert "Anchor: /repo" in project_detail
-        assert "Observation Targets: 1" in project_detail
+        assert "Targets: 1" in project_detail
         assert "main@abcdef12 clean" in project_detail
         assert "0 agents · /repo" in project_detail
         assert "test/repo" not in project_detail
         assert "Refresh:" not in project_detail
-        assert "First" in selection_detail
+        assert "Reference:" not in selection_detail
+        assert selection_detail.startswith("Location: ")
         assert "Status:" not in selection_detail
         assert "Assignees: unassigned" in selection_detail
         assert "Agent sessions:" in selection_detail
         assert "Declared" not in selection_detail
         assert "blocked" not in selection_detail.lower()
-        assert str(app.query_one("#selection-title", Static).render()) == "ISSUE"
+        assert [row.item.label for row in project_fields] == [
+            "Status",
+            "Workspaces",
+            "Anchor",
+            "Targets",
+            "Agents",
+        ]
+        assert len({row.field_value.region.x for row in project_fields}) == 1
+        assert len({row.field_value.region.x for row in issue_fields}) == 1
+        assert all(row.field_name.styles.text_align == "left" for row in issue_fields)
+        assert pane_title(app, "#project-pane") == "PROJECT STATUS"
+        assert pane_title(app, "#selection-pane") == "#1: First"
+        assert app.query_one("#selection-pane").has_class("-issue-open")
+        app.query_one("#selection-pane").border_title = Content(
+            "#1: [bold]literal[/bold]"
+        )
+        assert pane_title(app, "#selection-pane") == "#1: [bold]literal[/bold]"
         diagnostics = app.query_one("#diagnostics", Static)
         assert_context_above_full_width_queue(app)
         assert app.query_one("#queue-pane").region.bottom <= diagnostics.region.y
@@ -240,9 +281,98 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert app.selected_row_key == row_key("issue", closed_issue["id"])
-        assert "Closed" in str(
-            app.query_one("#selection-detail", Static).render()
-        )
+        assert pane_title(app, "#selection-pane") == "#2: Closed"
+        assert app.query_one("#selection-pane").has_class("-issue-completed")
+
+
+@pytest.mark.parametrize(
+    ("state", "reason", "state_class", "dark_color", "light_color"),
+    [
+        ("open", None, "-issue-open", "#238636", "#1f883d"),
+        ("closed", "completed", "-issue-completed", "#8957e5", "#8250df"),
+        (
+            "closed",
+            "not-planned",
+            "-issue-not-planned",
+            "#656c76",
+            "#59636e",
+        ),
+        ("closed", "duplicate", "-issue-duplicate", "#656c76", "#59636e"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_selection_pane_tracks_github_issue_state_colors(
+    state: str,
+    reason: str | None,
+    state_class: str,
+    dark_color: str,
+    light_color: str,
+) -> None:
+    selected_issue = issue("test/repo#1", "Stateful")
+    selected_issue.update(
+        {
+            "state": state,
+            "stateReason": reason,
+            "closedAt": NOW if state == "closed" else None,
+        }
+    )
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(selected_issue)),
+        refresh_seconds=0,
+        issue_view=IssueTableViewState(
+            query=IssueListQuery(states=frozenset({"open", "closed"}))
+        ),
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        pane = app.query_one("#selection-pane")
+        selected_context = app.rows_by_key[app.selected_row_key]
+
+        assert issue_pane_state_class(selected_context) == state_class
+        assert pane.has_class(state_class)
+        assert pane.styles.border_top[1].hex.casefold() == dark_color
+
+        app.theme = "textual-light"
+        await pilot.pause()
+
+        assert pane.styles.border_top[1].hex.casefold() == light_color
+
+
+@pytest.mark.asyncio
+async def test_selection_pane_color_switches_with_selected_issue() -> None:
+    open_issue = issue("test/repo#1", "Open")
+    completed_issue = issue("test/repo#2", "Completed")
+    completed_issue.update(
+        {
+            "state": "closed",
+            "stateReason": "completed",
+            "closedAt": NOW,
+        }
+    )
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(open_issue, completed_issue)),
+        refresh_seconds=0,
+        issue_view=IssueTableViewState(
+            query=IssueListQuery(states=frozenset({"open", "closed"}))
+        ),
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+
+        app.show_row(row_key("issue", open_issue["id"]))
+        await pilot.pause()
+        pane = app.query_one("#selection-pane")
+        assert pane.has_class("-issue-open")
+        assert pane.styles.border_top[1].hex == "#238636"
+
+        app.show_row(row_key("issue", completed_issue["id"]))
+        await pilot.pause()
+        assert pane.has_class("-issue-completed")
+        assert not pane.has_class("-issue-open")
+        assert pane.styles.border_top[1].hex.casefold() == "#8957e5"
 
 
 @pytest.mark.asyncio
@@ -470,12 +600,8 @@ async def test_unavailable_project_observation_keeps_last_good_issue_rows() -> N
         await wait_until(lambda: app.store.revision == 2)
 
         assert app.query_one("#queue", DataTable).row_count == 1
-        assert "Last good" in str(
-            app.query_one("#selection-detail", Static).render()
-        )
-        assert "Status: unavailable" in str(
-            app.query_one("#project-detail", Static).render()
-        )
+        assert pane_title(app, "#selection-pane") == "#1: Last good"
+        assert "Status: unavailable" in detail_plain(app, "#project-detail")
         assert "repository is unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -519,12 +645,8 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
         await wait_until(lambda: app.store.revision == 2)
 
         assert app.query_one("#queue", DataTable).row_count == 1
-        assert "Last good" in str(
-            app.query_one("#selection-detail", Static).render()
-        )
-        assert "Status: stale" in str(
-            app.query_one("#project-detail", Static).render()
-        )
+        assert pane_title(app, "#selection-pane") == "#1: Last good"
+        assert "Status: stale" in detail_plain(app, "#project-detail")
         assert "GitHub unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -575,12 +697,8 @@ async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert "prunable" in str(app.query_one("#diagnostics", Static).render())
-        assert "unavailable" in str(
-            app.query_one("#project-detail", Static).render()
-        )
-        assert "unknown@abcdef12" in str(
-            app.query_one("#project-detail", Static).render()
-        )
+        assert "unavailable" in detail_plain(app, "#project-detail")
+        assert "unknown@abcdef12" in detail_plain(app, "#project-detail")
 
 
 @pytest.mark.asyncio
@@ -603,13 +721,20 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
         await wait_until(lambda: app.store.revision == 1)
 
         assert app.selected_row_key == row_key("run", "codex-session:42")
-        assert "Unmatched codex run" in str(
-            app.query_one("#selection-detail", Static).render()
-        )
-        detail = str(app.query_one("#selection-detail", Static).render())
+        assert "Unmatched codex run" in detail_plain(app, "#selection-detail")
+        detail = detail_plain(app, "#selection-detail")
         assert "owner/repository#404" in detail
         assert "I_raw_identity" not in detail
-        assert str(app.query_one("#selection-title", Static).render()) == "AGENT RUN"
+        assert pane_title(app, "#selection-pane") == "AGENT RUN"
+        assert not any(
+            app.query_one("#selection-pane").has_class(class_name)
+            for class_name in (
+                "-issue-open",
+                "-issue-completed",
+                "-issue-not-planned",
+                "-issue-duplicate",
+            )
+        )
 
 
 @pytest.mark.asyncio
@@ -790,11 +915,9 @@ async def test_selection_detail_uses_one_current_store_projection() -> None:
         )
         app.show_row(selected_key)
 
-        assert "Observed agents: 1" in str(
-            app.query_one("#project-detail", Static).render()
-        )
-        assert "codex-session:current (running, issue/current)" in str(
-            app.query_one("#selection-detail", Static).render()
+        assert "Agents: 1" in detail_plain(app, "#project-detail")
+        assert "codex-session:current (running, issue/current)" in detail_plain(
+            app, "#selection-detail"
         )
 
 
@@ -941,9 +1064,7 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
         await wait_until(lambda: app.store.revision == 2)
 
         assert app.selected_row_key == selected_key
-        assert "Transfer me" in str(
-            app.query_one("#selection-detail", Static).render()
-        )
+        assert pane_title(app, "#selection-pane") == "#70: Transfer me"
 
 
 class RacingCollector:
@@ -988,8 +1109,6 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
             collector.release.set()
             await asyncio.sleep(0.1)
             assert app.store.checkpoint() == new
-            assert "New result" in str(
-                app.query_one("#selection-detail", Static).render()
-            )
+            assert pane_title(app, "#selection-pane") == "#1: New result"
     finally:
         collector.release.set()

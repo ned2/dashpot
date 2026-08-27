@@ -9,6 +9,7 @@ from typing import Protocol, cast
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
+from textual.content import Content
 from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
 from textual.timer import Timer
@@ -16,6 +17,7 @@ from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
 from .column_editor import IssueColumnEditor
+from .detail_fields import DetailFields, DetailItem, detail_items_text
 from .issue_list import IssueListQuery, IssueListRow
 from .issue_table import (
     ColumnKey,
@@ -30,6 +32,14 @@ from .issue_table import (
 )
 from .model import AgentRun, Issue, ProjectObservation, WorkspaceSnapshot
 from .observation_store import WorkspaceObservationStore
+
+
+ISSUE_PANE_STATE_CLASSES = (
+    "-issue-open",
+    "-issue-completed",
+    "-issue-not-planned",
+    "-issue-duplicate",
+)
 
 
 class SnapshotCollector(Protocol):
@@ -92,11 +102,15 @@ class DashpotApp(App[None]):
         with Container(id="body"):
             with Container(id="detail-row"):
                 with Vertical(id="project-pane"):
-                    yield Static("PROJECT STATUS", classes="pane-title")
-                    yield Static("Select a row", id="project-detail")
+                    yield DetailFields(
+                        DetailItem("Select a row", kind="message"),
+                        id="project-detail",
+                    )
                 with Vertical(id="selection-pane"):
-                    yield Static("ISSUE", id="selection-title", classes="pane-title")
-                    yield Static("Select a row", id="selection-detail")
+                    yield DetailFields(
+                        DetailItem("Select a row", kind="message"),
+                        id="selection-detail",
+                    )
             with Vertical(id="queue-pane"):
                 with Horizontal(id="queue-controls"):
                     yield Static("WORK", classes="pane-title")
@@ -119,6 +133,8 @@ class DashpotApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#project-pane").border_title = Content("PROJECT STATUS")
+        self.query_one("#selection-pane").border_title = Content("ISSUE")
         table = self.query_one("#queue", DataTable)
         self.add_table_columns(table)
         table.focus()
@@ -354,10 +370,13 @@ class DashpotApp(App[None]):
         self.rendered_cells = desired_cells
         if not table.row_count:
             self.selected_row_key = None
-            self.query_one("#project-detail", Static).update("No project selected")
-            self.query_one("#selection-title", Static).update("SELECTION")
-            self.query_one("#selection-detail", Static).update(
-                "No Issues or observed runs"
+            self.query_one("#project-detail", DetailFields).update(
+                DetailItem("No project selected", kind="message")
+            )
+            self.query_one("#selection-pane").border_title = Content("SELECTION")
+            self.set_selection_pane_state(None)
+            self.query_one("#selection-detail", DetailFields).update(
+                DetailItem("No Issues or observed runs", kind="message")
             )
             return
         if prior_key in desired_contexts:
@@ -383,16 +402,25 @@ class DashpotApp(App[None]):
         if context is None:
             return
         self.selected_row_key = key
-        self.query_one("#project-detail", Static).update(
-            project_detail_text(
+        self.set_selection_pane_state(context)
+        self.query_one("#project-detail", DetailFields).update(
+            *project_detail_items(
                 context.project,
                 context.project_runs,
             )
         )
-        self.query_one("#selection-title", Static).update(selection_title(context))
-        self.query_one("#selection-detail", Static).update(
-            selection_detail_text(context)
+        self.query_one("#selection-pane").border_title = Content(
+            selection_title(context)
         )
+        self.query_one("#selection-detail", DetailFields).update(
+            *selection_detail_items(context)
+        )
+
+    def set_selection_pane_state(self, context: IssueListRow | None) -> None:
+        state_class = issue_pane_state_class(context)
+        pane = self.query_one("#selection-pane")
+        for class_name in ISSUE_PANE_STATE_CLASSES:
+            pane.set_class(class_name == state_class, class_name)
 
     def update_diagnostics(self) -> None:
         messages: list[str] = []
@@ -414,17 +442,17 @@ class DashpotApp(App[None]):
         )
 
 
-def project_detail_text(
+def project_detail_items(
     project: ProjectObservation, agent_runs: Sequence[AgentRun] = ()
-) -> str:
-    lines = [
-        f"Status: {project.status}",
-        f"Workspaces: {', '.join(project.workspaces)}",
-        f"Anchor: {project.primary_anchor}",
+) -> tuple[DetailItem, ...]:
+    items = [
+        DetailItem(project.status, "Status"),
+        DetailItem(", ".join(project.workspaces), "Workspaces"),
+        DetailItem(project.primary_anchor, "Anchor"),
     ]
     snapshot = project.snapshot
     if snapshot:
-        lines.append(f"Observation Targets: {len(snapshot.observation_targets)}")
+        items.append(DetailItem(str(len(snapshot.observation_targets)), "Targets"))
         for target in snapshot.observation_targets:
             state = (
                 "unavailable"
@@ -438,45 +466,67 @@ def project_detail_text(
                 run.observation_target == target.path
                 for run in agent_runs
             )
-            lines.append(
-                f"  {branch}@{target.head[:8]} {state} · {target.elapsed_ms} ms · "
-                f"{run_count} agent{'s' if run_count != 1 else ''} · {target.path}"
+            items.append(
+                DetailItem(
+                    f"{branch}@{target.head[:8]} {state} · {target.elapsed_ms} ms · "
+                    f"{run_count} agent{'s' if run_count != 1 else ''} · {target.path}",
+                    kind="list",
+                )
             )
         observed_count = sum(
             run.observation_project_id == project.project_id
             for run in agent_runs
         )
-        lines.append(f"Observed agents: {observed_count}")
-    return "\n".join(lines)
+        items.append(DetailItem(str(observed_count), "Agents"))
+    return tuple(items)
+
+
+def project_detail_text(
+    project: ProjectObservation, agent_runs: Sequence[AgentRun] = ()
+) -> str:
+    return detail_items_text(project_detail_items(project, agent_runs))
 
 
 def selection_title(context: IssueListRow) -> str:
     if context.issue:
-        return "ISSUE"
+        return f"#{context.issue['number']}: {context.issue['title']}"
     if context.run:
         return "AGENT RUN"
     return "SELECTION"
 
 
-def selection_detail_text(context: IssueListRow) -> str:
-    lines: list[str] = []
+def issue_pane_state_class(context: IssueListRow | None) -> str | None:
+    if context is None or context.issue is None:
+        return None
+    issue = context.issue
+    if issue["state"] == "open":
+        return "-issue-open"
+    return {
+        "not-planned": "-issue-not-planned",
+        "duplicate": "-issue-duplicate",
+    }.get(issue["stateReason"], "-issue-completed")
+
+
+def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:
+    items: list[DetailItem] = []
     if context.issue:
         current = context.issue
         location = issue_location(current)
-        lines.extend(
+        items.extend(
             [
-                current["title"],
-                f"Reference: {current['reference']}",
-                f"State: {current['state']}",
-                f"Priority: {issue_priority(current)}",
-                f"Assignees: {', '.join(current['assignees']) or 'unassigned'}",
-                f"Location: {location}",
-                f"Labels: {', '.join(current['labels']) or '-'}",
+                DetailItem(location, "Location"),
+                DetailItem(current["state"], "State"),
+                DetailItem(issue_priority(current), "Priority"),
+                DetailItem(
+                    ", ".join(current["assignees"]) or "unassigned",
+                    "Assignees",
+                ),
+                DetailItem(", ".join(current["labels"]) or "-", "Labels"),
             ]
         )
-        lines.append("Agent sessions:")
+        items.append(DetailItem("Agent sessions", kind="section"))
         if not context.observed_runs:
-            lines.append("  -")
+            items.append(DetailItem("-", kind="list"))
         else:
             for run in context.observed_runs:
                 location = (
@@ -485,22 +535,31 @@ def selection_detail_text(context: IssueListRow) -> str:
                     or run.working_directory
                     or "unknown location"
                 )
-                lines.append(f"  {run.id} ({run.state}, {location})")
+                items.append(
+                    DetailItem(
+                        f"{run.id} ({run.state}, {location})",
+                        kind="list",
+                    )
+                )
     if context.run:
         run = context.run
-        lines.extend(
+        items.extend(
             [
-                f"Unmatched {run.harness} run",
-                f"Run: {run.id}",
-                f"State: {run.state}",
-                f"Issue hint: {run.issue_reference_hint or '-'}",
-                f"Observation target: {run.observation_target or '-'}",
-                f"Branch: {run.branch or '-'}",
-                f"Working directory: {run.working_directory or '-'}",
-                f"Last activity: {run.last_activity_at or '-'}",
+                DetailItem(f"Unmatched {run.harness} run", kind="heading"),
+                DetailItem(run.id, "Run"),
+                DetailItem(run.state, "State"),
+                DetailItem(run.issue_reference_hint or "-", "Issue hint"),
+                DetailItem(run.observation_target or "-", "Target"),
+                DetailItem(run.branch or "-", "Branch"),
+                DetailItem(run.working_directory or "-", "Directory"),
+                DetailItem(run.last_activity_at or "-", "Activity"),
             ]
         )
-    return "\n".join(lines)
+    return tuple(items)
+
+
+def selection_detail_text(context: IssueListRow) -> str:
+    return detail_items_text(selection_detail_items(context))
 
 
 def project_label(project: ProjectObservation) -> str:

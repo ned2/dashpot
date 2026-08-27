@@ -23,17 +23,44 @@ Screen {
     border: round $primary-darken-2;
 }
 
-#project-pane {
-    width: 1fr;
-    height: 1fr;
-    margin-right: 1;
-    border: round $primary-darken-2;
-}
-
+#project-pane,
 #selection-pane {
     width: 1fr;
     height: 1fr;
-    border: round $primary-darken-2;
+    border: panel $primary-darken-2;
+    border-title-align: left;
+    border-title-style: bold;
+}
+
+#project-pane {
+    margin-right: 1;
+}
+
+/* GitHub Primer StateLabel emphasis colors. */
+#selection-pane.-issue-open {
+    border: panel #1f883d;
+}
+
+#selection-pane.-issue-completed {
+    border: panel #8250df;
+}
+
+#selection-pane.-issue-not-planned,
+#selection-pane.-issue-duplicate {
+    border: panel #59636e;
+}
+
+Screen:dark #selection-pane.-issue-open {
+    border: panel #238636;
+}
+
+Screen:dark #selection-pane.-issue-completed {
+    border: panel #8957e5;
+}
+
+Screen:dark #selection-pane.-issue-not-planned,
+Screen:dark #selection-pane.-issue-duplicate {
+    border: panel #656c76;
 }
 
 Screen.-compact Header {
@@ -79,16 +106,53 @@ Screen.-compact Header {
     height: 1fr;
 }
 
-#project-detail {
-    height: 1fr;
-    padding: 0 1;
-    overflow-y: auto;
-}
-
+#project-detail,
 #selection-detail {
     height: 1fr;
     padding: 0 1;
-    overflow-y: auto;
+}
+
+DetailRow {
+    width: 1fr;
+    height: auto;
+    min-height: 1;
+    layout: horizontal;
+}
+
+DetailRow > .field-name {
+    width: 11;
+    height: 1;
+    margin-right: 1;
+    color: $text-muted;
+    text-style: bold;
+    text-align: left;
+}
+
+DetailRow > .field-value {
+    width: 1fr;
+    height: auto;
+    color: $text;
+}
+
+DetailRow.-heading > .field-name,
+DetailRow.-section > .field-name,
+DetailRow.-list > .field-name,
+DetailRow.-message > .field-name {
+    display: none;
+}
+
+DetailRow.-heading > .field-value {
+    text-style: bold;
+}
+
+DetailRow.-section > .field-value {
+    color: $text-muted;
+    text-style: bold;
+}
+
+DetailRow.-list > .field-value {
+    padding-left: 2;
+    color: $text-muted;
 }
 
 #diagnostics {
