@@ -9,7 +9,7 @@ from .issue_list import (
     IssueListQuery,
     IssueListResult,
     IssueListRow,
-    query_issue_list,
+    _query_indexed_issue_list,
     row_key,
 )
 from .model import (
@@ -172,9 +172,15 @@ class WorkspaceObservationStore:
         self, query: IssueListQuery = IssueListQuery()
     ) -> IssueListResult:
         state = self._state
-        return query_issue_list(
-            _checkpoint(state), query, revision=state.revision
+        result = _query_indexed_issue_list(
+            projects=state.projects,
+            issues=state.issues,
+            agent_runs=state.agent_runs,
+            issue_runs=state.issue_runs,
+            query=query,
+            revision=state.revision,
         )
+        return deepcopy(result)
 
     def project(self, project_id: str) -> ProjectObservation | None:
         project = self._state.projects.get(project_id)

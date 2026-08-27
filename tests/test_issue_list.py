@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import copy
+
+import pytest
+
 from dashpot.issue_list import IssueListQuery, query_issue_list
 from dashpot.model import AgentRun, ProjectObservation, ProjectSnapshot, WorkspaceSnapshot
 
@@ -101,6 +105,31 @@ def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> 
     assert result.matched_issue_count == 1
     assert result.observed_issue_count == 2
     assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+
+
+def test_query_rejects_duplicate_project_identities() -> None:
+    observed = workspace(issue("I_open", "open"))
+    observed.projects.append(copy.deepcopy(observed.projects[0]))
+
+    with pytest.raises(ValueError, match="Duplicate Project Identity"):
+        query_issue_list(observed)
+
+
+def test_query_rejects_duplicate_issue_identities_within_project() -> None:
+    duplicated = issue("I_shared", "open")
+    observed = workspace(duplicated, copy.deepcopy(duplicated))
+
+    with pytest.raises(ValueError, match="Duplicate Issue Identity"):
+        query_issue_list(observed)
+
+
+def test_query_rejects_duplicate_agent_run_identities() -> None:
+    observed = workspace(issue("I_open", "open"))
+    duplicated = agent_run("shared", issue_id="I_open")
+    observed.agent_runs = [duplicated, copy.deepcopy(duplicated)]
+
+    with pytest.raises(ValueError, match="Duplicate Agent Run Identity"):
+        query_issue_list(observed)
 
 
 def agent_run(session_id: str, *, issue_id: str | None) -> AgentRun:

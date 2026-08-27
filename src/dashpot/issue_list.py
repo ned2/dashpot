@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
@@ -65,36 +66,78 @@ def query_issue_list(
     revision: int = 0,
 ) -> IssueListResult:
     """Query source-neutral Issue-list rows from complete observed state."""
-    issue_id_counts = Counter(
-        issue["id"]
-        for project in snapshot.projects
-        if project.snapshot
-        for issue in project.snapshot.issues
+    projects: dict[str, ProjectObservation] = {}
+    issues: dict[tuple[str, str], Issue] = {}
+    for project in snapshot.projects:
+        if project.project_id in projects:
+            raise ValueError(
+                f"Duplicate Project Identity {project.project_id}"
+            )
+        projects[project.project_id] = project
+        if project.snapshot is None:
+            continue
+        for issue in project.snapshot.issues:
+            key = (project.project_id, issue["id"])
+            if key in issues:
+                raise ValueError(
+                    f"Duplicate Issue Identity {issue['id']} in "
+                    f"{project.project_id}"
+                )
+            issues[key] = issue
+    agent_runs: dict[str, AgentRun] = {}
+    for run in snapshot.agent_runs:
+        if run.id in agent_runs:
+            raise ValueError(f"Duplicate Agent Run Identity {run.id}")
+        agent_runs[run.id] = run
+    return _query_indexed_issue_list(
+        projects=projects,
+        issues=issues,
+        agent_runs=agent_runs,
+        issue_runs=snapshot.issue_runs,
+        query=query,
+        revision=revision,
     )
-    runs = snapshot.agent_runs
-    issue_runs = snapshot.issue_runs
+
+
+def _query_indexed_issue_list(
+    *,
+    projects: Mapping[str, ProjectObservation],
+    issues: Mapping[tuple[str, str], Issue],
+    agent_runs: Mapping[str, AgentRun],
+    issue_runs: Mapping[str, Sequence[str]],
+    query: IssueListQuery,
+    revision: int,
+) -> IssueListResult:
+    issue_id_counts = Counter(
+        issue_id for _project_id, issue_id in issues
+    )
     matched_runs = {
         run_id for run_ids in issue_runs.values() for run_id in run_ids
     }
-    runs_by_id = {run.id: run for run in runs}
+    issues_by_project: dict[str, list[Issue]] = {
+        project_id: [] for project_id in projects
+    }
+    for (project_id, _issue_id), issue in issues.items():
+        if project_id in issues_by_project:
+            issues_by_project[project_id].append(issue)
     runs_by_project = {
         project.project_id: tuple(
             run
-            for run in runs
+            for run in agent_runs.values()
             if run.observation_project_id == project.project_id
         )
-        for project in snapshot.projects
+        for project in projects.values()
     }
     rows: list[IssueListRow] = []
     observed_issue_count = 0
     matched_issue_count = 0
-    for project in snapshot.projects:
-        issues = project.snapshot.issues if project.snapshot else []
-        observed_issue_count += len(issues)
+    for project in projects.values():
+        project_issues = issues_by_project[project.project_id]
+        observed_issue_count += len(project_issues)
         search = query.text.strip().casefold()
         visible_issues = [
             issue
-            for issue in issues
+            for issue in project_issues
             if issue["state"] in query.states
             and (
                 not search
@@ -104,8 +147,7 @@ def query_issue_list(
         ]
         project_has_unmatched_run = any(
             run.id not in matched_runs
-            and run.observation_project_id == project.project_id
-            for run in runs
+            for run in runs_by_project[project.project_id]
         )
         if not visible_issues and not project_has_unmatched_run:
             empty_message = (
@@ -131,12 +173,14 @@ def query_issue_list(
             )
             bound_run_ids = issue_runs.get(issue["id"], [])
             observed_runs = tuple(
-                runs_by_id[run_id]
+                agent_runs[run_id]
                 for run_id in bound_run_ids
-                if run_id in runs_by_id
+                if run_id in agent_runs
             )
             session_states: tuple[RunState, ...] = tuple(
-                runs_by_id[run_id].state if run_id in runs_by_id else "unknown"
+                agent_runs[run_id].state
+                if run_id in agent_runs
+                else "unknown"
                 for run_id in bound_run_ids
             )
             rows.append(
@@ -150,11 +194,10 @@ def query_issue_list(
                     session_states=session_states,
                 )
             )
-    projects_by_id = {project.project_id: project for project in snapshot.projects}
-    for run in runs:
+    for run in agent_runs.values():
         if run.id in matched_runs:
             continue
-        project = projects_by_id.get(run.observation_project_id)
+        project = projects.get(run.observation_project_id)
         if project is None:
             continue
         rows.append(

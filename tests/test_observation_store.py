@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from dashpot.issue_list import row_key
+from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.model import (
     AgentRun,
     Diagnostic,
@@ -642,3 +642,63 @@ def test_detail_for_returns_none_for_disappeared_domain_identities() -> None:
     assert issue_store.detail_for(issue_row) is None
     assert run_store.detail_for(run_row) is None
     assert project_store.detail_for(project_row) is None
+
+
+def test_store_query_matches_standalone_query_across_rich_state() -> None:
+    shared = issue("I_shared", "Shared")
+    closed = issue("I_closed", "Closed navigation")
+    closed["state"] = "closed"
+    bound = run("codex:bound", "project:one", "I_shared")
+    unmatched = run("codex:unmatched", "project:two", None)
+    store = WorkspaceObservationStore(
+        workspace(
+            project(
+                "project:one",
+                copy.deepcopy(shared),
+                closed,
+            ),
+            project("project:two", copy.deepcopy(shared)),
+            runs=[bound, unmatched],
+            issue_runs={"I_shared": [bound.id, "missing-run"]},
+        )
+    )
+    queries = (
+        IssueListQuery(),
+        IssueListQuery(states=frozenset({"open", "closed"})),
+        IssueListQuery(
+            states=frozenset({"open", "closed"}), text="navigation"
+        ),
+    )
+
+    for query in queries:
+        assert store.query_issues(query) == query_issue_list(
+            store.checkpoint(),
+            query,
+            revision=store.revision,
+        )
+
+
+def test_store_query_result_cannot_mutate_owned_observations() -> None:
+    observed_run = run("codex:one", "project:one", "I_one")
+    store = WorkspaceObservationStore(
+        workspace(
+            project("project:one", issue("I_one", "First")),
+            runs=[observed_run],
+            issue_runs={"I_one": [observed_run.id]},
+        )
+    )
+
+    returned = store.query_issues()
+    row = returned.rows[0]
+    row.project.display_label = "Caller Project"
+    row.issue["title"] = "Caller Issue"
+    row.observed_runs[0].state = "running"
+
+    current = store.query_issues().rows[0]
+    checkpoint = store.checkpoint()
+    assert current.project.display_label == "One"
+    assert current.issue["title"] == "First"
+    assert current.observed_runs[0].state == "waiting"
+    assert checkpoint.projects[0].display_label == "One"
+    assert checkpoint.projects[0].snapshot.issues[0]["title"] == "First"
+    assert checkpoint.agent_runs[0].state == "waiting"
