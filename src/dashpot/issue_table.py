@@ -88,6 +88,7 @@ class ColumnSpec:
     update_width: bool = False
     search_field: IssueSearchField | None = None
     sort_key: Callable[[object], object] = _cell_sort_key
+    nulls_last: bool = False
 
 
 COLUMN_SPECS = (
@@ -117,13 +118,13 @@ COLUMN_SPECS = (
         update_width=True,
         search_field=IssueSearchField.ASSIGNEES,
     ),
-    ColumnSpec("created", "CREATED"),
-    ColumnSpec("last_action", "LAST ACTION"),
+    ColumnSpec("created", "CREATED", nulls_last=True),
+    ColumnSpec("last_action", "LAST ACTION", nulls_last=True),
     ColumnSpec("sessions", "SESSIONS"),
 )
 COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
 DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
-    key for key in COLUMN_KEYS if key != "project"
+    key for key in COLUMN_KEYS if key not in {"project", "created"}
 )
 COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
@@ -135,9 +136,7 @@ class SortTerm:
 
 
 DEFAULT_SORT = (
-    SortTerm("project"),
-    SortTerm("priority"),
-    SortTerm("title"),
+    SortTerm("last_action", descending=True),
 )
 
 
@@ -236,10 +235,23 @@ def sort_key_for_terms(
     def sort_key(value: object) -> object:
         values = value if isinstance(value, tuple) else (value,)
         return tuple(
-            spec.sort_key(cell) for spec, cell in zip(specs, values)
+            _term_sort_value(spec, term, cell)
+            for spec, term, cell in zip(specs, terms, values)
         )
 
     return sort_key
+
+
+def _term_sort_value(
+    spec: ColumnSpec, term: SortTerm, cell: object
+) -> object:
+    value = spec.sort_key(cell)
+    if not spec.nulls_last:
+        return value
+    missing = value is None
+    if term.descending:
+        return (0 if missing else 1, 0 if missing else value)
+    return (1 if missing else 0, 0 if missing else value)
 
 
 def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
@@ -327,7 +339,7 @@ def text_cell(value: str) -> IssueTableCell:
 
 def date_cell(timestamp: str | None) -> IssueTableCell:
     if timestamp is None:
-        return IssueTableCell("-", float("inf"))
+        return IssueTableCell("-", None)
     instant = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
     return IssueTableCell(instant.date().isoformat(), instant.timestamp())
 

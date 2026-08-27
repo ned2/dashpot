@@ -24,6 +24,7 @@ from dashpot.issue_table import (
     COLUMNS_BY_KEY,
     COLUMN_KEYS,
     DEFAULT_COLUMNS,
+    DEFAULT_SORT,
     IssueStateCell,
     IssueTableCell,
     IssueTableViewState,
@@ -31,6 +32,7 @@ from dashpot.issue_table import (
     build_rows,
     date_cell,
     searchable_columns,
+    sort_key_for_terms,
 )
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import (
@@ -213,19 +215,18 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "title",
             "priority",
             "assignees",
-            "created",
             "last_action",
             "sessions",
         )
+        assert DEFAULT_SORT == (SortTerm("last_action", descending=True),)
         assert [str(column.label) for column in table.columns.values()] == [
             "S ↕",
             "STATUS ↕",
             "ID ↕",
-            "TITLE ↑",
-            "PRI ↑",
+            "TITLE ↕",
+            "PRI ↕",
             "ASSIGNEES ↕",
-            "CREATED ↕",
-            "LAST ACTION ↕",
+            "LAST ACTION ↓",
             "SESSIONS ↕",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
@@ -453,6 +454,7 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
         SequenceCollector(snapshot),
         refresh_seconds=0,
         observation_store=WorkspaceObservationStore(snapshot),
+        issue_view=IssueTableViewState(sort=(SortTerm("title"),)),
     )
 
     async with app.run_test(size=(80, 24)) as pilot:
@@ -470,6 +472,32 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
         assert table.get_row_at(0)[table.get_column_index(title_key)] == (
             "Lower priority"
         )
+
+
+@pytest.mark.asyncio
+async def test_default_sort_orders_last_action_newest_first_and_missing_last() -> None:
+    older = issue("test/repo#1", "Older")
+    older["updatedAt"] = "2026-08-25T01:00:00Z"
+    missing = issue("test/repo#2", "Missing")
+    missing["updatedAt"] = None
+    newest = issue("test/repo#3", "Newest")
+    newest["updatedAt"] = "2026-08-27T01:00:00Z"
+    snapshot = workspace_snapshot(older, missing, newest)
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(100, 24)) as pilot:
+        await pilot.pause()
+        table = app.query_one("#queue", DataTable)
+        title_column = table.get_column_index("title")
+
+        assert [
+            table.get_row_at(index)[title_column]
+            for index in range(table.row_count)
+        ] == ["Newest", "Older", "Missing"]
 
 
 @pytest.mark.asyncio
@@ -545,7 +573,6 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "title",
             "priority",
             "assignees",
-            "created",
             "sessions",
             "last_action",
         )
@@ -841,12 +868,21 @@ def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> Non
         date_cell("2026-08-27T01:15:00Z"),
         date_cell("2026-08-27T00:30:00Z"),
     ]
-    ordered = sorted(
-        timestamps, key=COLUMNS_BY_KEY["last_action"].sort_key
+    ascending = sorted(
+        timestamps,
+        key=sort_key_for_terms((SortTerm("last_action"),)),
     )
-    assert ordered[0] is timestamps[2]
-    assert ordered[1] is timestamps[1]
-    assert ordered[2] is timestamps[0]
+    descending = sorted(
+        timestamps,
+        key=sort_key_for_terms((SortTerm("last_action", descending=True),)),
+        reverse=True,
+    )
+    assert ascending[0] is timestamps[2]
+    assert ascending[1] is timestamps[1]
+    assert ascending[2] is timestamps[0]
+    assert descending[0] is timestamps[1]
+    assert descending[1] is timestamps[2]
+    assert descending[2] is timestamps[0]
 
 
 def test_local_markdown_number_is_the_table_id() -> None:
@@ -946,7 +982,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 9
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 8
     assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
     assert cells[selected_key][DEFAULT_COLUMNS.index("assignees")] == "ned2"
     assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"
