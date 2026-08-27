@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal
 
 from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnapshot
@@ -12,10 +13,28 @@ IssueState = Literal["open", "closed"]
 RowKind = Literal["issue", "project", "agent-run"]
 
 
+class IssueSearchField(StrEnum):
+    PROJECT = "project"
+    ASSIGNEES = "assignees"
+    TITLE = "title"
+
+    def values(
+        self, issue: Issue, project: ProjectObservation
+    ) -> tuple[str, ...]:
+        if self is IssueSearchField.PROJECT:
+            return (project.display_label,)
+        if self is IssueSearchField.ASSIGNEES:
+            return tuple(str(value) for value in issue.get("assignees", []))
+        return (str(issue.get("title", "")),)
+
+
 @dataclass(frozen=True, slots=True)
 class IssueListQuery:
     states: frozenset[IssueState] = frozenset({"open"})
     text: str = ""
+    search_fields: frozenset[IssueSearchField] = frozenset(
+        IssueSearchField
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +84,11 @@ def query_issue_list(
             issue
             for issue in issues
             if issue["state"] in query.states
-            and (not search or search in _searchable_issue_text(issue, project))
+            and (
+                not search
+                or search
+                in _searchable_issue_text(issue, project, query.search_fields)
+            )
         ]
         project_has_unmatched_run = any(
             run.id not in matched_runs
@@ -152,16 +175,14 @@ def _empty_issue_message(query: IssueListQuery) -> str:
     return "no Issues match the current filters"
 
 
-def _searchable_issue_text(issue: Issue, project: ProjectObservation) -> str:
+def _searchable_issue_text(
+    issue: Issue,
+    project: ProjectObservation,
+    fields: frozenset[IssueSearchField],
+) -> str:
     values = [
-        project.display_label,
-        str(issue.get("title", "")),
-        str(issue.get("reference", "")),
-        str(issue.get("body", "")),
-        *(str(label) for label in issue.get("labels", [])),
-        *(str(assignee) for assignee in issue.get("assignees", [])),
+        value
+        for field in fields
+        for value in field.values(issue, project)
     ]
-    milestone = issue.get("milestone")
-    if isinstance(milestone, dict):
-        values.append(str(milestone.get("title", "")))
     return "\n".join(values).casefold()

@@ -88,14 +88,15 @@ def test_default_query_explains_project_with_only_closed_issues() -> None:
     assert result.rows[0].empty_message == "no open Issues"
 
 
-def test_text_query_matches_issue_fields_and_preserves_observed_count() -> None:
+def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> None:
     matching = issue("I_matching", "open")
     matching["title"] = "Fix launch controls"
-    matching["labels"] = ["area/navigation"]
+    matching["assignees"] = ["navigation-owner"]
     hidden = issue("I_hidden", "open")
+    hidden["labels"] = ["navigation-owner"]
     observed = workspace(matching, hidden)
 
-    result = query_issue_list(observed, IssueListQuery(text="NAVIGATION"))
+    result = query_issue_list(observed, IssueListQuery(text="NAVIGATION-OWNER"))
 
     assert result.matched_issue_count == 1
     assert result.observed_issue_count == 2

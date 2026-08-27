@@ -25,9 +25,12 @@ from .issue_table import (
     ColumnKey,
     IssueTableViewState,
     build_rows,
+    cells_match,
     column_label,
     column_specs,
     issue_priority,
+    searchable_columns,
+    sort_key_for_terms,
 )
 from .model import AgentRun, Issue, ProjectObservation, WorkspaceSnapshot
 
@@ -61,6 +64,8 @@ class DashpotApp(App[None]):
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("c", "columns", "Columns"),
+        ("s", "sort_next", "Sort column"),
+        ("shift+s", "reverse_sort", "Reverse sort"),
     ]
 
     def __init__(
@@ -153,9 +158,25 @@ class DashpotApp(App[None]):
         column = cast(ColumnKey, str(event.column_key.value))
         if column not in self.issue_view.columns:
             return
-        table = event.data_table
+        self.apply_issue_sort(
+            self.issue_view.toggle_sort(column), event.data_table
+        )
+
+    def action_sort_next(self) -> None:
+        self.apply_issue_sort(self.issue_view.cycle_sort())
+
+    def action_reverse_sort(self) -> None:
+        self.apply_issue_sort(self.issue_view.reverse_sort())
+
+    def apply_issue_sort(
+        self,
+        issue_view: IssueTableViewState,
+        table: DataTable[str] | None = None,
+    ) -> None:
+        if table is None:
+            table = self.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
-        self.issue_view = self.issue_view.toggle_sort(column)
+        self.issue_view = issue_view
         self.update_sort_headers(table)
         self.sort_rows(table)
         if not table.row_count:
@@ -219,6 +240,7 @@ class DashpotApp(App[None]):
             )
         table.sort(
             *(term.column for term in terms),
+            key=sort_key_for_terms(terms),
             reverse=terms[0].descending,
         )
 
@@ -294,7 +316,11 @@ class DashpotApp(App[None]):
     def reconcile_rows(self, snapshot: WorkspaceSnapshot) -> None:
         table = self.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
-        result = query_issue_list(snapshot, self.issue_view.query)
+        query = replace(
+            self.issue_view.query,
+            search_fields=searchable_columns(),
+        )
+        result = query_issue_list(snapshot, query)
         self.query_one("#issue-count", Static).update(
             f"{result.matched_issue_count} of {result.observed_issue_count} Issues"
         )
@@ -316,7 +342,7 @@ class DashpotApp(App[None]):
                 for column, old_value, new_value in zip(
                     column_specs(self.issue_view.columns), previous, cells
                 ):
-                    if old_value != new_value:
+                    if not cells_match(old_value, new_value):
                         table.update_cell(
                             key,
                             column.key,

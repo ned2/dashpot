@@ -18,10 +18,13 @@ from dashpot.app import (
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.issue_table import (
+    COLUMNS_BY_KEY,
     COLUMN_KEYS,
+    IssueTableCell,
     IssueTableViewState,
     SortTerm,
     build_rows,
+    searchable_columns,
 )
 from dashpot.model import (
     AgentRun,
@@ -259,6 +262,28 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
         assert str(table.columns[title_key].label) == "TITLE ↓"
+
+
+@pytest.mark.asyncio
+async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Lower priority", "P2"),
+        issue("test/repo#2", "Higher priority", "P0"),
+    )
+    app = DashpotApp(
+        SequenceCollector(snapshot), refresh_seconds=0, initial_snapshot=snapshot
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        table = app.query_one("#queue", DataTable)
+
+        await pilot.press("s")
+        assert app.issue_view.sort == (SortTerm("priority"),)
+        assert table.get_row_at(0)[-1] == "Higher priority"
+
+        await pilot.press("shift+s")
+        assert app.issue_view.sort == (SortTerm("priority", descending=True),)
+        assert table.get_row_at(0)[-1] == "Lower priority"
 
 
 @pytest.mark.asyncio
@@ -522,6 +547,20 @@ def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
         view.with_columns(())
     with pytest.raises(ValueError, match="duplicates"):
         view.with_columns(("title", "title"))
+
+
+def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
+    assert searchable_columns() == frozenset(
+        {"project", "assignees", "title"}
+    )
+    sessions = [
+        IssueTableCell("Ⅱ10", (10, 0, 10, 0)),
+        IssueTableCell("Ⅱ2", (2, 0, 2, 0)),
+    ]
+
+    ordered = sorted(sessions, key=COLUMNS_BY_KEY["sessions"].sort_key)
+
+    assert ordered == ["Ⅱ2", "Ⅱ10"]
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
