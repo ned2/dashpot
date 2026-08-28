@@ -229,20 +229,7 @@ class WorkspaceObservationStore:
         """Resolve a queried row's identity against the current state."""
         state = self._state
         context: IssueListRow | None
-        if row.kind == "project":
-            project = state.projects.get(row.project.project_id)
-            context = (
-                IssueListRow(
-                    key=row.key,
-                    kind=row.kind,
-                    project=project,
-                    project_runs=_project_runs(state, project.project_id),
-                    empty_message=row.empty_message,
-                )
-                if project is not None
-                else None
-            )
-        elif row.kind == "issue" and row.issue is not None:
+        if row.kind == "issue" and row.issue is not None:
             context = _issue_detail(state, row)
         else:
             context = None
@@ -380,7 +367,6 @@ def _issue_detail(
         observed_runs=observed_runs,
         project_runs=_project_runs(state, project_id),
         session_states=session_states,
-        empty_message=row.empty_message,
     )
 
 

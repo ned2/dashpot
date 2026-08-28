@@ -12,7 +12,7 @@ from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnaps
 
 
 IssueState = Literal["open", "closed"]
-RowKind = Literal["issue", "project"]
+RowKind = Literal["issue"]
 
 
 class IssueSearchField(StrEnum):
@@ -51,7 +51,6 @@ class IssueListRow:
     observed_runs: tuple[AgentRun, ...] = ()
     project_runs: tuple[AgentRun, ...] = ()
     session_states: tuple[RunState, ...] = ()
-    empty_message: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,21 +144,8 @@ def _query_indexed_issue_list(
                 issue, project, query.search_fields, search_terms
             )
         ]
-        if not visible_issues:
-            empty_message = (
-                "source unavailable"
-                if project.status == "unavailable"
-                else _empty_issue_message(query)
-            )
-            rows.append(
-                IssueListRow(
-                    row_key("project", project.project_id),
-                    "project",
-                    project,
-                    project_runs=runs_by_project[project.project_id],
-                    empty_message=empty_message,
-                )
-            )
+        # Only Issues are rows, like an Issue tracker's feed: a Project with
+        # nothing visible contributes no placeholder.
         for issue in visible_issues:
             matched_issue_count += 1
             key = (
@@ -205,7 +191,8 @@ def row_key(kind: str, *identities: str) -> str:
     return json.dumps([kind, *identities], ensure_ascii=False, separators=(",", ":"))
 
 
-def _empty_issue_message(query: IssueListQuery) -> str:
+def empty_issue_message(query: IssueListQuery) -> str:
+    """Explain an empty Issue list in terms of the active query."""
     if parse_issue_search(query.text).terms:
         return "no Issues match the current filters"
     if query.states == frozenset({"open"}):

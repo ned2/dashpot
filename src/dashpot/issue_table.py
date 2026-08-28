@@ -301,18 +301,6 @@ def _row_tie_break(row: IssueListRow) -> tuple[str, int, str]:
 
 def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     project = row.project
-    if row.kind == "project":
-        return {
-            "issue_state": IssueTableCell("-", 99),
-            "number": IssueTableCell("-", float("inf")),
-            "title": text_cell(row.empty_message or "no Issues"),
-            "project": text_cell(project.display_label),
-            "priority": IssueTableCell("-", 99),
-            "assignees": IssueTableCell("unassigned", ()),
-            "created": date_cell(None),
-            "last_action": date_cell(None),
-            "sessions": IssueTableCell("-", (0, 0, 0, 0)),
-        }
     if row.kind == "issue":
         issue = row.issue
         if issue is None:

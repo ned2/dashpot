@@ -581,14 +581,7 @@ def test_detail_for_returns_none_for_disappeared_domain_identities() -> None:
     issue_row = issue_store.query_issues().rows[0]
     issue_store.replace_project(project("project:one"))
 
-    project_store = WorkspaceObservationStore(
-        workspace(project("project:one"))
-    )
-    project_row = project_store.query_issues().rows[0]
-    project_store.replace(workspace())
-
     assert issue_store.detail_for(issue_row) is None
-    assert project_store.detail_for(project_row) is None
 
 
 def test_store_query_matches_standalone_query_across_rich_state() -> None:

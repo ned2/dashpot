@@ -158,8 +158,8 @@ force-cancellable. [Workers: lifetime](https://textual.textualize.io/guide/worke
 Encode the row kind and opaque stable identities into every Textual row key. A
 normal Issue row uses globally unique Issue Identity so selection survives a
 Project transfer; only an identity-conflict fallback also includes Project
-Identity. Project placeholders and Agent Runs use separately tagged encodings.
-This prevents opaque identities from colliding across row kinds. Add explicit
+Identity. Only Issues are rows, like an Issue tracker's feed; Projects and
+Agent Runs are facts shown in the detail panes rather than rows. Add explicit
 stable column keys as well. Textual row keys remain valid when rows move because
 of deletion or sorting; coordinates do not.
 [DataTable keys](https://textual.textualize.io/widgets/data_table/#keys)

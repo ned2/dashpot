@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from dashpot.issue_list import IssueListQuery, query_issue_list
+from dashpot.issue_list import IssueListQuery, empty_issue_message, query_issue_list
 from dashpot.model import AgentRun, ProjectObservation, ProjectSnapshot, WorkspaceSnapshot
 
 
@@ -82,28 +82,32 @@ def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
     assert result.rows[0].project_runs == (bound, unbound)
 
 
-def test_project_with_only_unbound_runs_keeps_its_placeholder_row() -> None:
+def test_project_with_only_unbound_runs_has_no_rows() -> None:
     observed = workspace(issue("I_closed", "closed"))
     unbound = agent_run("unbound", issue_id=None)
     observed.agent_runs = [unbound]
 
     result = query_issue_list(observed)
 
-    assert [row.kind for row in result.rows] == ["project"]
-    assert result.rows[0].empty_message == "no open Issues"
-    assert result.rows[0].project_runs == (unbound,)
+    assert result.rows == ()
+    assert result.observed_issue_count == 1
 
 
-def test_default_query_explains_project_with_only_closed_issues() -> None:
+def test_default_query_lists_no_rows_for_only_closed_issues() -> None:
     observed = workspace(issue("I_closed", "closed"))
 
     result = query_issue_list(observed)
 
     assert result.observed_issue_count == 1
     assert result.matched_issue_count == 0
-    assert len(result.rows) == 1
-    assert result.rows[0].kind == "project"
-    assert result.rows[0].empty_message == "no open Issues"
+    assert result.rows == ()
+    assert empty_issue_message(IssueListQuery()) == "no open Issues"
+    assert empty_issue_message(
+        IssueListQuery(states=frozenset({"closed"}))
+    ) == "no closed Issues"
+    assert empty_issue_message(IssueListQuery(text="x")) == (
+        "no Issues match the current filters"
+    )
 
 
 def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> None:

@@ -29,7 +29,7 @@ from .collect import (
 )
 from .column_editor import IssueColumnEditor
 from .detail_fields import DetailFields, DetailItem, detail_items_text
-from .issue_list import IssueListQuery, IssueListRow
+from .issue_list import IssueListQuery, IssueListRow, empty_issue_message
 from .issue_search import IssueSearchSort, parse_issue_search
 from .issue_table import (
     ColumnKey,
@@ -544,7 +544,7 @@ class DashpotApp(App[None]):
             self.query_one("#selection-pane").border_title = Content("SELECTION")
             self.set_selection_pane_state(None)
             self.query_one("#selection-detail", DetailFields).update(
-                DetailItem("No Issues or observed runs", kind="message")
+                DetailItem(empty_issue_message(self.issue_view.query), kind="message")
             )
             return
         if prior_key in desired_contexts:

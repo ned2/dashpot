@@ -1167,31 +1167,8 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
         query_issue_list(workspace_snapshot(closed_issue))
     )
 
-    project_key = row_key("project", "project:test-repo")
-    assert set(contexts) == set(cells) == {project_key}
-    assert cells[project_key][DEFAULT_COLUMNS.index("title")] == (
-        "no open Issues"
-    )
-
-
-def test_opaque_issue_identity_cannot_collide_with_project_placeholder() -> None:
-    colliding_issue = issue("owner/repository#1", "Collision proof")
-    colliding_issue["id"] = "project:empty"
-    snapshot = workspace_snapshot(colliding_issue)
-    empty = copy.deepcopy(snapshot.projects[0])
-    empty.project_id = "empty"
-    empty.display_label = "Empty"
-    empty.snapshot.project_id = "empty"
-    empty.snapshot.display_label = "Empty"
-    empty.snapshot.issues = []
-    snapshot.projects.append(empty)
-
-    contexts, cells = build_rows(query_issue_list(snapshot))
-
-    assert set(contexts) == set(cells) == {
-        row_key("issue", colliding_issue["id"]),
-        row_key("project", "empty"),
-    }
+    assert contexts == {}
+    assert cells == {}
 
 
 @pytest.mark.asyncio
