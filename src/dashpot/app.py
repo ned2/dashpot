@@ -18,6 +18,7 @@ from textual.timer import Timer
 from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
+from .alerts import summarize_alerts
 from .collect import (
     ObservationKey,
     ObservationOutcome,
@@ -102,8 +103,15 @@ class DashpotApp(App[None]):
         refresh_seconds: float = 15,
         observation_store: WorkspaceObservationStore | None = None,
         issue_view: IssueTableViewState = IssueTableViewState(),
+        refresh_indicator_seconds: float = 0.75,
     ) -> None:
         super().__init__()
+        # Quick background observations should not flicker an indicator; the
+        # refreshing alert appears only once work has been in flight this long.
+        self.refresh_indicator_seconds = refresh_indicator_seconds
+        self.refresh_indicator_timer: Timer | None = None
+        self.refreshing_visible = False
+        self.in_flight: dict[ObservationKey, int] = {}
         self.scheduler: ObservationScheduler = (
             collector
             if isinstance(collector, ObservationScheduler)
@@ -170,6 +178,7 @@ class DashpotApp(App[None]):
                     )
                     yield Static("0 of 0 Issues", id="issue-count")
                 yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
+        yield Static("", id="alert")
         yield Static("No diagnostics", id="diagnostics")
         yield Footer()
 
@@ -376,6 +385,7 @@ class DashpotApp(App[None]):
         self, keys: Sequence[ObservationKey], trigger: str
     ) -> None:
         for ticket in self.scheduler.request(keys):
+            self.in_flight[ticket.key] = ticket.generation
             self.run_worker(
                 self.observe(ticket, trigger),
                 name=f"observe {ticket.key.group}",
@@ -383,6 +393,27 @@ class DashpotApp(App[None]):
                 exclusive=True,
                 exit_on_error=False,
             )
+        if self.refresh_indicator_timer is None and self.in_flight:
+            self.refresh_indicator_timer = self.set_timer(
+                self.refresh_indicator_seconds,
+                self.show_refreshing,
+                name="refresh indicator",
+            )
+
+    def show_refreshing(self) -> None:
+        self.refresh_indicator_timer = None
+        if self.in_flight:
+            self.refreshing_visible = True
+            self.update_alert()
+
+    def _finish_in_flight(self, ticket: ObservationTicket) -> None:
+        if self.in_flight.get(ticket.key) == ticket.generation:
+            del self.in_flight[ticket.key]
+        if not self.in_flight:
+            if self.refresh_indicator_timer is not None:
+                self.refresh_indicator_timer.stop()
+                self.refresh_indicator_timer = None
+            self.refreshing_visible = False
 
     async def observe(self, ticket: ObservationTicket, trigger: str) -> None:
         worker = get_current_worker()
@@ -406,7 +437,11 @@ class DashpotApp(App[None]):
         if self._closing or self._closed or not self.screen_stack:
             return
         try:
-            self._accept_observation(message)
+            self._finish_in_flight(message.ticket)
+            try:
+                self._accept_observation(message)
+            finally:
+                self.update_alert()
         except NoMatches:
             return
 
@@ -417,15 +452,22 @@ class DashpotApp(App[None]):
                 return
             self.query_one("#queue", DataTable).loading = False
             error = f"Refresh failed: {message.error}"
+            # The persistent alert already carries a repeated failure; only a
+            # new or changed failure earns a toast.
+            changed = self.observation_errors.get(key) != error
             self.observation_errors[key] = error
             self.update_diagnostics()
-            if message.trigger == "manual":
+            if message.trigger == "manual" and changed:
                 self.notify(error, severity="error", title="Dashpot refresh")
             return
         outcome = message.outcome
         if outcome is None or not outcome.accepted:
             return
-        self.observation_errors.pop(key, None)
+        recovered = self.observation_errors.pop(key, None) is not None
+        if recovered and message.trigger == "manual":
+            self.notify(
+                "Refresh succeeded", severity="information", title="Dashpot refresh"
+            )
         # Publishing happens here, on the UI thread, so the store is never
         # mutated while a read model is being rendered from it.
         changes = self.scheduler.publish(self.store)
@@ -571,6 +613,22 @@ class DashpotApp(App[None]):
         diagnostics.update(
             "\n".join(f"! {message}" for message in messages) or "No diagnostics"
         )
+        self.update_alert()
+
+    def update_alert(self) -> None:
+        """Render the exceptional-state readout, or hide it entirely."""
+        alert = summarize_alerts(
+            self.store,
+            failures=self.observation_errors,
+            refreshing=tuple(self.in_flight) if self.refreshing_visible else (),
+        )
+        widget = self.query_one("#alert", Static)
+        widget.set_class(alert is not None, "-visible")
+        for severity in ("error", "warning", "info"):
+            widget.set_class(
+                alert is not None and alert.severity == severity, f"-{severity}"
+            )
+        widget.update(alert.text if alert is not None else "")
 
 
 def project_detail_items(

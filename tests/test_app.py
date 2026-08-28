@@ -1431,3 +1431,160 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
         assert alpha_snapshot().target_status == "fresh"
         assert table.row_count == 2
         assert app.ui_error is None
+
+
+def alert(app: DashpotApp) -> Static:
+    return app.query_one("#alert", Static)
+
+
+def alert_text(app: DashpotApp) -> str:
+    return str(alert(app).render())
+
+
+@pytest.mark.asyncio
+async def test_alert_is_hidden_and_takes_no_space_when_healthy() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(80, 24)):
+        await app.run_action("refresh")
+        await wait_until(lambda: app.store.revision == 2)
+
+        assert not alert(app).display
+        assert alert(app).region.height == 0
+        assert not alert(app).has_class("-visible")
+        diagnostics = app.query_one("#diagnostics", Static)
+        assert diagnostics.region.y == app.query_one("#queue-pane").region.bottom
+
+
+@pytest.mark.asyncio
+async def test_slow_refresh_shows_an_indicator_after_the_threshold(
+    tmp_path: Path,
+) -> None:
+    coordinator, collectors = coordinated_workspace(tmp_path)
+    app = DashpotApp(coordinator, refresh_seconds=0, refresh_indicator_seconds=0.2)
+
+    async with app.run_test(size=(80, 24)):
+        table = app.query_one("#queue", DataTable)
+        await wait_until(lambda: table.row_count == 2)
+        assert not alert(app).display
+        collectors["beta"].source.release.clear()
+
+        await app.run_action("refresh_workspace")
+        await wait_until(lambda: alert(app).display)
+
+        assert alert(app).has_class("-info")
+        assert "refreshing Beta" in alert_text(app)
+        await wait_until(lambda: alert(app).region.height == 1)
+
+        collectors["beta"].source.release.set()
+        await wait_until(lambda: not alert(app).display)
+        await wait_until(lambda: not app.in_flight)
+        assert not alert(app).display
+
+
+@pytest.mark.asyncio
+async def test_quick_refresh_never_flickers_the_indicator(tmp_path: Path) -> None:
+    coordinator, _collectors = coordinated_workspace(tmp_path)
+    app = DashpotApp(coordinator, refresh_seconds=0, refresh_indicator_seconds=1.0)
+    shown: list[bool] = []
+
+    async with app.run_test(size=(80, 24)):
+        table = app.query_one("#queue", DataTable)
+        await wait_until(lambda: table.row_count == 2)
+
+        await app.run_action("refresh_workspace")
+        for _ in range(20):
+            shown.append(bool(alert(app).display))
+            await asyncio.sleep(0.01)
+        await wait_until(lambda: not app.in_flight)
+
+        assert not any(shown)
+        assert app.refresh_indicator_timer is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = DashpotApp(
+        SequenceCollector(
+            RuntimeError("GitHub is unavailable"),
+            RuntimeError("GitHub is unavailable"),
+            snapshot,
+        ),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(80, 24)):
+        await app.run_action("refresh")
+        await wait_until(lambda: alert(app).display)
+
+        assert alert(app).has_class("-error")
+        assert alert_text(app) == "✖ Refresh failed: Test Repository"
+        assert len(app._notifications) == 1
+
+        # A repeated identical failure keeps the alert without another toast.
+        await app.run_action("refresh")
+        await asyncio.sleep(0.1)
+        assert len(app._notifications) == 1
+        assert alert(app).display
+
+        await app.run_action("refresh")
+        await wait_until(lambda: not alert(app).display)
+
+        assert app.ui_error is None
+        assert "GitHub is unavailable" not in str(
+            app.query_one("#diagnostics", Static).render()
+        )
+
+
+@pytest.mark.asyncio
+async def test_simultaneous_states_share_one_line_in_priority_order() -> None:
+    stale = workspace_snapshot(issue("test/repo#1", "First"), status="stale")
+    stale.projects[0].snapshot.observation_targets[0].availability = "unavailable"
+    app = DashpotApp(
+        SequenceCollector(RuntimeError("boom")),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(stale),
+    )
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: alert(app).display)
+        assert alert_text(app).startswith("⚠ Unavailable worktrees: Test Repository /repo")
+
+        await app.run_action("refresh")
+        await wait_until(lambda: alert(app).has_class("-error"))
+
+        text = alert_text(app)
+        assert text.index("✖ Refresh failed") < text.index("⚠ Unavailable worktrees")
+        assert text.index("⚠ Unavailable worktrees") < text.index("⚠ Stale Issues")
+        await wait_until(lambda: alert(app).region.height == 1)
+        assert "boom" in str(app.query_one("#diagnostics", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
+    stale = workspace_snapshot(issue("test/repo#1", "First"), status="stale")
+    app = DashpotApp(
+        SequenceCollector(stale),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(stale),
+    )
+
+    async with app.run_test(size=(60, 18)):
+        assert app.screen.has_class("-compact")
+        await wait_until(lambda: alert(app).display)
+
+        await wait_until(lambda: alert(app).region.height == 1)
+        assert alert(app).region.width == 60
+        assert_context_above_full_width_queue(app)
+
+        app.store.replace(workspace_snapshot(issue("test/repo#1", "First")))
+        app.update_diagnostics()
+        await wait_until(lambda: not alert(app).display)
+        await wait_until(lambda: alert(app).region.height == 0)

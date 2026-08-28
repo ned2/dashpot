@@ -256,7 +256,14 @@ observation into a process-local `WorkspaceObservationStore` as soon as it
 lands, then re-queries source-neutral Issue-list read models carrying a store
 revision; a slow GitHub call therefore never delays branch or dirty state.
 `r` refreshes the selected row's Project (or all when nothing is selected) and
-`R` fans out to the whole Workspace. Headless JSON runs a coordinated barrier
+`R` fans out to the whole Workspace. Exceptional state is summarized in a
+one-line alert above Diagnostics that takes no space while everything is
+healthy: refresh failures and unavailable Projects are errors, unavailable or
+stale worktrees and stale Issue Sources are warnings, and a refresh that has
+been running longer than a moment is shown as information. The alert is
+derived from current observations and clears itself on recovery; toasts are
+reserved for manual-refresh failures and their recovery, and Diagnostics keeps
+the durable detail. Headless JSON runs a coordinated barrier
 over every key and serializes the store's `checkpoint()`, so it remains one
 complete snapshot. Collection happens off the UI thread, and the table is
 reconciled by stable row keys. See

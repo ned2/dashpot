@@ -155,6 +155,34 @@ DetailRow.-list > .field-value {
     color: $text-muted;
 }
 
+#alert {
+    display: none;
+    height: 1;
+    padding: 0 1;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    text-style: bold;
+}
+
+#alert.-visible {
+    display: block;
+}
+
+#alert.-error {
+    color: $text;
+    background: $error;
+}
+
+#alert.-warning {
+    color: $text;
+    background: $warning-darken-2;
+}
+
+#alert.-info {
+    color: $text-muted;
+    background: $surface;
+}
+
 #diagnostics {
     height: auto;
     max-height: 5;
