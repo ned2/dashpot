@@ -121,10 +121,12 @@ class SequenceCollector:
     def __init__(self, *results: WorkspaceSnapshot | Exception) -> None:
         self.results = list(results)
         self.lock = Lock()
+        self.calls = 0
 
     def refresh(self) -> WorkspaceSnapshot:
         with self.lock:
             result = self.results.pop(0)
+            self.calls += 1
         if isinstance(result, Exception):
             raise result
         return result
@@ -1449,12 +1451,13 @@ async def test_quick_refresh_never_flickers_the_indicator(tmp_path: Path) -> Non
 @pytest.mark.asyncio
 async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    collector = SequenceCollector(
+        RuntimeError("GitHub is unavailable"),
+        RuntimeError("GitHub is unavailable"),
+        snapshot,
+    )
     app = DashpotApp(
-        SequenceCollector(
-            RuntimeError("GitHub is unavailable"),
-            RuntimeError("GitHub is unavailable"),
-            snapshot,
-        ),
+        collector,
         refresh_seconds=0,
         observation_store=WorkspaceObservationStore(snapshot),
     )
@@ -1468,8 +1471,10 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
         assert len(app._notifications) == 1
 
         # A repeated identical failure keeps the alert without another toast.
+        # Wait for the observation to actually run and settle: requesting the
+        # next refresh too early would supersede it before it started.
         await app.run_action("refresh")
-        await asyncio.sleep(0.1)
+        await wait_until(lambda: collector.calls == 2 and not app.in_flight)
         assert len(app._notifications) == 1
         assert alert(app).display
 
