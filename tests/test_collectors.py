@@ -566,7 +566,9 @@ class HookObserverTests(unittest.TestCase):
 class HookRoutingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        # The published record carries resolved paths, so the expected
+        # Worktree must be resolved too (macOS temp paths are symlinks).
+        self.root = Path(self.temporary.name).resolve()
         self.state_dir = self.root / "global"
         self.state_dir.mkdir()
         self.worktree = self.root / "repo"
