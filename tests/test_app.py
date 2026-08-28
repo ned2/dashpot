@@ -1876,10 +1876,13 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
         collectors["beta"].source.release.clear()
 
         await app.run_action("refresh_workspace")
-        await wait_until(lambda: alert(app).display)
+        # On a slow runner the other Projects may still be in flight when the
+        # indicator first appears ("refreshing 3 Projects"); only Beta is
+        # held, so the readout converges on it.
+        await wait_until(lambda: "refreshing Beta" in alert_text(app))
 
+        assert alert(app).display
         assert alert(app).has_class("-info")
-        assert "refreshing Beta" in alert_text(app)
         await wait_until(lambda: alert(app).region.height == 1)
 
         collectors["beta"].source.release.set()
