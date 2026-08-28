@@ -454,6 +454,10 @@ class DashpotApp(App[None]):
         return key, table.cursor_row
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        # A queued highlight can be dispatched during app shutdown, after the
+        # screen and detail panes have been unmounted.
+        if self._closing or self._closed or not self.screen_stack:
+            return
         self.show_row(str(event.row_key.value))
 
     def show_row(self, key: str) -> None:
