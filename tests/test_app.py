@@ -218,7 +218,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         assert DEFAULT_SORT == (SortTerm("last_action", descending=True),)
         assert [str(column.label) for column in table.columns.values()] == [
-            "STATUS ↕",
+            "◉ ↕",
             "ID ↕",
             "TITLE ↕",
             "PRI ↕",

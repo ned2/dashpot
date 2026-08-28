@@ -91,7 +91,7 @@ class ColumnSpec:
 
 
 COLUMN_SPECS = (
-    ColumnSpec("issue_state", "STATUS"),
+    ColumnSpec("issue_state", "◉"),
     ColumnSpec(
         "number",
         "ID",
