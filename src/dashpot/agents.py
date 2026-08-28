@@ -26,6 +26,7 @@ EVENT_STATES: dict[str, str] = {
     "PreToolUse": "running",
     "PostToolUse": "running",
     "Stop": "waiting",
+    "Interrupt": "waiting",
     "SessionEnd": "ended",
 }
 
@@ -279,6 +280,19 @@ class HookRecordStore:
                 temporary.unlink()
 
 
+def session_directory(worktree: Path) -> Path:
+    """The Project-local session record store beneath one Worktree."""
+    return worktree / ".dashpot" / "state" / "sessions"
+
+
+def route_record_directory(record: Mapping[str, Any]) -> Path:
+    """Choose the Project-local store for a configured checkout, else global."""
+    root = optional_string(record.get("repositoryRoot"))
+    if root and (Path(root) / ".dashpot" / "config.json").is_file():
+        return session_directory(Path(root))
+    return state_directory()
+
+
 def publish_hook_event(
     event: dict[str, Any],
     directory: Path | None = None,
@@ -286,9 +300,9 @@ def publish_hook_event(
     process: ProcessIdentity | None = None,
 ) -> Path:
     identity = process if process is not None else nearest_codex_process()
+    record = build_hook_record(event, environ=environ, process=identity)
     return write_hook_record(
-        build_hook_record(event, environ=environ, process=identity),
-        directory or state_directory(),
+        record, directory or route_record_directory(record)
     )
 
 
@@ -418,32 +432,49 @@ def observe_hook_sessions(
     lookup: ProcessLookup = process_info,
     isolated: bool | None = None,
 ) -> tuple[list[HookSessionObservation], list[Diagnostic]]:
-    root = directory or state_directory()
-    if not root.exists():
-        return [], []
     namespace_isolated = process_namespace_is_isolated() if isolated is None else isolated
-    sessions: list[HookSessionObservation] = []
+    directories: list[Path] = [directory or state_directory()]
+    for _project_id, targets in sorted(targets_by_project.items()):
+        for target in targets:
+            if target.availability == "available":
+                directories.append(session_directory(Path(target.path)))
+    # A session's record may exist both globally and Project-locally around
+    # an integration upgrade; the freshest observation per session wins.
+    latest: dict[str, HookSessionObservation] = {}
     diagnostics: list[Diagnostic] = []
-    for path in sorted(root.glob("*.json")):
-        try:
-            raw: Any = json.loads(path.read_text())
-            if not isinstance(raw, dict) or raw.get("version") != 2:
-                raise ValueError("unsupported record shape or version")
-            session, record_diagnostics = record_to_session(
-                raw,
-                targets_by_project,
-                lookup,
-                namespace_isolated,
-                expected_session_id=path.stem,
-            )
-            if session:
-                sessions.append(session)
-            diagnostics.extend(record_diagnostics)
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
-            diagnostics.append(
-                Diagnostic("dashpot-codex-hook", "warning", f"Cannot read {path}: {exc}")
-            )
-    return sessions, diagnostics
+    seen_directories: set[Path] = set()
+    for candidate in directories:
+        root = candidate.resolve()
+        if root in seen_directories or not root.exists():
+            continue
+        seen_directories.add(root)
+        for path in sorted(root.glob("*.json")):
+            try:
+                raw: Any = json.loads(path.read_text())
+                if not isinstance(raw, dict) or raw.get("version") != 2:
+                    raise ValueError("unsupported record shape or version")
+                session, record_diagnostics = record_to_session(
+                    raw,
+                    targets_by_project,
+                    lookup,
+                    namespace_isolated,
+                    expected_session_id=path.stem,
+                )
+                diagnostics.extend(record_diagnostics)
+                if session is None:
+                    continue
+                previous = latest.get(session.run.id)
+                if (
+                    previous is None
+                    or (session.run.last_activity_at or "")
+                    >= (previous.run.last_activity_at or "")
+                ):
+                    latest[session.run.id] = session
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                diagnostics.append(
+                    Diagnostic("dashpot-codex-hook", "warning", f"Cannot read {path}: {exc}")
+                )
+    return list(latest.values()), diagnostics
 
 
 def observe_hook_runs(

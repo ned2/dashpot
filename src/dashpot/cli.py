@@ -9,6 +9,11 @@ from pathlib import Path
 from .app import DashpotApp
 from .collect import WorkspaceCollector
 from .init import initialize_project
+from .integrate import (
+    codex_integration_status,
+    install_codex_integration,
+    remove_codex_integration,
+)
 from .model import RepositoryAnchor, Workspace, to_jsonable
 from .observation_store import WorkspaceObservationStore
 from .project_config import PROJECT_CONFIG_NAME
@@ -142,6 +147,31 @@ def build_parser() -> argparse.ArgumentParser:
     work_commands.add_parser(
         "show", help="list active Issue work at this worktree"
     )
+    integrate = subparsers.add_parser(
+        "integrate",
+        help="install the opt-in agent lifecycle integration",
+        description=(
+            "Register, inspect, or remove the opt-in hooks that publish "
+            "agent session lifecycle observations to Dashpot. Nothing is "
+            "installed without running this command."
+        ),
+    )
+    integrate.add_argument(
+        "harness",
+        choices=["codex"],
+        help="the agent harness to integrate",
+    )
+    integrate_action = integrate.add_mutually_exclusive_group()
+    integrate_action.add_argument(
+        "--status",
+        action="store_true",
+        help="report integration state without changing anything",
+    )
+    integrate_action.add_argument(
+        "--remove",
+        action="store_true",
+        help="remove exactly the Dashpot hooks",
+    )
     return parser
 
 
@@ -196,6 +226,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 messages = stop_issue_work(current)
             else:
                 messages = show_issue_work(current)
+            for message in messages:
+                print(message)
+            return 0
+        if args.command == "integrate":
+            if args.status:
+                messages = codex_integration_status()
+            elif args.remove:
+                messages = remove_codex_integration()
+            else:
+                messages = install_codex_integration()
             for message in messages:
                 print(message)
             return 0

@@ -339,3 +339,44 @@ def test_work_errors_are_reported_without_traceback(
 
     assert code == 2
     assert "no supported agent session" in capsys.readouterr().err
+
+
+def test_integrate_codex_dispatches_install_remove_and_status(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with mock.patch.object(
+        cli, "install_codex_integration", return_value=["installed hooks"]
+    ) as install:
+        assert cli.main(["integrate", "codex"]) == 0
+    install.assert_called_once_with()
+
+    with mock.patch.object(
+        cli, "remove_codex_integration", return_value=["removed hooks"]
+    ) as remove:
+        assert cli.main(["integrate", "codex", "--remove"]) == 0
+    remove.assert_called_once_with()
+
+    with mock.patch.object(
+        cli, "codex_integration_status", return_value=["installed in x"]
+    ) as status:
+        assert cli.main(["integrate", "codex", "--status"]) == 0
+    status.assert_called_once_with()
+
+    output = capsys.readouterr().out
+    assert "installed hooks" in output
+    assert "removed hooks" in output
+    assert "installed in x" in output
+
+
+def test_integrate_errors_are_reported_without_traceback(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with mock.patch.object(
+        cli,
+        "install_codex_integration",
+        side_effect=RuntimeError("no Codex configuration directory"),
+    ):
+        code = cli.main(["integrate", "codex"])
+
+    assert code == 2
+    assert "no Codex configuration directory" in capsys.readouterr().err

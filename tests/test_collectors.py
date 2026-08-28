@@ -16,6 +16,7 @@ from dashpot.agents import (
     observe_hook_runs,
     process_info,
     publish_hook_event,
+    session_directory,
     write_hook_record,
 )
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
@@ -484,6 +485,21 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual("example/project#7", record["issueReferenceHint"])
         self.assertEqual("waiting", record["state"])
 
+    def test_interrupt_event_publishes_a_waiting_record(self) -> None:
+        publish_hook_event(
+            {
+                "session_id": "interrupted",
+                "cwd": "/repo",
+                "hook_event_name": "Interrupt",
+            },
+            self.state_dir,
+            environ={},
+            process=self.process,
+        )
+
+        record = json.loads((self.state_dir / "interrupted.json").read_text())
+        self.assertEqual("waiting", record["state"])
+
     def test_write_rejects_malformed_issue_values(self) -> None:
         record = {
             "version": 2,
@@ -545,6 +561,119 @@ class HookObserverTests(unittest.TestCase):
         arguments = run.call_args.args[0]
         self.assertEqual(5, arguments.count("-o"))
         self.assertEqual("C", run.call_args.kwargs["env"]["LC_ALL"])
+
+
+class HookRoutingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.state_dir = self.root / "global"
+        self.state_dir.mkdir()
+        self.worktree = self.root / "repo"
+        self.worktree.mkdir()
+        self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def record(self, state: str, last_activity_at: str) -> dict:
+        return {
+            "version": 2,
+            "sessionId": "routed",
+            "harness": "codex",
+            "state": state,
+            "cwd": str(self.worktree),
+            "repositoryRoot": str(self.worktree),
+            "branch": "main",
+            "event": "Stop" if state == "waiting" else "PreToolUse",
+            "lastActivityAt": last_activity_at,
+            "sessionProcess": self.process.as_record(),
+        }
+
+    def targets(self) -> dict[str, list[ObservationTarget]]:
+        return {"project:example": [observation_target(str(self.worktree))]}
+
+    def test_publish_routes_to_a_configured_projects_local_store(self) -> None:
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=self.worktree, check=True)
+        (self.worktree / ".dashpot").mkdir()
+        (self.worktree / ".dashpot" / "config.json").write_text("{}")
+
+        written = publish_hook_event(
+            {
+                "session_id": "routed",
+                "cwd": str(self.worktree),
+                "hook_event_name": "Stop",
+            },
+            environ={},
+            process=self.process,
+        )
+
+        self.assertEqual(session_directory(self.worktree), written.parent)
+
+    def test_publish_falls_back_to_the_global_store_when_unconfigured(
+        self,
+    ) -> None:
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=self.worktree, check=True)
+
+        with mock.patch(
+            "dashpot.agents.state_directory", return_value=self.state_dir
+        ):
+            written = publish_hook_event(
+                {
+                    "session_id": "routed",
+                    "cwd": str(self.worktree),
+                    "hook_event_name": "Stop",
+                },
+                environ={},
+                process=self.process,
+            )
+
+        self.assertEqual(self.state_dir, written.parent)
+        self.assertFalse((self.worktree / ".dashpot").exists())
+
+    def test_project_local_records_are_observed(self) -> None:
+        write_hook_record(
+            self.record("waiting", "2026-08-24T15:00:00Z"),
+            session_directory(self.worktree),
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            self.targets(),
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual("codex-session:routed", runs[0].id)
+        self.assertEqual("waiting", runs[0].state)
+
+    def test_freshest_record_wins_when_a_session_exists_in_both_stores(
+        self,
+    ) -> None:
+        write_hook_record(
+            self.record("running", "2026-08-24T14:00:00Z"), self.state_dir
+        )
+        write_hook_record(
+            self.record("waiting", "2026-08-24T15:00:00Z"),
+            session_directory(self.worktree),
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            self.targets(),
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual(1, len(runs))
+        self.assertEqual("waiting", runs[0].state)
+        self.assertEqual("2026-08-24T15:00:00Z", runs[0].last_activity_at)
 
 
 class WorkObserverTests(unittest.TestCase):
