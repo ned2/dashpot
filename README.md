@@ -18,7 +18,7 @@ not assign or edit Issues, mutate repositories, or control agent sessions.
 
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
 - git branch, worktree, HEAD, and dirty state
-- Codex lifecycle records published through an opt-in hook
+- Codex and Claude Code lifecycle records published through opt-in hooks
 - source freshness, failures, and last-good state
 - durable Agent Run bindings through opaque Issue Identity
 
@@ -183,32 +183,36 @@ By default, both adapters collect the complete source inventory, including open
 and closed Issues; source collection does not apply a lifecycle filter. The TUI
 defaults its Work list to open Issues. Both adapters are currently read-only.
 
-## Codex observation
+## Agent session observation
 
-Installing Dashpot provides the no-stdout `dashpot-codex-hook` publisher.
-Nothing is installed into Codex automatically; register the lifecycle hooks
-once per user with:
+Installing Dashpot provides the no-stdout `dashpot-codex-hook` and
+`dashpot-claude-code-hook` publishers. Nothing is installed into a harness
+automatically; register the lifecycle hooks once per user with:
 
 ```bash
-dashpot integrate codex            # register the hooks in ~/.codex/hooks.json
-dashpot integrate codex --status   # diagnose configuration, publisher, records
-dashpot integrate codex --remove   # remove exactly the Dashpot hooks
+dashpot integrate codex                 # hooks in ~/.codex/hooks.json
+dashpot integrate claude-code           # hooks in ~/.claude/settings.json
+dashpot integrate <harness> --status    # diagnose config, publisher, records
+dashpot integrate <harness> --remove    # remove exactly the Dashpot hooks
 ```
 
-Installation performs a surgical merge of `~/.codex/hooks.json`: existing hooks
-and unknown settings are preserved, the registered command is the absolute path
-of this environment's publisher (so hook and observer versions stay in
-lock-step), and rerunning `integrate` is idempotent and repairs stale paths.
-Removal deletes only the Dashpot handlers. If hooks are also defined inline in
-`~/.codex/config.toml`, Dashpot leaves that file alone and points out that
-Codex merges both layers. [`examples/codex-hooks.json`](examples/codex-hooks.json)
-shows the equivalent manual configuration.
+Installation performs a surgical merge of the harness's user-level hook file:
+existing hooks and unrelated settings are preserved, the registered command is
+the absolute path of this environment's publisher (so hook and observer
+versions stay in lock-step), and rerunning `integrate` is idempotent and
+repairs stale paths. Removal deletes only the Dashpot handlers. If Codex hooks
+are also defined inline in `~/.codex/config.toml`, Dashpot leaves that file
+alone and points out that Codex merges both layers.
+[`examples/codex-hooks.json`](examples/codex-hooks.json) shows the equivalent
+manual Codex configuration.
 
-The hook reports session lifecycle only: which Codex sessions are alive at a
-worktree and whether they are running, waiting, or ended. One user-level
-installation covers every configured repository, including linked worktrees:
-each observation is routed to the checkout the session runs in, landing in
-that worktree's ignored `.dashpot/state/sessions/`. Sessions outside any
+The hooks report session lifecycle only: which agent sessions are alive at a
+worktree and whether they are running, waiting, or ended. Codex and Claude
+Code sessions are observed side by side with distinct identities, and both may
+work on the same Issue as separate Agent Runs. One user-level installation per
+harness covers every configured repository, including linked worktrees: each
+observation is routed to the checkout the session runs in, landing in that
+worktree's ignored `.dashpot/state/sessions/`. Sessions outside any
 Dashpot-configured checkout fall back to the platform's normal
 application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
 

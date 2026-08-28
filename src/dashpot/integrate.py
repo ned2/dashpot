@@ -6,6 +6,7 @@ import re
 import shutil
 import sysconfig
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -13,52 +14,99 @@ from .agents import session_directory, state_directory
 from .repository import worktree_root
 
 
-CODEX_HOOK_EVENTS = (
-    "SessionStart",
-    "UserPromptSubmit",
-    "Stop",
-    "Interrupt",
-    "SessionEnd",
-)
-CODEX_HOOK_COMMAND = "dashpot-codex-hook"
-CODEX_HOOK_TIMEOUT = 3
-CODEX_HOOKS_FILE = "hooks.json"
+HOOK_TIMEOUT = 3
 CONFIG_HOOKS_TABLE = re.compile(r"^\s*\[+\s*hooks", re.MULTILINE)
 
 
-def default_codex_home() -> Path:
-    return Path.home() / ".codex"
+@dataclass(frozen=True, slots=True)
+class HarnessIntegration:
+    """One supported harness's opt-in lifecycle hook installation."""
+
+    harness: str
+    display: str
+    home_name: str
+    hooks_file: str
+    command_name: str
+    events: tuple[str, ...]
+    checks_config_toml: bool
+
+    @property
+    def default_home(self) -> Path:
+        return Path.home() / self.home_name
 
 
-def resolve_hook_command() -> Path:
+CODEX = HarnessIntegration(
+    harness="codex",
+    display="Codex",
+    home_name=".codex",
+    hooks_file="hooks.json",
+    command_name="dashpot-codex-hook",
+    events=(
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+        "Interrupt",
+        "SessionEnd",
+    ),
+    checks_config_toml=True,
+)
+
+CLAUDE_CODE = HarnessIntegration(
+    harness="claude-code",
+    display="Claude Code",
+    home_name=".claude",
+    hooks_file="settings.json",
+    command_name="dashpot-claude-code-hook",
+    events=("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"),
+    checks_config_toml=False,
+)
+
+INTEGRATIONS = {spec.harness: spec for spec in (CODEX, CLAUDE_CODE)}
+
+HOOK_COMMAND_NAMES = frozenset(spec.command_name for spec in INTEGRATIONS.values())
+
+CODEX_HOOK_EVENTS = CODEX.events
+CLAUDE_CODE_HOOK_EVENTS = CLAUDE_CODE.events
+
+
+def integration(harness: str) -> HarnessIntegration:
+    spec = INTEGRATIONS.get(harness)
+    if spec is None:
+        raise RuntimeError(f"unsupported harness: {harness}")
+    return spec
+
+
+def resolve_hook_command(spec: HarnessIntegration) -> Path:
     """Locate this environment's installed hook publisher."""
-    scripts = Path(sysconfig.get_path("scripts")) / CODEX_HOOK_COMMAND
+    scripts = Path(sysconfig.get_path("scripts")) / spec.command_name
     if scripts.is_file():
         return scripts
-    found = shutil.which(CODEX_HOOK_COMMAND)
+    found = shutil.which(spec.command_name)
     if found:
         return Path(found)
     raise RuntimeError(
-        f"cannot locate the {CODEX_HOOK_COMMAND} publisher installed with "
+        f"cannot locate the {spec.command_name} publisher installed with "
         "Dashpot; reinstall Dashpot and retry"
     )
 
 
-def install_codex_integration(
-    codex_home: Path | None = None,
+def install_integration(
+    harness: str,
+    home: Path | None = None,
     *,
     command_path: Path | None = None,
 ) -> list[str]:
-    """Idempotently register the Codex lifecycle hooks for this user."""
-    home = codex_home or default_codex_home()
+    """Idempotently register one harness's lifecycle hooks for this user."""
+    spec = integration(harness)
+    home = home or spec.default_home
     if not home.is_dir():
         raise RuntimeError(
-            f"no Codex configuration directory at {home}; install and run "
-            "Codex once before integrating"
+            f"no {spec.display} configuration directory at {home}; install "
+            f"and run {spec.display} once before integrating"
         )
-    command = command_path or resolve_hook_command()
-    path = home / CODEX_HOOKS_FILE
-    document = _load_hooks_document(path)
+    command = command_path or resolve_hook_command(spec)
+    path = home / spec.hooks_file
+    document = _load_hooks_document(spec, path)
     original = json.dumps(document, sort_keys=True)
     hooks = document.setdefault("hooks", {})
     if not isinstance(hooks, dict):
@@ -69,9 +117,9 @@ def install_codex_integration(
     handler = {
         "type": "command",
         "command": str(command),
-        "timeout": CODEX_HOOK_TIMEOUT,
+        "timeout": HOOK_TIMEOUT,
     }
-    for event in CODEX_HOOK_EVENTS:
+    for event in spec.events:
         groups = hooks.get(event)
         if not isinstance(groups, list):
             groups = []
@@ -81,24 +129,29 @@ def install_codex_integration(
     messages: list[str] = []
     if json.dumps(document, sort_keys=True) != original:
         _write_json(path, document)
-        messages.append(f"installed Codex lifecycle hooks in {path}")
+        messages.append(f"installed {spec.display} lifecycle hooks in {path}")
     else:
-        messages.append(f"Codex lifecycle hooks already installed in {path}")
+        messages.append(
+            f"{spec.display} lifecycle hooks already installed in {path}"
+        )
     messages.append(f"hook publisher: {command}")
-    messages.extend(_config_toml_coexistence_warning(home))
+    messages.extend(_config_toml_coexistence_warning(spec, home))
     return messages
 
 
-def remove_codex_integration(codex_home: Path | None = None) -> list[str]:
-    """Remove exactly the Dashpot handlers from the user's Codex hooks."""
-    home = codex_home or default_codex_home()
-    path = home / CODEX_HOOKS_FILE
+def remove_integration(harness: str, home: Path | None = None) -> list[str]:
+    """Remove exactly the Dashpot handlers from one harness's hooks."""
+    spec = integration(harness)
+    home = home or spec.default_home
+    path = home / spec.hooks_file
     if not path.is_file():
-        return [f"Codex integration is not installed: no {path}"]
-    document = _load_hooks_document(path)
+        return [f"{spec.display} integration is not installed: no {path}"]
+    document = _load_hooks_document(spec, path)
     hooks = document.get("hooks")
     if not isinstance(hooks, dict):
-        return [f"Codex integration is not installed: no hooks in {path}"]
+        return [
+            f"{spec.display} integration is not installed: no hooks in {path}"
+        ]
     removed = False
     for event in list(hooks):
         groups = hooks[event]
@@ -112,32 +165,41 @@ def remove_codex_integration(codex_home: Path | None = None) -> list[str]:
         else:
             del hooks[event]
     if not removed:
-        return [f"Codex integration is not installed: no Dashpot hooks in {path}"]
-    if hooks or set(document) - {"hooks", "description"}:
+        return [
+            f"{spec.display} integration is not installed: no Dashpot hooks "
+            f"in {path}"
+        ]
+    if not hooks:
+        del document["hooks"]
+    if set(document) - {"description"}:
         _write_json(path, document)
         return [f"removed the Dashpot hooks from {path}"]
     path.unlink()
     return [f"removed {path}; it contained only the Dashpot hooks"]
 
 
-def codex_integration_status(
-    codex_home: Path | None = None,
+def integration_status(
+    harness: str,
+    home: Path | None = None,
     *,
     state_dir: Path | None = None,
     current: Path | None = None,
 ) -> list[str]:
-    """Report the observable state of the Codex integration."""
-    home = codex_home or default_codex_home()
-    path = home / CODEX_HOOKS_FILE
+    """Report the observable state of one harness's integration."""
+    spec = integration(harness)
+    home = home or spec.default_home
+    path = home / spec.hooks_file
     messages: list[str] = []
     if not home.is_dir():
-        messages.append(f"Codex configuration directory not found: {home}")
+        messages.append(
+            f"{spec.display} configuration directory not found: {home}"
+        )
         return messages
     if not path.is_file():
         messages.append(f"not installed: no {path}")
     else:
         try:
-            document = _load_hooks_document(path)
+            document = _load_hooks_document(spec, path)
         except RuntimeError as exc:
             return [str(exc)]
         commands = _installed_commands(document)
@@ -146,22 +208,22 @@ def codex_integration_status(
         else:
             events = sorted(commands)
             missing = [
-                event for event in CODEX_HOOK_EVENTS if event not in commands
+                event for event in spec.events if event not in commands
             ]
             messages.append(
                 f"installed in {path} for: {', '.join(events)}"
             )
             if missing:
                 messages.append(
-                    f"missing hook events (run 'dashpot integrate codex' to "
-                    f"repair): {', '.join(missing)}"
+                    f"missing hook events (run 'dashpot integrate "
+                    f"{spec.harness}' to repair): {', '.join(missing)}"
                 )
             for command in sorted({c for cs in commands.values() for c in cs}):
                 executable = Path(command)
                 if not executable.is_file():
                     messages.append(
                         f"hook publisher missing at {command}; run "
-                        "'dashpot integrate codex' to repair"
+                        f"'dashpot integrate {spec.harness}' to repair"
                     )
                 elif not os.access(executable, os.X_OK):
                     messages.append(
@@ -169,9 +231,32 @@ def codex_integration_status(
                     )
                 else:
                     messages.append(f"hook publisher: {command}")
-    messages.extend(_config_toml_coexistence_warning(home))
+    messages.extend(_config_toml_coexistence_warning(spec, home))
     messages.extend(_record_store_status(state_dir, current))
     return messages
+
+
+def install_codex_integration(
+    codex_home: Path | None = None,
+    *,
+    command_path: Path | None = None,
+) -> list[str]:
+    return install_integration("codex", codex_home, command_path=command_path)
+
+
+def remove_codex_integration(codex_home: Path | None = None) -> list[str]:
+    return remove_integration("codex", codex_home)
+
+
+def codex_integration_status(
+    codex_home: Path | None = None,
+    *,
+    state_dir: Path | None = None,
+    current: Path | None = None,
+) -> list[str]:
+    return integration_status(
+        "codex", codex_home, state_dir=state_dir, current=current
+    )
 
 
 def _record_store_status(
@@ -204,15 +289,17 @@ def _record_store_status(
     return messages
 
 
-def _load_hooks_document(path: Path) -> dict[str, Any]:
+def _load_hooks_document(
+    spec: HarnessIntegration, path: Path
+) -> dict[str, Any]:
     if not path.is_file():
         return {"hooks": {}}
     try:
         document: Any = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(
-            f"cannot read Codex hooks at {path}: {exc}; fix or move the "
-            "file and retry"
+            f"cannot read {spec.display} hooks at {path}: {exc}; fix or "
+            "move the file and retry"
         ) from exc
     if not isinstance(document, dict):
         raise RuntimeError(
@@ -255,7 +342,7 @@ def _is_dashpot_handler(handler: Any) -> bool:
     if not isinstance(command, str):
         return False
     executable = command.split()[0] if command.split() else command
-    return Path(executable).name == CODEX_HOOK_COMMAND
+    return Path(executable).name in HOOK_COMMAND_NAMES
 
 
 def _installed_commands(document: dict[str, Any]) -> dict[str, list[str]]:
@@ -278,7 +365,11 @@ def _installed_commands(document: dict[str, Any]) -> dict[str, list[str]]:
     return commands
 
 
-def _config_toml_coexistence_warning(home: Path) -> list[str]:
+def _config_toml_coexistence_warning(
+    spec: HarnessIntegration, home: Path
+) -> list[str]:
+    if not spec.checks_config_toml:
+        return []
     config = home / "config.toml"
     try:
         text = config.read_text(encoding="utf-8")
@@ -286,8 +377,8 @@ def _config_toml_coexistence_warning(home: Path) -> list[str]:
         return []
     if CONFIG_HOOKS_TABLE.search(text):
         return [
-            f"note: {config} also defines hooks; Codex merges both layers "
-            "and warns at startup"
+            f"note: {config} also defines hooks; {spec.display} merges both "
+            "layers and warns at startup"
         ]
     return []
 

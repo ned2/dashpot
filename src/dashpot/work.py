@@ -6,7 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .agents import ProcessIdentity, ProcessLookup, nearest_codex_process, now_iso, process_info
+from .agents import (
+    ProcessIdentity,
+    ProcessLookup,
+    nearest_agent_process,
+    now_iso,
+    process_info,
+)
 from .issue_sources import IssueSource
 from .local_markdown_issues import LocalMarkdownIssuesSource
 from .github_issues import GitHubIssuesSource
@@ -34,17 +40,19 @@ def identify_agent_session(
     lookup: ProcessLookup = process_info,
 ) -> AgentSessionIdentity:
     """Identify the supported Agent Session enclosing this command."""
-    process = nearest_codex_process(lookup)
-    if process is None:
+    located = nearest_agent_process(lookup)
+    if located is None:
         raise RuntimeError(
             "no supported agent session encloses this command; Issue work "
-            "opt-in must run from inside a running Codex session"
+            "opt-in must run from inside a running Codex or Claude Code "
+            "session"
         )
+    harness, process = located
     digest = hashlib.sha256(process.started_at.encode()).hexdigest()[:8]
     return AgentSessionIdentity(
-        harness="codex",
-        session_key=f"codex-{process.pid}-{digest}",
-        session_label=f"codex pid {process.pid}",
+        harness=harness,
+        session_key=f"{harness}-{process.pid}-{digest}",
+        session_label=f"{harness} pid {process.pid}",
         process=process,
     )
 

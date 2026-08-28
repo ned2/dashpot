@@ -10,9 +10,10 @@ from .app import DashpotApp
 from .collect import WorkspaceCollector
 from .init import initialize_project
 from .integrate import (
-    codex_integration_status,
-    install_codex_integration,
-    remove_codex_integration,
+    INTEGRATIONS,
+    install_integration,
+    integration_status,
+    remove_integration,
 )
 from .model import RepositoryAnchor, Workspace, to_jsonable
 from .observation_store import WorkspaceObservationStore
@@ -158,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     integrate.add_argument(
         "harness",
-        choices=["codex"],
+        choices=sorted(INTEGRATIONS),
         help="the agent harness to integrate",
     )
     integrate_action = integrate.add_mutually_exclusive_group()
@@ -231,11 +232,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "integrate":
             if args.status:
-                messages = codex_integration_status()
+                messages = integration_status(args.harness)
             elif args.remove:
-                messages = remove_codex_integration()
+                messages = remove_integration(args.harness)
             else:
-                messages = install_codex_integration()
+                messages = install_integration(args.harness)
             for message in messages:
                 print(message)
             return 0

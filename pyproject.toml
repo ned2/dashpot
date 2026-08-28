@@ -11,6 +11,7 @@ dependencies = [
 [project.scripts]
 dashpot = "dashpot.cli:main"
 dashpot-codex-hook = "dashpot.hook:main"
+dashpot-claude-code-hook = "dashpot.hook:claude_code_main"
 
 [dependency-groups]
 dev = [

@@ -112,6 +112,33 @@ def process_info(pid: int) -> ProcessIdentity | None:
 
 
 def nearest_codex_process(lookup: ProcessLookup = process_info) -> ProcessIdentity | None:
+    return nearest_harness_process("codex", lookup)
+
+
+def is_codex_host_process(process: ProcessIdentity) -> bool:
+    name = Path(process.command).name.lower()
+    arguments = (process.arguments or "").lower()
+    if "codex-linux-sandbox" in arguments or "sandbox" in name:
+        return False
+    return name == "codex" or name.startswith("codex-")
+
+
+def is_claude_code_host_process(process: ProcessIdentity) -> bool:
+    return Path(process.command).name.lower() == "claude"
+
+
+HARNESS_HOSTS: dict[str, Callable[[ProcessIdentity], bool]] = {
+    "codex": is_codex_host_process,
+    "claude-code": is_claude_code_host_process,
+}
+
+HARNESS_DISPLAY = {"codex": "Codex", "claude-code": "Claude Code"}
+
+
+def nearest_agent_process(
+    lookup: ProcessLookup = process_info,
+) -> tuple[str, ProcessIdentity] | None:
+    """Find the nearest enclosing supported harness process, if any."""
     pid = os.getppid()
     seen: set[int] = set()
     for _ in range(12):
@@ -121,18 +148,30 @@ def nearest_codex_process(lookup: ProcessLookup = process_info) -> ProcessIdenti
         info = lookup(pid)
         if info is None:
             break
-        if is_codex_host_process(info):
-            return info
+        for harness, matches in HARNESS_HOSTS.items():
+            if matches(info):
+                return harness, info
         pid = info.parent_pid
     return None
 
 
-def is_codex_host_process(process: ProcessIdentity) -> bool:
-    name = Path(process.command).name.lower()
-    arguments = (process.arguments or "").lower()
-    if "codex-linux-sandbox" in arguments or "sandbox" in name:
-        return False
-    return name == "codex" or name.startswith("codex-")
+def nearest_harness_process(
+    harness: str, lookup: ProcessLookup = process_info
+) -> ProcessIdentity | None:
+    pid = os.getppid()
+    seen: set[int] = set()
+    matches = HARNESS_HOSTS[harness]
+    for _ in range(12):
+        if pid <= 0 or pid in seen:
+            break
+        seen.add(pid)
+        info = lookup(pid)
+        if info is None:
+            break
+        if matches(info):
+            return info
+        pid = info.parent_pid
+    return None
 
 
 def process_namespace_is_isolated() -> bool:
@@ -146,6 +185,7 @@ def build_hook_record(
     event: dict[str, Any],
     environ: Mapping[str, str] | None = None,
     process: ProcessIdentity | None = None,
+    harness: str = "codex",
 ) -> dict[str, Any]:
     session_id = require_string(event.get("session_id"), "session_id")
     if not SESSION_ID.fullmatch(session_id):
@@ -171,7 +211,7 @@ def build_hook_record(
     return {
         "version": 2,
         "sessionId": session_id,
-        "harness": "codex",
+        "harness": harness,
         "state": state,
         "cwd": str(cwd),
         "repositoryRoot": observed_target,
@@ -298,9 +338,16 @@ def publish_hook_event(
     directory: Path | None = None,
     environ: Mapping[str, str] | None = None,
     process: ProcessIdentity | None = None,
+    harness: str = "codex",
 ) -> Path:
-    identity = process if process is not None else nearest_codex_process()
-    record = build_hook_record(event, environ=environ, process=identity)
+    identity = (
+        process
+        if process is not None
+        else nearest_harness_process(harness)
+    )
+    record = build_hook_record(
+        event, environ=environ, process=identity, harness=harness
+    )
     return write_hook_record(
         record, directory or route_record_directory(record)
     )
@@ -505,6 +552,11 @@ def record_to_session(
         raise ValueError("record sessionId contains unsupported characters")
     if expected_session_id is not None and session_id != expected_session_id:
         raise ValueError("record sessionId does not match its filename")
+    harness = optional_string(raw.get("harness")) or "codex"
+    display = HARNESS_DISPLAY.get(harness)
+    if display is None:
+        raise ValueError(f"unsupported harness: {harness!r}")
+    run_id = f"{harness}-session:{session_id}"
     if event_state == "ended":
         return None, []
     if event_state not in {"running", "waiting"}:
@@ -515,9 +567,9 @@ def record_to_session(
     if raw.get("issueId") is not None or raw.get("issueReferenceHint") is not None:
         diagnostics.append(
             Diagnostic(
-                f"codex-session:{session_id}",
+                run_id,
                 "warning",
-                f"Rejecting the global Issue binding recorded for Codex "
+                f"Rejecting the global Issue binding recorded for {display} "
                 f"session {session_id}: bindings are Project-local now; run "
                 f"'dashpot work start' from the session instead",
                 "agent-global-binding-rejected",
@@ -539,7 +591,7 @@ def record_to_session(
             Diagnostic(
                 "dashpot-codex-hook",
                 "warning",
-                f"Ignoring orphaned Codex run {session_id}: its recorded process has exited",
+                f"Ignoring orphaned {display} run {session_id}: its recorded process has exited",
             )
         )
         return None, diagnostics
@@ -549,7 +601,7 @@ def record_to_session(
             Diagnostic(
                 "dashpot-codex-hook",
                 "warning",
-                f"Codex run {session_id} liveness is unknown: host process identity is unavailable",
+                f"{display} run {session_id} liveness is unknown: host process identity is unavailable",
             )
         )
     process_key: ProcessKey | None = None
@@ -563,8 +615,8 @@ def record_to_session(
     return (
         HookSessionObservation(
             AgentRun(
-                id=f"codex-session:{session_id}",
-                harness="codex",
+                id=run_id,
+                harness=harness,
                 process_or_session=f"{session_id} hook",
                 state=state,
                 observation_target=target.path,
@@ -617,11 +669,14 @@ def locate_observation_target(
         return None, None
     if cwd_target is None or cwd_target[1].path != root_target[1].path:
         session_id = optional_string(raw.get("sessionId")) or "unknown"
+        display = HARNESS_DISPLAY.get(
+            optional_string(raw.get("harness")) or "codex", "agent"
+        )
         return None, Diagnostic(
             "dashpot-codex-hook",
             "warning",
-            f"Ignoring Codex run {session_id}: recorded Repository root and "
-            "working directory resolve to different Observation Targets",
+            f"Ignoring {display} run {session_id}: recorded Repository root "
+            "and working directory resolve to different Observation Targets",
             "agent-target-mismatch",
         )
     return root_target, None

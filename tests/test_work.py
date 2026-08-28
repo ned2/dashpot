@@ -190,3 +190,33 @@ def test_session_identity_is_stable_for_one_process(tmp_path: Path) -> None:
 
     assert first == second
     assert first.session_key.startswith("codex-4242-")
+
+
+CLAUDE = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
+
+
+def test_claude_code_session_can_opt_into_issue_work(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+
+    messages = start_issue_work(
+        root, "build-observer", lookup=lambda _pid: CLAUDE
+    )
+
+    active, _ = WorkStore(root).active()
+    assert active[0].harness == "claude-code"
+    assert active[0].session_key.startswith("claude-code-7777-")
+    assert "started work on build-observer" in messages[0]
+
+
+def test_codex_and_claude_code_runs_on_one_issue_are_independent(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    start_issue_work(root, "build-observer", lookup=codex_lookup)
+    start_issue_work(root, "build-observer", lookup=lambda _pid: CLAUDE)
+
+    active, _ = WorkStore(root).active()
+
+    assert len(active) == 2
+    assert {work.harness for work in active} == {"codex", "claude-code"}
+    assert len({work.run_id for work in active}) == 2

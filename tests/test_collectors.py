@@ -443,6 +443,93 @@ class HookObserverTests(unittest.TestCase):
         )
         self.assertIn("dashpot work start", diagnostics[0].message)
 
+    def test_claude_code_record_is_observed_with_its_own_identity(self) -> None:
+        claude = ProcessIdentity(77, 1, "claude", "Tue Aug 25 02:00:00 2026")
+        write_hook_record(
+            {
+                "version": 2,
+                "sessionId": "claude-live",
+                "harness": "claude-code",
+                "state": "running",
+                "cwd": "/repo",
+                "repositoryRoot": "/repo",
+                "branch": "main",
+                "event": "UserPromptSubmit",
+                "lastActivityAt": "2026-08-24T15:00:00Z",
+                "sessionProcess": claude.as_record(),
+            },
+            self.state_dir,
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=lambda _pid: claude,
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual("claude-code-session:claude-live", runs[0].id)
+        self.assertEqual("claude-code", runs[0].harness)
+        self.assertEqual("running", runs[0].state)
+
+    def test_codex_and_claude_code_sessions_coexist_at_one_worktree(
+        self,
+    ) -> None:
+        claude = ProcessIdentity(77, 1, "claude", "Tue Aug 25 02:00:00 2026")
+        lookup = {42: self.process, 77: claude}
+        self.write("codex-live", "waiting", self.process)
+        write_hook_record(
+            {
+                "version": 2,
+                "sessionId": "claude-live",
+                "harness": "claude-code",
+                "state": "running",
+                "cwd": "/repo",
+                "repositoryRoot": "/repo",
+                "branch": "main",
+                "event": "UserPromptSubmit",
+                "lastActivityAt": "2026-08-24T15:00:00Z",
+                "sessionProcess": claude.as_record(),
+            },
+            self.state_dir,
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=lambda pid: lookup.get(pid),
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual(
+            {"claude-code-session:claude-live", "codex-session:codex-live"},
+            {run.id for run in runs},
+        )
+
+    def test_unsupported_harness_record_becomes_a_diagnostic(self) -> None:
+        write_hook_record(
+            {
+                "version": 2,
+                "sessionId": "mystery",
+                "harness": "cursor",
+                "state": "running",
+                "cwd": "/repo",
+                "repositoryRoot": "/repo",
+                "event": "UserPromptSubmit",
+                "sessionProcess": None,
+            },
+            self.state_dir,
+        )
+
+        runs, diagnostics = observe_hook_runs(
+            {"project:example": [observation_target()]}, self.state_dir
+        )
+
+        self.assertEqual([], runs)
+        self.assertIn("unsupported harness", diagnostics[0].message)
+
     def test_record_session_must_match_filename(self) -> None:
         self.write("actual-session", "waiting", self.process)
         (self.state_dir / "actual-session.json").rename(
@@ -512,6 +599,19 @@ class HookObserverTests(unittest.TestCase):
             write_hook_record(record, self.state_dir)
 
         self.assertFalse((self.state_dir / "invalid-write.json").exists())
+
+    def test_nearest_agent_process_prefers_the_nearest_harness(self) -> None:
+        from dashpot.agents import nearest_agent_process
+
+        shell = ProcessIdentity(10, 20, "bash", "Tue Aug 25 01:00:00 2026")
+        claude = ProcessIdentity(20, 30, "claude", "Tue Aug 25 00:59:00 2026")
+        codex = ProcessIdentity(30, 1, "codex", "Tue Aug 25 00:58:00 2026")
+        chain = {10: shell, 20: claude, 30: codex}
+
+        with mock.patch("dashpot.agents.os.getppid", return_value=10):
+            result = nearest_agent_process(lookup=lambda pid: chain.get(pid))
+
+        self.assertEqual(("claude-code", claude), result)
 
     def test_nearest_codex_process_skips_sandbox_helper(self) -> None:
         sandbox = ProcessIdentity(

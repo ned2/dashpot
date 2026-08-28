@@ -6,10 +6,14 @@ from pathlib import Path
 import pytest
 
 from dashpot.integrate import (
+    CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
     codex_integration_status,
     install_codex_integration,
+    install_integration,
+    integration_status,
     remove_codex_integration,
+    remove_integration,
 )
 
 
@@ -290,3 +294,102 @@ def test_status_reports_the_current_projects_session_store(
 
     joined = "\n".join(messages)
     assert f"session records for this Project: 1 in {sessions}" in joined
+
+
+def claude_home(root: Path) -> Path:
+    home = root / ".claude"
+    home.mkdir(parents=True, exist_ok=True)
+    return home
+
+
+def claude_publisher(root: Path) -> Path:
+    command = root / "bin" / "dashpot-claude-code-hook"
+    command.parent.mkdir(parents=True, exist_ok=True)
+    command.write_text("#!/bin/sh\n")
+    command.chmod(0o755)
+    return command
+
+
+def test_claude_code_install_merges_into_settings(tmp_path: Path) -> None:
+    home = claude_home(tmp_path)
+    command = claude_publisher(tmp_path)
+    (home / "settings.json").write_text(
+        json.dumps(
+            {
+                "model": "opus",
+                "permissions": {"allow": ["Bash(ls:*)"]},
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {"type": "command", "command": "notify-send x"}
+                            ]
+                        }
+                    ]
+                },
+            }
+        )
+    )
+
+    messages = install_integration("claude-code", home, command_path=command)
+
+    document = json.loads((home / "settings.json").read_text())
+    assert document["model"] == "opus"
+    assert document["permissions"] == {"allow": ["Bash(ls:*)"]}
+    assert set(document["hooks"]) >= set(CLAUDE_CODE_HOOK_EVENTS)
+    assert "Interrupt" not in document["hooks"]
+    assert document["hooks"]["Stop"][0]["hooks"][0]["command"] == "notify-send x"
+    assert document["hooks"]["Stop"][1]["hooks"][0]["command"] == str(command)
+    assert any("Claude Code lifecycle hooks" in message for message in messages)
+
+
+def test_claude_code_remove_keeps_unrelated_settings(tmp_path: Path) -> None:
+    home = claude_home(tmp_path)
+    (home / "settings.json").write_text(json.dumps({"model": "opus"}))
+    install_integration(
+        "claude-code", home, command_path=claude_publisher(tmp_path)
+    )
+
+    messages = remove_integration("claude-code", home)
+
+    document = json.loads((home / "settings.json").read_text())
+    assert document == {"model": "opus"}
+    assert any("removed the Dashpot hooks" in message for message in messages)
+
+
+def test_claude_code_status_and_missing_home(tmp_path: Path) -> None:
+    home = claude_home(tmp_path)
+    command = claude_publisher(tmp_path)
+    install_integration("claude-code", home, command_path=command)
+
+    messages = integration_status(
+        "claude-code", home, state_dir=tmp_path / "state", current=tmp_path
+    )
+    joined = "\n".join(messages)
+    assert f"installed in {home / 'settings.json'}" in joined
+    assert f"hook publisher: {command}" in joined
+
+    with pytest.raises(RuntimeError, match="no Claude Code configuration"):
+        install_integration(
+            "claude-code", tmp_path / "absent", command_path=command
+        )
+
+
+def test_each_harness_removal_only_touches_its_own_file(tmp_path: Path) -> None:
+    codex = codex_home(tmp_path)
+    claude = claude_home(tmp_path)
+    install_integration("codex", codex, command_path=publisher(tmp_path))
+    install_integration(
+        "claude-code", claude, command_path=claude_publisher(tmp_path)
+    )
+
+    remove_integration("codex", codex)
+
+    assert not (codex / "hooks.json").exists()
+    document = json.loads((claude / "settings.json").read_text())
+    assert set(document["hooks"]) == set(CLAUDE_CODE_HOOK_EVENTS)
+
+
+def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="unsupported harness"):
+        install_integration("cursor", tmp_path)

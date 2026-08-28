@@ -221,7 +221,7 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
         "dashpot.agents.state_directory", return_value=tmp_path / "state"
     ):
         with mock.patch(
-            "dashpot.agents.nearest_codex_process", return_value=process
+            "dashpot.agents.nearest_harness_process", return_value=process
         ):
             publish_from_stream(io.StringIO(json.dumps(event)))
 
@@ -345,22 +345,22 @@ def test_integrate_codex_dispatches_install_remove_and_status(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with mock.patch.object(
-        cli, "install_codex_integration", return_value=["installed hooks"]
+        cli, "install_integration", return_value=["installed hooks"]
     ) as install:
         assert cli.main(["integrate", "codex"]) == 0
-    install.assert_called_once_with()
+    install.assert_called_once_with("codex")
 
     with mock.patch.object(
-        cli, "remove_codex_integration", return_value=["removed hooks"]
+        cli, "remove_integration", return_value=["removed hooks"]
     ) as remove:
-        assert cli.main(["integrate", "codex", "--remove"]) == 0
-    remove.assert_called_once_with()
+        assert cli.main(["integrate", "claude-code", "--remove"]) == 0
+    remove.assert_called_once_with("claude-code")
 
     with mock.patch.object(
-        cli, "codex_integration_status", return_value=["installed in x"]
+        cli, "integration_status", return_value=["installed in x"]
     ) as status:
-        assert cli.main(["integrate", "codex", "--status"]) == 0
-    status.assert_called_once_with()
+        assert cli.main(["integrate", "claude-code", "--status"]) == 0
+    status.assert_called_once_with("claude-code")
 
     output = capsys.readouterr().out
     assert "installed hooks" in output
@@ -373,7 +373,7 @@ def test_integrate_errors_are_reported_without_traceback(
 ) -> None:
     with mock.patch.object(
         cli,
-        "install_codex_integration",
+        "install_integration",
         side_effect=RuntimeError("no Codex configuration directory"),
     ):
         code = cli.main(["integrate", "codex"])
