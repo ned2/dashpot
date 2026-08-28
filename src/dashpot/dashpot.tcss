@@ -98,6 +98,15 @@ Screen.-compact Header {
 
 #queue {
     height: 1fr;
+    /* The table sits on the pane canvas, so the space below the last row is
+       never mistaken for a stripe. Odd rows deliberately stay unset and
+       inherit that canvas; even rows are the single highlight stripe, tinted
+       from the foreground so it reads in both light and dark themes. */
+    background: $background;
+}
+
+#queue > .datatable--even-row {
+    background: $foreground 8%;
 }
 
 #project-detail,

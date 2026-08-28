@@ -432,6 +432,29 @@ def state_chip_background(app: DashpotApp) -> str:
 
 
 @pytest.mark.asyncio
+async def test_table_stripes_never_match_the_empty_area_below_the_rows() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        table = app.query_one("#queue", DataTable)
+        pane = app.query_one("#queue-pane")
+
+        for theme in ("textual-dark", "textual-light"):
+            app.theme = theme
+            await pilot.pause()
+            canvas = pane.background_colors[1]
+            odd = table.get_component_styles("datatable--odd-row").background
+            even = table.get_component_styles("datatable--even-row").background
+            # Un-striped rows are the pane canvas, exactly like the area below
+            # the last row; only the highlight stripe differs from it.
+            assert table.styles.background == canvas
+            assert odd.a == 0
+            assert 0 < even.a < 1
+
+
+@pytest.mark.asyncio
 async def test_selection_pane_color_switches_with_selected_issue() -> None:
     open_issue = issue("test/repo#1", "Open")
     completed_issue = issue("test/repo#2", "Completed")
