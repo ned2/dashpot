@@ -21,7 +21,8 @@ PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 
 def write_config(root: Path, issue_source: dict) -> None:
-    (root / ".dashpot.json").write_text(
+    (root / ".dashpot").mkdir(exist_ok=True)
+    (root / ".dashpot" / "config.json").write_text(
         json.dumps(
             {
                 "projectId": PROJECT_ID,

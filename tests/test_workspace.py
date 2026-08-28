@@ -21,8 +21,8 @@ def write_project(
     repository_id: str = "repository:dashpot",
     source: dict | None = None,
 ) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    (root / ".dashpot.json").write_text(
+    (root / ".dashpot").mkdir(parents=True, exist_ok=True)
+    (root / ".dashpot" / "config.json").write_text(
         json.dumps(
             {
                 "projectId": project_id,

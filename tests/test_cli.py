@@ -19,6 +19,11 @@ from dashpot.model import (
 from dashpot.workspace import WorkspaceResolution
 
 
+def write_config_marker(root: Path) -> None:
+    (root / ".dashpot").mkdir(exist_ok=True)
+    (root / ".dashpot" / "config.json").write_text("{}")
+
+
 def project(root: Path) -> ResolvedProject:
     return ResolvedProject(
         "project:test",
@@ -59,7 +64,7 @@ def test_workspace_argument_rejects_incomplete_values(value: str) -> None:
 def test_no_argument_cli_defaults_to_configured_current_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".dashpot.json").write_text("{}")
+    write_config_marker(tmp_path)
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args([])
 
@@ -85,7 +90,7 @@ def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
     project_root = tmp_path / "project"
     nested = project_root / "src" / "package"
     nested.mkdir(parents=True)
-    (project_root / ".dashpot.json").write_text("{}")
+    write_config_marker(project_root)
     monkeypatch.chdir(nested)
     args = cli.build_parser().parse_args([])
     resolution = WorkspaceResolution([project(project_root)], [])
@@ -112,10 +117,10 @@ def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
 def test_explicit_config_takes_precedence_over_current_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".dashpot.json").write_text("{}")
+    write_config_marker(tmp_path)
     configured = tmp_path / "configured"
     configured.mkdir()
-    (configured / ".dashpot.json").write_text("{}")
+    write_config_marker(configured)
     config = tmp_path / "workspaces.json"
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args(["--config", str(config)])
@@ -140,7 +145,7 @@ def test_explicit_workspace_takes_precedence_over_config(
 ) -> None:
     workspace = tmp_path / "explicit"
     workspace.mkdir()
-    (workspace / ".dashpot.json").write_text("{}")
+    write_config_marker(workspace)
     args = cli.build_parser().parse_args(
         ["--workspace", str(workspace), "--config", str(tmp_path / "unused.json")]
     )
@@ -162,7 +167,7 @@ def test_no_argument_cli_falls_back_to_standard_workspace_config(
 ) -> None:
     configured = tmp_path / "configured"
     configured.mkdir()
-    (configured / ".dashpot.json").write_text("{}")
+    write_config_marker(configured)
     config = tmp_path / "workspaces.json"
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args([])

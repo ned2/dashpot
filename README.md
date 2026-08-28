@@ -71,7 +71,7 @@ uv run dashpot --workspace personal=/path/first-clone \
 ```
 
 Without arguments, Dashpot observes the current directory when it contains
-`.dashpot.json`. Outside a configured Project it loads explicit Repository
+`.dashpot/config.json`. Outside a configured Project it loads explicit Repository
 Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
 `--workspace` arguments each name one anchor and take precedence; repeat the
 same Workspace name to include independent clones. Use `--config` to select a
@@ -123,8 +123,16 @@ paths for identity.
 
 ## Project configuration
 
-Every Repository Anchor has a tracked `.dashpot.json` containing stable Project
-and Repository identities, a mutable display label, and the active Issue Source.
+Every Repository Anchor has a tracked `.dashpot/config.json` containing stable
+Project and Repository identities, a mutable display label, and the active
+Issue Source. The `.dashpot/state/` directory holds ignored local runtime
+state; add it to your repository's `.gitignore` so it never dirties the
+worktree or gets committed:
+
+```gitignore
+.dashpot/state/
+```
+
 A GitHub-backed Project looks like this:
 
 ```json

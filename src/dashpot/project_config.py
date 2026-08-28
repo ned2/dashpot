@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal, TypeAlias
 
 
-PROJECT_CONFIG_NAME = ".dashpot.json"
+PROJECT_CONFIG_NAME = ".dashpot/config.json"
 
 
 @dataclass(frozen=True, slots=True)
