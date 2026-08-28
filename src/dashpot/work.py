@@ -9,9 +9,10 @@ from typing import Any
 from .agents import (
     ProcessIdentity,
     ProcessLookup,
+    host_process_lookup,
     nearest_agent_process,
     now_iso,
-    process_info,
+    session_liveness,
 )
 from .github_issues import GitHubIssuesSource
 from .issue_sources import IssueSource
@@ -36,7 +37,7 @@ class AgentSessionIdentity:
 
 
 def identify_agent_session(
-    lookup: ProcessLookup = process_info,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> AgentSessionIdentity:
     """Identify the supported Agent Session enclosing this command."""
     located = nearest_agent_process(lookup)
@@ -61,7 +62,7 @@ def start_issue_work(
     reference: str,
     *,
     timeout: float = 10,
-    lookup: ProcessLookup = process_info,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> list[str]:
     """Start or switch this session's Issue work at the current Worktree."""
     session = identify_agent_session(lookup)
@@ -104,16 +105,43 @@ def start_issue_work(
 def stop_issue_work(
     current: Path,
     *,
-    lookup: ProcessLookup = process_info,
+    session_key: str | None = None,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> list[str]:
-    """End this session's active Agent Run while the session stays alive."""
-    session = identify_agent_session(lookup)
+    """End an active Agent Run recorded at the current Worktree.
+
+    Without ``session_key`` the run belongs to the Agent Session enclosing this
+    command, which stays alive. With ``session_key`` the run is an Orphaned
+    Agent Run left by a session that is no longer running, so no enclosing
+    session is required; a session observed to be live is refused so its own
+    run cannot be ended from outside. The Work Store's authority is unchanged
+    either way.
+    """
     root = worktree_root(current)
     store = WorkStore(root)
-    previous = _session_work(store, session.session_key)
-    if not store.stop(session.session_key) or previous is None:
-        return ["no active Issue work for this session"]
-    return [f"stopped work on {previous.issue_reference}"]
+    if session_key is None:
+        session = identify_agent_session(lookup)
+        previous = _session_work(store, session.session_key)
+        if not store.stop(session.session_key) or previous is None:
+            return ["no active Issue work for this session"]
+        return [f"stopped work on {previous.issue_reference}"]
+    previous = _session_work(store, session_key)
+    if previous is None:
+        return [f"no active Issue work recorded for session {session_key}"]
+    if (
+        previous.session_process is not None
+        and session_liveness(previous.session_process.as_record(), lookup).liveness
+        == "live"
+    ):
+        raise RuntimeError(
+            f"session {session_key} is still running; run 'dashpot work stop' inside it"
+        )
+    if not store.stop(session_key):
+        return [f"no active Issue work recorded for session {session_key}"]
+    return [
+        f"stopped orphaned work on {previous.issue_reference} for "
+        f"{previous.session_label}"
+    ]
 
 
 def show_issue_work(current: Path) -> list[str]:

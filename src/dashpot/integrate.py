@@ -10,7 +10,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .agents import session_directory, state_directory
+from .agents import (
+    HARNESS_DISPLAY,
+    ProcessLookup,
+    SessionRecordSummary,
+    StaleSessionRecord,
+    host_process_lookup,
+    session_directory,
+    state_directory,
+    summarize_session_records,
+)
 from .repository import worktree_root
 
 HOOK_TIMEOUT = 3
@@ -180,6 +189,7 @@ def integration_status(
     *,
     state_dir: Path | None = None,
     current: Path | None = None,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> list[str]:
     """Report the observable state of one harness's integration."""
     spec = integration(harness)
@@ -220,7 +230,7 @@ def integration_status(
                 else:
                     messages.append(f"hook publisher: {command}")
     messages.extend(_config_toml_coexistence_warning(spec, home))
-    messages.extend(_record_store_status(state_dir, current))
+    messages.extend(_record_store_status(state_dir, current, lookup))
     return messages
 
 
@@ -241,12 +251,22 @@ def codex_integration_status(
     *,
     state_dir: Path | None = None,
     current: Path | None = None,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> list[str]:
-    return integration_status("codex", codex_home, state_dir=state_dir, current=current)
+    return integration_status(
+        "codex", codex_home, state_dir=state_dir, current=current, lookup=lookup
+    )
 
 
-def _record_store_status(state_dir: Path | None, current: Path | None) -> list[str]:
-    """Report the session stores visible from here: Project-local and global."""
+def _record_store_status(
+    state_dir: Path | None, current: Path | None, lookup: ProcessLookup
+) -> list[str]:
+    """Report the session stores visible from here: Project-local and global.
+
+    Each store's records are classified at this moment without being pruned;
+    stale records name the session so undelivered SessionEnd hooks can be
+    diagnosed here rather than on the workspace Diagnostics surface.
+    """
     messages: list[str] = []
     try:
         root = worktree_root(current or Path.cwd())
@@ -254,13 +274,18 @@ def _record_store_status(state_dir: Path | None, current: Path | None) -> list[s
         root = None
     if root is not None and (root / ".dashpot" / "config.json").is_file():
         local = session_directory(root)
-        records = len(list(local.glob("*.json"))) if local.is_dir() else 0
-        messages.append(f"session records for this Project: {records} in {local}")
+        messages.extend(
+            _describe_records(
+                "for this Project", summarize_session_records(local, lookup)
+            )
+        )
     directory = state_dir or state_directory()
     if directory.is_dir():
-        records = len(list(directory.glob("*.json")))
-        messages.append(
-            f"session records outside configured Projects: {records} in {directory}"
+        messages.extend(
+            _describe_records(
+                "outside configured Projects",
+                summarize_session_records(directory, lookup),
+            )
         )
     else:
         messages.append(
@@ -268,6 +293,32 @@ def _record_store_status(state_dir: Path | None, current: Path | None) -> list[s
             "does not exist yet)"
         )
     return messages
+
+
+def _describe_records(scope: str, summary: SessionRecordSummary) -> list[str]:
+    unknown = f"{summary.unknown} unknown"
+    if summary.unknown_reasons:
+        reasons = ", ".join(reason for reason, _count in summary.unknown_reasons)
+        unknown += f" [{reasons}]"
+    messages = [
+        f"session records {scope}: {summary.total} in {summary.directory} "
+        f"({summary.live} live, {unknown}, {len(summary.stale)} stale, "
+        f"{summary.unreadable} unreadable)"
+    ]
+    messages.extend(f"  stale: {_describe_stale(record)}" for record in summary.stale)
+    return messages
+
+
+def _describe_stale(record: StaleSessionRecord) -> str:
+    display = HARNESS_DISPLAY.get(record.harness, record.harness)
+    text = (
+        f"{display} session {record.session_id} last event "
+        f"{record.event or 'unknown'} at {record.last_activity_at or 'unknown time'}, "
+    )
+    if record.outcome == "ended":
+        return text + "ended by SessionEnd (legacy record; pruned on next observation)"
+    process = f"pid {record.pid}" if record.pid is not None else "process"
+    return text + f"{process} gone (no SessionEnd delivered)"
 
 
 def _load_hooks_document(spec: HarnessIntegration, path: Path) -> dict[str, Any]:

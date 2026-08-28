@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import tempfile
 import threading
 import time
@@ -13,11 +14,14 @@ from unittest import mock
 from typing_extensions import override
 
 from dashpot.agents import (
+    HookRecordStore,
+    ProcessAbsent,
     ProcessIdentity,
+    ProcessPresent,
+    ProcessUnobservable,
+    host_process_lookup,
     nearest_codex_process,
     observe_agent_runs,
-    observe_hook_runs,
-    process_info,
     publish_hook_event,
     session_directory,
     write_hook_record,
@@ -39,7 +43,7 @@ from dashpot.model import (
 )
 from dashpot.repository import observe_github_repository_identity
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
-from helpers import jsonable, snapshot_of
+from helpers import absent, jsonable, present, snapshot_of, table_lookup, unobservable
 
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
@@ -375,11 +379,10 @@ class HookObserverTests(unittest.TestCase):
     def test_live_record_is_returned(self) -> None:
         self.write("live", "waiting", self.process)
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]},
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual("waiting", runs[0].state)
@@ -397,11 +400,10 @@ class HookObserverTests(unittest.TestCase):
             repository_root="/repo-linked",
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target(), linked]},
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], diagnostics)
@@ -416,48 +418,175 @@ class HookObserverTests(unittest.TestCase):
             repository_root="/repo",
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]},
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], runs)
         self.assertEqual("agent-target-mismatch", diagnostics[0].code)
 
-    def test_ended_and_orphaned_records_are_not_active(self) -> None:
+    def test_ended_and_gone_unbound_records_are_not_active_or_diagnosed(
+        self,
+    ) -> None:
         self.write("ended", "ended", self.process)
-        self.write("orphaned", "running", self.process)
+        self.write("gone", "running", self.process)
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]},
             self.state_dir,
-            lookup=lambda _pid: None,
-            isolated=False,
+            lookup=absent(),
         )
 
         self.assertEqual([], runs)
-        self.assertEqual(1, len(diagnostics))
-        self.assertIn("orphaned", diagnostics[0].message)
+        self.assertEqual([], diagnostics)
 
-    def test_hidden_host_process_degrades_to_unknown(self) -> None:
-        self.write("sandboxed", "running", self.process)
+    def test_pid_reused_by_a_different_process_is_gone(self) -> None:
+        self.write("reused", "running", self.process)
+        newcomer = ProcessIdentity(42, 1, "codex", "Wed Aug 26 09:00:00 2026")
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]},
             self.state_dir,
-            lookup=lambda _pid: None,
-            isolated=True,
+            lookup=present(newcomer),
         )
 
-        self.assertEqual("unknown", runs[0].state)
-        self.assertIn("liveness is unknown", diagnostics[0].message)
+        self.assertEqual([], runs)
+        self.assertEqual([], diagnostics)
+
+    def test_live_process_with_same_identity_keeps_recorded_state(self) -> None:
+        self.write("waiting-live", "waiting", self.process)
+        self.write("running-live", "running", self.process)
+
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual(
+            {
+                "codex-session:waiting-live": "waiting",
+                "codex-session:running-live": "running",
+            },
+            {run.id: run.state for run in runs},
+        )
+
+    def test_unobservable_process_degrades_to_unknown_never_exited(self) -> None:
+        for reason in (
+            "isolated-namespace",
+            "ps-unavailable",
+            "ps-timeout",
+            "ps-failed",
+            "ps-unparseable",
+            "kill-failed",
+        ):
+            with self.subTest(reason=reason):
+                self.write("sandboxed", "running", self.process)
+                self.write("sandboxed-too", "waiting", self.process)
+
+                runs, diagnostics = observe_agent_runs(
+                    {"project:example": [observation_target()]},
+                    self.state_dir,
+                    lookup=unobservable(reason),
+                )
+
+                self.assertEqual({"unknown"}, {run.state for run in runs})
+                self.assertEqual(2, len(runs))
+                self.assertEqual(1, len(diagnostics))
+                self.assertEqual("agent-session-liveness-unknown", diagnostics[0].code)
+                self.assertEqual("info", diagnostics[0].severity)
+                self.assertIn(reason, diagnostics[0].message)
+                self.assertNotIn("exited", diagnostics[0].message)
+
+    def test_graceful_session_end_removes_the_record(self) -> None:
+        event = {"session_id": "graceful", "cwd": "/repo", "hook_event_name": "Stop"}
+        publish_hook_event(event, self.state_dir, environ={}, process=self.process)
+        self.assertTrue((self.state_dir / "graceful.json").exists())
+
+        publish_hook_event(
+            {**event, "hook_event_name": "SessionEnd"},
+            self.state_dir,
+            environ={},
+            process=self.process,
+        )
+
+        self.assertFalse((self.state_dir / "graceful.json").exists())
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+        self.assertEqual([], runs)
+        self.assertEqual([], diagnostics)
+
+    def test_session_end_with_a_malformed_binding_still_removes_the_record(
+        self,
+    ) -> None:
+        self.write("ending", "waiting", self.process)
+
+        write_hook_record(
+            {
+                "version": 2,
+                "sessionId": "ending",
+                "state": "ended",
+                "issueId": "not an id",
+            },
+            self.state_dir,
+        )
+
+        self.assertFalse((self.state_dir / "ending.json").exists())
+
+    def test_observation_prunes_gone_and_ended_records_but_keeps_live_ones(
+        self,
+    ) -> None:
+        self.write("ended", "ended", self.process)
+        self.write("gone", "running", self.process)
+        self.write("live", "running", self.process)
+        gone_process = ProcessIdentity(43, 1, "codex", "Tue Aug 25 03:00:00 2026")
+        (self.state_dir / "gone.json").write_text(
+            json.dumps(
+                {
+                    **json.loads((self.state_dir / "gone.json").read_text()),
+                    "sessionProcess": gone_process.as_record(),
+                }
+            )
+        )
+
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=table_lookup({42: self.process}),
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual(["codex-session:live"], [run.id for run in runs])
+        self.assertFalse((self.state_dir / "ended.json").exists())
+        self.assertFalse((self.state_dir / "gone.json").exists())
+        self.assertTrue((self.state_dir / "live.json").exists())
+        self.assertTrue((self.state_dir / ".gone.lock").exists())
+
+    def test_prune_is_conditional_on_the_observed_record(self) -> None:
+        self.write("stale", "running", self.process)
+        path = self.state_dir / "stale.json"
+        observed = json.loads(path.read_text())
+        store = HookRecordStore(self.state_dir)
+
+        updated = {**observed, "lastActivityAt": "2026-08-24T16:00:00Z"}
+        path.write_text(json.dumps(updated))
+        self.assertFalse(store.prune("stale", observed))
+        self.assertTrue(path.exists())
+
+        self.assertTrue(store.prune("stale", updated))
+        self.assertFalse(path.exists())
+        self.assertFalse(store.prune("stale", updated))
 
     def test_malformed_record_becomes_diagnostic(self) -> None:
         (self.state_dir / "bad.json").write_text(json.dumps({"version": 99}))
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]}, self.state_dir
         )
 
@@ -472,11 +601,10 @@ class HookObserverTests(unittest.TestCase):
         record["issueReferenceHint"] = "example/project#7"
         path.write_text(json.dumps(record))
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]},
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual(1, len(runs))
@@ -503,11 +631,10 @@ class HookObserverTests(unittest.TestCase):
             self.state_dir,
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]},
             self.state_dir,
-            lookup=lambda _pid: claude,
-            isolated=False,
+            lookup=present(claude),
         )
 
         self.assertEqual([], diagnostics)
@@ -537,11 +664,10 @@ class HookObserverTests(unittest.TestCase):
             self.state_dir,
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]},
             self.state_dir,
-            lookup=lambda pid: lookup.get(pid),
-            isolated=False,
+            lookup=table_lookup(lookup),
         )
 
         self.assertEqual([], diagnostics)
@@ -565,7 +691,7 @@ class HookObserverTests(unittest.TestCase):
             self.state_dir,
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]}, self.state_dir
         )
 
@@ -578,7 +704,7 @@ class HookObserverTests(unittest.TestCase):
             self.state_dir / "different-session.json"
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             {"project:example": [observation_target()]}, self.state_dir
         )
 
@@ -651,7 +777,7 @@ class HookObserverTests(unittest.TestCase):
         chain = {10: shell, 20: claude, 30: codex}
 
         with mock.patch("dashpot.agents.os.getppid", return_value=10):
-            result = nearest_agent_process(lookup=lambda pid: chain.get(pid))
+            result = nearest_agent_process(lookup=table_lookup(chain))
 
         self.assertEqual(("claude-code", claude), result)
 
@@ -672,13 +798,13 @@ class HookObserverTests(unittest.TestCase):
         )
 
         with mock.patch("dashpot.agents.os.getppid", return_value=10):
-            result = nearest_codex_process(
-                lookup=lambda pid: {10: sandbox, 20: host}.get(pid)
-            )
+            result = nearest_codex_process(lookup=table_lookup({10: sandbox, 20: host}))
 
         self.assertEqual(host, result)
 
-    def test_process_info_parses_portable_ps_fields_and_arguments(self) -> None:
+    def test_host_process_lookup_parses_portable_ps_fields_and_arguments(
+        self,
+    ) -> None:
         completed = mock.Mock(
             returncode=0,
             stdout=(
@@ -687,22 +813,121 @@ class HookObserverTests(unittest.TestCase):
             ),
         )
 
-        with mock.patch("dashpot.agents.subprocess.run", return_value=completed) as run:
-            result = process_info(42)
+        with (
+            mock.patch(
+                "dashpot.agents.process_namespace_is_isolated", return_value=False
+            ),
+            mock.patch("dashpot.agents.os.kill") as kill,
+            mock.patch("dashpot.agents.subprocess.run", return_value=completed) as run,
+        ):
+            result = host_process_lookup(42)
 
         self.assertEqual(
-            ProcessIdentity(
-                42,
-                1,
-                "codex",
-                "Tue Aug 25 01:00:00 2026",
-                "/opt/codex exec --sandbox workspace-write",
+            ProcessPresent(
+                ProcessIdentity(
+                    42,
+                    1,
+                    "codex",
+                    "Tue Aug 25 01:00:00 2026",
+                    "/opt/codex exec --sandbox workspace-write",
+                )
             ),
             result,
         )
+        kill.assert_called_once_with(42, 0)
         arguments = run.call_args.args[0]
         self.assertEqual(5, arguments.count("-o"))
         self.assertEqual("C", run.call_args.kwargs["env"]["LC_ALL"])
+        self.assertEqual("UTC", run.call_args.kwargs["env"]["TZ"])
+
+    def test_host_process_lookup_reports_a_missing_pid_as_absent(self) -> None:
+        with (
+            mock.patch(
+                "dashpot.agents.process_namespace_is_isolated", return_value=False
+            ),
+            mock.patch("dashpot.agents.os.kill", side_effect=ProcessLookupError),
+            mock.patch("dashpot.agents.subprocess.run") as run,
+        ):
+            result = host_process_lookup(42)
+
+        self.assertEqual(ProcessAbsent(42), result)
+        run.assert_not_called()
+
+    def test_host_process_lookup_treats_another_users_process_as_present(
+        self,
+    ) -> None:
+        completed = mock.Mock(
+            returncode=0, stdout="42 1 codex Tue Aug 25 01:00:00 2026\n"
+        )
+
+        with (
+            mock.patch(
+                "dashpot.agents.process_namespace_is_isolated", return_value=False
+            ),
+            mock.patch("dashpot.agents.os.kill", side_effect=PermissionError),
+            mock.patch("dashpot.agents.subprocess.run", return_value=completed),
+        ):
+            result = host_process_lookup(42)
+
+        self.assertEqual(
+            ProcessPresent(ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")),
+            result,
+        )
+
+    def test_host_process_lookup_reports_every_probe_failure_as_unobservable(
+        self,
+    ) -> None:
+        cases: list[tuple[str, Any]] = [
+            ("ps-unavailable", FileNotFoundError("ps")),
+            ("ps-timeout", subprocess.TimeoutExpired(["ps"], 2)),
+            ("ps-failed", mock.Mock(returncode=1, stdout="")),
+            ("ps-unparseable", mock.Mock(returncode=0, stdout="garbage\n")),
+            ("ps-unparseable", mock.Mock(returncode=0, stdout="x y z a b c d e f\n")),
+        ]
+        for reason, outcome in cases:
+            with self.subTest(reason=reason, outcome=outcome):
+                run_kwargs = (
+                    {"side_effect": outcome}
+                    if isinstance(outcome, BaseException)
+                    else {"return_value": outcome}
+                )
+                with (
+                    mock.patch(
+                        "dashpot.agents.process_namespace_is_isolated",
+                        return_value=False,
+                    ),
+                    mock.patch("dashpot.agents.os.kill"),
+                    mock.patch("dashpot.agents.subprocess.run", **run_kwargs),
+                ):
+                    result = host_process_lookup(42)
+
+                self.assertEqual(ProcessUnobservable(42, reason), result)
+
+        with (
+            mock.patch(
+                "dashpot.agents.process_namespace_is_isolated", return_value=False
+            ),
+            mock.patch("dashpot.agents.os.kill", side_effect=OSError("EINVAL")),
+            mock.patch("dashpot.agents.subprocess.run") as run,
+        ):
+            self.assertEqual(
+                ProcessUnobservable(42, "kill-failed"), host_process_lookup(42)
+            )
+        run.assert_not_called()
+
+    def test_host_process_lookup_never_probes_an_isolated_namespace(self) -> None:
+        with (
+            mock.patch(
+                "dashpot.agents.process_namespace_is_isolated", return_value=True
+            ),
+            mock.patch("dashpot.agents.os.kill") as kill,
+            mock.patch("dashpot.agents.subprocess.run") as run,
+        ):
+            result = host_process_lookup(42)
+
+        self.assertEqual(ProcessUnobservable(42, "isolated-namespace"), result)
+        kill.assert_not_called()
+        run.assert_not_called()
 
 
 class HookRoutingTests(unittest.TestCase):
@@ -740,8 +965,6 @@ class HookRoutingTests(unittest.TestCase):
         return {"project:example": [observation_target(str(self.worktree))]}
 
     def test_publish_routes_to_a_configured_projects_local_store(self) -> None:
-        import subprocess
-
         subprocess.run(["git", "init", "-q"], cwd=self.worktree, check=True)
         (self.worktree / ".dashpot").mkdir()
         (self.worktree / ".dashpot" / "config.json").write_text("{}")
@@ -761,8 +984,6 @@ class HookRoutingTests(unittest.TestCase):
     def test_publish_falls_back_to_the_global_store_when_unconfigured(
         self,
     ) -> None:
-        import subprocess
-
         subprocess.run(["git", "init", "-q"], cwd=self.worktree, check=True)
 
         with mock.patch("dashpot.agents.state_directory", return_value=self.state_dir):
@@ -785,11 +1006,10 @@ class HookRoutingTests(unittest.TestCase):
             session_directory(self.worktree),
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             self.targets(),
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], diagnostics)
@@ -807,11 +1027,10 @@ class HookRoutingTests(unittest.TestCase):
             session_directory(self.worktree),
         )
 
-        runs, diagnostics = observe_hook_runs(
+        runs, diagnostics = observe_agent_runs(
             self.targets(),
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], diagnostics)
@@ -885,8 +1104,7 @@ class WorkObserverTests(unittest.TestCase):
         runs, diagnostics = observe_agent_runs(
             self.targets(),
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], diagnostics)
@@ -903,26 +1121,68 @@ class WorkObserverTests(unittest.TestCase):
         runs, diagnostics = observe_agent_runs(
             self.targets(),
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], diagnostics)
         self.assertEqual("unknown", runs[0].state)
         self.assertEqual(work.started_at, runs[0].last_activity_at)
 
-    def test_orphaned_work_record_is_skipped_with_warning(self) -> None:
+    def test_orphaned_work_record_is_one_actionable_diagnostic(self) -> None:
         self.record_work(self.worktree)
+        self.write_hook("session-gone", "running", str(self.worktree))
 
         runs, diagnostics = observe_agent_runs(
             self.targets(),
             self.state_dir,
-            lookup=lambda _pid: None,
-            isolated=False,
+            lookup=absent(),
         )
 
         self.assertEqual([], runs)
+        self.assertEqual(1, len(diagnostics))
         self.assertEqual("work-session-orphaned", diagnostics[0].code)
+        self.assertEqual("warning", diagnostics[0].severity)
+        self.assertIn("example/project#7", diagnostics[0].message)
+        self.assertIn(str(self.worktree), diagnostics[0].message)
+        self.assertIn(
+            "dashpot work stop --session codex-42-abcd1234", diagnostics[0].message
+        )
+        self.assertNotIn("exited", diagnostics[0].message)
+
+    def test_orphaned_work_survives_observation_until_stopped(self) -> None:
+        self.record_work(self.worktree)
+
+        observe_agent_runs(self.targets(), self.state_dir, lookup=absent())
+
+        active, _ = WorkStore(self.worktree).active()
+        self.assertEqual(["codex-42-abcd1234"], [work.session_key for work in active])
+
+    def test_unobservable_process_keeps_bound_work_listed_as_unknown(self) -> None:
+        for reason in (
+            "isolated-namespace",
+            "ps-unavailable",
+            "ps-timeout",
+            "ps-failed",
+            "ps-unparseable",
+            "kill-failed",
+        ):
+            with self.subTest(reason=reason):
+                work = self.record_work(self.worktree)
+                self.write_hook("session-c", "running", str(self.worktree))
+
+                runs, diagnostics = observe_agent_runs(
+                    self.targets(),
+                    self.state_dir,
+                    lookup=unobservable(reason),
+                )
+
+                self.assertEqual([work.run_id], [run.id for run in runs])
+                self.assertEqual("unknown", runs[0].state)
+                self.assertEqual(
+                    ["agent-session-liveness-unknown"],
+                    [diagnostic.code for diagnostic in diagnostics],
+                )
+                self.assertNotIn("exited", diagnostics[0].message)
 
     def test_hook_session_without_work_record_stays_listed_unbound(self) -> None:
         self.write_hook("session-b", "running", str(self.worktree))
@@ -930,8 +1190,7 @@ class WorkObserverTests(unittest.TestCase):
         runs, diagnostics = observe_agent_runs(
             self.targets(),
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], diagnostics)
@@ -953,8 +1212,7 @@ class WorkObserverTests(unittest.TestCase):
                 ]
             },
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual(2, len(runs))
@@ -968,8 +1226,7 @@ class WorkObserverTests(unittest.TestCase):
         runs, diagnostics = observe_agent_runs(
             {"project:example": [target]},
             self.state_dir,
-            lookup=lambda _pid: self.process,
-            isolated=False,
+            lookup=present(self.process),
         )
 
         self.assertEqual([], runs)

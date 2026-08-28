@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from dashpot.agents import ProcessIdentity, write_hook_record
 from dashpot.integrate import (
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
@@ -16,6 +17,24 @@ from dashpot.integrate import (
     remove_codex_integration,
     remove_integration,
 )
+from helpers import absent, present, unobservable
+
+CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
+
+
+def session_record(session_id: str, state: str = "waiting") -> dict[str, Any]:
+    return {
+        "version": 2,
+        "sessionId": session_id,
+        "harness": "codex",
+        "state": state,
+        "cwd": "/repo",
+        "repositoryRoot": "/repo",
+        "branch": "main",
+        "event": "Stop",
+        "lastActivityAt": "2026-08-24T15:00:00Z",
+        "sessionProcess": CODEX.as_record(),
+    }
 
 
 def codex_home(root: Path) -> Path:
@@ -235,7 +254,56 @@ def test_status_reports_installed_state_and_records(tmp_path: Path) -> None:
     joined = "\n".join(messages)
     assert f"installed in {home / 'hooks.json'}" in joined
     assert f"hook publisher: {command}" in joined
-    assert f"session records outside configured Projects: 1 in {state}" in joined
+    assert (
+        f"session records outside configured Projects: 1 in {state} "
+        "(0 live, 0 unknown, 0 stale, 1 unreadable)"
+    ) in joined
+
+
+def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> None:
+    home = codex_home(tmp_path)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    state = tmp_path / "state"
+    write_hook_record(session_record("0199-stale"), state)
+    write_hook_record(session_record("0199-live"), state)
+
+    messages = codex_integration_status(
+        home, state_dir=state, current=tmp_path, lookup=absent()
+    )
+
+    joined = "\n".join(messages)
+    assert (
+        f"session records outside configured Projects: 2 in {state} "
+        "(0 live, 0 unknown, 2 stale, 0 unreadable)"
+    ) in joined
+    assert (
+        "  stale: Codex session 0199-stale last event Stop at "
+        "2026-08-24T15:00:00Z, pid 4242 gone (no SessionEnd delivered)"
+    ) in joined
+    assert (state / "0199-stale.json").exists()
+
+    messages = codex_integration_status(
+        home, state_dir=state, current=tmp_path, lookup=present(CODEX)
+    )
+    assert "(2 live, 0 unknown, 0 stale, 0 unreadable)" in "\n".join(messages)
+
+
+def test_status_shows_unknown_liveness_reasons(tmp_path: Path) -> None:
+    home = codex_home(tmp_path)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    state = tmp_path / "state"
+    write_hook_record(session_record("sandboxed"), state)
+
+    messages = codex_integration_status(
+        home,
+        state_dir=state,
+        current=tmp_path,
+        lookup=unobservable("isolated-namespace"),
+    )
+
+    assert "(0 live, 1 unknown [isolated-namespace], 0 stale, 0 unreadable)" in (
+        "\n".join(messages)
+    )
 
 
 def test_status_flags_missing_events_and_publisher(tmp_path: Path) -> None:
@@ -307,7 +375,10 @@ def test_status_reports_the_current_projects_session_store(
     )
 
     joined = "\n".join(messages)
-    assert f"session records for this Project: 1 in {sessions}" in joined
+    assert (
+        f"session records for this Project: 1 in {sessions} "
+        "(0 live, 0 unknown, 0 stale, 1 unreadable)"
+    ) in joined
 
 
 def claude_home(root: Path) -> Path:
@@ -376,6 +447,17 @@ def test_claude_code_status_and_missing_home(tmp_path: Path) -> None:
     joined = "\n".join(messages)
     assert f"installed in {home / 'settings.json'}" in joined
     assert f"hook publisher: {command}" in joined
+
+    state = tmp_path / "state"
+    stale = {**session_record("claude-stale"), "harness": "claude-code"}
+    write_hook_record(stale, state)
+    messages = integration_status(
+        "claude-code", home, state_dir=state, current=tmp_path, lookup=absent()
+    )
+    joined = "\n".join(messages)
+    assert "(0 live, 0 unknown, 1 stale, 0 unreadable)" in joined
+    assert "stale: Claude Code session claude-stale" in joined
+    assert "no SessionEnd delivered" in joined
 
     with pytest.raises(RuntimeError, match="no Claude Code configuration"):
         install_integration("claude-code", tmp_path / "absent", command_path=command)

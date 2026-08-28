@@ -327,7 +327,13 @@ def test_work_stop_and_show_dispatch(
         cli, "stop_issue_work", return_value=["stopped work on #7"]
     ) as stop:
         assert cli.main(["work", "stop"]) == 0
-    stop.assert_called_once_with(Path.cwd().resolve())
+    stop.assert_called_once_with(Path.cwd().resolve(), session_key=None)
+
+    with mock.patch.object(
+        cli, "stop_issue_work", return_value=["stopped orphaned work on #7"]
+    ) as stop:
+        assert cli.main(["work", "stop", "--session", "codex-42-abcd1234"]) == 0
+    stop.assert_called_once_with(Path.cwd().resolve(), session_key="codex-42-abcd1234")
 
     with mock.patch.object(
         cli, "show_issue_work", return_value=["no active Issue work"]

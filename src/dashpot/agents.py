@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
@@ -12,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .repository import git, is_within
@@ -29,6 +30,8 @@ EVENT_STATES: dict[str, str] = {
     "Interrupt": "waiting",
     "SessionEnd": "ended",
 }
+# Diagnostics about hook Agent Session records are harness-neutral.
+SESSION_DIAGNOSTIC_SOURCE = "agent-sessions"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +54,49 @@ class ProcessIdentity:
         return record
 
 
-ProcessLookup = Callable[[int], ProcessIdentity | None]
+@dataclass(frozen=True, slots=True)
+class ProcessPresent:
+    """A host process with this identity is running."""
+
+    identity: ProcessIdentity
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessAbsent:
+    """The host authoritatively reports no process with this PID."""
+
+    pid: int
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessUnobservable:
+    """The process could not be observed; nothing is known about its state.
+
+    ``reason`` is one of ``isolated-namespace``, ``ps-unavailable``,
+    ``ps-timeout``, ``ps-failed``, ``ps-unparseable``, or ``kill-failed``.
+    """
+
+    pid: int
+    reason: str
+
+
+ProcessObservation = ProcessPresent | ProcessAbsent | ProcessUnobservable
+ProcessLookup = Callable[[int], ProcessObservation]
+ProcessKey = tuple[int, str]
+
+SessionLiveness = Literal["live", "gone", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class LivenessObservation:
+    """Whether an Agent Session's recorded host process is live, gone, or unknown.
+
+    Unknown means the process could not be observed; it is never evidence that
+    the session ended.
+    """
+
+    liveness: SessionLiveness
+    reason: str | None = None
 
 
 def now_iso() -> str:
@@ -70,7 +115,25 @@ def state_directory() -> Path:
     return Path.home() / ".local" / "state" / "dashpot" / "runs"
 
 
-def process_info(pid: int) -> ProcessIdentity | None:
+def host_process_lookup(pid: int) -> ProcessObservation:
+    """Observe one host process with the portable ``kill -0`` and ``ps`` probes.
+
+    Absent is reported only when the host itself says no such process exists.
+    Every failure to observe is reported as unobservable with its reason, so a
+    broken probe is never mistaken for an exited process.
+    """
+    if process_namespace_is_isolated():
+        return ProcessUnobservable(pid, "isolated-namespace")
+    if pid <= 0:
+        return ProcessAbsent(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return ProcessAbsent(pid)
+    except PermissionError:
+        pass  # The process exists; it belongs to another user.
+    except OSError:
+        return ProcessUnobservable(pid, "kill-failed")
     try:
         result = subprocess.run(
             [
@@ -92,15 +155,21 @@ def process_info(pid: int) -> ProcessIdentity | None:
             capture_output=True,
             timeout=2,
             check=False,
-            env={**os.environ, "LC_ALL": "C"},
+            # Start times are compared as strings across processes, so the
+            # locale and time zone they render in must not vary.
+            env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    except OSError:
+        return ProcessUnobservable(pid, "ps-unavailable")
+    except subprocess.TimeoutExpired:
+        return ProcessUnobservable(pid, "ps-timeout")
+    if result.returncode != 0:
+        return ProcessUnobservable(pid, "ps-failed")
     fields = result.stdout.strip().split(maxsplit=8)
-    if result.returncode != 0 or len(fields) < 8:
-        return None
+    if len(fields) < 8:
+        return ProcessUnobservable(pid, "ps-unparseable")
     try:
-        return ProcessIdentity(
+        identity = ProcessIdentity(
             int(fields[0]),
             int(fields[1]),
             fields[2],
@@ -108,11 +177,12 @@ def process_info(pid: int) -> ProcessIdentity | None:
             fields[8] if len(fields) == 9 else None,
         )
     except ValueError:
-        return None
+        return ProcessUnobservable(pid, "ps-unparseable")
+    return ProcessPresent(identity)
 
 
 def nearest_codex_process(
-    lookup: ProcessLookup = process_info,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> ProcessIdentity | None:
     return nearest_harness_process("codex", lookup)
 
@@ -138,7 +208,7 @@ HARNESS_DISPLAY = {"codex": "Codex", "claude-code": "Claude Code"}
 
 
 def nearest_agent_process(
-    lookup: ProcessLookup = process_info,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> tuple[str, ProcessIdentity] | None:
     """Find the nearest enclosing supported harness process, if any."""
     pid = os.getppid()
@@ -147,9 +217,10 @@ def nearest_agent_process(
         if pid <= 0 or pid in seen:
             break
         seen.add(pid)
-        info = lookup(pid)
-        if info is None:
+        observed = lookup(pid)
+        if not isinstance(observed, ProcessPresent):
             break
+        info = observed.identity
         for harness, matches in HARNESS_HOSTS.items():
             if matches(info):
                 return harness, info
@@ -158,7 +229,7 @@ def nearest_agent_process(
 
 
 def nearest_harness_process(
-    harness: str, lookup: ProcessLookup = process_info
+    harness: str, lookup: ProcessLookup = host_process_lookup
 ) -> ProcessIdentity | None:
     pid = os.getppid()
     seen: set[int] = set()
@@ -167,9 +238,10 @@ def nearest_harness_process(
         if pid <= 0 or pid in seen:
             break
         seen.add(pid)
-        info = lookup(pid)
-        if info is None:
+        observed = lookup(pid)
+        if not isinstance(observed, ProcessPresent):
             break
+        info = observed.identity
         if matches(info):
             return info
         pid = info.parent_pid
@@ -181,6 +253,61 @@ def process_namespace_is_isolated() -> bool:
         return b"codex-linux-sandbox" in Path("/proc/1/cmdline").read_bytes()
     except OSError:
         return False
+
+
+def process_key_of(expected: object) -> ProcessKey | None:
+    """The recorded PID and start time of a session process record, if any."""
+    if not isinstance(expected, dict):
+        return None
+    pid = expected.get("pid")
+    started_at = expected.get("startedAt")
+    if not isinstance(pid, int) or not isinstance(started_at, str):
+        return None
+    return pid, started_at
+
+
+def session_liveness(
+    expected: object, lookup: ProcessLookup = host_process_lookup
+) -> LivenessObservation:
+    """Derive Session Liveness from a recorded process identity.
+
+    A PID that is absent or reused by a process with a different start time is
+    gone; an unobservable process is unknown, with the adapter's reason.
+    """
+    key = process_key_of(expected)
+    if key is None:
+        return LivenessObservation("unknown", "no recorded process identity")
+    pid, started_at = key
+    observed = lookup(pid)
+    if isinstance(observed, ProcessAbsent):
+        return LivenessObservation("gone")
+    if isinstance(observed, ProcessUnobservable):
+        return LivenessObservation("unknown", observed.reason)
+    if observed.identity.started_at != started_at:
+        return LivenessObservation("gone")
+    return LivenessObservation("live")
+
+
+class _LivenessProbe:
+    """Memoize Session Liveness per process identity for one observation pass.
+
+    The hook Agent Session pass and the Work Store pass then probe each
+    recorded process once and always agree about it.
+    """
+
+    def __init__(self, lookup: ProcessLookup) -> None:
+        self._lookup = lookup
+        self._observed: dict[ProcessKey, LivenessObservation] = {}
+
+    def observe(self, expected: object) -> LivenessObservation:
+        key = process_key_of(expected)
+        if key is None:
+            return session_liveness(expected, self._lookup)
+        observation = self._observed.get(key)
+        if observation is None:
+            observation = session_liveness(expected, self._lookup)
+            self._observed[key] = observation
+        return observation
 
 
 def build_hook_record(
@@ -236,7 +363,12 @@ def write_hook_record(record: dict[str, Any], directory: Path) -> Path:
 
 
 class HookRecordStore:
-    """Atomically publish hook events and promote stable Issue bindings."""
+    """Own the lifecycle of hook Agent Session records in one directory.
+
+    Events are published atomically, stable Issue bindings are promoted, a
+    graceful ``SessionEnd`` removes the session's record, and confirmed stale
+    records can be pruned without racing a concurrent hook write.
+    """
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
@@ -247,6 +379,12 @@ class HookRecordStore:
         if not SESSION_ID.fullmatch(session_id):
             raise RuntimeError("hook sessionId contains unsupported characters")
         destination = self.directory / f"{session_id}.json"
+        if record.get("state") == "ended":
+            # A graceful SessionEnd ends the Agent Session; a tombstone would
+            # only be an active-looking record that observers have to skip.
+            with self._locked(session_id):
+                destination.unlink(missing_ok=True)
+            return destination
         current = dict(record)
         try:
             current_issue_id = validated_optional_issue_value(
@@ -285,6 +423,26 @@ class HookRecordStore:
                     current["issueReferenceHint"] = previous_issue_hint
             self._replace(destination, current, session_id)
         return destination
+
+    def prune(self, session_id: str, observed: Mapping[str, Any]) -> bool:
+        """Delete a stale record only if it still equals ``observed``.
+
+        The conditional re-read under the session's lock means a record that a
+        hook updated between observation and cleanup is kept. Lock files are
+        never deleted. Returns whether the record was removed.
+        """
+        if not SESSION_ID.fullmatch(session_id):
+            raise RuntimeError("hook sessionId contains unsupported characters")
+        destination = self.directory / f"{session_id}.json"
+        with self._locked(session_id):
+            try:
+                current = self._read(destination)
+            except (RuntimeError, ValueError):
+                return False
+            if current is None or current != dict(observed):
+                return False
+            destination.unlink(missing_ok=True)
+            return True
 
     @contextmanager
     def _locked(self, session_id: str) -> Iterator[None]:
@@ -351,35 +509,89 @@ def publish_hook_event(
     return write_hook_record(record, directory or route_record_directory(record))
 
 
-ProcessKey = tuple[int, str]
+HookRecordOutcome = Literal["ended", "live", "unknown", "gone"]
+
+
+@dataclass(frozen=True, slots=True)
+class HookRecordClassification:
+    """One validated hook Agent Session record and its reconciled outcome."""
+
+    session_id: str
+    harness: str
+    state: str
+    cwd: str
+    branch: str | None
+    event: str | None
+    last_activity_at: str | None
+    process_key: ProcessKey | None
+    outcome: HookRecordOutcome
+    reason: str | None = None
+
+    @property
+    def display(self) -> str:
+        return HARNESS_DISPLAY[self.harness]
+
+    @property
+    def run_id(self) -> str:
+        return f"{self.harness}-session:{self.session_id}"
 
 
 @dataclass(frozen=True, slots=True)
 class HookSessionObservation:
     run: AgentRun
     process_key: ProcessKey | None
+    liveness: LivenessObservation
+
+
+@dataclass(frozen=True, slots=True)
+class StaleSessionRecord:
+    """A hook record whose Agent Session is over: gone, or ended gracefully."""
+
+    session_id: str
+    harness: str
+    event: str | None
+    last_activity_at: str | None
+    pid: int | None
+    outcome: Literal["gone", "ended"]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionRecordSummary:
+    """Point-in-time classification of every hook record in one store."""
+
+    directory: Path
+    live: int
+    unknown: int
+    unknown_reasons: tuple[tuple[str, int], ...]
+    stale: tuple[StaleSessionRecord, ...]
+    unreadable: int
+
+    @property
+    def total(self) -> int:
+        return self.live + self.unknown + len(self.stale) + self.unreadable
 
 
 def observe_agent_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     directory: Path | None = None,
-    lookup: ProcessLookup = process_info,
-    isolated: bool | None = None,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> tuple[list[AgentRun], list[Diagnostic]]:
-    """Observe Work Store Agent Runs and unmatched hook Agent Sessions."""
-    namespace_isolated = (
-        process_namespace_is_isolated() if isolated is None else isolated
-    )
-    sessions, diagnostics = observe_hook_sessions(
-        targets_by_project, directory, lookup, namespace_isolated
-    )
+    """Observe Work Store Agent Runs and unmatched hook Agent Sessions.
+
+    This is the only place Session Liveness becomes an outcome. Callers
+    receive active runs plus actionable diagnostics: a gone session with an
+    Issue Binding is an Orphaned Agent Run and is reported once; a gone
+    unbound session is stale observation state and is dropped silently.
+    """
+    probe = _LivenessProbe(lookup)
+    sessions, diagnostics = observe_hook_sessions(targets_by_project, directory, probe)
     state_by_process: dict[ProcessKey, tuple[RunState, str | None]] = {
         session.process_key: (session.run.state, session.run.last_activity_at)
         for session in sessions
         if session.process_key is not None
     }
     work_runs, consumed, work_diagnostics = observe_work_runs(
-        targets_by_project, lookup, namespace_isolated, state_by_process
+        targets_by_project, probe, state_by_process
     )
     diagnostics.extend(work_diagnostics)
     runs = list(work_runs)
@@ -393,8 +605,7 @@ def observe_agent_runs(
 
 def observe_work_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
-    lookup: ProcessLookup,
-    isolated: bool,
+    probe: _LivenessProbe,
     state_by_process: Mapping[ProcessKey, tuple[RunState, str | None]],
 ) -> tuple[list[AgentRun], set[ProcessKey], list[Diagnostic]]:
     """Turn each Worktree's active Work Store records into bound Agent Runs."""
@@ -415,17 +626,18 @@ def observe_work_runs(
                         work.session_process.pid,
                         work.session_process.started_at,
                     )
-                    alive = process_is_same(
-                        work.session_process.as_record(), lookup, isolated
-                    )
-                    if alive is False:
+                    liveness = probe.observe(work.session_process.as_record())
+                    if liveness.liveness == "gone":
                         diagnostics.append(
                             Diagnostic(
                                 work.run_id,
                                 "warning",
-                                f"Ignoring orphaned Agent Run for "
-                                f"{work.session_label}: its recorded process "
-                                f"has exited",
+                                f"{work.session_label} is gone but still "
+                                f"records Issue work on "
+                                f"{work.issue_reference} ({work.issue_id}) at "
+                                f"{target.path}; run 'dashpot work stop "
+                                f"--session {work.session_key}' at that "
+                                f"Worktree to end the orphaned Agent Run",
                                 "work-session-orphaned",
                             )
                         )
@@ -473,13 +685,15 @@ def observe_work_runs(
 
 def observe_hook_sessions(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
-    directory: Path | None = None,
-    lookup: ProcessLookup = process_info,
-    isolated: bool | None = None,
+    directory: Path | None,
+    probe: _LivenessProbe,
 ) -> tuple[list[HookSessionObservation], list[Diagnostic]]:
-    namespace_isolated = (
-        process_namespace_is_isolated() if isolated is None else isolated
-    )
+    """Read every visible hook store into live and unknown Agent Sessions.
+
+    Ended and gone records are stale observation state: they are pruned and
+    never reported here. Pruning is the only write observation performs, and
+    it is conditional so a concurrently updated record survives.
+    """
     directories: list[Path] = [directory or state_directory()]
     for _project_id, targets in sorted(targets_by_project.items()):
         for target in targets:
@@ -495,54 +709,73 @@ def observe_hook_sessions(
         if root in seen_directories or not root.exists():
             continue
         seen_directories.add(root)
+        store = HookRecordStore(root)
         for path in sorted(root.glob("*.json")):
             try:
-                raw: Any = json.loads(path.read_text())
-                if not isinstance(raw, dict) or raw.get("version") != 2:
-                    raise ValueError("unsupported record shape or version")
-                session, record_diagnostics = record_to_session(
-                    raw,
-                    targets_by_project,
-                    lookup,
-                    namespace_isolated,
-                    expected_session_id=path.stem,
-                )
-                diagnostics.extend(record_diagnostics)
-                if session is None:
-                    continue
-                previous = latest.get(session.run.id)
-                if previous is None or (session.run.last_activity_at or "") >= (
-                    previous.run.last_activity_at or ""
-                ):
-                    latest[session.run.id] = session
-            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                raw = read_hook_record(path)
+                record = classify_hook_record(raw, probe, expected_session_id=path.stem)
+            except (OSError, ValueError) as exc:
                 diagnostics.append(
                     Diagnostic(
-                        "dashpot-codex-hook", "warning", f"Cannot read {path}: {exc}"
+                        SESSION_DIAGNOSTIC_SOURCE,
+                        "warning",
+                        f"Cannot read {path}: {exc}",
                     )
                 )
+                continue
+            if record.outcome in {"ended", "gone"}:
+                # A gone session's Issue work, if any, is reported by the
+                # Work Store pass; cleanup failures are not observations.
+                with contextlib.suppress(OSError):
+                    store.prune(record.session_id, raw)
+                continue
+            session, record_diagnostics = record_to_session(
+                record, raw, targets_by_project
+            )
+            diagnostics.extend(record_diagnostics)
+            if session is None:
+                continue
+            previous = latest.get(session.run.id)
+            if previous is None or (session.run.last_activity_at or "") >= (
+                previous.run.last_activity_at or ""
+            ):
+                latest[session.run.id] = session
+    unknown_by_reason: dict[str, int] = {}
+    for session in latest.values():
+        if session.liveness.liveness == "unknown":
+            reason = session.liveness.reason or "host process identity is unavailable"
+            unknown_by_reason[reason] = unknown_by_reason.get(reason, 0) + 1
+    diagnostics.extend(
+        Diagnostic(
+            SESSION_DIAGNOSTIC_SOURCE,
+            "info",
+            f"Liveness of {count} Agent Session(s) is unknown: {reason}",
+            "agent-session-liveness-unknown",
+        )
+        for reason, count in sorted(unknown_by_reason.items())
+    )
     return list(latest.values()), diagnostics
 
 
-def observe_hook_runs(
-    targets_by_project: Mapping[str, Sequence[ObservationTarget]],
-    directory: Path | None = None,
-    lookup: ProcessLookup = process_info,
-    isolated: bool | None = None,
-) -> tuple[list[AgentRun], list[Diagnostic]]:
-    sessions, diagnostics = observe_hook_sessions(
-        targets_by_project, directory, lookup, isolated
-    )
-    return [session.run for session in sessions], diagnostics
+def read_hook_record(path: Path) -> dict[str, Any]:
+    """Load one version-2 hook record, raising ``ValueError`` otherwise."""
+    raw: Any = json.loads(path.read_text())
+    if not isinstance(raw, dict) or raw.get("version") != 2:
+        raise ValueError("unsupported record shape or version")
+    return raw
 
 
-def record_to_session(
-    raw: dict[str, Any],
-    targets_by_project: Mapping[str, Sequence[ObservationTarget]],
-    lookup: ProcessLookup,
-    isolated: bool,
+def classify_hook_record(
+    raw: Mapping[str, Any],
+    probe: _LivenessProbe,
     expected_session_id: str | None = None,
-) -> tuple[HookSessionObservation | None, list[Diagnostic]]:
+) -> HookRecordClassification:
+    """Validate one hook record and derive its lifecycle outcome.
+
+    Independent of Observation Targets, so integration status can classify a
+    store's records without an observation scope. Raises ``ValueError`` for
+    records Dashpot cannot interpret.
+    """
     session_id = optional_string(raw.get("sessionId"))
     event_state = optional_string(raw.get("state"))
     cwd = optional_string(raw.get("cwd"))
@@ -553,85 +786,132 @@ def record_to_session(
     if expected_session_id is not None and session_id != expected_session_id:
         raise ValueError("record sessionId does not match its filename")
     harness = optional_string(raw.get("harness")) or "codex"
-    display = HARNESS_DISPLAY.get(harness)
-    if display is None:
+    if harness not in HARNESS_DISPLAY:
         raise ValueError(f"unsupported harness: {harness!r}")
-    run_id = f"{harness}-session:{session_id}"
     if event_state == "ended":
-        return None, []
-    if event_state not in {"running", "waiting"}:
+        liveness = LivenessObservation("unknown")
+        outcome: HookRecordOutcome = "ended"
+    elif event_state in {"running", "waiting"}:
+        liveness = probe.observe(raw.get("sessionProcess"))
+        outcome = liveness.liveness
+    else:
         raise ValueError(f"unsupported active state: {event_state!r}")
+    return HookRecordClassification(
+        session_id=session_id,
+        harness=harness,
+        state=event_state,
+        cwd=cwd,
+        branch=optional_string(raw.get("branch")),
+        event=optional_string(raw.get("event")),
+        last_activity_at=optional_string(raw.get("lastActivityAt")),
+        process_key=process_key_of(raw.get("sessionProcess")),
+        outcome=outcome,
+        reason=liveness.reason,
+    )
+
+
+def record_to_session(
+    record: HookRecordClassification,
+    raw: Mapping[str, Any],
+    targets_by_project: Mapping[str, Sequence[ObservationTarget]],
+) -> tuple[HookSessionObservation | None, list[Diagnostic]]:
+    """Place a live or unknown Agent Session at its Observation Target."""
     diagnostics: list[Diagnostic] = []
     # The Work Store is the sole Issue-association authority; a global hook
     # record carrying a binding is rejected rather than silently combined.
     if raw.get("issueId") is not None or raw.get("issueReferenceHint") is not None:
         diagnostics.append(
             Diagnostic(
-                run_id,
+                record.run_id,
                 "warning",
-                f"Rejecting the global Issue binding recorded for {display} "
-                f"session {session_id}: bindings are Project-local now; run "
-                f"'dashpot work start' from the session instead",
+                f"Rejecting the global Issue binding recorded for "
+                f"{record.display} session {record.session_id}: bindings are "
+                f"Project-local now; run 'dashpot work start' from the "
+                f"session instead",
                 "agent-global-binding-rejected",
             )
         )
-    located, target_diagnostic = locate_observation_target(raw, cwd, targets_by_project)
+    located, target_diagnostic = locate_observation_target(
+        raw, record.cwd, targets_by_project
+    )
     if target_diagnostic:
         diagnostics.append(target_diagnostic)
         return None, diagnostics
     if located is None:
         return None, diagnostics
     observation_project_id, target = located
-
-    alive = process_is_same(raw.get("sessionProcess"), lookup, isolated)
-    if alive is False:
-        diagnostics.append(
-            Diagnostic(
-                "dashpot-codex-hook",
-                "warning",
-                f"Ignoring orphaned {display} run {session_id}: its recorded process has exited",
-            )
-        )
-        return None, diagnostics
-    state: RunState = cast(RunState, event_state) if alive is True else "unknown"
-    if alive is None:
-        diagnostics.append(
-            Diagnostic(
-                "dashpot-codex-hook",
-                "warning",
-                f"{display} run {session_id} liveness is unknown: host process identity is unavailable",
-            )
-        )
-    process_key: ProcessKey | None = None
-    process = raw.get("sessionProcess")
-    if isinstance(process, dict):
-        pid = process.get("pid")
-        started_at = process.get("startedAt")
-        if isinstance(pid, int) and isinstance(started_at, str):
-            process_key = (pid, started_at)
+    state: RunState = (
+        cast(RunState, record.state) if record.outcome == "live" else "unknown"
+    )
     return (
         HookSessionObservation(
             AgentRun(
-                id=run_id,
-                harness=harness,
-                process_or_session=f"{session_id} hook",
+                id=record.run_id,
+                harness=record.harness,
+                process_or_session=f"{record.session_id} hook",
                 state=state,
                 observation_target=target.path,
                 observation_project_id=observation_project_id,
-                branch=optional_string(raw.get("branch")) or target.branch,
+                branch=record.branch or target.branch,
                 issue_id=None,
                 issue_reference_hint=None,
-                working_directory=cwd,
-                last_activity_at=optional_string(raw.get("lastActivityAt")),
+                working_directory=record.cwd,
+                last_activity_at=record.last_activity_at,
             ),
-            process_key,
+            record.process_key,
+            LivenessObservation(
+                "live" if record.outcome == "live" else "unknown", record.reason
+            ),
         ),
         diagnostics,
     )
 
 
+def summarize_session_records(
+    directory: Path, lookup: ProcessLookup = host_process_lookup
+) -> SessionRecordSummary:
+    """Classify one hook store's records for troubleshooting, without pruning."""
+    probe = _LivenessProbe(lookup)
+    live = unknown = unreadable = 0
+    unknown_by_reason: dict[str, int] = {}
+    stale: list[StaleSessionRecord] = []
+    paths = sorted(directory.glob("*.json")) if directory.is_dir() else []
+    for path in paths:
+        try:
+            raw = read_hook_record(path)
+            record = classify_hook_record(raw, probe, expected_session_id=path.stem)
+        except (OSError, ValueError):
+            unreadable += 1
+            continue
+        if record.outcome == "live":
+            live += 1
+        elif record.outcome == "unknown":
+            unknown += 1
+            reason = record.reason or "host process identity is unavailable"
+            unknown_by_reason[reason] = unknown_by_reason.get(reason, 0) + 1
+        else:
+            stale.append(
+                StaleSessionRecord(
+                    session_id=record.session_id,
+                    harness=record.harness,
+                    event=record.event,
+                    last_activity_at=record.last_activity_at,
+                    pid=record.process_key[0] if record.process_key else None,
+                    outcome="gone" if record.outcome == "gone" else "ended",
+                )
+            )
+    return SessionRecordSummary(
+        directory=directory,
+        live=live,
+        unknown=unknown,
+        unknown_reasons=tuple(sorted(unknown_by_reason.items())),
+        stale=tuple(stale),
+        unreadable=unreadable,
+    )
+
+
 def locate_observation_target(
-    raw: dict[str, Any],
+    raw: Mapping[str, Any],
     cwd: str,
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
 ) -> tuple[tuple[str, ObservationTarget] | None, Diagnostic | None]:
@@ -668,30 +948,13 @@ def locate_observation_target(
             optional_string(raw.get("harness")) or "codex", "agent"
         )
         return None, Diagnostic(
-            "dashpot-codex-hook",
+            SESSION_DIAGNOSTIC_SOURCE,
             "warning",
-            f"Ignoring {display} run {session_id}: recorded Repository root "
+            f"Ignoring {display} session {session_id}: recorded Repository root "
             "and working directory resolve to different Observation Targets",
             "agent-target-mismatch",
         )
     return root_target, None
-
-
-def process_is_same(
-    expected: object,
-    lookup: ProcessLookup = process_info,
-    isolated: bool = False,
-) -> bool | None:
-    if not isinstance(expected, dict):
-        return None
-    pid = expected.get("pid")
-    started_at = expected.get("startedAt")
-    if not isinstance(pid, int) or not isinstance(started_at, str):
-        return None
-    actual = lookup(pid)
-    if actual is None:
-        return None if isolated else False
-    return actual.started_at == started_at
 
 
 def require_string(value: object, name: str) -> str:

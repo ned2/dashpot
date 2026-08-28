@@ -256,8 +256,8 @@ alone and points out that Codex merges both layers.
 manual Codex configuration.
 
 The hooks report session lifecycle only: which agent sessions are alive at a
-worktree and whether they are running, waiting, or ended. A session that has
-not declared an Issue is not listed as Work; it is counted in the Project's
+worktree and whether they are running or waiting. A session that has not
+declared an Issue is not listed as Work; it is counted in the Project's
 `Agents` fact until it opts in with `dashpot work start`. Codex and Claude
 Code sessions are observed side by side with distinct identities, and both may
 work on the same Issue as separate Agent Runs. One user-level installation per
@@ -266,6 +266,17 @@ observation is routed to the checkout the session runs in, landing in that
 worktree's ignored `.dashpot/state/sessions/`. Sessions outside any
 Dashpot-configured checkout fall back to the platform's normal
 application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
+
+Each refresh checks that a session's recorded process is still the one that
+published the record. A graceful `SessionEnd` removes the session's record. A
+session that was killed, or whose `SessionEnd` hook never ran, is dropped
+quietly and its stale record is cleaned up; it only becomes a Diagnostics
+warning when it leaves an orphaned Agent Run behind (see below). When the
+process cannot be observed at all (for example from inside a sandboxed process
+namespace) the session is shown with `unknown` state rather than assumed to
+have exited. `dashpot integrate <harness> --status` classifies every session
+record as live, unknown, stale, or unreadable and lists the stale ones, which
+is where to look when lifecycle events seem not to be delivered.
 
 ## Issue work opt-in
 
@@ -276,6 +287,7 @@ session, at the worktree where the work happens:
 dashpot work start '#123'      # an Issue Number, or a full Issue Reference
 dashpot work show              # list active Issue work at this worktree
 dashpot work stop              # end this session's run; the session stays alive
+dashpot work stop --session KEY  # end the orphaned run of a session that is gone
 ```
 
 `dashpot work start` resolves the Reference against the Project configured at
@@ -291,7 +303,12 @@ The Work Store is the sole authority for Issue association. Collection
 correlates each recorded run with the hook's lifecycle observations by process
 identity; a hook record that carries a global Issue binding (the retired
 `DASHPOT_ISSUE_ID`/`DASHPOT_ISSUE_REF` environment convention) is rejected with
-a diagnostic pointing at `dashpot work start`, never silently combined.
+a diagnostic pointing at `dashpot work start`, never silently combined. When a
+session is gone but its Work Store record remains, that record is an orphaned
+Agent Run: it is excluded from the listed runs and reported once as an
+actionable `work-session-orphaned` diagnostic naming the Issue and the
+`dashpot work stop --session <key>` command that ends it. Dashpot never stops
+or reassigns Issue work on its own.
 
 ## Design
 

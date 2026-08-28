@@ -104,6 +104,17 @@ on exactly one Issue. Starting, switching, or stopping Issue work begins or
 ends Agent Runs without ending or restarting the session.
 _Avoid_: Agent Run as a synonym for the whole session
 
+**Session Liveness**:
+An observation of whether an Agent Session's recorded host process is live,
+gone, or unknown. Unknown means the process could not be observed and is never
+evidence that the session ended.
+
+**Orphaned Agent Run**:
+An active Work Store record whose Agent Session is gone. It is actionable
+because it affects declared Issue work; a gone session without one is only
+stale observation state.
+_Avoid_: orphaned session for a gone unbound session
+
 **Work Store**:
 The versioned, Project-local record of active Agent Runs beneath a Worktree's
 `.dashpot/state/`. It is the sole authority for which sessions are working on

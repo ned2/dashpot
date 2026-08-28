@@ -92,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--state-dir",
         type=Path,
-        help="override the Codex hook record directory",
+        help="override the directory for agent session records outside configured Projects",
     )
     parser.add_argument(
         "--json",
@@ -141,7 +141,15 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="REFERENCE",
         help="Issue Reference, such as owner/repository#12, #12, or a slug",
     )
-    work_commands.add_parser("stop", help="end this session's active Issue work")
+    stop = work_commands.add_parser("stop", help="end this session's active Issue work")
+    stop.add_argument(
+        "--session",
+        metavar="KEY",
+        help=(
+            "end the orphaned Agent Run recorded for a session that is no "
+            "longer running, instead of this session's own run"
+        ),
+    )
     work_commands.add_parser("show", help="list active Issue work at this worktree")
     integrate = subparsers.add_parser(
         "integrate",
@@ -219,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     current, args.reference, timeout=args.timeout
                 )
             elif args.work_command == "stop":
-                messages = stop_issue_work(current)
+                messages = stop_issue_work(current, session_key=args.session)
             else:
                 messages = show_issue_work(current)
             for message in messages:

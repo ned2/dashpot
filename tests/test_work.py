@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.agents import ProcessIdentity
+from dashpot.agents import ProcessIdentity, ProcessPresent
 from dashpot.work import (
     identify_agent_session,
     show_issue_work,
@@ -14,12 +14,13 @@ from dashpot.work import (
     stop_issue_work,
 )
 from dashpot.work_store import WorkStore
+from helpers import absent, present
 
 CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
 
-def codex_lookup(_pid: int) -> ProcessIdentity:
-    return CODEX
+def codex_lookup(_pid: int) -> ProcessPresent:
+    return ProcessPresent(CODEX)
 
 
 def issue_document(*, issue_id: str, number: int, reference: str, title: str) -> str:
@@ -135,6 +136,35 @@ def test_stop_ends_work_while_the_session_stays_identifiable(
     ]
 
 
+def test_stop_by_session_key_ends_an_orphaned_run_without_a_session(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    start_issue_work(root, "build-observer", lookup=codex_lookup)
+    (session_key,) = issue_ids(root)
+
+    messages = stop_issue_work(root, session_key=session_key, lookup=absent())
+
+    active, _ = WorkStore(root).active()
+    assert active == []
+    assert messages == ["stopped orphaned work on build-observer for codex pid 4242"]
+    assert stop_issue_work(root, session_key=session_key, lookup=absent()) == [
+        f"no active Issue work recorded for session {session_key}"
+    ]
+
+
+def test_stop_by_session_key_refuses_a_live_session(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+    start_issue_work(root, "build-observer", lookup=codex_lookup)
+    (session_key,) = issue_ids(root)
+
+    with pytest.raises(RuntimeError, match="still running"):
+        stop_issue_work(root, session_key=session_key, lookup=present(CODEX))
+
+    active, _ = WorkStore(root).active()
+    assert len(active) == 1
+
+
 def test_show_lists_active_work_at_the_worktree(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
     assert show_issue_work(root) == ["no active Issue work at this worktree"]
@@ -151,7 +181,7 @@ def test_opt_in_requires_an_enclosing_supported_session(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
 
     with pytest.raises(RuntimeError, match="supported agent session"):
-        start_issue_work(root, "build-observer", lookup=lambda _pid: None)
+        start_issue_work(root, "build-observer", lookup=absent())
 
 
 def test_unmatched_reference_is_an_actionable_error(tmp_path: Path) -> None:
@@ -195,7 +225,7 @@ CLAUDE = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
 def test_claude_code_session_can_opt_into_issue_work(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
 
-    messages = start_issue_work(root, "build-observer", lookup=lambda _pid: CLAUDE)
+    messages = start_issue_work(root, "build-observer", lookup=present(CLAUDE))
 
     active, _ = WorkStore(root).active()
     assert active[0].harness == "claude-code"
@@ -208,7 +238,7 @@ def test_codex_and_claude_code_runs_on_one_issue_are_independent(
 ) -> None:
     root = repository(tmp_path / "repo")
     start_issue_work(root, "build-observer", lookup=codex_lookup)
-    start_issue_work(root, "build-observer", lookup=lambda _pid: CLAUDE)
+    start_issue_work(root, "build-observer", lookup=present(CLAUDE))
 
     active, _ = WorkStore(root).active()
 
