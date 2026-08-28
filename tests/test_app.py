@@ -211,8 +211,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "issue_state",
             "number",
             "title",
-            "priority",
-            "assignees",
             "last_action",
             "sessions",
         )
@@ -221,8 +219,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "◉ ↕",
             "ID ↕",
             "TITLE ↕",
-            "PRI ↕",
-            "ASSIGNEES ↕",
             "LAST ACTION ↓",
             "SESSIONS ↕",
         ]
@@ -237,6 +233,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert selection_detail.startswith("Location: ")
         assert "Status:" not in selection_detail
         assert "Assignees: unassigned" in selection_detail
+        assert "Labels: -" in selection_detail
+        assert "priority/p1" not in selection_detail
         assert "Agent sessions:" in selection_detail
         assert "Declared" not in selection_detail
         assert "blocked" not in selection_detail.lower()
@@ -448,7 +446,10 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
         SequenceCollector(snapshot),
         refresh_seconds=0,
         observation_store=WorkspaceObservationStore(snapshot),
-        issue_view=IssueTableViewState(sort=(SortTerm("title"),)),
+        issue_view=IssueTableViewState(
+            columns=("title", "priority"),
+            sort=(SortTerm("title"),),
+        ),
     )
 
     async with app.run_test(size=(80, 24)) as pilot:
@@ -619,6 +620,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         editor = app.screen
         assert isinstance(editor, IssueColumnEditor)
         selections = editor.query_one("#column-editor-list")
+        selections.select("priority")
         selections.highlighted = editor.column_order.index("sessions")
         assert await pilot.click("#column-up")
         await pilot.pause()
@@ -629,10 +631,9 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "issue_state",
             "number",
             "title",
-            "priority",
-            "assignees",
             "sessions",
             "last_action",
+            "priority",
         )
         assert [key.value for key in table.columns] == list(app.issue_view.columns)
         assert app.selected_row_key == selected_key
@@ -1040,13 +1041,38 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 5
     assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
-    assert cells[selected_key][DEFAULT_COLUMNS.index("assignees")] == "ned2"
     assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"
     detail = selection_detail_text(contexts[selected_key])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail
+
+
+def test_selection_detail_excludes_labels_used_as_priority() -> None:
+    selected_issue = issue("test/repo#1", "First")
+    selected_issue["labels"] = [
+        "bug",
+        "priority/p0",
+        "priority/p1",
+        "priority/p2",
+        "priority/p3",
+        "critical",
+        "high",
+        "medium",
+        "low",
+    ]
+    context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
+
+    detail = selection_detail_text(context)
+
+    assert "Priority: P0" in detail
+    assert "Labels: bug" in detail
+    assert "priority/" not in detail
+    assert "critical" not in detail
+    assert "high" not in detail
+    assert "medium" not in detail
+    assert "low" not in detail
 
 
 @pytest.mark.asyncio

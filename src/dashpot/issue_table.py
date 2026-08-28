@@ -122,7 +122,9 @@ COLUMN_SPECS = (
 )
 COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
 DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
-    key for key in COLUMN_KEYS if key not in {"project", "created"}
+    key
+    for key in COLUMN_KEYS
+    if key not in {"project", "priority", "assignees", "created"}
 )
 COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
@@ -404,20 +406,26 @@ def run_state_counts(states: tuple[RunState, ...]) -> tuple[int, int, int, int]:
     )
 
 
+PRIORITY_BY_LABEL = {
+    "priority/p0": "P0",
+    "priority/p1": "P1",
+    "priority/p2": "P2",
+    "priority/p3": "P3",
+    "critical": "P0",
+    "high": "P1",
+    "medium": "P2",
+    "low": "P3",
+}
+
+
+def is_priority_label(label: str) -> bool:
+    return label.casefold() in PRIORITY_BY_LABEL
+
+
 def issue_priority(issue: Issue) -> str:
-    priorities = {
-        "priority/p0": "P0",
-        "priority/p1": "P1",
-        "priority/p2": "P2",
-        "priority/p3": "P3",
-        "critical": "P0",
-        "high": "P1",
-        "medium": "P2",
-        "low": "P3",
-    }
     values = [
-        priorities[label.casefold()]
+        PRIORITY_BY_LABEL[label.casefold()]
         for label in issue["labels"]
-        if label.casefold() in priorities
+        if is_priority_label(label)
     ]
     return min(values, default="P2")

@@ -31,6 +31,7 @@ from .issue_table import (
     cells_match,
     column_label,
     column_specs,
+    is_priority_label,
     issue_priority,
     issue_state_kind,
     searchable_columns,
@@ -554,6 +555,9 @@ def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:
     if context.issue:
         current = context.issue
         location = issue_location(current)
+        labels = [
+            label for label in current["labels"] if not is_priority_label(label)
+        ]
         items.extend(
             [
                 DetailItem(location, "Location"),
@@ -563,7 +567,7 @@ def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:
                     ", ".join(current["assignees"]) or "unassigned",
                     "Assignees",
                 ),
-                DetailItem(", ".join(current["labels"]) or "-", "Labels"),
+                DetailItem(", ".join(labels) or "-", "Labels"),
             ]
         )
         items.append(DetailItem("Agent sessions", kind="section"))
