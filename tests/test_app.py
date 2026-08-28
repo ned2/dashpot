@@ -229,9 +229,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert "Status:" not in project_detail
         assert "Anchor: /repo" in project_detail
-        assert "Targets: 1" in project_detail
-        assert "main@abcdef12 clean" in project_detail
-        assert "0 agents · /repo" in project_detail
+        assert "Targets:" not in project_detail
+        assert "main@abcdef12 clean" not in project_detail
         assert "test/repo" not in project_detail
         assert "Refresh:" not in project_detail
         assert "Reference:" not in selection_detail
@@ -244,7 +243,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert [row.item.label for row in project_fields] == [
             "Workspaces",
             "Anchor",
-            "Targets",
             "Agents",
         ]
         assert len({row.field_value.region.x for row in project_fields}) == 1
@@ -818,8 +816,8 @@ async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert "prunable" in str(app.query_one("#diagnostics", Static).render())
-        assert "unavailable" in detail_plain(app, "#project-detail")
-        assert "unknown@abcdef12" in detail_plain(app, "#project-detail")
+        assert "Anchor: /repo" in detail_plain(app, "#project-detail")
+        assert "unavailable" not in detail_plain(app, "#project-detail")
 
 
 @pytest.mark.asyncio

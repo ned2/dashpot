@@ -509,29 +509,7 @@ def project_detail_items(
         DetailItem(", ".join(project.workspaces), "Workspaces"),
         DetailItem(project.primary_anchor, "Anchor"),
     ]
-    snapshot = project.snapshot
-    if snapshot:
-        items.append(DetailItem(str(len(snapshot.observation_targets)), "Targets"))
-        for target in snapshot.observation_targets:
-            state = (
-                "unavailable"
-                if target.availability == "unavailable"
-                else "dirty" if target.dirty else "clean"
-            )
-            branch = target.branch or (
-                "detached" if target.detached else "unknown"
-            )
-            run_count = sum(
-                run.observation_target == target.path
-                for run in agent_runs
-            )
-            items.append(
-                DetailItem(
-                    f"{branch}@{target.head[:8]} {state} · {target.elapsed_ms} ms · "
-                    f"{run_count} agent{'s' if run_count != 1 else ''} · {target.path}",
-                    kind="list",
-                )
-            )
+    if project.snapshot:
         observed_count = sum(
             run.observation_project_id == project.project_id
             for run in agent_runs

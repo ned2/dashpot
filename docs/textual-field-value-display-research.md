@@ -151,9 +151,10 @@ DetailFields > .detail-list {
 ```
 
 Keep the Issue title as a full-width heading rather than inventing a `Title`
-field. Keep Observation Targets and Agent Sessions as labelled sections with
-full-width repeated rows; forcing nested records into a single scalar value
-would weaken rather than clarify the hierarchy.
+field. Keep Agent Sessions as a labelled section with full-width repeated rows.
+Defer Observation Targets from the Project Status pane until Dashpot explicitly
+designs the multi-target management experience; a single target otherwise
+repeats Anchor and Agents while exposing low-level collection details.
 
 If the one-`Static` approach is chosen, construct `Content` safely. The official
 content guide warns that interpolating user or source text into markup with an
