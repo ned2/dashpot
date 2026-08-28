@@ -10,6 +10,7 @@ from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.content import Content
+from textual.css.query import NoMatches
 from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
 from textual.theme import Theme
@@ -399,15 +400,17 @@ class DashpotApp(App[None]):
             self.post_message(ObservationFinished(ticket, trigger, outcome=outcome))
 
     def on_observation_finished(self, message: ObservationFinished) -> None:
-        # A late completion can be dispatched during shutdown, after the
-        # screen's widgets have been unmounted.
-        if (
-            self._closing
-            or self._closed
-            or not self.screen_stack
-            or not self.screen.query("#queue")
-        ):
+        # A late completion can be dispatched during shutdown while widgets
+        # are being unmounted one by one; any missing widget means the result
+        # has nowhere to go and is dropped.
+        if self._closing or self._closed or not self.screen_stack:
             return
+        try:
+            self._accept_observation(message)
+        except NoMatches:
+            return
+
+    def _accept_observation(self, message: ObservationFinished) -> None:
         key = message.ticket.key
         if message.error is not None:
             if not self.scheduler.is_current(message.ticket):
