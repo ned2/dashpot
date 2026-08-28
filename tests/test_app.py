@@ -37,8 +37,8 @@ from dashpot.issue_table import (
     COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
     DEFAULT_SORT,
+    IssueNumberCell,
     IssueStateCell,
-    IssueTableCell,
     IssueTableViewState,
     LabelsCell,
     SortTerm,
@@ -243,9 +243,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         assert (SortTerm("last_action", descending=True),) == DEFAULT_SORT
         assert [str(column.label) for column in table.columns.values()] == [
-            "◉ ↕",
-            "AGENT ↕",
-            "ID ↕",
+            "◉",
+            "◈",
+            "# ↕",
             "TITLE ↕",
             "LAST ACTION ↓",
         ]
@@ -450,6 +450,20 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(lambda: app.selected_row_key == selected_key)
         title_key = next(key for key in table.columns if key.value == "title")
+
+        for name, label in (("issue_state", "◉"), ("agent_state", "◈")):
+            icon_key = next(key for key in table.columns if key.value == name)
+            table.post_message(
+                DataTable.HeaderSelected(
+                    table,
+                    icon_key,
+                    table.get_column_index(icon_key),
+                    table.columns[icon_key].label,
+                )
+            )
+            await pilot.pause()
+            assert app.issue_view.sort == DEFAULT_SORT
+            assert str(table.columns[icon_key].label) == label
 
         for _ in range(2):
             table.post_message(
@@ -1073,7 +1087,7 @@ def test_issue_detail_leads_with_the_feed_byline() -> None:
     assert selection_detail_text(context, now=now).startswith("opened 13m ago\n")
 
 
-def test_issue_id_column_uses_the_project_local_number() -> None:
+def test_issue_number_column_uses_the_bare_project_local_number() -> None:
     selected_issue = issue("test/repo#17", "Reference test")
 
     _contexts, cells = build_rows(
@@ -1081,7 +1095,10 @@ def test_issue_id_column_uses_the_project_local_number() -> None:
         columns=("number",),
     )
 
-    assert cells[row_key("issue", selected_issue["id"])] == ("#17",)
+    number = cells[row_key("issue", selected_issue["id"])][0]
+    assert isinstance(number, IssueNumberCell)
+    assert str(number) == "17"
+    assert number.justify == "right"
 
 
 def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> None:
@@ -1178,7 +1195,10 @@ def test_local_markdown_number_is_the_table_id() -> None:
         columns=("number",),
     )
 
-    assert cells[row_key("issue", "I_local_17")] == ("#17",)
+    number = cells[row_key("issue", "I_local_17")][0]
+    assert isinstance(number, IssueNumberCell)
+    assert str(number) == "17"
+    assert number.justify == "right"
 
 
 def test_selecting_a_sort_column_replaces_the_default_then_toggles_direction() -> None:
@@ -1189,6 +1209,24 @@ def test_selecting_a_sort_column_replaces_the_default_then_toggles_direction() -
 
     assert ascending.sort == (SortTerm("title"),)
     assert descending.sort == (SortTerm("title", descending=True),)
+
+
+def test_agent_and_issue_state_columns_are_not_sortable() -> None:
+    view = IssueTableViewState(
+        columns=("issue_state", "agent_state", "title", "number"),
+        sort=(SortTerm("title"),),
+    )
+
+    assert view.toggle_sort("issue_state") is view
+    assert view.toggle_sort("agent_state") is view
+    assert view.cycle_sort().sort == (SortTerm("number"),)
+    assert view.cycle_sort().cycle_sort().sort == (SortTerm("title"),)
+    icon_only = IssueTableViewState(
+        columns=("issue_state", "agent_state"),
+        sort=(),
+    )
+    assert icon_only.cycle_sort() is icon_only
+    assert icon_only.reverse_sort() is icon_only
 
 
 def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
@@ -1226,12 +1264,13 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     assert agent_state_cell(("running", "running")) == "▶"
     assert agent_state_cell(("waiting", "running", "unknown")) == "▶"
     assert agent_state_cell(("unknown", "waiting")) == "Ⅱ"
-    numbers = [IssueTableCell("#10", 10), IssueTableCell("#2", 2)]
+    numbers = [IssueNumberCell(10), IssueNumberCell(2)]
 
     assert sorted(numbers, key=column_sort_key("number")) == [
-        "#2",
-        "#10",
+        IssueNumberCell(2),
+        IssueNumberCell(10),
     ]
+    assert all(number.justify == "right" for number in numbers)
     states = [
         IssueStateCell("duplicate", dark=True),
         IssueStateCell("open", dark=True),
@@ -1265,7 +1304,10 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
 
     selected_key = row_key("issue", selected_issue["id"])
     assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 5
-    assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
+    number_cell = cells[selected_key][DEFAULT_COLUMNS.index("number")]
+    assert str(number_cell) == "1"
+    assert isinstance(number_cell, IssueNumberCell)
+    assert number_cell.justify == "right"
     assert cells[selected_key][DEFAULT_COLUMNS.index("agent_state")] == "Ⅱ"
     detail = selection_detail_text(contexts[selected_key])
     assert "Assignees: ned2" in detail

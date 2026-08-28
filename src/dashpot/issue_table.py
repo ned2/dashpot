@@ -83,6 +83,18 @@ class IssueStateCell(Text):
         ).index(state_kind)
 
 
+class IssueNumberCell(Text):
+    """A right-aligned Issue Number that retains its numeric sort value."""
+
+    __slots__ = ("sort_value",)
+
+    sort_value: SortValue
+
+    def __init__(self, number: int) -> None:
+        super().__init__(str(number), justify="right")
+        self.sort_value = number
+
+
 # Chip colour for labels whose tracker supplies no palette.
 NEUTRAL_LABEL_COLOR = "6e7781"
 
@@ -137,11 +149,11 @@ def chip_foreground(background: str) -> str:
     return "#000000" if luminance > 0.55 else "#ffffff"
 
 
-TableCell = IssueTableCell | IssueStateCell | LabelsCell
+TableCell = IssueTableCell | IssueStateCell | IssueNumberCell | LabelsCell
 
 
 def _cell_sort_key(value: object) -> SortValue:
-    if isinstance(value, (IssueTableCell, IssueStateCell, LabelsCell)):
+    if isinstance(value, (IssueTableCell, IssueStateCell, IssueNumberCell, LabelsCell)):
         return value.sort_value
     return cast("SortValue", value)
 
@@ -150,6 +162,7 @@ def _cell_sort_key(value: object) -> SortValue:
 class ColumnSpec:
     key: ColumnKey
     label: str
+    sortable: bool = True
     update_width: bool = False
     search_field: IssueSearchField | None = None
     sort_key: Callable[[object], SortValue] = _cell_sort_key
@@ -157,11 +170,11 @@ class ColumnSpec:
 
 
 COLUMN_SPECS = (
-    ColumnSpec("issue_state", "◉"),
-    ColumnSpec("agent_state", "AGENT"),
+    ColumnSpec("issue_state", "◉", sortable=False),
+    ColumnSpec("agent_state", "◈", sortable=False),
     ColumnSpec(
         "number",
-        "ID",
+        "#",
         search_field=IssueSearchField.NUMBER,
     ),
     ColumnSpec(
@@ -254,6 +267,8 @@ class IssueTableViewState:
         _validate_columns(self.columns)
 
     def toggle_sort(self, column: ColumnKey) -> IssueTableViewState:
+        if not COLUMNS_BY_KEY[column].sortable:
+            return self
         if len(self.sort) == 1 and self.sort[0].column == column:
             term = replace(self.sort[0], descending=not self.sort[0].descending)
         else:
@@ -261,26 +276,36 @@ class IssueTableViewState:
         return replace(self, sort=(term,))
 
     def cycle_sort(self) -> IssueTableViewState:
+        sortable_columns = tuple(
+            column for column in self.columns if COLUMNS_BY_KEY[column].sortable
+        )
+        if not sortable_columns:
+            return self
         current = self.sort[0].column if self.sort else None
-        if current in self.columns:
-            current_index = self.columns.index(current)
-            next_column = self.columns[(current_index + 1) % len(self.columns)]
+        if current in sortable_columns:
+            current_index = sortable_columns.index(current)
+            next_column = sortable_columns[(current_index + 1) % len(sortable_columns)]
         elif current in COLUMN_KEYS:
             current_index = COLUMN_KEYS.index(current)
             following_columns = (
                 COLUMN_KEYS[current_index + 1 :] + COLUMN_KEYS[: current_index + 1]
             )
             next_column = next(
-                column for column in following_columns if column in self.columns
+                column for column in following_columns if column in sortable_columns
             )
         else:
-            next_column = self.columns[0]
+            next_column = sortable_columns[0]
         return replace(self, sort=(SortTerm(next_column),))
 
     def reverse_sort(self) -> IssueTableViewState:
+        sortable_columns = tuple(
+            column for column in self.columns if COLUMNS_BY_KEY[column].sortable
+        )
+        if not sortable_columns:
+            return self
         current = self.sort[0] if self.sort else None
-        if current is None or current.column not in self.columns:
-            current = SortTerm(self.columns[0])
+        if current is None or current.column not in sortable_columns:
+            current = SortTerm(sortable_columns[0])
         return replace(
             self,
             sort=(replace(current, descending=not current.descending),),
@@ -357,6 +382,8 @@ def _term_sort_value(
 
 
 def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
+    if not column.sortable:
+        return column.label
     term = next((term for term in sort if term.column == column.key), None)
     marker = "↕" if term is None else ("↓" if term.descending else "↑")
     return f"{column.label} {marker}"
@@ -407,7 +434,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         return {
             "issue_state": issue_state_cell(issue, dark=dark),
             "agent_state": agent_state_cell(row.session_states),
-            "number": IssueTableCell(f"#{issue['number']}", issue["number"]),
+            "number": IssueNumberCell(issue["number"]),
             "title": text_cell(issue["title"]),
             "labels": labels_cell(issue, project),
             "project": text_cell(project.display_label),

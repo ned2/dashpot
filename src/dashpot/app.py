@@ -256,7 +256,10 @@ class DashpotApp(App[None]):
         column = cast(ColumnKey, str(event.column_key.value))
         if column not in self.issue_view.columns:
             return
-        self.apply_issue_sort(self.issue_view.toggle_sort(column), event.data_table)
+        issue_view = self.issue_view.toggle_sort(column)
+        if issue_view == self.issue_view:
+            return
+        self.apply_issue_sort(issue_view, event.data_table)
 
     def action_sort_next(self) -> None:
         self.apply_issue_sort(self.issue_view.cycle_sort())
