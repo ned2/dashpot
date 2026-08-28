@@ -20,7 +20,7 @@ from threading import Event, Lock
 import pytest
 from rich.text import Text
 from textual.content import Content
-from textual.widgets import DataTable, Input, Markdown, Select, Static
+from textual.widgets import DataTable, Footer, Input, Markdown, Select, Static
 
 from dashpot.app import (
     DashpotApp,
@@ -202,7 +202,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
     async with app.run_test(size=(80, 24)) as pilot:
         # Before the first observation the pane carries only its label, never
         # a fabricated ``Open 0 · Closed 0`` inventory.
-        assert pane_title(app, "#queue-pane") == "WORK"
+        assert pane_title(app, "#queue-pane") == "ISSUES"
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         table = app.query_one("#queue", DataTable)
@@ -249,7 +249,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "◉",
             "◈",
             "# ↕",
-            "TITLE ↕",
+            "TITLE",
             "LAST ACTION ↓",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
@@ -292,7 +292,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 
         assert pane_title(app, "#project-pane") == "PROJECT STATUS"
         assert pane_title(app, "#selection-pane") == "#1: First"
-        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 0"
+        assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 0"
         assert str(app.query_one("#issue-count", Static).render()) == "2 issues"
         assert not app.query("#queue-controls .pane-title")
         assert app.query_one("#selection-pane").has_class("-issue-open")
@@ -302,8 +302,11 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert pane_title(app, "#selection-pane") == "#1: [bold]literal[/bold]"
         diagnostics = app.query_one("#diagnostics", Static)
         assert_context_above_full_width_queue(app)
-        assert app.query_one("#queue-pane").region.bottom <= diagnostics.region.y
-        assert not app.query_one("#diagnostics", Static).has_class("-has-messages")
+        # With nothing to report the Diagnostics box is hidden rather than
+        # spending a line on a placeholder.
+        assert not diagnostics.has_class("-has-messages")
+        assert not diagnostics.display
+        assert diagnostics.region.height == 0
     # Private loop state is the only witness that the executor was released.
     assert asyncio.get_running_loop()._default_executor is None  # ty: ignore[unresolved-attribute]
 
@@ -457,36 +460,41 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
         await wait_until(lambda: app.selected_row_key == selected_key)
         title_key = next(key for key in table.columns if key.value == "title")
 
-        for name, label in (("issue_state", "◉"), ("agent_state", "◈")):
-            icon_key = next(key for key in table.columns if key.value == name)
+        for name, label in (
+            ("issue_state", "◉"),
+            ("agent_state", "◈"),
+            ("title", "TITLE"),
+        ):
+            fixed_key = next(key for key in table.columns if key.value == name)
             table.post_message(
                 DataTable.HeaderSelected(
                     table,
-                    icon_key,
-                    table.get_column_index(icon_key),
-                    table.columns[icon_key].label,
+                    fixed_key,
+                    table.get_column_index(fixed_key),
+                    table.columns[fixed_key].label,
                 )
             )
             await pilot.pause()
             assert app.issue_view.sort == DEFAULT_SORT
-            assert str(table.columns[icon_key].label) == label
+            assert str(table.columns[fixed_key].label) == label
 
+        number_key = next(key for key in table.columns if key.value == "number")
         for _ in range(2):
             table.post_message(
                 DataTable.HeaderSelected(
                     table,
-                    title_key,
-                    table.get_column_index(title_key),
-                    table.columns[title_key].label,
+                    number_key,
+                    table.get_column_index(number_key),
+                    table.columns[number_key].label,
                 )
             )
             await pilot.pause()
 
-        assert table.get_row_at(0)[table.get_column_index(title_key)] == "Zebra"
+        assert table.get_row_at(0)[table.get_column_index(title_key)] == "Alpha"
         assert app.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
-        assert str(table.columns[title_key].label) == "TITLE ↓"
+        assert str(table.columns[number_key].label) == "# ↓"
 
 
 @pytest.mark.asyncio
@@ -635,7 +643,7 @@ async def test_visible_filters_update_result_count_but_not_inventory() -> None:
         search = app.query_one("#issue-search", Input)
         state = app.query_one("#issue-state", Select)
 
-        inventory = "WORK · Open 2 · Closed 1"
+        inventory = "ISSUES · Open 2 · Closed 1"
 
         assert str(count.render()) == "2 issues"
         assert pane_title(app, "#queue-pane") == inventory
@@ -669,7 +677,7 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         count = app.query_one("#issue-count", Static)
         state = app.query_one("#issue-state", Select)
         table = app.query_one("#queue", DataTable)
-        inventory = "WORK · Open 1 · Closed 1"
+        inventory = "ISSUES · Open 1 · Closed 1"
         assert str(count.render()) == "1 issue"
         assert pane_title(app, "#queue-pane") == inventory
 
@@ -708,7 +716,7 @@ async def test_result_count_handles_empty_and_singular_states() -> None:
         count = app.query_one("#issue-count", Static)
         search = app.query_one("#issue-search", Input)
         table = app.query_one("#queue", DataTable)
-        inventory = "WORK · Open 1 · Closed 0"
+        inventory = "ISSUES · Open 1 · Closed 0"
         assert str(count.render()) == "1 issue"
         assert pane_title(app, "#queue-pane") == inventory
 
@@ -742,7 +750,7 @@ async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
         count = app.query_one("#issue-count", Static)
         table = app.query_one("#queue", DataTable)
         assert str(count.render()) == "2 issues"
-        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 1"
+        assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
 
         await pilot.press("s")
         await pilot.press("S")
@@ -753,7 +761,7 @@ async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
         assert app.issue_view.columns == ("title", "number")
         assert table.row_count == 2
         assert str(count.render()) == "2 issues"
-        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 1"
+        assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
 
 
 @pytest.mark.asyncio
@@ -775,14 +783,14 @@ async def test_published_observation_updates_inventory_and_result_count() -> Non
     async with app.run_test(size=(100, 28)):
         count = app.query_one("#issue-count", Static)
         table = app.query_one("#queue", DataTable)
-        assert pane_title(app, "#queue-pane") == "WORK · Open 1 · Closed 0"
+        assert pane_title(app, "#queue-pane") == "ISSUES · Open 1 · Closed 0"
         assert str(count.render()) == "1 issue"
         assert table.row_count == 1
 
         await app.run_action("refresh")
         await wait_until(lambda: app.store.revision == 2)
 
-        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 1"
+        assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
         assert str(count.render()) == "2 issues"
         assert table.row_count == 2
 
@@ -1054,7 +1062,7 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         assert count.region.y == search.region.y
         assert count.region.x >= search.region.right
         assert count.region.right <= queue_pane.region.right - 1
-        assert pane_title(app, "#queue-pane") == "WORK · Open 1 · Closed 0"
+        assert pane_title(app, "#queue-pane") == "ISSUES · Open 1 · Closed 0"
 
     async with app.run_test(size=(60, 20)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
@@ -1329,25 +1337,28 @@ def test_local_markdown_number_is_the_table_id() -> None:
 def test_selecting_a_sort_column_replaces_the_default_then_toggles_direction() -> None:
     view = IssueTableViewState()
 
-    ascending = view.toggle_sort("title")
-    descending = ascending.toggle_sort("title")
+    ascending = view.toggle_sort("number")
+    descending = ascending.toggle_sort("number")
 
-    assert ascending.sort == (SortTerm("title"),)
-    assert descending.sort == (SortTerm("title", descending=True),)
+    assert ascending.sort == (SortTerm("number"),)
+    assert descending.sort == (SortTerm("number", descending=True),)
 
 
-def test_agent_and_issue_state_columns_are_not_sortable() -> None:
+def test_icon_and_title_columns_are_not_sortable() -> None:
     view = IssueTableViewState(
-        columns=("issue_state", "agent_state", "title", "number"),
+        columns=("issue_state", "agent_state", "title", "number", "priority"),
         sort=(SortTerm("title"),),
     )
 
     assert view.toggle_sort("issue_state") is view
     assert view.toggle_sort("agent_state") is view
-    assert view.cycle_sort().sort == (SortTerm("number"),)
-    assert view.cycle_sort().cycle_sort().sort == (SortTerm("title"),)
+    assert view.toggle_sort("title") is view
+    # From an unsortable current column, cycling continues from its catalogue
+    # position: priority follows title, then wraps back to number.
+    assert view.cycle_sort().sort == (SortTerm("priority"),)
+    assert view.cycle_sort().cycle_sort().sort == (SortTerm("number"),)
     icon_only = IssueTableViewState(
-        columns=("issue_state", "agent_state"),
+        columns=("issue_state", "agent_state", "title"),
         sort=(),
     )
     assert icon_only.cycle_sort() is icon_only
@@ -1795,8 +1806,12 @@ async def test_alert_is_hidden_and_takes_no_space_when_healthy() -> None:
         assert not alert(app).display
         assert alert(app).region.height == 0
         assert not alert(app).has_class("-visible")
+        # Neither the alert nor the empty Diagnostics box spends a line, so
+        # the Issue pane reaches all the way to the footer.
         diagnostics = app.query_one("#diagnostics", Static)
-        assert diagnostics.region.y == app.query_one("#queue-pane").region.bottom
+        assert diagnostics.region.height == 0
+        footer = app.query_one(Footer)
+        assert app.query_one("#queue-pane").region.bottom == footer.region.y
 
 
 @pytest.mark.asyncio

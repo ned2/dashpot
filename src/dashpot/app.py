@@ -67,7 +67,7 @@ from .issue_view import IssueScreen
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
 
-ISSUE_PANE_LABEL = "WORK"
+ISSUE_PANE_LABEL = "ISSUES"
 ISSUE_PANE_STATE_CLASSES = (
     "-issue-open",
     "-issue-completed",
@@ -200,7 +200,7 @@ class DashpotApp(App[None]):
                     yield Static(issue_result_count_text(0), id="issue-count")
                 yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
         yield Static("", id="alert")
-        yield Static("No diagnostics", id="diagnostics")
+        yield Static("", id="diagnostics")
         yield Footer()
 
     def queue_table(self) -> DataTable[TableCell]:
@@ -680,11 +680,11 @@ class DashpotApp(App[None]):
             )
             for entry in self.store.diagnostics()
         )
+        # The Diagnostics box takes no space at all while there is nothing to
+        # report; `-has-messages` both colours it and displays it.
         diagnostics = self.main_screen.query_one("#diagnostics", Static)
         diagnostics.set_class(bool(messages), "-has-messages")
-        diagnostics.update(
-            "\n".join(f"! {message}" for message in messages) or "No diagnostics"
-        )
+        diagnostics.update("\n".join(f"! {message}" for message in messages))
         self.update_alert()
 
     def update_alert(self) -> None:

@@ -29,7 +29,7 @@ Screen {
 #selection-pane {
     width: 1fr;
     height: 1fr;
-    border: panel $primary-darken-2;
+    border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;
 }
@@ -40,29 +40,29 @@ Screen {
 
 /* GitHub Primer StateLabel emphasis colors. */
 #selection-pane.-issue-open {
-    border: panel #1f883d;
+    border: round #1f883d;
 }
 
 #selection-pane.-issue-completed {
-    border: panel #8250df;
+    border: round #8250df;
 }
 
 #selection-pane.-issue-not-planned,
 #selection-pane.-issue-duplicate {
-    border: panel #59636e;
+    border: round #59636e;
 }
 
 Screen:dark #selection-pane.-issue-open {
-    border: panel #238636;
+    border: round #238636;
 }
 
 Screen:dark #selection-pane.-issue-completed {
-    border: panel #8957e5;
+    border: round #8957e5;
 }
 
 Screen:dark #selection-pane.-issue-not-planned,
 Screen:dark #selection-pane.-issue-duplicate {
-    border: panel #656c76;
+    border: round #656c76;
 }
 
 Screen.-compact Header {
@@ -173,6 +173,7 @@ DetailRow.-list > .field-value {
 }
 
 #diagnostics {
+    display: none;
     height: auto;
     max-height: 5;
     padding: 0 1;
@@ -182,6 +183,7 @@ DetailRow.-list > .field-value {
 }
 
 #diagnostics.-has-messages {
+    display: block;
     color: $warning;
 }
 

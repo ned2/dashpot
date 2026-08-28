@@ -180,6 +180,7 @@ COLUMN_SPECS = (
     ColumnSpec(
         "title",
         "TITLE",
+        sortable=False,
         update_width=True,
         search_field=IssueSearchField.TITLE,
     ),
