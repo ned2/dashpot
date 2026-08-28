@@ -115,7 +115,7 @@ def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> 
     matching["title"] = "Fix launch controls"
     matching["assignees"] = ["navigation-owner"]
     hidden = issue("I_hidden", "open")
-    hidden["author"] = "navigation-owner"
+    hidden["body"] = "navigation-owner"
     observed = workspace(matching, hidden)
 
     result = query_issue_list(observed, IssueListQuery(text="NAVIGATION-OWNER"))
@@ -132,6 +132,19 @@ def test_text_query_matches_labels_like_the_tracker_feed() -> None:
 
     result = query_issue_list(
         workspace(matching, hidden), IssueListQuery(text='"good first"')
+    )
+
+    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+
+
+def test_text_query_matches_the_author_without_requiring_one() -> None:
+    matching = issue("I_matching", "open")
+    matching["author"] = "octocat"
+    hidden = issue("I_hidden", "open")
+    hidden["author"] = None
+
+    result = query_issue_list(
+        workspace(matching, hidden), IssueListQuery(text="octocat")
     )
 
     assert [row.issue["id"] for row in result.rows] == ["I_matching"]

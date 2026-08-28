@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Literal, cast
 
 from rich.text import Text
@@ -46,6 +47,7 @@ from .issue_table import (
     issue_state_kind,
     searchable_columns,
     sort_key_for_terms,
+    relative_age,
 )
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
@@ -676,7 +678,9 @@ def issue_pane_state_class(context: IssueListRow | None) -> str | None:
     return f"-issue-{issue_state_kind(context.issue)}"
 
 
-def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:
+def selection_detail_items(
+    context: IssueListRow, *, now: datetime | None = None
+) -> tuple[DetailItem, ...]:
     items: list[DetailItem] = []
     if context.issue:
         current = context.issue
@@ -686,6 +690,7 @@ def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:
         ]
         items.extend(
             [
+                DetailItem(issue_byline(current, now=now), kind="heading"),
                 DetailItem(location, "Location"),
                 DetailItem(current["state"], "State"),
                 DetailItem(issue_priority(current), "Priority"),
@@ -716,8 +721,22 @@ def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:
     return tuple(items)
 
 
-def selection_detail_text(context: IssueListRow) -> str:
-    return detail_items_text(selection_detail_items(context))
+def selection_detail_text(
+    context: IssueListRow, *, now: datetime | None = None
+) -> str:
+    return detail_items_text(selection_detail_items(context, now=now))
+
+
+def issue_byline(issue: Issue, *, now: datetime | None = None) -> str:
+    """The feed's framing line: ``#12 opened 3d ago by ned2``."""
+    current = now or datetime.now(timezone.utc)
+    parts = [f"#{issue['number']} opened"]
+    age = relative_age(issue["createdAt"], current)
+    if age:
+        parts.append(age)
+    if issue["author"]:
+        parts.append(f"by {issue['author']}")
+    return " ".join(parts)
 
 
 def project_label(project: ProjectObservation) -> str:

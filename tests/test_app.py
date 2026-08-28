@@ -4,6 +4,7 @@ import asyncio
 import copy
 import json
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, Lock
 
@@ -207,6 +208,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "project",
             "priority",
             "assignees",
+            "author",
             "created",
             "last_action",
             "sessions",
@@ -234,7 +236,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert "test/repo" not in project_detail
         assert "Refresh:" not in project_detail
         assert "Reference:" not in selection_detail
-        assert selection_detail.startswith("Location: ")
+        byline, _, rest = selection_detail.partition("\n")
+        assert byline.startswith("#1 opened ") and byline.endswith(" by ned2")
+        assert rest.startswith("Location: ")
         assert "Status:" not in selection_detail
         assert "Assignees: unassigned" in selection_detail
         assert "Labels: -" in selection_detail
@@ -890,6 +894,44 @@ def test_row_projection_respects_visible_column_order() -> None:
     assert cells[selected_key] == ("First", "ned2", "Test Repository")
 
 
+def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> None:
+    authored = issue("test/repo#1", "Authored")
+    anonymous = issue("test/repo#2", "Anonymous")
+    anonymous["author"] = None
+
+    _contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(authored, anonymous)),
+        columns=("author",),
+    )
+
+    assert "author" not in DEFAULT_COLUMNS
+    assert cells[row_key("issue", authored["id"])] == ("ned2",)
+    assert cells[row_key("issue", anonymous["id"])] == ("-",)
+    values = [
+        cells[row_key("issue", anonymous["id"])][0],
+        cells[row_key("issue", authored["id"])][0],
+    ]
+    ascending = sorted(values, key=sort_key_for_terms((SortTerm("author"),)))
+    assert [str(value) for value in ascending] == ["ned2", "-"]
+
+
+def test_issue_detail_leads_with_the_feed_byline() -> None:
+    now = datetime(2026, 8, 29, 5, 33, 4, tzinfo=timezone.utc)
+    selected_issue = issue("test/repo#12", "Byline")
+    selected_issue["createdAt"] = "2026-08-26T05:33:04Z"
+    context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
+
+    detail = selection_detail_text(context, now=now)
+
+    assert detail.startswith("#12 opened 3d ago by ned2\n")
+
+    selected_issue["author"] = None
+    selected_issue["createdAt"] = "2026-08-29T05:20:00Z"
+    context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
+
+    assert selection_detail_text(context, now=now).startswith("#12 opened 13m ago\n")
+
+
 def test_issue_id_column_uses_the_project_local_number() -> None:
     selected_issue = issue("test/repo#17", "Reference test")
 
@@ -1027,7 +1069,7 @@ def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
 
 def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     assert searchable_columns() == frozenset(
-        {"number", "project", "assignees", "labels", "title"}
+        {"number", "project", "assignees", "labels", "author", "title"}
     )
     sessions = [
         IssueTableCell("Ⅱ10", (10, 0, 10, 0)),

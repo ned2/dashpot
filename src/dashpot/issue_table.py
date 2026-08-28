@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from rich.text import Text
@@ -24,6 +24,7 @@ ColumnKey = Literal[
     "project",
     "priority",
     "assignees",
+    "author",
     "created",
     "last_action",
     "sessions",
@@ -164,6 +165,13 @@ COLUMN_SPECS = (
         update_width=True,
         search_field=IssueSearchField.ASSIGNEES,
     ),
+    ColumnSpec(
+        "author",
+        "AUTHOR",
+        update_width=True,
+        search_field=IssueSearchField.AUTHOR,
+        nulls_last=True,
+    ),
     ColumnSpec("created", "CREATED", nulls_last=True),
     ColumnSpec("last_action", "LAST ACTION", nulls_last=True),
     ColumnSpec("sessions", "SESSIONS"),
@@ -172,7 +180,8 @@ COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
 DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
     key
     for key in COLUMN_KEYS
-    if key not in {"labels", "project", "priority", "assignees", "created"}
+    if key
+    not in {"labels", "project", "priority", "assignees", "author", "created"}
 )
 COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
@@ -369,6 +378,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             "assignees": IssueTableCell(
                 ", ".join(issue["assignees"]) or "unassigned", assignees
             ),
+            "author": optional_text_cell(issue["author"]),
             "created": date_cell(issue["createdAt"]),
             "last_action": date_cell(issue["updatedAt"]),
             "sessions": run_summary_cell(row.session_states),
@@ -383,6 +393,32 @@ def text_cell(value: str) -> IssueTableCell:
 def labels_cell(issue: Issue, project: ProjectObservation) -> LabelsCell:
     colors = project.snapshot.label_colors if project.snapshot else {}
     return LabelsCell(tuple(issue["labels"]), colors)
+
+
+def optional_text_cell(value: str | None) -> IssueTableCell:
+    if value is None:
+        return IssueTableCell("-", None)
+    return text_cell(value)
+
+
+def relative_age(timestamp: str | None, now: datetime) -> str | None:
+    """A tracker-feed style age such as ``just now``, ``5m ago`` or ``3d ago``."""
+    if not timestamp:
+        return None
+    try:
+        then = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    seconds = max(0, int((now - then).total_seconds()))
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
 
 
 def date_cell(timestamp: str | None) -> IssueTableCell:

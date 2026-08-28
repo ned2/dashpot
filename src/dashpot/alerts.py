@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from .collect import ObservationKey
+from .issue_table import relative_age
 from .observation_store import WorkspaceObservationStore
 
 
@@ -142,7 +143,7 @@ def summarize_alerts(
     if stale_issues:
         if len(stale_issues) == 1:
             label, last_good_at = stale_issues[0]
-            age = _age(last_good_at, current)
+            age = relative_age(last_good_at, current)
             detail = f" (last good {age})" if age else ""
             items.append(AlertItem("warning", f"Stale Issues: {label}{detail}"))
         else:
@@ -213,25 +214,6 @@ def _join(labels: Sequence[str], plural: str = "Projects") -> str:
     if len(labels) <= 2:
         return ", ".join(labels)
     return f"{len(labels)} {plural}"
-
-
-def _age(timestamp: str | None, now: datetime) -> str | None:
-    if not timestamp:
-        return None
-    try:
-        then = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if then.tzinfo is None:
-        then = then.replace(tzinfo=timezone.utc)
-    seconds = max(0, int((now - then).total_seconds()))
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{seconds // 60}m ago"
-    if seconds < 86400:
-        return f"{seconds // 3600}h ago"
-    return f"{seconds // 86400}d ago"
 
 
 def _utc_now() -> datetime:
