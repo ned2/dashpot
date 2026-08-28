@@ -140,6 +140,21 @@ def append_label_chips(
     return text
 
 
+def issue_state_chip(issue: Issue, label: str, *, dark: bool) -> Text:
+    """``label`` as a chip whose background is the Issue's state colour.
+
+    The colour is the same one the ISSUE pane border and the state column
+    use, so the chip makes the border's meaning discoverable.
+    """
+    light_color, dark_color = GITHUB_ISSUE_STATE_COLORS[issue_state_kind(issue)]
+    background = (dark_color if dark else light_color).lstrip("#")
+    return Text(
+        f" {label} ",
+        style=f"{chip_foreground(background)} on #{background}",
+        no_wrap=True,
+    )
+
+
 def chip_foreground(background: str) -> str:
     """Black or white text, whichever reads better on the chip colour."""
     red, green, blue = (

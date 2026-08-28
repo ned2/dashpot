@@ -38,7 +38,12 @@ Screen {
     margin-right: 1;
 }
 
-/* GitHub Primer StateLabel emphasis colors. */
+/* Only the border line tracks the selected Issue's state (GitHub Primer
+   StateLabel emphasis colors); the title stays in the ordinary text colour. */
+#selection-pane {
+    border-title-color: $foreground;
+}
+
 #selection-pane.-issue-open {
     border: round #1f883d;
 }

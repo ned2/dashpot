@@ -395,15 +395,40 @@ async def test_selection_pane_tracks_github_issue_state_colors(
         assert isinstance(state_cell, IssueStateCell)
         assert state_cell.plain == "■"
         assert str(state_cell.style).casefold() == dark_color
+        # Only the border line carries the state colour: the title keeps the
+        # ordinary text colour, and the State value is a chip on that colour.
+        assert pane.styles.border_title_color.a == 1
+        assert pane.styles.border_title_color.hex.casefold() != dark_color
+        assert state_chip_background(app) == dark_color
+        assert state_chip_text(app) == state
 
         app.theme = "textual-light"
         await pilot.pause()
 
         assert pane.styles.border_top[1].hex.casefold() == light_color
+        assert state_chip_background(app) == light_color
         light_state_cell = table.get_cell(issue_key, "issue_state")
         assert isinstance(light_state_cell, IssueStateCell)
         assert light_state_cell.plain == "■"
         assert str(light_state_cell.style).casefold() == light_color
+
+
+def state_chip(app: DashpotApp) -> Text:
+    row = next(
+        row
+        for row in app.query_one("#selection-detail", DetailFields).rows
+        if row.item.label == "State"
+    )
+    assert isinstance(row.item.value, Text)
+    return row.item.value
+
+
+def state_chip_text(app: DashpotApp) -> str:
+    return state_chip(app).plain.strip()
+
+
+def state_chip_background(app: DashpotApp) -> str:
+    return str(state_chip(app).style).casefold().split(" on ")[1]
 
 
 @pytest.mark.asyncio

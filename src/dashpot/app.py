@@ -56,6 +56,7 @@ from .issue_table import (
     is_priority_label,
     issue_activity,
     issue_priority,
+    issue_state_chip,
     issue_state_kind,
     label_chips,
     label_colors,
@@ -659,7 +660,7 @@ class DashpotApp(App[None]):
             selection_title(context)
         )
         self.main_screen.query_one("#selection-detail", DetailFields).update(
-            *selection_detail_items(context)
+            *selection_detail_items(context, dark=self.current_theme.dark)
         )
 
     def set_selection_pane_state(self, context: IssueListRow | None) -> None:
@@ -746,7 +747,7 @@ def issue_pane_state_class(context: IssueListRow | None) -> str | None:
 
 
 def selection_detail_items(
-    context: IssueListRow, *, now: datetime | None = None
+    context: IssueListRow, *, now: datetime | None = None, dark: bool = True
 ) -> tuple[DetailItem, ...]:
     items: list[DetailItem] = []
     if context.issue:
@@ -757,7 +758,9 @@ def selection_detail_items(
             [
                 DetailItem(issue_byline(current, now=now), kind="heading"),
                 DetailItem(location, "Location"),
-                DetailItem(current["state"], "State"),
+                DetailItem(
+                    issue_state_chip(current, current["state"], dark=dark), "State"
+                ),
                 DetailItem(issue_priority(current), "Priority"),
                 DetailItem(
                     ", ".join(current["assignees"]) or "unassigned",

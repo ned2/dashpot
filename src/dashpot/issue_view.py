@@ -24,6 +24,7 @@ from .issue_table import (
     is_priority_label,
     issue_activity,
     issue_priority,
+    issue_state_chip,
     issue_state_kind,
     label_chips,
     label_colors,
@@ -74,7 +75,9 @@ class IssueScreen(Screen[None]):
                         markup=False,
                     )
             yield DetailFields(
-                *issue_metadata_items(self.context, now=self.now),
+                *issue_metadata_items(
+                    self.context, now=self.now, dark=self.app.current_theme.dark
+                ),
                 id="issue-view-metadata",
                 classes="issue-view-metadata",
             )
@@ -127,7 +130,7 @@ def issue_state_label(issue: Issue) -> str:
 
 
 def issue_metadata_items(
-    context: IssueListRow, *, now: datetime | None = None
+    context: IssueListRow, *, now: datetime | None = None, dark: bool = True
 ) -> tuple[DetailItem, ...]:
     """Every applicable profile fact for the metadata pane.
 
@@ -140,7 +143,9 @@ def issue_metadata_items(
     current = now or datetime.now(UTC)
     labels = [label for label in issue["labels"] if not is_priority_label(label)]
     items: list[DetailItem] = [
-        DetailItem(issue_state_label(issue), "State"),
+        DetailItem(
+            issue_state_chip(issue, issue_state_label(issue), dark=dark), "State"
+        ),
         DetailItem(issue["author"] or "-", "Author"),
         DetailItem(", ".join(issue["assignees"]) or "unassigned", "Assignees"),
         DetailItem(label_chips(labels, label_colors(context.project)), "Labels"),
