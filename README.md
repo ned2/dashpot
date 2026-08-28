@@ -189,32 +189,36 @@ Installing Dashpot provides the no-stdout `dashpot-codex-hook` publisher.
 [`examples/codex-hooks.json`](examples/codex-hooks.json) shows the opt-in Codex
 hook configuration. No hook is installed automatically.
 
-Start an Issue-bound Codex session by passing its opaque Issue Identity:
+The hook reports session lifecycle only: which Codex sessions are alive at a
+worktree and whether they are running or waiting. Hook records are stored under
+the platform's normal application-state location; set `DASHPOT_STATE_DIR` to
+override it.
+
+## Issue work opt-in
+
+An agent session declares which Issue it is working on from inside the
+session, at the worktree where the work happens:
 
 ```bash
-DASHPOT_ISSUE_ID=I_kwDOUEerrs8AAAABOSTptQ codex
+dashpot work start '#123'      # an Issue Number, or a full Issue Reference
+dashpot work show              # list active Issue work at this worktree
+dashpot work stop              # end this session's run; the session stays alive
 ```
 
-An Issue Reference can be supplied as a one-time human-facing hint when the
-identity is not convenient:
-
-```bash
-DASHPOT_ISSUE_REF=owner/repository#123 codex
-```
-
-Dashpot resolves explicit Reference hints, or an `issue/...` branch convention,
-only when they identify exactly one Issue in the Agent Run's observed Project.
-It then atomically persists the resulting Issue Identity. Ambiguous, stale, or
-temporarily unverifiable hints remain unbound and produce diagnostics rather
-than guesses. Once established, the binding survives repository renames, Issue
+`dashpot work start` resolves the Reference against the Project configured at
+that worktree, requires it to identify exactly one currently observed Issue,
+and atomically records the resulting durable Issue Identity in the Project-local
+Work Store (`.dashpot/state/work/`). Running `start` again switches the session
+to a new Issue. Once recorded, the binding survives repository renames, Issue
 Reference edits, Local Issue moves, and transfers between configured Projects.
 The ordinary TUI continues to show current References; raw identities remain in
 headless output and diagnostics.
 
-Hook records are stored under the platform's normal application-state location.
-Set `DASHPOT_STATE_DIR` to override it. Dashpot reads and validates these records;
-when a hint resolves unambiguously, collection atomically promotes it to a durable
-Issue Identity binding before presenting the relationship.
+The Work Store is the sole authority for Issue association. Collection
+correlates each recorded run with the hook's lifecycle observations by process
+identity; a hook record that carries a global Issue binding (the retired
+`DASHPOT_ISSUE_ID`/`DASHPOT_ISSUE_REF` environment convention) is rejected with
+a diagnostic pointing at `dashpot work start`, never silently combined.
 
 ## Design
 

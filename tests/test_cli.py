@@ -280,3 +280,62 @@ def test_init_command_reports_errors_like_observation(
 
     assert code == 2
     assert "already configured" in capsys.readouterr().err
+
+
+def test_work_start_dispatches_with_reference_and_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli, "start_issue_work", return_value=["started work on #7"]
+    ) as start:
+        code = cli.main(["work", "start", "#7"])
+
+    assert code == 0
+    start.assert_called_once_with(Path.cwd().resolve(), "#7", timeout=10.0)
+    assert "started work on #7" in capsys.readouterr().out
+
+
+def test_work_stop_and_show_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli, "stop_issue_work", return_value=["stopped work on #7"]
+    ) as stop:
+        assert cli.main(["work", "stop"]) == 0
+    stop.assert_called_once_with(Path.cwd().resolve())
+
+    with mock.patch.object(
+        cli, "show_issue_work", return_value=["no active Issue work"]
+    ) as show:
+        assert cli.main(["work", "show"]) == 0
+    show.assert_called_once_with(Path.cwd().resolve())
+
+    output = capsys.readouterr().out
+    assert "stopped work on #7" in output
+    assert "no active Issue work" in output
+
+
+def test_work_errors_are_reported_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli,
+        "start_issue_work",
+        side_effect=RuntimeError("no supported agent session"),
+    ):
+        code = cli.main(["work", "start", "#7"])
+
+    assert code == 2
+    assert "no supported agent session" in capsys.readouterr().err

@@ -13,9 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Sequence, cast
 
-from .agent_bindings import IssueBindingPromotion
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .repository import git, is_within
+from .work_store import WorkStore
 
 
 SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
@@ -241,58 +241,6 @@ class HookRecordStore:
             self._replace(destination, current, session_id)
         return destination
 
-    def promote(
-        self, promotion: IssueBindingPromotion
-    ) -> tuple[bool, Diagnostic | None]:
-        prefix = "codex-session:"
-        if not promotion.agent_run_id.startswith(prefix):
-            return False, self._promotion_diagnostic(
-                promotion,
-                "Agent Run cannot be mapped to a hook session",
-                "agent-issue-binding-conflict",
-            )
-        session_id = promotion.agent_run_id.removeprefix(prefix)
-        if not SESSION_ID.fullmatch(session_id):
-            return False, self._promotion_diagnostic(
-                promotion,
-                "Agent Run has an invalid hook session identifier",
-                "agent-issue-binding-conflict",
-            )
-        destination = self.directory / f"{session_id}.json"
-        try:
-            with self._locked(session_id):
-                current = self._read(destination)
-                if current is None or current.get("version") != 2:
-                    return False, self._promotion_diagnostic(
-                        promotion,
-                        "Hook record changed or disappeared before Issue binding",
-                        "agent-issue-binding-race",
-                    )
-                current_issue_id = optional_string(current.get("issueId"))
-                if current_issue_id == promotion.issue_id:
-                    return True, None
-                if current_issue_id is not None:
-                    return False, self._promotion_diagnostic(
-                        promotion,
-                        "Agent Run is already bound to a different Issue Identity",
-                        "agent-issue-binding-conflict",
-                    )
-                if not self._hint_is_current(current, promotion):
-                    return False, self._promotion_diagnostic(
-                        promotion,
-                        "Issue hint changed before its binding could be persisted",
-                        "agent-issue-binding-race",
-                    )
-                current["issueId"] = promotion.issue_id
-                self._replace(destination, current, session_id)
-                return True, None
-        except (OSError, RuntimeError, json.JSONDecodeError) as exc:
-            return False, self._promotion_diagnostic(
-                promotion,
-                f"Cannot persist Issue binding: {exc}",
-                "agent-issue-binding-race",
-            )
-
     @contextmanager
     def _locked(self, session_id: str) -> Iterator[None]:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -330,42 +278,6 @@ class HookRecordStore:
             if temporary.exists():
                 temporary.unlink()
 
-    @staticmethod
-    def _hint_is_current(
-        record: dict[str, Any], promotion: IssueBindingPromotion
-    ) -> bool:
-        if record.get("lastActivityAt") != promotion.expected_last_activity_at:
-            return False
-        repository_root = optional_string(record.get("repositoryRoot"))
-        if repository_root:
-            target_is_current = (
-                Path(repository_root).resolve()
-                == Path(promotion.expected_observation_target).resolve()
-            )
-        else:
-            cwd = optional_string(record.get("cwd"))
-            target_is_current = bool(
-                cwd
-                and is_within(
-                    Path(cwd).resolve(),
-                    Path(promotion.expected_observation_target).resolve(),
-                )
-            )
-        if not target_is_current:
-            return False
-        if promotion.hint_kind == "reference":
-            return record.get("issueReferenceHint") == promotion.expected_hint
-        return (
-            record.get("issueReferenceHint") is None
-            and record.get("branch") == promotion.expected_hint
-        )
-
-    @staticmethod
-    def _promotion_diagnostic(
-        promotion: IssueBindingPromotion, message: str, code: str
-    ) -> Diagnostic:
-        return Diagnostic(promotion.agent_run_id, "warning", message, code)
-
 
 def publish_hook_event(
     event: dict[str, Any],
@@ -380,48 +292,179 @@ def publish_hook_event(
     )
 
 
-def observe_hook_runs(
+ProcessKey = tuple[int, str]
+
+
+@dataclass(frozen=True, slots=True)
+class HookSessionObservation:
+    run: AgentRun
+    process_key: ProcessKey | None
+
+
+def observe_agent_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     directory: Path | None = None,
     lookup: ProcessLookup = process_info,
     isolated: bool | None = None,
 ) -> tuple[list[AgentRun], list[Diagnostic]]:
+    """Observe Work Store Agent Runs and unmatched hook Agent Sessions."""
+    namespace_isolated = (
+        process_namespace_is_isolated() if isolated is None else isolated
+    )
+    sessions, diagnostics = observe_hook_sessions(
+        targets_by_project, directory, lookup, namespace_isolated
+    )
+    state_by_process: dict[ProcessKey, tuple[RunState, str | None]] = {
+        session.process_key: (session.run.state, session.run.last_activity_at)
+        for session in sessions
+        if session.process_key is not None
+    }
+    work_runs, consumed, work_diagnostics = observe_work_runs(
+        targets_by_project, lookup, namespace_isolated, state_by_process
+    )
+    diagnostics.extend(work_diagnostics)
+    runs = list(work_runs)
+    runs.extend(
+        session.run
+        for session in sessions
+        if session.process_key is None or session.process_key not in consumed
+    )
+    return runs, diagnostics
+
+
+def observe_work_runs(
+    targets_by_project: Mapping[str, Sequence[ObservationTarget]],
+    lookup: ProcessLookup,
+    isolated: bool,
+    state_by_process: Mapping[ProcessKey, tuple[RunState, str | None]],
+) -> tuple[list[AgentRun], set[ProcessKey], list[Diagnostic]]:
+    """Turn each Worktree's active Work Store records into bound Agent Runs."""
+    runs: list[AgentRun] = []
+    consumed: set[ProcessKey] = set()
+    diagnostics: list[Diagnostic] = []
+    sessions_seen: dict[ProcessKey, str] = {}
+    for project_id, targets in sorted(targets_by_project.items()):
+        for target in targets:
+            if target.availability != "available":
+                continue
+            active, store_diagnostics = WorkStore(Path(target.path)).active()
+            diagnostics.extend(store_diagnostics)
+            for work in active:
+                process_key: ProcessKey | None = None
+                if work.session_process is not None:
+                    process_key = (
+                        work.session_process.pid,
+                        work.session_process.started_at,
+                    )
+                    alive = process_is_same(
+                        work.session_process.as_record(), lookup, isolated
+                    )
+                    if alive is False:
+                        diagnostics.append(
+                            Diagnostic(
+                                work.run_id,
+                                "warning",
+                                f"Ignoring orphaned Agent Run for "
+                                f"{work.session_label}: its recorded process "
+                                f"has exited",
+                                "work-session-orphaned",
+                            )
+                        )
+                        continue
+                    if process_key in sessions_seen:
+                        diagnostics.append(
+                            Diagnostic(
+                                work.run_id,
+                                "warning",
+                                f"{work.session_label} has Issue work recorded "
+                                f"at more than one Worktree; each recorded run "
+                                f"is listed",
+                                "work-session-conflict",
+                            )
+                        )
+                    sessions_seen[process_key] = work.run_id
+                observed = (
+                    state_by_process.get(process_key)
+                    if process_key is not None
+                    else None
+                )
+                if observed is not None:
+                    state, last_activity_at = observed
+                else:
+                    state, last_activity_at = "unknown", None
+                if process_key is not None:
+                    consumed.add(process_key)
+                runs.append(
+                    AgentRun(
+                        id=work.run_id,
+                        harness=work.harness,
+                        process_or_session=work.session_label,
+                        state=state,
+                        observation_target=target.path,
+                        observation_project_id=project_id,
+                        branch=work.branch or target.branch,
+                        issue_id=work.issue_id,
+                        issue_reference_hint=work.issue_reference,
+                        working_directory=work.working_directory,
+                        last_activity_at=last_activity_at or work.started_at,
+                    )
+                )
+    return runs, consumed, diagnostics
+
+
+def observe_hook_sessions(
+    targets_by_project: Mapping[str, Sequence[ObservationTarget]],
+    directory: Path | None = None,
+    lookup: ProcessLookup = process_info,
+    isolated: bool | None = None,
+) -> tuple[list[HookSessionObservation], list[Diagnostic]]:
     root = directory or state_directory()
     if not root.exists():
         return [], []
     namespace_isolated = process_namespace_is_isolated() if isolated is None else isolated
-    runs: list[AgentRun] = []
+    sessions: list[HookSessionObservation] = []
     diagnostics: list[Diagnostic] = []
     for path in sorted(root.glob("*.json")):
         try:
             raw: Any = json.loads(path.read_text())
             if not isinstance(raw, dict) or raw.get("version") != 2:
                 raise ValueError("unsupported record shape or version")
-            run, diagnostic = record_to_run(
+            session, record_diagnostics = record_to_session(
                 raw,
                 targets_by_project,
                 lookup,
                 namespace_isolated,
                 expected_session_id=path.stem,
             )
-            if run:
-                runs.append(run)
-            if diagnostic:
-                diagnostics.append(diagnostic)
+            if session:
+                sessions.append(session)
+            diagnostics.extend(record_diagnostics)
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             diagnostics.append(
                 Diagnostic("dashpot-codex-hook", "warning", f"Cannot read {path}: {exc}")
             )
-    return runs, diagnostics
+    return sessions, diagnostics
 
 
-def record_to_run(
+def observe_hook_runs(
+    targets_by_project: Mapping[str, Sequence[ObservationTarget]],
+    directory: Path | None = None,
+    lookup: ProcessLookup = process_info,
+    isolated: bool | None = None,
+) -> tuple[list[AgentRun], list[Diagnostic]]:
+    sessions, diagnostics = observe_hook_sessions(
+        targets_by_project, directory, lookup, isolated
+    )
+    return [session.run for session in sessions], diagnostics
+
+
+def record_to_session(
     raw: dict[str, Any],
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     lookup: ProcessLookup,
     isolated: bool,
     expected_session_id: str | None = None,
-) -> tuple[AgentRun | None, Diagnostic | None]:
+) -> tuple[HookSessionObservation | None, list[Diagnostic]]:
     session_id = optional_string(raw.get("sessionId"))
     event_state = optional_string(raw.get("state"))
     cwd = optional_string(raw.get("cwd"))
@@ -431,53 +474,79 @@ def record_to_run(
         raise ValueError("record sessionId contains unsupported characters")
     if expected_session_id is not None and session_id != expected_session_id:
         raise ValueError("record sessionId does not match its filename")
-    issue_id = validated_optional_issue_value(raw.get("issueId"), "issueId")
-    issue_reference_hint = validated_optional_issue_value(
-        raw.get("issueReferenceHint"), "issueReferenceHint"
-    )
     if event_state == "ended":
-        return None, None
+        return None, []
     if event_state not in {"running", "waiting"}:
         raise ValueError(f"unsupported active state: {event_state!r}")
+    diagnostics: list[Diagnostic] = []
+    # The Work Store is the sole Issue-association authority; a global hook
+    # record carrying a binding is rejected rather than silently combined.
+    if raw.get("issueId") is not None or raw.get("issueReferenceHint") is not None:
+        diagnostics.append(
+            Diagnostic(
+                f"codex-session:{session_id}",
+                "warning",
+                f"Rejecting the global Issue binding recorded for Codex "
+                f"session {session_id}: bindings are Project-local now; run "
+                f"'dashpot work start' from the session instead",
+                "agent-global-binding-rejected",
+            )
+        )
     located, target_diagnostic = locate_observation_target(
         raw, cwd, targets_by_project
     )
     if target_diagnostic:
-        return None, target_diagnostic
+        diagnostics.append(target_diagnostic)
+        return None, diagnostics
     if located is None:
-        return None, None
+        return None, diagnostics
     observation_project_id, target = located
 
     alive = process_is_same(raw.get("sessionProcess"), lookup, isolated)
     if alive is False:
-        return None, Diagnostic(
-            "dashpot-codex-hook",
-            "warning",
-            f"Ignoring orphaned Codex run {session_id}: its recorded process has exited",
+        diagnostics.append(
+            Diagnostic(
+                "dashpot-codex-hook",
+                "warning",
+                f"Ignoring orphaned Codex run {session_id}: its recorded process has exited",
+            )
         )
+        return None, diagnostics
     state: RunState = cast(RunState, event_state) if alive is True else "unknown"
-    diagnostic = None
     if alive is None:
-        diagnostic = Diagnostic(
-            "dashpot-codex-hook",
-            "warning",
-            f"Codex run {session_id} liveness is unknown: host process identity is unavailable",
+        diagnostics.append(
+            Diagnostic(
+                "dashpot-codex-hook",
+                "warning",
+                f"Codex run {session_id} liveness is unknown: host process identity is unavailable",
+            )
         )
+    process_key: ProcessKey | None = None
+    process = raw.get("sessionProcess")
+    if (
+        isinstance(process, dict)
+        and isinstance(process.get("pid"), int)
+        and isinstance(process.get("startedAt"), str)
+    ):
+        process_key = (process["pid"], process["startedAt"])
     return (
-        AgentRun(
-            id=f"codex-session:{session_id}",
-            harness="codex",
-            process_or_session=f"{session_id} hook",
-            state=state,
-            observation_target=target.path,
-            observation_project_id=observation_project_id,
-            branch=optional_string(raw.get("branch")) or target.branch,
-            issue_id=issue_id,
-            issue_reference_hint=issue_reference_hint,
-            working_directory=cwd,
-            last_activity_at=optional_string(raw.get("lastActivityAt")),
+        HookSessionObservation(
+            AgentRun(
+                id=f"codex-session:{session_id}",
+                harness="codex",
+                process_or_session=f"{session_id} hook",
+                state=state,
+                observation_target=target.path,
+                observation_project_id=observation_project_id,
+                branch=optional_string(raw.get("branch")) or target.branch,
+                issue_id=None,
+                issue_reference_hint=None,
+                working_directory=cwd,
+                last_activity_at=optional_string(raw.get("lastActivityAt")),
+            ),
+            process_key,
         ),
-        diagnostic,
+        diagnostics,
     )
 
 

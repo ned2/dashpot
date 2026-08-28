@@ -93,12 +93,30 @@ not persisted Workspace membership or durable identity.
 Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.
 
+**Agent Session**:
+The lifetime of one harness conversation or process, such as a single Codex
+run. A session is never permanently bound to an Issue; its lifecycle state
+(running, waiting, or unknown) is an observation of the session itself.
+
+**Agent Run**:
+A time-bounded period during one Agent Session when it is explicitly working
+on exactly one Issue. Starting, switching, or stopping Issue work begins or
+ends Agent Runs without ending or restarting the session.
+_Avoid_: Agent Run as a synonym for the whole session
+
+**Work Store**:
+The versioned, Project-local record of active Agent Runs beneath a Worktree's
+`.dashpot/state/`. It is the sole authority for which sessions are working on
+which Issues at that Worktree.
+
 **Issue Binding**:
-A durable association between an Agent Run and an Issue by Issue Identity. It
-survives changes to Project membership, Issue Reference, and Issue Location and
-is observed relationship state rather than part of the Issue entity.
+A durable association between an Agent Run and an Issue by Issue Identity,
+created by an explicit opt-in from the running session and stored in the Work
+Store. It survives changes to Project membership, Issue Reference, and Issue
+Location and is observed relationship state rather than part of the Issue
+entity.
 
 **Issue Hint**:
-A mutable Issue Reference or `issue/...` branch convention used only to
-establish an Issue Binding. A hint never becomes identity and must resolve
-unambiguously within the Agent Run's observed Project.
+A mutable Issue Reference used only to establish an Issue Binding at opt-in
+time. A hint never becomes identity and must resolve unambiguously within the
+observed Project.

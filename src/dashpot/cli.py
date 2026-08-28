@@ -13,6 +13,7 @@ from .model import RepositoryAnchor, Workspace, to_jsonable
 from .observation_store import WorkspaceObservationStore
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
+from .work import show_issue_work, start_issue_work, stop_issue_work
 from .workspace import (
     default_workspace_config,
     load_workspaces,
@@ -117,6 +118,30 @@ def build_parser() -> argparse.ArgumentParser:
             "relative path instead of GitHub Issues"
         ),
     )
+    work = subparsers.add_parser(
+        "work",
+        help="opt this running agent session into Issue work",
+        description=(
+            "Start, switch, stop, or show explicit Issue work for the agent "
+            "session enclosing this command, recorded at the current "
+            "Worktree's .dashpot/state/."
+        ),
+    )
+    work_commands = work.add_subparsers(dest="work_command", required=True)
+    start = work_commands.add_parser(
+        "start", help="start or switch this session's Issue work"
+    )
+    start.add_argument(
+        "reference",
+        metavar="REFERENCE",
+        help="Issue Reference, such as owner/repository#12, #12, or a slug",
+    )
+    work_commands.add_parser(
+        "stop", help="end this session's active Issue work"
+    )
+    work_commands.add_parser(
+        "show", help="list active Issue work at this worktree"
+    )
     return parser
 
 
@@ -161,6 +186,19 @@ def create_collector(args: argparse.Namespace) -> WorkspaceCollector:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "work":
+            current = Path.cwd().resolve()
+            if args.work_command == "start":
+                messages = start_issue_work(
+                    current, args.reference, timeout=args.timeout
+                )
+            elif args.work_command == "stop":
+                messages = stop_issue_work(current)
+            else:
+                messages = show_issue_work(current)
+            for message in messages:
+                print(message)
+            return 0
         if args.command == "init":
             for message in initialize_project(
                 Path.cwd().resolve(),

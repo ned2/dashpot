@@ -10,15 +10,15 @@ from pathlib import Path
 from unittest import mock
 
 from dashpot.agents import (
-    HookRecordStore,
     ProcessIdentity,
     nearest_codex_process,
+    observe_agent_runs,
     observe_hook_runs,
     process_info,
     publish_hook_event,
     write_hook_record,
 )
-from dashpot.agent_bindings import IssueBindingPromotion
+from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.collect import ProjectCollector, WorkspaceCollector
 from dashpot.commands import CommandResult
 from dashpot.issue_sources import IssueSource
@@ -320,7 +320,6 @@ class HookObserverTests(unittest.TestCase):
                 "cwd": cwd,
                 "repositoryRoot": repository_root,
                 "branch": "main",
-                "issueReferenceHint": "example/project#7",
                 "event": "Stop" if state == "waiting" else "PreToolUse",
                 "lastActivityAt": "2026-08-24T15:00:00Z",
                 "sessionProcess": process.as_record() if process else None,
@@ -339,7 +338,7 @@ class HookObserverTests(unittest.TestCase):
         )
 
         self.assertEqual("waiting", runs[0].state)
-        self.assertEqual("example/project#7", runs[0].issue_reference_hint)
+        self.assertIsNone(runs[0].issue_reference_hint)
         self.assertEqual([], diagnostics)
 
     def test_linked_worktree_record_is_associated_with_its_target(self) -> None:
@@ -420,19 +419,28 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual([], runs)
         self.assertIn("unsupported record", diagnostics[0].message)
 
-    def test_whitespace_issue_identity_makes_record_invalid(self) -> None:
-        self.write("invalid-identity", "waiting", self.process)
-        path = self.state_dir / "invalid-identity.json"
+    def test_global_issue_binding_is_rejected_not_combined(self) -> None:
+        self.write("globally-bound", "waiting", self.process)
+        path = self.state_dir / "globally-bound.json"
         record = json.loads(path.read_text())
-        record["issueId"] = "not an identity"
+        record["issueId"] = "I_global"
+        record["issueReferenceHint"] = "example/project#7"
         path.write_text(json.dumps(record))
 
         runs, diagnostics = observe_hook_runs(
-            {"project:example": [observation_target()]}, self.state_dir
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
         )
 
-        self.assertEqual([], runs)
-        self.assertIn("issueId must be a whitespace-free", diagnostics[0].message)
+        self.assertEqual(1, len(runs))
+        self.assertIsNone(runs[0].issue_id)
+        self.assertIsNone(runs[0].issue_reference_hint)
+        self.assertEqual(
+            "agent-global-binding-rejected", diagnostics[0].code
+        )
+        self.assertIn("dashpot work start", diagnostics[0].message)
 
     def test_record_session_must_match_filename(self) -> None:
         self.write("actual-session", "waiting", self.process)
@@ -489,181 +497,6 @@ class HookObserverTests(unittest.TestCase):
 
         self.assertFalse((self.state_dir / "invalid-write.json").exists())
 
-    def test_reference_promotion_persists_identity_without_losing_lifecycle(
-        self,
-    ) -> None:
-        event = {
-            "session_id": "promote-me",
-            "cwd": "/repo",
-            "hook_event_name": "Stop",
-        }
-        publish_hook_event(
-            event,
-            self.state_dir,
-            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
-            process=self.process,
-        )
-        observed = json.loads((self.state_dir / "promote-me.json").read_text())
-
-        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(
-            IssueBindingPromotion(
-                "codex-session:promote-me",
-                "I_promoted",
-                "reference",
-                "example/project#7",
-                "/repo",
-                observed["lastActivityAt"],
-            )
-        )
-
-        record = json.loads((self.state_dir / "promote-me.json").read_text())
-        self.assertTrue(succeeded)
-        self.assertIsNone(diagnostic)
-        self.assertEqual("I_promoted", record["issueId"])
-        self.assertEqual("waiting", record["state"])
-        self.assertEqual("Stop", record["event"])
-
-    def test_changed_hint_rejects_stale_promotion_without_losing_new_event(
-        self,
-    ) -> None:
-        base = {"session_id": "racing", "cwd": "/repo"}
-        publish_hook_event(
-            {**base, "hook_event_name": "SessionStart"},
-            self.state_dir,
-            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
-            process=self.process,
-        )
-        observed = json.loads((self.state_dir / "racing.json").read_text())
-        promotion = IssueBindingPromotion(
-            "codex-session:racing",
-            "I_old",
-            "reference",
-            "example/project#7",
-            "/repo",
-            observed["lastActivityAt"],
-        )
-        publish_hook_event(
-            {**base, "hook_event_name": "Stop"},
-            self.state_dir,
-            environ={"DASHPOT_ISSUE_REF": "example/project#8"},
-            process=self.process,
-        )
-
-        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(
-            promotion
-        )
-
-        record = json.loads((self.state_dir / "racing.json").read_text())
-        self.assertFalse(succeeded)
-        self.assertEqual("agent-issue-binding-race", diagnostic.code)
-        self.assertIsNone(record["issueId"])
-        self.assertEqual("example/project#8", record["issueReferenceHint"])
-        self.assertEqual("waiting", record["state"])
-
-    def test_concurrent_event_and_promotion_preserve_both_updates(self) -> None:
-        base = {"session_id": "concurrent", "cwd": "/repo"}
-        publish_hook_event(
-            {**base, "hook_event_name": "SessionStart"},
-            self.state_dir,
-            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
-            process=self.process,
-        )
-        store = HookRecordStore(self.state_dir)
-        observed = json.loads((self.state_dir / "concurrent.json").read_text())
-        promotion = IssueBindingPromotion(
-            "codex-session:concurrent",
-            "I_concurrent",
-            "reference",
-            "example/project#7",
-            "/repo",
-            observed["lastActivityAt"],
-        )
-        barrier = threading.Barrier(3)
-        failures: list[Exception] = []
-        promotion_results: list[tuple[bool, Diagnostic | None]] = []
-
-        def publish() -> None:
-            barrier.wait()
-            try:
-                publish_hook_event(
-                    {**base, "hook_event_name": "Stop"},
-                    self.state_dir,
-                    environ={},
-                    process=self.process,
-                )
-            except Exception as exc:  # pragma: no cover - asserted below.
-                failures.append(exc)
-
-        def promote() -> None:
-            barrier.wait()
-            try:
-                promotion_results.append(store.promote(promotion))
-            except Exception as exc:  # pragma: no cover - asserted below.
-                failures.append(exc)
-
-        publisher = threading.Thread(target=publish)
-        promoter = threading.Thread(target=promote)
-        publisher.start()
-        promoter.start()
-        barrier.wait()
-        publisher.join()
-        promoter.join()
-
-        record = json.loads((self.state_dir / "concurrent.json").read_text())
-        self.assertEqual([], failures)
-        self.assertEqual("waiting", record["state"])
-        succeeded, diagnostic = promotion_results[0]
-        if succeeded:
-            self.assertIsNone(diagnostic)
-            self.assertEqual("I_concurrent", record["issueId"])
-        else:
-            self.assertEqual("agent-issue-binding-race", diagnostic.code)
-            self.assertIsNone(record["issueId"])
-
-    def test_changed_target_rejects_stale_promotion(self) -> None:
-        base = {"session_id": "moved", "cwd": "/repo"}
-        publish_hook_event(
-            {**base, "hook_event_name": "SessionStart"},
-            self.state_dir,
-            environ={"DASHPOT_ISSUE_REF": "example/project#7"},
-            process=self.process,
-        )
-        path = self.state_dir / "moved.json"
-        observed = json.loads(path.read_text())
-        promotion = IssueBindingPromotion(
-            "codex-session:moved",
-            "I_old_project",
-            "reference",
-            "example/project#7",
-            "/repo",
-            observed["lastActivityAt"],
-        )
-        moved = {**observed, "cwd": "/other", "repositoryRoot": "/other"}
-        HookRecordStore(self.state_dir).write(moved)
-
-        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(promotion)
-
-        record = json.loads(path.read_text())
-        self.assertFalse(succeeded)
-        self.assertEqual("agent-issue-binding-race", diagnostic.code)
-        self.assertIsNone(record["issueId"])
-
-    def test_unsafe_promotion_run_id_is_rejected(self) -> None:
-        succeeded, diagnostic = HookRecordStore(self.state_dir).promote(
-            IssueBindingPromotion(
-                "codex-session:../escape",
-                "I_escape",
-                "reference",
-                "example/project#7",
-                "/repo",
-                "2026-08-27T00:00:00Z",
-            )
-        )
-
-        self.assertFalse(succeeded)
-        self.assertEqual("agent-issue-binding-conflict", diagnostic.code)
-        self.assertFalse((self.state_dir.parent / "escape.json").exists())
-
     def test_nearest_codex_process_skips_sandbox_helper(self) -> None:
         sandbox = ProcessIdentity(
             10,
@@ -714,6 +547,160 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual("C", run.call_args.kwargs["env"]["LC_ALL"])
 
 
+class WorkObserverTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.state_dir = self.root / "hooks"
+        self.state_dir.mkdir()
+        self.worktree = self.root / "repo"
+        self.worktree.mkdir()
+        self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def record_work(
+        self,
+        worktree: Path,
+        *,
+        session_key: str = "codex-42-abcd1234",
+        process: ProcessIdentity | None = None,
+    ) -> ActiveWork:
+        process = process or self.process
+        work = ActiveWork(
+            session_key=session_key,
+            harness="codex",
+            session_label=f"codex pid {process.pid}",
+            session_process=SessionProcess(process.pid, process.started_at),
+            issue_id="I_example/project#7",
+            issue_reference="example/project#7",
+            binding_provenance="explicit-reference",
+            started_at="2026-08-24T14:00:00Z",
+            working_directory=str(worktree),
+            branch="feature",
+        )
+        WorkStore(worktree).start(work)
+        return work
+
+    def write_hook(self, session_id: str, state: str, cwd: str) -> None:
+        write_hook_record(
+            {
+                "version": 2,
+                "sessionId": session_id,
+                "harness": "codex",
+                "state": state,
+                "cwd": cwd,
+                "repositoryRoot": cwd,
+                "branch": "main",
+                "event": "Stop" if state == "waiting" else "PreToolUse",
+                "lastActivityAt": "2026-08-24T15:00:00Z",
+                "sessionProcess": self.process.as_record(),
+            },
+            self.state_dir,
+        )
+
+    def targets(self) -> dict[str, list[ObservationTarget]]:
+        return {"project:example": [observation_target(str(self.worktree))]}
+
+    def test_work_run_correlates_hook_session_state_by_process(self) -> None:
+        work = self.record_work(self.worktree)
+        self.write_hook("session-a", "waiting", str(self.worktree))
+
+        runs, diagnostics = observe_agent_runs(
+            self.targets(),
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual(1, len(runs))
+        self.assertEqual(work.run_id, runs[0].id)
+        self.assertEqual("I_example/project#7", runs[0].issue_id)
+        self.assertEqual("waiting", runs[0].state)
+        self.assertEqual("2026-08-24T15:00:00Z", runs[0].last_activity_at)
+        self.assertEqual("feature", runs[0].branch)
+
+    def test_work_run_without_hook_session_has_unknown_state(self) -> None:
+        work = self.record_work(self.worktree)
+
+        runs, diagnostics = observe_agent_runs(
+            self.targets(),
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual("unknown", runs[0].state)
+        self.assertEqual(work.started_at, runs[0].last_activity_at)
+
+    def test_orphaned_work_record_is_skipped_with_warning(self) -> None:
+        self.record_work(self.worktree)
+
+        runs, diagnostics = observe_agent_runs(
+            self.targets(),
+            self.state_dir,
+            lookup=lambda _pid: None,
+            isolated=False,
+        )
+
+        self.assertEqual([], runs)
+        self.assertEqual("work-session-orphaned", diagnostics[0].code)
+
+    def test_hook_session_without_work_record_stays_listed_unbound(self) -> None:
+        self.write_hook("session-b", "running", str(self.worktree))
+
+        runs, diagnostics = observe_agent_runs(
+            self.targets(),
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual("codex-session:session-b", runs[0].id)
+        self.assertIsNone(runs[0].issue_id)
+        self.assertEqual("running", runs[0].state)
+
+    def test_one_session_recorded_at_two_worktrees_is_a_conflict(self) -> None:
+        other = self.root / "repo-linked"
+        other.mkdir()
+        self.record_work(self.worktree)
+        self.record_work(other)
+
+        runs, diagnostics = observe_agent_runs(
+            {
+                "project:example": [
+                    observation_target(str(self.worktree)),
+                    observation_target(str(other)),
+                ]
+            },
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual(2, len(runs))
+        self.assertEqual("work-session-conflict", diagnostics[0].code)
+
+    def test_unavailable_target_work_records_are_not_read(self) -> None:
+        self.record_work(self.worktree)
+        target = observation_target(str(self.worktree))
+        target.availability = "unavailable"
+
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [target]},
+            self.state_dir,
+            lookup=lambda _pid: self.process,
+            isolated=False,
+        )
+
+        self.assertEqual([], runs)
+        self.assertEqual([], diagnostics)
+
+
 class FakeProjectCollector:
     def __init__(self, snapshot: ProjectSnapshot) -> None:
         self.snapshot = snapshot
@@ -761,10 +748,10 @@ class WorkspaceCollectorTests(unittest.TestCase):
         self.assertEqual([run], snapshot.agent_runs)
         self.assertEqual({"I_stable": [run.id]}, snapshot.issue_runs)
 
-    def test_workspace_claims_hint_relationship_only_after_promotion(self) -> None:
+    def test_unbound_hinted_run_stays_unbound_without_promotion(self) -> None:
         current_project = resolved_project("/project-a", "project-a")
         current_issue = issue("owner/repository#15")
-        current_issue["id"] = "I_promoted"
+        current_issue["id"] = "I_observed"
         current_issue["projectId"] = "project-a"
         current_snapshot = project_snapshot("/project-a", [current_issue])
         current_snapshot.project_id = "project-a"
@@ -777,56 +764,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
             observation_project_id="project-a",
             branch="main",
             issue_id=None,
-            issue_reference_hint="owner/repository#15",
-        )
-        promotions: list[IssueBindingPromotion] = []
-
-        def promote(binding):
-            promotions.append(binding)
-            return True, None
-
-        collector = WorkspaceCollector(
-            [current_project],
-            factory=lambda _project, **_kwargs: FakeProjectCollector(
-                current_snapshot
-            ),
-            agent_observer=lambda _targets: ([hinted_run], []),
-            binding_promoter=promote,
-        )
-
-        with mock.patch.object(Path, "is_dir", return_value=True):
-            snapshot = collector.refresh()
-
-        self.assertEqual(1, len(promotions))
-        self.assertEqual({"I_promoted": [hinted_run.id]}, snapshot.issue_runs)
-        self.assertEqual("I_promoted", snapshot.agent_runs[0].issue_id)
-        self.assertIsNone(hinted_run.issue_id)
-        payload = to_jsonable(snapshot)
-        self.assertEqual("I_promoted", payload["agentRuns"][0]["issueId"])
-        self.assertEqual(
-            "project-a", payload["agentRuns"][0]["observationProjectId"]
-        )
-        self.assertEqual(
-            [hinted_run.id], payload["issueRuns"]["I_promoted"]
-        )
-
-    def test_failed_promotion_leaves_hint_unbound_for_that_refresh(self) -> None:
-        current_project = resolved_project("/project-a", "project-a")
-        current_issue = issue("owner/repository#15")
-        current_issue["id"] = "I_not_persisted"
-        current_issue["projectId"] = "project-a"
-        current_snapshot = project_snapshot("/project-a", [current_issue])
-        current_snapshot.project_id = "project-a"
-        hinted_run = AgentRun(
-            id="codex-session:failed-promotion",
-            harness="codex",
-            process_or_session="failed hook",
-            state="running",
-            observation_target="/project-a",
-            observation_project_id="project-a",
-            branch="main",
-            issue_id=None,
-            issue_reference_hint="owner/repository#15",
+            issue_reference_hint=None,
         )
 
         collector = WorkspaceCollector(
@@ -835,23 +773,14 @@ class WorkspaceCollectorTests(unittest.TestCase):
                 current_snapshot
             ),
             agent_observer=lambda _targets: ([hinted_run], []),
-            binding_promoter=lambda promotion: (
-                False,
-                Diagnostic(
-                    promotion.agent_run_id,
-                    "warning",
-                    "record changed",
-                    "agent-issue-binding-race",
-                ),
-            ),
         )
 
         with mock.patch.object(Path, "is_dir", return_value=True):
             snapshot = collector.refresh()
 
-        self.assertEqual({"I_not_persisted": []}, snapshot.issue_runs)
+        self.assertEqual({"I_observed": []}, snapshot.issue_runs)
         self.assertIsNone(snapshot.agent_runs[0].issue_id)
-        self.assertEqual("agent-issue-binding-race", snapshot.diagnostics[0].code)
+        self.assertEqual([], snapshot.diagnostics)
 
     def test_grouped_clone_target_collects_project_once(self) -> None:
         grouped = ResolvedProject(

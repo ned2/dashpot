@@ -7,11 +7,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .agent_bindings import (
-    BindingPromoter,
-    resolve_issue_bindings,
-)
-from .agents import HookRecordStore, observe_hook_runs, state_directory
+from .agent_bindings import bind_issue_runs
+from .agents import observe_agent_runs
 from .github_issues import GitHubIssuesSource
 from .issue_sources import IssueSource, utc_now
 from .local_markdown_issues import LocalMarkdownIssuesSource
@@ -157,7 +154,6 @@ class WorkspaceCollector:
         factory: Callable[..., ProjectCollector] = create_project_collector,
         diagnostics: Sequence[Diagnostic] = (),
         agent_observer: WorkspaceAgentObserver | None = None,
-        binding_promoter: BindingPromoter | None = None,
     ) -> None:
         self.projects = list(projects)
         self.timeout = timeout
@@ -165,11 +161,8 @@ class WorkspaceCollector:
         self.factory = factory
         self.diagnostics = list(diagnostics)
         self.agent_observer = agent_observer or (
-            lambda targets: observe_hook_runs(targets, self.state_dir)
+            lambda targets: observe_agent_runs(targets, self.state_dir)
         )
-        self.binding_promoter = binding_promoter or HookRecordStore(
-            self.state_dir or state_directory()
-        ).promote
         self.collectors: dict[str, ProjectCollector] = {}
         self.refresh_lock = threading.Lock()
 
@@ -207,11 +200,7 @@ class WorkspaceCollector:
                     "agent-observation",
                 )
             ]
-        binding_result = resolve_issue_bindings(
-            projects,
-            agent_runs,
-            self.binding_promoter,
-        )
+        binding_result = bind_issue_runs(projects, agent_runs)
         return WorkspaceSnapshot(
             collected_at=utc_now(),
             elapsed_ms=round((time.monotonic() - started) * 1000),
