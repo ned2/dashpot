@@ -28,6 +28,7 @@ from dashpot.issue_table import (
     IssueStateCell,
     IssueTableCell,
     IssueTableViewState,
+    LabelsCell,
     SortTerm,
     build_rows,
     date_cell,
@@ -202,6 +203,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "issue_state",
             "number",
             "title",
+            "labels",
             "project",
             "priority",
             "assignees",
@@ -213,6 +215,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "issue_state",
             "number",
             "title",
+            "labels",
             "last_action",
             "sessions",
         )
@@ -221,6 +224,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "◉ ↕",
             "ID ↕",
             "TITLE ↕",
+            "LABELS ↕",
             "LAST ACTION ↓",
             "SESSIONS ↕",
         ]
@@ -633,6 +637,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "issue_state",
             "number",
             "title",
+            "labels",
             "sessions",
             "last_action",
             "priority",
@@ -937,6 +942,48 @@ def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> Non
     assert descending[2] is timestamps[0]
 
 
+def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> None:
+    labelled = issue("test/repo#1", "Labelled")
+    labelled["labels"] = ["bug", "enhancement", "zeta"]
+    bare = issue("test/repo#2", "Bare")
+    bare["labels"] = []
+    snapshot = workspace_snapshot(labelled, bare)
+    snapshot.projects[0].snapshot.label_colors = {
+        "bug": "d73a4a",
+        "enhancement": "a2eeef",
+    }
+
+    _contexts, cells = build_rows(
+        query_issue_list(snapshot), columns=("labels",)
+    )
+
+    chips = cells[row_key("issue", labelled["id"])][0]
+    assert isinstance(chips, LabelsCell)
+    assert chips.plain == " bug   enhancement   zeta "
+    assert chips.sort_value == ("bug", "enhancement", "zeta")
+    styles = [str(span.style) for span in chips.spans]
+    assert styles == [
+        "#ffffff on #d73a4a",
+        "#000000 on #a2eeef",
+        "#ffffff on #6e7781",
+    ]
+    empty = cells[row_key("issue", bare["id"])][0]
+    assert isinstance(empty, LabelsCell)
+    assert empty.plain == "-"
+    assert empty.sort_value is None
+
+    ascending = sorted(
+        [empty, chips], key=sort_key_for_terms((SortTerm("labels"),))
+    )
+    assert ascending == [chips, empty]
+    descending = sorted(
+        [empty, chips],
+        key=sort_key_for_terms((SortTerm("labels", descending=True),)),
+        reverse=True,
+    )
+    assert descending == [chips, empty]
+
+
 def test_local_markdown_number_is_the_table_id() -> None:
     document = (
         ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
@@ -983,7 +1030,7 @@ def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
 
 def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     assert searchable_columns() == frozenset(
-        {"number", "project", "assignees", "title"}
+        {"number", "project", "assignees", "labels", "title"}
     )
     sessions = [
         IssueTableCell("Ⅱ10", (10, 0, 10, 0)),
@@ -1034,7 +1081,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 5
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 6
     assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
     assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"
     detail = selection_detail_text(contexts[selected_key])

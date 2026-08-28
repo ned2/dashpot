@@ -118,6 +118,11 @@ class EmptySource(IssueSource):
         return []
 
 
+class PaletteSource(FakeSource):
+    def _collect_label_colors(self) -> dict[str, str]:
+        return {"enhancement": "a2eeef"}
+
+
 class CountingSource(FakeSource):
     def __init__(self) -> None:
         super().__init__()
@@ -168,6 +173,21 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual("project:example", snapshot.project_id)
         self.assertEqual("Example", snapshot.display_label)
         self.assertEqual("/repo", snapshot.observation_targets[0].path)
+        self.assertEqual({}, snapshot.label_colors)
+
+    def test_source_label_palette_travels_with_the_snapshot(self) -> None:
+        collector = ProjectCollector(
+            resolved_project(),
+            PaletteSource(),
+            target_observer=lambda _anchors: target_inventory(),
+        )
+
+        snapshot = collector.refresh()
+
+        self.assertEqual({"enhancement": "a2eeef"}, snapshot.label_colors)
+        self.assertEqual(
+            {"enhancement": "a2eeef"}, to_jsonable(snapshot)["labelColors"]
+        )
 
     def test_empty_issue_project_retains_identity_and_display_label(self) -> None:
         collector = ProjectCollector(

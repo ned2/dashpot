@@ -8,9 +8,9 @@
   "stateReason": null,
   "labels": {
     "nodes": [
-      { "name": "priority/P1" },
-      { "name": "enhancement" },
-      { "name": "needs-triage" }
+      { "name": "priority/P1", "color": "B60205" },
+      { "name": "enhancement", "color": "a2eeef" },
+      { "name": "needs-triage", "color": "ededed" }
     ],
     "pageInfo": { "hasNextPage": false }
   },

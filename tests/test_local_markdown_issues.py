@@ -63,6 +63,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             attempted_at="2026-08-26T10:00:00Z",
             expected_issues=[expected],
         )
+        self.assertEqual({}, observation.label_colors)
 
     def test_directory_refresh_collects_markdown_files_in_path_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

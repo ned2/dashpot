@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol, Sequence, runtime_checkable
 
@@ -155,6 +155,7 @@ class ProjectCollector:
             observation_targets=target_inventory.targets,
             issues=issue_observation.issues,
             diagnostics=diagnostics,
+            label_colors=dict(issue_observation.label_colors),
             target_status=target_status,
             target_attempted_at=attempted_at,
             target_last_good_at=(
@@ -220,6 +221,7 @@ class _SourceObservation:
     diagnostics: list[Diagnostic]
     project_diagnostics: list[Diagnostic]
     elapsed_ms: int
+    label_colors: dict[str, str] = field(default_factory=dict)
 
     def retained_after_failure(
         self,
@@ -511,6 +513,7 @@ class ObservationCoordinator:
                 diagnostics=_issue_diagnostics(issue_observation),
                 project_diagnostics=[],
                 elapsed_ms=0,
+                label_colors=dict(issue_observation.label_colors),
             )
         try:
             inventory = collector.observe_targets()
@@ -581,6 +584,7 @@ class ObservationCoordinator:
                 observation_targets=deepcopy(targets.data),
                 issues=deepcopy(issues.data),
                 diagnostics=[*issues.diagnostics, *targets.diagnostics],
+                label_colors=dict(issues.label_colors),
                 target_status=targets.status,
                 target_attempted_at=targets.attempted_at,
                 target_last_good_at=targets.last_good_at,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal
@@ -13,13 +13,14 @@ from .issue_list import (
     IssueListRow,
     IssueSearchField,
 )
-from .model import Issue, RunState
+from .model import Issue, ProjectObservation, RunState
 
 
 ColumnKey = Literal[
     "issue_state",
     "number",
     "title",
+    "labels",
     "project",
     "priority",
     "assignees",
@@ -71,11 +72,51 @@ class IssueStateCell(Text):
         ).index(state_kind)
 
 
-TableCell = IssueTableCell | IssueStateCell
+# Chip colour for labels whose tracker supplies no palette.
+NEUTRAL_LABEL_COLOR = "6e7781"
+
+
+class LabelsCell(Text):
+    """Issue labels rendered as coloured chips, like a tracker's feed."""
+
+    __slots__ = ("labels", "sort_value")
+
+    def __init__(
+        self,
+        labels: tuple[str, ...],
+        colors: Mapping[str, str],
+    ) -> None:
+        super().__init__(no_wrap=True)
+        self.labels = labels
+        self.sort_value = (
+            tuple(label.casefold() for label in labels) if labels else None
+        )
+        for index, label in enumerate(labels):
+            if index:
+                self.append(" ")
+            background = colors.get(label, NEUTRAL_LABEL_COLOR)
+            self.append(
+                f" {label} ",
+                style=f"{chip_foreground(background)} on #{background}",
+            )
+        if not labels:
+            self.append("-")
+
+
+def chip_foreground(background: str) -> str:
+    """Black or white text, whichever reads better on the chip colour."""
+    red, green, blue = (
+        int(background[index : index + 2], 16) / 255 for index in (0, 2, 4)
+    )
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    return "#000000" if luminance > 0.55 else "#ffffff"
+
+
+TableCell = IssueTableCell | IssueStateCell | LabelsCell
 
 
 def _cell_sort_key(value: object) -> object:
-    if isinstance(value, (IssueTableCell, IssueStateCell)):
+    if isinstance(value, (IssueTableCell, IssueStateCell, LabelsCell)):
         return value.sort_value
     return value
 
@@ -102,6 +143,13 @@ COLUMN_SPECS = (
         "TITLE",
         update_width=True,
         search_field=IssueSearchField.TITLE,
+    ),
+    ColumnSpec(
+        "labels",
+        "LABELS",
+        update_width=True,
+        search_field=IssueSearchField.LABELS,
+        nulls_last=True,
     ),
     ColumnSpec(
         "project",
@@ -214,6 +262,8 @@ def searchable_columns() -> frozenset[IssueSearchField]:
 
 
 def cells_match(left: TableCell, right: TableCell) -> bool:
+    if isinstance(left, LabelsCell) and isinstance(right, LabelsCell):
+        return left.labels == right.labels and left == right
     if isinstance(left, IssueStateCell) and isinstance(right, IssueStateCell):
         return (
             left.state_kind == right.state_kind
@@ -313,6 +363,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
                 f"#{issue['number']}", issue["number"]
             ),
             "title": text_cell(issue["title"]),
+            "labels": labels_cell(issue, project),
             "project": text_cell(project.display_label),
             "priority": IssueTableCell(priority, int(priority[1:])),
             "assignees": IssueTableCell(
@@ -327,6 +378,11 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
 
 def text_cell(value: str) -> IssueTableCell:
     return IssueTableCell(value, value.casefold())
+
+
+def labels_cell(issue: Issue, project: ProjectObservation) -> LabelsCell:
+    colors = project.snapshot.label_colors if project.snapshot else {}
+    return LabelsCell(tuple(issue["labels"]), colors)
 
 
 def date_cell(timestamp: str | None) -> IssueTableCell:

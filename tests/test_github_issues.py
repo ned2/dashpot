@@ -301,7 +301,16 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         )
         query = runner.calls[0][0][4]
         self.assertIn("states: [OPEN, CLOSED]", query)
+        self.assertIn("nodes { name color }", query)
         self.assertNotIn("tasks.md", query)
+        self.assertEqual(
+            {
+                "priority/P1": "b60205",
+                "enhancement": "a2eeef",
+                "needs-triage": "ededed",
+            },
+            observation.label_colors,
+        )
         self.assertIn(f"repositoryId={REPOSITORY_ID}", runner.calls[0][0])
         self.assertNotIn("owner=ned2", runner.calls[0][0])
 
@@ -409,6 +418,39 @@ class GitHubIssuesSourceTests(unittest.TestCase):
                     actual = observation.issues[0]["relationships"][connection_name]
                 self.assertEqual(sorted([first, later]), actual)
 
+    def test_label_colors_follow_nested_pagination_and_stay_out_of_the_profile(
+        self,
+    ) -> None:
+        record = raw_fixture()
+        record["labels"]["nodes"] = [
+            {"name": "first-label", "color": "0E8A16"},
+            {"name": "no-colour", "color": None},
+            {"name": "bad-colour", "color": "#0e8a16"},
+        ]
+        record["labels"]["pageInfo"] = {"hasNextPage": True, "endCursor": "labels-1"}
+        runner = SequenceRunner(
+            [
+                completed(issue_page([record])),
+                completed(
+                    nested_page([{"name": "later-label", "color": "5319e7"}])
+                ),
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertIn("nodes { name color }", runner.calls[1][0][4])
+        self.assertEqual(
+            {"first-label": "0e8a16", "later-label": "5319e7"},
+            observation.label_colors,
+        )
+        self.assertEqual(
+            ["bad-colour", "first-label", "later-label", "no-colour"],
+            observation.issues[0]["labels"],
+        )
+        self.assertNotIn("labelColors", observation.issues[0])
+
     def test_repeated_nested_cursor_is_a_pagination_diagnostic(self) -> None:
         record = raw_fixture()
         record["labels"]["pageInfo"] = {
@@ -477,6 +519,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         )
         fresh = github.refresh()
         fresh.issues[0]["title"] = "caller mutation"
+        fresh.label_colors["enhancement"] = "000000"
 
         stale = github.refresh()
 
@@ -489,6 +532,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             diagnostic_code="github-rate-limit",
             expected_issues=[expected_fixture()],
         )
+        self.assertEqual("a2eeef", stale.label_colors["enhancement"])
 
     def test_graphql_errors_are_diagnostics_and_partial_data_is_discarded(self) -> None:
         response = json.dumps(

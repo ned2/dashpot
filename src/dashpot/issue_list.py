@@ -19,6 +19,7 @@ class IssueSearchField(StrEnum):
     PROJECT = "project"
     NUMBER = "number"
     ASSIGNEES = "assignees"
+    LABELS = "labels"
     TITLE = "title"
 
     def values(
@@ -30,6 +31,8 @@ class IssueSearchField(StrEnum):
             return (f"#{issue['number']}",)
         if self is IssueSearchField.ASSIGNEES:
             return tuple(str(value) for value in issue.get("assignees", []))
+        if self is IssueSearchField.LABELS:
+            return tuple(str(value) for value in issue.get("labels", []))
         return (str(issue.get("title", "")),)
 
 

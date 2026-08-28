@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -25,6 +26,9 @@ _CONNECTION_FIELDS = {
     "blockedBy": "id",
     "blocking": "id",
 }
+# Extra node fields fetched alongside the identifying field when paginating.
+_CONNECTION_EXTRA_FIELDS = {"labels": ("color",)}
+_LABEL_COLOR = re.compile(r"[0-9a-fA-F]{6}")
 
 _ISSUES_QUERY = """
 query DashpotIssues($repositoryId: ID!, $cursor: String) {
@@ -47,7 +51,7 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {
           state
           stateReason
           labels(first: 100) {
-            nodes { name }
+            nodes { name color }
             pageInfo { hasNextPage endCursor }
           }
           assignees(first: 100) {
@@ -106,6 +110,7 @@ class GitHubIssuesSource(IssueSource):
         self.repository_id = repository_id
         self.timeout = timeout
         self.runner = runner
+        self._label_colors: dict[str, str] = {}
 
     @property
     def name(self) -> str:
@@ -114,10 +119,12 @@ class GitHubIssuesSource(IssueSource):
     def _collect(self) -> list[dict[str, Any]]:
         records = self._collect_issue_nodes()
         issues: list[dict[str, Any]] = []
+        label_colors: dict[str, str] = {}
         seen_issue_ids: set[str] = set()
         seen_issue_numbers: set[int] = set()
         for record in records:
             complete_record = self._complete_nested_connections(record)
+            label_colors.update(_label_colors(complete_record))
             try:
                 issue = normalize_github_issue(
                     complete_record,
@@ -141,7 +148,11 @@ class GitHubIssuesSource(IssueSource):
             seen_issue_ids.add(issue_id)
             seen_issue_numbers.add(issue_number)
             issues.append(issue)
+        self._label_colors = label_colors
         return issues
+
+    def _collect_label_colors(self) -> dict[str, str]:
+        return dict(self._label_colors)
 
     def _collect_issue_nodes(self) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
@@ -376,6 +387,35 @@ def _connection_strings(
     return values
 
 
+def _label_colors(record: Mapping[str, Any]) -> dict[str, str]:
+    """Read the ``name -> rrggbb`` palette from a completely fetched label
+    connection.
+
+    Colour is presentation only, so a missing or malformed colour leaves the
+    label neutral rather than failing the observation.
+    """
+    connection = record.get("labels")
+    if not isinstance(connection, Mapping):
+        return {}
+    nodes = connection.get("nodes")
+    if not isinstance(nodes, list):
+        return {}
+    colors: dict[str, str] = {}
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        name = node.get("name")
+        color = node.get("color")
+        if (
+            isinstance(name, str)
+            and name
+            and isinstance(color, str)
+            and _LABEL_COLOR.fullmatch(color)
+        ):
+            colors[name] = color.lower()
+    return colors
+
+
 def _optional_object_string(
     record: Mapping[str, Any], object_name: str, item_field: str
 ) -> str | None:
@@ -497,11 +537,14 @@ def _next_cursor(end_cursor: Any, seen: set[str], subject: str) -> str:
 
 
 def _nested_connection_query(connection_name: str, item_field: str) -> str:
+    node_fields = " ".join(
+        (item_field, *_CONNECTION_EXTRA_FIELDS.get(connection_name, ()))
+    )
     return (
         "query DashpotIssueConnection($id: ID!, $cursor: String!) { "
         "node(id: $id) { ... on Issue { "
         f"connection: {connection_name}(first: {_PAGE_SIZE}, after: $cursor) {{ "
-        f"nodes {{ {item_field} }} "
+        f"nodes {{ {node_fields} }} "
         "pageInfo { hasNextPage endCursor } "
         "} } } }"
     )

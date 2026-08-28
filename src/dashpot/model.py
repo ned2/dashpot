@@ -69,6 +69,9 @@ class ProjectSnapshot:
     target_status: SourceStatus = "fresh"
     target_attempted_at: str | None = None
     target_last_good_at: str | None = None
+    # Tracker label colours (name -> "rrggbb") for the labels its Issues carry;
+    # empty when the source has no palette.
+    label_colors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
