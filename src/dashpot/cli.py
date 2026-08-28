@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .app import DashpotApp
-from .collect import WorkspaceCollector
+from .collect import ObservationCoordinator
 from .init import initialize_project
 from .integrate import (
     INTEGRATIONS,
@@ -16,7 +16,6 @@ from .integrate import (
     remove_integration,
 )
 from .model import RepositoryAnchor, Workspace, to_jsonable
-from .observation_store import WorkspaceObservationStore
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
 from .work import show_issue_work, start_issue_work, stop_issue_work
@@ -176,7 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def create_collector(args: argparse.Namespace) -> WorkspaceCollector:
+def create_collector(args: argparse.Namespace) -> ObservationCoordinator:
     if args.workspace:
         workspaces = merge_workspaces(args.workspace)
     elif args.config is not None:
@@ -206,7 +205,7 @@ def create_collector(args: argparse.Namespace) -> WorkspaceCollector:
                 )
             workspaces = load_workspaces(inventory)
     resolution = resolve_workspace_projects(workspaces, timeout=args.timeout)
-    return WorkspaceCollector(
+    return ObservationCoordinator(
         resolution.projects,
         timeout=args.timeout,
         state_dir=args.state_dir.expanduser() if args.state_dir else None,
@@ -250,10 +249,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         collector = create_collector(args)
         if args.json or args.compact_json:
-            store = WorkspaceObservationStore(collector.refresh())
+            # The coordinated barrier publishes every observation and then
+            # checkpoints, so headless output stays a single complete snapshot.
             print(
                 json.dumps(
-                    to_jsonable(store.checkpoint()),
+                    to_jsonable(collector.refresh()),
                     indent=None if args.compact_json else 2,
                 )
             )

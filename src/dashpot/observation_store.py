@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from .issue_list import (
     IssueListQuery,
@@ -128,8 +128,18 @@ class WorkspaceObservationStore:
             )
         )
 
-    def replace_project(self, observation: ProjectObservation) -> StoreChange:
-        """Atomically replace one Project while retaining its last good data."""
+    def replace_project(
+        self,
+        observation: ProjectObservation,
+        *,
+        collected_at: str | None = None,
+        elapsed_ms: int | None = None,
+    ) -> StoreChange:
+        """Atomically replace one Project while retaining its last good data.
+
+        ``collected_at``/``elapsed_ms`` optionally record the observation that
+        produced this publish as the Workspace's latest collection metadata.
+        """
         before = self._state
         accepted, _retained = self._preserve_last_good(
             deepcopy(observation), before.projects
@@ -145,6 +155,7 @@ class WorkspaceObservationStore:
                 projects=projects,
                 issues=issues,
                 observation_targets=observation_targets,
+                **_metadata_updates(before, collected_at, elapsed_ms),
             )
         )
 
@@ -152,19 +163,31 @@ class WorkspaceObservationStore:
         self,
         agent_runs: Sequence[AgentRun],
         issue_runs: Mapping[str, Sequence[str]],
+        diagnostics: Sequence[Diagnostic] | None = None,
+        *,
+        collected_at: str | None = None,
+        elapsed_ms: int | None = None,
     ) -> StoreChange:
-        """Atomically replace Agent Runs and their accepted Issue bindings."""
+        """Atomically replace Agent Runs and their accepted Issue bindings.
+
+        Workspace-level ``diagnostics`` (agent observation and binding) are
+        replaced when given; ``None`` leaves the current ones in place.
+        """
         before = self._state
         accepted_agent_runs = _agent_runs_by_id(deepcopy(agent_runs))
         accepted_issue_runs = {
             issue_id: list(run_ids) for issue_id, run_ids in issue_runs.items()
         }
+        updates = _metadata_updates(before, collected_at, elapsed_ms)
+        if diagnostics is not None:
+            updates["diagnostics"] = deepcopy(list(diagnostics))
 
         return self._commit(
             replace(
                 before,
                 agent_runs=accepted_agent_runs,
                 issue_runs=accepted_issue_runs,
+                **updates,
             )
         )
 
@@ -317,6 +340,17 @@ class WorkspaceObservationStore:
         change = _store_change(before, after)
         self._state = after
         return change
+
+
+def _metadata_updates(
+    before: _StoreState, collected_at: str | None, elapsed_ms: int | None
+) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    if collected_at is not None:
+        updates["collected_at"] = collected_at
+    if elapsed_ms is not None:
+        updates["elapsed_ms"] = elapsed_ms
+    return updates
 
 
 def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:

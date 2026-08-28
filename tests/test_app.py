@@ -1306,3 +1306,128 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
             assert pane_title(app, "#selection-pane") == "#1: New result"
     finally:
         collector.release.set()
+
+
+def coordinated_workspace(tmp_path: Path):
+    """A two-Project coordinator whose sources can be paused per Project."""
+    from test_coordinator import Clock, ScriptedCollector, ScriptedSource, resolved
+
+    from dashpot.collect import ObservationCoordinator
+
+    clock = Clock()
+    projects = []
+    collectors: dict[str, ScriptedCollector] = {}
+    for name in ("alpha", "beta"):
+        root = tmp_path / name
+        root.mkdir()
+        projects.append(resolved(root, name))
+        collectors[name] = ScriptedCollector(ScriptedSource(name, clock=clock), root)
+    coordinator = ObservationCoordinator(
+        projects,
+        factory=lambda project, **_kwargs: collectors[project.project_id],
+        agent_observer=lambda _targets: ([], []),
+        clock=clock,
+    )
+    return coordinator, collectors
+
+
+@pytest.mark.asyncio
+async def test_first_published_project_renders_before_a_slow_one(
+    tmp_path: Path,
+) -> None:
+    coordinator, collectors = coordinated_workspace(tmp_path)
+    collectors["beta"].source.release.clear()
+    app = DashpotApp(coordinator, refresh_seconds=0)
+
+    try:
+        async with app.run_test(size=(80, 24)):
+            table = app.query_one("#queue", DataTable)
+            await wait_until(lambda: table.row_count == 1)
+
+            assert not table.loading
+            assert row_key("issue", "I_alpha#1") in app.rows_by_key
+            assert [p.project_id for p in app.store.checkpoint().projects] == [
+                "alpha"
+            ]
+
+            collectors["beta"].source.release.set()
+            await wait_until(lambda: table.row_count == 2)
+
+            assert row_key("issue", "I_beta#1") in app.rows_by_key
+            await wait_until(
+                lambda: app.store.checkpoint().issue_runs
+                == {"I_alpha#1": [], "I_beta#1": []}
+            )
+    finally:
+        collectors["beta"].source.release.set()
+
+
+@pytest.mark.asyncio
+async def test_refresh_targets_the_selected_project_and_shift_r_fans_out(
+    tmp_path: Path,
+) -> None:
+    coordinator, collectors = coordinated_workspace(tmp_path)
+    app = DashpotApp(coordinator, refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)):
+        table = app.query_one("#queue", DataTable)
+        await wait_until(lambda: table.row_count == 2)
+        beta_key = row_key("issue", "I_beta#1")
+        table.move_cursor(row=table.get_row_index(beta_key), animate=False)
+        await wait_until(lambda: app.selected_row_key == beta_key)
+        assert app.current_project_id() == "beta"
+        calls = {name: c.source.calls for name, c in collectors.items()}
+
+        await app.run_action("refresh")
+        await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 1)
+        await asyncio.sleep(0.05)
+
+        assert collectors["alpha"].source.calls == calls["alpha"]
+        assert collectors["beta"].target_calls == 2
+        assert collectors["alpha"].target_calls == 1
+
+        await app.run_action("refresh_workspace")
+        await wait_until(
+            lambda: collectors["alpha"].source.calls == calls["alpha"] + 1
+        )
+        await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 2)
+        assert app.selected_row_key == beta_key
+
+
+@pytest.mark.asyncio
+async def test_one_failed_observation_kind_does_not_hide_the_other(
+    tmp_path: Path,
+) -> None:
+    from dashpot.issue_sources import IssueSourceRefreshError
+
+    coordinator, collectors = coordinated_workspace(tmp_path)
+    app = DashpotApp(coordinator, refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)):
+        table = app.query_one("#queue", DataTable)
+        await wait_until(lambda: table.row_count == 2)
+        collectors["alpha"].source.collections = [
+            IssueSourceRefreshError("github-down", "GitHub is unavailable")
+        ]
+        collectors["alpha"].head = "fresh00"
+        revision = app.store.revision
+
+        def alpha_snapshot():
+            project = app.store.project("alpha")
+            assert project is not None and project.snapshot is not None
+            return project.snapshot
+
+        await app.run_action("refresh_workspace")
+        # Each half lands on its own; wait for both to have been published.
+        await wait_until(
+            lambda: app.store.revision > revision
+            and alpha_snapshot().issue_source_status == "stale"
+            and alpha_snapshot().observation_targets[0].head == "fresh00"
+        )
+
+        assert "GitHub is unavailable" in str(
+            app.query_one("#diagnostics", Static).render()
+        )
+        assert alpha_snapshot().target_status == "fresh"
+        assert table.row_count == 2
+        assert app.ui_error is None

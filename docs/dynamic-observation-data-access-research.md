@@ -50,12 +50,14 @@ queries.
 
 ### Collection
 
-[`WorkspaceCollector.refresh()`](../src/dashpot/collect.py) takes a global lock,
-refreshes up to eight Projects concurrently, waits for every Project result, then
-observes Agent Runs, resolves and persists Issue bindings, and finally returns one
-`WorkspaceSnapshot`. The lock is necessary today because a cancelled Textual
-worker cannot stop its synchronous executor call and each Issue Source owns a
-mutable in-process last-good cache.
+At the time of this research, `WorkspaceCollector.refresh()` took a global
+lock, refreshed up to eight Projects concurrently, waited for every Project
+result, then observed Agent Runs, resolved and persisted Issue bindings, and
+finally returned one `WorkspaceSnapshot`. The lock was necessary because a
+cancelled Textual worker cannot stop its synchronous executor call and each
+Issue Source owns a mutable in-process last-good cache. Stage 3 below has since
+been implemented as the [`ObservationCoordinator`](../src/dashpot/collect.py),
+which keeps that per-source serialization at key granularity.
 
 Each [`ProjectCollector`](../src/dashpot/collect.py) refreshes its Issue Source and
 then discovers and inspects every Git worktree. These have different costs and

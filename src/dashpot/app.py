@@ -4,10 +4,10 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from typing import Protocol, cast
+from typing import Literal, cast
 
 from rich.text import Text
-from textual import events, work
+from textual import events
 from textual.app import App, ComposeResult
 from textual.content import Content
 from textual.containers import Container, Horizontal, Vertical
@@ -17,6 +17,14 @@ from textual.timer import Timer
 from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 
+from .collect import (
+    ObservationKey,
+    ObservationOutcome,
+    ObservationScheduler,
+    ObservationTicket,
+    SnapshotCollector,
+    SnapshotScheduler,
+)
 from .column_editor import IssueColumnEditor
 from .detail_fields import DetailFields, DetailItem, detail_items_text
 from .issue_list import IssueListQuery, IssueListRow
@@ -37,7 +45,7 @@ from .issue_table import (
     searchable_columns,
     sort_key_for_terms,
 )
-from .model import AgentRun, Issue, ProjectObservation, WorkspaceSnapshot
+from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
 
 
@@ -49,23 +57,24 @@ ISSUE_PANE_STATE_CLASSES = (
 )
 
 
-class SnapshotCollector(Protocol):
-    def refresh(self) -> WorkspaceSnapshot: ...
+class ObservationFinished(Message):
+    """One keyed observation ran; the outcome says whether it was accepted."""
 
-
-class WorkspaceRefreshFinished(Message):
     def __init__(
         self,
-        generation: int,
+        ticket: ObservationTicket,
         trigger: str,
-        snapshot: WorkspaceSnapshot | None = None,
+        outcome: ObservationOutcome | None = None,
         error: str | None = None,
     ) -> None:
         super().__init__()
-        self.generation = generation
+        self.ticket = ticket
         self.trigger = trigger
-        self.snapshot = snapshot
+        self.outcome = outcome
         self.error = error
+
+
+RefreshScope = Literal["current", "workspace"]
 
 
 class DashpotApp(App[None]):
@@ -80,6 +89,7 @@ class DashpotApp(App[None]):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
+        ("shift+r", "refresh_workspace", "Refresh all"),
         ("c", "columns", "Columns"),
         ("s", "sort_next", "Sort column"),
         ("shift+s", "reverse_sort", "Reverse sort"),
@@ -87,13 +97,17 @@ class DashpotApp(App[None]):
 
     def __init__(
         self,
-        collector: SnapshotCollector,
+        collector: SnapshotCollector | ObservationScheduler,
         refresh_seconds: float = 15,
         observation_store: WorkspaceObservationStore | None = None,
         issue_view: IssueTableViewState = IssueTableViewState(),
     ) -> None:
         super().__init__()
-        self.collector = collector
+        self.scheduler: ObservationScheduler = (
+            collector
+            if isinstance(collector, ObservationScheduler)
+            else SnapshotScheduler(collector)
+        )
         self.refresh_seconds = refresh_seconds
         self.store = observation_store or WorkspaceObservationStore()
         parsed_search = parse_issue_search(issue_view.query.text)
@@ -103,16 +117,25 @@ class DashpotApp(App[None]):
             if explicit_sort is not None
             else issue_view
         )
-        self.refresh_generation = 0
         self.refresh_timer: Timer | None = None
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
         self.rendered_cells: dict[str, tuple[TableCell, ...]] = {}
-        self.ui_error: str | None = None
+        self.observation_errors: dict[ObservationKey, str] = {}
         self.search_diagnostics = parsed_search.diagnostics
+        # Superseded observations keep their thread until the source returns,
+        # so size the pool for every key rather than one refresh at a time.
         self.refresh_executor = ThreadPoolExecutor(
-            max_workers=2, thread_name_prefix="dashpot-refresh"
+            max_workers=max(2, min(8, len(self.scheduler.keys()))),
+            thread_name_prefix="dashpot-refresh",
         )
+
+    @property
+    def ui_error(self) -> str | None:
+        """The current observation failures, newest last, or None."""
+        if not self.observation_errors:
+            return None
+        return "\n".join(self.observation_errors.values())
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -323,56 +346,98 @@ class DashpotApp(App[None]):
         self.refresh_executor.shutdown(wait=False, cancel_futures=True)
 
     def action_refresh(self) -> None:
+        """Refresh the current Project (the selected row's), or all if none."""
         if self.refresh_timer is not None:
             self.refresh_timer.reset()
-        self.request_refresh("manual")
+        self.request_refresh("manual", scope="current")
 
-    def request_refresh(self, trigger: str) -> None:
-        self.refresh_generation += 1
-        generation = self.refresh_generation
-        self.refresh_workspace(generation, trigger)
+    def action_refresh_workspace(self) -> None:
+        """Fan a refresh out to every Project in the Workspace."""
+        if self.refresh_timer is not None:
+            self.refresh_timer.reset()
+        self.request_refresh("manual", scope="workspace")
 
-    @work(
-        name="workspace refresh",
-        group="refresh",
-        exclusive=True,
-        exit_on_error=False,
-    )
-    async def refresh_workspace(self, generation: int, trigger: str) -> None:
+    def current_project_id(self) -> str | None:
+        row = (
+            self.rows_by_key.get(self.selected_row_key)
+            if self.selected_row_key is not None
+            else None
+        )
+        return row.project.project_id if row is not None else None
+
+    def request_refresh(
+        self, trigger: str, scope: RefreshScope = "workspace"
+    ) -> None:
+        project_id = self.current_project_id() if scope == "current" else None
+        self.schedule_observations(self.scheduler.keys(project_id), trigger)
+
+    def schedule_observations(
+        self, keys: Sequence[ObservationKey], trigger: str
+    ) -> None:
+        for ticket in self.scheduler.request(keys):
+            self.run_worker(
+                self.observe(ticket, trigger),
+                name=f"observe {ticket.key.group}",
+                group=ticket.key.group,
+                exclusive=True,
+                exit_on_error=False,
+            )
+
+    async def observe(self, ticket: ObservationTicket, trigger: str) -> None:
         worker = get_current_worker()
         try:
-            snapshot = await asyncio.get_running_loop().run_in_executor(
-                self.refresh_executor, self.collector.refresh
+            outcome = await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor, self.scheduler.observe, ticket
             )
         except Exception as exc:  # UI boundary: source failures must not exit the app.
             if not worker.is_cancelled:
                 self.post_message(
-                    WorkspaceRefreshFinished(generation, trigger, error=str(exc))
+                    ObservationFinished(ticket, trigger, error=str(exc))
                 )
             return
         if not worker.is_cancelled:
-            self.post_message(
-                WorkspaceRefreshFinished(generation, trigger, snapshot=snapshot)
-            )
+            self.post_message(ObservationFinished(ticket, trigger, outcome=outcome))
 
-    def on_workspace_refresh_finished(self, message: WorkspaceRefreshFinished) -> None:
-        if message.generation != self.refresh_generation:
+    def on_observation_finished(self, message: ObservationFinished) -> None:
+        # A late completion can be dispatched during shutdown, after the
+        # screen's widgets have been unmounted.
+        if (
+            self._closing
+            or self._closed
+            or not self.screen_stack
+            or not self.screen.query("#queue")
+        ):
             return
-        self.query_one("#queue", DataTable).loading = False
+        key = message.ticket.key
         if message.error is not None:
-            self.ui_error = f"Refresh failed: {message.error}"
+            if not self.scheduler.is_current(message.ticket):
+                return
+            self.query_one("#queue", DataTable).loading = False
+            error = f"Refresh failed: {message.error}"
+            self.observation_errors[key] = error
             self.update_diagnostics()
             if message.trigger == "manual":
-                self.notify(self.ui_error, severity="error", title="Dashpot refresh")
+                self.notify(error, severity="error", title="Dashpot refresh")
             return
-        if message.snapshot is not None:
-            self.ui_error = None
-            self.accept_snapshot(message.snapshot)
-
-    def accept_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
-        self.store.replace(snapshot)
+        outcome = message.outcome
+        if outcome is None or not outcome.accepted:
+            return
+        self.observation_errors.pop(key, None)
+        # Publishing happens here, on the UI thread, so the store is never
+        # mutated while a read model is being rendered from it.
+        changes = self.scheduler.publish(self.store)
+        if not changes:
+            self.update_diagnostics()
+            return
+        self.query_one("#queue", DataTable).loading = False
         self.reconcile_rows()
         self.update_diagnostics()
+        # Follow-ups are derived from what was published, not from this
+        # ticket's key: another key's handler may already have published
+        # this one's pending composition.
+        follow_ups = self.scheduler.follow_ups(changes)
+        if follow_ups:
+            self.schedule_observations(follow_ups, message.trigger)
 
     def reconcile_rows(self) -> None:
         table = self.query_one("#queue", DataTable)
@@ -487,9 +552,7 @@ class DashpotApp(App[None]):
             pane.set_class(class_name == state_class, class_name)
 
     def update_diagnostics(self) -> None:
-        messages: list[str] = []
-        if self.ui_error:
-            messages.append(self.ui_error)
+        messages: list[str] = list(self.observation_errors.values())
         messages.extend(f"Search: {message}" for message in self.search_diagnostics)
         messages.extend(
             (

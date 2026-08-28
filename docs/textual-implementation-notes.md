@@ -21,8 +21,8 @@ DashpotApp
 └── Footer
 ```
 
-Keep the headless `WorkspaceCollector` and its snapshots independent of Textual.
-Inject a collector into the app, compose the widget tree once, and update those
+Keep the headless `ObservationCoordinator` and its snapshots independent of
+Textual. Inject a scheduler into the app, compose the widget tree once, and update those
 widgets in place. `compose()` is Textual's preferred startup mechanism; dynamic
 `mount()` is asynchronous and is only guaranteed complete by the next message
 handler unless explicitly awaited. The first slice has no need for that extra
@@ -44,9 +44,8 @@ app without touching GitHub, subprocesses, or the filesystem.
 
 Use a small amount of app-owned state:
 
-- `snapshot: var[WorkspaceSnapshot | None]`
-- `refresh_generation: var[int]`
-- `refreshing: var[bool]`
+- the `WorkspaceObservationStore` that accepted observations are published into
+- `observation_errors`, the latest failure per observation key
 - `selected_row_key: str | None`
 - a non-reactive, wholesale-replaced `rows_by_key` lookup for rendering details
 
@@ -65,10 +64,10 @@ superpowers](https://textual.textualize.io/guide/reactivity/#setting-reactives-w
 The desired flow is:
 
 ```text
-timer / r binding
+timer / r / R bindings ── keyed tickets
        │
        ▼
-refresh worker ── immutable WorkspaceSnapshot / failure message ──▶ App
+one worker per key ── accepted observation / failure message ──▶ App (publish)
                                                                   │
                                          ┌────────────────────────┼──────────┐
                                          ▼                        ▼          ▼
@@ -86,58 +85,61 @@ between a blocking collector and the main-thread UI. [Events and messages](https
 
 ## Refresh concurrency
 
-The collector is synchronous and starts subprocesses, so dispatch it to an
-explicitly owned executor from an async worker rather than running it in a
+Sources are synchronous and start subprocesses, so dispatch them to an
+explicitly owned executor from async workers rather than running them in a
 message or timer handler. Textual notes that a
 handler doing work longer than a few milliseconds prevents other messages from
 being processed. [Workers: concurrency](https://textual.textualize.io/guide/workers/#concurrency)
 
-Use a dedicated worker group:
+Each observation key (`issues:<project>`, `targets:<project>`, `agent-runs:*`)
+gets its own worker group, created with `run_worker()` so the group name can be
+derived from the key:
 
 ```python
-@work(
-    name="workspace refresh",
-    group="refresh",
-    exclusive=True,
-    exit_on_error=False,
-)
-async def refresh_workspace(self, generation: int) -> None:
-    snapshot = await asyncio.get_running_loop().run_in_executor(
-        self.refresh_executor, self.collector.refresh
+for ticket in self.scheduler.request(keys):
+    self.run_worker(
+        self.observe(ticket, trigger),
+        group=ticket.key.group,
+        exclusive=True,
+        exit_on_error=False,
     )
 ```
 
 Owning the bounded executor gives the app an explicit shutdown point and avoids
 coupling test and process shutdown to asyncio's global default executor. Shut it
-down from `on_unmount()` with queued work cancelled.
+down from `on_unmount()` with queued work cancelled. Size it for the number of
+keys: a superseded observation keeps its thread until the source returns.
 
 `exclusive=True` cancels previous workers in the same group, so manual and timed
-refreshes do not compete to update the display. `exit_on_error=False` is important
-for an observer: the Textual default is to exit the app when a worker raises.
-[The `work` decorator API](https://textual.textualize.io/api/work/) and [worker
-error behavior](https://textual.textualize.io/guide/workers/#worker-errors)
+refreshes of one key do not compete, while different keys fan out. `exit_on_error=False`
+is important for an observer: the Textual default is to exit the app when a
+worker raises. [The `work` decorator API](https://textual.textualize.io/api/work/)
+and [worker error behavior](https://textual.textualize.io/guide/workers/#worker-errors)
 
 Cancellation is cooperative at the executor boundary. Cancelling the async
-worker does not stop a collector call already running in a Python thread, so the
+worker does not stop a source call already running in a Python thread, so the
 worker must inspect `get_current_worker().is_cancelled`. Consequently:
 
-1. Increment `refresh_generation` on the UI thread before starting each refresh.
-2. Run only `collector.refresh()` in the worker.
-3. After collection, check `worker.is_cancelled` before posting a result.
-4. Include the generation in the result and discard it on the UI thread unless it
-   equals the current generation.
-5. Keep subprocess timeouts in the collector so shutdown and superseded refreshes
-   are bounded even while a thread is inside a command.
+1. `request()` bumps the key's generation in the coordinator before each
+   observation starts; a ticket carries that generation.
+2. Run only `scheduler.observe(ticket)` in the worker. The coordinator skips a
+   ticket that is already superseded before it starts, and discards its result
+   after it finishes unless the generation is still current.
+3. After observation, check `worker.is_cancelled` before posting a result.
+4. Publish accepted observations into the store on the UI thread, in the
+   result-message handler, so read models never see a store mutated mid-query.
+   Derive follow-up observations (Agent Runs after any Project) from what was
+   published, because another key's handler may have published this one's
+   pending composition.
+5. Keep subprocess timeouts in the sources so shutdown and superseded
+   observations are bounded even while a thread is inside a command.
 
-Also serialize calls at the stateful workspace-collector boundary. Cancelling a
+Also serialize calls per key at the stateful source boundary. Cancelling a
 Textual worker does not terminate its executor call, so a replacement can
 otherwise enter the same source adapter while the cancelled generation is still
-updating its in-memory last-good cache. Serialization still lets independent
-projects fan out inside one generation, while the UI generation check prevents
-the completed older result from being accepted.
-
-The generation check is still necessary: a superseded call may finish after its
-replacement. Post a custom result message and update all UI state in its handler.
+updating its in-memory last-good cache. Per-key locks still let independent
+Projects and kinds fan out, while the generation check prevents the completed
+older result from being accepted.
 
 Set the periodic trigger with `set_interval()` and keep the returned `Timer`.
 Timers can be paused, resumed, reset, and stopped. Reset the interval after a

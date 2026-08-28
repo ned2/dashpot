@@ -63,6 +63,12 @@ class ProjectSnapshot:
     observation_targets: list[ObservationTarget]
     issues: list[Issue]
     diagnostics: list[Diagnostic]
+    # Worktree topology is observed independently of the Issue Source, so its
+    # freshness is reported separately. ``None`` timestamps mean the targets
+    # were never attempted for this snapshot (single-shot collectors).
+    target_status: SourceStatus = "fresh"
+    target_attempted_at: str | None = None
+    target_last_good_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

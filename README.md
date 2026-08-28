@@ -75,8 +75,9 @@ Without arguments, Dashpot observes the current directory when it contains
 Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
 `--workspace` arguments each name one anchor and take precedence; repeat the
 same Workspace name to include independent clones. Use `--config` to select a
-different Workspace inventory. Use `r` to refresh, the arrow keys to move, and
-`q` to quit. The default 15-second polling period can be changed with
+different Workspace inventory. Use `r` to refresh the selected Project, `R` to
+refresh every Project, the arrow keys to move, and `q` to quit. The default
+15-second polling period refreshes the selected Project and can be changed with
 `--refresh-seconds`; zero disables polling.
 
 A Workspace inventory stores named groupings and anchor paths, never discovered
@@ -244,12 +245,21 @@ a diagnostic pointing at `dashpot work start`, never silently combined.
 
 ## Design
 
-`WorkspaceCollector.refresh()` still produces a complete serializable checkpoint,
-but it is no longer the application's retained state. The Textual interface
-accepts collector results into a process-local `WorkspaceObservationStore`, then
-queries source-neutral Issue-list read models carrying a store revision. Headless
-JSON is assembled through the same store's `checkpoint()` interface. Collection
-happens off the UI thread, and the table is reconciled by stable row keys. See
+Observation is scheduled per key rather than as one refresh: each Project's
+Issue Source and its worktree topology are observed independently, and Agent
+Runs are observed once per Workspace whenever a Project has been published. An
+[`ObservationCoordinator`](src/dashpot/collect.py) tracks a generation per key
+so a superseded observation can never overwrite a newer one, retains the last
+good result per key when a refresh fails, and composes each Project from its
+latest accepted halves. The Textual interface publishes every accepted
+observation into a process-local `WorkspaceObservationStore` as soon as it
+lands, then re-queries source-neutral Issue-list read models carrying a store
+revision; a slow GitHub call therefore never delays branch or dirty state.
+`r` refreshes the selected row's Project (or all when nothing is selected) and
+`R` fans out to the whole Workspace. Headless JSON runs a coordinated barrier
+over every key and serializes the store's `checkpoint()`, so it remains one
+complete snapshot. Collection happens off the UI thread, and the table is
+reconciled by stable row keys. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
 

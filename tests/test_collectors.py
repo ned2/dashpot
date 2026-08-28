@@ -20,9 +20,9 @@ from dashpot.agents import (
     write_hook_record,
 )
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
-from dashpot.collect import ProjectCollector, WorkspaceCollector
+from dashpot.collect import ObservationCoordinator, ProjectCollector
 from dashpot.commands import CommandResult
-from dashpot.issue_sources import IssueSource
+from dashpot.issue_sources import IssueSource, IssueSourceObservation
 from dashpot.issue_profile import conform_issue
 from dashpot.model import (
     AgentRun,
@@ -933,14 +933,27 @@ class WorkObserverTests(unittest.TestCase):
 
 
 class FakeProjectCollector:
+    """Serve one prepared snapshot as two independently observed halves."""
+
     def __init__(self, snapshot: ProjectSnapshot) -> None:
         self.snapshot = snapshot
 
-    def refresh(self) -> ProjectSnapshot:
-        return self.snapshot
+    def observe_issues(self) -> IssueSourceObservation:
+        return IssueSourceObservation(
+            status=self.snapshot.issue_source_status,
+            attempted_at=self.snapshot.issue_source_attempted_at,
+            last_good_at=self.snapshot.issue_source_last_good_at,
+            issues=copy.deepcopy(self.snapshot.issues),
+            diagnostics=[],
+        )
+
+    def observe_targets(self) -> ObservationTargetInventory:
+        return ObservationTargetInventory(
+            copy.deepcopy(self.snapshot.observation_targets), []
+        )
 
 
-class WorkspaceCollectorTests(unittest.TestCase):
+class ObservationCoordinatorTests(unittest.TestCase):
     def test_workspace_correlates_run_to_transferred_issue_by_identity(self) -> None:
         project_a = resolved_project("/project-a", "project-a")
         project_b = resolved_project("/project-b", "project-b")
@@ -967,7 +980,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
             snapshot = snapshot_a if project.project_id == "project-a" else snapshot_b
             return FakeProjectCollector(snapshot)
 
-        collector = WorkspaceCollector(
+        collector = ObservationCoordinator(
             [project_a, project_b],
             factory=factory,
             agent_observer=lambda _targets: ([run], []),
@@ -998,7 +1011,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
             issue_reference_hint=None,
         )
 
-        collector = WorkspaceCollector(
+        collector = ObservationCoordinator(
             [current_project],
             factory=lambda _project, **_kwargs: FakeProjectCollector(
                 current_snapshot
@@ -1028,7 +1041,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
             factory_calls.append(current_target)
             return FakeProjectCollector(project_snapshot("/clone-one"))
 
-        collector = WorkspaceCollector(
+        collector = ObservationCoordinator(
             [grouped],
             factory=factory,
             agent_observer=lambda _targets: ([], []),
@@ -1048,7 +1061,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
                 raise RuntimeError("fixture failure")
             return FakeProjectCollector(good_snapshot)
 
-        collector = WorkspaceCollector(
+        collector = ObservationCoordinator(
             [
                 resolved_project("/good", "project:good"),
                 resolved_project("/bad", "project:bad"),
@@ -1067,7 +1080,7 @@ class WorkspaceCollectorTests(unittest.TestCase):
         self.assertIn("fixture failure", snapshot.projects[1].diagnostics[0].message)
 
     def test_agent_observer_failure_does_not_blank_projects(self) -> None:
-        collector = WorkspaceCollector(
+        collector = ObservationCoordinator(
             [resolved_project()],
             factory=lambda _project, **_kwargs: FakeProjectCollector(
                 project_snapshot()
@@ -1091,8 +1104,8 @@ class WorkspaceCollectorTests(unittest.TestCase):
         counter_lock = threading.Lock()
         good_snapshot = project_snapshot()
 
-        class SlowCollector:
-            def refresh(self) -> ProjectSnapshot:
+        class SlowCollector(FakeProjectCollector):
+            def observe_issues(self) -> IssueSourceObservation:
                 nonlocal active, maximum_active
                 with counter_lock:
                     active += 1
@@ -1100,11 +1113,11 @@ class WorkspaceCollectorTests(unittest.TestCase):
                 time.sleep(0.03)
                 with counter_lock:
                     active -= 1
-                return good_snapshot
+                return super().observe_issues()
 
-        collector = WorkspaceCollector(
+        collector = ObservationCoordinator(
             [resolved_project()],
-            factory=lambda _target, **_kwargs: SlowCollector(),  # type: ignore[arg-type]
+            factory=lambda _target, **_kwargs: SlowCollector(good_snapshot),
             agent_observer=lambda _targets: ([], []),
         )
         results: list[ProjectSnapshot] = []
