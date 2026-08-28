@@ -12,7 +12,7 @@ from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnaps
 
 
 IssueState = Literal["open", "closed"]
-RowKind = Literal["issue", "project", "agent-run"]
+RowKind = Literal["issue", "project"]
 
 
 class IssueSearchField(StrEnum):
@@ -48,7 +48,6 @@ class IssueListRow:
     kind: RowKind
     project: ProjectObservation
     issue: Issue | None = None
-    run: AgentRun | None = None
     observed_runs: tuple[AgentRun, ...] = ()
     project_runs: tuple[AgentRun, ...] = ()
     session_states: tuple[RunState, ...] = ()
@@ -115,9 +114,6 @@ def _query_indexed_issue_list(
     issue_id_counts = Counter(
         issue_id for _project_id, issue_id in issues
     )
-    matched_runs = {
-        run_id for run_ids in issue_runs.values() for run_id in run_ids
-    }
     issues_by_project: dict[str, list[Issue]] = {
         project_id: [] for project_id in projects
     }
@@ -149,11 +145,7 @@ def _query_indexed_issue_list(
                 issue, project, query.search_fields, search_terms
             )
         ]
-        project_has_unmatched_run = any(
-            run.id not in matched_runs
-            for run in runs_by_project[project.project_id]
-        )
-        if not visible_issues and not project_has_unmatched_run:
+        if not visible_issues:
             empty_message = (
                 "source unavailable"
                 if project.status == "unavailable"
@@ -198,21 +190,8 @@ def _query_indexed_issue_list(
                     session_states=session_states,
                 )
             )
-    for run in agent_runs.values():
-        if run.id in matched_runs:
-            continue
-        project = projects.get(run.observation_project_id)
-        if project is None:
-            continue
-        rows.append(
-            IssueListRow(
-                row_key("run", run.id),
-                "agent-run",
-                project,
-                run=run,
-                project_runs=runs_by_project[project.project_id],
-            )
-        )
+    # Agent Runs without an Issue Binding are not Work rows; they remain
+    # visible through each Project's observed-run facts (project_runs).
     return IssueListResult(
         tuple(rows),
         matched_issue_count,

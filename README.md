@@ -208,7 +208,9 @@ alone and points out that Codex merges both layers.
 manual Codex configuration.
 
 The hooks report session lifecycle only: which agent sessions are alive at a
-worktree and whether they are running, waiting, or ended. Codex and Claude
+worktree and whether they are running, waiting, or ended. A session that has
+not declared an Issue is not listed as Work; it is counted in the Project's
+`Agents` fact until it opts in with `dashpot work start`. Codex and Claude
 Code sessions are observed side by side with distinct identities, and both may
 work on the same Issue as separate Agent Runs. One user-level installation per
 harness covers every configured repository, including linked worktrees: each

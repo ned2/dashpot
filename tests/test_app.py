@@ -822,7 +822,7 @@ async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
+async def test_unbound_agent_is_counted_on_the_project_not_listed_as_work() -> None:
     run = AgentRun(
         id="codex-session:42",
         harness="codex",
@@ -831,30 +831,21 @@ async def test_unmatched_agent_is_visible_as_its_own_row() -> None:
         observation_target="/repo",
         observation_project_id="project:test-repo",
         branch="main",
-        issue_id="I_raw_identity",
-        issue_reference_hint="owner/repository#404",
+        issue_id=None,
+        issue_reference_hint=None,
     )
-    snapshot = workspace_snapshot(runs=[run])
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"), runs=[run])
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: app.store.revision == 1)
 
-        assert app.selected_row_key == row_key("run", "codex-session:42")
-        assert "Unmatched codex run" in detail_plain(app, "#selection-detail")
-        detail = detail_plain(app, "#selection-detail")
-        assert "owner/repository#404" in detail
-        assert "I_raw_identity" not in detail
-        assert pane_title(app, "#selection-pane") == "AGENT RUN"
-        assert not any(
-            app.query_one("#selection-pane").has_class(class_name)
-            for class_name in (
-                "-issue-open",
-                "-issue-completed",
-                "-issue-not-planned",
-                "-issue-duplicate",
-            )
-        )
+        table = app.query_one("#queue", DataTable)
+        assert table.row_count == 1
+        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert "Agents: 1" in detail_plain(app, "#project-detail")
+        assert "Unmatched" not in detail_plain(app, "#selection-detail")
+        assert pane_title(app, "#selection-pane") == "#1: First"
 
 
 @pytest.mark.asyncio
@@ -1181,35 +1172,6 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
     assert cells[project_key][DEFAULT_COLUMNS.index("title")] == (
         "no open Issues"
     )
-
-
-def test_opaque_issue_identity_cannot_collide_with_unmatched_run_row() -> None:
-    colliding_run_id = "codex-session:42"
-    colliding_issue = issue(f"run:{colliding_run_id}", "Collision proof")
-    colliding_issue["id"] = f"run:{colliding_run_id}"
-    run = AgentRun(
-        id=colliding_run_id,
-        harness="codex",
-        process_or_session="42",
-        state="waiting",
-        observation_target="/repo",
-        observation_project_id="project:test-repo",
-        branch="main",
-        issue_id=None,
-        issue_reference_hint=None,
-    )
-
-    contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(colliding_issue, runs=[run]))
-    )
-
-    assert set(contexts) == set(cells) == {
-        row_key("issue", colliding_issue["id"]),
-        row_key("run", colliding_run_id),
-    }
-    assert cells[row_key("run", colliding_run_id)][
-        DEFAULT_COLUMNS.index("number")
-    ] == "-"
 
 
 def test_opaque_issue_identity_cannot_collide_with_project_placeholder() -> None:

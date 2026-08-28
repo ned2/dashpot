@@ -67,18 +67,31 @@ def test_default_query_returns_open_issues_without_forgetting_observed_count() -
     ]
 
 
-def test_query_joins_bound_runs_and_returns_unmatched_runs() -> None:
+def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
     observed = workspace(issue("I_open", "open"))
     bound = agent_run("bound", issue_id="I_open")
-    unmatched = agent_run("unmatched", issue_id=None)
-    observed.agent_runs = [bound, unmatched]
+    unbound = agent_run("unbound", issue_id=None)
+    observed.agent_runs = [bound, unbound]
     observed.issue_runs["I_open"] = [bound.id]
 
     result = query_issue_list(observed)
 
-    assert [row.kind for row in result.rows] == ["issue", "agent-run"]
+    assert [row.kind for row in result.rows] == ["issue"]
     assert result.rows[0].observed_runs == (bound,)
-    assert result.rows[1].run is unmatched
+    # The unbound session is still a Project fact, not a Work row.
+    assert result.rows[0].project_runs == (bound, unbound)
+
+
+def test_project_with_only_unbound_runs_keeps_its_placeholder_row() -> None:
+    observed = workspace(issue("I_closed", "closed"))
+    unbound = agent_run("unbound", issue_id=None)
+    observed.agent_runs = [unbound]
+
+    result = query_issue_list(observed)
+
+    assert [row.kind for row in result.rows] == ["project"]
+    assert result.rows[0].empty_message == "no open Issues"
+    assert result.rows[0].project_runs == (unbound,)
 
 
 def test_default_query_explains_project_with_only_closed_issues() -> None:

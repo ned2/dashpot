@@ -656,8 +656,6 @@ def project_detail_text(
 def selection_title(context: IssueListRow) -> str:
     if context.issue:
         return f"#{context.issue['number']}: {context.issue['title']}"
-    if context.run:
-        return "AGENT RUN"
     return "SELECTION"
 
 
@@ -715,20 +713,6 @@ def selection_detail_items(context: IssueListRow) -> tuple[DetailItem, ...]:
                         kind="list",
                     )
                 )
-    if context.run:
-        run = context.run
-        items.extend(
-            [
-                DetailItem(f"Unmatched {run.harness} run", kind="heading"),
-                DetailItem(run.id, "Run"),
-                DetailItem(run.state, "State"),
-                DetailItem(run.issue_reference_hint or "-", "Issue hint"),
-                DetailItem(run.observation_target or "-", "Target"),
-                DetailItem(run.branch or "-", "Branch"),
-                DetailItem(run.working_directory or "-", "Directory"),
-                DetailItem(run.last_activity_at or "-", "Activity"),
-            ]
-        )
     return tuple(items)
 
 

@@ -244,31 +244,6 @@ class WorkspaceObservationStore:
             )
         elif row.kind == "issue" and row.issue is not None:
             context = _issue_detail(state, row)
-        elif row.kind == "agent-run" and row.run is not None:
-            remains_unmatched = all(
-                row.run.id not in run_ids
-                for run_ids in state.issue_runs.values()
-            )
-            current_run = (
-                state.agent_runs.get(row.run.id) if remains_unmatched else None
-            )
-            project = (
-                state.projects.get(current_run.observation_project_id)
-                if current_run is not None
-                else None
-            )
-            context = (
-                IssueListRow(
-                    key=row.key,
-                    kind=row.kind,
-                    project=project,
-                    run=current_run,
-                    project_runs=_project_runs(state, project.project_id),
-                    empty_message=row.empty_message,
-                )
-                if project is not None and current_run is not None
-                else None
-            )
         else:
             context = None
         return deepcopy(context)

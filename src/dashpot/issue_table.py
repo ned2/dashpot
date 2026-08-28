@@ -334,20 +334,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             "last_action": date_cell(issue["updatedAt"]),
             "sessions": run_summary_cell(row.session_states),
         }
-    run = row.run
-    if run is None:
-        raise RuntimeError("Issue-list Agent Run row is missing its Agent Run")
-    return {
-        "issue_state": IssueTableCell("-", 99),
-        "number": IssueTableCell("-", float("inf")),
-        "title": text_cell(f"Unmatched {run.harness} run"),
-        "project": text_cell(project.display_label),
-        "priority": IssueTableCell("-", 99),
-        "assignees": IssueTableCell("unassigned", ()),
-        "created": date_cell(None),
-        "last_action": date_cell(None),
-        "sessions": IssueTableCell(run.state, run_state_counts((run.state,))),
-    }
+    raise RuntimeError(f"unsupported Issue-list row kind: {row.kind}")
 
 
 def text_cell(value: str) -> IssueTableCell:
