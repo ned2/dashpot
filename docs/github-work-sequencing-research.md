@@ -42,11 +42,22 @@ For example, `#18 -> #19 -> #3` is a genuine prerequisite chain. `#2` can be
 ranked first without declaring that `#18` is technically blocked by it, unless
 the team explicitly adopts "CI must land before feature work" as a policy.
 
-The current repository does **not** yet use native dependency relationships.
-On 2026-08-28, `gh issue view NUMBER --json blockedBy,blocking` returned empty
-relationships for every open Issue (#2, #3, #4, #5, #12, #17, #18, #19, and
-#20). The dependency statements recently added to Issue bodies are therefore
-human-readable prose, not GitHub's structured relationship data
+The initial live audit on 2026-08-28 found empty native relationships for every
+open Issue: dependency statements existed only as human-readable prose. Native
+relationships were then added after reviewing the issue bodies, including the
+new onboarding Issue #21. The recorded graph is:
+
+```text
+#18 -> #19, #21
+#18 + #19 -> #3, #20
+#19 -> #17
+#18 + #19 + #3 -> #4
+#2 + #18 + #19 + #4 -> #5
+```
+
+#2 is a completed CI gate. #12 remains independent. #18 was deliberately not
+made dependent on #2: landing CI first is a preferred work order, not a
+technical prerequisite
 ([open Issues](https://github.com/ned2/dashpot/issues)).
 
 ## What each GitHub primitive means
