@@ -35,6 +35,30 @@ uv sync --group dev
 uv run pytest -q
 ```
 
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests
+targeting `main`, pushes to `main`, and manual dispatch. It tests the locked
+environment on Ubuntu and macOS under Python 3.11 and 3.14, and builds the
+package once per run. No credentials are provided and no live GitHub collection
+happens in CI; the test suite exercises Issue collection against fakes.
+
+Every CI verification step has an exact local equivalent:
+
+```bash
+# Verify uv.lock matches pyproject.toml
+uv lock --check
+
+# Install the locked development environment
+uv sync --locked --group dev
+
+# Run the full test suite
+uv run pytest -q
+
+# Build the wheel and source distribution into dist/
+uv build
+```
+
 Open the TUI for one or more projects:
 
 ```bash
