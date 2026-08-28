@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -18,7 +19,7 @@ def write_project(
     project_id: str = PROJECT_ID,
     display_label: str = "Dashpot",
     repository_id: str = "repository:dashpot",
-    source: dict | None = None,
+    source: dict[str, Any] | None = None,
 ) -> None:
     (root / ".dashpot").mkdir(parents=True, exist_ok=True)
     (root / ".dashpot" / "config.json").write_text(

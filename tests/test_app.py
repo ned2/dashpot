@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from dashpot.issue_table import ColumnKey
+from dashpot.model import Issue
+from helpers import required, snapshot_of
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison
+
 import asyncio
 import copy
 import json
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
@@ -61,7 +70,7 @@ ISSUE_FIXTURE = json.loads(
 )
 
 
-def issue(reference: str, title: str, priority: str = "P1") -> dict:
+def issue(reference: str, title: str, priority: str = "P1") -> Issue:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["id"] = f"I_{reference}"
     number_text = reference.rpartition("#")[2]
@@ -74,8 +83,14 @@ def issue(reference: str, title: str, priority: str = "P1") -> dict:
     return value
 
 
+def column_sort_key(column: ColumnKey) -> Callable[[object], SupportsRichComparison]:
+    """A column's own ordering, for cells that all carry a sort value."""
+    spec = COLUMNS_BY_KEY[column]
+    return lambda cell: required(spec.sort_key(cell))
+
+
 def workspace_snapshot(
-    *issues: dict,
+    *issues: Issue,
     runs: list[AgentRun] | None = None,
     status: SourceStatus = "fresh",
     diagnostics: list[Diagnostic] | None = None,
@@ -283,7 +298,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert_context_above_full_width_queue(app)
         assert app.query_one("#queue-pane").region.bottom <= diagnostics.region.y
         assert not app.query_one("#diagnostics", Static).has_class("-has-messages")
-    assert asyncio.get_running_loop()._default_executor is None
+    # Private loop state is the only witness that the executor was released.
+    assert asyncio.get_running_loop()._default_executor is None  # ty: ignore[unresolved-attribute]
 
 
 @pytest.mark.asyncio
@@ -360,6 +376,7 @@ async def test_selection_pane_tracks_github_issue_state_colors(
         pane = app.query_one("#selection-pane")
         table = app.query_one("#queue", DataTable)
         issue_key = row_key("issue", selected_issue["id"])
+        assert app.selected_row_key is not None
         selected_context = app.rows_by_key[app.selected_row_key]
         state_cell = table.get_cell(issue_key, "issue_state")
 
@@ -796,11 +813,12 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
     unavailable.issue_runs = {}
     project = unavailable.projects[0]
     project.status = "unavailable"
-    project.snapshot.issue_source_status = "unavailable"
-    project.snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
-    project.snapshot.issue_source_last_good_at = None
-    project.snapshot.issues = []
-    project.snapshot.diagnostics = [
+    project_snapshot = snapshot_of(project)
+    project_snapshot.issue_source_status = "unavailable"
+    project_snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
+    project_snapshot.issue_source_last_good_at = None
+    project_snapshot.issues = []
+    project_snapshot.diagnostics = [
         Diagnostic("github", "error", "GitHub unavailable", "github-command")
     ]
     app = DashpotApp(
@@ -846,7 +864,7 @@ async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
 @pytest.mark.asyncio
 async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
-    target = snapshot.projects[0].snapshot.observation_targets[0]
+    target = snapshot_of(snapshot.projects[0]).observation_targets[0]
     target.availability = "unavailable"
     target.branch = None
     target.detached = False
@@ -1000,7 +1018,7 @@ def test_comments_column_and_detail_show_engagement_only_when_present() -> None:
     discussed = issue("test/repo#1", "Discussed")
     quiet = issue("test/repo#2", "Quiet")
     snapshot = workspace_snapshot(discussed, quiet)
-    snapshot.projects[0].snapshot.issue_activity = {
+    snapshot_of(snapshot.projects[0]).issue_activity = {
         discussed["id"]: IssueActivity(
             comment_count=4,
             linked_pull_requests=[
@@ -1108,7 +1126,7 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
     bare = issue("test/repo#2", "Bare")
     bare["labels"] = []
     snapshot = workspace_snapshot(labelled, bare)
-    snapshot.projects[0].snapshot.label_colors = {
+    snapshot_of(snapshot.projects[0]).label_colors = {
         "bug": "d73a4a",
         "enhancement": "a2eeef",
     }
@@ -1202,7 +1220,7 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
         agent_state_cell(("unknown",)),
     ]
 
-    ordered = sorted(agent_states, key=COLUMNS_BY_KEY["agent_state"].sort_key)
+    ordered = sorted(agent_states, key=column_sort_key("agent_state"))
 
     assert ordered == ["", "?", "Ⅱ", "▶"]
     assert agent_state_cell(("running", "running")) == "▶"
@@ -1210,7 +1228,7 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     assert agent_state_cell(("unknown", "waiting")) == "Ⅱ"
     numbers = [IssueTableCell("#10", 10), IssueTableCell("#2", 2)]
 
-    assert sorted(numbers, key=COLUMNS_BY_KEY["number"].sort_key) == [
+    assert sorted(numbers, key=column_sort_key("number")) == [
         "#2",
         "#10",
     ]
@@ -1222,8 +1240,7 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     ]
 
     assert [
-        cell.state_kind
-        for cell in sorted(states, key=COLUMNS_BY_KEY["issue_state"].sort_key)
+        cell.state_kind for cell in sorted(states, key=column_sort_key("issue_state"))
     ] == ["open", "completed", "not-planned", "duplicate"]
 
 
@@ -1328,9 +1345,10 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
     second.project_id = "project:other-repo"
     second.display_label = "Other Repository"
     second.repository_id = "repository:other-repo"
-    second.snapshot.project_id = second.project_id
-    second.snapshot.display_label = second.display_label
-    second.snapshot.repository_id = second.repository_id
+    second_snapshot = snapshot_of(second)
+    second_snapshot.project_id = second.project_id
+    second_snapshot.display_label = second.display_label
+    second_snapshot.repository_id = second.repository_id
     snapshot.projects.append(second)
 
     contexts, cells = build_rows(query_issue_list(snapshot))
@@ -1392,11 +1410,12 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     second = copy.deepcopy(first)
     second.projects[0].project_id = "project:new-repository"
     second.projects[0].display_label = "New Repository"
-    second.projects[0].snapshot.project_id = "project:new-repository"
-    second.projects[0].snapshot.display_label = "New Repository"
-    second.projects[0].snapshot.issues[0]["projectId"] = "project:new-repository"
-    second.projects[0].snapshot.issues[0]["number"] = 70
-    second.projects[0].snapshot.issues[0]["reference"] = "new/repository#70"
+    second_snapshot = snapshot_of(second.projects[0])
+    second_snapshot.project_id = "project:new-repository"
+    second_snapshot.display_label = "New Repository"
+    second_snapshot.issues[0]["projectId"] = "project:new-repository"
+    second_snapshot.issues[0]["number"] = 70
+    second_snapshot.issues[0]["reference"] = "new/repository#70"
     selected_key = row_key("issue", transferred["id"])
     app = DashpotApp(
         SequenceCollector(second),
@@ -1701,7 +1720,7 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
 @pytest.mark.asyncio
 async def test_simultaneous_states_share_one_line_in_priority_order() -> None:
     stale = workspace_snapshot(issue("test/repo#1", "First"), status="stale")
-    stale.projects[0].snapshot.observation_targets[0].availability = "unavailable"
+    snapshot_of(stale.projects[0]).observation_targets[0].availability = "unavailable"
     app = DashpotApp(
         SequenceCollector(RuntimeError("boom")),
         refresh_seconds=0,
@@ -1750,7 +1769,7 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
 # --- Full-screen Issue view (#27) -------------------------------------------
 
 
-def _issue_view_app(*issues: dict, runs: list[AgentRun] | None = None) -> DashpotApp:
+def _issue_view_app(*issues: Issue, runs: list[AgentRun] | None = None) -> DashpotApp:
     snapshot = workspace_snapshot(*issues, runs=runs)
     return DashpotApp(
         SequenceCollector(snapshot),
@@ -1917,7 +1936,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
     )
     snapshot = workspace_snapshot(parent, child, runs=[run])
     snapshot.issue_runs[child["id"]] = [run.id]
-    snapshot.projects[0].snapshot.issue_activity = {
+    snapshot_of(snapshot.projects[0]).issue_activity = {
         child["id"]: IssueActivity(
             comment_count=2,
             linked_pull_requests=[
@@ -1987,7 +2006,7 @@ def test_detail_panes_render_labels_as_tracker_coloured_chips() -> None:
     labelled = issue("test/repo#1", "Labelled")
     labelled["labels"] = ["bug", "priority/p1"]
     snapshot = workspace_snapshot(labelled)
-    snapshot.projects[0].snapshot.label_colors = {"bug": "d73a4a"}
+    snapshot_of(snapshot.projects[0]).label_colors = {"bug": "d73a4a"}
     context = query_issue_list(snapshot).rows[0]
 
     for items in (

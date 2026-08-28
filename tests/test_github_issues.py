@@ -4,6 +4,7 @@ import copy
 import json
 import unittest
 from pathlib import Path
+from typing import Any
 
 from dashpot.commands import CommandResult
 from dashpot.github_issues import (
@@ -24,15 +25,15 @@ PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 REPOSITORY_ID = "R_kgDOUEerrg"
 
 
-def raw_fixture() -> dict:
+def raw_fixture() -> dict[str, Any]:
     return json.loads(RAW_FIXTURE.read_text())
 
 
-def expected_fixture() -> dict:
+def expected_fixture() -> dict[str, Any]:
     return json.loads(EXPECTED_FIXTURE.read_text())
 
 
-def normalize(record: dict, **overrides) -> dict:
+def normalize(record: dict[str, Any], **overrides: str) -> dict[str, Any]:
     return normalize_github_issue(
         record,
         project_id=overrides.get("project_id", PROJECT_ID),
@@ -40,7 +41,7 @@ def normalize(record: dict, **overrides) -> dict:
     )
 
 
-def issue_record(number: int) -> dict:
+def issue_record(number: int) -> dict[str, Any]:
     record = raw_fixture()
     record["id"] = f"I_issue_{number}"
     record["number"] = number
@@ -49,7 +50,7 @@ def issue_record(number: int) -> dict:
 
 
 def issue_page(
-    nodes: list[dict],
+    nodes: list[dict[str, Any]],
     *,
     has_next_page: bool = False,
     end_cursor: str | None = None,
@@ -76,7 +77,10 @@ def issue_page(
 
 
 def nested_page(
-    nodes: list[dict], *, has_next_page: bool = False, end_cursor: str | None = None
+    nodes: list[dict[str, Any]],
+    *,
+    has_next_page: bool = False,
+    end_cursor: str | None = None,
 ) -> str:
     return json.dumps(
         {

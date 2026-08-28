@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from typing_extensions import override
+
 from .commands import CommandRunner, run_command
 from .issue_profile import IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
@@ -119,9 +121,11 @@ class GitHubIssuesSource(IssueSource):
         self._issue_activity: dict[str, IssueActivity] = {}
 
     @property
+    @override
     def name(self) -> str:
         return "github-issues"
 
+    @override
     def _collect(self) -> list[dict[str, Any]]:
         records = self._collect_issue_nodes()
         issues: list[dict[str, Any]] = []
@@ -160,9 +164,11 @@ class GitHubIssuesSource(IssueSource):
         self._issue_activity = issue_activity
         return issues
 
+    @override
     def _collect_label_colors(self) -> dict[str, str]:
         return dict(self._label_colors)
 
+    @override
     def _collect_issue_activity(self) -> dict[str, IssueActivity]:
         return copy.deepcopy(self._issue_activity)
 
@@ -497,7 +503,9 @@ def _required_object(
     return value
 
 
-def _required(record: Mapping[str, Any], field: str, path: str) -> Any:
+# Raw GitHub JSON: every caller narrows the value it needs through a typed
+# `_required_*` validator.
+def _required(record: Mapping[str, Any], field: str, path: str) -> Any:  # ruff: ignore[any-type]
     if field not in record:
         raise GitHubIssueNormalizationError(
             f"{path}.{field} was not fetched from GitHub"
@@ -505,13 +513,13 @@ def _required(record: Mapping[str, Any], field: str, path: str) -> Any:
     return record[field]
 
 
-def _required_string(value: Any, path: str) -> str:
+def _required_string(value: object, path: str) -> str:
     if not isinstance(value, str) or not value:
         raise GitHubIssueNormalizationError(f"{path} must be a non-empty string")
     return value
 
 
-def _required_string_allow_empty(value: Any, path: str) -> str:
+def _required_string_allow_empty(value: object, path: str) -> str:
     if not isinstance(value, str):
         raise GitHubIssueNormalizationError(f"{path} must be a string")
     return value
@@ -550,12 +558,20 @@ def _response_string(value: Mapping[str, Any], field: str, path: str) -> str:
 
 def _connection_page(
     connection: Mapping[str, Any], path: str
-) -> tuple[list[dict[str, Any]], bool, Any]:
+) -> tuple[list[dict[str, Any]], bool, object]:
     nodes = connection.get("nodes")
-    if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):
+    if not isinstance(nodes, list):
         raise IssueSourceRefreshError(
             "github-malformed-response", f"GitHub {path}.nodes is not an object array"
         )
+    records: list[dict[str, Any]] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise IssueSourceRefreshError(
+                "github-malformed-response",
+                f"GitHub {path}.nodes is not an object array",
+            )
+        records.append(node)
     page_info = connection.get("pageInfo")
     if not isinstance(page_info, Mapping):
         raise IssueSourceRefreshError(
@@ -567,10 +583,10 @@ def _connection_page(
             "github-malformed-response",
             f"GitHub {path}.pageInfo.hasNextPage is not a Boolean",
         )
-    return list(nodes), has_next, page_info.get("endCursor")
+    return records, has_next, page_info.get("endCursor")
 
 
-def _next_cursor(end_cursor: Any, seen: set[str], subject: str) -> str:
+def _next_cursor(end_cursor: object, seen: set[str], subject: str) -> str:
     if not isinstance(end_cursor, str) or not end_cursor:
         raise IssueSourceRefreshError(
             "github-pagination", f"{subject} has another page but no end cursor"
@@ -597,12 +613,13 @@ def _nested_connection_query(connection_name: str, item_field: str) -> str:
     )
 
 
-def _graphql_error_message(errors: Any) -> str:
-    messages = [
-        error.get("message")
-        for error in errors
-        if isinstance(error, Mapping) and isinstance(error.get("message"), str)
-    ]
+def _graphql_error_message(errors: object) -> str:
+    messages: list[str] = []
+    if isinstance(errors, list):
+        for error in errors:
+            message = error.get("message") if isinstance(error, Mapping) else None
+            if isinstance(message, str):
+                messages.append(message)
     return "; ".join(messages) or "GitHub GraphQL request failed"
 
 

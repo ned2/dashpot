@@ -4,6 +4,7 @@ import copy
 import json
 import unittest
 from pathlib import Path
+from typing import Any
 
 from dashpot.issue_profile import (
     IssueProfileError,
@@ -16,7 +17,7 @@ ROOT = Path(__file__).parents[1]
 FIXTURES = ROOT / "conformance" / "issue" / "fixtures"
 
 
-def fixture(name: str) -> dict:
+def fixture(name: str) -> dict[str, Any]:
     return json.loads((FIXTURES / name).read_text())
 
 

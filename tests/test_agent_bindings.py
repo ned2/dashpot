@@ -3,15 +3,17 @@ from __future__ import annotations
 from dashpot.agent_bindings import bind_issue_runs
 from dashpot.model import (
     AgentRun,
+    Issue,
     ProjectObservation,
     ProjectSnapshot,
+    SourceStatus,
 )
 
 NOW = "2026-08-27T00:00:00Z"
 
 
 def project(
-    project_id: str, *issues: dict, status: str = "fresh"
+    project_id: str, *issues: Issue, status: SourceStatus = "fresh"
 ) -> ProjectObservation:
     snapshot = ProjectSnapshot(
         project_id=project_id,

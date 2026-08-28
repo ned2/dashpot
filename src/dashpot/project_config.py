@@ -86,7 +86,7 @@ def _require_keys(value: dict[str, Any], expected: set[str], path: Path) -> None
         raise RuntimeError(f"{path} has unexpected fields: {', '.join(unexpected)}")
 
 
-def _non_empty_string(value: Any, field: str) -> str:
+def _non_empty_string(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise RuntimeError(f"{field} must be a non-empty string")
     return value.strip()

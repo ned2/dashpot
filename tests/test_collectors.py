@@ -7,7 +7,10 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
+
+from typing_extensions import override
 
 from dashpot.agents import (
     ProcessIdentity,
@@ -26,16 +29,17 @@ from dashpot.issue_sources import IssueSource, IssueSourceObservation
 from dashpot.model import (
     AgentRun,
     Diagnostic,
+    Issue,
     IssueActivity,
     LinkedPullRequest,
     ObservationTarget,
     ObservationTargetInventory,
     ProjectSnapshot,
     ResolvedProject,
-    to_jsonable,
 )
 from dashpot.repository import observe_github_repository_identity
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
+from helpers import jsonable, snapshot_of
 
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
@@ -74,7 +78,7 @@ def resolved_project(
 
 
 def project_snapshot(
-    root: str = "/repo", issues: list[dict] | None = None
+    root: str = "/repo", issues: list[Issue] | None = None
 ) -> ProjectSnapshot:
     return ProjectSnapshot(
         project_id="project:example",
@@ -90,7 +94,7 @@ def project_snapshot(
     )
 
 
-def issue(reference: str = "example/project#7") -> dict:
+def issue(reference: str = "example/project#7") -> Issue:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["reference"] = reference
     value["id"] = f"I_{reference}"
@@ -103,26 +107,32 @@ def issue(reference: str = "example/project#7") -> dict:
 
 class FakeSource(IssueSource):
     @property
+    @override
     def name(self) -> str:
         return "fake"
 
-    def _collect(self) -> list[dict]:
+    @override
+    def _collect(self) -> list[Issue]:
         return [issue()]
 
 
 class EmptySource(IssueSource):
     @property
+    @override
     def name(self) -> str:
         return "empty"
 
-    def _collect(self) -> list[dict]:
+    @override
+    def _collect(self) -> list[Issue]:
         return []
 
 
 class PaletteSource(FakeSource):
+    @override
     def _collect_label_colors(self) -> dict[str, str]:
         return {"enhancement": "a2eeef"}
 
+    @override
     def _collect_issue_activity(self) -> dict[str, IssueActivity]:
         return {
             issue()["id"]: IssueActivity(
@@ -139,7 +149,8 @@ class CountingSource(FakeSource):
         super().__init__()
         self.collection_count = 0
 
-    def _collect(self) -> list[dict]:
+    @override
+    def _collect(self) -> list[Issue]:
         self.collection_count += 1
         return super()._collect()
 
@@ -194,10 +205,8 @@ class ProjectCollectorTests(unittest.TestCase):
         snapshot = collector.refresh()
 
         self.assertEqual({"enhancement": "a2eeef"}, snapshot.label_colors)
-        self.assertEqual(
-            {"enhancement": "a2eeef"}, to_jsonable(snapshot)["labelColors"]
-        )
-        activity = to_jsonable(snapshot)["issueActivity"][issue()["id"]]
+        self.assertEqual({"enhancement": "a2eeef"}, jsonable(snapshot)["labelColors"])
+        activity = jsonable(snapshot)["issueActivity"][issue()["id"]]
         self.assertEqual(2, activity["commentCount"])
         self.assertEqual(
             [{"number": 41, "url": "https://example.test/pull/41", "state": "merged"}],
@@ -212,7 +221,7 @@ class ProjectCollectorTests(unittest.TestCase):
         )
 
         snapshot = collector.refresh()
-        payload = to_jsonable(snapshot)
+        payload = jsonable(snapshot)
 
         self.assertEqual([], snapshot.issues)
         self.assertEqual("project:example", payload["projectId"])
@@ -233,7 +242,7 @@ class ProjectCollectorTests(unittest.TestCase):
         complete["relationships"]["parent"] = None
         snapshot = project_snapshot(issues=[complete])
 
-        serialized = to_jsonable(snapshot)["issues"][0]
+        serialized = jsonable(snapshot)["issues"][0]
 
         self.assertEqual(complete, conform_issue(serialized))
         self.assertEqual(complete["number"], serialized["number"])
@@ -283,7 +292,7 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual(1, source.collection_count)
         self.assertEqual(
             "/clone-two-linked",
-            to_jsonable(snapshot)["observationTargets"][0]["path"],
+            jsonable(snapshot)["observationTargets"][0]["path"],
         )
 
     def test_unavailable_target_does_not_degrade_issue_source(self) -> None:
@@ -328,11 +337,13 @@ class ProjectCollectorTests(unittest.TestCase):
 
 
 class HookObserverTests(unittest.TestCase):
+    @override
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.state_dir = Path(self.temporary.name)
         self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
+    @override
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
@@ -695,6 +706,7 @@ class HookObserverTests(unittest.TestCase):
 
 
 class HookRoutingTests(unittest.TestCase):
+    @override
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         # The published record carries resolved paths, so the expected
@@ -706,10 +718,11 @@ class HookRoutingTests(unittest.TestCase):
         self.worktree.mkdir()
         self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
+    @override
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def record(self, state: str, last_activity_at: str) -> dict:
+    def record(self, state: str, last_activity_at: str) -> dict[str, Any]:
         return {
             "version": 2,
             "sessionId": "routed",
@@ -808,6 +821,7 @@ class HookRoutingTests(unittest.TestCase):
 
 
 class WorkObserverTests(unittest.TestCase):
+    @override
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -817,6 +831,7 @@ class WorkObserverTests(unittest.TestCase):
         self.worktree.mkdir()
         self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
+    @override
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
@@ -1132,6 +1147,7 @@ class ObservationCoordinatorTests(unittest.TestCase):
         good_snapshot = project_snapshot()
 
         class SlowCollector(FakeProjectCollector):
+            @override
             def observe_issues(self) -> IssueSourceObservation:
                 nonlocal active, maximum_active
                 with counter_lock:
@@ -1150,7 +1166,7 @@ class ObservationCoordinatorTests(unittest.TestCase):
         results: list[ProjectSnapshot] = []
 
         def refresh() -> None:
-            results.append(collector.refresh().projects[0].snapshot)  # type: ignore[arg-type]
+            results.append(snapshot_of(collector.refresh().projects[0]))
 
         with mock.patch.object(Path, "is_dir", return_value=True):
             first = threading.Thread(target=refresh)

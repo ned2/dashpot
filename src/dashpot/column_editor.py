@@ -7,6 +7,7 @@ from textual.binding import BindingType
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, SelectionList, Static
+from typing_extensions import override
 
 from .issue_table import COLUMN_KEYS, COLUMNS_BY_KEY, ColumnKey
 
@@ -28,6 +29,7 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
         self.column_order = [*visible_columns, *hidden_columns]
         self.initially_visible = frozenset(visible_columns)
 
+    @override
     def compose(self) -> ComposeResult:
         with Vertical(id="column-editor-dialog"):
             yield Static("ISSUE TABLE COLUMNS", id="column-editor-title")

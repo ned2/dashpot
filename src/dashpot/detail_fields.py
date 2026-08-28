@@ -8,6 +8,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Static
+from typing_extensions import override
 
 DetailKind = Literal["field", "heading", "section", "list", "message"]
 
@@ -28,6 +29,7 @@ class DetailRow(Horizontal):
         self.field_value = Static(classes="field-value", markup=False)
         self.item = item
 
+    @override
     def compose(self) -> ComposeResult:
         yield self.field_name
         yield self.field_value
@@ -55,6 +57,7 @@ class DetailFields(VerticalScroll):
         self.items = tuple(items)
         self.rows: list[DetailRow] = []
 
+    @override
     def compose(self) -> ComposeResult:
         for item in self.items:
             row = DetailRow(item)

@@ -200,6 +200,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "textual" },
+    { name = "typing-extensions" },
 ]
 
 [package.dev-dependencies]
@@ -213,7 +214,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "textual", specifier = "==8.2.8" }]
+requires-dist = [
+    { name = "textual", specifier = "==8.2.8" },
+    { name = "typing-extensions", specifier = ">=4.15.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [

@@ -284,7 +284,7 @@ def github_repo_from_remote(root: Path) -> str | None:
     except RuntimeError:
         return None
     match = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$", remote)
-    return match.group(1) if match else None
+    return None if match is None else str(match.group(1))
 
 
 def observe_github_repository_identity(

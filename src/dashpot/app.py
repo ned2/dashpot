@@ -20,6 +20,7 @@ from textual.theme import Theme
 from textual.timer import Timer
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 from textual.worker import get_current_worker
+from typing_extensions import override
 
 from .alerts import summarize_alerts
 from .collect import (
@@ -96,10 +97,9 @@ class DashpotApp(App[None]):
     TITLE = "Dashpot"
     SUB_TITLE = "passive workspace view"
     CSS_PATH = "dashpot.tcss"
-    HORIZONTAL_BREAKPOINTS: ClassVar[list[tuple[int, str]] | None] = [
-        (0, "-compact"),
-        (100, "-wide"),
-    ]
+    # Textual declares this as an instance attribute, so ClassVar is not an
+    # option; the list is never mutated.
+    HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]  # ruff: ignore[mutable-class-default]
     # Keep rendered detail and diagnostic text selectable. Interactive widgets
     # such as DataTable opt out independently so mouse gestures remain theirs.
     ALLOW_SELECT = True
@@ -164,6 +164,7 @@ class DashpotApp(App[None]):
             return None
         return "\n".join(self.observation_errors.values())
 
+    @override
     def compose(self) -> ComposeResult:
         yield Header()
         with Container(id="body"):
@@ -200,12 +201,18 @@ class DashpotApp(App[None]):
         yield Static("No diagnostics", id="diagnostics")
         yield Footer()
 
+    def queue_table(self) -> DataTable[TableCell]:
+        """The Issue table; `query_one` cannot name the cell type itself."""
+        return cast(
+            "DataTable[TableCell]", self.main_screen.query_one("#queue", DataTable)
+        )
+
     def on_mount(self) -> None:
         self.main_screen.query_one("#project-pane").border_title = Content(
             "PROJECT STATUS"
         )
         self.main_screen.query_one("#selection-pane").border_title = Content("ISSUE")
-        table = self.main_screen.query_one("#queue", DataTable)
+        table = self.queue_table()
         self.add_table_columns(table)
         table.focus()
         self.theme_changed_signal.subscribe(self, self.on_theme_changed)
@@ -237,7 +244,7 @@ class DashpotApp(App[None]):
         if columns is None or columns == self.issue_view.columns:
             return
         self.issue_view = self.issue_view.with_columns(columns)
-        table = self.main_screen.query_one("#queue", DataTable)
+        table = self.queue_table()
         table.clear(columns=True)
         self.rows_by_key = {}
         self.rendered_cells = {}
@@ -263,14 +270,14 @@ class DashpotApp(App[None]):
         table: DataTable[TableCell] | None = None,
     ) -> None:
         if table is None:
-            table = self.main_screen.query_one("#queue", DataTable)
+            table = self.queue_table()
         prior_key, prior_index = self.current_selection(table)
         self.issue_view = issue_view
         self.update_sort_headers(table)
         self.sort_rows(table)
         if not table.row_count:
             return
-        if prior_key in self.rows_by_key:
+        if prior_key is not None and prior_key in self.rows_by_key:
             selected_index = table.get_row_index(prior_key)
         else:
             selected_index = min(prior_index, table.row_count - 1)
@@ -325,7 +332,7 @@ class DashpotApp(App[None]):
             return
         self.issue_view = replace(self.issue_view, query=query, sort=next_sort)
         if sort_changed:
-            self.update_sort_headers(self.main_screen.query_one("#queue", DataTable))
+            self.update_sort_headers(self.queue_table())
         if self.store.has_observations:
             self.reconcile_rows()
 
@@ -359,7 +366,7 @@ class DashpotApp(App[None]):
         )
 
     def on_ready(self) -> None:
-        table = self.main_screen.query_one("#queue", DataTable)
+        table = self.queue_table()
         if not self.store.has_observations:
             table.loading = True
             self.request_refresh("initial")
@@ -467,7 +474,7 @@ class DashpotApp(App[None]):
         if message.error is not None:
             if not self.scheduler.is_current(message.ticket):
                 return
-            self.main_screen.query_one("#queue", DataTable).loading = False
+            self.queue_table().loading = False
             error = f"Refresh failed: {message.error}"
             # The persistent alert already carries a repeated failure; only a
             # new or changed failure earns a toast.
@@ -491,7 +498,7 @@ class DashpotApp(App[None]):
         if not changes:
             self.update_diagnostics()
             return
-        self.main_screen.query_one("#queue", DataTable).loading = False
+        self.queue_table().loading = False
         self.reconcile_rows()
         self.update_diagnostics()
         # Follow-ups are derived from what was published, not from this
@@ -502,7 +509,7 @@ class DashpotApp(App[None]):
             self.schedule_observations(follow_ups, message.trigger)
 
     def reconcile_rows(self) -> None:
-        table = self.main_screen.query_one("#queue", DataTable)
+        table = self.queue_table()
         prior_key, prior_index = self.current_selection(table)
         query = replace(
             self.issue_view.query,
@@ -568,7 +575,7 @@ class DashpotApp(App[None]):
                 DetailItem(empty_issue_message(self.issue_view.query), kind="message")
             )
             return
-        if prior_key in desired_contexts:
+        if prior_key is not None and prior_key in desired_contexts:
             selected_index = table.get_row_index(prior_key)
         else:
             selected_index = min(prior_index, table.row_count - 1)
@@ -808,5 +815,5 @@ def issue_state_filter_value(query: IssueListQuery) -> str:
 def issue_location(issue: Issue) -> str:
     location = issue["location"]
     if location["kind"] == "github":
-        return location["url"]
+        return str(location["url"])
     return f"{location['path']}:{location['line']}"

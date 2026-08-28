@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .model import AgentRun, Diagnostic, ProjectObservation
+from .model import AgentRun, Diagnostic, Issue, ProjectObservation
 
 
 @dataclass(slots=True)
@@ -18,7 +18,7 @@ def bind_issue_runs(
     runs: Sequence[AgentRun],
 ) -> IssueBindingResult:
     """Validate Work Store Issue Bindings against the observed Issue universe."""
-    issues_by_id: dict[str, list[dict]] = {}
+    issues_by_id: dict[str, list[Issue]] = {}
     status_by_project: dict[str, str] = {}
     for project in projects:
         status_by_project[project.project_id] = project.status

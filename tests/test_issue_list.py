@@ -13,15 +13,17 @@ from dashpot.issue_list import (
 )
 from dashpot.model import (
     AgentRun,
+    Issue,
     ProjectObservation,
     ProjectSnapshot,
     WorkspaceSnapshot,
 )
+from helpers import issue_of
 
 NOW = "2026-08-27T00:00:00Z"
 
 
-def issue(issue_id: str, state: str) -> dict:
+def issue(issue_id: str, state: str) -> Issue:
     return {
         "id": issue_id,
         "number": 1,
@@ -32,7 +34,7 @@ def issue(issue_id: str, state: str) -> dict:
     }
 
 
-def workspace(*issues: dict) -> WorkspaceSnapshot:
+def workspace(*issues: Issue) -> WorkspaceSnapshot:
     snapshot = ProjectSnapshot(
         project_id="project:one",
         display_label="One",
@@ -72,7 +74,9 @@ def test_default_query_returns_open_issues_without_forgetting_observed_count() -
 
     assert result.observed_issue_count == 2
     assert result.matched_issue_count == 1
-    assert [(row.kind, row.issue["id"]) for row in result.rows] == [("issue", "I_open")]
+    assert [(row.kind, issue_of(row)["id"]) for row in result.rows] == [
+        ("issue", "I_open")
+    ]
 
 
 def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
@@ -131,7 +135,7 @@ def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> 
 
     assert result.matched_issue_count == 1
     assert result.observed_issue_count == 2
-    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
 
 
 def test_text_query_matches_labels_like_the_tracker_feed() -> None:
@@ -143,7 +147,7 @@ def test_text_query_matches_labels_like_the_tracker_feed() -> None:
         workspace(matching, hidden), IssueListQuery(text='"good first"')
     )
 
-    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
 
 
 def test_text_query_matches_the_author_without_requiring_one() -> None:
@@ -156,7 +160,7 @@ def test_text_query_matches_the_author_without_requiring_one() -> None:
         workspace(matching, hidden), IssueListQuery(text="octocat")
     )
 
-    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
 
 
 def test_lifecycle_counts_and_header_text_read_like_a_tracker_feed() -> None:
@@ -206,8 +210,8 @@ def test_text_query_matches_milestone_and_issue_type() -> None:
     milestones = query_issue_list(observed, IssueListQuery(text="v1.0"))
     types = query_issue_list(observed, IssueListQuery(text="bug"))
 
-    assert [row.issue["id"] for row in milestones.rows] == ["I_milestone"]
-    assert [row.issue["id"] for row in types.rows] == ["I_type"]
+    assert [issue_of(row)["id"] for row in milestones.rows] == ["I_milestone"]
+    assert [issue_of(row)["id"] for row in types.rows] == ["I_type"]
 
 
 def test_text_query_matches_the_rendered_issue_number() -> None:
@@ -218,7 +222,7 @@ def test_text_query_matches_the_rendered_issue_number() -> None:
 
     result = query_issue_list(workspace(matching, hidden), IssueListQuery(text="#17"))
 
-    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
 
 
 def test_unquoted_search_terms_are_anded_without_requiring_a_phrase() -> None:
@@ -234,7 +238,7 @@ def test_unquoted_search_terms_are_anded_without_requiring_a_phrase() -> None:
         IssueListQuery(text="clipboard failure"),
     )
 
-    assert [row.issue["id"] for row in result.rows] == [
+    assert [issue_of(row)["id"] for row in result.rows] == [
         "I_matching",
         "I_wrong_order",
     ]
@@ -251,7 +255,7 @@ def test_quoted_search_phrase_still_requires_contiguous_text() -> None:
         IssueListQuery(text='"clipboard failure"'),
     )
 
-    assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
 
 
 def test_sort_qualifier_does_not_participate_in_lexical_matching() -> None:
@@ -259,7 +263,7 @@ def test_sort_qualifier_does_not_participate_in_lexical_matching() -> None:
 
     result = query_issue_list(observed, IssueListQuery(text="sort:created-asc"))
 
-    assert [row.issue["id"] for row in result.rows] == ["I_open"]
+    assert [issue_of(row)["id"] for row in result.rows] == ["I_open"]
 
 
 def test_query_rejects_duplicate_project_identities() -> None:

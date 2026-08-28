@@ -4,8 +4,10 @@ import copy
 import json
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
+from typing_extensions import override
 
 from dashpot.collect import (
     AGENT_RUNS_KEY,
@@ -16,6 +18,7 @@ from dashpot.collect import (
 from dashpot.issue_sources import IssueSource
 from dashpot.model import (
     AgentRun,
+    Issue,
     ObservationTarget,
     ObservationTargetInventory,
     ResolvedProject,
@@ -29,7 +32,7 @@ ISSUE_FIXTURE = json.loads(
 )
 
 
-def issue(reference: str, project_id: str) -> dict:
+def issue(reference: str, project_id: str) -> Issue:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["reference"] = reference
     value["id"] = f"I_{reference}"
@@ -49,7 +52,7 @@ class ScriptedSource(IssueSource):
     def __init__(self, project_id: str, *, clock=None) -> None:
         super().__init__(clock=clock)
         self.project_id = project_id
-        self.collections: list[list[dict] | Exception] = []
+        self.collections: list[list[Issue] | Exception] = []
         self.calls = 0
         self.started = threading.Event()
         self.release = threading.Event()
@@ -57,10 +60,12 @@ class ScriptedSource(IssueSource):
         self.lock = threading.Lock()
 
     @property
+    @override
     def name(self) -> str:
         return f"scripted:{self.project_id}"
 
-    def _collect(self) -> list[dict]:
+    @override
+    def _collect(self) -> list[Issue]:
         with self.lock:
             self.calls += 1
         self.started.set()
@@ -128,7 +133,7 @@ def workspace(tmp_path: Path):
         projects.append(resolved(root, name))
         collectors[name] = ScriptedCollector(ScriptedSource(name, clock=clock), root)
     runs: list[AgentRun] = []
-    observed_targets: list[dict] = []
+    observed_targets: list[dict[str, Any]] = []
 
     def agent_observer(targets_by_project):
         observed_targets.append(dict(targets_by_project))
@@ -305,6 +310,7 @@ def test_target_failure_keeps_last_good_targets_and_fresh_issues(
     first = store.project("alpha")
     assert first is not None and first.snapshot is not None
     good_at = first.snapshot.target_last_good_at
+    assert good_at is not None
     collectors["alpha"].target_failures = [RuntimeError("git exploded")]
 
     observe_all(coordinator, "alpha")

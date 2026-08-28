@@ -4,10 +4,11 @@ import json
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from dashpot.commands import CommandResult
+from dashpot.commands import CommandResult, CommandRunner
 from dashpot.init import initialize_project
 
 
@@ -19,7 +20,7 @@ def repository(root: Path, *, origin: str | None = None) -> Path:
     return root
 
 
-def gh_runner(payload: dict) -> tuple[list[list[str]], object]:
+def gh_runner(payload: dict[str, Any]) -> tuple[list[list[str]], CommandRunner]:
     calls: list[list[str]] = []
 
     def runner(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
@@ -29,7 +30,7 @@ def gh_runner(payload: dict) -> tuple[list[list[str]], object]:
     return calls, runner
 
 
-def load_config(root: Path) -> dict:
+def load_config(root: Path) -> dict[str, Any]:
     return json.loads((root / ".dashpot" / "config.json").read_text())
 
 

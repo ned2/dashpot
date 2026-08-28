@@ -129,44 +129,44 @@ def _require_keys(value: dict[str, Any], expected: set[str], path: str) -> None:
         )
 
 
-def _require_non_empty_string(value: Any, path: str) -> None:
+def _require_non_empty_string(value: object, path: str) -> str:
     if not isinstance(value, str) or not value:
         raise IssueProfileError(f"{path} must be a non-empty string")
+    return value
 
 
-def _require_optional_string(value: Any, path: str) -> None:
+def _require_optional_string(value: object, path: str) -> None:
     if value is not None:
         _require_non_empty_string(value, path)
 
 
-def _require_positive_integer(value: Any, path: str) -> None:
+def _require_positive_integer(value: object, path: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise IssueProfileError(f"{path} must be a positive integer")
 
 
-def _canonical_string_set(value: Any, path: str) -> list[str]:
+def _canonical_string_set(value: object, path: str) -> list[str]:
     if not isinstance(value, list):
         raise IssueProfileError(f"{path} must be an array")
-    for item in value:
-        _require_non_empty_string(item, f"{path} item")
-    if len(value) != len(set(value)):
+    items = [_require_non_empty_string(item, f"{path} item") for item in value]
+    if len(items) != len(set(items)):
         raise IssueProfileError(f"{path} must not contain duplicates")
-    return sorted(value)
+    return sorted(items)
 
 
-def _require_optional_timestamp(value: Any, path: str) -> None:
+def _require_optional_timestamp(value: object, path: str) -> None:
     if value is None:
         return
-    _require_non_empty_string(value, path)
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value):
+    text = _require_non_empty_string(value, path)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", text):
         raise IssueProfileError(f"{path} must be an RFC 3339 UTC timestamp ending in Z")
     try:
-        datetime.fromisoformat(value[:-1] + "+00:00")
+        datetime.fromisoformat(text[:-1] + "+00:00")
     except ValueError as exc:
         raise IssueProfileError(f"{path} must be a valid RFC 3339 timestamp") from exc
 
 
-def _validate_origin(value: Any) -> None:
+def _validate_origin(value: object) -> None:
     if not isinstance(value, dict):
         raise IssueProfileError("origin must be an object")
     kind = value.get("kind")
@@ -180,7 +180,7 @@ def _validate_origin(value: Any) -> None:
     raise IssueProfileError("origin.kind must be 'github' or 'markdown'")
 
 
-def _validate_location(value: Any) -> None:
+def _validate_location(value: object) -> None:
     if not isinstance(value, dict):
         raise IssueProfileError("location must be an object")
     kind = value.get("kind")

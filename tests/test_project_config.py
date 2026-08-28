@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -19,7 +20,7 @@ from dashpot.project_config import (
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 
-def write_config(root: Path, issue_source: dict) -> None:
+def write_config(root: Path, issue_source: dict[str, Any]) -> None:
     (root / ".dashpot").mkdir(exist_ok=True)
     (root / ".dashpot" / "config.json").write_text(
         json.dumps(
@@ -72,7 +73,7 @@ def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
     ],
 )
 def test_rejects_invalid_issue_source_configuration(
-    tmp_path: Path, source: dict, message: str
+    tmp_path: Path, source: dict[str, Any], message: str
 ) -> None:
     write_config(tmp_path, source)
 

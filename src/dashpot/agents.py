@@ -604,12 +604,11 @@ def record_to_session(
         )
     process_key: ProcessKey | None = None
     process = raw.get("sessionProcess")
-    if (
-        isinstance(process, dict)
-        and isinstance(process.get("pid"), int)
-        and isinstance(process.get("startedAt"), str)
-    ):
-        process_key = (process["pid"], process["startedAt"])
+    if isinstance(process, dict):
+        pid = process.get("pid")
+        started_at = process.get("startedAt")
+        if isinstance(pid, int) and isinstance(started_at, str):
+            process_key = (pid, started_at)
     return (
         HookSessionObservation(
             AgentRun(
@@ -679,7 +678,7 @@ def locate_observation_target(
 
 
 def process_is_same(
-    expected: Any,
+    expected: object,
     lookup: ProcessLookup = process_info,
     isolated: bool = False,
 ) -> bool | None:
@@ -695,17 +694,17 @@ def process_is_same(
     return actual.started_at == started_at
 
 
-def require_string(value: Any, name: str) -> str:
+def require_string(value: object, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise RuntimeError(f"hook input needs non-empty {name}")
     return value
 
 
-def optional_string(value: Any) -> str | None:
+def optional_string(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def validated_optional_issue_value(value: Any, name: str) -> str | None:
+def validated_optional_issue_value(value: object, name: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str) or not ISSUE_VALUE.fullmatch(value):

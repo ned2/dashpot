@@ -104,6 +104,14 @@ class ObservationScheduler(Protocol):
     ) -> Sequence[ObservationKey]: ...
 
 
+class ProjectObserver(Protocol):
+    """What the coordinator asks of a per-Project collector."""
+
+    def observe_issues(self) -> IssueSourceObservation: ...
+
+    def observe_targets(self) -> ObservationTargetInventory: ...
+
+
 class ProjectCollector:
     """Observe one Project's Issue Source and worktree topology independently."""
 
@@ -262,7 +270,7 @@ class ObservationCoordinator:
         projects: Sequence[ResolvedProject],
         timeout: float = 10,
         state_dir: Path | None = None,
-        factory: Callable[..., ProjectCollector] = create_project_collector,
+        factory: Callable[..., ProjectObserver] = create_project_collector,
         diagnostics: Sequence[Diagnostic] = (),
         agent_observer: WorkspaceAgentObserver | None = None,
         clock: Callable[[], str] = utc_now,
@@ -277,7 +285,7 @@ class ObservationCoordinator:
             lambda targets: observe_agent_runs(targets, self.state_dir)
         )
         self.clock = clock
-        self.collectors: dict[str, ProjectCollector] = {}
+        self.collectors: dict[str, ProjectObserver] = {}
         self.refresh_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._key_locks: dict[ObservationKey, threading.Lock] = {}
@@ -440,7 +448,7 @@ class ObservationCoordinator:
 
     # -- observation ------------------------------------------------------
 
-    def _collector(self, project: ResolvedProject) -> ProjectCollector:
+    def _collector(self, project: ResolvedProject) -> ProjectObserver:
         root = Path(project.primary_anchor)
         if not root.is_dir():
             raise RuntimeError(

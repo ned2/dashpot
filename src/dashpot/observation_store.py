@@ -225,7 +225,7 @@ class WorkspaceObservationStore:
         state = self._state
         context: IssueListRow | None
         if row.kind == "issue" and row.issue is not None:
-            context = _issue_detail(state, row)
+            context = _issue_detail(state, row, row.issue)
         else:
             context = None
         return deepcopy(context)
@@ -260,9 +260,9 @@ class WorkspaceObservationStore:
             or previous.repository_id != incoming.repository_id
             or previous.snapshot is None
         ):
-            return incoming, frozenset()
+            return incoming, frozenset[str]()
         retained_issue_ids = frozenset(
-            issue["id"] for issue in previous.snapshot.issues
+            str(issue["id"]) for issue in previous.snapshot.issues
         )
         if incoming.snapshot is None and incoming.status == "unavailable":
             return (
@@ -284,7 +284,7 @@ class WorkspaceObservationStore:
                 replace(incoming, status="stale", snapshot=snapshot),
                 retained_issue_ids,
             )
-        return incoming, frozenset()
+        return incoming, frozenset[str]()
 
     def _commit(self, candidate: _StoreState) -> StoreChange:
         before = self._state
@@ -316,8 +316,10 @@ def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
     )
 
 
-def _issue_detail(state: _StoreState, row: IssueListRow) -> IssueListRow | None:
-    issue_id = row.issue["id"]
+def _issue_detail(
+    state: _StoreState, row: IssueListRow, issue: Issue
+) -> IssueListRow | None:
+    issue_id = issue["id"]
     if row.key == row_key("issue", issue_id):
         matches = [
             (project_id, issue)

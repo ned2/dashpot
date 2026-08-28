@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from typing_extensions import override
+
 from .issue_profile import IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
@@ -50,9 +52,11 @@ class LocalMarkdownIssuesSource(IssueSource):
         self.project_id = project_id
 
     @property
+    @override
     def name(self) -> str:
         return "local-markdown-issues"
 
+    @override
     def _collect(self) -> list[dict[str, Any]]:
         try:
             root = self.root.resolve()

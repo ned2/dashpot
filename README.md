@@ -32,16 +32,59 @@ Dashpot requires Python 3.11 or newer and uses
 
 ```bash
 uv sync --group dev
+uv run pre-commit install
 uv run pytest -q
 ```
+
+### Quality gates
+
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the shared quality
+gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
+
+- **On commit**: repository hygiene checks (whitespace, line endings, YAML,
+  TOML and JSON syntax, merge-conflict markers, stray debug statements, private
+  keys, large files), then [Ruff](https://docs.astral.sh/ruff/) lint with safe
+  fixes, then `ruff-format`, then [ty](https://docs.astral.sh/ty/) static type
+  checking. Ruff's rule selection and ty's rule levels live in
+  [`pyproject.toml`](pyproject.toml).
+- **On push**: the full local gate in
+  [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
+  lockfile, Ruff lint and formatting, ty, the test suite, and the distribution
+  build for the exact revision being pushed, in a temporary detached worktree.
+
+Run the commit hooks across every tracked file:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+Run the full gate directly against the working tree:
+
+```bash
+uv run python scripts/check_quality.py
+```
+
+Ruff fixes and formatting are idempotent: a second `--all-files` run after the
+first has fixed something is clean. Hook revisions are pinned to frozen commit
+SHAs; refresh them with
+
+```bash
+uv run pre-commit autoupdate --freeze
+```
+
+and bump the matching `ruff` and `ty` versions in `uv.lock` (`uv lock
+--upgrade-package ruff --upgrade-package ty`) so the hooks and `uv run` agree.
+First-time hook setup downloads the pinned hook environments, so it needs
+network access.
 
 ### Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests
-targeting `main`, pushes to `main`, and manual dispatch. It tests the locked
-environment on Ubuntu and macOS under Python 3.11 and 3.14, and builds the
-package once per run. No credentials are provided and no live GitHub collection
-happens in CI; the test suite exercises Issue collection against fakes.
+targeting `main`, pushes to `main`, and manual dispatch. It runs the all-files
+pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
+and macOS under Python 3.11 and 3.14, and builds the package once per run. No
+credentials are provided and no live GitHub collection happens in CI; the test
+suite exercises Issue collection against fakes.
 
 Every CI verification step has an exact local equivalent:
 
@@ -51,6 +94,9 @@ uv lock --check
 
 # Install the locked development environment
 uv sync --locked --group dev
+
+# Run the all-files quality gate
+uv run pre-commit run --all-files
 
 # Run the full test suite
 uv run pytest -q

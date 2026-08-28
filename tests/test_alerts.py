@@ -9,6 +9,7 @@ from dashpot.model import (
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
+    SourceStatus,
     WorkspaceSnapshot,
 )
 from dashpot.observation_store import WorkspaceObservationStore
@@ -19,8 +20,8 @@ NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 def project(
     project_id: str,
     *,
-    issue_status: str = "fresh",
-    target_status: str = "fresh",
+    issue_status: SourceStatus = "fresh",
+    target_status: SourceStatus = "fresh",
     last_good_at: str | None = "2026-08-28T11:48:00Z",
     targets: list[ObservationTarget] | None = None,
     missing: bool = False,
@@ -32,13 +33,13 @@ def project(
             display_label=project_id.title(),
             repository_id=f"repository:{project_id}",
             collected_at="2026-08-28T12:00:00Z",
-            issue_source_status=issue_status,  # type: ignore[arg-type]
+            issue_source_status=issue_status,
             issue_source_attempted_at="2026-08-28T12:00:00Z",
             issue_source_last_good_at=last_good_at,
             observation_targets=targets or [],
             issues=[],
             diagnostics=[],
-            target_status=target_status,  # type: ignore[arg-type]
+            target_status=target_status,
         )
     return ProjectObservation(
         project_id,
@@ -47,7 +48,7 @@ def project(
         ["test"],
         ["/repo"],
         "/repo",
-        "unavailable" if missing else issue_status,  # type: ignore[arg-type]
+        "unavailable" if missing else issue_status,
         1,
         snapshot,
         [],

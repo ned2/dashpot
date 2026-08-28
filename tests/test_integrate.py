@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -31,7 +32,7 @@ def publisher(root: Path) -> Path:
     return command
 
 
-def read_hooks(home: Path) -> dict:
+def read_hooks(home: Path) -> dict[str, Any]:
     return json.loads((home / "hooks.json").read_text())
 
 

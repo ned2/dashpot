@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Literal, TypeAlias
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
@@ -141,8 +141,8 @@ class WorkspaceSnapshot:
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
-def to_jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
+def to_jsonable(value: object) -> object:
+    if is_dataclass(value):
         return {
             camel_case(item.name): to_jsonable(getattr(value, item.name))
             for item in fields(value)

@@ -8,18 +8,21 @@ from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.model import (
     AgentRun,
     Diagnostic,
+    Issue,
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
+    SourceStatus,
     WorkspaceSnapshot,
     to_jsonable,
 )
 from dashpot.observation_store import WorkspaceObservationStore
+from helpers import issue_of, required, snapshot_of
 
 NOW = "2026-08-27T03:00:00Z"
 
 
-def issue(issue_id: str, title: str) -> dict:
+def issue(issue_id: str, title: str) -> Issue:
     return {
         "id": issue_id,
         "number": 1,
@@ -32,8 +35,8 @@ def issue(issue_id: str, title: str) -> dict:
 
 def project(
     project_id: str,
-    *issues: dict,
-    status: str = "fresh",
+    *issues: Issue,
+    status: SourceStatus = "fresh",
 ) -> ProjectObservation:
     label = project_id.removeprefix("project:").title()
     snapshot = ProjectSnapshot(
@@ -108,7 +111,7 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
     first = workspace(project("project:one", issue("I_one", "First")))
     observed_run = run("codex:one", "project:one", "I_two")
     updated_project = project("project:one", issue("I_two", "Second"))
-    updated_project.snapshot.observation_targets = [
+    snapshot_of(updated_project).observation_targets = [
         ObservationTarget(
             path="/project:one",
             head="abc123",
@@ -143,7 +146,7 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
     assert change.agent_run_ids == frozenset({observed_run.id})
     assert [row.key for row in result.rows] == [row_key("issue", "I_two")]
     assert result.rows[0].observed_runs == (observed_run,)
-    assert store.project("project:one").display_label == "One"
+    assert required(store.project("project:one")).display_label == "One"
     assert context is not None
     assert context.project.project_id == "project:one"
     assert context.issue["title"] == "Second"
@@ -174,7 +177,7 @@ def test_unavailable_project_replacement_retains_last_good_snapshot() -> None:
     assert change.kinds == frozenset({"projects"})
     assert checkpoint.projects[0].status == "unavailable"
     assert checkpoint.projects[0].snapshot is not None
-    assert checkpoint.projects[0].snapshot.issues[0]["title"] == "Last good"
+    assert snapshot_of(checkpoint.projects[0]).issues[0]["title"] == "Last good"
     assert checkpoint.projects[0].diagnostics == unavailable.diagnostics
     assert store.query_issues().observed_issue_count == 1
 
@@ -191,12 +194,13 @@ def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() ->
     )
     unavailable = copy.deepcopy(available)
     unavailable.status = "fresh"
-    unavailable.snapshot.collected_at = "2026-08-27T04:00:00Z"
-    unavailable.snapshot.issue_source_status = "unavailable"
-    unavailable.snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
-    unavailable.snapshot.issue_source_last_good_at = None
-    unavailable.snapshot.issues = []
-    unavailable.snapshot.observation_targets = [
+    unavailable_snapshot = snapshot_of(unavailable)
+    unavailable_snapshot.collected_at = "2026-08-27T04:00:00Z"
+    unavailable_snapshot.issue_source_status = "unavailable"
+    unavailable_snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
+    unavailable_snapshot.issue_source_last_good_at = None
+    unavailable_snapshot.issues = []
+    unavailable_snapshot.observation_targets = [
         ObservationTarget(
             path="/current-target",
             head="def456",
@@ -208,7 +212,7 @@ def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() ->
             diagnostics=[],
         )
     ]
-    unavailable.snapshot.diagnostics = [
+    unavailable_snapshot.diagnostics = [
         Diagnostic("github", "error", "GitHub unavailable", "github-command")
     ]
 
@@ -216,13 +220,14 @@ def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() ->
     accepted = store.checkpoint().projects[0]
 
     assert accepted.status == "stale"
-    assert accepted.snapshot.issue_source_status == "stale"
-    assert accepted.snapshot.issues[0]["title"] == "Last good"
-    assert accepted.snapshot.issue_source_last_good_at == NOW
-    assert accepted.snapshot.issue_source_attempted_at == "2026-08-27T04:00:00Z"
-    assert accepted.snapshot.collected_at == "2026-08-27T04:00:00Z"
-    assert accepted.snapshot.observation_targets[0].path == "/current-target"
-    assert accepted.snapshot.diagnostics == unavailable.snapshot.diagnostics
+    accepted_snapshot = snapshot_of(accepted)
+    assert accepted_snapshot.issue_source_status == "stale"
+    assert accepted_snapshot.issues[0]["title"] == "Last good"
+    assert accepted_snapshot.issue_source_last_good_at == NOW
+    assert accepted_snapshot.issue_source_attempted_at == "2026-08-27T04:00:00Z"
+    assert accepted_snapshot.collected_at == "2026-08-27T04:00:00Z"
+    assert accepted_snapshot.observation_targets[0].path == "/current-target"
+    assert accepted_snapshot.diagnostics == unavailable_snapshot.diagnostics
     assert store.query_issues().rows[0].observed_runs == (observed_run,)
 
 
@@ -230,7 +235,7 @@ def test_fresh_empty_issue_source_clears_prior_issues() -> None:
     available = project("project:one", issue("I_one", "Last good"))
     store = WorkspaceObservationStore(workspace(available))
     empty = copy.deepcopy(available)
-    empty.snapshot.issues = []
+    snapshot_of(empty).issues = []
 
     store.replace_project(empty)
 
@@ -243,17 +248,18 @@ def test_source_last_good_is_not_carried_across_repository_identity_change() -> 
     store = WorkspaceObservationStore(workspace(available))
     unavailable = copy.deepcopy(available)
     unavailable.repository_id = "repository:replacement"
-    unavailable.snapshot.repository_id = "repository:replacement"
+    unavailable_snapshot = snapshot_of(unavailable)
+    unavailable_snapshot.repository_id = "repository:replacement"
     unavailable.status = "unavailable"
-    unavailable.snapshot.issue_source_status = "unavailable"
-    unavailable.snapshot.issue_source_last_good_at = None
-    unavailable.snapshot.issues = []
+    unavailable_snapshot.issue_source_status = "unavailable"
+    unavailable_snapshot.issue_source_last_good_at = None
+    unavailable_snapshot.issues = []
 
     store.replace_project(unavailable)
 
     accepted = store.checkpoint().projects[0]
     assert accepted.status == "unavailable"
-    assert accepted.snapshot.issues == []
+    assert snapshot_of(accepted).issues == []
 
 
 def test_adapter_supplied_stale_collection_remains_authoritative() -> None:
@@ -261,13 +267,14 @@ def test_adapter_supplied_stale_collection_remains_authoritative() -> None:
     store = WorkspaceObservationStore(workspace(available))
     stale = copy.deepcopy(available)
     stale.status = "stale"
-    stale.snapshot.issue_source_status = "stale"
-    stale.snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
-    stale.snapshot.issues[0]["title"] = "Adapter last good"
+    stale_snapshot = snapshot_of(stale)
+    stale_snapshot.issue_source_status = "stale"
+    stale_snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
+    stale_snapshot.issues[0]["title"] = "Adapter last good"
 
     store.replace_project(stale)
 
-    assert store.issue("I_one").issue["title"] == "Adapter last good"
+    assert issue_of(store.issue("I_one"))["title"] == "Adapter last good"
 
 
 def test_conflicting_issue_identities_remain_project_qualified() -> None:
@@ -286,9 +293,8 @@ def test_conflicting_issue_identities_remain_project_qualified() -> None:
         row_key("issue", "project:two", "I_shared"),
     }
     assert store.issue("I_shared") is None
-    assert store.issue("I_shared", project_id="project:one").project.project_id == (
-        "project:one"
-    )
+    shared = required(store.issue("I_shared", project_id="project:one"))
+    assert shared.project.project_id == "project:one"
     assert len(store.checkpoint().projects) == 2
 
 
@@ -300,7 +306,7 @@ def test_change_reports_only_the_changed_project_qualified_issue() -> None:
     )
     store = WorkspaceObservationStore(first)
     changed = copy.deepcopy(first)
-    changed.projects[0].snapshot.issues[0]["title"] = "Changed in one"
+    snapshot_of(changed.projects[0]).issues[0]["title"] = "Changed in one"
 
     change = store.replace(changed)
 
@@ -483,7 +489,7 @@ def test_partial_replacements_isolate_store_owned_state() -> None:
 
     store.replace_project(replacement_project)
     store.replace_agent_runs([replacement_run], replacement_bindings)
-    replacement_project.snapshot.issues[0]["title"] = "Caller mutation"
+    snapshot_of(replacement_project).issues[0]["title"] = "Caller mutation"
     replacement_run.state = "running"
     replacement_bindings["I_two"].clear()
 
@@ -525,8 +531,8 @@ def test_detail_for_keeps_conflicting_issues_project_qualified() -> None:
 
     store.replace_project(changed)
 
-    assert store.detail_for(old_rows["project:one"]).issue["title"] == "Changed"
-    assert store.detail_for(old_rows["project:two"]).issue["title"] == "Original"
+    assert issue_of(store.detail_for(old_rows["project:one"]))["title"] == "Changed"
+    assert issue_of(store.detail_for(old_rows["project:two"]))["title"] == "Original"
 
 
 def test_detail_for_unique_issue_follows_transfer_but_not_ambiguity() -> None:
@@ -606,14 +612,14 @@ def test_store_query_result_cannot_mutate_owned_observations() -> None:
     returned = store.query_issues()
     row = returned.rows[0]
     row.project.display_label = "Caller Project"
-    row.issue["title"] = "Caller Issue"
+    issue_of(row)["title"] = "Caller Issue"
     row.observed_runs[0].state = "running"
 
     current = store.query_issues().rows[0]
     checkpoint = store.checkpoint()
     assert current.project.display_label == "One"
-    assert current.issue["title"] == "First"
+    assert issue_of(current)["title"] == "First"
     assert current.observed_runs[0].state == "waiting"
     assert checkpoint.projects[0].display_label == "One"
-    assert checkpoint.projects[0].snapshot.issues[0]["title"] == "First"
+    assert snapshot_of(checkpoint.projects[0]).issues[0]["title"] == "First"
     assert checkpoint.agent_runs[0].state == "waiting"

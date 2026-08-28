@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from unittest import mock
 
@@ -13,7 +14,7 @@ class SequenceRunner:
         self.results = iter(results)
         self.calls: list[tuple[list[str], Path, float]] = []
 
-    def __call__(self, args: list[str], cwd: Path, timeout: float) -> CommandResult:
+    def __call__(self, args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         self.calls.append((list(args), cwd, timeout))
         result = next(self.results)
         if isinstance(result, Exception):

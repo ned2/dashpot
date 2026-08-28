@@ -1,41 +1,58 @@
-# Shared pre-commit quality gate. Install once with `uv run pre-commit install`;
-# run everything with `uv run pre-commit run --all-files`; refresh the pinned
-# revisions with `uv run pre-commit autoupdate` (see README.md).
+# Shared quality gate. `uv run pre-commit install` enables both the fast commit
+# hooks and the full pre-push gate; `uv run pre-commit run --all-files` runs the
+# commit hooks over every tracked file; `uv run pre-commit autoupdate --freeze`
+# refreshes the pinned revisions (see README.md).
 #
 # Hook order matters: Ruff's lint fixes run before `ruff-format` so formatting
-# is the last word on layout, and ty runs after both so it checks the code as
+# has the last word on layout, and ty runs after both so it checks the code as
 # it will be committed.
+minimum_pre_commit_version: "4.6.1"
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: trailing-whitespace
         # Two trailing spaces are an intentional Markdown hard line break.
         args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
       - id: check-yaml
       - id: check-toml
       - id: check-json
       - id: check-merge-conflict
       - id: check-case-conflict
+      - id: check-illegal-windows-names
+      - id: check-symlinks
+      - id: destroyed-symlinks
       - id: check-added-large-files
-      - id: debug-statements
       - id: detect-private-key
-      - id: mixed-line-ending
-        args: [--fix=lf]
+      - id: debug-statements
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.5
+    rev: 1f1e8bf348ff38fc88619a38d3ca4d9c56abea49  # frozen: v0.16.5
     hooks:
       - id: ruff-check
-        args: [--fix]
+        args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
   - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: v0.0.75
+    rev: dcc8608dfbaaec6a53fcdcf97bb98ec97f1b64ab  # frozen: v0.0.75
     hooks:
       - id: ty
-        # Check the code ty is configured for in pyproject.toml, once per run,
-        # rather than only the staged files.
+        args: [--locked]
+
+  - repo: local
+    hooks:
+      - id: full-quality-gate
+        name: full local quality gate
+        entry: uv run --locked python scripts/check_quality.py
+        language: system
+        always_run: true
         pass_filenames: false
-        args: [check]
+        stages: [pre-push]

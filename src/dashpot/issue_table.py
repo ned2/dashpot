@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, Self, TypeAlias, cast
 
 from rich.text import Text
 
@@ -14,6 +14,12 @@ from .issue_list import (
     IssueSearchField,
 )
 from .model import Issue, IssueActivity, ProjectObservation, RunState
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison
+
+# What a column yields for ordering: something Python can compare, or nothing.
+SortValue: TypeAlias = "SupportsRichComparison | None"
 
 ColumnKey = Literal[
     "issue_state",
@@ -50,9 +56,9 @@ GITHUB_ISSUE_STATE_COLORS: dict[IssueStateKind, tuple[str, str]] = {
 class IssueTableCell(str):
     """A rendered table value that retains its domain sort value."""
 
-    sort_value: object
+    sort_value: SortValue
 
-    def __new__(cls, text: str, sort_value: object) -> IssueTableCell:
+    def __new__(cls, text: str, sort_value: SortValue) -> Self:
         cell = super().__new__(cls, text)
         cell.sort_value = sort_value
         return cell
@@ -62,6 +68,8 @@ class IssueStateCell(Text):
     """A semantic Issue-state value rendered as a colored block."""
 
     __slots__ = ("sort_value", "state_kind")
+
+    sort_value: SortValue
 
     def __init__(self, state_kind: IssueStateKind, *, dark: bool) -> None:
         light_color, dark_color = GITHUB_ISSUE_STATE_COLORS[state_kind]
@@ -83,6 +91,8 @@ class LabelsCell(Text):
     """Issue labels rendered as coloured chips, like a tracker's feed."""
 
     __slots__ = ("labels", "sort_value")
+
+    sort_value: SortValue
 
     def __init__(
         self,
@@ -130,10 +140,10 @@ def chip_foreground(background: str) -> str:
 TableCell = IssueTableCell | IssueStateCell | LabelsCell
 
 
-def _cell_sort_key(value: object) -> object:
+def _cell_sort_key(value: object) -> SortValue:
     if isinstance(value, (IssueTableCell, IssueStateCell, LabelsCell)):
         return value.sort_value
-    return value
+    return cast("SortValue", value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +152,7 @@ class ColumnSpec:
     label: str
     update_width: bool = False
     search_field: IssueSearchField | None = None
-    sort_key: Callable[[object], object] = _cell_sort_key
+    sort_key: Callable[[object], SortValue] = _cell_sort_key
     nulls_last: bool = False
 
 
@@ -320,10 +330,10 @@ def cells_match(left: TableCell, right: TableCell) -> bool:
 
 def sort_key_for_terms(
     terms: tuple[SortTerm, ...],
-) -> Callable[[object], object]:
+) -> Callable[[object], SupportsRichComparison]:
     specs = tuple(COLUMNS_BY_KEY[term.column] for term in terms)
 
-    def sort_key(value: object) -> object:
+    def sort_key(value: object) -> SupportsRichComparison:
         values = value if isinstance(value, tuple) else (value,)
         return tuple(
             _term_sort_value(spec, term, cell)
@@ -333,10 +343,13 @@ def sort_key_for_terms(
     return sort_key
 
 
-def _term_sort_value(spec: ColumnSpec, term: SortTerm, cell: object) -> object:
+def _term_sort_value(
+    spec: ColumnSpec, term: SortTerm, cell: object
+) -> SupportsRichComparison:
     value = spec.sort_key(cell)
     if not spec.nulls_last:
-        return value
+        # Columns without nulls_last never render a missing sort value.
+        return cast("SupportsRichComparison", value)
     missing = value is None
     if term.descending:
         return (0 if missing else 1, 0 if missing else value)
@@ -379,7 +392,7 @@ def build_rows(
 
 
 def _row_tie_break(row: IssueListRow) -> tuple[str, int, str]:
-    number = row.issue["number"] if row.issue is not None else 2**63 - 1
+    number = int(row.issue["number"]) if row.issue is not None else 2**63 - 1
     return row.project.project_id.casefold(), number, row.key
 
 
@@ -427,8 +440,13 @@ def comments_cell(activity: IssueActivity) -> IssueTableCell:
     return IssueTableCell(str(count) if count else "-", count)
 
 
+_NO_LABEL_COLORS: Mapping[str, str] = dict[str, str]()
+
+
 def label_colors(project: ProjectObservation) -> Mapping[str, str]:
-    return project.snapshot.label_colors if project.snapshot else {}
+    if project.snapshot is None:
+        return _NO_LABEL_COLORS
+    return project.snapshot.label_colors
 
 
 def labels_cell(issue: Issue, project: ProjectObservation) -> LabelsCell:
@@ -468,13 +486,16 @@ def date_cell(timestamp: str | None) -> IssueTableCell:
     return IssueTableCell(instant.date().isoformat(), instant.timestamp())
 
 
+_CLOSED_STATE_KINDS: dict[str, IssueStateKind] = {
+    "not-planned": "not-planned",
+    "duplicate": "duplicate",
+}
+
+
 def issue_state_kind(issue: Issue) -> IssueStateKind:
     if issue["state"] == "open":
         return "open"
-    return {
-        "not-planned": "not-planned",
-        "duplicate": "duplicate",
-    }.get(issue["stateReason"], "completed")
+    return _CLOSED_STATE_KINDS.get(issue["stateReason"], "completed")
 
 
 def issue_state_cell(issue: Issue, *, dark: bool) -> IssueStateCell:

@@ -310,7 +310,7 @@ def _split_dashpot_handlers(
     return kept, ours
 
 
-def _is_dashpot_handler(handler: Any) -> bool:
+def _is_dashpot_handler(handler: object) -> bool:
     if not isinstance(handler, dict) or handler.get("type") != "command":
         return False
     command = handler.get("command")

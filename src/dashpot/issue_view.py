@@ -16,6 +16,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Markdown, Static
+from typing_extensions import override
 
 from .detail_fields import DetailFields, DetailItem
 from .issue_list import IssueListRow
@@ -52,6 +53,7 @@ class IssueScreen(Screen[None]):
         self.issue: Issue = context.issue
         self.now = now
 
+    @override
     def compose(self) -> ComposeResult:
         issue = self.issue
         with Vertical(id="issue-view"), Horizontal(id="issue-view-panes"):
