@@ -4,7 +4,13 @@ import copy
 
 import pytest
 
-from dashpot.issue_list import IssueListQuery, empty_issue_message, query_issue_list
+from dashpot.issue_list import (
+    IssueListQuery,
+    empty_issue_message,
+    issue_count_text,
+    next_issue_states,
+    query_issue_list,
+)
 from dashpot.model import AgentRun, ProjectObservation, ProjectSnapshot, WorkspaceSnapshot
 
 
@@ -148,6 +154,42 @@ def test_text_query_matches_the_author_without_requiring_one() -> None:
     )
 
     assert [row.issue["id"] for row in result.rows] == ["I_matching"]
+
+
+def test_lifecycle_counts_and_header_text_read_like_a_tracker_feed() -> None:
+    observed = workspace(
+        issue("I_one", "open"), issue("I_two", "open"), issue("I_done", "closed")
+    )
+
+    open_view = query_issue_list(observed)
+    assert (open_view.open_issue_count, open_view.closed_issue_count) == (2, 1)
+    assert issue_count_text(open_view, IssueListQuery()) == "2 open · 1 closed"
+
+    narrowed_query = IssueListQuery(text="I_one")
+    narrowed = query_issue_list(observed, narrowed_query)
+    assert issue_count_text(narrowed, narrowed_query) == "1 of 2 open · 1 closed"
+
+    closed_query = IssueListQuery(states=frozenset({"closed"}))
+    closed_view = query_issue_list(observed, closed_query)
+    assert issue_count_text(closed_view, closed_query) == "1 closed · 2 open"
+
+    all_query = IssueListQuery(states=frozenset({"open", "closed"}))
+    all_view = query_issue_list(observed, all_query)
+    assert issue_count_text(all_view, all_query) == "3 Issues · 2 open, 1 closed"
+    all_narrowed_query = IssueListQuery(
+        states=frozenset({"open", "closed"}), text="I_done"
+    )
+    all_narrowed = query_issue_list(observed, all_narrowed_query)
+    assert issue_count_text(all_narrowed, all_narrowed_query) == (
+        "1 of 3 Issues · 2 open, 1 closed"
+    )
+
+
+def test_next_issue_states_cycles_open_closed_all() -> None:
+    assert next_issue_states(frozenset({"open"})) == frozenset({"closed"})
+    assert next_issue_states(frozenset({"closed"})) == frozenset({"open", "closed"})
+    assert next_issue_states(frozenset({"open", "closed"})) == frozenset({"open"})
+    assert next_issue_states(frozenset()) == frozenset({"open"})
 
 
 def test_text_query_matches_milestone_and_issue_type() -> None:

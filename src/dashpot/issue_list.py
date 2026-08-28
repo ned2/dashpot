@@ -75,6 +75,10 @@ class IssueListResult:
     matched_issue_count: int
     observed_issue_count: int
     revision: int = 0
+    # Lifecycle split of every observed Issue, before any filter, so the
+    # header can show both counts the way a tracker's feed does.
+    open_issue_count: int = 0
+    closed_issue_count: int = 0
 
 
 def query_issue_list(
@@ -146,12 +150,16 @@ def _query_indexed_issue_list(
     rows: list[IssueListRow] = []
     observed_issue_count = 0
     matched_issue_count = 0
+    open_issue_count = 0
     search_terms = tuple(
         term.casefold() for term in parse_issue_search(query.text).terms
     )
     for project in projects.values():
         project_issues = issues_by_project[project.project_id]
         observed_issue_count += len(project_issues)
+        open_issue_count += sum(
+            1 for issue in project_issues if issue["state"] == "open"
+        )
         visible_issues = [
             issue
             for issue in project_issues
@@ -199,7 +207,47 @@ def _query_indexed_issue_list(
         matched_issue_count,
         observed_issue_count,
         revision,
+        open_issue_count=open_issue_count,
+        closed_issue_count=observed_issue_count - open_issue_count,
     )
+
+
+ISSUE_STATE_CYCLE: tuple[frozenset[IssueState], ...] = (
+    frozenset({"open"}),
+    frozenset({"closed"}),
+    frozenset({"open", "closed"}),
+)
+
+
+def next_issue_states(states: frozenset[IssueState]) -> frozenset[IssueState]:
+    """Flip the lifecycle filter open -> closed -> all -> open."""
+    if states in ISSUE_STATE_CYCLE:
+        index = ISSUE_STATE_CYCLE.index(states)
+        return ISSUE_STATE_CYCLE[(index + 1) % len(ISSUE_STATE_CYCLE)]
+    return ISSUE_STATE_CYCLE[0]
+
+
+def issue_count_text(result: IssueListResult, query: IssueListQuery) -> str:
+    """Summarize the list like a tracker feed: ``3 of 12 open · 28 closed``.
+
+    The active lifecycle scope comes first with its matched count when a
+    search narrows it; the other lifecycle count follows so the split is
+    always visible.
+    """
+    counts = {"open": result.open_issue_count, "closed": result.closed_issue_count}
+    if query.states == frozenset({"open", "closed"}):
+        scope = _scope_count(result.matched_issue_count, result.observed_issue_count)
+        return f"{scope} Issues · {counts['open']} open, {counts['closed']} closed"
+    if query.states == frozenset({"closed"}):
+        active, other = "closed", "open"
+    else:
+        active, other = "open", "closed"
+    scope = _scope_count(result.matched_issue_count, counts[active])
+    return f"{scope} {active} · {counts[other]} {other}"
+
+
+def _scope_count(matched: int, total: int) -> str:
+    return str(total) if matched == total else f"{matched} of {total}"
 
 
 def row_key(kind: str, *identities: str) -> str:

@@ -76,7 +76,8 @@ Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
 `--workspace` arguments each name one anchor and take precedence; repeat the
 same Workspace name to include independent clones. Use `--config` to select a
 different Workspace inventory. Use `r` to refresh the selected Project, `R` to
-refresh every Project, the arrow keys to move, and `q` to quit. The default
+refresh every Project, `o` to flip the Work list between open, closed, and all
+Issues, the arrow keys to move, and `q` to quit. The default
 15-second polling period refreshes the selected Project and can be changed with
 `--refresh-seconds`; zero disables polling.
 

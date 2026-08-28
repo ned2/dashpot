@@ -30,7 +30,13 @@ from .collect import (
 )
 from .column_editor import IssueColumnEditor
 from .detail_fields import DetailFields, DetailItem, detail_items_text
-from .issue_list import IssueListQuery, IssueListRow, empty_issue_message
+from .issue_list import (
+    IssueListQuery,
+    IssueListRow,
+    empty_issue_message,
+    issue_count_text,
+    next_issue_states,
+)
 from .issue_search import IssueSearchSort, parse_issue_search
 from .issue_table import (
     ColumnKey,
@@ -95,6 +101,7 @@ class DashpotApp(App[None]):
         ("r", "refresh", "Refresh"),
         ("shift+r", "refresh_workspace", "Refresh all"),
         ("c", "columns", "Columns"),
+        ("o", "cycle_issue_state", "Open/Closed/All"),
         ("s", "sort_next", "Sort column"),
         ("shift+s", "reverse_sort", "Reverse sort"),
     ]
@@ -178,7 +185,7 @@ class DashpotApp(App[None]):
                         compact=True,
                         id="issue-search",
                     )
-                    yield Static("0 of 0 Issues", id="issue-count")
+                    yield Static("0 open · 0 closed", id="issue-count")
                 yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
         yield Static("", id="alert")
         yield Static("No diagnostics", id="diagnostics")
@@ -279,6 +286,13 @@ class DashpotApp(App[None]):
         self.set_issue_query(
             replace(self.issue_view.query, text=event.value),
             sort=issue_search_sort_terms(parsed_search.sort) or DEFAULT_SORT,
+        )
+
+    def action_cycle_issue_state(self) -> None:
+        states = next_issue_states(self.issue_view.query.states)
+        # Drive the control so the header, the query, and the Select agree.
+        self.query_one("#issue-state", Select).value = issue_state_filter_value(
+            replace(self.issue_view.query, states=states)
         )
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -495,7 +509,7 @@ class DashpotApp(App[None]):
         )
         result = self.store.query_issues(query)
         self.query_one("#issue-count", Static).update(
-            f"{result.matched_issue_count} of {result.observed_issue_count} Issues"
+            issue_count_text(result, query)
         )
         desired_contexts, desired_cells = build_rows(
             result,

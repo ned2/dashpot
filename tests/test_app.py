@@ -596,16 +596,51 @@ async def test_visible_filters_update_rows_and_observation_count() -> None:
         search = app.query_one("#issue-search", Input)
         state = app.query_one("#issue-state", Select)
 
-        assert str(count.render()) == "2 of 3 Issues"
+        assert str(count.render()) == "2 open · 1 closed"
         search.value = "zebra"
-        await wait_until(lambda: str(count.render()) == "1 of 3 Issues")
+        await wait_until(lambda: str(count.render()) == "1 of 2 open · 1 closed")
         assert app.query_one("#queue", DataTable).row_count == 1
 
         state.value = "closed"
         await wait_until(
             lambda: app.selected_row_key == row_key("issue", closed_issue["id"])
         )
-        assert str(count.render()) == "1 of 3 Issues"
+        assert str(count.render()) == "1 closed · 2 open"
+
+
+@pytest.mark.asyncio
+async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
+    closed_issue = issue("test/repo#3", "Done")
+    closed_issue["state"] = "closed"
+    closed_issue["stateReason"] = "completed"
+    closed_issue["closedAt"] = NOW
+    snapshot = workspace_snapshot(issue("test/repo#1", "Alpha"), closed_issue)
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(100, 28)) as pilot:
+        count = app.query_one("#issue-count", Static)
+        state = app.query_one("#issue-state", Select)
+        table = app.query_one("#queue", DataTable)
+        assert str(count.render()) == "1 open · 1 closed"
+
+        await pilot.press("o")
+        await wait_until(lambda: state.value == "closed")
+        await wait_until(lambda: str(count.render()) == "1 closed · 1 open")
+        assert app.issue_view.query.states == frozenset({"closed"})
+
+        await pilot.press("o")
+        await wait_until(lambda: state.value == "all")
+        await wait_until(lambda: table.row_count == 2)
+        assert str(count.render()) == "2 Issues · 1 open, 1 closed"
+
+        await pilot.press("o")
+        await wait_until(lambda: state.value == "open")
+        await wait_until(lambda: table.row_count == 1)
+        assert str(count.render()) == "1 open · 1 closed"
 
 
 @pytest.mark.asyncio
