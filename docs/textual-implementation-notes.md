@@ -239,13 +239,20 @@ indicator. [Widget loading state](https://textual.textualize.io/guide/widgets/#l
 
 Treat collection problems as observer data:
 
-- source status and age stay visible in the status line;
+- source status and age remain available as lower-level observation data;
 - per-project/source diagnostics stay in a persistent diagnostics pane;
-- stale data remains rendered and visibly marked;
+- stale last-good data may remain rendered, with its failure recorded in
+  diagnostics rather than repeated on every queue row or among normal Project
+  facts;
 - unexpected worker exceptions preserve the last snapshot and become an explicit
   diagnostic; and
 - an error toast may supplement the pane for a failed manual refresh, but must not
   be the only record.
+
+Workspace-level alerts for stale, unavailable, and failed observations belong to
+the normally hidden status display tracked by
+[#12](https://github.com/ned2/dashpot/issues/12), while Diagnostics remains the
+durable source-level record.
 
 `App.notify()` supports information, warning, and error severities and is
 thread-safe, although posting a result message keeps this app's updates in one

@@ -17,7 +17,6 @@ from .model import Issue, RunState
 
 
 ColumnKey = Literal[
-    "status",
     "issue_state",
     "number",
     "title",
@@ -92,7 +91,6 @@ class ColumnSpec:
 
 
 COLUMN_SPECS = (
-    ColumnSpec("status", "S"),
     ColumnSpec("issue_state", "STATUS"),
     ColumnSpec(
         "number",
@@ -303,7 +301,6 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     project = row.project
     if row.kind == "project":
         return {
-            "status": status_cell(project.status),
             "issue_state": IssueTableCell("-", 99),
             "number": IssueTableCell("-", float("inf")),
             "title": text_cell(row.empty_message or "no Issues"),
@@ -321,7 +318,6 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         priority = issue_priority(issue)
         assignees = tuple(assignee.casefold() for assignee in issue["assignees"])
         return {
-            "status": status_cell(project.status),
             "issue_state": issue_state_cell(issue, dark=dark),
             "number": IssueTableCell(
                 f"#{issue['number']}", issue["number"]
@@ -340,7 +336,6 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     if run is None:
         raise RuntimeError("Issue-list Agent Run row is missing its Agent Run")
     return {
-        "status": run_state_cell(run.state),
         "issue_state": IssueTableCell("-", 99),
         "number": IssueTableCell("-", float("inf")),
         "title": text_cell(f"Unmatched {run.harness} run"),
@@ -364,11 +359,6 @@ def date_cell(timestamp: str | None) -> IssueTableCell:
     return IssueTableCell(instant.date().isoformat(), instant.timestamp())
 
 
-def status_cell(status: str) -> IssueTableCell:
-    rank = {"fresh": 0, "stale": 1, "unavailable": 2}.get(status, 3)
-    return IssueTableCell(status_mark(status), rank)
-
-
 def issue_state_kind(issue: Issue) -> IssueStateKind:
     if issue["state"] == "open":
         return "open"
@@ -380,15 +370,6 @@ def issue_state_kind(issue: Issue) -> IssueStateKind:
 
 def issue_state_cell(issue: Issue, *, dark: bool) -> IssueStateCell:
     return IssueStateCell(issue_state_kind(issue), dark=dark)
-
-
-def run_state_cell(state: str) -> IssueTableCell:
-    rank = {"running": 0, "waiting": 1, "unknown": 2}.get(state, 3)
-    return IssueTableCell(run_state_mark(state), rank)
-
-
-def status_mark(status: str) -> str:
-    return {"fresh": "●", "stale": "◐", "unavailable": "!"}.get(status, "?")
 
 
 def run_state_mark(state: str) -> str:

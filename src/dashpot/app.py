@@ -506,7 +506,6 @@ def project_detail_items(
     project: ProjectObservation, agent_runs: Sequence[AgentRun] = ()
 ) -> tuple[DetailItem, ...]:
     items = [
-        DetailItem(project.status, "Status"),
         DetailItem(", ".join(project.workspaces), "Workspaces"),
         DetailItem(project.primary_anchor, "Anchor"),
     ]

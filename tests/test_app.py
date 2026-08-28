@@ -197,7 +197,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert table.row_count == 2
         assert not hasattr(app, "snapshot")
         assert COLUMN_KEYS == (
-            "status",
             "issue_state",
             "number",
             "title",
@@ -209,7 +208,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "sessions",
         )
         assert DEFAULT_COLUMNS == (
-            "status",
             "issue_state",
             "number",
             "title",
@@ -220,7 +218,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         assert DEFAULT_SORT == (SortTerm("last_action", descending=True),)
         assert [str(column.label) for column in table.columns.values()] == [
-            "S ↕",
             "STATUS ↕",
             "ID ↕",
             "TITLE ↕",
@@ -230,7 +227,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "SESSIONS ↕",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
-        assert "Status: fresh" in project_detail
+        assert "Status:" not in project_detail
         assert "Anchor: /repo" in project_detail
         assert "Targets: 1" in project_detail
         assert "main@abcdef12 clean" in project_detail
@@ -245,7 +242,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert "Declared" not in selection_detail
         assert "blocked" not in selection_detail.lower()
         assert [row.item.label for row in project_fields] == [
-            "Status",
             "Workspaces",
             "Anchor",
             "Targets",
@@ -625,7 +621,6 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         editor = app.screen
         assert isinstance(editor, IssueColumnEditor)
         selections = editor.query_one("#column-editor-list")
-        selections.deselect("status")
         selections.highlighted = editor.column_order.index("sessions")
         assert await pilot.click("#column-up")
         await pilot.pause()
@@ -727,7 +722,7 @@ async def test_unavailable_project_observation_keeps_last_good_issue_rows() -> N
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert pane_title(app, "#selection-pane") == "#1: Last good"
-        assert "Status: unavailable" in detail_plain(app, "#project-detail")
+        assert "Status:" not in detail_plain(app, "#project-detail")
         assert "repository is unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -772,7 +767,7 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert pane_title(app, "#selection-pane") == "#1: Last good"
-        assert "Status: stale" in detail_plain(app, "#project-detail")
+        assert "Status:" not in detail_plain(app, "#project-detail")
         assert "GitHub unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -1047,7 +1042,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 8
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
     assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
     assert cells[selected_key][DEFAULT_COLUMNS.index("assignees")] == "ned2"
     assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"
