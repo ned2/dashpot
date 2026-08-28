@@ -31,6 +31,7 @@ from dashpot.issue_table import (
     IssueTableViewState,
     LabelsCell,
     SortTerm,
+    agent_state_cell,
     build_rows,
     date_cell,
     searchable_columns,
@@ -204,6 +205,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert not hasattr(app, "snapshot")
         assert COLUMN_KEYS == (
             "issue_state",
+            "agent_state",
             "number",
             "title",
             "labels",
@@ -216,22 +218,21 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "comments",
             "created",
             "last_action",
-            "sessions",
         )
         assert DEFAULT_COLUMNS == (
             "issue_state",
+            "agent_state",
             "number",
             "title",
             "last_action",
-            "sessions",
         )
         assert DEFAULT_SORT == (SortTerm("last_action", descending=True),)
         assert [str(column.label) for column in table.columns.values()] == [
             "◉ ↕",
+            "AGENT ↕",
             "ID ↕",
             "TITLE ↕",
             "LAST ACTION ↓",
-            "SESSIONS ↕",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert "Status:" not in project_detail
@@ -669,7 +670,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         assert isinstance(editor, IssueColumnEditor)
         selections = editor.query_one("#column-editor-list")
         selections.select("priority")
-        selections.highlighted = editor.column_order.index("sessions")
+        selections.highlighted = editor.column_order.index("last_action")
         assert await pilot.click("#column-up")
         await pilot.pause()
         assert await pilot.click("#column-apply")
@@ -677,10 +678,10 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
 
         assert app.issue_view.columns == (
             "issue_state",
+            "agent_state",
             "number",
-            "title",
-            "sessions",
             "last_action",
+            "title",
             "priority",
         )
         assert [key.value for key in table.columns] == list(app.issue_view.columns)
@@ -818,7 +819,7 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
         assert "GitHub unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
-        assert "Ⅱ1" in app.query_one("#queue", DataTable).get_row_at(0)
+        assert "Ⅱ" in app.query_one("#queue", DataTable).get_row_at(0)
 
 
 @pytest.mark.asyncio
@@ -1198,14 +1199,21 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
             "title",
         }
     )
-    sessions = [
-        IssueTableCell("Ⅱ10", (10, 0, 10, 0)),
-        IssueTableCell("Ⅱ2", (2, 0, 2, 0)),
+    agent_states = [
+        agent_state_cell(("running",)),
+        agent_state_cell(()),
+        agent_state_cell(("waiting",)),
+        agent_state_cell(("unknown",)),
     ]
 
-    ordered = sorted(sessions, key=COLUMNS_BY_KEY["sessions"].sort_key)
+    ordered = sorted(
+        agent_states, key=COLUMNS_BY_KEY["agent_state"].sort_key
+    )
 
-    assert ordered == ["Ⅱ2", "Ⅱ10"]
+    assert ordered == ["", "?", "Ⅱ", "▶"]
+    assert agent_state_cell(("running", "running")) == "▶"
+    assert agent_state_cell(("waiting", "running", "unknown")) == "▶"
+    assert agent_state_cell(("unknown", "waiting")) == "Ⅱ"
     numbers = [IssueTableCell("#10", 10), IssueTableCell("#2", 2)]
 
     assert sorted(numbers, key=COLUMNS_BY_KEY["number"].sort_key) == [
@@ -1249,7 +1257,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     selected_key = row_key("issue", selected_issue["id"])
     assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 5
     assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
-    assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"
+    assert cells[selected_key][DEFAULT_COLUMNS.index("agent_state")] == "Ⅱ"
     detail = selection_detail_text(contexts[selected_key])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail

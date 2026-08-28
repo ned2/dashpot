@@ -18,6 +18,7 @@ from .model import Issue, IssueActivity, ProjectObservation, RunState
 
 ColumnKey = Literal[
     "issue_state",
+    "agent_state",
     "number",
     "title",
     "labels",
@@ -30,7 +31,6 @@ ColumnKey = Literal[
     "comments",
     "created",
     "last_action",
-    "sessions",
 ]
 
 IssueStateKind = Literal[
@@ -137,6 +137,7 @@ class ColumnSpec:
 
 COLUMN_SPECS = (
     ColumnSpec("issue_state", "◉"),
+    ColumnSpec("agent_state", "AGENT"),
     ColumnSpec(
         "number",
         "ID",
@@ -192,7 +193,6 @@ COLUMN_SPECS = (
     ColumnSpec("comments", "COMMENTS"),
     ColumnSpec("created", "CREATED", nulls_last=True),
     ColumnSpec("last_action", "LAST ACTION", nulls_last=True),
-    ColumnSpec("sessions", "SESSIONS"),
 )
 COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
 DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
@@ -396,6 +396,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         assignees = tuple(assignee.casefold() for assignee in issue["assignees"])
         return {
             "issue_state": issue_state_cell(issue, dark=dark),
+            "agent_state": agent_state_cell(row.session_states),
             "number": IssueTableCell(
                 f"#{issue['number']}", issue["number"]
             ),
@@ -412,7 +413,6 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             "comments": comments_cell(issue_activity(issue, project)),
             "created": date_cell(issue["createdAt"]),
             "last_action": date_cell(issue["updatedAt"]),
-            "sessions": run_summary_cell(row.session_states),
         }
     raise RuntimeError(f"unsupported Issue-list row kind: {row.kind}")
 
@@ -483,36 +483,15 @@ def issue_state_cell(issue: Issue, *, dark: bool) -> IssueStateCell:
     return IssueStateCell(issue_state_kind(issue), dark=dark)
 
 
-def run_state_mark(state: str) -> str:
-    return {"running": "▶", "waiting": "Ⅱ", "unknown": "?"}.get(state, "?")
-
-
-def observed_run_summary(states: tuple[RunState, ...]) -> str:
-    return str(run_summary_cell(states))
-
-
-def run_summary_cell(states: tuple[RunState, ...]) -> IssueTableCell:
-    counts = run_state_counts(states)
-    running, waiting, unknown = counts[1:]
-    by_state = {"running": running, "waiting": waiting, "unknown": unknown}
-    summary = " ".join(
-        f"{run_state_mark(state)}{by_state[state]}"
-        for state in ("running", "waiting", "unknown")
-        if by_state[state]
-    )
-    return IssueTableCell(summary or "0", counts)
-
-
-def run_state_counts(states: tuple[RunState, ...]) -> tuple[int, int, int, int]:
-    counts = {"running": 0, "waiting": 0, "unknown": 0}
-    for state in states:
-        counts[state] += 1
-    return (
-        len(states),
-        counts["running"],
-        counts["waiting"],
-        counts["unknown"],
-    )
+def agent_state_cell(states: tuple[RunState, ...]) -> IssueTableCell:
+    """Summarize Issue work without exposing the number of Agent Runs."""
+    if "running" in states:
+        return IssueTableCell("▶", 3)
+    if "waiting" in states:
+        return IssueTableCell("Ⅱ", 2)
+    if "unknown" in states:
+        return IssueTableCell("?", 1)
+    return IssueTableCell("", 0)
 
 
 PRIORITY_BY_LABEL = {
