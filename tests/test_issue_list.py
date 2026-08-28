@@ -150,6 +150,21 @@ def test_text_query_matches_the_author_without_requiring_one() -> None:
     assert [row.issue["id"] for row in result.rows] == ["I_matching"]
 
 
+def test_text_query_matches_milestone_and_issue_type() -> None:
+    by_milestone = issue("I_milestone", "open")
+    by_milestone["milestone"] = "v1.0"
+    by_type = issue("I_type", "open")
+    by_type["issueType"] = "Bug"
+    hidden = issue("I_hidden", "open")
+    observed = workspace(by_milestone, by_type, hidden)
+
+    milestones = query_issue_list(observed, IssueListQuery(text="v1.0"))
+    types = query_issue_list(observed, IssueListQuery(text="bug"))
+
+    assert [row.issue["id"] for row in milestones.rows] == ["I_milestone"]
+    assert [row.issue["id"] for row in types.rows] == ["I_type"]
+
+
 def test_text_query_matches_the_rendered_issue_number() -> None:
     matching = issue("I_matching", "open")
     matching["number"] = 17

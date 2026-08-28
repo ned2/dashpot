@@ -21,6 +21,8 @@ class IssueSearchField(StrEnum):
     ASSIGNEES = "assignees"
     LABELS = "labels"
     AUTHOR = "author"
+    MILESTONE = "milestone"
+    TYPE = "type"
     TITLE = "title"
 
     def values(
@@ -35,9 +37,16 @@ class IssueSearchField(StrEnum):
         if self is IssueSearchField.LABELS:
             return tuple(str(value) for value in issue.get("labels", []))
         if self is IssueSearchField.AUTHOR:
-            author = issue.get("author")
-            return (str(author),) if author else ()
+            return _optional_value(issue.get("author"))
+        if self is IssueSearchField.MILESTONE:
+            return _optional_value(issue.get("milestone"))
+        if self is IssueSearchField.TYPE:
+            return _optional_value(issue.get("issueType"))
         return (str(issue.get("title", "")),)
+
+
+def _optional_value(value: object) -> tuple[str, ...]:
+    return (str(value),) if value else ()
 
 
 @dataclass(frozen=True, slots=True)

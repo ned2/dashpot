@@ -25,6 +25,8 @@ ColumnKey = Literal[
     "priority",
     "assignees",
     "author",
+    "milestone",
+    "type",
     "created",
     "last_action",
     "sessions",
@@ -172,6 +174,20 @@ COLUMN_SPECS = (
         search_field=IssueSearchField.AUTHOR,
         nulls_last=True,
     ),
+    ColumnSpec(
+        "milestone",
+        "MILESTONE",
+        update_width=True,
+        search_field=IssueSearchField.MILESTONE,
+        nulls_last=True,
+    ),
+    ColumnSpec(
+        "type",
+        "TYPE",
+        update_width=True,
+        search_field=IssueSearchField.TYPE,
+        nulls_last=True,
+    ),
     ColumnSpec("created", "CREATED", nulls_last=True),
     ColumnSpec("last_action", "LAST ACTION", nulls_last=True),
     ColumnSpec("sessions", "SESSIONS"),
@@ -181,7 +197,16 @@ DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
     key
     for key in COLUMN_KEYS
     if key
-    not in {"labels", "project", "priority", "assignees", "author", "created"}
+    not in {
+        "labels",
+        "project",
+        "priority",
+        "assignees",
+        "author",
+        "milestone",
+        "type",
+        "created",
+    }
 )
 COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
@@ -379,6 +404,8 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
                 ", ".join(issue["assignees"]) or "unassigned", assignees
             ),
             "author": optional_text_cell(issue["author"]),
+            "milestone": optional_text_cell(issue["milestone"]),
+            "type": optional_text_cell(issue["issueType"]),
             "created": date_cell(issue["createdAt"]),
             "last_action": date_cell(issue["updatedAt"]),
             "sessions": run_summary_cell(row.session_states),

@@ -701,6 +701,10 @@ def selection_detail_items(
                 DetailItem(", ".join(labels) or "-", "Labels"),
             ]
         )
+        if current["milestone"]:
+            items.append(DetailItem(current["milestone"], "Milestone"))
+        if current["issueType"]:
+            items.append(DetailItem(current["issueType"], "Type"))
         items.append(DetailItem("Agent sessions", kind="section"))
         if not context.observed_runs:
             items.append(DetailItem("-", kind="list"))

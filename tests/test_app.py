@@ -209,6 +209,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "priority",
             "assignees",
             "author",
+            "milestone",
+            "type",
             "created",
             "last_action",
             "sessions",
@@ -915,6 +917,45 @@ def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> 
     assert [str(value) for value in ascending] == ["ned2", "-"]
 
 
+def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None:
+    classified = issue("test/repo#1", "Classified")
+    plain = issue("test/repo#2", "Plain")
+    plain["milestone"] = None
+    plain["issueType"] = None
+
+    _contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(classified, plain)),
+        columns=("milestone", "type"),
+    )
+
+    assert "milestone" not in DEFAULT_COLUMNS
+    assert "type" not in DEFAULT_COLUMNS
+    assert cells[row_key("issue", classified["id"])] == ("v1", "Feature")
+    assert cells[row_key("issue", plain["id"])] == ("-", "-")
+    ascending = sorted(
+        [cells[row_key("issue", plain["id"])][0], cells[row_key("issue", classified["id"])][0]],
+        key=sort_key_for_terms((SortTerm("milestone"),)),
+    )
+    assert [str(value) for value in ascending] == ["v1", "-"]
+
+
+def test_issue_detail_shows_milestone_and_type_only_when_present() -> None:
+    classified = issue("test/repo#1", "Classified")
+    detail = selection_detail_text(
+        query_issue_list(workspace_snapshot(classified)).rows[0]
+    )
+    assert "Milestone: v1\nType: Feature\nAgent sessions:" in detail
+
+    plain = issue("test/repo#2", "Plain")
+    plain["milestone"] = None
+    plain["issueType"] = None
+    detail = selection_detail_text(
+        query_issue_list(workspace_snapshot(plain)).rows[0]
+    )
+    assert "Milestone:" not in detail
+    assert "Type:" not in detail
+
+
 def test_issue_detail_leads_with_the_feed_byline() -> None:
     now = datetime(2026, 8, 29, 5, 33, 4, tzinfo=timezone.utc)
     selected_issue = issue("test/repo#12", "Byline")
@@ -1069,7 +1110,16 @@ def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
 
 def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     assert searchable_columns() == frozenset(
-        {"number", "project", "assignees", "labels", "author", "title"}
+        {
+            "number",
+            "project",
+            "assignees",
+            "labels",
+            "author",
+            "milestone",
+            "type",
+            "title",
+        }
     )
     sessions = [
         IssueTableCell("Ⅱ10", (10, 0, 10, 0)),
