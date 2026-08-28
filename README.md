@@ -123,6 +123,21 @@ paths for identity.
 
 ## Project configuration
 
+Configure a repository as a Dashpot Project with `dashpot init`, run from
+anywhere inside its worktree. With a GitHub `origin` remote it asks nothing:
+the Issue Source defaults to GitHub Issues and the durable repository identity
+is resolved through the authenticated `gh` CLI. Without one, declare a Local
+Issue Markdown source instead:
+
+```bash
+dashpot init
+dashpot init --markdown issues
+```
+
+`dashpot init` never overwrites an existing configuration, and running
+`dashpot` in an unconfigured repository never writes anything; it reports how
+to proceed.
+
 Every Repository Anchor has a tracked `.dashpot/config.json` containing stable
 Project and Repository identities, a mutable display label, and the active
 Issue Source. The `.dashpot/state/` directory holds ignored local runtime

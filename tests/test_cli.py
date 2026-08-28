@@ -228,3 +228,55 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
     record = json.loads((tmp_path / "state" / "session-7.json").read_text())
     assert record["state"] == "running"
     assert record["sessionProcess"]["pid"] == 42
+
+
+def test_unconfigured_repository_error_suggests_init(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    args = cli.build_parser().parse_args([])
+    missing = tmp_path / "nowhere" / "workspaces.json"
+
+    with mock.patch.object(cli, "worktree_root", return_value=tmp_path), \
+        mock.patch.object(
+            cli, "default_workspace_config", return_value=missing
+        ):
+        with pytest.raises(RuntimeError, match="dashpot init"):
+            cli.create_collector(args)
+
+
+def test_init_command_prints_messages_and_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli, "initialize_project", return_value=["created config"]
+    ) as init:
+        code = cli.main(["init", "--markdown", "issues"])
+
+    assert code == 0
+    init.assert_called_once_with(
+        Path.cwd().resolve(), markdown_path="issues", timeout=10.0
+    )
+    assert "created config" in capsys.readouterr().out
+
+
+def test_init_command_reports_errors_like_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli,
+        "initialize_project",
+        side_effect=RuntimeError("already configured"),
+    ):
+        code = cli.main(["init"])
+
+    assert code == 2
+    assert "already configured" in capsys.readouterr().err
