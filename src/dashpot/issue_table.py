@@ -172,7 +172,7 @@ COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
 DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
     key
     for key in COLUMN_KEYS
-    if key not in {"project", "priority", "assignees", "created"}
+    if key not in {"labels", "project", "priority", "assignees", "created"}
 )
 COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 

@@ -215,7 +215,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "issue_state",
             "number",
             "title",
-            "labels",
             "last_action",
             "sessions",
         )
@@ -224,7 +223,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "◉ ↕",
             "ID ↕",
             "TITLE ↕",
-            "LABELS ↕",
             "LAST ACTION ↓",
             "SESSIONS ↕",
         ]
@@ -637,7 +635,6 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "issue_state",
             "number",
             "title",
-            "labels",
             "sessions",
             "last_action",
             "priority",
@@ -1081,7 +1078,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 6
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 5
     assert cells[selected_key][DEFAULT_COLUMNS.index("number")] == "#1"
     assert cells[selected_key][DEFAULT_COLUMNS.index("sessions")] == "Ⅱ1"
     detail = selection_detail_text(contexts[selected_key])
