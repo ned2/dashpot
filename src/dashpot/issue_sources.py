@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
+from .model import IssueActivity
+
 
 IssueSourceStatus = Literal["fresh", "stale", "unavailable"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
@@ -30,6 +32,8 @@ class IssueSourceObservation:
     # sit beside the Issue profile rather than inside it: a label's colour is
     # a property of the tracker, not of any one Issue.
     label_colors: dict[str, str] = field(default_factory=dict)
+    # Comment counts and linked pull requests keyed by Issue Identity.
+    issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
 
 
 class IssueSourceRefreshError(RuntimeError):
@@ -46,6 +50,7 @@ class IssueSource:
         self._last_good: list[dict[str, Any]] | None = None
         self._last_good_at: str | None = None
         self._last_good_label_colors: dict[str, str] = {}
+        self._last_good_issue_activity: dict[str, IssueActivity] = {}
 
     @property
     def name(self) -> str:
@@ -56,6 +61,7 @@ class IssueSource:
         try:
             issues = self._collect()
             label_colors = self._collect_label_colors()
+            issue_activity = self._collect_issue_activity()
         except IssueSourceRefreshError as exc:
             severity: DiagnosticSeverity = (
                 "warning" if self._last_good is not None else "error"
@@ -66,6 +72,7 @@ class IssueSource:
                 last_good_at=self._last_good_at,
                 issues=copy.deepcopy(self._last_good or []),
                 label_colors=dict(self._last_good_label_colors),
+                issue_activity=copy.deepcopy(self._last_good_issue_activity),
                 diagnostics=[
                     IssueSourceDiagnostic(
                         source=self.name,
@@ -79,6 +86,7 @@ class IssueSource:
         self._last_good = copy.deepcopy(issues)
         self._last_good_at = attempted_at
         self._last_good_label_colors = dict(label_colors)
+        self._last_good_issue_activity = copy.deepcopy(issue_activity)
         return IssueSourceObservation(
             status="fresh",
             attempted_at=attempted_at,
@@ -86,6 +94,7 @@ class IssueSource:
             issues=issues,
             diagnostics=[],
             label_colors=label_colors,
+            issue_activity=issue_activity,
         )
 
     def _collect(self) -> list[dict[str, Any]]:
@@ -95,6 +104,13 @@ class IssueSource:
         """Colours for the labels observed by the latest ``_collect``.
 
         Sources without a palette (Local Markdown) leave every label neutral.
+        """
+        return {}
+
+    def _collect_issue_activity(self) -> dict[str, IssueActivity]:
+        """Engagement facts for the Issues observed by the latest ``_collect``.
+
+        Sources without comments or pull requests (Local Markdown) report none.
         """
         return {}
 

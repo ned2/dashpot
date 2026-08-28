@@ -45,6 +45,8 @@ from dashpot.model import (
     ProjectSnapshot,
     SourceStatus,
     WorkspaceSnapshot,
+    IssueActivity,
+    LinkedPullRequest,
 )
 from dashpot.observation_store import WorkspaceObservationStore
 
@@ -211,6 +213,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "author",
             "milestone",
             "type",
+            "comments",
             "created",
             "last_action",
             "sessions",
@@ -989,6 +992,45 @@ def test_issue_detail_shows_milestone_and_type_only_when_present() -> None:
     )
     assert "Milestone:" not in detail
     assert "Type:" not in detail
+
+
+def test_comments_column_and_detail_show_engagement_only_when_present() -> None:
+    discussed = issue("test/repo#1", "Discussed")
+    quiet = issue("test/repo#2", "Quiet")
+    snapshot = workspace_snapshot(discussed, quiet)
+    snapshot.projects[0].snapshot.issue_activity = {
+        discussed["id"]: IssueActivity(
+            comment_count=4,
+            linked_pull_requests=[
+                LinkedPullRequest(12, "https://github.com/test/repo/pull/12", "open"),
+                LinkedPullRequest(41, "https://github.com/test/repo/pull/41", "merged"),
+            ],
+        )
+    }
+
+    contexts, cells = build_rows(query_issue_list(snapshot), columns=("comments",))
+
+    assert "comments" not in DEFAULT_COLUMNS
+    assert cells[row_key("issue", discussed["id"])] == ("4",)
+    assert cells[row_key("issue", quiet["id"])] == ("-",)
+    ascending = sorted(
+        [cells[row_key("issue", discussed["id"])][0], cells[row_key("issue", quiet["id"])][0]],
+        key=sort_key_for_terms((SortTerm("comments"),)),
+    )
+    assert [str(value) for value in ascending] == ["-", "4"]
+
+    detail = selection_detail_text(contexts[row_key("issue", discussed["id"])])
+    assert "Comments: 4\n" in detail
+    assert (
+        "Pull requests:\n"
+        "  #12 open https://github.com/test/repo/pull/12\n"
+        "  #41 merged https://github.com/test/repo/pull/41\n"
+        "Agent sessions:"
+    ) in detail
+
+    quiet_detail = selection_detail_text(contexts[row_key("issue", quiet["id"])])
+    assert "Comments:" not in quiet_detail
+    assert "Pull requests:" not in quiet_detail
 
 
 def test_issue_detail_leads_with_the_feed_byline() -> None:

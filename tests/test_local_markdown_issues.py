@@ -64,6 +64,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             expected_issues=[expected],
         )
         self.assertEqual({}, observation.label_colors)
+        self.assertEqual({}, observation.issue_activity)
 
     def test_directory_refresh_collects_markdown_files_in_path_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

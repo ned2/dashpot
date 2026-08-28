@@ -13,7 +13,7 @@ from .issue_list import (
     IssueListRow,
     IssueSearchField,
 )
-from .model import Issue, ProjectObservation, RunState
+from .model import Issue, IssueActivity, ProjectObservation, RunState
 
 
 ColumnKey = Literal[
@@ -27,6 +27,7 @@ ColumnKey = Literal[
     "author",
     "milestone",
     "type",
+    "comments",
     "created",
     "last_action",
     "sessions",
@@ -188,6 +189,7 @@ COLUMN_SPECS = (
         search_field=IssueSearchField.TYPE,
         nulls_last=True,
     ),
+    ColumnSpec("comments", "COMMENTS"),
     ColumnSpec("created", "CREATED", nulls_last=True),
     ColumnSpec("last_action", "LAST ACTION", nulls_last=True),
     ColumnSpec("sessions", "SESSIONS"),
@@ -205,6 +207,7 @@ DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
         "author",
         "milestone",
         "type",
+        "comments",
         "created",
     }
 )
@@ -406,6 +409,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             "author": optional_text_cell(issue["author"]),
             "milestone": optional_text_cell(issue["milestone"]),
             "type": optional_text_cell(issue["issueType"]),
+            "comments": comments_cell(issue_activity(issue, project)),
             "created": date_cell(issue["createdAt"]),
             "last_action": date_cell(issue["updatedAt"]),
             "sessions": run_summary_cell(row.session_states),
@@ -415,6 +419,17 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
 
 def text_cell(value: str) -> IssueTableCell:
     return IssueTableCell(value, value.casefold())
+
+
+def issue_activity(issue: Issue, project: ProjectObservation) -> IssueActivity:
+    if project.snapshot is None:
+        return IssueActivity()
+    return project.snapshot.issue_activity.get(issue["id"], IssueActivity())
+
+
+def comments_cell(activity: IssueActivity) -> IssueTableCell:
+    count = activity.comment_count
+    return IssueTableCell(str(count) if count else "-", count)
 
 
 def labels_cell(issue: Issue, project: ProjectObservation) -> LabelsCell:

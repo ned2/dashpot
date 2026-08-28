@@ -37,6 +37,13 @@
   },
   "issueType": { "name": "Feature" },
   "milestone": { "title": "v1" },
+  "comments": { "totalCount": 3 },
+  "closedByPullRequestsReferences": {
+    "nodes": [
+      { "number": 41, "url": "https://github.com/ned2/dashpot/pull/41", "state": "MERGED" },
+      { "number": 12, "url": "https://github.com/ned2/dashpot/pull/12", "state": "OPEN" }
+    ]
+  },
   "createdAt": "2026-08-26T05:33:04Z",
   "updatedAt": "2026-08-26T08:32:48Z",
   "closedAt": null,

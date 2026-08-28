@@ -302,7 +302,20 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         query = runner.calls[0][0][4]
         self.assertIn("states: [OPEN, CLOSED]", query)
         self.assertIn("nodes { name color }", query)
+        self.assertIn("comments { totalCount }", query)
+        self.assertIn("closedByPullRequestsReferences", query)
         self.assertNotIn("tasks.md", query)
+        activity = observation.issue_activity[observation.issues[0]["id"]]
+        self.assertEqual(3, activity.comment_count)
+        self.assertEqual(
+            [(12, "open"), (41, "merged")],
+            [(pull.number, pull.state) for pull in activity.linked_pull_requests],
+        )
+        self.assertEqual(
+            "https://github.com/ned2/dashpot/pull/41",
+            activity.linked_pull_requests[1].url,
+        )
+        self.assertNotIn("comments", observation.issues[0])
         self.assertEqual(
             {
                 "priority/P1": "b60205",
@@ -451,6 +464,34 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         )
         self.assertNotIn("labelColors", observation.issues[0])
 
+    def test_missing_or_malformed_engagement_reads_as_none(self) -> None:
+        record = raw_fixture()
+        record["comments"] = {"totalCount": "three"}
+        record["closedByPullRequestsReferences"] = {
+            "nodes": [
+                {"number": 7, "url": "", "state": "MERGED"},
+                {"number": 8, "url": "https://example.test/8", "state": "DRAFT"},
+                "not a node",
+            ]
+        }
+        runner = SequenceRunner([completed(issue_page([record]))])
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        activity = observation.issue_activity[observation.issues[0]["id"]]
+        self.assertEqual(0, activity.comment_count)
+        self.assertEqual([], activity.linked_pull_requests)
+
+        bare = raw_fixture()
+        del bare["comments"]
+        del bare["closedByPullRequestsReferences"]
+        observation = source(SequenceRunner([completed(issue_page([bare]))])).refresh()
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(
+            0, observation.issue_activity[observation.issues[0]["id"]].comment_count
+        )
+
     def test_repeated_nested_cursor_is_a_pagination_diagnostic(self) -> None:
         record = raw_fixture()
         record["labels"]["pageInfo"] = {
@@ -520,6 +561,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         fresh = github.refresh()
         fresh.issues[0]["title"] = "caller mutation"
         fresh.label_colors["enhancement"] = "000000"
+        fresh.issue_activity[fresh.issues[0]["id"]].comment_count = 99
 
         stale = github.refresh()
 
@@ -533,6 +575,9 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             expected_issues=[expected_fixture()],
         )
         self.assertEqual("a2eeef", stale.label_colors["enhancement"])
+        self.assertEqual(
+            3, stale.issue_activity[stale.issues[0]["id"]].comment_count
+        )
 
     def test_graphql_errors_are_diagnostics_and_partial_data_is_discarded(self) -> None:
         response = json.dumps(

@@ -54,6 +54,7 @@ from .issue_table import (
     searchable_columns,
     sort_key_for_terms,
     relative_age,
+    issue_activity,
 )
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
@@ -719,6 +720,15 @@ def selection_detail_items(
             items.append(DetailItem(current["milestone"], "Milestone"))
         if current["issueType"]:
             items.append(DetailItem(current["issueType"], "Type"))
+        activity = issue_activity(current, context.project)
+        if activity.comment_count:
+            items.append(DetailItem(str(activity.comment_count), "Comments"))
+        if activity.linked_pull_requests:
+            items.append(DetailItem("Pull requests", kind="section"))
+            for pull in activity.linked_pull_requests:
+                items.append(
+                    DetailItem(f"#{pull.number} {pull.state} {pull.url}", kind="list")
+                )
         items.append(DetailItem("Agent sessions", kind="section"))
         if not context.observed_runs:
             items.append(DetailItem("-", kind="list"))

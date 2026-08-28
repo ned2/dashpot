@@ -18,6 +18,28 @@ class Diagnostic:
     code: str | None = None
 
 
+PullRequestState = Literal["open", "closed", "merged"]
+
+
+@dataclass(slots=True)
+class LinkedPullRequest:
+    number: int
+    url: str
+    state: PullRequestState
+
+
+@dataclass(slots=True)
+class IssueActivity:
+    """Tracker engagement facts that sit beside the Issue profile.
+
+    They are GitHub-shaped rather than source-neutral, so they travel with
+    the snapshot keyed by Issue Identity instead of inside each Issue.
+    """
+
+    comment_count: int = 0
+    linked_pull_requests: list[LinkedPullRequest] = field(default_factory=list)
+
+
 @dataclass(slots=True)
 class ObservationTarget:
     path: str
@@ -72,6 +94,7 @@ class ProjectSnapshot:
     # Tracker label colours (name -> "rrggbb") for the labels its Issues carry;
     # empty when the source has no palette.
     label_colors: dict[str, str] = field(default_factory=dict)
+    issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

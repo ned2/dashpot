@@ -32,6 +32,8 @@ from dashpot.model import (
     ProjectSnapshot,
     ResolvedProject,
     to_jsonable,
+    IssueActivity,
+    LinkedPullRequest,
 )
 from dashpot.repository import observe_github_repository_identity
 
@@ -122,6 +124,16 @@ class PaletteSource(FakeSource):
     def _collect_label_colors(self) -> dict[str, str]:
         return {"enhancement": "a2eeef"}
 
+    def _collect_issue_activity(self) -> dict[str, IssueActivity]:
+        return {
+            issue()["id"]: IssueActivity(
+                comment_count=2,
+                linked_pull_requests=[
+                    LinkedPullRequest(41, "https://example.test/pull/41", "merged")
+                ],
+            )
+        }
+
 
 class CountingSource(FakeSource):
     def __init__(self) -> None:
@@ -187,6 +199,12 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual({"enhancement": "a2eeef"}, snapshot.label_colors)
         self.assertEqual(
             {"enhancement": "a2eeef"}, to_jsonable(snapshot)["labelColors"]
+        )
+        activity = to_jsonable(snapshot)["issueActivity"][issue()["id"]]
+        self.assertEqual(2, activity["commentCount"])
+        self.assertEqual(
+            [{"number": 41, "url": "https://example.test/pull/41", "state": "merged"}],
+            activity["linkedPullRequests"],
         )
 
     def test_empty_issue_project_retains_identity_and_display_label(self) -> None:

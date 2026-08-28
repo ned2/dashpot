@@ -24,6 +24,7 @@ from .model import (
     ObservationTargetInventory,
     SourceStatus,
     WorkspaceSnapshot,
+    IssueActivity,
 )
 from .observation_store import StoreChange, WorkspaceObservationStore
 from .project_config import (
@@ -156,6 +157,7 @@ class ProjectCollector:
             issues=issue_observation.issues,
             diagnostics=diagnostics,
             label_colors=dict(issue_observation.label_colors),
+            issue_activity=deepcopy(issue_observation.issue_activity),
             target_status=target_status,
             target_attempted_at=attempted_at,
             target_last_good_at=(
@@ -222,6 +224,7 @@ class _SourceObservation:
     project_diagnostics: list[Diagnostic]
     elapsed_ms: int
     label_colors: dict[str, str] = field(default_factory=dict)
+    issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
 
     def retained_after_failure(
         self,
@@ -514,6 +517,7 @@ class ObservationCoordinator:
                 project_diagnostics=[],
                 elapsed_ms=0,
                 label_colors=dict(issue_observation.label_colors),
+                issue_activity=deepcopy(issue_observation.issue_activity),
             )
         try:
             inventory = collector.observe_targets()
@@ -585,6 +589,7 @@ class ObservationCoordinator:
                 issues=deepcopy(issues.data),
                 diagnostics=[*issues.diagnostics, *targets.diagnostics],
                 label_colors=dict(issues.label_colors),
+                issue_activity=deepcopy(issues.issue_activity),
                 target_status=targets.status,
                 target_attempted_at=targets.attempted_at,
                 target_last_good_at=targets.last_good_at,

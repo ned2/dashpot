@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from .commands import CommandRunner, run_command
 from .issue_profile import IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
+from .model import IssueActivity, LinkedPullRequest, PullRequestState
 
 
 _STATE_REASONS = {
@@ -74,6 +75,10 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {
           }
           issueType { name }
           milestone { title }
+          comments { totalCount }
+          closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {
+            nodes { number url state }
+          }
           createdAt
           updatedAt
           closedAt
@@ -111,6 +116,7 @@ class GitHubIssuesSource(IssueSource):
         self.timeout = timeout
         self.runner = runner
         self._label_colors: dict[str, str] = {}
+        self._issue_activity: dict[str, IssueActivity] = {}
 
     @property
     def name(self) -> str:
@@ -120,6 +126,7 @@ class GitHubIssuesSource(IssueSource):
         records = self._collect_issue_nodes()
         issues: list[dict[str, Any]] = []
         label_colors: dict[str, str] = {}
+        issue_activity: dict[str, IssueActivity] = {}
         seen_issue_ids: set[str] = set()
         seen_issue_numbers: set[int] = set()
         for record in records:
@@ -148,11 +155,16 @@ class GitHubIssuesSource(IssueSource):
             seen_issue_ids.add(issue_id)
             seen_issue_numbers.add(issue_number)
             issues.append(issue)
+            issue_activity[issue_id] = _issue_activity(complete_record)
         self._label_colors = label_colors
+        self._issue_activity = issue_activity
         return issues
 
     def _collect_label_colors(self) -> dict[str, str]:
         return dict(self._label_colors)
+
+    def _collect_issue_activity(self) -> dict[str, IssueActivity]:
+        return copy.deepcopy(self._issue_activity)
 
     def _collect_issue_nodes(self) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
@@ -414,6 +426,49 @@ def _label_colors(record: Mapping[str, Any]) -> dict[str, str]:
         ):
             colors[name] = color.lower()
     return colors
+
+
+_PULL_REQUEST_STATES: dict[str, PullRequestState] = {
+    "OPEN": "open",
+    "CLOSED": "closed",
+    "MERGED": "merged",
+}
+
+
+def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
+    """Read comment count and linked pull requests from a GraphQL Issue node.
+
+    Engagement is presentation only, so anything missing or malformed reads
+    as no engagement rather than failing the observation.
+    """
+    activity = IssueActivity()
+    comments = record.get("comments")
+    if isinstance(comments, Mapping):
+        total = comments.get("totalCount")
+        if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+            activity.comment_count = total
+    references = record.get("closedByPullRequestsReferences")
+    nodes = references.get("nodes") if isinstance(references, Mapping) else None
+    for node in nodes if isinstance(nodes, list) else []:
+        if not isinstance(node, Mapping):
+            continue
+        number = node.get("number")
+        url = node.get("url")
+        state = node.get("state")
+        if (
+            isinstance(number, int)
+            and not isinstance(number, bool)
+            and number > 0
+            and isinstance(url, str)
+            and url
+            and isinstance(state, str)
+            and state in _PULL_REQUEST_STATES
+        ):
+            activity.linked_pull_requests.append(
+                LinkedPullRequest(number, url, _PULL_REQUEST_STATES[state])
+            )
+    activity.linked_pull_requests.sort(key=lambda pull: pull.number)
+    return activity
 
 
 def _optional_object_string(
