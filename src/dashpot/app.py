@@ -57,6 +57,8 @@ from .issue_table import (
     sort_key_for_terms,
     relative_age,
     issue_activity,
+    label_chips,
+    label_colors,
 )
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
@@ -740,7 +742,7 @@ def selection_detail_items(
                     ", ".join(current["assignees"]) or "unassigned",
                     "Assignees",
                 ),
-                DetailItem(", ".join(labels) or "-", "Labels"),
+                DetailItem(label_chips(labels, label_colors(context.project)), "Labels"),
             ]
         )
         if current["milestone"]:

@@ -23,6 +23,8 @@ from .issue_table import (
     issue_activity,
     issue_priority,
     issue_state_kind,
+    label_chips,
+    label_colors,
     relative_age,
 )
 from .model import Issue, ProjectObservation
@@ -144,7 +146,7 @@ def issue_metadata_items(
         DetailItem(issue_state_label(issue), "State"),
         DetailItem(issue["author"] or "-", "Author"),
         DetailItem(", ".join(issue["assignees"]) or "unassigned", "Assignees"),
-        DetailItem(", ".join(labels) or "-", "Labels"),
+        DetailItem(label_chips(labels, label_colors(context.project)), "Labels"),
         DetailItem(issue_priority(issue), "Priority"),
         DetailItem(issue["issueType"] or "-", "Type"),
         DetailItem(issue["milestone"] or "-", "Milestone"),

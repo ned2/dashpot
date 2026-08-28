@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Literal
@@ -95,16 +95,28 @@ class LabelsCell(Text):
         self.sort_value = (
             tuple(label.casefold() for label in labels) if labels else None
         )
-        for index, label in enumerate(labels):
-            if index:
-                self.append(" ")
-            background = colors.get(label, NEUTRAL_LABEL_COLOR)
-            self.append(
-                f" {label} ",
-                style=f"{chip_foreground(background)} on #{background}",
-            )
-        if not labels:
-            self.append("-")
+        append_label_chips(self, labels, colors)
+
+
+def label_chips(labels: Sequence[str], colors: Mapping[str, str]) -> Text:
+    """Labels as coloured chips that may wrap, for detail panes."""
+    return append_label_chips(Text(), tuple(labels), colors)
+
+
+def append_label_chips(
+    text: Text, labels: tuple[str, ...], colors: Mapping[str, str]
+) -> Text:
+    for index, label in enumerate(labels):
+        if index:
+            text.append(" ")
+        background = colors.get(label, NEUTRAL_LABEL_COLOR)
+        text.append(
+            f" {label} ",
+            style=f"{chip_foreground(background)} on #{background}",
+        )
+    if not labels:
+        text.append("-")
+    return text
 
 
 def chip_foreground(background: str) -> str:
@@ -432,9 +444,12 @@ def comments_cell(activity: IssueActivity) -> IssueTableCell:
     return IssueTableCell(str(count) if count else "-", count)
 
 
+def label_colors(project: ProjectObservation) -> Mapping[str, str]:
+    return project.snapshot.label_colors if project.snapshot else {}
+
+
 def labels_cell(issue: Issue, project: ProjectObservation) -> LabelsCell:
-    colors = project.snapshot.label_colors if project.snapshot else {}
-    return LabelsCell(tuple(issue["labels"]), colors)
+    return LabelsCell(tuple(issue["labels"]), label_colors(project))
 
 
 def optional_text_cell(value: str | None) -> IssueTableCell:

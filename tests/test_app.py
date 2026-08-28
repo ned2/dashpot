@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import Event, Lock
 
 import pytest
+from rich.text import Text
 from textual.content import Content
 from textual.widgets import DataTable, Input, Markdown, Select, Static
 
@@ -16,6 +17,7 @@ from dashpot.app import (
     DashpotApp,
     issue_pane_state_class,
     project_label,
+    selection_detail_items,
     selection_detail_text,
 )
 from dashpot.column_editor import IssueColumnEditor
@@ -1993,3 +1995,23 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
         "Comments: 0\nPull requests:\n  -\nRelationships:\n  -\n"
         "Agent sessions:\n  -"
     ) in bare_text
+
+
+def test_detail_panes_render_labels_as_tracker_coloured_chips() -> None:
+    labelled = issue("test/repo#1", "Labelled")
+    labelled["labels"] = ["bug", "priority/p1"]
+    snapshot = workspace_snapshot(labelled)
+    snapshot.projects[0].snapshot.label_colors = {"bug": "d73a4a"}
+    context = query_issue_list(snapshot).rows[0]
+
+    for items in (
+        selection_detail_items(context),
+        issue_metadata_items(context),
+    ):
+        labels = next(item for item in items if item.label == "Labels")
+        assert isinstance(labels.value, Text)
+        assert labels.value.plain == " bug "
+        assert [str(span.style) for span in labels.value.spans] == [
+            "#ffffff on #d73a4a"
+        ]
+        assert "Labels: bug" in detail_items_text(items)

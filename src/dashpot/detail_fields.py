@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Static
@@ -14,7 +15,7 @@ DetailKind = Literal["field", "heading", "section", "list", "message"]
 
 @dataclass(frozen=True)
 class DetailItem:
-    value: str
+    value: str | Text
     label: str = ""
     kind: DetailKind = "field"
 
@@ -89,11 +90,16 @@ def detail_items_text(items: Sequence[DetailItem]) -> str:
     lines = []
     for item in items:
         if item.kind == "field":
-            lines.append(f"{item.label}: {item.value}")
+            lines.append(f"{item.label}: {_plain(item.value)}")
         elif item.kind == "list":
-            lines.append(f"  {item.value}")
+            lines.append(f"  {_plain(item.value)}")
         elif item.kind == "section":
-            lines.append(f"{item.value}:")
+            lines.append(f"{_plain(item.value)}:")
         else:
-            lines.append(item.value)
+            lines.append(_plain(item.value))
     return "\n".join(lines)
+
+
+def _plain(value: str | Text) -> str:
+    """Rendered chips carry padding for colour; the text form does not."""
+    return value.plain.strip() if isinstance(value, Text) else value
