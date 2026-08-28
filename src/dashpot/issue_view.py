@@ -57,15 +57,19 @@ class IssueScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         issue = self.issue
         with Vertical(id="issue-view"):
-            with Vertical(id="issue-view-heading"):
-                yield Static(issue["title"], id="issue-view-title", markup=False)
-                yield Static(
-                    issue_view_subtitle(issue, self.context.project, now=self.now),
-                    id="issue-view-subtitle",
-                    markup=False,
-                )
             with Horizontal(id="issue-view-panes"):
                 with VerticalScroll(id="issue-view-body", can_focus=True):
+                    with Vertical(id="issue-view-heading"):
+                        yield Static(
+                            issue["title"], id="issue-view-title", markup=False
+                        )
+                        yield Static(
+                            issue_view_subtitle(
+                                issue, self.context.project, now=self.now
+                            ),
+                            id="issue-view-subtitle",
+                            markup=False,
+                        )
                     if issue["body"].strip():
                         yield Markdown(issue["body"], id="issue-view-markdown")
                     else:

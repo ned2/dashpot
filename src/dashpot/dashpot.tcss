@@ -254,8 +254,7 @@ IssueColumnEditor {
 
 #issue-view-heading {
     height: auto;
-    padding: 0 1;
-    margin-bottom: 1;
+    margin: 1 0;
 }
 
 #issue-view-title {
@@ -325,7 +324,7 @@ IssueColumnEditor {
 }
 
 /* Headings carry a two-row top margin for spacing between sections; the
-   first block of the body should sit just under the pane title. */
+   first block of the body should follow the Issue heading directly. */
 #issue-view-markdown > MarkdownBlock:first-of-type {
-    margin-top: 1;
+    margin-top: 0;
 }
