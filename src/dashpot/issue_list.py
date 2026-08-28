@@ -71,7 +71,8 @@ class IssueListResult:
     observed_issue_count: int
     revision: int = 0
     # Lifecycle split of every observed Issue, before any filter, so the
-    # header can show both counts the way a tracker's feed does.
+    # Issue pane title can show the complete inventory regardless of the
+    # active lifecycle or search filter.
     open_issue_count: int = 0
     closed_issue_count: int = 0
 
@@ -211,27 +212,23 @@ def next_issue_states(states: frozenset[IssueState]) -> frozenset[IssueState]:
     return ISSUE_STATE_CYCLE[0]
 
 
-def issue_count_text(result: IssueListResult, query: IssueListQuery) -> str:
-    """Summarize the list like a tracker feed: ``3 of 12 open · 28 closed``.
+def issue_result_count_text(count: int) -> str:
+    """Describe the filtered result: ``0 issues``, ``1 issue``, ``6 issues``.
 
-    The active lifecycle scope comes first with its matched count when a
-    search narrows it; the other lifecycle count follows so the split is
-    always visible.
+    ``count`` is the matched Issue total after every active filter, which is
+    also the rendered row count while the table is not paginated. The copy is
+    lifecycle-neutral and never a ``M of N`` total.
     """
-    counts = {"open": result.open_issue_count, "closed": result.closed_issue_count}
-    if query.states == frozenset({"open", "closed"}):
-        scope = _scope_count(result.matched_issue_count, result.observed_issue_count)
-        return f"{scope} Issues · {counts['open']} open, {counts['closed']} closed"
-    if query.states == frozenset({"closed"}):
-        active, other = "closed", "open"
-    else:
-        active, other = "open", "closed"
-    scope = _scope_count(result.matched_issue_count, counts[active])
-    return f"{scope} {active} · {counts[other]} {other}"
+    return "1 issue" if count == 1 else f"{count} issues"
 
 
-def _scope_count(matched: int, total: int) -> str:
-    return str(total) if matched == total else f"{matched} of {total}"
+def issue_inventory_text(result: IssueListResult) -> str:
+    """Describe the complete lifecycle inventory: ``Open 6 · Closed 19``.
+
+    Both totals are shown whatever the query, with labels before numbers so
+    the copy never reads as a pagination status.
+    """
+    return f"Open {result.open_issue_count} · Closed {result.closed_issue_count}"
 
 
 def row_key(kind: str, *identities: str) -> str:

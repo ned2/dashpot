@@ -200,6 +200,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)) as pilot:
+        # Before the first observation the pane carries only its label, never
+        # a fabricated ``Open 0 · Closed 0`` inventory.
+        assert pane_title(app, "#queue-pane") == "WORK"
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         table = app.query_one("#queue", DataTable)
@@ -289,6 +292,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 
         assert pane_title(app, "#project-pane") == "PROJECT STATUS"
         assert pane_title(app, "#selection-pane") == "#1: First"
+        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 0"
+        assert str(app.query_one("#issue-count", Static).render()) == "2 issues"
+        assert not app.query("#queue-controls .pane-title")
         assert app.query_one("#selection-pane").has_class("-issue-open")
         app.query_one("#selection-pane").border_title = Content(
             "#1: [bold]literal[/bold]"
@@ -604,7 +610,7 @@ async def test_unsupported_search_sort_is_reported_without_filtering_rows() -> N
 
 
 @pytest.mark.asyncio
-async def test_visible_filters_update_rows_and_observation_count() -> None:
+async def test_visible_filters_update_result_count_but_not_inventory() -> None:
     closed_issue = issue("test/repo#3", "Archived Zebra")
     closed_issue.update(
         {
@@ -629,16 +635,21 @@ async def test_visible_filters_update_rows_and_observation_count() -> None:
         search = app.query_one("#issue-search", Input)
         state = app.query_one("#issue-state", Select)
 
-        assert str(count.render()) == "2 open · 1 closed"
+        inventory = "WORK · Open 2 · Closed 1"
+
+        assert str(count.render()) == "2 issues"
+        assert pane_title(app, "#queue-pane") == inventory
         search.value = "zebra"
-        await wait_until(lambda: str(count.render()) == "1 of 2 open · 1 closed")
+        await wait_until(lambda: str(count.render()) == "1 issue")
         assert app.query_one("#queue", DataTable).row_count == 1
+        assert pane_title(app, "#queue-pane") == inventory
 
         state.value = "closed"
         await wait_until(
             lambda: app.selected_row_key == row_key("issue", closed_issue["id"])
         )
-        assert str(count.render()) == "1 closed · 2 open"
+        assert str(count.render()) == "1 issue"
+        assert pane_title(app, "#queue-pane") == inventory
 
 
 @pytest.mark.asyncio
@@ -658,22 +669,122 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         count = app.query_one("#issue-count", Static)
         state = app.query_one("#issue-state", Select)
         table = app.query_one("#queue", DataTable)
-        assert str(count.render()) == "1 open · 1 closed"
+        inventory = "WORK · Open 1 · Closed 1"
+        assert str(count.render()) == "1 issue"
+        assert pane_title(app, "#queue-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "closed")
-        await wait_until(lambda: str(count.render()) == "1 closed · 1 open")
+        await wait_until(
+            lambda: app.selected_row_key == row_key("issue", closed_issue["id"])
+        )
         assert app.issue_view.query.states == frozenset({"closed"})
+        assert str(count.render()) == "1 issue"
+        assert pane_title(app, "#queue-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "all")
         await wait_until(lambda: table.row_count == 2)
-        assert str(count.render()) == "2 Issues · 1 open, 1 closed"
+        assert str(count.render()) == "2 issues"
+        assert pane_title(app, "#queue-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "open")
         await wait_until(lambda: table.row_count == 1)
-        assert str(count.render()) == "1 open · 1 closed"
+        assert str(count.render()) == "1 issue"
+        assert pane_title(app, "#queue-pane") == inventory
+
+
+@pytest.mark.asyncio
+async def test_result_count_handles_empty_and_singular_states() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "Only"))
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(100, 28)):
+        count = app.query_one("#issue-count", Static)
+        search = app.query_one("#issue-search", Input)
+        table = app.query_one("#queue", DataTable)
+        inventory = "WORK · Open 1 · Closed 0"
+        assert str(count.render()) == "1 issue"
+        assert pane_title(app, "#queue-pane") == inventory
+
+        search.value = "no-such-issue"
+        await wait_until(lambda: str(count.render()) == "0 issues")
+        assert table.row_count == 0
+        assert pane_title(app, "#queue-pane") == inventory
+
+        search.value = ""
+        await wait_until(lambda: str(count.render()) == "1 issue")
+        assert table.row_count == 1
+        assert pane_title(app, "#queue-pane") == inventory
+
+
+@pytest.mark.asyncio
+async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
+    closed_issue = issue("test/repo#3", "Done")
+    closed_issue["state"] = "closed"
+    closed_issue["stateReason"] = "completed"
+    closed_issue["closedAt"] = NOW
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Zebra"), issue("test/repo#2", "Alpha"), closed_issue
+    )
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(100, 28)) as pilot:
+        count = app.query_one("#issue-count", Static)
+        table = app.query_one("#queue", DataTable)
+        assert str(count.render()) == "2 issues"
+        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 1"
+
+        await pilot.press("s")
+        await pilot.press("S")
+        app.apply_issue_columns(("title", "number"))
+        await pilot.pause()
+
+        assert app.issue_view.sort != DEFAULT_SORT
+        assert app.issue_view.columns == ("title", "number")
+        assert table.row_count == 2
+        assert str(count.render()) == "2 issues"
+        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 1"
+
+
+@pytest.mark.asyncio
+async def test_published_observation_updates_inventory_and_result_count() -> None:
+    first = workspace_snapshot(issue("test/repo#1", "First"))
+    closed_issue = issue("test/repo#3", "Done")
+    closed_issue["state"] = "closed"
+    closed_issue["stateReason"] = "completed"
+    closed_issue["closedAt"] = NOW
+    second = workspace_snapshot(
+        issue("test/repo#1", "First"), issue("test/repo#2", "Second"), closed_issue
+    )
+    app = DashpotApp(
+        SequenceCollector(second),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(first),
+    )
+
+    async with app.run_test(size=(100, 28)):
+        count = app.query_one("#issue-count", Static)
+        table = app.query_one("#queue", DataTable)
+        assert pane_title(app, "#queue-pane") == "WORK · Open 1 · Closed 0"
+        assert str(count.render()) == "1 issue"
+        assert table.row_count == 1
+
+        await app.run_action("refresh")
+        await wait_until(lambda: app.store.revision == 2)
+
+        assert pane_title(app, "#queue-pane") == "WORK · Open 2 · Closed 1"
+        assert str(count.render()) == "2 issues"
+        assert table.row_count == 2
 
 
 @pytest.mark.asyncio
@@ -934,14 +1045,28 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
+    def assert_counts_fit_in_queue_pane() -> None:
+        queue_pane = app.query_one("#queue-pane")
+        search = app.query_one("#issue-search", Input)
+        count = app.query_one("#issue-count", Static)
+        assert str(count.render()) == "1 issue"
+        assert count.region.width >= len("1 issue")
+        assert count.region.y == search.region.y
+        assert count.region.x >= search.region.right
+        assert count.region.right <= queue_pane.region.right - 1
+        assert pane_title(app, "#queue-pane") == "WORK · Open 1 · Closed 0"
+
     async with app.run_test(size=(60, 20)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
         assert app.screen.has_class("-compact")
+        assert_counts_fit_in_queue_pane()
 
         await pilot.resize_terminal(120, 32)
         await pilot.pause()
         assert app.screen.has_class("-wide")
         assert_context_above_full_width_queue(app)
+        assert_counts_fit_in_queue_pane()
 
 
 def test_project_uses_display_label_independent_of_workspace_and_anchor() -> None:

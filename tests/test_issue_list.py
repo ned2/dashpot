@@ -7,7 +7,8 @@ import pytest
 from dashpot.issue_list import (
     IssueListQuery,
     empty_issue_message,
-    issue_count_text,
+    issue_inventory_text,
+    issue_result_count_text,
     next_issue_states,
     query_issue_list,
 )
@@ -163,33 +164,67 @@ def test_text_query_matches_the_author_without_requiring_one() -> None:
     assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
 
 
-def test_lifecycle_counts_and_header_text_read_like_a_tracker_feed() -> None:
+def test_inventory_text_ignores_the_query_and_result_text_singularizes() -> None:
     observed = workspace(
         issue("I_one", "open"), issue("I_two", "open"), issue("I_done", "closed")
     )
+    inventory = "Open 2 · Closed 1"
 
     open_view = query_issue_list(observed)
     assert (open_view.open_issue_count, open_view.closed_issue_count) == (2, 1)
-    assert issue_count_text(open_view, IssueListQuery()) == "2 open · 1 closed"
+    assert issue_inventory_text(open_view) == inventory
+    assert issue_result_count_text(len(open_view.rows)) == "2 issues"
 
-    narrowed_query = IssueListQuery(text="I_one")
-    narrowed = query_issue_list(observed, narrowed_query)
-    assert issue_count_text(narrowed, narrowed_query) == "1 of 2 open · 1 closed"
+    narrowed = query_issue_list(observed, IssueListQuery(text="I_one"))
+    assert issue_inventory_text(narrowed) == inventory
+    assert issue_result_count_text(len(narrowed.rows)) == "1 issue"
 
-    closed_query = IssueListQuery(states=frozenset({"closed"}))
-    closed_view = query_issue_list(observed, closed_query)
-    assert issue_count_text(closed_view, closed_query) == "1 closed · 2 open"
+    unmatched = query_issue_list(observed, IssueListQuery(text="nothing-here"))
+    assert issue_inventory_text(unmatched) == inventory
+    assert issue_result_count_text(len(unmatched.rows)) == "0 issues"
 
-    all_query = IssueListQuery(states=frozenset({"open", "closed"}))
-    all_view = query_issue_list(observed, all_query)
-    assert issue_count_text(all_view, all_query) == "3 Issues · 2 open, 1 closed"
-    all_narrowed_query = IssueListQuery(
-        states=frozenset({"open", "closed"}), text="I_done"
+    closed_view = query_issue_list(
+        observed, IssueListQuery(states=frozenset({"closed"}))
     )
-    all_narrowed = query_issue_list(observed, all_narrowed_query)
-    assert issue_count_text(all_narrowed, all_narrowed_query) == (
-        "1 of 3 Issues · 2 open, 1 closed"
+    assert issue_inventory_text(closed_view) == inventory
+    assert issue_result_count_text(len(closed_view.rows)) == "1 issue"
+
+    all_view = query_issue_list(
+        observed, IssueListQuery(states=frozenset({"open", "closed"}))
     )
+    assert issue_inventory_text(all_view) == inventory
+    assert issue_result_count_text(len(all_view.rows)) == "3 issues"
+
+    all_narrowed = query_issue_list(
+        observed, IssueListQuery(states=frozenset({"open", "closed"}), text="I_done")
+    )
+    assert issue_inventory_text(all_narrowed) == inventory
+    assert issue_result_count_text(len(all_narrowed.rows)) == "1 issue"
+
+    produced = [
+        issue_inventory_text(view)
+        for view in (
+            open_view,
+            narrowed,
+            unmatched,
+            closed_view,
+            all_view,
+            all_narrowed,
+        )
+    ] + [
+        issue_result_count_text(len(view.rows))
+        for view in (
+            open_view,
+            narrowed,
+            unmatched,
+            closed_view,
+            all_view,
+            all_narrowed,
+        )
+    ]
+    for text in produced:
+        assert " of " not in text
+        assert "/" not in text
 
 
 def test_next_issue_states_cycles_open_closed_all() -> None:

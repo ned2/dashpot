@@ -35,9 +35,11 @@ from .column_editor import IssueColumnEditor
 from .detail_fields import DetailFields, DetailItem, detail_items_text
 from .issue_list import (
     IssueListQuery,
+    IssueListResult,
     IssueListRow,
     empty_issue_message,
-    issue_count_text,
+    issue_inventory_text,
+    issue_result_count_text,
     next_issue_states,
 )
 from .issue_search import IssueSearchSort, parse_issue_search
@@ -65,6 +67,7 @@ from .issue_view import IssueScreen
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
 
+ISSUE_PANE_LABEL = "WORK"
 ISSUE_PANE_STATE_CLASSES = (
     "-issue-open",
     "-issue-completed",
@@ -181,7 +184,6 @@ class DashpotApp(App[None]):
                     )
             with Vertical(id="queue-pane"):
                 with Horizontal(id="queue-controls"):
-                    yield Static("WORK", classes="pane-title")
                     yield Select(
                         (("Open", "open"), ("Closed", "closed"), ("All", "all")),
                         value=issue_state_filter_value(self.issue_view.query),
@@ -195,7 +197,7 @@ class DashpotApp(App[None]):
                         compact=True,
                         id="issue-search",
                     )
-                    yield Static("0 open · 0 closed", id="issue-count")
+                    yield Static(issue_result_count_text(0), id="issue-count")
                 yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
         yield Static("", id="alert")
         yield Static("No diagnostics", id="diagnostics")
@@ -212,6 +214,9 @@ class DashpotApp(App[None]):
             "PROJECT STATUS"
         )
         self.main_screen.query_one("#selection-pane").border_title = Content("ISSUE")
+        self.main_screen.query_one("#queue-pane").border_title = Content(
+            ISSUE_PANE_LABEL
+        )
         table = self.queue_table()
         self.add_table_columns(table)
         table.focus()
@@ -374,7 +379,7 @@ class DashpotApp(App[None]):
             table.loading = True
             self.request_refresh("initial")
         else:
-            self.reconcile_rows()
+            self.update_issue_inventory(self.reconcile_rows())
             self.update_diagnostics()
         if self.refresh_seconds > 0:
             self.refresh_timer = self.set_interval(
@@ -502,7 +507,7 @@ class DashpotApp(App[None]):
             self.update_diagnostics()
             return
         self.queue_table().loading = False
-        self.reconcile_rows()
+        self.update_issue_inventory(self.reconcile_rows())
         self.update_diagnostics()
         # Follow-ups are derived from what was published, not from this
         # ticket's key: another key's handler may already have published
@@ -511,7 +516,18 @@ class DashpotApp(App[None]):
         if follow_ups:
             self.schedule_observations(follow_ups, message.trigger)
 
-    def reconcile_rows(self) -> None:
+    def update_issue_inventory(self, result: IssueListResult) -> None:
+        """Title the Issue pane with the complete lifecycle inventory.
+
+        Only publish paths call this: filtering the table never changes the
+        inventory, so the title stays put while the result count moves.
+        """
+        self.main_screen.query_one("#queue-pane").border_title = Content(
+            f"{ISSUE_PANE_LABEL} · {issue_inventory_text(result)}"
+        )
+
+    def reconcile_rows(self) -> IssueListResult:
+        """Rebuild the table from the store and return the query result."""
         table = self.queue_table()
         prior_key, prior_index = self.current_selection(table)
         query = replace(
@@ -520,7 +536,7 @@ class DashpotApp(App[None]):
         )
         result = self.store.query_issues(query)
         self.main_screen.query_one("#issue-count", Static).update(
-            issue_count_text(result, query)
+            issue_result_count_text(result.matched_issue_count)
         )
         desired_contexts, desired_cells = build_rows(
             result,
@@ -577,7 +593,7 @@ class DashpotApp(App[None]):
             self.main_screen.query_one("#selection-detail", DetailFields).update(
                 DetailItem(empty_issue_message(self.issue_view.query), kind="message")
             )
-            return
+            return result
         if prior_key is not None and prior_key in desired_contexts:
             selected_index = table.get_row_index(prior_key)
         else:
@@ -587,6 +603,7 @@ class DashpotApp(App[None]):
             table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         )
         self.show_row(selected_key)
+        return result
 
     def current_selection(self, table: DataTable[TableCell]) -> tuple[str | None, int]:
         if not table.row_count:
