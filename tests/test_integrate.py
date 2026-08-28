@@ -154,6 +154,29 @@ def test_config_toml_hooks_coexistence_is_noted(tmp_path: Path) -> None:
     assert any("config.toml also defines hooks" in message for message in messages)
 
 
+def test_config_toml_hook_trust_ledger_is_not_a_hook_definition(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    (home / "config.toml").write_text(
+        "[hooks.state]\n\n"
+        '[hooks.state."/x/.codex/hooks.json:post_tool_use:0:0"]\n'
+        'trusted_hash = "sha256:abc"\nenabled = true\n'
+    )
+
+    messages = install_codex_integration(
+        home, command_path=publisher(tmp_path)
+    )
+
+    assert not any("also defines hooks" in message for message in messages)
+
+    (home / "config.toml").write_text("[[hooks.Stop]]\ncommand = \"x\"\n")
+    messages = codex_integration_status(
+        home, state_dir=tmp_path / "state", current=tmp_path
+    )
+    assert any("also defines hooks" in message for message in messages)
+
+
 def test_remove_strips_only_the_dashpot_hooks(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     theirs = {"type": "command", "command": "notify-send done"}

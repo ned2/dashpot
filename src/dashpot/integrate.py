@@ -15,7 +15,12 @@ from .repository import worktree_root
 
 
 HOOK_TIMEOUT = 3
-CONFIG_HOOKS_TABLE = re.compile(r"^\s*\[+\s*hooks", re.MULTILINE)
+# Inline hook definitions live under ``[hooks]`` or ``[[hooks.<Event>]]``.
+# Codex also keeps its hook trust ledger under ``[hooks.state...]``, which is
+# not a definition and must not trigger the coexistence note.
+CONFIG_HOOKS_TABLE = re.compile(
+    r"^\s*\[+\s*hooks\s*(?:\]|\.(?!state\b))", re.MULTILINE
+)
 
 
 @dataclass(frozen=True, slots=True)
