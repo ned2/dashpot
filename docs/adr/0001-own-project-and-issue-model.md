@@ -4,6 +4,10 @@ status: accepted
 
 # Own the Project and Issue model
 
+Project-local configuration and work-state ownership, and the secondary role of
+multi-Project Workspaces, are refined by
+[ADR 0003](0003-prefer-project-local-dashpot-state.md).
+
 Dashpot will own a bounded, GitHub-Issues-compatible domain model rather than
 use TASKS.md as its model or backend interface. The upstream adapters expose
 different schemas, semantics, failure modes, and capabilities; inheriting that

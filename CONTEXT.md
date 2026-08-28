@@ -73,8 +73,9 @@ file and line number.
 ### Observation
 
 **Workspace**:
-A named observation scope selecting Projects that Dashpot presents together. It
-is a local grouping concept and never participates in Project or Issue identity.
+An optional local observation scope composing Projects that Dashpot presents
+together. It owns no Project configuration or work state and never participates
+in Project or Issue identity.
 
 **Repository Anchor**:
 A configured local checkout through which Dashpot locates a Project and asks Git
