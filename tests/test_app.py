@@ -1943,7 +1943,6 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
     assert text == "\n".join(
         [
             "State: open",
-            "Project: Test Repository",
             "Author: ned2",
             "Assignees: ned2",
             "Labels: bug",

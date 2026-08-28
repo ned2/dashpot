@@ -142,7 +142,6 @@ def issue_metadata_items(
     labels = [label for label in issue["labels"] if not is_priority_label(label)]
     items: list[DetailItem] = [
         DetailItem(issue_state_label(issue), "State"),
-        DetailItem(context.project.display_label, "Project"),
         DetailItem(issue["author"] or "-", "Author"),
         DetailItem(", ".join(issue["assignees"]) or "unassigned", "Assignees"),
         DetailItem(", ".join(labels) or "-", "Labels"),
