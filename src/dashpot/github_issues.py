@@ -3,14 +3,14 @@ from __future__ import annotations
 import copy
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .commands import CommandRunner, run_command
 from .issue_profile import IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
-
 
 _STATE_REASONS = {
     "COMPLETED": "completed",
@@ -199,9 +199,7 @@ class GitHubIssuesSource(IssueSource):
                 return nodes
             cursor = _next_cursor(end_cursor, seen_cursors, "Issue collection")
 
-    def _complete_nested_connections(
-        self, record: Mapping[str, Any]
-    ) -> dict[str, Any]:
+    def _complete_nested_connections(self, record: Mapping[str, Any]) -> dict[str, Any]:
         complete = copy.deepcopy(dict(record))
         issue_id = _response_string(complete, "id", "issue")
         for connection_name, item_field in _CONNECTION_FIELDS.items():
@@ -322,9 +320,7 @@ def normalize_github_issue(
         "projectId": project_id,
         "number": number,
         "reference": f"{repository_reference}#{number}",
-        "title": _required_string(
-            _required(record, "title", "issue"), "issue.title"
-        ),
+        "title": _required_string(_required(record, "title", "issue"), "issue.title"),
         "body": _required_string_allow_empty(
             _required(record, "body", "issue"), "issue.body"
         ),
@@ -354,9 +350,7 @@ def normalize_github_issue(
         },
         "location": {
             "kind": "github",
-            "url": _required_string(
-                _required(record, "url", "issue"), "issue.url"
-            ),
+            "url": _required_string(_required(record, "url", "issue"), "issue.url"),
         },
     }
     try:
@@ -523,9 +517,7 @@ def _required_string_allow_empty(value: Any, path: str) -> str:
     return value
 
 
-def _response_object(
-    value: Mapping[str, Any], field: str, path: str
-) -> dict[str, Any]:
+def _response_object(value: Mapping[str, Any], field: str, path: str) -> dict[str, Any]:
     if field not in value:
         raise IssueSourceRefreshError(
             "github-malformed-response", f"GitHub response has no {path}.{field}"

@@ -15,9 +15,7 @@ def repository(root: Path, *, origin: str | None = None) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     if origin is not None:
-        subprocess.run(
-            ["git", "remote", "add", "origin", origin], cwd=root, check=True
-        )
+        subprocess.run(["git", "remote", "add", "origin", origin], cwd=root, check=True)
     return root
 
 
@@ -36,12 +34,8 @@ def load_config(root: Path) -> dict:
 
 
 def test_github_origin_initializes_with_resolved_identity(tmp_path: Path) -> None:
-    root = repository(
-        tmp_path / "repo", origin="https://github.com/ned2/dashpot.git"
-    )
-    calls, runner = gh_runner(
-        {"node_id": "R_dashpot", "full_name": "ned2/dashpot"}
-    )
+    root = repository(tmp_path / "repo", origin="https://github.com/ned2/dashpot.git")
+    calls, runner = gh_runner({"node_id": "R_dashpot", "full_name": "ned2/dashpot"})
 
     messages = initialize_project(root, runner=runner)
 
@@ -66,9 +60,7 @@ def test_markdown_initializes_without_github(tmp_path: Path) -> None:
 
 
 def test_markdown_takes_precedence_over_github_origin(tmp_path: Path) -> None:
-    root = repository(
-        tmp_path / "repo", origin="https://github.com/ned2/dashpot.git"
-    )
+    root = repository(tmp_path / "repo", origin="https://github.com/ned2/dashpot.git")
     calls, runner = gh_runner({})
 
     initialize_project(root, markdown_path="issues", runner=runner)
@@ -78,9 +70,7 @@ def test_markdown_takes_precedence_over_github_origin(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", ["/absolute", "../outside"])
-def test_markdown_path_must_be_repository_relative(
-    tmp_path: Path, path: str
-) -> None:
+def test_markdown_path_must_be_repository_relative(tmp_path: Path, path: str) -> None:
     root = repository(tmp_path / "repo")
 
     with pytest.raises(RuntimeError, match="repository-relative"):
@@ -114,9 +104,7 @@ def test_no_origin_without_markdown_is_an_actionable_error(
 
 
 def test_gh_failure_leaves_no_partial_configuration(tmp_path: Path) -> None:
-    root = repository(
-        tmp_path / "repo", origin="https://github.com/ned2/dashpot.git"
-    )
+    root = repository(tmp_path / "repo", origin="https://github.com/ned2/dashpot.git")
 
     def runner(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         return CommandResult(list(args), 1, "", "gh: Not Found")

@@ -201,6 +201,7 @@ class IssueListQuery:
     text: str = ""
     sort: tuple[SortTerm, ...] = DEFAULT_SORT
 
+
 @dataclass(frozen=True)
 class IssueListResult:
     revision: int

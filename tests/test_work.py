@@ -15,7 +15,6 @@ from dashpot.work import (
 )
 from dashpot.work_store import WorkStore
 
-
 CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
 
@@ -23,9 +22,7 @@ def codex_lookup(_pid: int) -> ProcessIdentity:
     return CODEX
 
 
-def issue_document(
-    *, issue_id: str, number: int, reference: str, title: str
-) -> str:
+def issue_document(*, issue_id: str, number: int, reference: str, title: str) -> str:
     metadata = {
         "id": issue_id,
         "number": number,
@@ -198,9 +195,7 @@ CLAUDE = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
 def test_claude_code_session_can_opt_into_issue_work(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
 
-    messages = start_issue_work(
-        root, "build-observer", lookup=lambda _pid: CLAUDE
-    )
+    messages = start_issue_work(root, "build-observer", lookup=lambda _pid: CLAUDE)
 
     active, _ = WorkStore(root).active()
     assert active[0].harness == "claude-code"

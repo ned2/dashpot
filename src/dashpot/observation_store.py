@@ -21,7 +21,6 @@ from .model import (
     WorkspaceSnapshot,
 )
 
-
 ObservationKind = Literal["workspace", "projects", "agent-runs"]
 Key = TypeVar("Key")
 Value = TypeVar("Value")
@@ -97,9 +96,7 @@ class WorkspaceObservationStore:
         accepted_projects: list[ProjectObservation] = []
         retained_issue_ids: set[str] = set()
         for project in incoming.projects:
-            accepted, retained = self._preserve_last_good(
-                project, before.projects
-            )
+            accepted, retained = self._preserve_last_good(project, before.projects)
             accepted_projects.append(accepted)
             retained_issue_ids.update(retained)
         projects = _projects_by_id(accepted_projects)
@@ -191,9 +188,7 @@ class WorkspaceObservationStore:
             )
         )
 
-    def query_issues(
-        self, query: IssueListQuery = IssueListQuery()
-    ) -> IssueListResult:
+    def query_issues(self, query: IssueListQuery = IssueListQuery()) -> IssueListResult:
         state = self._state
         result = _query_indexed_issue_list(
             projects=state.projects,
@@ -237,10 +232,7 @@ class WorkspaceObservationStore:
 
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
         state = self._state
-        entries = [
-            ObservedDiagnostic(diagnostic)
-            for diagnostic in state.diagnostics
-        ]
+        entries = [ObservedDiagnostic(diagnostic) for diagnostic in state.diagnostics]
         for project in state.projects.values():
             diagnostics = list(project.diagnostics)
             if project.snapshot is not None:
@@ -285,9 +277,7 @@ class WorkspaceObservationStore:
             snapshot = replace(
                 incoming.snapshot,
                 issue_source_status="stale",
-                issue_source_last_good_at=(
-                    previous.snapshot.issue_source_last_good_at
-                ),
+                issue_source_last_good_at=(previous.snapshot.issue_source_last_good_at),
                 issues=deepcopy(previous.snapshot.issues),
             )
             return (
@@ -326,9 +316,7 @@ def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
     )
 
 
-def _issue_detail(
-    state: _StoreState, row: IssueListRow
-) -> IssueListRow | None:
+def _issue_detail(state: _StoreState, row: IssueListRow) -> IssueListRow | None:
     issue_id = row.issue["id"]
     if row.key == row_key("issue", issue_id):
         matches = [
@@ -354,9 +342,7 @@ def _issue_detail(
         if run_id in state.agent_runs
     )
     session_states = tuple(
-        state.agent_runs[run_id].state
-        if run_id in state.agent_runs
-        else "unknown"
+        state.agent_runs[run_id].state if run_id in state.agent_runs else "unknown"
         for run_id in bound_run_ids
     )
     return IssueListRow(
@@ -370,9 +356,7 @@ def _issue_detail(
     )
 
 
-def _project_runs(
-    state: _StoreState, project_id: str
-) -> tuple[AgentRun, ...]:
+def _project_runs(state: _StoreState, project_id: str) -> tuple[AgentRun, ...]:
     return tuple(
         run
         for run in state.agent_runs.values()
@@ -408,9 +392,7 @@ def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
         for issue_id, run_ids in bindings.items()
         if any(run_id in agent_run_ids for run_id in run_ids)
     )
-    issue_keys.update(
-        key for key in after.issues if key[1] in binding_issue_ids
-    )
+    issue_keys.update(key for key in after.issues if key[1] in binding_issue_ids)
     kinds: set[ObservationKind] = set()
     if project_ids:
         kinds.add("projects")
@@ -434,13 +416,9 @@ def _workspace_metadata(
     return state.collected_at, state.elapsed_ms, state.diagnostics
 
 
-def _changed_keys(
-    before: Mapping[Key, Value], after: Mapping[Key, Value]
-) -> set[Key]:
+def _changed_keys(before: Mapping[Key, Value], after: Mapping[Key, Value]) -> set[Key]:
     return {
-        key
-        for key in before.keys() | after.keys()
-        if before.get(key) != after.get(key)
+        key for key in before.keys() | after.keys() if before.get(key) != after.get(key)
     }
 
 

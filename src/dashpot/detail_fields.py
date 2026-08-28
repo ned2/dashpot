@@ -9,7 +9,6 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Static
 
-
 DetailKind = Literal["field", "heading", "section", "list", "message"]
 
 

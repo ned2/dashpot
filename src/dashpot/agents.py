@@ -7,16 +7,16 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator, Mapping, Sequence, cast
+from typing import Any, cast
 
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .repository import git, is_within
 from .work_store import WorkStore
-
 
 SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
 ISSUE_VALUE = re.compile(r"^\S+$")
@@ -55,7 +55,7 @@ ProcessLookup = Callable[[int], ProcessIdentity | None]
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def state_directory() -> Path:
@@ -111,7 +111,9 @@ def process_info(pid: int) -> ProcessIdentity | None:
         return None
 
 
-def nearest_codex_process(lookup: ProcessLookup = process_info) -> ProcessIdentity | None:
+def nearest_codex_process(
+    lookup: ProcessLookup = process_info,
+) -> ProcessIdentity | None:
     return nearest_harness_process("codex", lookup)
 
 
@@ -201,7 +203,9 @@ def build_hook_record(
     if issue_id and not ISSUE_VALUE.fullmatch(issue_id):
         raise RuntimeError("DASHPOT_ISSUE_ID must be a whitespace-free Issue Identity")
     if issue_reference and not ISSUE_VALUE.fullmatch(issue_reference):
-        raise RuntimeError("DASHPOT_ISSUE_REF must be a whitespace-free Issue Reference")
+        raise RuntimeError(
+            "DASHPOT_ISSUE_REF must be a whitespace-free Issue Reference"
+        )
     try:
         observed_target = git(cwd, "rev-parse", "--show-toplevel", timeout=2)
         branch = git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2)
@@ -340,17 +344,11 @@ def publish_hook_event(
     process: ProcessIdentity | None = None,
     harness: str = "codex",
 ) -> Path:
-    identity = (
-        process
-        if process is not None
-        else nearest_harness_process(harness)
-    )
+    identity = process if process is not None else nearest_harness_process(harness)
     record = build_hook_record(
         event, environ=environ, process=identity, harness=harness
     )
-    return write_hook_record(
-        record, directory or route_record_directory(record)
-    )
+    return write_hook_record(record, directory or route_record_directory(record))
 
 
 ProcessKey = tuple[int, str]
@@ -479,7 +477,9 @@ def observe_hook_sessions(
     lookup: ProcessLookup = process_info,
     isolated: bool | None = None,
 ) -> tuple[list[HookSessionObservation], list[Diagnostic]]:
-    namespace_isolated = process_namespace_is_isolated() if isolated is None else isolated
+    namespace_isolated = (
+        process_namespace_is_isolated() if isolated is None else isolated
+    )
     directories: list[Path] = [directory or state_directory()]
     for _project_id, targets in sorted(targets_by_project.items()):
         for target in targets:
@@ -511,15 +511,15 @@ def observe_hook_sessions(
                 if session is None:
                     continue
                 previous = latest.get(session.run.id)
-                if (
-                    previous is None
-                    or (session.run.last_activity_at or "")
-                    >= (previous.run.last_activity_at or "")
+                if previous is None or (session.run.last_activity_at or "") >= (
+                    previous.run.last_activity_at or ""
                 ):
                     latest[session.run.id] = session
             except (OSError, json.JSONDecodeError, ValueError) as exc:
                 diagnostics.append(
-                    Diagnostic("dashpot-codex-hook", "warning", f"Cannot read {path}: {exc}")
+                    Diagnostic(
+                        "dashpot-codex-hook", "warning", f"Cannot read {path}: {exc}"
+                    )
                 )
     return list(latest.values()), diagnostics
 
@@ -575,9 +575,7 @@ def record_to_session(
                 "agent-global-binding-rejected",
             )
         )
-    located, target_diagnostic = locate_observation_target(
-        raw, cwd, targets_by_project
-    )
+    located, target_diagnostic = locate_observation_target(raw, cwd, targets_by_project)
     if target_diagnostic:
         diagnostics.append(target_diagnostic)
         return None, diagnostics
@@ -650,9 +648,7 @@ def locate_observation_target(
         for project_id, target in available
         if is_within(cwd_path, Path(target.path).resolve())
     ]
-    cwd_target = max(
-        cwd_matches, key=lambda item: len(item[1].path), default=None
-    )
+    cwd_target = max(cwd_matches, key=lambda item: len(item[1].path), default=None)
     repository_root = optional_string(raw.get("repositoryRoot"))
     if not repository_root:
         return cwd_target, None

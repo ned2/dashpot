@@ -12,7 +12,6 @@ from dashpot.issue_profile import (
     semantically_equivalent,
 )
 
-
 ROOT = Path(__file__).parents[1]
 FIXTURES = ROOT / "conformance" / "issue" / "fixtures"
 

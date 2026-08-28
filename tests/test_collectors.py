@@ -19,24 +19,23 @@ from dashpot.agents import (
     session_directory,
     write_hook_record,
 )
-from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.collect import ObservationCoordinator, ProjectCollector
 from dashpot.commands import CommandResult
-from dashpot.issue_sources import IssueSource, IssueSourceObservation
 from dashpot.issue_profile import conform_issue
+from dashpot.issue_sources import IssueSource, IssueSourceObservation
 from dashpot.model import (
     AgentRun,
     Diagnostic,
+    IssueActivity,
+    LinkedPullRequest,
     ObservationTarget,
     ObservationTargetInventory,
     ProjectSnapshot,
     ResolvedProject,
     to_jsonable,
-    IssueActivity,
-    LinkedPullRequest,
 )
 from dashpot.repository import observe_github_repository_identity
-
+from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
@@ -154,9 +153,7 @@ class RepositoryTests(unittest.TestCase):
             return CommandResult(
                 list(args),
                 0,
-                json.dumps(
-                    {"node_id": "R_dashpot", "full_name": "ned2/dashpot"}
-                ),
+                json.dumps({"node_id": "R_dashpot", "full_name": "ned2/dashpot"}),
                 "",
             )
 
@@ -304,9 +301,7 @@ class ProjectCollectorTests(unittest.TestCase):
         collector = ProjectCollector(
             resolved_project(),
             FakeSource(),
-            target_observer=lambda _anchors: ObservationTargetInventory(
-                [target], []
-            ),
+            target_observer=lambda _anchors: ObservationTargetInventory([target], []),
         )
 
         snapshot = collector.refresh()
@@ -476,9 +471,7 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual(1, len(runs))
         self.assertIsNone(runs[0].issue_id)
         self.assertIsNone(runs[0].issue_reference_hint)
-        self.assertEqual(
-            "agent-global-binding-rejected", diagnostics[0].code
-        )
+        self.assertEqual("agent-global-binding-rejected", diagnostics[0].code)
         self.assertIn("dashpot work start", diagnostics[0].message)
 
     def test_claude_code_record_is_observed_with_its_own_identity(self) -> None:
@@ -759,9 +752,7 @@ class HookRoutingTests(unittest.TestCase):
 
         subprocess.run(["git", "init", "-q"], cwd=self.worktree, check=True)
 
-        with mock.patch(
-            "dashpot.agents.state_directory", return_value=self.state_dir
-        ):
+        with mock.patch("dashpot.agents.state_directory", return_value=self.state_dir):
             written = publish_hook_event(
                 {
                     "session_id": "routed",
@@ -1051,9 +1042,7 @@ class ObservationCoordinatorTests(unittest.TestCase):
 
         collector = ObservationCoordinator(
             [current_project],
-            factory=lambda _project, **_kwargs: FakeProjectCollector(
-                current_snapshot
-            ),
+            factory=lambda _project, **_kwargs: FakeProjectCollector(current_snapshot),
             agent_observer=lambda _targets: ([hinted_run], []),
         )
 

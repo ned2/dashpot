@@ -4,21 +4,22 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import datetime, timezone
-from typing import Any, Literal, cast
+from datetime import UTC, datetime
+from typing import Any, ClassVar, Literal, cast
 
 from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
+from textual.binding import BindingType
+from textual.containers import Container, Horizontal, Vertical
 from textual.content import Content
 from textual.css.query import NoMatches
-from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.timer import Timer
-from textual.worker import get_current_worker
 from textual.widgets import DataTable, Footer, Header, Input, Select, Static
+from textual.worker import get_current_worker
 
 from .alerts import summarize_alerts
 from .collect import (
@@ -39,10 +40,9 @@ from .issue_list import (
     next_issue_states,
 )
 from .issue_search import IssueSearchSort, parse_issue_search
-from .issue_view import IssueScreen
 from .issue_table import (
-    ColumnKey,
     DEFAULT_SORT,
+    ColumnKey,
     IssueTableViewState,
     SortTerm,
     TableCell,
@@ -51,18 +51,18 @@ from .issue_table import (
     column_label,
     column_specs,
     is_priority_label,
+    issue_activity,
     issue_priority,
     issue_state_kind,
-    searchable_columns,
-    sort_key_for_terms,
-    relative_age,
-    issue_activity,
     label_chips,
     label_colors,
+    relative_age,
+    searchable_columns,
+    sort_key_for_terms,
 )
+from .issue_view import IssueScreen
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
-
 
 ISSUE_PANE_STATE_CLASSES = (
     "-issue-open",
@@ -96,12 +96,15 @@ class DashpotApp(App[None]):
     TITLE = "Dashpot"
     SUB_TITLE = "passive workspace view"
     CSS_PATH = "dashpot.tcss"
-    HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]
+    HORIZONTAL_BREAKPOINTS: ClassVar[list[tuple[int, str]] | None] = [
+        (0, "-compact"),
+        (100, "-wide"),
+    ]
     # Keep rendered detail and diagnostic text selectable. Interactive widgets
     # such as DataTable opt out independently so mouse gestures remain theirs.
     ALLOW_SELECT = True
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("shift+r", "refresh_workspace", "Refresh all"),
@@ -198,7 +201,9 @@ class DashpotApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.main_screen.query_one("#project-pane").border_title = Content("PROJECT STATUS")
+        self.main_screen.query_one("#project-pane").border_title = Content(
+            "PROJECT STATUS"
+        )
         self.main_screen.query_one("#selection-pane").border_title = Content("ISSUE")
         table = self.main_screen.query_one("#queue", DataTable)
         self.add_table_columns(table)
@@ -220,9 +225,7 @@ class DashpotApp(App[None]):
 
     def add_table_columns(self, table: DataTable[TableCell]) -> None:
         for column in column_specs(self.issue_view.columns):
-            table.add_column(
-                column_label(column, self.issue_view.sort), key=column.key
-            )
+            table.add_column(column_label(column, self.issue_view.sort), key=column.key)
 
     def action_columns(self) -> None:
         self.push_screen(
@@ -230,9 +233,7 @@ class DashpotApp(App[None]):
             self.apply_issue_columns,
         )
 
-    def apply_issue_columns(
-        self, columns: tuple[ColumnKey, ...] | None
-    ) -> None:
+    def apply_issue_columns(self, columns: tuple[ColumnKey, ...] | None) -> None:
         if columns is None or columns == self.issue_view.columns:
             return
         self.issue_view = self.issue_view.with_columns(columns)
@@ -244,15 +245,11 @@ class DashpotApp(App[None]):
         if self.store.has_observations:
             self.reconcile_rows()
 
-    def on_data_table_header_selected(
-        self, event: DataTable.HeaderSelected
-    ) -> None:
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         column = cast(ColumnKey, str(event.column_key.value))
         if column not in self.issue_view.columns:
             return
-        self.apply_issue_sort(
-            self.issue_view.toggle_sort(column), event.data_table
-        )
+        self.apply_issue_sort(self.issue_view.toggle_sort(column), event.data_table)
 
     def action_sort_next(self) -> None:
         self.apply_issue_sort(self.issue_view.cycle_sort())
@@ -297,7 +294,9 @@ class DashpotApp(App[None]):
     def action_cycle_issue_state(self) -> None:
         states = next_issue_states(self.issue_view.query.states)
         # Drive the control so the header, the query, and the Select agree.
-        self.main_screen.query_one("#issue-state", Select).value = issue_state_filter_value(
+        self.main_screen.query_one(
+            "#issue-state", Select
+        ).value = issue_state_filter_value(
             replace(self.issue_view.query, states=states)
         )
 
@@ -397,9 +396,7 @@ class DashpotApp(App[None]):
         )
         return row.project.project_id if row is not None else None
 
-    def request_refresh(
-        self, trigger: str, scope: RefreshScope = "workspace"
-    ) -> None:
+    def request_refresh(self, trigger: str, scope: RefreshScope = "workspace") -> None:
         project_id = self.current_project_id() if scope == "current" else None
         self.schedule_observations(self.scheduler.keys(project_id), trigger)
 
@@ -445,9 +442,7 @@ class DashpotApp(App[None]):
             )
         except Exception as exc:  # UI boundary: source failures must not exit the app.
             if not worker.is_cancelled:
-                self.post_message(
-                    ObservationFinished(ticket, trigger, error=str(exc))
-                )
+                self.post_message(ObservationFinished(ticket, trigger, error=str(exc)))
             return
         if not worker.is_cancelled:
             self.post_message(ObservationFinished(ticket, trigger, outcome=outcome))
@@ -526,8 +521,7 @@ class DashpotApp(App[None]):
         old_keys = set(self.rendered_cells)
         new_keys = set(desired_cells)
         hidden_sort = any(
-            term.column not in self.issue_view.columns
-            for term in self.issue_view.sort
+            term.column not in self.issue_view.columns for term in self.issue_view.sort
         )
 
         with self.batch_update():
@@ -544,7 +538,10 @@ class DashpotApp(App[None]):
                         continue
                     previous = self.rendered_cells[key]
                     for column, old_value, new_value in zip(
-                        column_specs(self.issue_view.columns), previous, cells
+                        column_specs(self.issue_view.columns),
+                        previous,
+                        cells,
+                        strict=True,
                     ):
                         if not cells_match(old_value, new_value):
                             table.update_cell(
@@ -563,7 +560,9 @@ class DashpotApp(App[None]):
             self.main_screen.query_one("#project-detail", DetailFields).update(
                 DetailItem("No project selected", kind="message")
             )
-            self.main_screen.query_one("#selection-pane").border_title = Content("SELECTION")
+            self.main_screen.query_one("#selection-pane").border_title = Content(
+                "SELECTION"
+            )
             self.set_selection_pane_state(None)
             self.main_screen.query_one("#selection-detail", DetailFields).update(
                 DetailItem(empty_issue_message(self.issue_view.query), kind="message")
@@ -574,12 +573,12 @@ class DashpotApp(App[None]):
         else:
             selected_index = min(prior_index, table.row_count - 1)
         table.move_cursor(row=selected_index, column=0, animate=False)
-        selected_key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
+        selected_key = str(
+            table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        )
         self.show_row(selected_key)
 
-    def current_selection(
-        self, table: DataTable[TableCell]
-    ) -> tuple[str | None, int]:
+    def current_selection(self, table: DataTable[TableCell]) -> tuple[str | None, int]:
         if not table.row_count:
             return self.selected_row_key, 0
         key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
@@ -686,8 +685,7 @@ def project_detail_items(
     ]
     if project.snapshot:
         observed_count = sum(
-            run.observation_project_id == project.project_id
-            for run in agent_runs
+            run.observation_project_id == project.project_id for run in agent_runs
         )
         items.append(DetailItem(str(observed_count), "Agents"))
     return tuple(items)
@@ -710,9 +708,7 @@ def issue_search_sort_terms(
 ) -> tuple[SortTerm, ...] | None:
     if search_sort is None:
         return None
-    column: ColumnKey = (
-        "created" if search_sort.field == "created" else "last_action"
-    )
+    column: ColumnKey = "created" if search_sort.field == "created" else "last_action"
     return (SortTerm(column, descending=search_sort.descending),)
 
 
@@ -729,9 +725,7 @@ def selection_detail_items(
     if context.issue:
         current = context.issue
         location = issue_location(current)
-        labels = [
-            label for label in current["labels"] if not is_priority_label(label)
-        ]
+        labels = [label for label in current["labels"] if not is_priority_label(label)]
         items.extend(
             [
                 DetailItem(issue_byline(current, now=now), kind="heading"),
@@ -742,7 +736,9 @@ def selection_detail_items(
                     ", ".join(current["assignees"]) or "unassigned",
                     "Assignees",
                 ),
-                DetailItem(label_chips(labels, label_colors(context.project)), "Labels"),
+                DetailItem(
+                    label_chips(labels, label_colors(context.project)), "Labels"
+                ),
             ]
         )
         if current["milestone"]:
@@ -778,9 +774,7 @@ def selection_detail_items(
     return tuple(items)
 
 
-def selection_detail_text(
-    context: IssueListRow, *, now: datetime | None = None
-) -> str:
+def selection_detail_text(context: IssueListRow, *, now: datetime | None = None) -> str:
     return detail_items_text(selection_detail_items(context, now=now))
 
 
@@ -789,7 +783,7 @@ def issue_byline(issue: Issue, *, now: datetime | None = None) -> str:
 
     The Issue number already heads the pane, so it is not repeated here.
     """
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     parts = ["opened"]
     age = relative_age(issue["createdAt"], current)
     if age:

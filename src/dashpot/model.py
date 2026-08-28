@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any, Literal, TypeAlias
 
-
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
 TargetAvailability = Literal["available", "unavailable"]

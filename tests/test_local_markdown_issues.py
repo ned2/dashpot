@@ -14,12 +14,9 @@ from issue_source_conformance import (
     assert_unavailable_observation,
 )
 
-
 ROOT = Path(__file__).parents[1]
 RAW_FIXTURE = ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
-EXPECTED_FIXTURE = (
-    ROOT / "conformance" / "issue" / "fixtures" / "markdown.json"
-)
+EXPECTED_FIXTURE = ROOT / "conformance" / "issue" / "fixtures" / "markdown.json"
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 
@@ -266,9 +263,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
 
         self.assertEqual("unavailable", observation.status)
         self.assertEqual([], observation.issues)
-        self.assertEqual(
-            "markdown-duplicate-identity", observation.diagnostics[0].code
-        )
+        self.assertEqual("markdown-duplicate-identity", observation.diagnostics[0].code)
 
     def test_duplicate_issue_number_fails_the_whole_collection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -296,9 +291,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
 
         self.assertEqual("unavailable", observation.status)
         self.assertEqual([], observation.issues)
-        self.assertEqual(
-            "markdown-duplicate-number", observation.diagnostics[0].code
-        )
+        self.assertEqual("markdown-duplicate-number", observation.diagnostics[0].code)
         self.assertIn("Issue Number #17", observation.diagnostics[0].message)
         self.assertIn("issues/first.md", observation.diagnostics[0].message)
         self.assertIn("issues/second.md", observation.diagnostics[0].message)
@@ -314,9 +307,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
                     title="Last good",
                 )
             )
-            times = iter(
-                ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"]
-            )
+            times = iter(["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"])
             source = LocalMarkdownIssuesSource(
                 root,
                 issues_path=Path("issue.md"),

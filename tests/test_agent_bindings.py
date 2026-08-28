@@ -7,7 +7,6 @@ from dashpot.model import (
     ProjectSnapshot,
 )
 
-
 NOW = "2026-08-27T00:00:00Z"
 
 
@@ -72,9 +71,7 @@ def test_persisted_identity_survives_reference_change_and_project_transfer() -> 
         [run(issue_id="I_stable")],
     )
 
-    assert result.issue_runs == {
-        "I_stable": ["work:codex:one:2026-08-27T00:00:00Z"]
-    }
+    assert result.issue_runs == {"I_stable": ["work:codex:one:2026-08-27T00:00:00Z"]}
     assert result.diagnostics[0].code == "agent-issue-hint-stale"
 
 
@@ -132,9 +129,7 @@ def test_persisted_identity_wins_over_stale_reference_with_warning() -> None:
         [run(issue_id="I_stable", reference_hint="old/repository#7")],
     )
 
-    assert result.issue_runs == {
-        "I_stable": ["work:codex:one:2026-08-27T00:00:00Z"]
-    }
+    assert result.issue_runs == {"I_stable": ["work:codex:one:2026-08-27T00:00:00Z"]}
     assert result.diagnostics[0].code == "agent-issue-hint-stale"
 
 
@@ -187,7 +182,5 @@ def test_two_runs_on_one_issue_are_independently_listed() -> None:
 
     result = bind_issue_runs([project("project-a", issue)], [first, second])
 
-    assert result.issue_runs == {
-        "I_shared": ["work:codex:one:t1", "work:codex:two:t2"]
-    }
+    assert result.issue_runs == {"I_shared": ["work:codex:one:t1", "work:codex:two:t2"]}
     assert result.diagnostics == []

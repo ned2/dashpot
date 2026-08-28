@@ -141,12 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="REFERENCE",
         help="Issue Reference, such as owner/repository#12, #12, or a slug",
     )
-    work_commands.add_parser(
-        "stop", help="end this session's active Issue work"
-    )
-    work_commands.add_parser(
-        "show", help="list active Issue work at this worktree"
-    )
+    work_commands.add_parser("stop", help="end this session's active Issue work")
+    work_commands.add_parser("show", help="list active Issue work at this worktree")
     integrate = subparsers.add_parser(
         "integrate",
         help="install the opt-in agent lifecycle integration",

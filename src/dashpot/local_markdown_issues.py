@@ -7,7 +7,6 @@ from typing import Any
 from .issue_profile import IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
-
 _LOCAL_METADATA_KEYS = {
     "id",
     "number",

@@ -4,7 +4,6 @@ import shlex
 from dataclasses import dataclass
 from typing import Literal
 
-
 IssueSearchSortField = Literal["created", "updated"]
 
 

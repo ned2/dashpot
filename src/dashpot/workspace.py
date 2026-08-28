@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from .model import (
     Diagnostic,
@@ -23,7 +23,6 @@ from .repository import (
     observe_github_repository_identity,
     worktree_root,
 )
-
 
 RootObserver = Callable[[Path], Path]
 GitHubIdentityObserver = Callable[[Path, str, float], tuple[str, str]]
@@ -222,7 +221,7 @@ def _resolve_anchor(
     if not requested.is_dir():
         raise _AnchorResolutionError(
             "repository-anchor",
-            f"Repository Anchor does not exist or is not a directory: {requested}"
+            f"Repository Anchor does not exist or is not a directory: {requested}",
         )
     root = root_observer(requested).resolve()
     config = load_project_config(root)
@@ -231,7 +230,7 @@ def _resolve_anchor(
         if not reference:
             raise _AnchorResolutionError(
                 "github-origin",
-                f"Project {config.project_id} requires a GitHub origin at {root}"
+                f"Project {config.project_id} requires a GitHub origin at {root}",
             )
         observed_id, observed_reference = github_identity_observer(
             root, reference, timeout
@@ -241,7 +240,7 @@ def _resolve_anchor(
                 "repository-identity-conflict",
                 f"Project Identity {config.project_id} expects Repository identity "
                 f"{config.repository_id}, but {root} resolves to {observed_id} "
-                f"({observed_reference})"
+                f"({observed_reference})",
             )
     return _ResolvedAnchor(workspace, str(root), config)
 

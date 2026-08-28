@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Literal
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from .model import IssueActivity
-
 
 IssueSourceStatus = Literal["fresh", "stale", "unavailable"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
@@ -116,4 +116,4 @@ class IssueSource:
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")

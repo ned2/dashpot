@@ -13,9 +13,9 @@ from .agents import (
     now_iso,
     process_info,
 )
+from .github_issues import GitHubIssuesSource
 from .issue_sources import IssueSource
 from .local_markdown_issues import LocalMarkdownIssuesSource
-from .github_issues import GitHubIssuesSource
 from .project_config import (
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
@@ -23,7 +23,6 @@ from .project_config import (
 )
 from .repository import git, github_repo_from_remote, worktree_root
 from .work_store import ActiveWork, SessionProcess, WorkStore
-
 
 ISSUE_NUMBER = re.compile(r"^#?([1-9][0-9]*)$")
 
@@ -134,14 +133,10 @@ def show_issue_work(current: Path) -> list[str]:
 
 def _session_work(store: WorkStore, session_key: str) -> ActiveWork | None:
     active, _ = store.active()
-    return next(
-        (work for work in active if work.session_key == session_key), None
-    )
+    return next((work for work in active if work.session_key == session_key), None)
 
 
-def _resolve_issue(
-    root: Path, reference: str, timeout: float
-) -> dict[str, Any]:
+def _resolve_issue(root: Path, reference: str, timeout: float) -> dict[str, Any]:
     """Resolve a mutable Issue Reference to exactly one observed Issue."""
     config = load_project_config(root)
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
@@ -176,14 +171,10 @@ def _resolve_issue(
     number_match = ISSUE_NUMBER.fullmatch(reference)
     if number_match:
         number = int(number_match.group(1))
-        matches = [
-            issue for issue in observation.issues if issue["number"] == number
-        ]
+        matches = [issue for issue in observation.issues if issue["number"] == number]
     else:
         matches = [
-            issue
-            for issue in observation.issues
-            if issue["reference"] == reference
+            issue for issue in observation.issues if issue["reference"] == reference
         ]
     if len(matches) == 1:
         return matches[0]

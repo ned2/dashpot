@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, TypeAlias
 
-
 PROJECT_CONFIG_NAME = ".dashpot/config.json"
 
 
@@ -20,9 +19,7 @@ class LocalMarkdownIssueSourceConfig:
     path: str
 
 
-IssueSourceConfig: TypeAlias = (
-    GitHubIssueSourceConfig | LocalMarkdownIssueSourceConfig
-)
+IssueSourceConfig: TypeAlias = GitHubIssueSourceConfig | LocalMarkdownIssueSourceConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,12 +46,8 @@ def load_project_config(root: Path) -> ProjectConfig:
         path,
     )
     project_id = _non_empty_string(raw["projectId"], f"{path} projectId")
-    display_label = _non_empty_string(
-        raw["displayLabel"], f"{path} displayLabel"
-    )
-    repository_id = _non_empty_string(
-        raw["repositoryId"], f"{path} repositoryId"
-    )
+    display_label = _non_empty_string(raw["displayLabel"], f"{path} displayLabel")
+    repository_id = _non_empty_string(raw["repositoryId"], f"{path} repositoryId")
     issue_source = raw["issueSource"]
     if not isinstance(issue_source, dict):
         raise RuntimeError(f"{path} issueSource must be an object")
@@ -74,9 +67,7 @@ def load_project_config(root: Path) -> ProjectConfig:
         )
         parsed_path = PurePosixPath(issues_path)
         if parsed_path.is_absolute() or ".." in parsed_path.parts:
-            raise RuntimeError(
-                f"{path} issueSource.path must be repository-relative"
-            )
+            raise RuntimeError(f"{path} issueSource.path must be repository-relative")
         return ProjectConfig(
             project_id,
             display_label,

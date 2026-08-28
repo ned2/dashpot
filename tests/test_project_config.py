@@ -16,7 +16,6 @@ from dashpot.project_config import (
     load_project_config,
 )
 
-
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 
@@ -61,9 +60,7 @@ def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
 
     config = load_project_config(tmp_path)
 
-    assert config.issue_source == LocalMarkdownIssueSourceConfig(
-        "markdown", "issues"
-    )
+    assert config.issue_source == LocalMarkdownIssueSourceConfig("markdown", "issues")
 
 
 @pytest.mark.parametrize(
@@ -86,9 +83,7 @@ def test_rejects_invalid_issue_source_configuration(
 def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
     write_config(tmp_path, {"kind": "markdown", "path": "issues"})
 
-    with mock.patch(
-        "dashpot.collect.worktree_root", return_value=tmp_path
-    ):
+    with mock.patch("dashpot.collect.worktree_root", return_value=tmp_path):
         collector = create_project_collector(project(tmp_path))
 
     assert isinstance(collector.source, LocalMarkdownIssuesSource)
@@ -101,10 +96,11 @@ def test_project_collector_builds_github_source_for_github_anchor(
 ) -> None:
     write_config(tmp_path, {"kind": "github"})
 
-    with mock.patch(
-        "dashpot.collect.worktree_root", return_value=tmp_path
-    ), mock.patch(
-        "dashpot.collect.github_repo_from_remote", return_value="ned2/dashpot"
+    with (
+        mock.patch("dashpot.collect.worktree_root", return_value=tmp_path),
+        mock.patch(
+            "dashpot.collect.github_repo_from_remote", return_value="ned2/dashpot"
+        ),
     ):
         collector = create_project_collector(project(tmp_path))
 
@@ -116,8 +112,9 @@ def test_project_collector_builds_github_source_for_github_anchor(
 def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None:
     write_config(tmp_path, {"kind": "github"})
 
-    with mock.patch(
-        "dashpot.collect.worktree_root", return_value=tmp_path
-    ), mock.patch("dashpot.collect.github_repo_from_remote", return_value=None):
-        with pytest.raises(RuntimeError, match="GitHub origin remote"):
-            create_project_collector(project(tmp_path))
+    with (
+        mock.patch("dashpot.collect.worktree_root", return_value=tmp_path),
+        mock.patch("dashpot.collect.github_repo_from_remote", return_value=None),
+        pytest.raises(RuntimeError, match="GitHub origin remote"),
+    ):
+        create_project_collector(project(tmp_path))

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from rich.text import Text
@@ -14,7 +14,6 @@ from .issue_list import (
     IssueSearchField,
 )
 from .model import Issue, IssueActivity, ProjectObservation, RunState
-
 
 ColumnKey = Literal[
     "issue_state",
@@ -232,9 +231,7 @@ class SortTerm:
     descending: bool = False
 
 
-DEFAULT_SORT = (
-    SortTerm("last_action", descending=True),
-)
+DEFAULT_SORT = (SortTerm("last_action", descending=True),)
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,13 +258,10 @@ class IssueTableViewState:
         elif current in COLUMN_KEYS:
             current_index = COLUMN_KEYS.index(current)
             following_columns = (
-                COLUMN_KEYS[current_index + 1 :]
-                + COLUMN_KEYS[: current_index + 1]
+                COLUMN_KEYS[current_index + 1 :] + COLUMN_KEYS[: current_index + 1]
             )
             next_column = next(
-                column
-                for column in following_columns
-                if column in self.columns
+                column for column in following_columns if column in self.columns
             )
         else:
             next_column = self.columns[0]
@@ -282,9 +276,7 @@ class IssueTableViewState:
             sort=(replace(current, descending=not current.descending),),
         )
 
-    def with_columns(
-        self, columns: tuple[ColumnKey, ...]
-    ) -> IssueTableViewState:
+    def with_columns(self, columns: tuple[ColumnKey, ...]) -> IssueTableViewState:
         return replace(self, columns=columns)
 
 
@@ -335,15 +327,13 @@ def sort_key_for_terms(
         values = value if isinstance(value, tuple) else (value,)
         return tuple(
             _term_sort_value(spec, term, cell)
-            for spec, term, cell in zip(specs, terms, values)
+            for spec, term, cell in zip(specs, terms, values, strict=False)
         )
 
     return sort_key
 
 
-def _term_sort_value(
-    spec: ColumnSpec, term: SortTerm, cell: object
-) -> object:
+def _term_sort_value(spec: ColumnSpec, term: SortTerm, cell: object) -> object:
     value = spec.sort_key(cell)
     if not spec.nulls_last:
         return value
@@ -355,10 +345,7 @@ def _term_sort_value(
 
 def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
     term = next((term for term in sort if term.column == column.key), None)
-    if term is None:
-        marker = "↕"
-    else:
-        marker = "↓" if term.descending else "↑"
+    marker = "↕" if term is None else ("↓" if term.descending else "↑")
     return f"{column.label} {marker}"
 
 
@@ -370,9 +357,7 @@ def build_rows(
     dark: bool = True,
 ) -> tuple[dict[str, IssueListRow], dict[str, tuple[TableCell, ...]]]:
     """Render queried rows into the requested presentation schema."""
-    projected = [
-        (row, _row_values(row, dark=dark)) for row in result.rows
-    ]
+    projected = [(row, _row_values(row, dark=dark)) for row in result.rows]
     if sort:
         directions = {term.descending for term in sort}
         if len(directions) != 1:
@@ -409,9 +394,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         return {
             "issue_state": issue_state_cell(issue, dark=dark),
             "agent_state": agent_state_cell(row.session_states),
-            "number": IssueTableCell(
-                f"#{issue['number']}", issue["number"]
-            ),
+            "number": IssueTableCell(f"#{issue['number']}", issue["number"]),
             "title": text_cell(issue["title"]),
             "labels": labels_cell(issue, project),
             "project": text_cell(project.display_label),
@@ -467,7 +450,7 @@ def relative_age(timestamp: str | None, now: datetime) -> str | None:
     except ValueError:
         return None
     if then.tzinfo is None:
-        then = then.replace(tzinfo=timezone.utc)
+        then = then.replace(tzinfo=UTC)
     seconds = max(0, int((now - then).total_seconds()))
     if seconds < 60:
         return "just now"

@@ -13,9 +13,7 @@ class SequenceRunner:
         self.results = iter(results)
         self.calls: list[tuple[list[str], Path, float]] = []
 
-    def __call__(
-        self, args: list[str], cwd: Path, timeout: float
-    ) -> CommandResult:
+    def __call__(self, args: list[str], cwd: Path, timeout: float) -> CommandResult:
         self.calls.append((list(args), cwd, timeout))
         result = next(self.results)
         if isinstance(result, Exception):
@@ -103,9 +101,7 @@ def test_preserves_locked_prunable_and_missing_targets_but_excludes_bare(
     ]
     by_path = {target.path: target for target in inventory.targets}
     assert by_path[str(locked)].availability == "available"
-    assert [item.code for item in by_path[str(locked)].diagnostics] == [
-        "target-locked"
-    ]
+    assert [item.code for item in by_path[str(locked)].diagnostics] == ["target-locked"]
     assert by_path[str(prunable)].availability == "unavailable"
     assert [item.code for item in by_path[str(prunable)].diagnostics] == [
         "target-prunable"
@@ -146,9 +142,7 @@ def test_combines_all_anchors_deduplicates_paths_and_isolates_discovery_failure(
         completed(),
     )
 
-    inventory = observe_observation_targets(
-        [first, second, failed], runner=runner
-    )
+    inventory = observe_observation_targets([first, second, failed], runner=runner)
 
     assert [target.path for target in inventory.targets] == [
         str(first),
@@ -163,10 +157,7 @@ def test_malformed_records_remain_diagnostic_without_becoming_executable(
 ) -> None:
     malformed = tmp_path / "malformed"
     malformed.mkdir()
-    porcelain = (
-        "HEAD no-path\0detached\0\0"
-        f"worktree {malformed}\0HEAD abc123\0\0"
-    )
+    porcelain = f"HEAD no-path\0detached\0\0worktree {malformed}\0HEAD abc123\0\0"
     runner = SequenceRunner(completed(porcelain))
 
     inventory = observe_observation_targets([tmp_path], runner=runner)
@@ -206,9 +197,7 @@ def test_real_git_inventory_tracks_linked_worktree_runtime_lifecycle(
 def test_unstatable_target_is_inaccessible_not_missing(tmp_path: Path) -> None:
     target = tmp_path / "protected"
     target.mkdir()
-    porcelain = (
-        f"worktree {target}\0HEAD abc123\0branch refs/heads/main\0\0"
-    )
+    porcelain = f"worktree {target}\0HEAD abc123\0branch refs/heads/main\0\0"
     runner = SequenceRunner(completed(porcelain))
 
     with mock.patch.object(Path, "stat", side_effect=PermissionError("denied")):

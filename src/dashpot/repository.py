@@ -123,9 +123,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(
-                    record, branch, detached, target_diagnostics
-                )
+                _unavailable_target(record, branch, detached, target_diagnostics)
             )
             continue
         if not record.get("HEAD") or bool(branch) == detached:
@@ -138,9 +136,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(
-                    record, branch, detached, target_diagnostics
-                )
+                _unavailable_target(record, branch, detached, target_diagnostics)
             )
             continue
         try:
@@ -155,9 +151,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(
-                    record, branch, detached, target_diagnostics
-                )
+                _unavailable_target(record, branch, detached, target_diagnostics)
             )
             continue
         except OSError as exc:
@@ -170,9 +164,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(
-                    record, branch, detached, target_diagnostics
-                )
+                _unavailable_target(record, branch, detached, target_diagnostics)
             )
             continue
         if not stat.S_ISDIR(path_mode):
@@ -185,9 +177,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(
-                    record, branch, detached, target_diagnostics
-                )
+                _unavailable_target(record, branch, detached, target_diagnostics)
             )
             continue
         started = clock()

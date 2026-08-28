@@ -126,9 +126,7 @@ def test_install_replaces_a_stale_publisher_path(tmp_path: Path) -> None:
 
 def test_install_requires_an_existing_codex_home(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="no Codex configuration directory"):
-        install_codex_integration(
-            tmp_path / ".codex", command_path=publisher(tmp_path)
-        )
+        install_codex_integration(tmp_path / ".codex", command_path=publisher(tmp_path))
 
 
 def test_malformed_hooks_file_is_an_error_and_left_untouched(
@@ -147,9 +145,7 @@ def test_config_toml_hooks_coexistence_is_noted(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     (home / "config.toml").write_text('[hooks]\nStop = "something"\n')
 
-    messages = install_codex_integration(
-        home, command_path=publisher(tmp_path)
-    )
+    messages = install_codex_integration(home, command_path=publisher(tmp_path))
 
     assert any("config.toml also defines hooks" in message for message in messages)
 
@@ -164,13 +160,11 @@ def test_config_toml_hook_trust_ledger_is_not_a_hook_definition(
         'trusted_hash = "sha256:abc"\nenabled = true\n'
     )
 
-    messages = install_codex_integration(
-        home, command_path=publisher(tmp_path)
-    )
+    messages = install_codex_integration(home, command_path=publisher(tmp_path))
 
     assert not any("also defines hooks" in message for message in messages)
 
-    (home / "config.toml").write_text("[[hooks.Stop]]\ncommand = \"x\"\n")
+    (home / "config.toml").write_text('[[hooks.Stop]]\ncommand = "x"\n')
     messages = codex_integration_status(
         home, state_dir=tmp_path / "state", current=tmp_path
     )
@@ -209,9 +203,7 @@ def test_remove_without_installation_is_a_calm_message(tmp_path: Path) -> None:
 
     assert "not installed" in remove_codex_integration(home)[0]
 
-    (home / "hooks.json").write_text(
-        json.dumps({"hooks": {"Stop": [{"hooks": []}]}})
-    )
+    (home / "hooks.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": []}]}}))
     assert "no Dashpot hooks" in remove_codex_integration(home)[0]
 
 
@@ -237,9 +229,7 @@ def test_status_reports_installed_state_and_records(tmp_path: Path) -> None:
     state.mkdir()
     (state / "session.json").write_text("{}")
 
-    messages = codex_integration_status(
-        home, state_dir=state, current=tmp_path
-    )
+    messages = codex_integration_status(home, state_dir=state, current=tmp_path)
 
     joined = "\n".join(messages)
     assert f"installed in {home / 'hooks.json'}" in joined
@@ -343,11 +333,7 @@ def test_claude_code_install_merges_into_settings(tmp_path: Path) -> None:
                 "permissions": {"allow": ["Bash(ls:*)"]},
                 "hooks": {
                     "Stop": [
-                        {
-                            "hooks": [
-                                {"type": "command", "command": "notify-send x"}
-                            ]
-                        }
+                        {"hooks": [{"type": "command", "command": "notify-send x"}]}
                     ]
                 },
             }
@@ -369,9 +355,7 @@ def test_claude_code_install_merges_into_settings(tmp_path: Path) -> None:
 def test_claude_code_remove_keeps_unrelated_settings(tmp_path: Path) -> None:
     home = claude_home(tmp_path)
     (home / "settings.json").write_text(json.dumps({"model": "opus"}))
-    install_integration(
-        "claude-code", home, command_path=claude_publisher(tmp_path)
-    )
+    install_integration("claude-code", home, command_path=claude_publisher(tmp_path))
 
     messages = remove_integration("claude-code", home)
 
@@ -393,18 +377,14 @@ def test_claude_code_status_and_missing_home(tmp_path: Path) -> None:
     assert f"hook publisher: {command}" in joined
 
     with pytest.raises(RuntimeError, match="no Claude Code configuration"):
-        install_integration(
-            "claude-code", tmp_path / "absent", command_path=command
-        )
+        install_integration("claude-code", tmp_path / "absent", command_path=command)
 
 
 def test_each_harness_removal_only_touches_its_own_file(tmp_path: Path) -> None:
     codex = codex_home(tmp_path)
     claude = claude_home(tmp_path)
     install_integration("codex", codex, command_path=publisher(tmp_path))
-    install_integration(
-        "claude-code", claude, command_path=claude_publisher(tmp_path)
-    )
+    install_integration("claude-code", claude, command_path=claude_publisher(tmp_path))
 
     remove_integration("codex", codex)
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 import concurrent.futures
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, replace, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Literal, Protocol, Sequence, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from .agent_bindings import bind_issue_runs
 from .agents import observe_agent_runs
@@ -17,14 +17,14 @@ from .local_markdown_issues import LocalMarkdownIssuesSource
 from .model import (
     AgentRun,
     Diagnostic,
+    IssueActivity,
     ObservationTarget,
+    ObservationTargetInventory,
     ProjectObservation,
     ProjectSnapshot,
     ResolvedProject,
-    ObservationTargetInventory,
     SourceStatus,
     WorkspaceSnapshot,
-    IssueActivity,
 )
 from .observation_store import StoreChange, WorkspaceObservationStore
 from .project_config import (
@@ -38,14 +38,11 @@ from .repository import (
     worktree_root,
 )
 
-
 WorkspaceAgentObserver = Callable[
     [Mapping[str, Sequence[ObservationTarget]]],
     tuple[list[AgentRun], list[Diagnostic]],
 ]
-ObservationTargetObserver = Callable[
-    [Sequence[Path]], ObservationTargetInventory
-]
+ObservationTargetObserver = Callable[[Sequence[Path]], ObservationTargetInventory]
 
 ObservationKind = Literal["issues", "targets", "agent-runs", "workspace"]
 WORKSPACE_SCOPE = "*"
@@ -94,9 +91,7 @@ class ObservationScheduler(Protocol):
 
     def keys(self, project_id: str | None = None) -> Sequence[ObservationKey]: ...
 
-    def request(
-        self, keys: Sequence[ObservationKey]
-    ) -> list[ObservationTicket]: ...
+    def request(self, keys: Sequence[ObservationKey]) -> list[ObservationTicket]: ...
 
     def is_current(self, ticket: ObservationTicket) -> bool: ...
 
@@ -127,9 +122,7 @@ class ProjectCollector:
         return self.source.refresh()
 
     def observe_targets(self) -> ObservationTargetInventory:
-        return self.target_observer(
-            [Path(anchor) for anchor in self.project.anchors]
-        )
+        return self.target_observer([Path(anchor) for anchor in self.project.anchors])
 
     def refresh(self) -> ProjectSnapshot:
         """Observe both halves in one call (single-shot convenience)."""
@@ -160,9 +153,7 @@ class ProjectCollector:
             issue_activity=deepcopy(issue_observation.issue_activity),
             target_status=target_status,
             target_attempted_at=attempted_at,
-            target_last_good_at=(
-                attempted_at if target_status == "fresh" else None
-            ),
+            target_last_good_at=(attempted_at if target_status == "fresh" else None),
         )
 
 
@@ -277,9 +268,7 @@ class ObservationCoordinator:
         clock: Callable[[], str] = utc_now,
     ) -> None:
         self.projects = list(projects)
-        self.projects_by_id = {
-            project.project_id: project for project in self.projects
-        }
+        self.projects_by_id = {project.project_id: project for project in self.projects}
         self.timeout = timeout
         self.state_dir = state_dir
         self.factory = factory
@@ -414,9 +403,7 @@ class ObservationCoordinator:
                         self._agent.diagnostics,
                         collected_at=self.clock(),
                         elapsed_ms=(
-                            self._agent.elapsed_ms
-                            if elapsed_ms is None
-                            else elapsed_ms
+                            self._agent.elapsed_ms if elapsed_ms is None else elapsed_ms
                         ),
                     )
                 )
@@ -448,9 +435,7 @@ class ObservationCoordinator:
             self.observe(
                 next(ticket for ticket in tickets if ticket.key.kind == "agent-runs")
             )
-            self.publish(
-                store, elapsed_ms=round((time.monotonic() - started) * 1000)
-            )
+            self.publish(store, elapsed_ms=round((time.monotonic() - started) * 1000))
             return store.checkpoint()
 
     # -- observation ------------------------------------------------------
@@ -459,8 +444,7 @@ class ObservationCoordinator:
         root = Path(project.primary_anchor)
         if not root.is_dir():
             raise RuntimeError(
-                "repository root does not exist or is not a directory: "
-                f"{root}"
+                f"repository root does not exist or is not a directory: {root}"
             )
         with self._state_lock:
             collector = self.collectors.get(project.project_id)
@@ -469,9 +453,7 @@ class ObservationCoordinator:
                 project, timeout=self.timeout, state_dir=self.state_dir
             )
             with self._state_lock:
-                collector = self.collectors.setdefault(
-                    project.project_id, collector
-                )
+                collector = self.collectors.setdefault(project.project_id, collector)
         return collector
 
     def _observe_project_half(
@@ -571,9 +553,7 @@ class ObservationCoordinator:
             [*issues.project_diagnostics, *targets.project_diagnostics]
         )
         elapsed_ms = issues.elapsed_ms + targets.elapsed_ms
-        never_observed = (
-            issues.last_good_at is None and targets.last_good_at is None
-        )
+        never_observed = issues.last_good_at is None and targets.last_good_at is None
         if project_diagnostics and never_observed:
             snapshot = None
         else:
@@ -616,9 +596,7 @@ class ObservationCoordinator:
             if observation.snapshot is not None
         }
         try:
-            agent_runs, agent_diagnostics = self.agent_observer(
-                targets_by_project
-            )
+            agent_runs, agent_diagnostics = self.agent_observer(targets_by_project)
         except (OSError, RuntimeError) as exc:
             agent_runs = []
             agent_diagnostics = [
@@ -632,8 +610,7 @@ class ObservationCoordinator:
         # Projects not yet composed take part in binding as unobserved so a
         # bound Issue they own is deferred rather than reported as missing.
         binding_projects = [
-            published.get(project.project_id)
-            or _pending_project(project)
+            published.get(project.project_id) or _pending_project(project)
             for project in self.projects
         ]
         binding = bind_issue_runs(binding_projects, agent_runs)
@@ -723,9 +700,7 @@ def _issue_diagnostics(
     ]
 
 
-def _target_discovery_diagnostic(
-    project_id: str, exc: BaseException
-) -> Diagnostic:
+def _target_discovery_diagnostic(project_id: str, exc: BaseException) -> Diagnostic:
     return Diagnostic(
         f"project:{project_id}",
         "warning",
@@ -740,4 +715,3 @@ def _unique_diagnostics(diagnostics: Sequence[Diagnostic]) -> list[Diagnostic]:
         if diagnostic not in unique:
             unique.append(diagnostic)
     return unique
-

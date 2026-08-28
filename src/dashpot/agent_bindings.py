@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .model import AgentRun, Diagnostic, ProjectObservation
 
@@ -27,13 +27,9 @@ def bind_issue_runs(
         for issue in project.snapshot.issues:
             issues_by_id.setdefault(issue["id"], []).append(issue)
 
-    issue_runs: dict[str, list[str]] = {
-        issue_id: [] for issue_id in issues_by_id
-    }
+    issue_runs: dict[str, list[str]] = {issue_id: [] for issue_id in issues_by_id}
     conflicting_ids = {
-        issue_id
-        for issue_id, matches in issues_by_id.items()
-        if len(matches) > 1
+        issue_id for issue_id, matches in issues_by_id.items() if len(matches) > 1
     }
     diagnostics = [
         Diagnostic(

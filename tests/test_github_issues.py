@@ -17,12 +17,9 @@ from issue_source_conformance import (
     assert_unavailable_observation,
 )
 
-
 ROOT = Path(__file__).parents[1]
 RAW_FIXTURE = ROOT / "tests" / "fixtures" / "github-issue.json"
-EXPECTED_FIXTURE = (
-    ROOT / "conformance" / "issue" / "fixtures" / "github.json"
-)
+EXPECTED_FIXTURE = ROOT / "conformance" / "issue" / "fixtures" / "github.json"
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 REPOSITORY_ID = "R_kgDOUEerrg"
 
@@ -98,9 +95,7 @@ def nested_page(
     )
 
 
-def completed(
-    stdout: str = "", stderr: str = "", returncode: int = 0
-) -> CommandResult:
+def completed(stdout: str = "", stderr: str = "", returncode: int = 0) -> CommandResult:
     return CommandResult([], returncode, stdout, stderr)
 
 
@@ -422,9 +417,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
 
                 self.assertEqual("fresh", observation.status)
                 self.assertIn(f"cursor={connection_name}-1", runner.calls[1][0])
-                self.assertIn(
-                    f"connection: {connection_name}", runner.calls[1][0][4]
-                )
+                self.assertIn(f"connection: {connection_name}", runner.calls[1][0][4])
                 if connection_name in {"labels", "assignees"}:
                     actual = observation.issues[0][connection_name]
                 else:
@@ -444,9 +437,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         runner = SequenceRunner(
             [
                 completed(issue_page([record])),
-                completed(
-                    nested_page([{"name": "later-label", "color": "5319e7"}])
-                ),
+                completed(nested_page([{"name": "later-label", "color": "5319e7"}])),
             ]
         )
 
@@ -575,9 +566,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             expected_issues=[expected_fixture()],
         )
         self.assertEqual("a2eeef", stale.label_colors["enhancement"])
-        self.assertEqual(
-            3, stale.issue_activity[stale.issues[0]["id"]].comment_count
-        )
+        self.assertEqual(3, stale.issue_activity[stale.issues[0]["id"]].comment_count)
 
     def test_graphql_errors_are_diagnostics_and_partial_data_is_discarded(self) -> None:
         response = json.dumps(
@@ -615,20 +604,18 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = source(runner).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual(
-            "github-repository-identity", observation.diagnostics[0].code
-        )
+        self.assertEqual("github-repository-identity", observation.diagnostics[0].code)
 
-    def test_repository_rename_uses_current_reference_after_identity_match(self) -> None:
+    def test_repository_rename_uses_current_reference_after_identity_match(
+        self,
+    ) -> None:
         renamed = raw_fixture()
         renamed["repository"]["nameWithOwner"] = "ned2/renamed-dashpot"
         renamed["url"] = "https://github.com/ned2/renamed-dashpot/issues/9"
         runner = SequenceRunner(
             [
                 completed(
-                    issue_page(
-                        [renamed], repository_reference="ned2/renamed-dashpot"
-                    )
+                    issue_page([renamed], repository_reference="ned2/renamed-dashpot")
                 )
             ]
         )
@@ -643,9 +630,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = github.refresh()
 
         self.assertEqual("fresh", observation.status)
-        self.assertEqual(
-            "ned2/renamed-dashpot#9", observation.issues[0]["reference"]
-        )
+        self.assertEqual("ned2/renamed-dashpot#9", observation.issues[0]["reference"])
         self.assertEqual(
             "https://github.com/ned2/renamed-dashpot/issues/9",
             observation.issues[0]["location"]["url"],
@@ -662,9 +647,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
     def test_one_malformed_issue_fails_the_whole_refresh(self) -> None:
         malformed = issue_record(2)
         del malformed["author"]
-        runner = SequenceRunner(
-            [completed(issue_page([issue_record(1), malformed]))]
-        )
+        runner = SequenceRunner([completed(issue_page([issue_record(1), malformed]))])
 
         observation = source(runner).refresh()
 

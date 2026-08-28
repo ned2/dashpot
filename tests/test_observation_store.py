@@ -16,7 +16,6 @@ from dashpot.model import (
 )
 from dashpot.observation_store import WorkspaceObservationStore
 
-
 NOW = "2026-08-27T03:00:00Z"
 
 
@@ -318,9 +317,7 @@ def test_binding_change_reports_every_conflicting_issue_key() -> None:
     )
     observed_run = run("codex:shared", "project:one", "I_shared")
 
-    change = store.replace_agent_runs(
-        [observed_run], {"I_shared": [observed_run.id]}
-    )
+    change = store.replace_agent_runs([observed_run], {"I_shared": [observed_run.id]})
 
     assert change.issue_keys == frozenset(
         {("project:one", "I_shared"), ("project:two", "I_shared")}
@@ -339,9 +336,7 @@ def test_bound_run_record_change_reports_its_issue_key() -> None:
     changed_run = copy.deepcopy(observed_run)
     changed_run.state = "running"
 
-    change = store.replace_agent_runs(
-        [changed_run], {"I_one": [changed_run.id]}
-    )
+    change = store.replace_agent_runs([changed_run], {"I_one": [changed_run.id]})
 
     assert change.issue_keys == frozenset({("project:one", "I_one")})
 
@@ -362,9 +357,7 @@ def test_binding_transfer_reports_old_and_new_issue_keys() -> None:
     transferred = copy.deepcopy(observed_run)
     transferred.issue_id = "I_two"
 
-    change = store.replace_agent_runs(
-        [transferred], {"I_two": [transferred.id]}
-    )
+    change = store.replace_agent_runs([transferred], {"I_two": [transferred.id]})
 
     assert change.issue_keys == frozenset(
         {("project:one", "I_one"), ("project:one", "I_two")}
@@ -383,23 +376,17 @@ def test_binding_removal_and_missing_issue_do_not_fabricate_issue_keys() -> None
     missing = copy.deepcopy(observed_run)
     missing.issue_id = "I_missing"
 
-    change = store.replace_agent_runs(
-        [missing], {"I_missing": [missing.id]}
-    )
+    change = store.replace_agent_runs([missing], {"I_missing": [missing.id]})
 
     assert change.issue_keys == frozenset({("project:one", "I_one")})
 
 
 def test_agent_run_observation_replaces_bindings_independently() -> None:
     selected_issue = issue("I_one", "First")
-    store = WorkspaceObservationStore(
-        workspace(project("project:one", selected_issue))
-    )
+    store = WorkspaceObservationStore(workspace(project("project:one", selected_issue)))
     observed_run = run("codex:one", "project:one", "I_one")
 
-    change = store.replace_agent_runs(
-        [observed_run], {"I_one": [observed_run.id]}
-    )
+    change = store.replace_agent_runs([observed_run], {"I_one": [observed_run.id]})
     result = store.query_issues()
 
     assert change.revision == result.revision == 2
@@ -413,13 +400,9 @@ def test_agent_run_observation_replaces_bindings_independently() -> None:
 
 def test_diagnostics_are_project_qualified_without_exposing_store_state() -> None:
     observed = project("project:one")
-    observed.diagnostics.append(
-        Diagnostic("project:one", "warning", "project warning")
-    )
+    observed.diagnostics.append(Diagnostic("project:one", "warning", "project warning"))
     snapshot = workspace(observed)
-    snapshot.diagnostics.append(
-        Diagnostic("workspace", "warning", "workspace warning")
-    )
+    snapshot.diagnostics.append(Diagnostic("workspace", "warning", "workspace warning"))
     store = WorkspaceObservationStore(snapshot)
 
     diagnostics = store.diagnostics()
@@ -494,9 +477,7 @@ def test_partial_replacements_isolate_store_owned_state() -> None:
     store = WorkspaceObservationStore(
         workspace(project("project:one", issue("I_one", "First")))
     )
-    replacement_project = project(
-        "project:one", issue("I_two", "Second")
-    )
+    replacement_project = project("project:one", issue("I_two", "Second"))
     replacement_run = run("codex:two", "project:one", "I_two")
     replacement_bindings = {"I_two": [replacement_run.id]}
 
@@ -539,9 +520,7 @@ def test_detail_for_keeps_conflicting_issues_project_qualified() -> None:
             project("project:two", copy.deepcopy(duplicated)),
         )
     )
-    old_rows = {
-        row.project.project_id: row for row in store.query_issues().rows
-    }
+    old_rows = {row.project.project_id: row for row in store.query_issues().rows}
     changed = project("project:one", issue("I_shared", "Changed"))
 
     store.replace_project(changed)
@@ -557,9 +536,7 @@ def test_detail_for_unique_issue_follows_transfer_but_not_ambiguity() -> None:
     )
     old_row = store.query_issues().rows[0]
 
-    store.replace(
-        workspace(project("project:two", copy.deepcopy(transferred)))
-    )
+    store.replace(workspace(project("project:two", copy.deepcopy(transferred))))
     moved = store.detail_for(old_row)
 
     assert moved is not None
@@ -605,9 +582,7 @@ def test_store_query_matches_standalone_query_across_rich_state() -> None:
     queries = (
         IssueListQuery(),
         IssueListQuery(states=frozenset({"open", "closed"})),
-        IssueListQuery(
-            states=frozenset({"open", "closed"}), text="navigation"
-        ),
+        IssueListQuery(states=frozenset({"open", "closed"}), text="navigation"),
     )
 
     for query in queries:

@@ -9,13 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from .collect import ObservationKey
 from .issue_table import relative_age
 from .observation_store import WorkspaceObservationStore
-
 
 AlertSeverity = Literal["error", "warning", "info"]
 
@@ -217,4 +216,4 @@ def _join(labels: Sequence[str], plural: str = "Projects") -> str:
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)

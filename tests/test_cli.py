@@ -50,9 +50,7 @@ def test_workspace_argument_infers_name_from_resolved_dot_path(
 
     workspace = cli.parse_workspace_argument(".")
 
-    assert workspace == Workspace(
-        tmp_path.name, (RepositoryAnchor(str(tmp_path)),)
-    )
+    assert workspace == Workspace(tmp_path.name, (RepositoryAnchor(str(tmp_path)),))
 
 
 @pytest.mark.parametrize("value", ["", "=", "name="])
@@ -69,11 +67,13 @@ def test_no_argument_cli_defaults_to_configured_current_project(
     args = cli.build_parser().parse_args([])
 
     resolution = WorkspaceResolution([project(tmp_path)], [])
-    with mock.patch.object(cli, "worktree_root", return_value=tmp_path), \
-        mock.patch.object(cli, "load_workspaces") as load_workspaces, \
+    with (
+        mock.patch.object(cli, "worktree_root", return_value=tmp_path),
+        mock.patch.object(cli, "load_workspaces") as load_workspaces,
         mock.patch.object(
             cli, "resolve_workspace_projects", return_value=resolution
-        ) as resolve:
+        ) as resolve,
+    ):
         collector = cli.create_collector(args)
 
     load_workspaces.assert_not_called()
@@ -95,11 +95,12 @@ def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
     args = cli.build_parser().parse_args([])
     resolution = WorkspaceResolution([project(project_root)], [])
 
-    with mock.patch.object(
-        cli, "worktree_root", return_value=project_root
-    ), mock.patch.object(
-        cli, "resolve_workspace_projects", return_value=resolution
-    ) as resolve:
+    with (
+        mock.patch.object(cli, "worktree_root", return_value=project_root),
+        mock.patch.object(
+            cli, "resolve_workspace_projects", return_value=resolution
+        ) as resolve,
+    ):
         collector = cli.create_collector(args)
 
     resolve.assert_called_once_with(
@@ -125,14 +126,19 @@ def test_explicit_config_takes_precedence_over_current_project(
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args(["--config", str(config)])
 
-    with mock.patch.object(
-        cli,
-        "load_workspaces",
-        return_value=[Workspace("configured", (RepositoryAnchor(str(configured)),))],
-    ) as load_workspaces, mock.patch.object(
-        cli,
-        "resolve_workspace_projects",
-        return_value=WorkspaceResolution([project(configured)], []),
+    with (
+        mock.patch.object(
+            cli,
+            "load_workspaces",
+            return_value=[
+                Workspace("configured", (RepositoryAnchor(str(configured)),))
+            ],
+        ) as load_workspaces,
+        mock.patch.object(
+            cli,
+            "resolve_workspace_projects",
+            return_value=WorkspaceResolution([project(configured)], []),
+        ),
     ):
         collector = cli.create_collector(args)
 
@@ -150,12 +156,14 @@ def test_explicit_workspace_takes_precedence_over_config(
         ["--workspace", str(workspace), "--config", str(tmp_path / "unused.json")]
     )
 
-    with mock.patch.object(cli, "load_workspaces") as load_workspaces, \
+    with (
+        mock.patch.object(cli, "load_workspaces") as load_workspaces,
         mock.patch.object(
             cli,
             "resolve_workspace_projects",
             return_value=WorkspaceResolution([project(workspace)], []),
-        ):
+        ),
+    ):
         collector = cli.create_collector(args)
 
     load_workspaces.assert_not_called()
@@ -172,17 +180,22 @@ def test_no_argument_cli_falls_back_to_standard_workspace_config(
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args([])
 
-    with mock.patch.object(cli, "default_workspace_config", return_value=config):
-        with mock.patch.object(
+    with (
+        mock.patch.object(cli, "default_workspace_config", return_value=config),
+        mock.patch.object(
             cli,
             "load_workspaces",
-            return_value=[Workspace("configured", (RepositoryAnchor(str(configured)),))],
-        ) as load_workspaces, mock.patch.object(
+            return_value=[
+                Workspace("configured", (RepositoryAnchor(str(configured)),))
+            ],
+        ) as load_workspaces,
+        mock.patch.object(
             cli,
             "resolve_workspace_projects",
             return_value=WorkspaceResolution([project(configured)], []),
-        ):
-            collector = cli.create_collector(args)
+        ),
+    ):
+        collector = cli.create_collector(args)
 
     load_workspaces.assert_called_once_with(config)
     assert collector.projects == [project(configured)]
@@ -192,18 +205,24 @@ def test_json_mode_prints_snapshot() -> None:
     collector = mock.Mock()
     collector.refresh.return_value = WorkspaceSnapshot("2026-08-25T01:00:00Z", 4, [])
 
-    with mock.patch.object(cli, "create_collector", return_value=collector):
-        with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
-            result = cli.main(["--workspace", "/repo", "--json"])
+    with (
+        mock.patch.object(cli, "create_collector", return_value=collector),
+        mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+    ):
+        result = cli.main(["--workspace", "/repo", "--json"])
 
     assert result == 0
     assert json.loads(stdout.getvalue())["elapsedMs"] == 4
 
 
 def test_cli_reports_startup_error_without_traceback() -> None:
-    with mock.patch.object(cli, "create_collector", side_effect=RuntimeError("bad config")):
-        with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
-            result = cli.main([])
+    with (
+        mock.patch.object(
+            cli, "create_collector", side_effect=RuntimeError("bad config")
+        ),
+        mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+    ):
+        result = cli.main([])
 
     assert result == 2
     assert stderr.getvalue() == "dashpot: bad config\n"
@@ -217,13 +236,11 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
     }
     process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
-    with mock.patch(
-        "dashpot.agents.state_directory", return_value=tmp_path / "state"
+    with (
+        mock.patch("dashpot.agents.state_directory", return_value=tmp_path / "state"),
+        mock.patch("dashpot.agents.nearest_harness_process", return_value=process),
     ):
-        with mock.patch(
-            "dashpot.agents.nearest_harness_process", return_value=process
-        ):
-            publish_from_stream(io.StringIO(json.dumps(event)))
+        publish_from_stream(io.StringIO(json.dumps(event)))
 
     record = json.loads((tmp_path / "state" / "session-7.json").read_text())
     assert record["state"] == "running"
@@ -237,12 +254,12 @@ def test_unconfigured_repository_error_suggests_init(
     args = cli.build_parser().parse_args([])
     missing = tmp_path / "nowhere" / "workspaces.json"
 
-    with mock.patch.object(cli, "worktree_root", return_value=tmp_path), \
-        mock.patch.object(
-            cli, "default_workspace_config", return_value=missing
-        ):
-        with pytest.raises(RuntimeError, match="dashpot init"):
-            cli.create_collector(args)
+    with (
+        mock.patch.object(cli, "worktree_root", return_value=tmp_path),
+        mock.patch.object(cli, "default_workspace_config", return_value=missing),
+        pytest.raises(RuntimeError, match="dashpot init"),
+    ):
+        cli.create_collector(args)
 
 
 def test_init_command_prints_messages_and_exits_cleanly(

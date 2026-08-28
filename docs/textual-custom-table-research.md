@@ -130,14 +130,16 @@ class ColumnSpec:
     searchable: bool = True
     default_visible: bool = True
 
+
 @dataclass(frozen=True, slots=True)
 class SortTerm:
     column: str
     descending: bool = False
 
+
 @dataclass(frozen=True, slots=True)
 class TableViewState:
-    columns: tuple[str, ...]       # visible and in display order
+    columns: tuple[str, ...]  # visible and in display order
     sort: tuple[SortTerm, ...]
     global_search: str
     filters: FilterSet

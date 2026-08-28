@@ -7,11 +7,12 @@ the complete Issue profile plus the snapshot facts that travel beside it.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import ClassVar
 
 from textual import events
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Markdown, Static
@@ -29,7 +30,6 @@ from .issue_table import (
 )
 from .model import Issue, ProjectObservation
 
-
 EMPTY_BODY_MESSAGE = "This Issue has no description."
 
 # Below this width the metadata pane stacks under the body instead of
@@ -40,13 +40,11 @@ STACK_BELOW_WIDTH = 90
 class IssueScreen(Screen[None]):
     """Read one Issue: rendered Markdown body beside its metadata."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "close", "Back"),
     ]
 
-    def __init__(
-        self, context: IssueListRow, *, now: datetime | None = None
-    ) -> None:
+    def __init__(self, context: IssueListRow, *, now: datetime | None = None) -> None:
         super().__init__()
         if context.issue is None:
             raise ValueError("an Issue view needs an Issue row")
@@ -56,33 +54,28 @@ class IssueScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         issue = self.issue
-        with Vertical(id="issue-view"):
-            with Horizontal(id="issue-view-panes"):
-                with VerticalScroll(id="issue-view-body", can_focus=True):
-                    with Vertical(id="issue-view-heading"):
-                        yield Static(
-                            issue["title"], id="issue-view-title", markup=False
-                        )
-                        yield Static(
-                            issue_view_subtitle(
-                                issue, self.context.project, now=self.now
-                            ),
-                            id="issue-view-subtitle",
-                            markup=False,
-                        )
-                    if issue["body"].strip():
-                        yield Markdown(issue["body"], id="issue-view-markdown")
-                    else:
-                        yield Static(
-                            EMPTY_BODY_MESSAGE,
-                            id="issue-view-empty",
-                            markup=False,
-                        )
-                yield DetailFields(
-                    *issue_metadata_items(self.context, now=self.now),
-                    id="issue-view-metadata",
-                    classes="issue-view-metadata",
-                )
+        with Vertical(id="issue-view"), Horizontal(id="issue-view-panes"):
+            with VerticalScroll(id="issue-view-body", can_focus=True):
+                with Vertical(id="issue-view-heading"):
+                    yield Static(issue["title"], id="issue-view-title", markup=False)
+                    yield Static(
+                        issue_view_subtitle(issue, self.context.project, now=self.now),
+                        id="issue-view-subtitle",
+                        markup=False,
+                    )
+                if issue["body"].strip():
+                    yield Markdown(issue["body"], id="issue-view-markdown")
+                else:
+                    yield Static(
+                        EMPTY_BODY_MESSAGE,
+                        id="issue-view-empty",
+                        markup=False,
+                    )
+            yield DetailFields(
+                *issue_metadata_items(self.context, now=self.now),
+                id="issue-view-metadata",
+                classes="issue-view-metadata",
+            )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -96,9 +89,7 @@ class IssueScreen(Screen[None]):
         self.apply_layout(event.size.width)
 
     def apply_layout(self, width: int) -> None:
-        self.query_one("#issue-view").set_class(
-            width < STACK_BELOW_WIDTH, "-stacked"
-        )
+        self.query_one("#issue-view").set_class(width < STACK_BELOW_WIDTH, "-stacked")
 
     @property
     def stacked(self) -> bool:
@@ -112,7 +103,7 @@ def issue_view_subtitle(
     issue: Issue, project: ProjectObservation, *, now: datetime | None = None
 ) -> str:
     """``ned2/dashpot#12 · Dashpot · open · opened 3d ago by ned2``."""
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     parts = [issue["reference"], project.display_label, issue_state_label(issue)]
     opened = ["opened"]
     age = relative_age(issue["createdAt"], current)
@@ -144,7 +135,7 @@ def issue_metadata_items(
     issue = context.issue
     if issue is None:
         raise ValueError("Issue metadata needs an Issue row")
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     labels = [label for label in issue["labels"] if not is_priority_label(label)]
     items: list[DetailItem] = [
         DetailItem(issue_state_label(issue), "State"),
@@ -199,9 +190,7 @@ def issue_metadata_items(
             or run.working_directory
             or "unknown location"
         )
-        items.append(
-            DetailItem(f"{run.id} ({run.state}, {location})", kind="list")
-        )
+        items.append(DetailItem(f"{run.id} ({run.state}, {location})", kind="list"))
     return tuple(items)
 
 

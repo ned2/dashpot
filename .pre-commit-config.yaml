@@ -1,0 +1,41 @@
+# Shared pre-commit quality gate. Install once with `uv run pre-commit install`;
+# run everything with `uv run pre-commit run --all-files`; refresh the pinned
+# revisions with `uv run pre-commit autoupdate` (see README.md).
+#
+# Hook order matters: Ruff's lint fixes run before `ruff-format` so formatting
+# is the last word on layout, and ty runs after both so it checks the code as
+# it will be committed.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Two trailing spaces are an intentional Markdown hard line break.
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+      - id: debug-statements
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.75
+    hooks:
+      - id: ty
+        # Check the code ty is configured for in pyproject.toml, once per run,
+        # rather than only the staged files.
+        pass_filenames: false
+        args: [check]

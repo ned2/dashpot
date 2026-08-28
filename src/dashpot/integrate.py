@@ -13,14 +13,11 @@ from typing import Any
 from .agents import session_directory, state_directory
 from .repository import worktree_root
 
-
 HOOK_TIMEOUT = 3
 # Inline hook definitions live under ``[hooks]`` or ``[[hooks.<Event>]]``.
 # Codex also keeps its hook trust ledger under ``[hooks.state...]``, which is
 # not a definition and must not trigger the coexistence note.
-CONFIG_HOOKS_TABLE = re.compile(
-    r"^\s*\[+\s*hooks\s*(?:\]|\.(?!state\b))", re.MULTILINE
-)
+CONFIG_HOOKS_TABLE = re.compile(r"^\s*\[+\s*hooks\s*(?:\]|\.(?!state\b))", re.MULTILINE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,8 +113,7 @@ def install_integration(
     hooks = document.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise RuntimeError(
-            f"{path} has a non-object top-level \"hooks\" value; fix the "
-            "file and retry"
+            f'{path} has a non-object top-level "hooks" value; fix the file and retry'
         )
     handler = {
         "type": "command",
@@ -136,9 +132,7 @@ def install_integration(
         _write_json(path, document)
         messages.append(f"installed {spec.display} lifecycle hooks in {path}")
     else:
-        messages.append(
-            f"{spec.display} lifecycle hooks already installed in {path}"
-        )
+        messages.append(f"{spec.display} lifecycle hooks already installed in {path}")
     messages.append(f"hook publisher: {command}")
     messages.extend(_config_toml_coexistence_warning(spec, home))
     return messages
@@ -154,9 +148,7 @@ def remove_integration(harness: str, home: Path | None = None) -> list[str]:
     document = _load_hooks_document(spec, path)
     hooks = document.get("hooks")
     if not isinstance(hooks, dict):
-        return [
-            f"{spec.display} integration is not installed: no hooks in {path}"
-        ]
+        return [f"{spec.display} integration is not installed: no hooks in {path}"]
     removed = False
     for event in list(hooks):
         groups = hooks[event]
@@ -171,8 +163,7 @@ def remove_integration(harness: str, home: Path | None = None) -> list[str]:
             del hooks[event]
     if not removed:
         return [
-            f"{spec.display} integration is not installed: no Dashpot hooks "
-            f"in {path}"
+            f"{spec.display} integration is not installed: no Dashpot hooks in {path}"
         ]
     if not hooks:
         del document["hooks"]
@@ -196,9 +187,7 @@ def integration_status(
     path = home / spec.hooks_file
     messages: list[str] = []
     if not home.is_dir():
-        messages.append(
-            f"{spec.display} configuration directory not found: {home}"
-        )
+        messages.append(f"{spec.display} configuration directory not found: {home}")
         return messages
     if not path.is_file():
         messages.append(f"not installed: no {path}")
@@ -212,12 +201,8 @@ def integration_status(
             messages.append(f"not installed: no Dashpot hooks in {path}")
         else:
             events = sorted(commands)
-            missing = [
-                event for event in spec.events if event not in commands
-            ]
-            messages.append(
-                f"installed in {path} for: {', '.join(events)}"
-            )
+            missing = [event for event in spec.events if event not in commands]
+            messages.append(f"installed in {path} for: {', '.join(events)}")
             if missing:
                 messages.append(
                     f"missing hook events (run 'dashpot integrate "
@@ -231,9 +216,7 @@ def integration_status(
                         f"'dashpot integrate {spec.harness}' to repair"
                     )
                 elif not os.access(executable, os.X_OK):
-                    messages.append(
-                        f"hook publisher at {command} is not executable"
-                    )
+                    messages.append(f"hook publisher at {command} is not executable")
                 else:
                     messages.append(f"hook publisher: {command}")
     messages.extend(_config_toml_coexistence_warning(spec, home))
@@ -259,14 +242,10 @@ def codex_integration_status(
     state_dir: Path | None = None,
     current: Path | None = None,
 ) -> list[str]:
-    return integration_status(
-        "codex", codex_home, state_dir=state_dir, current=current
-    )
+    return integration_status("codex", codex_home, state_dir=state_dir, current=current)
 
 
-def _record_store_status(
-    state_dir: Path | None, current: Path | None
-) -> list[str]:
+def _record_store_status(state_dir: Path | None, current: Path | None) -> list[str]:
     """Report the session stores visible from here: Project-local and global."""
     messages: list[str] = []
     try:
@@ -276,15 +255,12 @@ def _record_store_status(
     if root is not None and (root / ".dashpot" / "config.json").is_file():
         local = session_directory(root)
         records = len(list(local.glob("*.json"))) if local.is_dir() else 0
-        messages.append(
-            f"session records for this Project: {records} in {local}"
-        )
+        messages.append(f"session records for this Project: {records} in {local}")
     directory = state_dir or state_directory()
     if directory.is_dir():
         records = len(list(directory.glob("*.json")))
         messages.append(
-            f"session records outside configured Projects: {records} in "
-            f"{directory}"
+            f"session records outside configured Projects: {records} in {directory}"
         )
     else:
         messages.append(
@@ -294,9 +270,7 @@ def _record_store_status(
     return messages
 
 
-def _load_hooks_document(
-    spec: HarnessIntegration, path: Path
-) -> dict[str, Any]:
+def _load_hooks_document(spec: HarnessIntegration, path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"hooks": {}}
     try:
@@ -320,9 +294,7 @@ def _split_dashpot_handlers(
     kept: list[Any] = []
     ours: list[dict[str, Any]] = []
     for group in groups:
-        if not isinstance(group, dict) or not isinstance(
-            group.get("hooks"), list
-        ):
+        if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
             kept.append(group)
             continue
         remaining = []
@@ -370,9 +342,7 @@ def _installed_commands(document: dict[str, Any]) -> dict[str, list[str]]:
     return commands
 
 
-def _config_toml_coexistence_warning(
-    spec: HarnessIntegration, home: Path
-) -> list[str]:
+def _config_toml_coexistence_warning(spec: HarnessIntegration, home: Path) -> list[str]:
     if not spec.checks_config_toml:
         return []
     config = home / "config.toml"

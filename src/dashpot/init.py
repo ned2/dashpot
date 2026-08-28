@@ -12,7 +12,6 @@ from .repository import (
     worktree_root,
 )
 
-
 STATE_IGNORE_RULE = ".dashpot/state/"
 
 
@@ -27,9 +26,7 @@ def initialize_project(
     try:
         root = worktree_root(current)
     except RuntimeError as exc:
-        raise RuntimeError(
-            "dashpot init must run inside a Git repository"
-        ) from exc
+        raise RuntimeError("dashpot init must run inside a Git repository") from exc
     config_path = root / PROJECT_CONFIG_NAME
     if config_path.is_file():
         raise RuntimeError(f"already configured: {config_path}")

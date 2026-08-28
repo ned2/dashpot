@@ -15,9 +15,12 @@ dashpot-claude-code-hook = "dashpot.hook:claude_code_main"
 
 [dependency-groups]
 dev = [
+  "pre-commit",
   "pytest",
   "pytest-asyncio",
+  "ruff",
   "textual-dev",
+  "ty",
 ]
 
 [build-system]
@@ -26,3 +29,37 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dashpot"]
+
+[tool.ruff]
+# Everything Ruff sees is Python 3.11+ (from requires-python); the default
+# 88-column layout applies to the package, tests, and conformance fixtures.
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# An explicit, deliberately modest rule set: pyflakes/pycodestyle errors, import
+# ordering, modernisation, bugbear, and the simplification/comprehension families
+# that catch real mistakes without imposing stylistic churn.
+select = [
+  "E4", "E7", "E9", "F", "W", # pyflakes and pycodestyle errors
+  "I",                        # isort
+  "UP",                       # pyupgrade
+  "B",                        # flake8-bugbear
+  "C4",                       # flake8-comprehensions
+  "SIM",                      # flake8-simplify
+  "PIE",                      # flake8-pie
+  "RUF",                      # Ruff-specific rules
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# Frozen dataclasses are immutable, so calling them in argument and dataclass
+# defaults is safe (B008, RUF009).
+extend-immutable-calls = [
+  "dashpot.issue_list.IssueListQuery",
+  "dashpot.issue_table.IssueTableViewState",
+]
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.environment]
+python-version = "3.11"

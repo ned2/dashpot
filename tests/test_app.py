@@ -4,7 +4,7 @@ import asyncio
 import copy
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
 
@@ -22,11 +22,10 @@ from dashpot.app import (
 )
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
-from dashpot.issue_view import IssueScreen, issue_metadata_items
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.issue_table import (
-    COLUMNS_BY_KEY,
     COLUMN_KEYS,
+    COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
     DEFAULT_SORT,
     IssueStateCell,
@@ -40,20 +39,20 @@ from dashpot.issue_table import (
     searchable_columns,
     sort_key_for_terms,
 )
+from dashpot.issue_view import IssueScreen, issue_metadata_items
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import (
     AgentRun,
     Diagnostic,
+    IssueActivity,
+    LinkedPullRequest,
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
     SourceStatus,
     WorkspaceSnapshot,
-    IssueActivity,
-    LinkedPullRequest,
 )
 from dashpot.observation_store import WorkspaceObservationStore
-
 
 NOW = "2026-08-25T01:00:00Z"
 ROOT = Path(__file__).resolve().parents[1]
@@ -140,9 +139,7 @@ class SequenceCollector:
         return result
 
 
-async def wait_until(
-    predicate: Callable[[], bool], timeout: float = 1.5
-) -> None:
+async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
     while not predicate():
         if asyncio.get_running_loop().time() >= deadline:
@@ -229,7 +226,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "title",
             "last_action",
         )
-        assert DEFAULT_SORT == (SortTerm("last_action", descending=True),)
+        assert (SortTerm("last_action", descending=True),) == DEFAULT_SORT
         assert [str(column.label) for column in table.columns.values()] == [
             "◉ ↕",
             "AGENT ↕",
@@ -264,7 +261,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert len({row.field_value.region.x for row in issue_fields}) == 1
         assert all(row.field_name.styles.text_align == "left" for row in issue_fields)
         assert app.ALLOW_SELECT
-        assert all(row.field_value.allow_select for row in project_fields + issue_fields)
+        assert all(
+            row.field_value.allow_select for row in project_fields + issue_fields
+        )
         assert not table.allow_select
 
         location = issue_fields[0].field_value
@@ -507,13 +506,14 @@ async def test_default_sort_orders_last_action_newest_first_and_missing_last() -
         title_column = table.get_column_index("title")
 
         assert [
-            table.get_row_at(index)[title_column]
-            for index in range(table.row_count)
+            table.get_row_at(index)[title_column] for index in range(table.row_count)
         ] == ["Newest", "Older", "Missing"]
 
 
 @pytest.mark.asyncio
-async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default() -> None:
+async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default() -> (
+    None
+):
     recently_active = issue("test/repo#1", "Recently active")
     recently_active["createdAt"] = "2026-08-01T01:00:00Z"
     recently_active["updatedAt"] = "2026-08-28T01:00:00Z"
@@ -536,25 +536,20 @@ async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default
 
         search.value = "sort:created-desc"
         await wait_until(
-            lambda: app.issue_view.sort
-            == (SortTerm("created", descending=True),)
+            lambda: app.issue_view.sort == (SortTerm("created", descending=True),)
         )
         await pilot.pause()
 
         assert "created" not in app.issue_view.columns
         assert table.get_row_at(0)[title_column] == "Newly created"
-        assert app.selected_row_key == row_key(
-            "issue", recently_active["id"]
-        )
+        assert app.selected_row_key == row_key("issue", recently_active["id"])
 
         search.value = ""
         await wait_until(lambda: app.issue_view.sort == DEFAULT_SORT)
         await pilot.pause()
 
         assert table.get_row_at(0)[title_column] == "Recently active"
-        assert app.selected_row_key == row_key(
-            "issue", recently_active["id"]
-        )
+        assert app.selected_row_key == row_key("issue", recently_active["id"])
 
 
 @pytest.mark.asyncio
@@ -651,7 +646,9 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
 
 
 @pytest.mark.asyncio
-async def test_column_editor_applies_visibility_and_order_without_losing_selection() -> None:
+async def test_column_editor_applies_visibility_and_order_without_losing_selection() -> (
+    None
+):
     snapshot = workspace_snapshot(
         issue("test/repo#1", "First"),
         issue("test/repo#2", "Second"),
@@ -975,7 +972,10 @@ def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None
     assert cells[row_key("issue", classified["id"])] == ("v1", "Feature")
     assert cells[row_key("issue", plain["id"])] == ("-", "-")
     ascending = sorted(
-        [cells[row_key("issue", plain["id"])][0], cells[row_key("issue", classified["id"])][0]],
+        [
+            cells[row_key("issue", plain["id"])][0],
+            cells[row_key("issue", classified["id"])][0],
+        ],
         key=sort_key_for_terms((SortTerm("milestone"),)),
     )
     assert [str(value) for value in ascending] == ["v1", "-"]
@@ -991,9 +991,7 @@ def test_issue_detail_shows_milestone_and_type_only_when_present() -> None:
     plain = issue("test/repo#2", "Plain")
     plain["milestone"] = None
     plain["issueType"] = None
-    detail = selection_detail_text(
-        query_issue_list(workspace_snapshot(plain)).rows[0]
-    )
+    detail = selection_detail_text(query_issue_list(workspace_snapshot(plain)).rows[0])
     assert "Milestone:" not in detail
     assert "Type:" not in detail
 
@@ -1018,7 +1016,10 @@ def test_comments_column_and_detail_show_engagement_only_when_present() -> None:
     assert cells[row_key("issue", discussed["id"])] == ("4",)
     assert cells[row_key("issue", quiet["id"])] == ("-",)
     ascending = sorted(
-        [cells[row_key("issue", discussed["id"])][0], cells[row_key("issue", quiet["id"])][0]],
+        [
+            cells[row_key("issue", discussed["id"])][0],
+            cells[row_key("issue", quiet["id"])][0],
+        ],
         key=sort_key_for_terms((SortTerm("comments"),)),
     )
     assert [str(value) for value in ascending] == ["-", "4"]
@@ -1038,7 +1039,7 @@ def test_comments_column_and_detail_show_engagement_only_when_present() -> None:
 
 
 def test_issue_detail_leads_with_the_feed_byline() -> None:
-    now = datetime(2026, 8, 29, 5, 33, 4, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 29, 5, 33, 4, tzinfo=UTC)
     selected_issue = issue("test/repo#12", "Byline")
     selected_issue["createdAt"] = "2026-08-26T05:33:04Z"
     context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
@@ -1062,9 +1063,7 @@ def test_issue_id_column_uses_the_project_local_number() -> None:
         columns=("number",),
     )
 
-    assert cells[row_key("issue", selected_issue["id"])] == (
-        "#17",
-    )
+    assert cells[row_key("issue", selected_issue["id"])] == ("#17",)
 
 
 def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> None:
@@ -1114,9 +1113,7 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
         "enhancement": "a2eeef",
     }
 
-    _contexts, cells = build_rows(
-        query_issue_list(snapshot), columns=("labels",)
-    )
+    _contexts, cells = build_rows(query_issue_list(snapshot), columns=("labels",))
 
     chips = cells[row_key("issue", labelled["id"])][0]
     assert isinstance(chips, LabelsCell)
@@ -1133,9 +1130,7 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
     assert empty.plain == "-"
     assert empty.sort_value is None
 
-    ascending = sorted(
-        [empty, chips], key=sort_key_for_terms((SortTerm("labels"),))
-    )
+    ascending = sorted([empty, chips], key=sort_key_for_terms((SortTerm("labels"),)))
     assert ascending == [chips, empty]
     descending = sorted(
         [empty, chips],
@@ -1149,12 +1144,10 @@ def test_local_markdown_number_is_the_table_id() -> None:
     document = (
         ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
     ).read_text()
-    document = document.replace(
-        '"id": "I_kwDOUEerrs8AAAABOSTptQ"', '"id": "I_local_17"'
-    ).replace(
-        '"number": 9', '"number": 17'
-    ).replace(
-        '"reference": "ned2/dashpot#9"', '"reference": "local-17"'
+    document = (
+        document.replace('"id": "I_kwDOUEerrs8AAAABOSTptQ"', '"id": "I_local_17"')
+        .replace('"number": 9', '"number": 17')
+        .replace('"reference": "ned2/dashpot#9"', '"reference": "local-17"')
     )
     local_issue = parse_local_markdown_issue(
         document,
@@ -1209,9 +1202,7 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
         agent_state_cell(("unknown",)),
     ]
 
-    ordered = sorted(
-        agent_states, key=COLUMNS_BY_KEY["agent_state"].sort_key
-    )
+    ordered = sorted(agent_states, key=COLUMNS_BY_KEY["agent_state"].sort_key)
 
     assert ordered == ["", "?", "Ⅱ", "▶"]
     assert agent_state_cell(("running", "running")) == "▶"
@@ -1232,9 +1223,7 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
 
     assert [
         cell.state_kind
-        for cell in sorted(
-            states, key=COLUMNS_BY_KEY["issue_state"].sort_key
-        )
+        for cell in sorted(states, key=COLUMNS_BY_KEY["issue_state"].sort_key)
     ] == ["open", "completed", "not-planned", "duplicate"]
 
 
@@ -1374,9 +1363,10 @@ def test_default_issue_filter_shows_only_open_issues() -> None:
     )
 
     assert set(contexts) == set(cells) == {row_key("issue", open_issue["id"])}
-    assert cells[row_key("issue", open_issue["id"])][
-        DEFAULT_COLUMNS.index("title")
-    ] == "Open"
+    assert (
+        cells[row_key("issue", open_issue["id"])][DEFAULT_COLUMNS.index("title")]
+        == "Open"
+    )
 
 
 def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
@@ -1389,9 +1379,7 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
         }
     )
 
-    contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(closed_issue))
-    )
+    contexts, cells = build_rows(query_issue_list(workspace_snapshot(closed_issue)))
 
     assert contexts == {}
     assert cells == {}
@@ -1475,9 +1463,8 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
 
 def coordinated_workspace(tmp_path: Path):
     """A two-Project coordinator whose sources can be paused per Project."""
-    from test_coordinator import Clock, ScriptedCollector, ScriptedSource, resolved
-
     from dashpot.collect import ObservationCoordinator
+    from test_coordinator import Clock, ScriptedCollector, ScriptedSource, resolved
 
     clock = Clock()
     projects = []
@@ -1511,17 +1498,17 @@ async def test_first_published_project_renders_before_a_slow_one(
 
             assert not table.loading
             assert row_key("issue", "I_alpha#1") in app.rows_by_key
-            assert [p.project_id for p in app.store.checkpoint().projects] == [
-                "alpha"
-            ]
+            assert [p.project_id for p in app.store.checkpoint().projects] == ["alpha"]
 
             collectors["beta"].source.release.set()
             await wait_until(lambda: table.row_count == 2)
 
             assert row_key("issue", "I_beta#1") in app.rows_by_key
             await wait_until(
-                lambda: app.store.checkpoint().issue_runs
-                == {"I_alpha#1": [], "I_beta#1": []}
+                lambda: (
+                    app.store.checkpoint().issue_runs
+                    == {"I_alpha#1": [], "I_beta#1": []}
+                )
             )
     finally:
         collectors["beta"].source.release.set()
@@ -1552,9 +1539,7 @@ async def test_refresh_targets_the_selected_project_and_shift_r_fans_out(
         assert collectors["alpha"].target_calls == 1
 
         await app.run_action("refresh_workspace")
-        await wait_until(
-            lambda: collectors["alpha"].source.calls == calls["alpha"] + 1
-        )
+        await wait_until(lambda: collectors["alpha"].source.calls == calls["alpha"] + 1)
         await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 2)
         assert app.selected_row_key == beta_key
 
@@ -1585,9 +1570,11 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
         await app.run_action("refresh_workspace")
         # Each half lands on its own; wait for both to have been published.
         await wait_until(
-            lambda: app.store.revision > revision
-            and alpha_snapshot().issue_source_status == "stale"
-            and alpha_snapshot().observation_targets[0].head == "fresh00"
+            lambda: (
+                app.store.revision > revision
+                and alpha_snapshot().issue_source_status == "stale"
+                and alpha_snapshot().observation_targets[0].head == "fresh00"
+            )
         )
 
         assert "GitHub is unavailable" in str(
@@ -1723,7 +1710,9 @@ async def test_simultaneous_states_share_one_line_in_priority_order() -> None:
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: alert(app).display)
-        assert alert_text(app).startswith("⚠ Unavailable worktrees: Test Repository /repo")
+        assert alert_text(app).startswith(
+            "⚠ Unavailable worktrees: Test Repository /repo"
+        )
 
         await app.run_action("refresh")
         await wait_until(lambda: alert(app).has_class("-error"))
@@ -1826,9 +1815,7 @@ async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() ->
     app = _issue_view_app(blank)
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(
-            lambda: app.selected_row_key == row_key("issue", blank["id"])
-        )
+        await wait_until(lambda: app.selected_row_key == row_key("issue", blank["id"]))
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -1874,7 +1861,9 @@ async def test_issue_view_stacks_metadata_under_the_body_in_compact_terminals() 
 
 
 @pytest.mark.asyncio
-async def test_refresh_while_the_issue_view_is_open_still_reaches_the_dashboard() -> None:
+async def test_refresh_while_the_issue_view_is_open_still_reaches_the_dashboard() -> (
+    None
+):
     before = workspace_snapshot(issue("test/repo#1", "Before"))
     after = workspace_snapshot(
         issue("test/repo#1", "Before"), issue("test/repo#2", "Arrived")
@@ -1902,7 +1891,7 @@ async def test_refresh_while_the_issue_view_is_open_still_reaches_the_dashboard(
 
 
 def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
-    now = datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 29, 12, 0, tzinfo=UTC)
     parent = issue("test/repo#1", "Parent")
     child = issue("test/repo#2", "Child")
     child["relationships"] = {
@@ -1936,9 +1925,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
             ],
         )
     }
-    context = next(
-        row for row in query_issue_list(snapshot).rows if row.issue is child
-    )
+    context = next(row for row in query_issue_list(snapshot).rows if row.issue is child)
 
     text = detail_items_text(issue_metadata_items(context, now=now))
 
@@ -1992,8 +1979,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
     assert "Type: -\nMilestone: -" in bare_text
     assert "Closed: 2026-08-29 (1h ago)" in bare_text
     assert (
-        "Comments: 0\nPull requests:\n  -\nRelationships:\n  -\n"
-        "Agent sessions:\n  -"
+        "Comments: 0\nPull requests:\n  -\nRelationships:\n  -\nAgent sessions:\n  -"
     ) in bare_text
 
 

@@ -9,7 +9,6 @@ import pytest
 from dashpot.model import RepositoryAnchor, Workspace
 from dashpot.workspace import load_workspaces, resolve_workspace_projects
 
-
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 

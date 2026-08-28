@@ -133,9 +133,7 @@ def test_concurrent_writers_never_partially_write_state(tmp_path: Path) -> None:
         except Exception as exc:  # pragma: no cover - asserted below.
             failures.append(exc)
 
-    threads = [
-        threading.Thread(target=writer, args=(index,)) for index in range(8)
-    ]
+    threads = [threading.Thread(target=writer, args=(index,)) for index in range(8)]
     for thread in threads:
         thread.start()
     for thread in threads:

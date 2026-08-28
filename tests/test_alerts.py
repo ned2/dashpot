@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dashpot.alerts import summarize_alerts
 from dashpot.collect import AGENT_RUNS_KEY, ObservationKey
@@ -13,8 +13,7 @@ from dashpot.model import (
 )
 from dashpot.observation_store import WorkspaceObservationStore
 
-
-NOW = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 
 
 def project(
@@ -73,9 +72,7 @@ def test_healthy_state_has_no_alert() -> None:
 
 
 def test_stale_issue_source_names_the_project_and_its_age() -> None:
-    alert = summarize_alerts(
-        store(project("alpha", issue_status="stale")), now=clock
-    )
+    alert = summarize_alerts(store(project("alpha", issue_status="stale")), now=clock)
 
     assert alert is not None
     assert alert.severity == "warning"
@@ -127,11 +124,15 @@ def test_refresh_failures_and_integration_failures_are_errors() -> None:
             project("alpha"),
             diagnostics=[
                 Diagnostic(
-                    "workspace", "warning", "Cannot observe Agent Runs: boom",
+                    "workspace",
+                    "warning",
+                    "Cannot observe Agent Runs: boom",
                     "agent-observation",
                 ),
                 Diagnostic(
-                    "run:x", "warning", "hint no longer matches",
+                    "run:x",
+                    "warning",
+                    "hint no longer matches",
                     "agent-issue-hint-stale",
                 ),
             ],

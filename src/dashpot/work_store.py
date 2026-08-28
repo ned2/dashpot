@@ -5,13 +5,13 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from .model import Diagnostic
-
 
 WORK_STORE_VERSION = 1
 SESSION_KEY = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -107,9 +107,7 @@ class WorkStore:
 
     def _destination(self, session_key: str) -> Path:
         if not SESSION_KEY.fullmatch(session_key):
-            raise RuntimeError(
-                "Work Store session key contains unsupported characters"
-            )
+            raise RuntimeError("Work Store session key contains unsupported characters")
         return self.directory / f"{session_key}.json"
 
     @staticmethod
@@ -143,9 +141,7 @@ class WorkStore:
                 or not isinstance(process.get("startedAt"), str)
             ):
                 raise ValueError("sessionProcess needs pid and startedAt")
-            session_process = SessionProcess(
-                process["pid"], process["startedAt"]
-            )
+            session_process = SessionProcess(process["pid"], process["startedAt"])
         return ActiveWork(
             session_key=session_key,
             harness=harness,

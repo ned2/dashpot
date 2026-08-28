@@ -4,7 +4,6 @@ import copy
 import json
 import threading
 from pathlib import Path
-from typing import Callable
 
 import pytest
 
@@ -24,7 +23,6 @@ from dashpot.model import (
 )
 from dashpot.observation_store import StoreChange, WorkspaceObservationStore
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
     (ROOT / "conformance" / "issue" / "fixtures" / "github.json").read_text()
@@ -42,9 +40,7 @@ def issue(reference: str, project_id: str) -> dict:
 
 
 def target(root: Path, head: str = "abc123") -> ObservationTarget:
-    return ObservationTarget(
-        str(root), head, "main", False, False, "available", 1, []
-    )
+    return ObservationTarget(str(root), head, "main", False, False, "available", 1, [])
 
 
 class ScriptedSource(IssueSource):
@@ -111,8 +107,12 @@ class Clock:
 
 def resolved(root: Path, project_id: str) -> ResolvedProject:
     return ResolvedProject(
-        project_id, project_id.title(), f"repository:{project_id}", ("test",),
-        (str(root),), str(root),
+        project_id,
+        project_id.title(),
+        f"repository:{project_id}",
+        ("test",),
+        (str(root),),
+        str(root),
     )
 
 
@@ -194,7 +194,9 @@ def test_project_is_published_only_after_both_halves_are_observed(
     assert coordinator.observe(targets).accepted
     changes = coordinator.publish(store)
 
-    assert [change.kinds for change in changes] == [frozenset({"projects", "workspace"})]
+    assert [change.kinds for change in changes] == [
+        frozenset({"projects", "workspace"})
+    ]
     assert project_ids(store) == ["alpha"]
     project = store.project("alpha")
     assert project is not None and project.snapshot is not None
@@ -252,9 +254,7 @@ def test_superseded_ticket_cannot_overwrite_the_newer_result(workspace) -> None:
     key = ObservationKey("issues", "alpha")
     (old,) = coordinator.request([key])
     outcomes = []
-    stale = threading.Thread(
-        target=lambda: outcomes.append(coordinator.observe(old))
-    )
+    stale = threading.Thread(target=lambda: outcomes.append(coordinator.observe(old)))
     stale.start()
     try:
         assert alpha.source.started.wait(timeout=2)
@@ -321,9 +321,7 @@ def test_target_failure_keeps_last_good_targets_and_fresh_issues(
     assert [item.path for item in project.snapshot.observation_targets] == [
         str(collectors["alpha"].root)
     ]
-    assert [item.code for item in project.snapshot.diagnostics] == [
-        "target-discovery"
-    ]
+    assert [item.code for item in project.snapshot.diagnostics] == ["target-discovery"]
     assert "git exploded" in project.snapshot.diagnostics[0].message
 
 
@@ -455,7 +453,7 @@ def test_agent_runs_observe_composed_targets_and_defer_pending_bindings(
     coordinator.publish(store)
 
     assert list(observed_targets[-1]) == ["alpha"]
-    deferred = [d for d in store.checkpoint().diagnostics]
+    deferred = list(store.checkpoint().diagnostics)
     assert [d.code for d in deferred] == ["agent-issue-resolution-deferred"]
     assert store.checkpoint().issue_runs == {"I_alpha#1": []}
 

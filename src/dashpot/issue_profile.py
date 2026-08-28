@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import copy
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Any, Mapping
+from typing import Any
 from urllib.parse import urlsplit
-
 
 _ISSUE_KEYS = {
     "id",
@@ -111,9 +111,7 @@ def semantic_projection(value: Mapping[str, Any]) -> dict[str, Any]:
     return issue
 
 
-def semantically_equivalent(
-    left: Mapping[str, Any], right: Mapping[str, Any]
-) -> bool:
+def semantically_equivalent(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     """Compare complete Issues after excluding provenance and location."""
 
     return semantic_projection(left) == semantic_projection(right)
@@ -142,11 +140,7 @@ def _require_optional_string(value: Any, path: str) -> None:
 
 
 def _require_positive_integer(value: Any, path: str) -> None:
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or value < 1
-    ):
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise IssueProfileError(f"{path} must be a positive integer")
 
 
@@ -164,12 +158,8 @@ def _require_optional_timestamp(value: Any, path: str) -> None:
     if value is None:
         return
     _require_non_empty_string(value, path)
-    if not re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value
-    ):
-        raise IssueProfileError(
-            f"{path} must be an RFC 3339 UTC timestamp ending in Z"
-        )
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value):
+        raise IssueProfileError(f"{path} must be an RFC 3339 UTC timestamp ending in Z")
     try:
         datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError as exc:

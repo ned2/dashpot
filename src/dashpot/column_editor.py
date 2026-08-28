@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import ClassVar, cast
 
 from textual.app import ComposeResult
+from textual.binding import BindingType
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, SelectionList, Static
@@ -13,7 +14,7 @@ from .issue_table import COLUMN_KEYS, COLUMNS_BY_KEY, ColumnKey
 class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
     """Edit the visible subset and order of the Issue table catalogue."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         ("escape", "cancel", "Cancel"),
         ("ctrl+up", "move_up", "Move up"),
         ("ctrl+down", "move_down", "Move down"),
@@ -46,9 +47,7 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
                 yield Button("Apply", id="column-apply", variant="primary")
 
     def on_mount(self) -> None:
-        selections = self.query_one(
-            "#column-editor-list", SelectionList
-        )
+        selections = self.query_one("#column-editor-list", SelectionList)
         selections.highlighted = 0
         selections.focus()
 
@@ -71,18 +70,14 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
         self.move_highlighted(1)
 
     def move_highlighted(self, offset: int) -> None:
-        selections = self.query_one(
-            "#column-editor-list", SelectionList
-        )
+        selections = self.query_one("#column-editor-list", SelectionList)
         index = selections.highlighted
         if index is None:
             return
         destination = index + offset
         if destination < 0 or destination >= len(self.column_order):
             return
-        selected = {
-            cast(ColumnKey, column) for column in selections.selected
-        }
+        selected = {cast(ColumnKey, column) for column in selections.selected}
         self.column_order[index], self.column_order[destination] = (
             self.column_order[destination],
             self.column_order[index],
@@ -93,15 +88,9 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
         selections.focus()
 
     def action_apply(self) -> None:
-        selections = self.query_one(
-            "#column-editor-list", SelectionList
-        )
-        selected = {
-            cast(ColumnKey, column) for column in selections.selected
-        }
-        columns = tuple(
-            column for column in self.column_order if column in selected
-        )
+        selections = self.query_one("#column-editor-list", SelectionList)
+        selected = {cast(ColumnKey, column) for column in selections.selected}
+        columns = tuple(column for column in self.column_order if column in selected)
         if not columns:
             self.query_one("#column-editor-error", Static).update(
                 "Choose at least one visible column."
