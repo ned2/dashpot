@@ -10,7 +10,7 @@ from threading import Event, Lock
 
 import pytest
 from textual.content import Content
-from textual.widgets import DataTable, Input, Select, Static
+from textual.widgets import DataTable, Input, Markdown, Select, Static
 
 from dashpot.app import (
     DashpotApp,
@@ -19,7 +19,8 @@ from dashpot.app import (
     selection_detail_text,
 )
 from dashpot.column_editor import IssueColumnEditor
-from dashpot.detail_fields import DetailFields
+from dashpot.detail_fields import DetailFields, detail_items_text
+from dashpot.issue_view import IssueScreen, issue_metadata_items
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.issue_table import (
     COLUMNS_BY_KEY,
@@ -1753,3 +1754,243 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
         app.update_diagnostics()
         await wait_until(lambda: not alert(app).display)
         await wait_until(lambda: alert(app).region.height == 0)
+
+
+# --- Full-screen Issue view (#27) -------------------------------------------
+
+
+def _issue_view_app(*issues: dict, runs: list[AgentRun] | None = None) -> DashpotApp:
+    snapshot = workspace_snapshot(*issues, runs=runs)
+    return DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+
+@pytest.mark.asyncio
+async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> None:
+    first = issue("test/repo#1", "First")
+    second = issue("test/repo#2", "Second")
+    second["body"] = (
+        "# Heading\n\nSome *emphasis* and a [link](https://example.test).\n\n"
+        "- one\n- two\n"
+    )
+    app = _issue_view_app(first, second)
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        table = app.query_one("#queue", DataTable)
+        search = app.query_one("#issue-search", Input)
+        selected_key = row_key("issue", second["id"])
+        table.move_cursor(row=table.get_row_index(selected_key), animate=False)
+        await wait_until(lambda: app.selected_row_key == selected_key)
+        search.value = "s"
+        await pilot.pause()
+        table.focus()
+
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+        view = app.screen
+        assert isinstance(view, IssueScreen)
+        assert str(view.query_one("#issue-view-title", Static).render()) == "Second"
+        subtitle = str(view.query_one("#issue-view-subtitle", Static).render())
+        assert subtitle.startswith("test/repo#2 · Test Repository · open · opened ")
+        assert subtitle.endswith(" by ned2")
+        markdown = view.query_one("#issue-view-markdown", Markdown)
+        assert markdown.query("MarkdownH1")
+        assert markdown.query("MarkdownBulletList")
+        assert not view.query("#issue-view-empty")
+        assert view.query_one("#issue-view-body").has_focus
+        assert not view.stacked
+
+        await pilot.press("tab")
+        assert view.query_one("#issue-view-metadata").has_focus
+        await pilot.press("shift+tab")
+        assert view.query_one("#issue-view-body").has_focus
+
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, IssueScreen))
+        assert app.selected_row_key == selected_key
+        assert app.query_one("#issue-search", Input).value == "s"
+        assert app.issue_view.query.text == "s"
+        assert table.cursor_row == table.get_row_index(selected_key)
+        assert table.has_focus
+
+
+@pytest.mark.asyncio
+async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() -> None:
+    blank = issue("test/repo#1", "Blank")
+    blank["body"] = "   \n"
+    app = _issue_view_app(blank)
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_until(
+            lambda: app.selected_row_key == row_key("issue", blank["id"])
+        )
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+
+        view = app.screen
+        assert not view.query("#issue-view-markdown")
+        assert (
+            str(view.query_one("#issue-view-empty", Static).render())
+            == "This Issue has no description."
+        )
+
+
+@pytest.mark.asyncio
+async def test_issue_view_does_nothing_without_an_issue_row() -> None:
+    app = _issue_view_app()
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        await pilot.pause()
+        assert app.selected_row_key is None
+        await pilot.press("enter")
+        await pilot.pause()
+        await app.run_action("open_issue")
+        await pilot.pause()
+        assert not isinstance(app.screen, IssueScreen)
+
+
+@pytest.mark.asyncio
+async def test_issue_view_stacks_metadata_under_the_body_in_compact_terminals() -> None:
+    app = _issue_view_app(issue("test/repo#1", "Compact"))
+
+    async with app.run_test(size=(70, 30)) as pilot:
+        await wait_until(lambda: app.selected_row_key is not None)
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+        view = app.screen
+        assert isinstance(view, IssueScreen)
+        await wait_until(lambda: view.stacked)
+        body = view.query_one("#issue-view-body")
+        metadata = view.query_one("#issue-view-metadata")
+        await wait_until(
+            lambda: metadata.region.y >= body.region.y + body.region.height
+        )
+        assert metadata.region.width == body.region.width
+
+
+@pytest.mark.asyncio
+async def test_refresh_while_the_issue_view_is_open_still_reaches_the_dashboard() -> None:
+    before = workspace_snapshot(issue("test/repo#1", "Before"))
+    after = workspace_snapshot(
+        issue("test/repo#1", "Before"), issue("test/repo#2", "Arrived")
+    )
+    app = DashpotApp(
+        SequenceCollector(after),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(before),
+    )
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_until(lambda: app.selected_row_key is not None)
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+
+        await app.run_action("refresh")
+        await wait_until(
+            lambda: app.main_screen.query_one("#queue", DataTable).row_count == 2
+        )
+        assert isinstance(app.screen, IssueScreen)
+
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, IssueScreen))
+        assert app.query_one("#queue", DataTable).row_count == 2
+
+
+def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
+    now = datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
+    parent = issue("test/repo#1", "Parent")
+    child = issue("test/repo#2", "Child")
+    child["relationships"] = {
+        "parent": parent["id"],
+        "subIssues": [],
+        "blockedBy": ["I_elsewhere"],
+        "blocking": [],
+    }
+    child["labels"] = ["priority/p1", "bug"]
+    child["assignees"] = ["ned2"]
+    child["createdAt"] = "2026-08-26T12:00:00Z"
+    child["updatedAt"] = "2026-08-29T11:30:00Z"
+    run = AgentRun(
+        id="run-1",
+        harness="codex",
+        process_or_session="1",
+        state="running",
+        observation_target="/repo",
+        observation_project_id="project:test-repo",
+        branch="feature/child",
+        issue_id=None,
+        issue_reference_hint=None,
+    )
+    snapshot = workspace_snapshot(parent, child, runs=[run])
+    snapshot.issue_runs[child["id"]] = [run.id]
+    snapshot.projects[0].snapshot.issue_activity = {
+        child["id"]: IssueActivity(
+            comment_count=2,
+            linked_pull_requests=[
+                LinkedPullRequest(9, "https://github.com/test/repo/pull/9", "merged")
+            ],
+        )
+    }
+    context = next(
+        row for row in query_issue_list(snapshot).rows if row.issue is child
+    )
+
+    text = detail_items_text(issue_metadata_items(context, now=now))
+
+    assert text == "\n".join(
+        [
+            "State: open",
+            "Project: Test Repository",
+            "Author: ned2",
+            "Assignees: ned2",
+            "Labels: bug",
+            "Priority: P1",
+            "Type: Feature",
+            "Milestone: v1",
+            "Created: 2026-08-26 (3d ago)",
+            "Updated: 2026-08-29 (30m ago)",
+            "Closed: -",
+            "Comments: 2",
+            "Pull requests:",
+            "  #9 merged https://github.com/test/repo/pull/9",
+            "Relationships:",
+            "  Parent: #1 Parent",
+            "  Blocked by: I_elsewhere",
+            "Agent sessions:",
+            "  run-1 (running, feature/child)",
+        ]
+    )
+
+    bare = issue("test/repo#3", "Bare")
+    bare["author"] = None
+    bare["issueType"] = None
+    bare["milestone"] = None
+    bare["labels"] = []
+    bare["relationships"] = {
+        "parent": None,
+        "subIssues": [],
+        "blockedBy": [],
+        "blocking": [],
+    }
+    bare["state"] = "closed"
+    bare["stateReason"] = "not-planned"
+    bare["closedAt"] = "2026-08-29T11:00:00Z"
+    bare_context = query_issue_list(
+        workspace_snapshot(bare), IssueListQuery(states=frozenset({"closed"}))
+    ).rows[0]
+
+    bare_text = detail_items_text(issue_metadata_items(bare_context, now=now))
+
+    assert "State: closed as not-planned" in bare_text
+    assert "Author: -" in bare_text
+    assert "Assignees: unassigned" in bare_text
+    assert "Labels: -" in bare_text
+    assert "Type: -\nMilestone: -" in bare_text
+    assert "Closed: 2026-08-29 (1h ago)" in bare_text
+    assert (
+        "Comments: 0\nPull requests:\n  -\nRelationships:\n  -\n"
+        "Agent sessions:\n  -"
+    ) in bare_text

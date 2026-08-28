@@ -245,3 +245,81 @@ IssueColumnEditor {
     min-width: 8;
     margin-left: 1;
 }
+
+/* Full-screen Issue view. */
+#issue-view {
+    height: 1fr;
+    layout: vertical;
+}
+
+#issue-view-heading {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+#issue-view-title {
+    height: auto;
+    text-style: bold;
+}
+
+#issue-view-subtitle {
+    height: auto;
+    color: $text-muted;
+}
+
+#issue-view-panes {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#issue-view-body {
+    width: 1fr;
+    height: 1fr;
+    border: panel $primary-darken-2;
+    border-title-align: left;
+    border-title-style: bold;
+    padding: 0 1;
+}
+
+#issue-view-body:focus,
+#issue-view-metadata:focus {
+    border: panel $primary;
+}
+
+#issue-view-markdown {
+    height: auto;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+}
+
+#issue-view-empty {
+    color: $text-muted;
+    text-style: italic;
+}
+
+#issue-view-metadata {
+    width: 40;
+    height: 1fr;
+    margin-left: 1;
+    padding: 0 1;
+    border: panel $primary-darken-2;
+    border-title-align: left;
+    border-title-style: bold;
+}
+
+#issue-view.-stacked #issue-view-panes {
+    layout: vertical;
+}
+
+#issue-view.-stacked #issue-view-body {
+    height: 2fr;
+}
+
+#issue-view.-stacked #issue-view-metadata {
+    width: 1fr;
+    height: 1fr;
+    margin-left: 0;
+    margin-top: 1;
+}

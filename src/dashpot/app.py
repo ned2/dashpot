@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from rich.text import Text
 from textual import events
@@ -14,6 +14,7 @@ from textual.content import Content
 from textual.css.query import NoMatches
 from textual.containers import Container, Horizontal, Vertical
 from textual.message import Message
+from textual.screen import Screen
 from textual.theme import Theme
 from textual.timer import Timer
 from textual.worker import get_current_worker
@@ -38,6 +39,7 @@ from .issue_list import (
     next_issue_states,
 )
 from .issue_search import IssueSearchSort, parse_issue_search
+from .issue_view import IssueScreen
 from .issue_table import (
     ColumnKey,
     DEFAULT_SORT,
@@ -101,6 +103,7 @@ class DashpotApp(App[None]):
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("shift+r", "refresh_workspace", "Refresh all"),
+        ("enter", "open_issue", "Open Issue"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
         ("s", "sort_next", "Sort column"),
@@ -193,9 +196,9 @@ class DashpotApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#project-pane").border_title = Content("PROJECT STATUS")
-        self.query_one("#selection-pane").border_title = Content("ISSUE")
-        table = self.query_one("#queue", DataTable)
+        self.main_screen.query_one("#project-pane").border_title = Content("PROJECT STATUS")
+        self.main_screen.query_one("#selection-pane").border_title = Content("ISSUE")
+        table = self.main_screen.query_one("#queue", DataTable)
         self.add_table_columns(table)
         table.focus()
         self.theme_changed_signal.subscribe(self, self.on_theme_changed)
@@ -231,7 +234,7 @@ class DashpotApp(App[None]):
         if columns is None or columns == self.issue_view.columns:
             return
         self.issue_view = self.issue_view.with_columns(columns)
-        table = self.query_one("#queue", DataTable)
+        table = self.main_screen.query_one("#queue", DataTable)
         table.clear(columns=True)
         self.rows_by_key = {}
         self.rendered_cells = {}
@@ -261,7 +264,7 @@ class DashpotApp(App[None]):
         table: DataTable[TableCell] | None = None,
     ) -> None:
         if table is None:
-            table = self.query_one("#queue", DataTable)
+            table = self.main_screen.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
         self.issue_view = issue_view
         self.update_sort_headers(table)
@@ -292,7 +295,7 @@ class DashpotApp(App[None]):
     def action_cycle_issue_state(self) -> None:
         states = next_issue_states(self.issue_view.query.states)
         # Drive the control so the header, the query, and the Select agree.
-        self.query_one("#issue-state", Select).value = issue_state_filter_value(
+        self.main_screen.query_one("#issue-state", Select).value = issue_state_filter_value(
             replace(self.issue_view.query, states=states)
         )
 
@@ -321,7 +324,7 @@ class DashpotApp(App[None]):
             return
         self.issue_view = replace(self.issue_view, query=query, sort=next_sort)
         if sort_changed:
-            self.update_sort_headers(self.query_one("#queue", DataTable))
+            self.update_sort_headers(self.main_screen.query_one("#queue", DataTable))
         if self.store.has_observations:
             self.reconcile_rows()
 
@@ -355,7 +358,7 @@ class DashpotApp(App[None]):
         )
 
     def on_ready(self) -> None:
-        table = self.query_one("#queue", DataTable)
+        table = self.main_screen.query_one("#queue", DataTable)
         if not self.store.has_observations:
             table.loading = True
             self.request_refresh("initial")
@@ -467,7 +470,7 @@ class DashpotApp(App[None]):
         if message.error is not None:
             if not self.scheduler.is_current(message.ticket):
                 return
-            self.query_one("#queue", DataTable).loading = False
+            self.main_screen.query_one("#queue", DataTable).loading = False
             error = f"Refresh failed: {message.error}"
             # The persistent alert already carries a repeated failure; only a
             # new or changed failure earns a toast.
@@ -491,7 +494,7 @@ class DashpotApp(App[None]):
         if not changes:
             self.update_diagnostics()
             return
-        self.query_one("#queue", DataTable).loading = False
+        self.main_screen.query_one("#queue", DataTable).loading = False
         self.reconcile_rows()
         self.update_diagnostics()
         # Follow-ups are derived from what was published, not from this
@@ -502,14 +505,14 @@ class DashpotApp(App[None]):
             self.schedule_observations(follow_ups, message.trigger)
 
     def reconcile_rows(self) -> None:
-        table = self.query_one("#queue", DataTable)
+        table = self.main_screen.query_one("#queue", DataTable)
         prior_key, prior_index = self.current_selection(table)
         query = replace(
             self.issue_view.query,
             search_fields=searchable_columns(),
         )
         result = self.store.query_issues(query)
-        self.query_one("#issue-count", Static).update(
+        self.main_screen.query_one("#issue-count", Static).update(
             issue_count_text(result, query)
         )
         desired_contexts, desired_cells = build_rows(
@@ -555,12 +558,12 @@ class DashpotApp(App[None]):
         self.rendered_cells = desired_cells
         if not table.row_count:
             self.selected_row_key = None
-            self.query_one("#project-detail", DetailFields).update(
+            self.main_screen.query_one("#project-detail", DetailFields).update(
                 DetailItem("No project selected", kind="message")
             )
-            self.query_one("#selection-pane").border_title = Content("SELECTION")
+            self.main_screen.query_one("#selection-pane").border_title = Content("SELECTION")
             self.set_selection_pane_state(None)
-            self.query_one("#selection-detail", DetailFields).update(
+            self.main_screen.query_one("#selection-detail", DetailFields).update(
                 DetailItem(empty_issue_message(self.issue_view.query), kind="message")
             )
             return
@@ -580,6 +583,30 @@ class DashpotApp(App[None]):
         key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
         return key, table.cursor_row
 
+    @property
+    def main_screen(self) -> Screen[Any]:
+        """The dashboard screen, whatever is stacked above it."""
+        return self.screen_stack[0] if self.screen_stack else self.screen
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.id != "queue":
+            return
+        self.open_issue(str(event.row_key.value))
+
+    def action_open_issue(self) -> None:
+        if self.selected_row_key is not None:
+            self.open_issue(self.selected_row_key)
+
+    def open_issue(self, key: str) -> None:
+        """Read the Issue full-screen; nothing happens without an Issue row."""
+        if isinstance(self.screen, IssueScreen):
+            return
+        row = self.rows_by_key.get(key)
+        context = self.store.detail_for(row) if row is not None else None
+        if context is None or context.issue is None:
+            return
+        self.push_screen(IssueScreen(context))
+
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         # A queued highlight can be dispatched during app shutdown, after the
         # screen and detail panes have been unmounted.
@@ -594,22 +621,22 @@ class DashpotApp(App[None]):
             return
         self.selected_row_key = key
         self.set_selection_pane_state(context)
-        self.query_one("#project-detail", DetailFields).update(
+        self.main_screen.query_one("#project-detail", DetailFields).update(
             *project_detail_items(
                 context.project,
                 context.project_runs,
             )
         )
-        self.query_one("#selection-pane").border_title = Content(
+        self.main_screen.query_one("#selection-pane").border_title = Content(
             selection_title(context)
         )
-        self.query_one("#selection-detail", DetailFields).update(
+        self.main_screen.query_one("#selection-detail", DetailFields).update(
             *selection_detail_items(context)
         )
 
     def set_selection_pane_state(self, context: IssueListRow | None) -> None:
         state_class = issue_pane_state_class(context)
-        pane = self.query_one("#selection-pane")
+        pane = self.main_screen.query_one("#selection-pane")
         for class_name in ISSUE_PANE_STATE_CLASSES:
             pane.set_class(class_name == state_class, class_name)
 
@@ -625,7 +652,7 @@ class DashpotApp(App[None]):
             )
             for entry in self.store.diagnostics()
         )
-        diagnostics = self.query_one("#diagnostics", Static)
+        diagnostics = self.main_screen.query_one("#diagnostics", Static)
         diagnostics.set_class(bool(messages), "-has-messages")
         diagnostics.update(
             "\n".join(f"! {message}" for message in messages) or "No diagnostics"
@@ -639,7 +666,7 @@ class DashpotApp(App[None]):
             failures=self.observation_errors,
             refreshing=tuple(self.in_flight) if self.refreshing_visible else (),
         )
-        widget = self.query_one("#alert", Static)
+        widget = self.main_screen.query_one("#alert", Static)
         widget.set_class(alert is not None, "-visible")
         for severity in ("error", "warning", "info"):
             widget.set_class(
