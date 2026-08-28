@@ -728,9 +728,12 @@ def selection_detail_text(
 
 
 def issue_byline(issue: Issue, *, now: datetime | None = None) -> str:
-    """The feed's framing line: ``#12 opened 3d ago by ned2``."""
+    """The feed's framing line: ``opened 3d ago by ned2``.
+
+    The Issue number already heads the pane, so it is not repeated here.
+    """
     current = now or datetime.now(timezone.utc)
-    parts = [f"#{issue['number']} opened"]
+    parts = ["opened"]
     age = relative_age(issue["createdAt"], current)
     if age:
         parts.append(age)

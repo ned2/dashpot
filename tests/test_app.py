@@ -237,7 +237,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert "Refresh:" not in project_detail
         assert "Reference:" not in selection_detail
         byline, _, rest = selection_detail.partition("\n")
-        assert byline.startswith("#1 opened ") and byline.endswith(" by ned2")
+        assert byline.startswith("opened ") and byline.endswith(" by ned2")
         assert rest.startswith("Location: ")
         assert "Status:" not in selection_detail
         assert "Assignees: unassigned" in selection_detail
@@ -923,13 +923,13 @@ def test_issue_detail_leads_with_the_feed_byline() -> None:
 
     detail = selection_detail_text(context, now=now)
 
-    assert detail.startswith("#12 opened 3d ago by ned2\n")
+    assert detail.startswith("opened 3d ago by ned2\n")
 
     selected_issue["author"] = None
     selected_issue["createdAt"] = "2026-08-29T05:20:00Z"
     context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
 
-    assert selection_detail_text(context, now=now).startswith("#12 opened 13m ago\n")
+    assert selection_detail_text(context, now=now).startswith("opened 13m ago\n")
 
 
 def test_issue_id_column_uses_the_project_local_number() -> None:
