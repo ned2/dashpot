@@ -82,9 +82,7 @@ def summarize_alerts(
     labels = _labels(store)
     current = (now or _utc_now)()
 
-    failed_scopes = _unique(
-        _scope_label(key, labels) for key in (failures or {})
-    )
+    failed_scopes = _ordered_scopes(failures or {}, labels)
     if failed_scopes:
         items.append(AlertItem("error", f"Refresh failed: {_join(failed_scopes)}"))
 
@@ -162,9 +160,7 @@ def summarize_alerts(
             )
         )
 
-    refreshing_scopes = _unique(
-        _scope_label(key, labels) for key in refreshing
-    )
+    refreshing_scopes = _ordered_scopes(refreshing, labels)
     if refreshing_scopes:
         text = "refreshing" if items else f"refreshing {_join(refreshing_scopes)}"
         items.append(AlertItem("info", text))
@@ -180,6 +176,19 @@ def _labels(store: WorkspaceObservationStore) -> dict[str, str]:
         project.project_id: project.display_label
         for project in store.checkpoint().projects
     }
+
+
+def _ordered_scopes(
+    keys: Iterable[ObservationKey], labels: Mapping[str, str]
+) -> list[str]:
+    """Scope labels in Workspace order: Projects first, then Agent Runs.
+
+    Keys arrive in scheduling order, which depends on timing; the readout
+    must not.
+    """
+    rank = {label: index for index, label in enumerate(labels.values())}
+    scopes = _unique(_scope_label(key, labels) for key in keys)
+    return sorted(scopes, key=lambda scope: (rank.get(scope, len(rank)), scope))
 
 
 def _scope_label(key: ObservationKey, labels: Mapping[str, str]) -> str:

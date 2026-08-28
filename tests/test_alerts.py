@@ -154,15 +154,16 @@ def test_refreshing_alone_is_informational_and_names_the_scope() -> None:
     alert = summarize_alerts(
         store(project("alpha"), project("beta")),
         refreshing=[
+            AGENT_RUNS_KEY,
             ObservationKey("issues", "beta"),
             ObservationKey("targets", "beta"),
-            AGENT_RUNS_KEY,
         ],
         now=clock,
     )
 
     assert alert is not None
     assert alert.severity == "info"
+    # Scheduling order varies with timing; the readout is Workspace-ordered.
     assert alert.text == "↻ refreshing Beta, Agent Runs"
 
 
