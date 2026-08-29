@@ -56,9 +56,38 @@ class ObservationTarget:
 
 
 @dataclass(slots=True)
+class Branch:
+    """One Git ref under ``refs/heads`` or ``refs/remotes``, as observed.
+
+    Identity is the full ``refname``: ``refs/heads/x`` and
+    ``refs/remotes/origin/x`` are two refs about one branch name, and the
+    read model joins them. ``remote`` names the remote of a Remote-Tracking
+    Branch rather than flagging it, so a fork with ``origin`` and ``upstream``
+    is representable; it is ``None`` for a local branch. The upstream facts
+    are only ever set on a local branch.
+    """
+
+    refname: str
+    name: str
+    remote: str | None
+    head: str
+    committed_at: str
+    upstream: str | None = None
+    ahead: int | None = None
+    behind: int | None = None
+    upstream_gone: bool = False
+    checked_out_at: str | None = None
+
+
+@dataclass(slots=True)
 class ObservationTargetInventory:
     targets: list[ObservationTarget]
     diagnostics: list[Diagnostic]
+    # Every observed Branch of the repository, and when its Remote-Tracking
+    # Branches were last fetched (``None`` when the repository never fetched).
+    # Dashpot never fetches, so that age is the remote facts' freshness.
+    branches: list[Branch] = field(default_factory=list)
+    fetched_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -98,6 +127,11 @@ class ProjectSnapshot:
     # empty when the source has no palette.
     label_colors: dict[str, str] = field(default_factory=dict)
     issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
+    # Branches are observed with the worktree topology and share its
+    # freshness; ``fetched_at`` is the last fetch of the Remote-Tracking
+    # Branches, which Dashpot reports rather than refreshes.
+    branches: list[Branch] = field(default_factory=list)
+    fetched_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

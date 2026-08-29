@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -32,6 +33,7 @@ from dashpot.issue_profile import conform_issue
 from dashpot.issue_sources import IssueSource, IssueSourceObservation
 from dashpot.model import (
     AgentRun,
+    Branch,
     Diagnostic,
     Issue,
     IssueActivity,
@@ -41,7 +43,7 @@ from dashpot.model import (
     ProjectSnapshot,
     ResolvedProject,
 )
-from dashpot.repository import observe_github_repository_identity
+from dashpot.repository import BranchObservation, observe_github_repository_identity
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 from helpers import absent, jsonable, present, snapshot_of, table_lookup, unobservable
 
@@ -199,6 +201,39 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual("Example", snapshot.display_label)
         self.assertEqual("/repo", snapshot.observation_targets[0].path)
         self.assertEqual({}, snapshot.label_colors)
+
+    def test_branches_travel_with_the_targets_half_of_the_snapshot(self) -> None:
+        branch = Branch(
+            refname="refs/heads/main",
+            name="main",
+            remote=None,
+            head="abc123",
+            committed_at="2026-08-27T00:00:00Z",
+        )
+        anchors_seen: list[list[Path]] = []
+
+        def observe_branches(anchors: Sequence[Path]) -> BranchObservation:
+            anchors_seen.append(list(anchors))
+            return BranchObservation([branch], "2026-08-27T01:00:00Z", [])
+
+        collector = ProjectCollector(
+            resolved_project(),
+            FakeSource(),
+            target_observer=lambda _anchors: target_inventory(),
+            branch_observer=observe_branches,
+        )
+
+        snapshot = collector.refresh()
+        inventory = collector.observe_targets()
+
+        self.assertEqual([[Path("/repo")], [Path("/repo")]], anchors_seen)
+        self.assertEqual([branch], snapshot.branches)
+        self.assertEqual("2026-08-27T01:00:00Z", snapshot.fetched_at)
+        self.assertEqual([branch], inventory.branches)
+        self.assertEqual("2026-08-27T01:00:00Z", inventory.fetched_at)
+        payload = jsonable(snapshot)
+        self.assertEqual("refs/heads/main", payload["branches"][0]["refname"])
+        self.assertEqual("2026-08-27T01:00:00Z", payload["fetchedAt"])
 
     def test_source_label_palette_travels_with_the_snapshot(self) -> None:
         collector = ProjectCollector(

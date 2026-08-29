@@ -16,6 +16,7 @@ from .issue_sources import IssueSource, IssueSourceObservation, utc_now
 from .local_markdown_issues import LocalMarkdownIssuesSource
 from .model import (
     AgentRun,
+    Branch,
     Diagnostic,
     IssueActivity,
     ObservationTarget,
@@ -33,7 +34,9 @@ from .project_config import (
     load_project_config,
 )
 from .repository import (
+    BranchObservation,
     github_repo_from_remote,
+    observe_branches,
     observe_observation_targets,
     worktree_root,
 )
@@ -43,6 +46,7 @@ WorkspaceAgentObserver = Callable[
     tuple[list[AgentRun], list[Diagnostic]],
 ]
 ObservationTargetObserver = Callable[[Sequence[Path]], ObservationTargetInventory]
+BranchObserver = Callable[[Sequence[Path]], BranchObservation]
 
 ObservationKind = Literal["issues", "targets", "agent-runs", "workspace"]
 WORKSPACE_SCOPE = "*"
@@ -120,17 +124,28 @@ class ProjectCollector:
         project: ResolvedProject,
         source: IssueSource,
         target_observer: ObservationTargetObserver = observe_observation_targets,
+        branch_observer: BranchObserver = observe_branches,
     ) -> None:
         self.project = project
         self.root = Path(project.primary_anchor)
         self.source = source
         self.target_observer = target_observer
+        self.branch_observer = branch_observer
 
     def observe_issues(self) -> IssueSourceObservation:
         return self.source.refresh()
 
     def observe_targets(self) -> ObservationTargetInventory:
-        return self.target_observer([Path(anchor) for anchor in self.project.anchors])
+        """Observe the worktree topology and the Branches as one repository state."""
+        anchors = [Path(anchor) for anchor in self.project.anchors]
+        inventory = self.target_observer(anchors)
+        branches = self.branch_observer(anchors)
+        return ObservationTargetInventory(
+            inventory.targets,
+            [*inventory.diagnostics, *branches.diagnostics],
+            branches=branches.branches,
+            fetched_at=branches.fetched_at,
+        )
 
     def refresh(self) -> ProjectSnapshot:
         """Observe both halves in one call (single-shot convenience)."""
@@ -162,6 +177,8 @@ class ProjectCollector:
             target_status=target_status,
             target_attempted_at=attempted_at,
             target_last_good_at=(attempted_at if target_status == "fresh" else None),
+            branches=target_inventory.branches,
+            fetched_at=target_inventory.fetched_at,
         )
 
 
@@ -208,6 +225,7 @@ def create_project_collector(
         target_observer=lambda anchors: observe_observation_targets(
             anchors, timeout=timeout
         ),
+        branch_observer=lambda anchors: observe_branches(anchors, timeout=timeout),
     )
 
 
@@ -224,6 +242,8 @@ class _SourceObservation:
     elapsed_ms: int
     label_colors: dict[str, str] = field(default_factory=dict)
     issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
+    branches: list[Branch] = field(default_factory=list)
+    fetched_at: str | None = None
 
     def retained_after_failure(
         self,
@@ -526,6 +546,8 @@ class ObservationCoordinator:
             diagnostics=list(inventory.diagnostics),
             project_diagnostics=[],
             elapsed_ms=0,
+            branches=list(inventory.branches),
+            fetched_at=inventory.fetched_at,
         )
 
     def _failed(
@@ -581,6 +603,8 @@ class ObservationCoordinator:
                 target_status=targets.status,
                 target_attempted_at=targets.attempted_at,
                 target_last_good_at=targets.last_good_at,
+                branches=deepcopy(targets.branches),
+                fetched_at=targets.fetched_at,
             )
         return ProjectObservation(
             project.project_id,

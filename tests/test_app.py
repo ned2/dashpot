@@ -2318,28 +2318,34 @@ async def test_main_screen_stacks_the_panes_above_the_issues() -> None:
 
         sessions = app.query_one("#sessions-pane", ListPane)
         worktrees = app.query_one("#worktrees-pane", ListPane)
+        branches = app.query_one("#branches-pane", ListPane)
         queue_pane = app.query_one("#queue-pane")
         assert_panes_stack_above_full_width_queue(app)
         assert sessions.region.bottom == worktrees.region.y
+        assert worktrees.region.bottom == branches.region.y
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
+        # The Branches pane says how old its remote facts are: Dashpot never
+        # fetches, and this repository never has.
+        assert pane_title(app, "#branches-pane") == "BRANCHES · 0 · never fetched"
         # An empty pane is one honest line inside its frame, not a blank box.
         assert sessions.region.height == 3
         assert worktrees.region.height == pane_chrome(worktrees) + 1
+        assert branches.region.height == 3
         empty_messages = [
             str(message.render())
             for message in app.query(".list-pane-empty").results(Static)
             if message.display
         ]
-        assert empty_messages == ["no active sessions"]
+        assert empty_messages == ["no active sessions", "no branches observed yet"]
         assert not app.query_one("#worktrees-pane .list-pane-empty").display
         assert app.query_one("#queue", DataTable).has_focus
         assert queue_pane.region.height >= 6
-        assert {"tab", "1", "2", "3"} <= footer_keys(app)
+        assert {"tab", "1", "2", "3", "4"} <= footer_keys(app)
 
 
 @pytest.mark.asyncio
-async def test_tab_and_pane_keys_cycle_focus_through_the_three_lists() -> None:
+async def test_tab_and_pane_keys_cycle_focus_through_the_four_lists() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -2351,6 +2357,7 @@ async def test_tab_and_pane_keys_cycle_focus_through_the_three_lists() -> None:
         queue = app.query_one("#queue", DataTable)
         sessions = app.query_one("#sessions", DataTable)
         worktrees = app.query_one("#worktrees", DataTable)
+        branches = app.query_one("#branches", DataTable)
         assert queue.has_focus
 
         await pilot.press("tab")
@@ -2360,7 +2367,12 @@ async def test_tab_and_pane_keys_cycle_focus_through_the_three_lists() -> None:
         await pilot.press("tab")
         assert worktrees.has_focus
         await pilot.press("tab")
+        assert branches.has_focus
+        assert app.query_one("#branches-pane").has_pseudo_class("focus-within")
+        await pilot.press("tab")
         assert queue.has_focus
+        await pilot.press("shift+tab")
+        assert branches.has_focus
         await pilot.press("shift+tab")
         assert worktrees.has_focus
         await pilot.press("shift+tab")
@@ -2368,6 +2380,8 @@ async def test_tab_and_pane_keys_cycle_focus_through_the_three_lists() -> None:
 
         await pilot.press("1")
         assert queue.has_focus
+        await pilot.press("4")
+        assert branches.has_focus
         await pilot.press("3")
         assert worktrees.has_focus
         await pilot.press("2")
@@ -2390,11 +2404,15 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         pane = prepare_pane(app, "sessions-pane")
-        worktrees = app.query_one("#worktrees-pane", ListPane)
 
         def flex_height() -> int:
             """The Issue table's height, which is whatever the panes leave."""
             return app.query_one("#queue-pane").region.height
+
+        def other_panes_height() -> int:
+            return sum(
+                other.region.height for other in app.list_panes() if other is not pane
+            )
 
         list_row = app.query_one("#list-row")
         initial_flex_height = flex_height()
@@ -2406,7 +2424,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         # Frame, header and three records; the Issue table gives up only what
         # the pane stack grows by.
         assert pane.region.height == pane_chrome(pane) + 3
-        assert list_row.region.height == pane.region.height + worktrees.region.height
+        assert list_row.region.height == pane.region.height + other_panes_height()
         assert not pane.table.show_vertical_scrollbar
         assert not app.query_one("#sessions-pane .list-pane-empty").display
         assert flex_height() == initial_flex_height - (
@@ -2419,7 +2437,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         # A pane never exceeds its cap; a horizontal scrollbar comes out of
         # the records shown rather than out of the Issue table.
         assert pane.region.height == 2 + 1 + 8
-        assert list_row.region.height == 2 + 1 + 8 + worktrees.region.height
+        assert list_row.region.height == 2 + 1 + 8 + other_panes_height()
         assert pane.table.show_vertical_scrollbar
         assert flex_height() == initial_flex_height - (
             list_row.region.height - initial_row_height
@@ -2483,9 +2501,10 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         refresh_seconds=0,
     )
 
-    # 18 rows: Header, Footer, the Issue table's minimum of 6 and its blank
-    # line leave 9, which the two stacked panes split into a record each.
-    async with app.run_test(size=(80, 18)) as pilot:
+    # 20 rows: Header, Footer, the Issue table's minimum of 6 and its blank
+    # line leave 11; the empty Branches pane takes the 3 it wants and the two
+    # full panes split the rest into a record each.
+    async with app.run_test(size=(80, 20)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         sessions = prepare_pane(app, "sessions-pane")
@@ -2511,7 +2530,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
             app.query_one("#list-row").region.height + queue_pane.region.height
         )
 
-        await pilot.resize_terminal(80, 24)
+        await pilot.resize_terminal(80, 26)
         await wait_until(
             lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 4
         )
@@ -2519,10 +2538,12 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= app.query_one(Footer).region.y
 
-        # Too short even for a record each: the panes collapse to their counts.
-        await pilot.resize_terminal(80, 16)
+        # Too short even for a record each: the full panes collapse to their
+        # counts while the empty one keeps its honest line.
+        await pilot.resize_terminal(80, 18)
         await wait_until(lambda: sessions.region.height == worktrees.region.height == 2)
         assert sessions.region.height == worktrees.region.height == 2
+        assert app.query_one("#branches-pane").region.height == 3
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 12"
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= app.query_one(Footer).region.y

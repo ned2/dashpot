@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
+from .branch_list import BranchListResult, _query_indexed_branch_list
 from .issue_list import (
     IssueListQuery,
     IssueListResult,
@@ -14,6 +15,7 @@ from .issue_list import (
 )
 from .model import (
     AgentRun,
+    Branch,
     Diagnostic,
     Issue,
     ObservationTarget,
@@ -35,6 +37,7 @@ class StoreChange:
     project_ids: frozenset[str] = frozenset()
     issue_keys: frozenset[tuple[str, str]] = frozenset()
     observation_target_keys: frozenset[tuple[str, str]] = frozenset()
+    branch_keys: frozenset[tuple[str, str]] = frozenset()
     agent_run_ids: frozenset[str] = frozenset()
 
 
@@ -59,6 +62,7 @@ class _StoreState:
     projects: dict[str, ProjectObservation]
     issues: dict[tuple[str, str], Issue]
     observation_targets: dict[tuple[str, str], ObservationTarget]
+    branches: dict[tuple[str, str], Branch]
     agent_runs: dict[str, AgentRun]
     issue_runs: dict[str, list[str]]
     diagnostics: list[Diagnostic]
@@ -75,6 +79,7 @@ class WorkspaceObservationStore:
             projects={},
             issues={},
             observation_targets={},
+            branches={},
             agent_runs={},
             issue_runs={},
             diagnostics=[],
@@ -104,6 +109,7 @@ class WorkspaceObservationStore:
         projects = _projects_by_id(accepted_projects)
         issues = _issues_by_project(projects)
         observation_targets = _targets_by_project(projects)
+        branches = _branches_by_project(projects)
         agent_runs = _agent_runs_by_id(incoming.agent_runs)
         issue_runs = deepcopy(incoming.issue_runs)
         _restore_retained_issue_runs(
@@ -121,6 +127,7 @@ class WorkspaceObservationStore:
                 projects=projects,
                 issues=issues,
                 observation_targets=observation_targets,
+                branches=branches,
                 agent_runs=agent_runs,
                 issue_runs=issue_runs,
                 diagnostics=incoming.diagnostics,
@@ -147,6 +154,7 @@ class WorkspaceObservationStore:
         projects[accepted.project_id] = accepted
         issues = _issues_by_project(projects)
         observation_targets = _targets_by_project(projects)
+        branches = _branches_by_project(projects)
 
         return self._commit(
             replace(
@@ -154,6 +162,7 @@ class WorkspaceObservationStore:
                 projects=projects,
                 issues=issues,
                 observation_targets=observation_targets,
+                branches=branches,
                 **_metadata_updates(before, collected_at, elapsed_ms),
             )
         )
@@ -219,6 +228,18 @@ class WorkspaceObservationStore:
         state = self._state
         result = _query_indexed_worktree_list(
             projects=state.projects,
+            observation_targets=state.observation_targets,
+            agent_runs=state.agent_runs,
+            revision=state.revision,
+        )
+        return deepcopy(result)
+
+    def query_branches(self) -> BranchListResult:
+        """Query every observed Branch by name, with its refs and locations joined."""
+        state = self._state
+        result = _query_indexed_branch_list(
+            projects=state.projects,
+            branches=state.branches,
             observation_targets=state.observation_targets,
             agent_runs=state.agent_runs,
             revision=state.revision,
@@ -416,6 +437,7 @@ def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
         before.observation_targets,
         after.observation_targets,
     )
+    branch_keys = _changed_keys(before.branches, after.branches)
     agent_run_ids = _changed_keys(before.agent_runs, after.agent_runs)
     binding_issue_ids.update(
         issue_id
@@ -437,6 +459,7 @@ def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
         project_ids=frozenset(project_ids),
         issue_keys=frozenset(issue_keys),
         observation_target_keys=frozenset(observation_target_keys),
+        branch_keys=frozenset(branch_keys),
         agent_run_ids=frozenset(agent_run_ids),
     )
 
@@ -485,6 +508,23 @@ def _targets_by_project(
                     f"{project.project_id}"
                 )
             indexed[key] = target
+    return indexed
+
+
+def _branches_by_project(
+    projects: Mapping[str, ProjectObservation],
+) -> dict[tuple[str, str], Branch]:
+    indexed: dict[tuple[str, str], Branch] = {}
+    for project in projects.values():
+        if project.snapshot is None:
+            continue
+        for branch in project.snapshot.branches:
+            key = (project.project_id, branch.refname)
+            if key in indexed:
+                raise ValueError(
+                    f"Duplicate Branch {branch.refname} in {project.project_id}"
+                )
+            indexed[key] = branch
     return indexed
 
 

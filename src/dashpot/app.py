@@ -4,6 +4,8 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import UTC, datetime
+from functools import partial
 from typing import Any, ClassVar, Literal, cast
 
 from rich.text import Text
@@ -23,6 +25,7 @@ from textual.worker import get_current_worker
 from typing_extensions import override
 
 from .alerts import summarize_alerts
+from .branch_list import BRANCH_COLUMNS, build_branch_rows, fetch_age_text
 from .collect import (
     ObservationKey,
     ObservationOutcome,
@@ -56,7 +59,7 @@ from .issue_table import (
     sort_key_for_terms,
 )
 from .issue_view import IssueScreen
-from .list_pane import ListPane, ListRow
+from .list_pane import DEFAULT_ROW_CAP, ListPane, ListRow
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .session_list import SESSION_COLUMNS, build_session_rows
@@ -65,15 +68,17 @@ from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
 WORKTREES_PANE_LABEL = "WORKTREES"
-# Focus cycles through the three lists in reading order; the Header and
+BRANCHES_PANE_LABEL = "BRANCHES"
+# Focus cycles through the four lists in reading order; the Header and
 # the Issue controls are not part of the cycle.
-LIST_TABLE_IDS = ("queue", "sessions", "worktrees")
+LIST_TABLE_IDS = ("queue", "sessions", "worktrees", "branches")
 # The blank line between the pane stack and the Issue table, and a list
 # pane's frame and header, all of which come out of the height a pane's
-# records get.
+# records get. An empty pane is its frame and one message line.
 ROW_MARGINS = 1
 PANE_FRAME = 2
 PANE_HEADER = 1
+EMPTY_PANE_HEIGHT = PANE_FRAME + 1
 # The Header's sub-title until an observed Project supplies its anchor.
 DEFAULT_SUB_TITLE = "passive workspace view"
 
@@ -134,6 +139,7 @@ class DashpotApp(App[None]):
         ("1", "focus_issues", "Issues"),
         ("2", "focus_sessions", "Sessions"),
         ("3", "focus_worktrees", "Worktrees"),
+        ("4", "focus_branches", "Branches"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
@@ -217,6 +223,13 @@ class DashpotApp(App[None]):
                     id="worktrees-pane",
                     table_id="worktrees",
                 )
+                yield ListPane(
+                    BRANCHES_PANE_LABEL,
+                    columns=BRANCH_COLUMNS,
+                    empty_message="no branches observed yet",
+                    id="branches-pane",
+                    table_id="branches",
+                )
             with Vertical(id="queue-pane"):
                 with Horizontal(id="queue-controls"):
                     yield Select(
@@ -250,8 +263,15 @@ class DashpotApp(App[None]):
     def worktrees_pane(self) -> ListPane:
         return self.main_screen.query_one("#worktrees-pane", ListPane)
 
+    def branches_pane(self) -> ListPane:
+        return self.main_screen.query_one("#branches-pane", ListPane)
+
+    def list_panes(self) -> tuple[ListPane, ...]:
+        """The content-sized panes in reading order."""
+        return (self.sessions_pane(), self.worktrees_pane(), self.branches_pane())
+
     def list_tables(self) -> tuple[DataTable[Any], ...]:
-        """The three lists in focus-cycle order: Issues, Sessions, Worktrees."""
+        """The lists in focus-cycle order: Issues, Sessions, Worktrees, Branches."""
         return tuple(
             self.main_screen.query_one(f"#{table_id}", DataTable)
             for table_id in LIST_TABLE_IDS
@@ -265,6 +285,9 @@ class DashpotApp(App[None]):
 
     def action_focus_worktrees(self) -> None:
         self.worktrees_pane().table.focus()
+
+    def action_focus_branches(self) -> None:
+        self.branches_pane().table.focus()
 
     def action_focus_search(self) -> None:
         self.main_screen.query_one("#issue-search", Input).focus()
@@ -499,8 +522,11 @@ class DashpotApp(App[None]):
     ) -> None:
         for ticket in self.scheduler.request(keys):
             self.in_flight[ticket.key] = ticket.generation
+            # A partial rather than a coroutine object: an exclusive worker
+            # cancelled before it starts would otherwise leave the coroutine
+            # created but never awaited.
             self.run_worker(
-                self.observe(ticket, trigger),
+                partial(self.observe, ticket, trigger),
                 name=f"observe {ticket.key.group}",
                 group=ticket.key.group,
                 exclusive=True,
@@ -613,26 +639,45 @@ class DashpotApp(App[None]):
             return
         self.fit_list_panes(message.size)
 
+    def on_list_pane_rows_changed(self, _message: ListPane.RowsChanged) -> None:
+        # A pane's share depends on what every pane wants, so any change of
+        # records refits them all.
+        if self._closing or self._closed or not self.screen_stack:
+            return
+        self.fit_list_panes(self.main_screen.query_one("#body").size)
+
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
 
         The Issue table keeps its stylesheet minimum; whatever remains is
-        shared between the two stacked panes. Textual cannot resolve an
+        shared between the stacked panes, and a pane that wants less than
+        its share (an empty one, or one with few records) leaves the rest
+        to the panes that want more. Textual cannot resolve an
         over-constrained column (every `fr` row at its minimum), so the cap
         shrinks first, to a frame with a count when nothing else fits.
         """
         minimum = self.main_screen.query_one("#queue-pane").styles.min_height
         fixed = ROW_MARGINS + (int(minimum.value) if minimum is not None else 0)
-        panes = (self.sessions_pane(), self.worktrees_pane())
-        pane_height = (body.height - fixed) // len(panes)
-        row_cap = pane_height - PANE_FRAME - PANE_HEADER
-        for pane in panes:
+        remaining = body.height - fixed
+        # Hand out height smallest wish first, so a pane that wants less than
+        # an even share never holds back one that wants more.
+        wishes = sorted(self.list_panes(), key=pane_wish)
+        for index, pane in enumerate(wishes):
+            granted = min(pane_wish(pane), remaining // (len(wishes) - index))
+            remaining -= granted
+            row_cap = granted - PANE_FRAME - PANE_HEADER
             pane.fit_rows(row_cap if row_cap >= 1 else 0)
 
     def reconcile_list_panes(self) -> None:
-        """Re-list every observed session and worktree from the store."""
+        """Re-list every observed session, worktree and branch from the store."""
         self.sessions_pane().show_rows(self.session_rows())
         self.worktrees_pane().show_rows(self.worktree_rows())
+        branches = self.store.query_branches()
+        now = datetime.now(UTC)
+        self.branches_pane().show_rows(
+            build_branch_rows(branches, dark=self.current_theme.dark, now=now),
+            note=fetch_age_text(branches.fetched_at, now),
+        )
 
     def session_rows(self) -> tuple[ListRow, ...]:
         return build_session_rows(
@@ -821,6 +866,18 @@ class DashpotApp(App[None]):
                 alert is not None and alert.severity == severity, f"-{severity}"
             )
         widget.update(alert.text if alert is not None else "")
+
+
+def pane_wish(pane: ListPane) -> int:
+    """The height a pane would take unconstrained: frame, header and records.
+
+    A pane with records is granted one spare row for a horizontal scrollbar:
+    its table is content-sized under the cap, so the row is only ever taken
+    when wide records need it.
+    """
+    if not pane.count:
+        return EMPTY_PANE_HEIGHT
+    return PANE_FRAME + PANE_HEADER + min(pane.count, DEFAULT_ROW_CAP) + 1
 
 
 def issue_search_sort_terms(

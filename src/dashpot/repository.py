@@ -5,16 +5,34 @@ import re
 import stat
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .commands import CommandRunner, run_command
 from .model import (
+    Branch,
     Diagnostic,
     ObservationTarget,
     ObservationTargetInventory,
     TargetRole,
 )
+
+# The fields `git for-each-ref` reports per ref, NUL-separated so a value can
+# never be mistaken for a separator; a record ends with a newline.
+BRANCH_REF_FIELDS = (
+    "%(refname)",
+    "%(objectname)",
+    "%(upstream:short)",
+    "%(upstream:track)",
+    "%(committerdate:iso-strict)",
+    "%(worktreepath)",
+    "%(symref)",
+)
+BRANCH_REF_FORMAT = "%00".join(BRANCH_REF_FIELDS)
+LOCAL_REF_PREFIX = "refs/heads/"
+REMOTE_REF_PREFIX = "refs/remotes/"
 
 
 def git(root: Path, *args: str, timeout: float = 5) -> str:
@@ -270,6 +288,151 @@ def _unavailable_target(
         elapsed_ms=elapsed_ms,
         diagnostics=diagnostics,
         role=role,
+    )
+
+
+@dataclass(slots=True)
+class BranchObservation:
+    """Every Branch of a repository plus the age of its remote facts."""
+
+    branches: list[Branch]
+    fetched_at: str | None
+    diagnostics: list[Diagnostic]
+
+
+def observe_branches(
+    anchors: Sequence[Path],
+    *,
+    timeout: float = 5,
+    runner: CommandRunner = run_command,
+) -> BranchObservation:
+    """List every local and Remote-Tracking Branch without fetching.
+
+    Independent clones of one repository have their own refs, so the first
+    Repository Anchor that answers is authoritative, as it is for Local
+    Issues; the others are only tried when it cannot be listed.
+    """
+    diagnostics: list[Diagnostic] = []
+    for anchor in anchors:
+        try:
+            result = runner(
+                [
+                    "git",
+                    "for-each-ref",
+                    f"--format={BRANCH_REF_FORMAT}",
+                    "refs/heads",
+                    "refs/remotes",
+                ],
+                anchor,
+                timeout,
+            )
+        except (OSError, RuntimeError) as exc:
+            diagnostics.append(_branch_diagnostic(anchor, str(exc)))
+            continue
+        if result.returncode != 0:
+            detail = result.stderr.strip() or f"exit {result.returncode}"
+            diagnostics.append(_branch_diagnostic(anchor, detail))
+            continue
+        branches = [
+            branch
+            for line in result.stdout.splitlines()
+            if line and (branch := _parse_branch_record(line)) is not None
+        ]
+        return BranchObservation(
+            branches, _fetched_at(anchor, runner=runner, timeout=timeout), []
+        )
+    return BranchObservation([], None, diagnostics)
+
+
+def _branch_diagnostic(anchor: Path, detail: str) -> Diagnostic:
+    return Diagnostic(
+        f"anchor:{anchor}",
+        "warning",
+        f"Cannot list Branches: {detail}",
+        "branch-discovery",
+    )
+
+
+def _parse_branch_record(line: str) -> Branch | None:
+    """One `for-each-ref` record, or None for a symbolic alias like origin/HEAD."""
+    fields = line.split("\0")
+    if len(fields) != len(BRANCH_REF_FIELDS):
+        return None
+    refname, head, upstream, track, committed_at, worktree_path, symref = fields
+    if symref:
+        return None
+    if refname.startswith(LOCAL_REF_PREFIX):
+        name = refname.removeprefix(LOCAL_REF_PREFIX)
+        remote = None
+    elif refname.startswith(REMOTE_REF_PREFIX):
+        remote, _separator, name = refname.removeprefix(REMOTE_REF_PREFIX).partition(
+            "/"
+        )
+        if not name:
+            return None
+    else:
+        return None
+    ahead, behind, gone = (
+        _parse_upstream_track(track) if upstream else (None, None, False)
+    )
+    return Branch(
+        refname=refname,
+        name=name,
+        remote=remote,
+        head=head,
+        committed_at=_utc_timestamp(committed_at),
+        upstream=upstream or None,
+        ahead=ahead,
+        behind=behind,
+        upstream_gone=gone,
+        checked_out_at=worktree_path or None,
+    )
+
+
+def _utc_timestamp(value: str) -> str:
+    """Normalise Git's offset timestamp to UTC so timestamps sort as text."""
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _parse_upstream_track(track: str) -> tuple[int | None, int | None, bool]:
+    """``[ahead 1, behind 2]`` → counts; ``[gone]`` → gone; blank → in sync."""
+    if "gone" in track:
+        return None, None, True
+    ahead_match = re.search(r"ahead (\d+)", track)
+    behind_match = re.search(r"behind (\d+)", track)
+    return (
+        int(ahead_match.group(1)) if ahead_match else 0,
+        int(behind_match.group(1)) if behind_match else 0,
+        False,
+    )
+
+
+def _fetched_at(anchor: Path, *, runner: CommandRunner, timeout: float) -> str | None:
+    """When the repository last fetched, from ``FETCH_HEAD``; None if never."""
+    try:
+        result = runner(["git", "rev-parse", "--git-common-dir"], anchor, timeout)
+    except (OSError, RuntimeError):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    common_dir = Path(result.stdout.strip())
+    if not common_dir.is_absolute():
+        common_dir = anchor / common_dir
+    try:
+        modified = (common_dir / "FETCH_HEAD").stat().st_mtime
+    except OSError:
+        return None
+    return (
+        datetime.fromtimestamp(modified, tz=UTC)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
 
 

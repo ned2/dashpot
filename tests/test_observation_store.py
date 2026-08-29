@@ -7,6 +7,7 @@ import pytest
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.model import (
     AgentRun,
+    Branch,
     Diagnostic,
     Issue,
     ObservationTarget,
@@ -124,6 +125,15 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
             role="main",
         )
     ]
+    snapshot_of(updated_project).branches = [
+        Branch(
+            refname="refs/heads/main",
+            name="main",
+            remote=None,
+            head="abc123",
+            committed_at="2026-08-27T00:00:00Z",
+        )
+    ]
     second = workspace(
         updated_project,
         runs=[observed_run],
@@ -144,8 +154,10 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
     assert change.observation_target_keys == frozenset(
         {("project:one", "/project:one")}
     )
+    assert change.branch_keys == frozenset({("project:one", "refs/heads/main")})
     assert change.agent_run_ids == frozenset({observed_run.id})
     assert [row.key for row in result.rows] == [row_key("issue", "I_two")]
+    assert [row.name for row in store.query_branches().rows] == ["main"]
     assert result.rows[0].observed_runs == (observed_run,)
     assert required(store.project("project:one")).display_label == "One"
     assert context is not None

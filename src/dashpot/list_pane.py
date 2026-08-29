@@ -17,6 +17,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.content import Content
+from textual.message import Message
 from textual.widgets import DataTable, Static
 from typing_extensions import override
 
@@ -62,6 +63,18 @@ def truncate_start(value: str, limit: int) -> str:
 class ListPane(Vertical):
     """A titled, content-sized table of every observed record of one kind."""
 
+    class RowsChanged(Message):
+        """The pane's record count changed, so the panes' shares may too."""
+
+        def __init__(self, pane: ListPane) -> None:
+            super().__init__()
+            self.pane = pane
+
+        @property
+        @override
+        def control(self) -> ListPane:
+            return self.pane
+
     def __init__(
         self,
         label: str,
@@ -99,8 +112,12 @@ class ListPane(Vertical):
     def count(self) -> int:
         return len(self.rows_by_key)
 
-    def show_rows(self, rows: Sequence[ListRow]) -> None:
-        """Replace the listed records, keeping the cursor by row identity."""
+    def show_rows(self, rows: Sequence[ListRow], *, note: str | None = None) -> None:
+        """Replace the listed records, keeping the cursor by row identity.
+
+        ``note`` is a pane-level fact that follows the count in the title,
+        such as how old the Branches pane's remote facts are.
+        """
         table = self.table
         prior_key, prior_index = self.highlighted()
         desired = {row.key: row for row in rows}
@@ -111,12 +128,14 @@ class ListPane(Vertical):
             for row in rows:
                 table.add_row(*row.cells, key=row.key)
         self.rows_by_key = desired
-        self.border_title = Content(f"{self.label} · {self.count}")
+        title = f"{self.label} · {self.count}"
+        self.border_title = Content(f"{title} · {note}" if note else title)
         # The empty state is the message line alone: a header over nothing
         # would only cost the Issue table a row.
         table.show_header = bool(rows)
         self.query_one(".list-pane-empty", Static).display = not rows
         self.apply_row_cap()
+        self.post_message(self.RowsChanged(self))
         if not rows:
             return
         if prior_key is not None and prior_key in desired:

@@ -8,7 +8,7 @@ Screen {
     overflow-x: auto;
 }
 
-/* The Sessions and Worktrees panes stack full-width above the Issue table,
+/* The Sessions, Worktrees and Branches panes stack full-width above the Issue table,
    each sized to its content: a pane grows with its records up to the cap on
    its table and scrolls beyond it, so the Issue table only pays for rows in
    use. The stacked panes touch: their frames separate them, and a blank line
@@ -21,7 +21,8 @@ Screen {
 }
 
 #sessions-pane,
-#worktrees-pane {
+#worktrees-pane,
+#branches-pane {
     width: 1fr;
     height: auto;
     border: round $primary-darken-2;
@@ -33,13 +34,15 @@ Screen {
    detail row and the Issue table keep their minimums (see
    `DashpotApp.fit_list_panes`); the stylesheet only supplies the canvas. */
 #sessions,
-#worktrees {
+#worktrees,
+#branches {
     height: auto;
     background: $background;
 }
 
 #sessions > .datatable--even-row,
-#worktrees > .datatable--even-row {
+#worktrees > .datatable--even-row,
+#branches > .datatable--even-row {
     background: $foreground 8%;
 }
 
@@ -63,7 +66,8 @@ Screen {
 /* The focused list is cued by its border colour, like the Issue view panes. */
 #queue-pane:focus-within,
 #sessions-pane:focus-within,
-#worktrees-pane:focus-within {
+#worktrees-pane:focus-within,
+#branches-pane:focus-within {
     border: round $primary;
 }
 

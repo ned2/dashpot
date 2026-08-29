@@ -116,6 +116,18 @@ tree and any Git-linked working trees.
 A Worktree Dashpot discovered and refreshes at runtime. It is observed state,
 not persisted Workspace membership or durable identity.
 
+**Branch**:
+A named line of development of a Project's Git Repository, observed as a
+local ref (`refs/heads/*`) and as any Remote-Tracking Branches of the same
+name. Identity is the full refname; a branch name that is only local or only
+remote is a fact about the branch, not a different kind of record.
+
+**Remote-Tracking Branch**:
+The Repository's local copy of a remote's branch (`refs/remotes/<remote>/*`),
+as of the last `git fetch`. Dashpot reads it and reports its age; it never
+fetches.
+_Avoid_: remote branch for the local copy, which may be behind the remote
+
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.
@@ -478,17 +490,19 @@ reconciled by stable row keys.
 
 The main screen is a single pane of glass: the Header names the observed
 Project by its Repository Anchor (`Dashpot — /path/to/repo`), and below it
-the full-width `SESSIONS` and `WORKTREES` panes stack above the full-width
-`ISSUES` table. Nothing is switched to: every active Agent Session and every
-observed Worktree is listed in its pane, with the count in the pane title and
-an honest one-line empty state. The panes are sized to their content rather
-than sharing the flex height: each grows with its records up to a cap of
-eight and scrolls beyond it, and the cap shrinks before the Issue table would
-drop below its minimum height, so the panes only ever cost the Issue table
-what they actually use. `Tab` and `Shift+Tab` cycle focus Issues → Sessions →
-Worktrees, `1`, `2` and `3` jump to a list and `/` to the Issue search. The
-row cursor in the Sessions and Worktrees panes is for scrolling, copying and
-refresh scope (`r`); only the Issue table drives the Issue selection, `Enter`
+the full-width `SESSIONS`, `WORKTREES` and `BRANCHES` panes stack above the
+full-width `ISSUES` table. Nothing is switched to: every active Agent
+Session, every observed Worktree and every Branch is listed in its pane, with
+the count in the pane title and an honest one-line empty state. The panes are
+sized to their content rather than sharing the flex height: each asks for the
+rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
+granted first so an empty pane costs three lines, and the caps shrink before
+the Issue table would drop below its minimum height, so the panes only ever
+cost the Issue table what they actually use. `Tab` and `Shift+Tab` cycle focus
+Issues → Sessions → Worktrees → Branches, `1`, `2`, `3` and `4` jump to a
+list and `/` to the Issue search. The row cursor in the Sessions, Worktrees
+and Branches panes is for scrolling, copying and refresh scope (`r`); only
+the Issue table drives the Issue selection, `Enter`
 on an Issue opens it in the full-screen Issue view (its location on the left
 of the heading line, `opened 3d ago by ned2` on the right, and both panes'
 borders in the Issue's state colour), and `Enter` on a session with an Issue
@@ -510,7 +524,21 @@ first), whether the path is a configured Repository Anchor, branch or
 detached state, short HEAD, clean/dirty/unknown working tree, availability
 (`stale` when a failed topology refresh retained the last good targets) and
 a count of the active sessions located there. Target-specific diagnostics
-stay in Diagnostics and the alert line; the row only points there. See
+stay in Diagnostics and the alert line; the row only points there. The
+Branches pane ([`branch_list.py`](src/dashpot/branch_list.py),
+`WorkspaceObservationStore.query_branches`) joins the local ref and the
+Remote-Tracking Branches of one branch name into one row, so a branch is
+never listed twice and never needs a second pane: `WHERE` says where it exists
+(`local`, `local · origin`, or `origin` alone for a branch pushed from
+elsewhere), `SYNC` is the local ref's relation to its upstream (`in sync`,
+`↑2 ↓1`, `unpushed`, or `upstream gone`), then short HEAD, the Worktree it is
+checked out in, the active sessions on it, availability and the age of its
+last commit. Rows are sorted checked-out first, then most recent commit. The
+refs are read with `git for-each-ref` from the first answering Repository
+Anchor; Dashpot never runs `git fetch`, so the pane title carries the age of
+the last fetch (`remote as of 3h ago`, or `never fetched`) as the honest
+freshness of everything remote
+([ADR 0005](docs/adr/0005-observe-branches-without-fetching.md)). See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
 
