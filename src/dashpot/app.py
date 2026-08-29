@@ -67,7 +67,7 @@ from .issue_table import (
 )
 from .issue_view import IssueScreen
 from .list_pane import ListPane, ListRow
-from .model import AgentRun, Issue, ProjectObservation
+from .model import Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .session_list import SESSION_COLUMNS, build_session_rows
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
@@ -502,12 +502,7 @@ class DashpotApp(App[None]):
         self.request_refresh("manual", scope="workspace")
 
     def current_project_id(self) -> str | None:
-        """The Project of the highlighted row in the focused list, if any."""
-        focused = self.main_screen.focused
-        for pane in (self.sessions_pane(), self.worktrees_pane()):
-            if focused is pane.table:
-                highlighted = pane.highlighted_row()
-                return highlighted.project_id if highlighted is not None else None
+        """The Project of the selected Issue row, if any."""
         row = (
             self.rows_by_key.get(self.selected_row_key)
             if self.selected_row_key is not None
@@ -776,17 +771,15 @@ class DashpotApp(App[None]):
         elif event.data_table.id == "sessions":
             row = self.sessions_pane().row(str(event.row_key.value))
             if row is not None:
-                self.highlight_issue(row.issue_id, project_id=row.project_id)
+                self.highlight_issue(row.issue_id)
 
-    def highlight_issue(self, issue_id: str | None, *, project_id: str | None) -> None:
+    def highlight_issue(self, issue_id: str | None) -> None:
         """Move the Issue table's cursor to an Issue; nothing happens otherwise."""
         if issue_id is None:
             return
         table = self.queue_table()
         for key, row in self.rows_by_key.items():
             if row.issue is None or row.issue["id"] != issue_id:
-                continue
-            if project_id is not None and row.project.project_id != project_id:
                 continue
             table.move_cursor(row=table.get_row_index(key), column=0, animate=False)
             self.show_row(key)
@@ -825,10 +818,7 @@ class DashpotApp(App[None]):
         self.selected_row_key = key
         self.set_selection_pane_state(context)
         self.main_screen.query_one("#project-detail", DetailFields).update(
-            *project_detail_items(
-                context.project,
-                context.project_runs,
-            )
+            *project_detail_items(context.project)
         )
         self.main_screen.query_one("#selection-pane").border_title = Content(
             selection_title(context)
@@ -878,25 +868,16 @@ class DashpotApp(App[None]):
         widget.update(alert.text if alert is not None else "")
 
 
-def project_detail_items(
-    project: ProjectObservation, agent_runs: Sequence[AgentRun] = ()
-) -> tuple[DetailItem, ...]:
-    items = [
+def project_detail_items(project: ProjectObservation) -> tuple[DetailItem, ...]:
+    """The Project's configuration facts; the Sessions pane counts its agents."""
+    return (
         DetailItem(", ".join(project.workspaces), "Workspaces"),
         DetailItem(project.primary_anchor, "Anchor"),
-    ]
-    if project.snapshot:
-        observed_count = sum(
-            run.observation_project_id == project.project_id for run in agent_runs
-        )
-        items.append(DetailItem(str(observed_count), "Agents"))
-    return tuple(items)
+    )
 
 
-def project_detail_text(
-    project: ProjectObservation, agent_runs: Sequence[AgentRun] = ()
-) -> str:
-    return detail_items_text(project_detail_items(project, agent_runs))
+def project_detail_text(project: ProjectObservation) -> str:
+    return detail_items_text(project_detail_items(project))
 
 
 def selection_title(context: IssueListRow) -> str:

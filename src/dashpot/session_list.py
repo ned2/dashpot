@@ -30,6 +30,7 @@ STATE_STYLES: dict[RunState, tuple[str, str, str]] = {
     "waiting": ("◐", "#9a6700", "#d29922"),
     "unknown": ("○", "#59636e", "#8b949e"),
 }
+OUTSIDE_PROJECT_TEXT = "outside Project"
 UNBOUND_ISSUE_TEXT = "no active Issue work"
 # Long values are clipped so a row stays scannable; the scan-level fact is
 # the tail of a path and the head of a branch or title.
@@ -40,7 +41,6 @@ ISSUE_LIMIT = 36
 SESSION_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("state", "STATE"),
     ListColumn("harness", "HARNESS"),
-    ListColumn("project", "PROJECT"),
     ListColumn("target", "TARGET"),
     ListColumn("branch", "BRANCH"),
     ListColumn("issue", "ISSUE"),
@@ -162,7 +162,6 @@ def build_session_rows(
         ListRow(
             row.key,
             session_cells(row, dark=dark, now=current, home=home),
-            project_id=row.session.observation_project_id,
             issue_id=row.bound_issue_id,
         )
         for row in result.rows
@@ -176,12 +175,7 @@ def session_cells(
     return (
         session_state_cell(session.state, dark=dark),
         HARNESS_LABELS.get(session.harness, session.harness),
-        row.project.display_label
-        if row.project is not None
-        else session.observation_project_id,
-        truncate_start(
-            abbreviate_path(session.observation_target, home=home), PATH_LIMIT
-        ),
+        session_target_cell(row, home=home),
         truncate_end(session.branch or "detached", BRANCH_LIMIT),
         session_issue_cell(row),
         truncate_start(
@@ -191,6 +185,15 @@ def session_cells(
             PATH_LIMIT,
         ),
         relative_age(session.last_activity_at, now) or "-",
+    )
+
+
+def session_target_cell(row: SessionListRow, *, home: Path | None = None) -> ListCell:
+    """Where the session is, or an honest marker when that is not the Project."""
+    if row.project is None:
+        return Text(OUTSIDE_PROJECT_TEXT, style="dim italic")
+    return truncate_start(
+        abbreviate_path(row.session.observation_target, home=home), PATH_LIMIT
     )
 
 

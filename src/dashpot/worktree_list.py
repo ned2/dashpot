@@ -36,7 +36,6 @@ UNAVAILABLE_COLORS = ("#cf222e", "#f85149")
 STALE_COLORS = ("#9a6700", "#d29922")
 
 WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
-    ListColumn("project", "PROJECT"),
     ListColumn("path", "PATH"),
     ListColumn("role", "ROLE"),
     ListColumn("branch", "BRANCH"),
@@ -139,14 +138,9 @@ def _query_indexed_worktree_list(
     return WorktreeListResult(tuple(rows), revision)
 
 
-def _sort_key(row: WorktreeListRow) -> tuple[str, str, int, str]:
-    """Project, then main before linked, then path."""
-    return (
-        row.project.display_label.casefold(),
-        row.project.project_id,
-        ROLE_ORDER[row.target.role],
-        row.target.path,
-    )
+def _sort_key(row: WorktreeListRow) -> tuple[int, str]:
+    """Main before linked, then path."""
+    return (ROLE_ORDER[row.target.role], row.target.path)
 
 
 def build_worktree_rows(
@@ -157,7 +151,6 @@ def build_worktree_rows(
         ListRow(
             row.key,
             worktree_cells(row, dark=dark, home=home),
-            project_id=row.project.project_id,
         )
         for row in result.rows
     )
@@ -168,7 +161,6 @@ def worktree_cells(
 ) -> tuple[ListCell, ...]:
     target = row.target
     return (
-        row.project.display_label,
         truncate_start(abbreviate_path(target.path, home=home), PATH_LIMIT),
         role_text(target.role, anchored=row.anchored),
         truncate_end(target.branch or "detached", BRANCH_LIMIT),

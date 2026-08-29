@@ -177,12 +177,12 @@ def test_active_sessions_join_the_target_they_are_located_at() -> None:
     assert [run.id for run in rows["/project:alpha/linked"].sessions] == ["one", "two"]
     assert [run.id for run in rows["/project:alpha"].sessions] == ["three"]
     cells = worktree_cells(rows["/project:alpha/linked"], dark=True)
-    sessions_cell = cells[7]
+    sessions_cell = cells[6]
     assert isinstance(sessions_cell, Text)
     assert sessions_cell.plain == "● 2"
     main_cells = worktree_cells(rows["/project:alpha"], dark=True)
-    assert isinstance(main_cells[7], Text)
-    assert main_cells[7].plain == "○ 1"
+    assert isinstance(main_cells[6], Text)
+    assert main_cells[6].plain == "○ 1"
 
 
 def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
@@ -196,10 +196,10 @@ def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
     assert fresh["/project:alpha/missing"].freshness == "unavailable"
     assert fresh["/project:alpha"].freshness == "available"
     missing_cells = worktree_cells(fresh["/project:alpha/missing"], dark=False)
-    assert missing_cells[4] == "-"
-    assert isinstance(missing_cells[5], Text) and missing_cells[5].plain == "unknown"
-    assert isinstance(missing_cells[6], Text)
-    assert missing_cells[6].plain == "unavailable"
+    assert missing_cells[3] == "-"
+    assert isinstance(missing_cells[4], Text) and missing_cells[4].plain == "unknown"
+    assert isinstance(missing_cells[5], Text)
+    assert missing_cells[5].plain == "unavailable"
 
     # A failed topology refresh retains the last good targets as stale; the
     # Project's other rows are not blanked.
@@ -210,7 +210,7 @@ def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
     rows = {row.target.path: row for row in store.query_worktrees().rows}
     assert rows["/project:alpha"].freshness == "stale"
     assert rows["/project:alpha/missing"].freshness == "stale"
-    state_cell = worktree_cells(rows["/project:alpha"], dark=True)[6]
+    state_cell = worktree_cells(rows["/project:alpha"], dark=True)[5]
     assert isinstance(state_cell, Text) and state_cell.plain == "stale"
 
 
@@ -268,10 +268,8 @@ def test_worktree_cells_carry_every_scan_level_fact_and_clip_long_values() -> No
     assert main_row.key == row_key(
         "worktree", "project:alpha", "/home/agent/projects/alpha"
     )
-    assert main_row.project_id == "project:alpha"
     assert main_row.issue_id is None
-    project_label, path, role, branch, head, tree, state, sessions = main_row.cells
-    assert project_label == "Alpha"
+    path, role, branch, head, tree, state, sessions = main_row.cells
     assert path == "~/projects/alpha"
     assert role == "main · anchor"
     assert branch == "main"
@@ -280,7 +278,7 @@ def test_worktree_cells_carry_every_scan_level_fact_and_clip_long_values() -> No
     assert state == "available"
     assert sessions == "-"
 
-    _, path, role, branch, head, tree, _state, sessions = linked_row.cells
+    path, role, branch, head, tree, _state, sessions = linked_row.cells
     assert isinstance(path, str)
     assert path.startswith("…") and path.endswith("worktree/checkout")
     assert len(path) == 28
@@ -295,4 +293,4 @@ def test_worktree_cells_carry_every_scan_level_fact_and_clip_long_values() -> No
 def test_detached_targets_say_so() -> None:
     alpha = project("project:alpha", target("/project:alpha", role="main", branch=None))
     (row,) = build_worktree_rows(query_worktree_list(workspace(alpha)), dark=False)
-    assert row.cells[3] == "detached"
+    assert row.cells[2] == "detached"
