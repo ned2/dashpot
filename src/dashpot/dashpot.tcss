@@ -280,7 +280,7 @@ IssueColumnEditor {
 #issue-view-body {
     width: 1fr;
     height: 1fr;
-    border: panel $primary-darken-2;
+    border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;
     padding: 0 1;
@@ -288,7 +288,7 @@ IssueColumnEditor {
 
 #issue-view-body:focus,
 #issue-view-metadata:focus {
-    border: panel $primary;
+    border: round $primary;
 }
 
 #issue-view-markdown {
@@ -308,7 +308,7 @@ IssueColumnEditor {
     height: 1fr;
     margin-left: 1;
     padding: 0 1;
-    border: panel $primary-darken-2;
+    border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;
 }

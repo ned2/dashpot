@@ -2045,9 +2045,16 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         assert not view.query("#issue-view-empty")
         assert view.query_one("#issue-view-body").has_focus
         assert not view.stacked
+        # Both panes share the main screen's thin inline-title border, and
+        # focus is still cued by the border colour rather than a heavier bar.
+        body = view.query_one("#issue-view-body")
+        metadata = view.query_one("#issue-view-metadata")
+        assert body.styles.border_top[0] == metadata.styles.border_top[0] == "round"
+        assert body.styles.border_top[1] != metadata.styles.border_top[1]
 
         await pilot.press("tab")
         assert view.query_one("#issue-view-metadata").has_focus
+        assert metadata.styles.border_top[1] != body.styles.border_top[1]
         await pilot.press("shift+tab")
         assert view.query_one("#issue-view-body").has_focus
 
