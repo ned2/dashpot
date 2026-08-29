@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from dashpot.issue_table import ColumnKey
 from dashpot.model import Issue
@@ -2889,4 +2889,58 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert pane.highlighted() == (
             row_key("worktree", "project:test-repo", "/repo"),
             0,
+        )
+
+
+def column_widths(table: DataTable[Any]) -> list[int]:
+    return [column.get_render_width(table) for column in table.columns.values()]
+
+
+@pytest.mark.asyncio
+async def test_every_table_spreads_its_columns_to_the_pane_edge() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(160, 50)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        sessions = prepare_pane(app, "sessions-pane")
+        sessions.show_rows(list_rows(2, prefix="session"))
+        await pilot.pause()
+        tables = [
+            app.query_one("#queue", DataTable),
+            sessions.table,
+            app.query_one("#worktrees", DataTable),
+            app.query_one("#branches", DataTable),
+        ]
+        for table in tables:
+            await wait_until(
+                lambda table=table: (
+                    sum(column_widths(table)) == table.scrollable_content_region.width
+                )
+            )
+            widths = column_widths(table)
+            # Every column keeps its content and the surplus is shared evenly.
+            assert all(not column.auto_width for column in table.columns.values())
+            assert max(widths) - min(widths) <= max(
+                column.content_width for column in table.columns.values()
+            )
+
+        # Content wider than the pane cannot be spread: the columns are their
+        # content and the table scrolls sideways instead of squeezing anything.
+        sessions.show_rows(list_rows(2, prefix="s" * 200))
+        await wait_until(
+            lambda: all(column.auto_width for column in sessions.table.columns.values())
+        )
+        assert sum(column_widths(sessions.table)) > (
+            sessions.table.scrollable_content_region.width
+        )
+
+        sessions.show_rows(list_rows(2, prefix="session"))
+        await wait_until(
+            lambda: (
+                sum(column_widths(sessions.table))
+                == sessions.table.scrollable_content_region.width
+            )
         )

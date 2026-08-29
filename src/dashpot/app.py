@@ -63,6 +63,7 @@ from .list_pane import DEFAULT_ROW_CAP, ListPane, ListRow
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .session_list import SESSION_COLUMNS, build_session_rows
+from .spread_table import SpreadTable
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
 ISSUE_PANE_LABEL = "ISSUES"
@@ -246,7 +247,7 @@ class DashpotApp(App[None]):
                         id="issue-search",
                     )
                     yield Static(issue_result_count_text(0), id="issue-count")
-                yield DataTable(id="queue", cursor_type="row", zebra_stripes=True)
+                yield SpreadTable(id="queue", cursor_type="row", zebra_stripes=True)
         yield Static("", id="alert")
         yield Static("", id="diagnostics")
         yield Footer()

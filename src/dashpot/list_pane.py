@@ -21,6 +21,8 @@ from textual.message import Message
 from textual.widgets import DataTable, Static
 from typing_extensions import override
 
+from .spread_table import SpreadTable
+
 ListCell = str | Text
 
 # Header plus eight records; a longer list scrolls inside the pane.
@@ -94,7 +96,7 @@ class ListPane(Vertical):
 
     @override
     def compose(self) -> ComposeResult:
-        yield DataTable(id=self.table_id, cursor_type="row", zebra_stripes=True)
+        yield SpreadTable(id=self.table_id, cursor_type="row", zebra_stripes=True)
         yield Static(self.empty_message, classes="list-pane-empty", markup=False)
 
     def on_mount(self) -> None:

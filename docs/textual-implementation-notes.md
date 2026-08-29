@@ -196,6 +196,23 @@ rows inside `batch_update()`, then restore selection by stable key. That is less
 incremental but remains correct and should be measured before adding ordering
 machinery. [DataTable update API](https://textual.textualize.io/widgets/data_table/#update_cell)
 
+`DataTable` sizes a column to its content (`auto_width`) or to a fixed
+`width`; there is no `fr`-style column that fills the table. Textual has had
+flexible columns "planned" since 2023 ([discussion #2136](https://github.com/Textualize/textual/discussions/2136),
+[issue #5455](https://github.com/Textualize/textual/issues/5455)), and the
+community workaround is the same in every thread: on resize, set
+`auto_width=False` and compute each `column.width` yourself, then `refresh()`
+([discussion #1942](https://github.com/Textualize/textual/discussions/1942)).
+[`spread_table.py`](../src/dashpot/spread_table.py) is that workaround as a
+subclass used by every Dashpot table: after the base class measures content
+(`_update_dimensions`) and on every resize, each column gets its content width
+plus an equal share of the surplus, and the columns fall back to content
+widths with a horizontal scrollbar when the content alone is wider than the
+table. It also resets `content_width` to the label on `clear()`, because
+Textual only ever widens a column
+([issue #6247](https://github.com/Textualize/textual/issues/6247)) and a
+stale width from rows no longer shown would otherwise eat the surplus.
+
 Do not use the prototype's current `work:<project-index>:<item-index>` keys. They
 identify presentation positions, so a refresh which inserts or reorders work can
 silently move the user's selection to another Issue.
