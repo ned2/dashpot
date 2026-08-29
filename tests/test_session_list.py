@@ -332,7 +332,9 @@ def test_session_cells_carry_every_scan_level_fact_and_truncate_honestly() -> No
     assert branch.endswith("…") and len(branch) == 24
     assert issue_cell == truncate_end("#7 " + "A" * 60, 36)
     assert directory == "/elsewhere/on/disk"
-    assert age == "1h ago"
+    # A running run has no observed turn start here, so its last activity
+    # stands in for one; either way the cell says which age it is showing.
+    assert age == "running 1h"
 
 
 def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None:
@@ -429,3 +431,35 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
 
     # An empty pane keeps its full header rather than guessing.
     assert session_columns(query_session_list(workspace(alpha))) == SESSION_COLUMNS
+
+
+def test_activity_says_which_age_it_is_showing() -> None:
+    started = "2026-08-27T00:00:00Z"
+    turn = "2026-08-27T02:30:00Z"
+    activity = "2026-08-27T03:00:00Z"
+
+    def cell(run: AgentRun) -> str:
+        result = query_session_list(workspace(project("project:alpha"), runs=[run]))
+        (row,) = build_session_rows(result, dark=True, now=CURRENT)
+        return str(row.cells[5])
+
+    running = session("work:running", state="running", last_activity_at=activity)
+    running.turn_started_at = turn
+    assert cell(running) == "running 35m"
+
+    waiting = session("work:waiting", state="waiting", last_activity_at=activity)
+    assert cell(waiting) == "idle 5m"
+
+    # A turn that started moments ago is a duration, never a point in time.
+    fresh = session("work:fresh", state="running", last_activity_at=CURRENT.isoformat())
+    fresh.turn_started_at = "2026-08-27T03:04:30Z"
+    assert cell(fresh) == "running <1m"
+
+    # Nothing has observed this run; when its work began is a different fact
+    # and is labelled as one.
+    unobserved = session("work:unobserved", state="unknown", last_activity_at=None)
+    unobserved.started_at = started
+    assert cell(unobserved) == "started 3h ago"
+
+    blind = session("work:blind", state="unknown", last_activity_at=None)
+    assert cell(blind) == "-"

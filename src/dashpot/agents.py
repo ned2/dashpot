@@ -100,7 +100,23 @@ class LivenessObservation:
 
 
 def now_iso() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    """Stamp an observation, at a fixed width so records order by text too."""
+    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def observed_instant(value: str | None) -> datetime:
+    """Order observations by instant; a record may be older than the format.
+
+    Unstamped and unparsable records sort before every stamped one rather
+    than claiming a time Dashpot never observed.
+    """
+    if value:
+        try:
+            moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.min.replace(tzinfo=UTC)
+        return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+    return datetime.min.replace(tzinfo=UTC)
 
 
 def state_directory() -> Path:
@@ -358,6 +374,23 @@ def build_hook_record(
     }
 
 
+def turn_started_at(
+    current: Mapping[str, Any], previous: Mapping[str, Any] | None
+) -> str | None:
+    """When the running turn began: carried while running, cleared once not.
+
+    A turn's age and a session's idle time are different questions, so the
+    record keeps the turn's start rather than overloading its last activity.
+    """
+    if current.get("state") != "running":
+        return None
+    if previous is not None and previous.get("state") == "running":
+        carried = optional_string(previous.get("turnStartedAt"))
+        if carried is not None:
+            return carried
+    return optional_string(current.get("lastActivityAt"))
+
+
 def write_hook_record(record: dict[str, Any], directory: Path) -> Path:
     return HookRecordStore(directory).write(record)
 
@@ -421,6 +454,7 @@ class HookRecordStore:
                     current["issueId"] = previous_issue_id
                 if current_issue_hint is None:
                     current["issueReferenceHint"] = previous_issue_hint
+            current["turnStartedAt"] = turn_started_at(current, previous)
             self._replace(destination, current, session_id)
         return destination
 
@@ -550,6 +584,7 @@ class HookRecordClassification:
     branch: str | None
     event: str | None
     last_activity_at: str | None
+    turn_started_at: str | None
     process_key: ProcessKey | None
     outcome: HookRecordOutcome
     reason: str | None = None
@@ -598,6 +633,15 @@ class SessionRecordSummary:
         return self.live + self.unknown + len(self.stale) + self.unreadable
 
 
+@dataclass(frozen=True, slots=True)
+class ObservedActivity:
+    """What the hooks have seen a run doing, for a Work Store run to adopt."""
+
+    state: RunState
+    last_activity_at: str | None
+    turn_started_at: str | None
+
+
 def observe_agent_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     directory: Path | None = None,
@@ -612,8 +656,12 @@ def observe_agent_runs(
     """
     probe = _LivenessProbe(lookup)
     sessions, diagnostics = observe_hook_sessions(targets_by_project, directory, probe)
-    state_by_process: dict[ProcessKey, tuple[RunState, str | None]] = {
-        session.process_key: (session.run.state, session.run.last_activity_at)
+    state_by_process: dict[ProcessKey, ObservedActivity] = {
+        session.process_key: ObservedActivity(
+            session.run.state,
+            session.run.last_activity_at,
+            session.run.turn_started_at,
+        )
         for session in sessions
         if session.process_key is not None
     }
@@ -633,7 +681,7 @@ def observe_agent_runs(
 def observe_work_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     probe: _LivenessProbe,
-    state_by_process: Mapping[ProcessKey, tuple[RunState, str | None]],
+    state_by_process: Mapping[ProcessKey, ObservedActivity],
 ) -> tuple[list[AgentRun], set[ProcessKey], list[Diagnostic]]:
     """Turn each Worktree's active Work Store records into bound Agent Runs."""
     runs: list[AgentRun] = []
@@ -692,10 +740,10 @@ def observe_work_runs(
                     if process_key is not None
                     else None
                 )
-                if observed is not None:
-                    state, last_activity_at = observed
-                else:
-                    state, last_activity_at = "unknown", None
+                if observed is None:
+                    # No hook has ever reported this run; the Work Store knows
+                    # when the work began and nothing about what it has done.
+                    observed = ObservedActivity("unknown", None, None)
                 if process_key is not None:
                     consumed.add(process_key)
                 runs.append(
@@ -703,14 +751,16 @@ def observe_work_runs(
                         id=work.run_id,
                         harness=work.harness,
                         process_or_session=work.session_label,
-                        state=state,
+                        state=observed.state,
                         observation_target=target.path,
                         observation_project_id=project_id,
                         branch=work.branch or target.branch,
                         issue_id=work.issue_id,
                         issue_reference_hint=work.issue_reference,
                         working_directory=work.working_directory,
-                        last_activity_at=last_activity_at or work.started_at,
+                        last_activity_at=observed.last_activity_at,
+                        turn_started_at=observed.turn_started_at,
+                        started_at=work.started_at,
                     )
                 )
     return runs, consumed, diagnostics
@@ -769,9 +819,9 @@ def observe_hook_sessions(
             if session is None:
                 continue
             previous = latest.get(session.run.id)
-            if previous is None or (session.run.last_activity_at or "") >= (
-                previous.run.last_activity_at or ""
-            ):
+            if previous is None or observed_instant(
+                session.run.last_activity_at
+            ) >= observed_instant(previous.run.last_activity_at):
                 latest[session.run.id] = session
         # Records pruned above, or ended gracefully, leave their lock files
         # behind; reclaim those that guard nothing.
@@ -842,6 +892,7 @@ def classify_hook_record(
         branch=optional_string(raw.get("branch")),
         event=optional_string(raw.get("event")),
         last_activity_at=optional_string(raw.get("lastActivityAt")),
+        turn_started_at=optional_string(raw.get("turnStartedAt")),
         process_key=process_key_of(raw.get("sessionProcess")),
         outcome=outcome,
         reason=liveness.reason,
@@ -895,6 +946,7 @@ def record_to_session(
                 issue_reference_hint=None,
                 working_directory=record.cwd,
                 last_activity_at=record.last_activity_at,
+                turn_started_at=record.turn_started_at,
             ),
             record.process_key,
             LivenessObservation(

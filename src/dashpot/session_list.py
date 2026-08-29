@@ -216,8 +216,34 @@ def session_cells(
             else abbreviate_path(session.working_directory, home=home),
             PATH_LIMIT,
         ),
-        relative_age(session.last_activity_at, now) or "-",
+        activity_text(session, now),
     )
+
+
+def activity_text(session: AgentRun, now: datetime) -> str:
+    """How long the run has been doing what it is doing, and which that is.
+
+    A running turn's age and an idle session's age are different facts that
+    read alike as a bare age, so the cell says which one it is. A run nothing
+    has observed reports when its work began rather than borrowing that
+    timestamp as an activity it never saw.
+    """
+    if session.state == "running":
+        elapsed = _elapsed(session.turn_started_at or session.last_activity_at, now)
+        return f"running {elapsed}" if elapsed else "running"
+    elapsed = _elapsed(session.last_activity_at, now)
+    if elapsed:
+        return f"idle {elapsed}"
+    started = relative_age(session.started_at, now)
+    return f"started {started}" if started else "-"
+
+
+def _elapsed(timestamp: str | None, now: datetime) -> str | None:
+    """An age as a duration: how long it has been, not when it was."""
+    age = relative_age(timestamp, now)
+    if age is None:
+        return None
+    return "<1m" if age == "just now" else age.removesuffix(" ago")
 
 
 def session_target_cell(row: SessionListRow, *, home: Path | None = None) -> ListCell:

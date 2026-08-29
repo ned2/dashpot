@@ -102,7 +102,12 @@ class AgentRun:
     issue_id: str | None
     issue_reference_hint: str | None
     working_directory: str | None = None
+    # When the run was last observed doing something, when its running turn
+    # began, and when the run itself began. They answer different questions
+    # and only the first is an activity observation.
     last_activity_at: str | None = None
+    turn_started_at: str | None = None
+    started_at: str | None = None
 
 
 @dataclass(slots=True)

@@ -9,7 +9,7 @@ import time
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest import mock
 
 from typing_extensions import override
@@ -22,6 +22,7 @@ from dashpot.agents import (
     ProcessUnobservable,
     host_process_lookup,
     nearest_codex_process,
+    now_iso,
     observe_agent_runs,
     publish_hook_event,
     session_directory,
@@ -412,6 +413,85 @@ class HookObserverTests(unittest.TestCase):
             },
             self.state_dir,
         )
+
+    def test_the_freshest_record_wins_whatever_its_stamp_precision(self) -> None:
+        # The same session is recorded globally and Project-locally around an
+        # integration upgrade. A whole-second stamp is not an older one.
+        worktree = Path(self.temporary.name) / "repo"
+        local = session_directory(worktree)
+        local.mkdir(parents=True)
+        record = {
+            "version": 2,
+            "sessionId": "twice",
+            "harness": "codex",
+            "state": "waiting",
+            "cwd": str(worktree),
+            "repositoryRoot": str(worktree),
+            "branch": "main",
+            "event": "Stop",
+            "lastActivityAt": "2026-08-24T15:00:00Z",
+            "sessionProcess": self.process.as_record(),
+        }
+        write_hook_record(record, self.state_dir)
+        write_hook_record(
+            {**record, "lastActivityAt": "2026-08-24T15:00:00.500000Z"}, local
+        )
+
+        runs, _diagnostics = observe_agent_runs(
+            {"project:example": [observation_target(str(worktree))]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+        self.assertEqual(1, len(runs))
+        self.assertEqual("2026-08-24T15:00:00.500000Z", runs[0].last_activity_at)
+
+    def test_the_turn_clock_is_carried_while_running_and_cleared_on_stop(
+        self,
+    ) -> None:
+        def record(state: str, stamp: str) -> dict[str, object]:
+            return {
+                "version": 2,
+                "sessionId": "turns",
+                "harness": "codex",
+                "state": state,
+                "cwd": "/repo",
+                "repositoryRoot": "/repo",
+                "branch": "main",
+                "event": "UserPromptSubmit" if state == "running" else "Stop",
+                "lastActivityAt": stamp,
+                "sessionProcess": self.process.as_record(),
+            }
+
+        def stored() -> dict[str, object]:
+            path = self.state_dir / "turns.json"
+            return cast("dict[str, object]", json.loads(path.read_text()))
+
+        write_hook_record(
+            record("running", "2026-08-24T15:00:00.000000Z"), self.state_dir
+        )
+        self.assertEqual("2026-08-24T15:00:00.000000Z", stored()["turnStartedAt"])
+
+        # Later events in the same turn do not restart its clock.
+        write_hook_record(
+            record("running", "2026-08-24T15:04:00.000000Z"), self.state_dir
+        )
+        self.assertEqual("2026-08-24T15:00:00.000000Z", stored()["turnStartedAt"])
+
+        # The turn ends, and a waiting session has no turn in flight.
+        write_hook_record(
+            record("waiting", "2026-08-24T15:05:00.000000Z"), self.state_dir
+        )
+        self.assertIsNone(stored()["turnStartedAt"])
+
+        # The next turn starts its own clock.
+        write_hook_record(
+            record("running", "2026-08-24T15:09:00.000000Z"), self.state_dir
+        )
+        self.assertEqual("2026-08-24T15:09:00.000000Z", stored()["turnStartedAt"])
+
+    def test_stamps_are_fixed_width_so_records_order_by_text_too(self) -> None:
+        self.assertRegex(now_iso(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
 
     def test_live_record_is_returned(self) -> None:
         self.write("live", "waiting", self.process)
@@ -1192,7 +1272,11 @@ class WorkObserverTests(unittest.TestCase):
 
         self.assertEqual([], diagnostics)
         self.assertEqual("unknown", runs[0].state)
-        self.assertEqual(work.started_at, runs[0].last_activity_at)
+        # Nothing has observed this run doing anything; when its work began
+        # is a different fact and is reported as one.
+        self.assertIsNone(runs[0].last_activity_at)
+        self.assertIsNone(runs[0].turn_started_at)
+        self.assertEqual(work.started_at, runs[0].started_at)
 
     def test_orphaned_work_record_is_one_actionable_diagnostic(self) -> None:
         self.record_work(self.worktree)

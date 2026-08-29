@@ -525,7 +525,11 @@ the usual shape of a Project with no linked Worktrees; it returns as soon as a
 session sits in another Worktree or outside the Project. Exactly one column
 names the Target, so while `TARGET` is dropped the working directory is shown
 in full (`~`-abbreviated) rather than relative to a Target the pane no longer
-displays. The Worktrees pane
+displays. `ACTIVITY` names the age it is showing rather than leaving one
+number to mean two things: `running 14m` is how long the current turn has
+been going, `idle 14m` is how long the session has been quiet since its last
+observed event, and `started 3d ago` is a run nothing has observed yet, whose
+Work Store start time is reported as the different fact it is. The Worktrees pane
 is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
