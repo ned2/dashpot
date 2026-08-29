@@ -2404,7 +2404,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         initial_row_height = list_row.region.height
 
         pane.show_rows(list_rows(3))
-        await pilot.pause()
+        await wait_until(lambda: pane.region.height == pane_chrome(pane) + 3)
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
         # Frame, header and three records; the flex rows give up only what
         # the pane row (the taller of its two panes) grows by.
@@ -2417,7 +2417,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         )
 
         pane.show_rows(list_rows(12))
-        await pilot.pause()
+        await wait_until(lambda: pane.region.height == 2 + 1 + 8)
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
         # A pane never exceeds its cap; a horizontal scrollbar comes out of
         # the records shown rather than out of the Issue table.
@@ -2429,7 +2429,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         assert pane.table.scroll_y > 0
 
         pane.show_rows(())
-        await pilot.pause()
+        await wait_until(lambda: pane.region.height == 3)
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane.region.height == 3
         assert list_row.region.height == initial_row_height
@@ -2453,7 +2453,12 @@ async def test_compact_layout_stacks_the_panes_and_caps_each_one() -> None:
         worktrees.show_rows(
             list_rows(2, prefix="/very/long/path/to/a/linked/worktree/checkout/name")
         )
-        await pilot.pause()
+        await wait_until(
+            lambda: (
+                sessions.region.height == 2 + 1 + 8
+                and worktrees.region.height == pane_chrome(worktrees) + 2
+            )
+        )
 
         body = app.query_one("#body")
         assert sessions.region.width == worktrees.region.width == body.region.width
@@ -2464,7 +2469,7 @@ async def test_compact_layout_stacks_the_panes_and_caps_each_one() -> None:
         assert app.query_one("#queue-pane").region.bottom <= body.region.bottom
 
         await pilot.resize_terminal(120, 50)
-        await pilot.pause()
+        await wait_until(lambda: sessions.region.y == worktrees.region.y)
         assert app.screen.has_class("-wide")
         assert sessions.region.y == worktrees.region.y
         assert sessions.region.right <= worktrees.region.x
@@ -2484,7 +2489,9 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         worktrees = prepare_pane(app, "worktrees-pane")
         sessions.show_rows(list_rows(12, prefix="session"))
         worktrees.show_rows(list_rows(12, prefix="worktree"))
-        await pilot.pause()
+        await wait_until(
+            lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 1
+        )
 
         body = app.query_one("#body")
         queue_pane = app.query_one("#queue-pane")
@@ -2505,14 +2512,16 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         )
 
         await pilot.resize_terminal(80, 30)
-        await pilot.pause()
+        await wait_until(
+            lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 4
+        )
         assert sessions.region.height == worktrees.region.height == 2 + 1 + 4
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= app.query_one(Footer).region.y
 
         # Too short even for a record each: the panes collapse to their counts.
         await pilot.resize_terminal(80, 21)
-        await pilot.pause()
+        await wait_until(lambda: sessions.region.height == worktrees.region.height == 2)
         assert sessions.region.height == worktrees.region.height == 2
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 12"
         assert queue_pane.region.height >= 6
