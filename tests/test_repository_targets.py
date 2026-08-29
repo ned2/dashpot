@@ -3,10 +3,12 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 from unittest import mock
 
 from dashpot.commands import CommandResult
-from dashpot.repository import observe_observation_targets
+from dashpot.model import Diagnostic
+from dashpot.repository import LockHolder, observe_observation_targets
 
 
 class SequenceRunner:
@@ -71,6 +73,61 @@ def test_observes_main_and_linked_targets_from_nul_porcelain(
         ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
         ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
     ]
+
+
+def test_a_lock_is_reported_only_once_its_holder_is_gone(tmp_path: Path) -> None:
+    worktree = tmp_path / "held"
+    worktree.mkdir()
+    porcelain = (
+        f"worktree {worktree}\0HEAD aaa111\0branch refs/heads/main\0"
+        "locked claude session cyclopts-cli (pid 1699806 start 8792235)\0\0"
+    )
+
+    def observe(holder: str) -> list[Diagnostic]:
+        runner = SequenceRunner(completed(porcelain), completed())
+        times = iter([1.0, 1.001])
+        inventory = observe_observation_targets(
+            [worktree],
+            runner=runner,
+            clock=lambda: next(times),
+            process_lookup=lambda pid: (
+                cast("LockHolder", holder) if pid == 1699806 else "gone"
+            ),
+        )
+        return inventory.targets[0].diagnostics
+
+    # A session holding its own Worktree is the steady state, not a report.
+    assert observe("live") == []
+
+    # A lock that outlived its session keeps the Worktree from being pruned.
+    stale = observe("gone")
+    assert [item.code for item in stale] == ["target-locked-stale"]
+    assert stale[0].severity == "warning"
+
+    # Dashpot never claims a lock is stale on a process it could not observe.
+    unobservable = observe("unknown")
+    assert [item.code for item in unobservable] == ["target-locked"]
+    assert unobservable[0].severity == "info"
+
+
+def test_an_unattributed_lock_stays_an_observation(tmp_path: Path) -> None:
+    worktree = tmp_path / "held"
+    worktree.mkdir()
+    porcelain = (
+        f"worktree {worktree}\0HEAD aaa111\0branch refs/heads/main\0"
+        "locked maintenance\0\0"
+    )
+    times = iter([1.0, 1.001])
+
+    inventory = observe_observation_targets(
+        [worktree],
+        runner=SequenceRunner(completed(porcelain), completed()),
+        clock=lambda: next(times),
+        process_lookup=lambda _pid: "gone",
+    )
+
+    # No process is named, so there is no holder to have exited.
+    assert [item.code for item in inventory.targets[0].diagnostics] == ["target-locked"]
 
 
 def test_preserves_locked_prunable_and_missing_targets_but_excludes_bare(

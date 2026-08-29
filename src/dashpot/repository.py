@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .commands import CommandRunner, run_command
 from .model import (
@@ -48,12 +48,59 @@ def worktree_root(path: Path) -> Path:
     return Path(git(path, "rev-parse", "--show-toplevel")).resolve()
 
 
+# Whether the process holding a Worktree lock is still running. Dashpot asks
+# the process adapter through this seam; observing processes is not this
+# module's job, and a lock Git reports is only a fact about one.
+LockHolder = Literal["live", "gone", "unknown"]
+LockHolderProbe = Callable[[int], LockHolder]
+# Every harness that locks a Worktree names the holding process the same way.
+LOCK_HOLDER_PID = re.compile(r"\bpid (\d+)\b")
+
+
+def lock_holder(reason: str, probe: LockHolderProbe | None) -> LockHolder:
+    """Whether the process a lock reason names is still running."""
+    if probe is None:
+        return "unknown"
+    match = LOCK_HOLDER_PID.search(reason)
+    if match is None:
+        return "unknown"
+    return probe(int(match.group(1)))
+
+
+def lock_diagnostic(
+    path: str, reason: str, probe: LockHolderProbe | None
+) -> Diagnostic | None:
+    """Report a lock only once it stops explaining itself.
+
+    A Worktree locked by a running session is that session working, which is
+    the steady state and not worth a line. A lock whose holder has exited
+    outlives the session and keeps the Worktree from being pruned, which is.
+    """
+    holder = lock_holder(reason, probe)
+    if holder == "live":
+        return None
+    if holder == "gone":
+        return Diagnostic(
+            f"target:{path}",
+            "warning",
+            f"Observation Target is locked by a process that has exited: {reason}",
+            "target-locked-stale",
+        )
+    return Diagnostic(
+        f"target:{path}",
+        "info",
+        f"Observation Target is locked: {reason}",
+        "target-locked",
+    )
+
+
 def observe_observation_targets(
     anchors: Sequence[Path],
     *,
     timeout: float = 5,
     runner: CommandRunner = run_command,
     clock: Callable[[], float] = time.monotonic,
+    process_lookup: LockHolderProbe | None = None,
 ) -> ObservationTargetInventory:
     """Discover and inspect executable Observation Targets for Repository Anchors."""
     records: list[dict[str, str]] = []
@@ -128,15 +175,11 @@ def observe_observation_targets(
         detached = "detached" in record
         target_diagnostics: list[Diagnostic] = []
         if "locked" in record:
-            reason = record["locked"] or "no reason reported"
-            target_diagnostics.append(
-                Diagnostic(
-                    f"target:{path}",
-                    "info",
-                    f"Observation Target is locked: {reason}",
-                    "target-locked",
-                )
+            locked = lock_diagnostic(
+                path, record["locked"] or "no reason reported", process_lookup
             )
+            if locked is not None:
+                target_diagnostics.append(locked)
         if "prunable" in record:
             reason = record["prunable"] or "no reason reported"
             target_diagnostics.append(

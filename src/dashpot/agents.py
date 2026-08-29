@@ -16,7 +16,7 @@ from typing import Any, Literal, cast
 
 from .file_locks import locked_path, prune_lock_file
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
-from .repository import git, is_within
+from .repository import LockHolder, git, is_within
 from .work_store import WorkStore
 
 SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
@@ -129,6 +129,16 @@ def state_directory() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "dashpot" / "runs"
     return Path.home() / ".local" / "state" / "dashpot" / "runs"
+
+
+def lock_holder_probe(pid: int) -> LockHolder:
+    """Answer a Worktree lock's question about its holder with the host probe."""
+    observed = host_process_lookup(pid)
+    if isinstance(observed, ProcessAbsent):
+        return "gone"
+    if isinstance(observed, ProcessUnobservable):
+        return "unknown"
+    return "live"
 
 
 def host_process_lookup(pid: int) -> ProcessObservation:

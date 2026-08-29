@@ -309,7 +309,10 @@ from every configured anchor. These runtime Observation Targets are deduplicated
 by path and report branch or detached state, HEAD, dirty state, availability,
 elapsed time, and target-specific diagnostics. Locked, prunable, missing, and
 inaccessible targets remain visible without degrading the Project's Issue
-Source. Target inventory is never persisted, and Project-level Issues are still
+Source. A Worktree locked by a running process is a coding agent working in
+it, which is the steady state and is reported as nothing at all; the lock is
+diagnosed once the process it names has exited, because that lock outlives its
+session and keeps the Worktree from being pruned. Target inventory is never persisted, and Project-level Issues are still
 collected exactly once from the authoritative anchor.
 
 The same collector has a headless JSON interface:

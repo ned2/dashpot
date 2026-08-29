@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from .agent_bindings import bind_issue_runs
-from .agents import observe_agent_runs
+from .agents import lock_holder_probe, observe_agent_runs
 from .github_issues import GitHubIssuesSource
 from .issue_sources import IssueSource, IssueSourceObservation, utc_now
 from .local_markdown_issues import LocalMarkdownIssuesSource
@@ -223,7 +223,7 @@ def create_project_collector(
         project,
         source,
         target_observer=lambda anchors: observe_observation_targets(
-            anchors, timeout=timeout
+            anchors, timeout=timeout, process_lookup=lock_holder_probe
         ),
         branch_observer=lambda anchors: observe_branches(anchors, timeout=timeout),
     )
