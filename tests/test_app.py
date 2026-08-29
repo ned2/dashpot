@@ -2931,6 +2931,16 @@ async def test_every_table_spreads_its_columns_to_the_pane_edge() -> None:
                     if column.content_width < other.content_width:
                         assert share <= other_share
 
+        # The one-glyph icon columns of the Issue table opt out of the surplus.
+        queue = tables[0]
+        icon_shares = {
+            str(column.key.value): column.width - column.content_width
+            for column in queue.columns.values()
+            if str(column.key.value) in {"issue_state", "agent_state"}
+        }
+        assert icon_shares == {"issue_state": 0, "agent_state": 0}
+        assert sum(column_widths(queue)) == queue.scrollable_content_region.width
+
         # Content wider than the pane cannot be spread: the columns are their
         # content and the table scrolls sideways instead of squeezing anything.
         sessions.show_rows(list_rows(2, prefix="s" * 200))

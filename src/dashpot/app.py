@@ -252,10 +252,10 @@ class DashpotApp(App[None]):
         yield Static("", id="diagnostics")
         yield Footer()
 
-    def queue_table(self) -> DataTable[TableCell]:
+    def queue_table(self) -> SpreadTable[TableCell]:
         """The Issue table; `query_one` cannot name the cell type itself."""
         return cast(
-            "DataTable[TableCell]", self.main_screen.query_one("#queue", DataTable)
+            "SpreadTable[TableCell]", self.main_screen.query_one("#queue", SpreadTable)
         )
 
     def sessions_pane(self) -> ListPane:
@@ -336,9 +336,12 @@ class DashpotApp(App[None]):
         if self.store.has_observations:
             self.reconcile_rows()
 
-    def add_table_columns(self, table: DataTable[TableCell]) -> None:
+    def add_table_columns(self, table: SpreadTable[TableCell]) -> None:
+        table.spread_weights.clear()
         for column in column_specs(self.issue_view.columns):
             table.add_column(column_label(column, self.issue_view.sort), key=column.key)
+            if column.flex is not None:
+                table.spread_weights[column.key] = column.flex
 
     def action_columns(self) -> None:
         self.push_screen(

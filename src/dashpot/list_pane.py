@@ -18,7 +18,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.content import Content
 from textual.message import Message
-from textual.widgets import DataTable, Static
+from textual.widgets import Static
 from typing_extensions import override
 
 from .spread_table import SpreadTable
@@ -34,6 +34,9 @@ ELLIPSIS = "…"
 class ListColumn:
     key: str
     label: str
+    # Share of the pane's spare width: ``None`` follows the content width,
+    # ``0`` keeps the column at its content.
+    flex: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,12 +106,14 @@ class ListPane(Vertical):
         table = self.table
         for column in self.columns:
             table.add_column(column.label, key=column.key)
+            if column.flex is not None:
+                table.spread_weights[column.key] = column.flex
         self.show_rows(())
 
     @property
-    def table(self) -> DataTable[ListCell]:
+    def table(self) -> SpreadTable[ListCell]:
         """The pane's table; `query_one` cannot name the cell type itself."""
-        return cast("DataTable[ListCell]", self.query_one(DataTable))
+        return cast("SpreadTable[ListCell]", self.query_one(SpreadTable))
 
     @property
     def count(self) -> int:

@@ -30,6 +30,20 @@ class SpreadTable(DataTable[CellType]):
     horizontally, as before.
     """
 
+    _spread_weights: dict[str, int] | None = None
+
+    @property
+    def spread_weights(self) -> dict[str, int]:
+        """Explicit share weights by column key, replacing the content width.
+
+        ``0`` pins a column to its content, as for a one-glyph icon.
+        """
+        # Created on first use rather than in ``__init__``, whose long
+        # DataTable signature would otherwise have to be repeated here.
+        if self._spread_weights is None:
+            self._spread_weights = {}
+        return self._spread_weights
+
     @override
     def clear(self, columns: bool = False) -> Self:
         super().clear(columns)
@@ -54,7 +68,7 @@ class SpreadTable(DataTable[CellType]):
         self.spread_columns()
 
     def spread_columns(self) -> None:
-        """Give each column its content width plus a proportional share of the rest."""
+        """Give each column its content width plus a weighted share of the rest."""
         columns = list(self.columns.values())
         if not columns:
             return
@@ -69,7 +83,11 @@ class SpreadTable(DataTable[CellType]):
                 column.auto_width = True
         else:
             shares = proportional_shares(
-                surplus, [column.content_width for column in columns]
+                surplus,
+                [
+                    self.spread_weights.get(str(column.key.value), column.content_width)
+                    for column in columns
+                ],
             )
             for column, share in zip(columns, shares, strict=True):
                 column.auto_width = False
