@@ -1883,7 +1883,8 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
         await wait_until(lambda: table.row_count == 2)
-        assert not alert(app).display
+        # A slow runner can leave the initial refresh's own indicator showing.
+        await wait_until(lambda: not alert(app).display)
         collectors["beta"].source.release.clear()
 
         await app.run_action("refresh_workspace")
