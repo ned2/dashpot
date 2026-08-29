@@ -354,7 +354,14 @@ focus Issues → Sessions → Worktrees, `1`, `2` and `3` jump to a list and `/`
 to the Issue search. The row cursor in the Sessions and Worktrees panes is for
 scrolling, copying and refresh scope (`r`); only the Issue table drives the
 detail panes, and `Enter` on a session with an Issue Binding highlights that
-Issue in the Issue table. See
+Issue in the Issue table. The Sessions pane is its own read model
+([`session_list.py`](src/dashpot/session_list.py), queried through
+`WorkspaceObservationStore.query_sessions`): every active Agent Session across
+the Workspace exactly once, sorted running → waiting → unknown and then by
+most recent activity, with its Project and any bound Issue joined from the
+Work Store's accepted bindings, an intentional `no active Issue work` value
+when unbound, its working directory relative to its Observation Target, and
+long paths, branches and titles clipped with an ellipsis. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
 

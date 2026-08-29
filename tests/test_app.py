@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from dashpot.issue_table import ColumnKey
 from dashpot.model import Issue
@@ -20,6 +20,7 @@ from threading import Event, Lock
 import pytest
 from rich.text import Text
 from textual.content import Content
+from textual.coordinate import Coordinate
 from textual.widgets import DataTable, Footer, Input, Markdown, Select, Static
 
 from dashpot.app import (
@@ -59,6 +60,7 @@ from dashpot.model import (
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
+    RunState,
     SourceStatus,
     WorkspaceSnapshot,
 )
@@ -2296,6 +2298,11 @@ def prepare_pane(app: DashpotApp, pane_id: str) -> ListPane:
     return pane
 
 
+def pane_chrome(pane: ListPane) -> int:
+    """The frame, header and any horizontal scrollbar around a pane's records."""
+    return 2 + 1 + (1 if pane.table.show_horizontal_scrollbar else 0)
+
+
 def footer_keys(app: DashpotApp) -> set[str]:
     return {binding.key for _, binding, *_ in app.screen.active_bindings.values()}
 
@@ -2401,14 +2408,16 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         await pilot.pause()
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
         # Frame, header and three records; the flex rows give up only that.
-        assert pane.region.height == 2 + 1 + 3
+        assert pane.region.height == pane_chrome(pane) + 3
         assert not pane.table.show_vertical_scrollbar
         assert not app.query_one("#sessions-pane .list-pane-empty").display
-        assert flex_height() == initial_flex_height - 3
+        assert flex_height() == initial_flex_height - (pane.region.height - 3)
 
         pane.show_rows(list_rows(12))
         await pilot.pause()
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
+        # A pane never exceeds its cap; a horizontal scrollbar comes out of
+        # the records shown rather than out of the Issue table.
         assert pane.region.height == 2 + 1 + 8
         assert pane.table.show_vertical_scrollbar
         assert flex_height() == initial_flex_height - 8
@@ -2446,7 +2455,7 @@ async def test_compact_layout_stacks_the_panes_and_caps_each_one() -> None:
         assert sessions.region.width == worktrees.region.width == body.region.width
         assert sessions.region.bottom <= worktrees.region.y
         assert sessions.region.height == 2 + 1 + 8
-        assert worktrees.region.height == 2 + 1 + 2
+        assert worktrees.region.height == pane_chrome(worktrees) + 2
         assert app.query_one("#queue-pane").region.height >= 6
         assert app.query_one("#queue-pane").region.bottom <= body.region.bottom
 
@@ -2481,7 +2490,9 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         assert queue_pane.region.bottom <= footer.region.y
         # Room for one record each; the rest scrolls behind the count.
         assert sessions.region.height == worktrees.region.height == 2 + 1 + 1
-        assert sessions.table.show_vertical_scrollbar
+        assert sessions.table.show_vertical_scrollbar or (
+            sessions.table.show_horizontal_scrollbar
+        )
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
         assert body.region.height >= (
             app.query_one("#detail-row").region.height
@@ -2606,3 +2617,166 @@ async def test_refresh_scope_follows_the_focused_pane_row() -> None:
         assert app.current_project_id() is None
         await pilot.press("1")
         assert app.current_project_id() == "project:test-repo"
+
+
+def session_run(
+    run_id: str,
+    *,
+    state: str = "waiting",
+    issue_id: str | None = None,
+    harness: str = "codex",
+    last_activity_at: str | None = "2026-08-25T00:59:00Z",
+) -> AgentRun:
+    return AgentRun(
+        id=run_id,
+        harness=harness,
+        process_or_session=run_id,
+        state=cast("RunState", state),
+        observation_target="/repo",
+        observation_project_id="project:test-repo",
+        branch="main",
+        issue_id=issue_id,
+        issue_reference_hint=None,
+        working_directory="/repo/src",
+        last_activity_at=last_activity_at,
+    )
+
+
+def sessions_snapshot(*runs: AgentRun, issues: tuple[Issue, ...]) -> WorkspaceSnapshot:
+    snapshot = workspace_snapshot(*issues, runs=list(runs))
+    for run in runs:
+        if run.issue_id is not None:
+            snapshot.issue_runs.setdefault(run.issue_id, []).append(run.id)
+    return snapshot
+
+
+def session_pane_keys(app: DashpotApp) -> list[str]:
+    table = app.sessions_pane().table
+    return [
+        str(table.coordinate_to_cell_key(Coordinate(index, 0)).row_key.value)
+        for index in range(table.row_count)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sessions_pane_lists_every_active_session_from_observations() -> None:
+    issues = (issue("test/repo#1", "First"), issue("test/repo#2", "Second"))
+    snapshot = sessions_snapshot(
+        session_run("work:codex:bound", state="waiting", issue_id="I_test/repo#2"),
+        session_run("claude-code-session:free", state="running", harness="claude-code"),
+        session_run("codex-session:lost", state="unknown", last_activity_at=None),
+        issues=issues,
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+
+        assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
+        assert session_pane_keys(app) == [
+            row_key("session", "claude-code-session:free"),
+            row_key("session", "work:codex:bound"),
+            row_key("session", "codex-session:lost"),
+        ]
+        table = app.sessions_pane().table
+        labels = [str(column.label) for column in table.columns.values()]
+        assert labels == [
+            "STATE",
+            "HARNESS",
+            "PROJECT",
+            "TARGET",
+            "BRANCH",
+            "ISSUE",
+            "DIRECTORY",
+            "ACTIVITY",
+        ]
+        first = [str(cell) for cell in table.get_row_at(0)]
+        assert first[:3] == ["● running", "Claude Code", "Test Repository"]
+        assert first[5] == "no active Issue work"
+        assert first[6] == "src"
+        second = [str(cell) for cell in table.get_row_at(1)]
+        assert second[0] == "◐ waiting"
+        assert second[5] == "#2 Second"
+        assert str(table.get_row_at(2)[0]) == "○ unknown"
+        assert str(table.get_row_at(2)[7]) == "-"
+        assert not app.query_one("#sessions-pane .list-pane-empty").display
+        # The Project pane's Agents count and the Sessions count agree.
+        assert "Agents: 3" in detail_plain(app, "#project-detail")
+
+
+@pytest.mark.asyncio
+async def test_enter_on_a_bound_session_highlights_its_issue_and_unbound_is_safe() -> (
+    None
+):
+    issues = (issue("test/repo#1", "First"), issue("test/repo#2", "Second"))
+    snapshot = sessions_snapshot(
+        session_run("work:codex:bound", state="running", issue_id="I_test/repo#2"),
+        session_run("codex-session:free", state="waiting"),
+        issues=issues,
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        assert pane_title(app, "#selection-pane") == "#1: First"
+
+        await pilot.press("2")
+        await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert pane_title(app, "#selection-pane") == "#1: First"
+
+        await pilot.press("up")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.selected_row_key == row_key("issue", "I_test/repo#2")
+        assert pane_title(app, "#selection-pane") == "#2: Second"
+        assert not isinstance(app.screen, IssueScreen)
+        assert app.sessions_pane().table.has_focus
+
+
+@pytest.mark.asyncio
+async def test_session_selection_survives_refresh_by_identity_or_moves_on() -> None:
+    issues = (issue("test/repo#1", "First"),)
+    first = sessions_snapshot(
+        session_run("a", state="running", last_activity_at="2026-08-25T00:50:00Z"),
+        session_run("b", state="running", last_activity_at="2026-08-25T00:40:00Z"),
+        session_run("c", state="waiting"),
+        issues=issues,
+    )
+    # ``b`` becomes the most recent so the rows reorder; ``c`` stays put.
+    reordered = sessions_snapshot(
+        session_run("a", state="running", last_activity_at="2026-08-25T00:50:00Z"),
+        session_run("b", state="running", last_activity_at="2026-08-25T00:55:00Z"),
+        session_run("c", state="waiting"),
+        issues=issues,
+    )
+    without_b = sessions_snapshot(
+        session_run("a", state="running", last_activity_at="2026-08-25T00:50:00Z"),
+        session_run("c", state="waiting"),
+        issues=issues,
+    )
+    app = DashpotApp(SequenceCollector(first, reordered, without_b), refresh_seconds=0)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        pane = app.sessions_pane()
+        await pilot.press("2")
+        await pilot.press("down")
+        await pilot.pause()
+        assert pane.highlighted() == (row_key("session", "b"), 1)
+
+        app.request_refresh("manual")
+        await wait_until(lambda: app.store.revision == 2)
+        await pilot.pause()
+        assert pane.highlighted() == (row_key("session", "b"), 0)
+
+        app.request_refresh("manual")
+        await wait_until(lambda: app.store.revision == 3)
+        await pilot.pause()
+        assert pane_title(app, "#sessions-pane") == "SESSIONS · 2"
+        assert pane.highlighted() == (row_key("session", "a"), 0)

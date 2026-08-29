@@ -20,6 +20,7 @@ from .model import (
     ProjectObservation,
     WorkspaceSnapshot,
 )
+from .session_list import SessionListResult, _query_indexed_session_list
 
 ObservationKind = Literal["workspace", "projects", "agent-runs"]
 Key = TypeVar("Key")
@@ -196,6 +197,18 @@ class WorkspaceObservationStore:
             agent_runs=state.agent_runs,
             issue_runs=state.issue_runs,
             query=query,
+            revision=state.revision,
+        )
+        return deepcopy(result)
+
+    def query_sessions(self) -> SessionListResult:
+        """Query every active Agent Session, with its Project and Issue joined."""
+        state = self._state
+        result = _query_indexed_session_list(
+            projects=state.projects,
+            issues=state.issues,
+            agent_runs=state.agent_runs,
+            issue_runs=state.issue_runs,
             revision=state.revision,
         )
         return deepcopy(result)
