@@ -69,6 +69,7 @@ from .issue_view import IssueScreen
 from .list_pane import ListPane, ListRow
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
+from .session_list import SESSION_COLUMNS, build_session_rows
 
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
@@ -219,6 +220,7 @@ class DashpotApp(App[None]):
             with Container(id="list-row"):
                 yield ListPane(
                     SESSIONS_PANE_LABEL,
+                    columns=SESSION_COLUMNS,
                     empty_message="no active sessions",
                     id="sessions-pane",
                     table_id="sessions",
@@ -667,8 +669,9 @@ class DashpotApp(App[None]):
         self.worktrees_pane().show_rows(self.worktree_rows())
 
     def session_rows(self) -> tuple[ListRow, ...]:
-        """The Sessions pane rows; the read model arrives with #30."""
-        return ()
+        return build_session_rows(
+            self.store.query_sessions(), dark=self.current_theme.dark
+        )
 
     def worktree_rows(self) -> tuple[ListRow, ...]:
         """The Worktrees pane rows; the read model arrives with #31."""

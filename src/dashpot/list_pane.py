@@ -24,6 +24,7 @@ ListCell = str | Text
 
 # Header plus eight records; a longer list scrolls inside the pane.
 DEFAULT_ROW_CAP = 8
+ELLIPSIS = "…"
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,20 @@ class ListRow:
     cells: tuple[ListCell, ...]
     project_id: str | None = None
     issue_id: str | None = None
+
+
+def truncate_end(value: str, limit: int) -> str:
+    """Keep the start of an overlong value and say so with an ellipsis."""
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 1)] + ELLIPSIS
+
+
+def truncate_start(value: str, limit: int) -> str:
+    """Keep the end of an overlong value, which is where a path is specific."""
+    if len(value) <= limit:
+        return value
+    return ELLIPSIS + value[len(value) - max(0, limit - 1) :]
 
 
 class ListPane(Vertical):
