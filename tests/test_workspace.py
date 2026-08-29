@@ -8,7 +8,11 @@ from unittest import mock
 import pytest
 
 from dashpot.model import RepositoryAnchor, Workspace
-from dashpot.workspace import load_workspaces, resolve_workspace_projects
+from dashpot.workspace import (
+    WorkspaceScopeError,
+    load_workspaces,
+    resolve_workspace_projects,
+)
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
@@ -243,3 +247,36 @@ def test_github_fork_retaining_project_identity_is_diagnosed(
     assert PROJECT_ID in diagnostic.message
     assert "R_original" in diagnostic.message
     assert "R_fork" in diagnostic.message
+
+
+def test_anchors_resolving_to_two_projects_are_refused_before_observation(
+    tmp_path: Path,
+) -> None:
+    dashpot = tmp_path / "dashpot"
+    other = tmp_path / "other"
+    write_project(dashpot)
+    write_project(
+        other,
+        project_id="project:0195aaaa-1111-7c38-a41c-218df18a169b",
+        display_label="Other",
+        repository_id="repository:other",
+    )
+
+    with pytest.raises(WorkspaceScopeError) as raised:
+        resolve_workspace_projects(
+            [workspace("personal", dashpot), workspace("client", other)],
+            root_observer=root_observer,
+        )
+
+    message = str(raised.value)
+    assert "one Project per run" in message
+    assert "2 Projects" in message
+    assert f"Dashpot ({PROJECT_ID}) at {dashpot.resolve()}" in message
+    assert (
+        f"Other (project:0195aaaa-1111-7c38-a41c-218df18a169b) at {other.resolve()}"
+        in message
+    )
+    assert [project.display_label for project in raised.value.projects] == [
+        "Dashpot",
+        "Other",
+    ]

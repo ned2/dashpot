@@ -99,9 +99,10 @@ file and line number.
 ### Observation
 
 **Workspace**:
-An optional local observation scope composing Projects that Dashpot presents
-together. It owns no Project configuration or work state and never participates
-in Project or Issue identity.
+The named set of Repository Anchors that resolves to the one Project a Dashpot
+run observes. It owns no Project configuration or work state and never
+participates in Project or Issue identity; anchors resolving to more than one
+Project are refused before observation starts.
 
 **Repository Anchor**:
 A configured local checkout through which Dashpot locates a Project and asks Git
@@ -238,7 +239,7 @@ uv run pytest -q
 uv build
 ```
 
-Open the TUI for one or more projects:
+Open the TUI for a Project — Dashpot observes exactly one Project per run:
 
 ```bash
 cd /path/to/configured/project
@@ -253,16 +254,18 @@ Without arguments, Dashpot observes the current directory when it contains
 `.dashpot/config.json`. Outside a configured Project it loads explicit Repository
 Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
 `--workspace` arguments each name one anchor and take precedence; repeat the
-same Workspace name to include independent clones. Use `--config` to select a
-different Workspace inventory. Use `r` to refresh the selected Project, `R` to
+same Workspace name to include independent clones of the same Project. Anchors
+that resolve to more than one Project are refused with a message naming them
+(see [ADR 0004](docs/adr/0004-observe-one-project-per-run.md)). Use `--config`
+to select a different Workspace inventory. Use `r` to refresh the selected Project, `R` to
 refresh every Project, `o` to flip the Work list between open, closed, and all
 Issues, the arrow keys to move, `Enter` to read the selected Issue full-screen
 (`Escape` returns to the table), and `q` to quit. The default
 15-second polling period refreshes the selected Project and can be changed with
 `--refresh-seconds`; zero disables polling.
 
-A Workspace inventory stores named groupings and anchor paths, never discovered
-or persisted worktree paths:
+A Workspace inventory stores named groupings of anchor paths for one Project —
+independent clones, never discovered or persisted worktree paths:
 
 ```json
 {
@@ -489,15 +492,15 @@ scrolling, copying and refresh scope (`r`); only the Issue table drives the
 detail panes, and `Enter` on a session with an Issue Binding highlights that
 Issue in the Issue table. The Sessions pane is its own read model
 ([`session_list.py`](src/dashpot/session_list.py), queried through
-`WorkspaceObservationStore.query_sessions`): every active Agent Session across
-the Workspace exactly once, sorted running → waiting → unknown and then by
+`WorkspaceObservationStore.query_sessions`): every active Agent Session of the
+observed Project exactly once, sorted running → waiting → unknown and then by
 most recent activity, with its Project and any bound Issue joined from the
 Work Store's accepted bindings, an intentional `no active Issue work` value
 when unbound, its working directory relative to its Observation Target, and
 long paths, branches and titles clipped with an ellipsis. The Worktrees pane
 is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
-Target across the Workspace, identified by `(Project Identity, target path)`
+Target of the Project, identified by `(Project Identity, target path)`
 and sorted by Project, then main before linked, then path, with the Git
 topology role `git worktree list` reported (the main working tree is listed
 first), whether the path is a configured Repository Anchor, branch or

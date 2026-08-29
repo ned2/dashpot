@@ -207,7 +207,26 @@ def resolve_workspace_projects(
                 primary_anchor=roots[0],
             )
         )
+    if len(projects) > 1:
+        raise WorkspaceScopeError(projects)
     return WorkspaceResolution(projects, diagnostics)
+
+
+class WorkspaceScopeError(RuntimeError):
+    """Refuse Repository Anchors that resolve to more than one Project."""
+
+    def __init__(self, projects: Sequence[ResolvedProject]) -> None:
+        listing = "; ".join(
+            f"{project.display_label} ({project.project_id}) at "
+            + ", ".join(project.anchors)
+            for project in projects
+        )
+        super().__init__(
+            f"Dashpot observes one Project per run, but the configured "
+            f"Repository Anchors resolve to {len(projects)} Projects: {listing}. "
+            f"Configure anchors for one Project only."
+        )
+        self.projects = tuple(projects)
 
 
 def _resolve_anchor(
