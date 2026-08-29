@@ -532,7 +532,10 @@ displays. `ACTIVITY` names the age it is showing rather than leaving one
 number to mean two things: `running 14m` is how long the current turn has
 been going, `idle 14m` is how long the session has been quiet since its last
 observed event, and `started 3d ago` is a run nothing has observed yet, whose
-Work Store start time is reported as the different fact it is. The Worktrees pane
+Work Store start time is reported as the different fact it is. Activity is
+observed at turn boundaries and not within a turn, which is a measured
+decision rather than an omission
+([ADR 0006](docs/adr/0006-observe-agent-activity-at-turn-boundaries.md)). The Worktrees pane
 is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
