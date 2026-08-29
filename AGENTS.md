@@ -12,13 +12,11 @@ for humans and agents is the README:
   [Quality gates](README.md#quality-gates), and
   [Continuous integration](README.md#continuous-integration)
 - [Contributing](README.md#contributing) — the branch, push, and CI workflow
+- [Domain language](README.md#domain-language)
 - [Project configuration](README.md#project-configuration)
 - [Agent session observation](README.md#agent-session-observation) and
   [Issue work opt-in](README.md#issue-work-opt-in)
 - [Design](README.md#design) and the [Documentation map](README.md#documentation-map)
-
-[CONTEXT.md](CONTEXT.md) is the ubiquitous language. Read it before touching
-code, tests, or docs.
 
 ## Issue work lifecycle
 
@@ -54,11 +52,13 @@ Local Issue slug. `stop` takes no argument. Check what is recorded with
 
 ## Vocabulary
 
-Use [CONTEXT.md](CONTEXT.md) terms exactly — Agent Session versus Agent Run,
-Work Store, Issue Binding, Issue Hint, Worktree versus Repository Anchor — in
-code, tests, messages, docs, and commit messages, and honour every _Avoid_
-entry. Add a term by editing `CONTEXT.md` in the same change that introduces
-it; record a decision as a new ADR in `docs/adr/`.
+Before changing code, tests, or documentation, read the shared
+[domain language](README.md#domain-language). Use its terms consistently —
+Agent Session versus Agent Run, Work Store, Issue Binding, Issue Hint, Worktree
+versus Repository Anchor — in code, tests, messages, documentation, and commit
+messages, and follow every _Avoid_ note. Update the domain language in the same
+change that introduces or clarifies a shared term; record a qualifying design
+decision as a new ADR in `docs/adr/`.
 
 ## Quality and code conventions
 
@@ -71,7 +71,7 @@ pushed revision. The conventions the tooling enforces or the code assumes:
 - Domain values are frozen, slotted dataclasses
   (`@dataclass(frozen=True, slots=True)`) and `Literal` unions; identity is
   opaque and never derived from labels or paths.
-- Docstrings are one imperative line in the voice of the ubiquitous language
+- Docstrings are one imperative line in the voice of the shared domain language
   (`"""Identify the supported Agent Session enclosing this command."""`);
   comments explain why, not what.
 - Tests drive public seams: `observe_agent_runs` with a fake process lookup
@@ -96,9 +96,9 @@ leave it alone and never commit one.
 
 **Do not create or rely on a private agent memory store.** Durable context
 lives where humans read it: GitHub Issues (this Project's Issue Source) for
-plans and follow-ups, [CONTEXT.md](CONTEXT.md) for vocabulary, `docs/adr/` for
-decisions, and `docs/*.md` for research and audits. If something is worth
-remembering, record it there.
+plans and follow-ups, the [README](README.md) and `docs/*.md` for shared project
+context, and `docs/adr/` for decisions. If something is worth remembering,
+record it there.
 
 ## Where rules live
 

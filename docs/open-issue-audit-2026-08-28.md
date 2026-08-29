@@ -111,7 +111,7 @@ Suggested scope:
 
 - distinguish an **Agent Session** (harness conversation/process) from a
   time-bounded **Agent Run** (that session working on one Issue), and record the
-  vocabulary in `CONTEXT.md` before encoding the schema;
+  vocabulary in the README domain language before encoding the schema;
 - provide a versioned, atomic/concurrency-safe Project-local store and a narrow
   API such as `start_work(session, issue, location)`, `stop_work(session)`, and
   `active_work()`;
@@ -198,8 +198,8 @@ Codex-only implementation as a harness-neutral promise.
   comments, queried through GitHub on 2026-08-28;
 - closed Issues #13, #15, and #16 for original scope boundaries and completion
   state;
-- `CONTEXT.md`, ADRs 0001 and 0003, and the multi-repository Workspace evidence
-  audit;
+- the README domain language, ADRs 0001 and 0003, and the multi-repository
+  Workspace evidence audit;
 - current Project configuration, CLI discovery, agent publisher/observer,
   binding, model, collector, and observation-store source;
 - current README, example Codex hooks, package entry points, ignore rules, and
