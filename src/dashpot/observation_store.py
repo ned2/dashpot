@@ -225,6 +225,10 @@ class WorkspaceObservationStore:
         )
         return deepcopy(result)
 
+    def projects(self) -> tuple[ProjectObservation, ...]:
+        """Every observed Project, in acceptance order."""
+        return tuple(deepcopy(project) for project in self._state.projects.values())
+
     def project(self, project_id: str) -> ProjectObservation | None:
         project = self._state.projects.get(project_id)
         return deepcopy(project) if project is not None else None

@@ -1,8 +1,9 @@
 """Full-screen, read-only rendering of one Issue.
 
-The compact selection pane stays the at-a-glance surface; this screen is the
-canonical reading surface. It is source-neutral: everything shown comes from
-the complete Issue profile plus the snapshot facts that travel beside it.
+This screen is the one reading surface for an Issue: the table row is the
+at-a-glance summary and everything else is read here. It is source-neutral:
+everything shown comes from the complete Issue profile plus the snapshot facts
+that travel beside it.
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.content import Content
 from textual.screen import Screen
+from textual.theme import Theme
 from textual.widgets import Footer, Markdown, Static
 from typing_extensions import override
 
@@ -57,12 +60,19 @@ class IssueScreen(Screen[None]):
     @override
     def compose(self) -> ComposeResult:
         issue = self.issue
-        with Vertical(id="issue-view"), Horizontal(id="issue-view-panes"):
+        with (
+            Vertical(id="issue-view", classes=issue_state_class(issue)),
+            Horizontal(id="issue-view-panes"),
+        ):
             with VerticalScroll(id="issue-view-body", can_focus=True):
-                with Vertical(id="issue-view-heading"):
-                    yield Static(issue["title"], id="issue-view-title", markup=False)
+                # Where the Issue lives sits left and when it was opened
+                # right, on the one line that heads the body.
+                with Horizontal(id="issue-view-heading"):
                     yield Static(
-                        issue_view_subtitle(issue, self.context.project, now=self.now),
+                        issue_location(issue), id="issue-view-location", markup=False
+                    )
+                    yield Static(
+                        issue_byline(issue, now=self.now),
                         id="issue-view-subtitle",
                         markup=False,
                     )
@@ -84,11 +94,22 @@ class IssueScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#issue-view-body").border_title = "ISSUE"
+        self.query_one("#issue-view-body").border_title = Content(
+            selection_title(self.context)
+        )
         self.query_one("#issue-view-metadata").border_title = "DETAILS"
         self.query_one("#issue-view-metadata").can_focus = True
         self.query_one("#issue-view-body").focus()
+        self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
         self.apply_layout(self.size.width)
+
+    def on_theme_changed(self, _theme: Theme) -> None:
+        """Re-render the chips, whose colours follow the theme's brightness."""
+        self.query_one("#issue-view-metadata", DetailFields).update(
+            *issue_metadata_items(
+                self.context, now=self.now, dark=self.app.current_theme.dark
+            )
+        )
 
     def on_resize(self, event: events.Resize) -> None:
         self.apply_layout(event.size.width)
@@ -104,20 +125,36 @@ class IssueScreen(Screen[None]):
         self.dismiss(None)
 
 
-def issue_view_subtitle(
-    issue: Issue, project: ProjectObservation, *, now: datetime | None = None
-) -> str:
-    """``ned2/dashpot#12 · Dashpot · open · opened 3d ago by ned2``."""
+def issue_byline(issue: Issue, *, now: datetime | None = None) -> str:
+    """Frame an Issue as ``opened 3d ago by ned2``."""
     current = now or datetime.now(UTC)
-    parts = [issue["reference"], project.display_label, issue_state_label(issue)]
-    opened = ["opened"]
+    parts = ["opened"]
     age = relative_age(issue["createdAt"], current)
     if age:
-        opened.append(age)
+        parts.append(age)
     if issue["author"]:
-        opened.append(f"by {issue['author']}")
-    parts.append(" ".join(opened))
-    return " · ".join(parts)
+        parts.append(f"by {issue['author']}")
+    return " ".join(parts)
+
+
+def selection_title(context: IssueListRow) -> str:
+    """Title the selected Issue with its compact human label."""
+    if context.issue:
+        return f"#{context.issue['number']}: {context.issue['title']}"
+    return "SELECTION"
+
+
+def issue_state_class(issue: Issue) -> str:
+    """The stylesheet class that colours the view by the Issue's state."""
+    return f"-issue-{issue_state_kind(issue)}"
+
+
+def issue_location(issue: Issue) -> str:
+    """Where the Issue lives: its GitHub URL, or ``path:line`` for a Local Issue."""
+    location = issue["location"]
+    if location["kind"] == "github":
+        return str(location["url"])
+    return f"{location['path']}:{location['line']}"
 
 
 def issue_state_label(issue: Issue) -> str:

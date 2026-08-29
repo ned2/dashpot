@@ -159,14 +159,14 @@ Encode the row kind and opaque stable identities into every Textual row key. A
 normal Issue row uses globally unique Issue Identity so selection survives a
 Project transfer; only an identity-conflict fallback also includes Project
 Identity. Only Issues are rows, like an Issue tracker's feed; Projects and
-Agent Runs are facts shown in the detail panes rather than rows. Add explicit
+Agent Runs are facts shown in the Issue view rather than rows. Add explicit
 stable column keys as well. Textual row keys remain valid when rows move because
 of deletion or sorting; coordinates do not.
 [DataTable keys](https://textual.textualize.io/widgets/data_table/#keys)
 
 Set `cursor_type="row"`. Arrow navigation then emits `DataTable.RowHighlighted`,
 whose message carries both the stable `row_key` and current row coordinate. Drive
-the detail pane and selected row identity from that message.
+the selected row identity from that message.
 [DataTable cursors and messages](https://textual.textualize.io/widgets/data_table/#cursors)
 
 On each accepted snapshot:
@@ -180,7 +180,7 @@ On each accepted snapshot:
    be expressed through its columns.
 5. If the prior row key remains, restore it with
    `get_row_index(key)` and `move_cursor(row=...)`. If it disappeared, select the
-   nearest surviving index; if there are no rows, clear the detail pane.
+   nearest surviving index; if there are no rows, clear the selection.
 
 `batch_update()` suspends repainting until the batch is complete. `DataTable`
 provides keyed `update_cell`, `remove_row`, `get_row_index`, and `move_cursor`

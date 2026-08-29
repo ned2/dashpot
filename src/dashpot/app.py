@@ -4,7 +4,6 @@ import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import UTC, datetime
 from typing import Any, ClassVar, Literal, cast
 
 from rich.text import Text
@@ -33,12 +32,10 @@ from .collect import (
     SnapshotScheduler,
 )
 from .column_editor import IssueColumnEditor
-from .detail_fields import DetailFields, DetailItem, detail_items_text
 from .issue_list import (
     IssueListQuery,
     IssueListResult,
     IssueListRow,
-    empty_issue_message,
     issue_inventory_text,
     issue_result_count_text,
     next_issue_states,
@@ -54,20 +51,13 @@ from .issue_table import (
     cells_match,
     column_label,
     column_specs,
-    is_priority_label,
-    issue_activity,
-    issue_priority,
-    issue_state_chip,
-    issue_state_kind,
-    label_chips,
-    label_colors,
-    relative_age,
+    issue_state_colors,
     searchable_columns,
     sort_key_for_terms,
 )
 from .issue_view import IssueScreen
 from .list_pane import ListPane, ListRow
-from .model import Issue, ProjectObservation
+from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .session_list import SESSION_COLUMNS, build_session_rows
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
@@ -75,20 +65,17 @@ from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
 WORKTREES_PANE_LABEL = "WORKTREES"
-# Focus cycles through the three lists in reading order; the detail panes and
+# Focus cycles through the three lists in reading order; the Header and
 # the Issue controls are not part of the cycle.
 LIST_TABLE_IDS = ("queue", "sessions", "worktrees")
-# Blank lines between the three rows of the body, and a list pane's frame
-# and header, all of which come out of the height a pane's records get.
-ROW_MARGINS = 2
+# The blank line between the pane stack and the Issue table, and a list
+# pane's frame and header, all of which come out of the height a pane's
+# records get.
+ROW_MARGINS = 1
 PANE_FRAME = 2
 PANE_HEADER = 1
-ISSUE_PANE_STATE_CLASSES = (
-    "-issue-open",
-    "-issue-completed",
-    "-issue-not-planned",
-    "-issue-duplicate",
-)
+# The Header's sub-title until an observed Project supplies its anchor.
+DEFAULT_SUB_TITLE = "passive workspace view"
 
 
 class ObservationFinished(Message):
@@ -128,7 +115,7 @@ RefreshScope = Literal["current", "workspace"]
 
 class DashpotApp(App[None]):
     TITLE = "Dashpot"
-    SUB_TITLE = "passive workspace view"
+    SUB_TITLE = DEFAULT_SUB_TITLE
     CSS_PATH = "dashpot.tcss"
     # Textual declares this as an instance attribute, so ClassVar is not an
     # option; the list is never mutated.
@@ -204,20 +191,17 @@ class DashpotApp(App[None]):
         return "\n".join(self.observation_errors.values())
 
     @override
+    def get_css_variables(self) -> dict[str, str]:
+        """Add the Issue state colours for the current theme's brightness."""
+        return {
+            **super().get_css_variables(),
+            **issue_state_colors(dark=self.current_theme.dark),
+        }
+
+    @override
     def compose(self) -> ComposeResult:
         yield Header()
         with DashboardBody(id="body"):
-            with Container(id="detail-row"):
-                with Vertical(id="project-pane"):
-                    yield DetailFields(
-                        DetailItem("Select a row", kind="message"),
-                        id="project-detail",
-                    )
-                with Vertical(id="selection-pane"):
-                    yield DetailFields(
-                        DetailItem("Select a row", kind="message"),
-                        id="selection-detail",
-                    )
             with Container(id="list-row"):
                 yield ListPane(
                     SESSIONS_PANE_LABEL,
@@ -307,10 +291,6 @@ class DashpotApp(App[None]):
         return True
 
     def on_mount(self) -> None:
-        self.main_screen.query_one("#project-pane").border_title = Content(
-            "PROJECT STATUS"
-        )
-        self.main_screen.query_one("#selection-pane").border_title = Content("ISSUE")
         self.main_screen.query_one("#queue-pane").border_title = Content(
             ISSUE_PANE_LABEL
         )
@@ -636,29 +616,18 @@ class DashpotApp(App[None]):
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
 
-        The detail row and the Issue table keep their stylesheet minimums;
-        whatever remains is the pane row's, shared between the two panes when
-        the compact layout stacks them. Textual cannot resolve an
+        The Issue table keeps its stylesheet minimum; whatever remains is
+        shared between the two stacked panes. Textual cannot resolve an
         over-constrained column (every `fr` row at its minimum), so the cap
         shrinks first, to a frame with a count when nothing else fits.
         """
-        fixed = ROW_MARGINS + sum(
-            int(minimum.value)
-            for selector in ("#detail-row", "#queue-pane")
-            if (minimum := self.main_screen.query_one(selector).styles.min_height)
-            is not None
-        )
-        available = body.height - fixed
-        compact = self.is_compact(body.width)
+        minimum = self.main_screen.query_one("#queue-pane").styles.min_height
+        fixed = ROW_MARGINS + (int(minimum.value) if minimum is not None else 0)
         panes = (self.sessions_pane(), self.worktrees_pane())
-        pane_height = available // len(panes) if compact else available
+        pane_height = (body.height - fixed) // len(panes)
         row_cap = pane_height - PANE_FRAME - PANE_HEADER
         for pane in panes:
             pane.fit_rows(row_cap if row_cap >= 1 else 0)
-
-    def is_compact(self, width: int) -> bool:
-        """Whether the screen is below the `-compact` horizontal breakpoint."""
-        return width < self.HORIZONTAL_BREAKPOINTS[-1][0]
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed session and worktree from the store."""
@@ -732,16 +701,7 @@ class DashpotApp(App[None]):
         self.rendered_cells = desired_cells
         if not table.row_count:
             self.selected_row_key = None
-            self.main_screen.query_one("#project-detail", DetailFields).update(
-                DetailItem("No project selected", kind="message")
-            )
-            self.main_screen.query_one("#selection-pane").border_title = Content(
-                "SELECTION"
-            )
-            self.set_selection_pane_state(None)
-            self.main_screen.query_one("#selection-detail", DetailFields).update(
-                DetailItem(empty_issue_message(self.issue_view.query), kind="message")
-            )
+            self.update_header()
             return result
         if prior_key is not None and prior_key in desired_contexts:
             selected_index = table.get_row_index(prior_key)
@@ -801,10 +761,10 @@ class DashpotApp(App[None]):
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         # A queued highlight can be dispatched during app shutdown, after the
-        # screen and detail panes have been unmounted.
+        # screen and its panes have been unmounted.
         if self._closing or self._closed or not self.screen_stack:
             return
-        # Only the Issue table drives the detail panes; a session or worktree
+        # Only the Issue table drives the Issue selection; a session or worktree
         # cursor is for scrolling, copying and refresh scope alone.
         if event.data_table.id != "queue":
             return
@@ -816,22 +776,17 @@ class DashpotApp(App[None]):
         if context is None:
             return
         self.selected_row_key = key
-        self.set_selection_pane_state(context)
-        self.main_screen.query_one("#project-detail", DetailFields).update(
-            *project_detail_items(context.project)
-        )
-        self.main_screen.query_one("#selection-pane").border_title = Content(
-            selection_title(context)
-        )
-        self.main_screen.query_one("#selection-detail", DetailFields).update(
-            *selection_detail_items(context, dark=self.current_theme.dark)
-        )
+        self.update_header(context.project)
 
-    def set_selection_pane_state(self, context: IssueListRow | None) -> None:
-        state_class = issue_pane_state_class(context)
-        pane = self.main_screen.query_one("#selection-pane")
-        for class_name in ISSUE_PANE_STATE_CLASSES:
-            pane.set_class(class_name == state_class, class_name)
+    def update_header(self, project: ProjectObservation | None = None) -> None:
+        """Sub-title the Header with the selected Project's Repository Anchor.
+
+        Without a selected row the Header names every observed Project's
+        anchor, so an empty Issue table still says what is being observed.
+        """
+        projects = (project,) if project is not None else self.store.projects()
+        anchors = " · ".join(candidate.primary_anchor for candidate in projects)
+        self.sub_title = anchors or DEFAULT_SUB_TITLE
 
     def update_diagnostics(self) -> None:
         messages: list[str] = list(self.observation_errors.values())
@@ -868,24 +823,6 @@ class DashpotApp(App[None]):
         widget.update(alert.text if alert is not None else "")
 
 
-def project_detail_items(project: ProjectObservation) -> tuple[DetailItem, ...]:
-    """The Project's configuration facts; the Sessions pane counts its agents."""
-    return (
-        DetailItem(", ".join(project.workspaces), "Workspaces"),
-        DetailItem(project.primary_anchor, "Anchor"),
-    )
-
-
-def project_detail_text(project: ProjectObservation) -> str:
-    return detail_items_text(project_detail_items(project))
-
-
-def selection_title(context: IssueListRow) -> str:
-    if context.issue:
-        return f"#{context.issue['number']}: {context.issue['title']}"
-    return "SELECTION"
-
-
 def issue_search_sort_terms(
     search_sort: IssueSearchSort | None,
 ) -> tuple[SortTerm, ...] | None:
@@ -893,89 +830,6 @@ def issue_search_sort_terms(
         return None
     column: ColumnKey = "created" if search_sort.field == "created" else "last_action"
     return (SortTerm(column, descending=search_sort.descending),)
-
-
-def issue_pane_state_class(context: IssueListRow | None) -> str | None:
-    if context is None or context.issue is None:
-        return None
-    return f"-issue-{issue_state_kind(context.issue)}"
-
-
-def selection_detail_items(
-    context: IssueListRow, *, now: datetime | None = None, dark: bool = True
-) -> tuple[DetailItem, ...]:
-    items: list[DetailItem] = []
-    if context.issue:
-        current = context.issue
-        location = issue_location(current)
-        labels = [label for label in current["labels"] if not is_priority_label(label)]
-        items.extend(
-            [
-                DetailItem(issue_byline(current, now=now), kind="heading"),
-                DetailItem(location, "Location"),
-                DetailItem(
-                    issue_state_chip(current, current["state"], dark=dark), "State"
-                ),
-                DetailItem(issue_priority(current), "Priority"),
-                DetailItem(
-                    ", ".join(current["assignees"]) or "unassigned",
-                    "Assignees",
-                ),
-                DetailItem(
-                    label_chips(labels, label_colors(context.project)), "Labels"
-                ),
-            ]
-        )
-        if current["milestone"]:
-            items.append(DetailItem(current["milestone"], "Milestone"))
-        if current["issueType"]:
-            items.append(DetailItem(current["issueType"], "Type"))
-        activity = issue_activity(current, context.project)
-        if activity.comment_count:
-            items.append(DetailItem(str(activity.comment_count), "Comments"))
-        if activity.linked_pull_requests:
-            items.append(DetailItem("Pull requests", kind="section"))
-            for pull in activity.linked_pull_requests:
-                items.append(
-                    DetailItem(f"#{pull.number} {pull.state} {pull.url}", kind="list")
-                )
-        items.append(DetailItem("Agent sessions", kind="section"))
-        if not context.observed_runs:
-            items.append(DetailItem("-", kind="list"))
-        else:
-            for run in context.observed_runs:
-                location = (
-                    run.branch
-                    or run.observation_target
-                    or run.working_directory
-                    or "unknown location"
-                )
-                items.append(
-                    DetailItem(
-                        f"{run.id} ({run.state}, {location})",
-                        kind="list",
-                    )
-                )
-    return tuple(items)
-
-
-def selection_detail_text(context: IssueListRow, *, now: datetime | None = None) -> str:
-    return detail_items_text(selection_detail_items(context, now=now))
-
-
-def issue_byline(issue: Issue, *, now: datetime | None = None) -> str:
-    """The feed's framing line: ``opened 3d ago by ned2``.
-
-    The Issue number already heads the pane, so it is not repeated here.
-    """
-    current = now or datetime.now(UTC)
-    parts = ["opened"]
-    age = relative_age(issue["createdAt"], current)
-    if age:
-        parts.append(age)
-    if issue["author"]:
-        parts.append(f"by {issue['author']}")
-    return " ".join(parts)
 
 
 def project_label(project: ProjectObservation) -> str:
@@ -988,10 +842,3 @@ def issue_state_filter_value(query: IssueListQuery) -> str:
     if query.states == frozenset({"closed"}):
         return "closed"
     return "all"
-
-
-def issue_location(issue: Issue) -> str:
-    location = issue["location"]
-    if location["kind"] == "github":
-        return str(location["url"])
-    return f"{location['path']}:{location['line']}"

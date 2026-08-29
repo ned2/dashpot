@@ -19,20 +19,15 @@ from threading import Event, Lock
 
 import pytest
 from rich.text import Text
-from textual.content import Content
 from textual.coordinate import Coordinate
+from textual.dom import DOMNode
+from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Markdown, Select, Static
 
-from dashpot.app import (
-    DashpotApp,
-    issue_pane_state_class,
-    project_label,
-    selection_detail_items,
-    selection_detail_text,
-)
+from dashpot.app import DEFAULT_SUB_TITLE, DashpotApp, project_label
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
-from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
+from dashpot.issue_list import IssueListQuery, IssueListRow, query_issue_list, row_key
 from dashpot.issue_table import (
     COLUMN_KEYS,
     COLUMNS_BY_KEY,
@@ -49,7 +44,14 @@ from dashpot.issue_table import (
     searchable_columns,
     sort_key_for_terms,
 )
-from dashpot.issue_view import IssueScreen, issue_metadata_items
+from dashpot.issue_view import (
+    IssueScreen,
+    issue_byline,
+    issue_location,
+    issue_metadata_items,
+    issue_state_class,
+    selection_title,
+)
 from dashpot.list_pane import ListPane, ListRow
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import (
@@ -173,27 +175,34 @@ async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> Non
         await asyncio.sleep(0.01)
 
 
-def assert_context_above_full_width_queue(app: DashpotApp) -> None:
+def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
+    """Sessions over Worktrees over the Issue table, every one the body's width."""
     body = app.query_one("#body")
-    detail_row = app.query_one("#detail-row")
-    project_pane = app.query_one("#project-pane")
-    selection_pane = app.query_one("#selection-pane")
+    list_row = app.query_one("#list-row")
+    sessions = app.query_one("#sessions-pane")
+    worktrees = app.query_one("#worktrees-pane")
     queue_pane = app.query_one("#queue-pane")
 
-    assert project_pane.region.y == selection_pane.region.y == detail_row.region.y
-    assert project_pane.region.x < selection_pane.region.x
-    assert project_pane.region.bottom <= queue_pane.region.y
-    assert selection_pane.region.bottom <= queue_pane.region.y
-    assert queue_pane.region.x == body.region.x
-    assert queue_pane.region.width == body.region.width
-    assert project_pane.region.height >= 4
-    assert selection_pane.region.height >= 4
+    assert sessions.region.y == list_row.region.y
+    assert sessions.region.bottom <= worktrees.region.y
+    assert worktrees.region.bottom <= list_row.region.bottom <= queue_pane.region.y
+    for pane in (sessions, worktrees, queue_pane):
+        assert pane.region.x == body.region.x
+        assert pane.region.width == body.region.width
     assert queue_pane.region.height >= 6
-    assert abs(detail_row.region.height - queue_pane.region.height) <= 2
+    assert not app.query("#detail-row")
+    assert not app.query("#project-pane")
+    assert not app.query("#selection-pane")
 
 
-def detail_plain(app: DashpotApp, selector: str) -> str:
-    return app.query_one(selector, DetailFields).plain
+def detail_plain(root: DOMNode, selector: str) -> str:
+    return root.query_one(selector, DetailFields).plain
+
+
+def selected_title(app: DashpotApp) -> str:
+    """The compact label of the Issue the table cursor is on."""
+    assert app.selected_row_key is not None
+    return selection_title(app.rows_by_key[app.selected_row_key])
 
 
 def pane_title(app: DashpotApp, selector: str) -> str:
@@ -213,24 +222,14 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 
     async with app.run_test(size=(80, 24)) as pilot:
         # Before the first observation the pane carries only its label, never
-        # a fabricated ``Open 0 · Closed 0`` inventory.
+        # a fabricated ``Open 0 · Closed 0`` inventory, and the Header has no
+        # anchor to name yet.
         assert pane_title(app, "#queue-pane") == "ISSUES"
+        assert app.sub_title == DEFAULT_SUB_TITLE
         release.set()
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         table = app.query_one("#queue", DataTable)
-        project_detail = detail_plain(app, "#project-detail")
-        selection_detail = detail_plain(app, "#selection-detail")
-        project_fields = [
-            row
-            for row in app.query_one("#project-detail", DetailFields).rows
-            if row.item.kind == "field"
-        ]
-        issue_fields = [
-            row
-            for row in app.query_one("#selection-detail", DetailFields).rows
-            if row.item.kind == "field"
-        ]
 
         assert table.row_count == 2
         assert not hasattr(app, "snapshot")
@@ -266,54 +265,24 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "LAST ACTION ↓",
         ]
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
-        assert "Status:" not in project_detail
-        assert "Anchor: /repo" in project_detail
-        assert "Targets:" not in project_detail
-        assert "main@abcdef12 clean" not in project_detail
-        assert "test/repo" not in project_detail
-        assert "Refresh:" not in project_detail
-        assert "Reference:" not in selection_detail
-        byline, _, rest = selection_detail.partition("\n")
-        assert byline.startswith("opened ") and byline.endswith(" by ned2")
-        assert rest.startswith("Location: ")
-        assert "Status:" not in selection_detail
-        assert "Assignees: unassigned" in selection_detail
-        assert "Labels: -" in selection_detail
-        assert "priority/p1" not in selection_detail
-        assert "Agent sessions:" in selection_detail
-        assert "Declared" not in selection_detail
-        assert "blocked" not in selection_detail.lower()
-        assert [row.item.label for row in project_fields] == [
-            "Workspaces",
-            "Anchor",
-        ]
-        assert len({row.field_value.region.x for row in project_fields}) == 1
-        assert len({row.field_value.region.x for row in issue_fields}) == 1
-        assert all(row.field_name.styles.text_align == "left" for row in issue_fields)
+        assert selected_title(app) == "#1: First"
+        # The Header names the observed Project by its Repository Anchor,
+        # never by a label or an Issue Source that could be mistaken for it.
+        assert app.title == "Dashpot"
+        assert app.sub_title == "/repo"
+        assert "test/repo" not in app.sub_title
+        assert "Test Repository" not in app.sub_title
+        header = str(app.query_one("HeaderTitle", Static).render())
+        assert header.startswith("Dashpot")
+        assert header.endswith("/repo")
         assert app.ALLOW_SELECT
-        assert all(
-            row.field_value.allow_select for row in project_fields + issue_fields
-        )
         assert not table.allow_select
 
-        location = issue_fields[0].field_value
-        assert await pilot.mouse_down(location, offset=(0, 0))
-        assert await pilot.mouse_up(location, offset=(5, 0))
-        await pilot.pause()
-        assert app.clipboard == issue_fields[0].item.value[:6]
-
-        assert pane_title(app, "#project-pane") == "PROJECT STATUS"
-        assert pane_title(app, "#selection-pane") == "#1: First"
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 0"
         assert str(app.query_one("#issue-count", Static).render()) == "2 issues"
         assert not app.query("#queue-controls .pane-title")
-        assert app.query_one("#selection-pane").has_class("-issue-open")
-        app.query_one("#selection-pane").border_title = Content(
-            "#1: [bold]literal[/bold]"
-        )
-        assert pane_title(app, "#selection-pane") == "#1: [bold]literal[/bold]"
         diagnostics = app.query_one("#diagnostics", Static)
-        assert_context_above_full_width_queue(app)
+        assert_panes_stack_above_full_width_queue(app)
         # With nothing to report the Diagnostics box is hidden rather than
         # spending a line on a placeholder.
         assert not diagnostics.has_class("-has-messages")
@@ -348,8 +317,7 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert app.selected_row_key == row_key("issue", closed_issue["id"])
-        assert pane_title(app, "#selection-pane") == "#2: Closed"
-        assert app.query_one("#selection-pane").has_class("-issue-completed")
+        assert selected_title(app) == "#2: Closed"
 
 
 @pytest.mark.parametrize(
@@ -368,7 +336,7 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
     ],
 )
 @pytest.mark.asyncio
-async def test_selection_pane_tracks_github_issue_state_colors(
+async def test_issue_view_tracks_github_issue_state_colors(
     state: str,
     reason: str | None,
     state_class: str,
@@ -391,56 +359,77 @@ async def test_selection_pane_tracks_github_issue_state_colors(
         ),
     )
 
-    async with app.run_test(size=(80, 24)) as pilot:
+    async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
-        pane = app.query_one("#selection-pane")
         table = app.query_one("#queue", DataTable)
         issue_key = row_key("issue", selected_issue["id"])
-        assert app.selected_row_key is not None
-        selected_context = app.rows_by_key[app.selected_row_key]
         state_cell = table.get_cell(issue_key, "issue_state")
-
-        assert issue_pane_state_class(selected_context) == state_class
-        assert pane.has_class(state_class)
-        assert pane.styles.border_top[1].hex.casefold() == dark_color
         assert isinstance(state_cell, IssueStateCell)
         assert state_cell.plain == "■"
         assert str(state_cell.style).casefold() == dark_color
-        # Only the border line carries the state colour: the title keeps the
-        # ordinary text colour, and the State value is a chip on that colour.
-        assert pane.styles.border_title_color.a == 1
-        assert pane.styles.border_title_color.hex.casefold() != dark_color
-        assert state_chip_background(app) == dark_color
-        assert state_chip_text(app) == state
+
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+        view = app.screen
+        body = view.query_one("#issue-view-body")
+        metadata = view.query_one("#issue-view-metadata")
+
+        assert issue_state_class(selected_issue) == state_class
+        assert view.query_one("#issue-view").has_class(state_class)
+        # Both border lines carry the state colour: in full on the focused
+        # pane and dimmed on the other, so focus still reads without a bar.
+        assert body.has_focus
+        assert border_color(body) == dark_color
+        assert body.styles.border_top[1].a == 1
+        assert border_color(metadata) == dark_color
+        assert 0 < metadata.styles.border_top[1].a < 1
+        # The titles keep the ordinary text colour, and the State value is a
+        # chip on the state colour.
+        for pane in (body, metadata):
+            assert pane.styles.border_title_color.a == 1
+            assert pane.styles.border_title_color.hex.casefold() != dark_color
+        assert state_chip_background(view) == dark_color
+        assert state_chip_text(view).startswith(state)
+
+        await pilot.press("tab")
+        assert metadata.has_focus
+        assert border_color(metadata) == dark_color
+        assert metadata.styles.border_top[1].a == 1
+        assert 0 < body.styles.border_top[1].a < 1
 
         app.theme = "textual-light"
-        await pilot.pause()
+        await wait_until(lambda: border_color(metadata) == light_color)
 
-        assert pane.styles.border_top[1].hex.casefold() == light_color
-        assert state_chip_background(app) == light_color
+        assert border_color(body) == light_color
+        assert state_chip_background(view) == light_color
         light_state_cell = table.get_cell(issue_key, "issue_state")
         assert isinstance(light_state_cell, IssueStateCell)
         assert light_state_cell.plain == "■"
         assert str(light_state_cell.style).casefold() == light_color
 
 
-def state_chip(app: DashpotApp) -> Text:
+def border_color(pane: Widget) -> str:
+    """The pane's border colour without its alpha."""
+    return pane.styles.border_top[1].hex.casefold()[:7]
+
+
+def state_chip(view: DOMNode) -> Text:
     row = next(
         row
-        for row in app.query_one("#selection-detail", DetailFields).rows
+        for row in view.query_one("#issue-view-metadata", DetailFields).rows
         if row.item.label == "State"
     )
     assert isinstance(row.item.value, Text)
     return row.item.value
 
 
-def state_chip_text(app: DashpotApp) -> str:
-    return state_chip(app).plain.strip()
+def state_chip_text(view: DOMNode) -> str:
+    return state_chip(view).plain.strip()
 
 
-def state_chip_background(app: DashpotApp) -> str:
-    return str(state_chip(app).style).casefold().split(" on ")[1]
+def state_chip_background(view: DOMNode) -> str:
+    return str(state_chip(view).style).casefold().split(" on ")[1]
 
 
 @pytest.mark.asyncio
@@ -467,7 +456,7 @@ async def test_table_stripes_never_match_the_empty_area_below_the_rows() -> None
 
 
 @pytest.mark.asyncio
-async def test_selection_pane_color_switches_with_selected_issue() -> None:
+async def test_issue_view_color_follows_the_opened_issue() -> None:
     open_issue = issue("test/repo#1", "Open")
     completed_issue = issue("test/repo#2", "Completed")
     completed_issue.update(
@@ -485,20 +474,25 @@ async def test_selection_pane_color_switches_with_selected_issue() -> None:
         ),
     )
 
-    async with app.run_test(size=(80, 24)) as pilot:
+    async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
 
-        app.show_row(row_key("issue", open_issue["id"]))
+        app.open_issue(row_key("issue", open_issue["id"]))
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
-        pane = app.query_one("#selection-pane")
-        assert pane.has_class("-issue-open")
-        assert pane.styles.border_top[1].hex == "#238636"
+        view = app.screen.query_one("#issue-view")
+        assert view.has_class("-issue-open")
+        assert border_color(app.screen.query_one("#issue-view-body")) == "#238636"
 
-        app.show_row(row_key("issue", completed_issue["id"]))
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, IssueScreen))
+        app.open_issue(row_key("issue", completed_issue["id"]))
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
-        assert pane.has_class("-issue-completed")
-        assert not pane.has_class("-issue-open")
-        assert pane.styles.border_top[1].hex.casefold() == "#8957e5"
+        view = app.screen.query_one("#issue-view")
+        assert view.has_class("-issue-completed")
+        assert not view.has_class("-issue-open")
+        assert border_color(app.screen.query_one("#issue-view-body")) == "#8957e5"
 
 
 @pytest.mark.asyncio
@@ -979,8 +973,8 @@ async def test_unavailable_project_observation_keeps_last_good_issue_rows() -> N
         await wait_until(lambda: app.store.revision == 2)
 
         assert app.query_one("#queue", DataTable).row_count == 1
-        assert pane_title(app, "#selection-pane") == "#1: Last good"
-        assert "Status:" not in detail_plain(app, "#project-detail")
+        assert selected_title(app) == "#1: Last good"
+        assert app.sub_title == "/repo"
         assert "repository is unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -1025,8 +1019,7 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
         await wait_until(lambda: app.store.revision == 2)
 
         assert app.query_one("#queue", DataTable).row_count == 1
-        assert pane_title(app, "#selection-pane") == "#1: Last good"
-        assert "Status:" not in detail_plain(app, "#project-detail")
+        assert selected_title(app) == "#1: Last good"
         assert "GitHub unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -1077,8 +1070,7 @@ async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert "prunable" in str(app.query_one("#diagnostics", Static).render())
-        assert "Anchor: /repo" in detail_plain(app, "#project-detail")
-        assert "unavailable" not in detail_plain(app, "#project-detail")
+        assert app.sub_title == "/repo"
 
 
 @pytest.mark.asyncio
@@ -1103,8 +1095,7 @@ async def test_unbound_agent_is_counted_on_the_project_not_listed_as_work() -> N
         table = app.query_one("#queue", DataTable)
         assert table.row_count == 1
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
-        assert "Unmatched" not in detail_plain(app, "#selection-detail")
-        assert pane_title(app, "#selection-pane") == "#1: First"
+        assert selected_title(app) == "#1: First"
 
 
 @pytest.mark.asyncio
@@ -1132,7 +1123,7 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         await pilot.resize_terminal(120, 32)
         await pilot.pause()
         assert app.screen.has_class("-wide")
-        assert_context_above_full_width_queue(app)
+        assert_panes_stack_above_full_width_queue(app)
         assert_counts_fit_in_queue_pane()
 
 
@@ -1205,22 +1196,7 @@ def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None
     assert [str(value) for value in ascending] == ["v1", "-"]
 
 
-def test_issue_detail_shows_milestone_and_type_only_when_present() -> None:
-    classified = issue("test/repo#1", "Classified")
-    detail = selection_detail_text(
-        query_issue_list(workspace_snapshot(classified)).rows[0]
-    )
-    assert "Milestone: v1\nType: Feature\nAgent sessions:" in detail
-
-    plain = issue("test/repo#2", "Plain")
-    plain["milestone"] = None
-    plain["issueType"] = None
-    detail = selection_detail_text(query_issue_list(workspace_snapshot(plain)).rows[0])
-    assert "Milestone:" not in detail
-    assert "Type:" not in detail
-
-
-def test_comments_column_and_detail_show_engagement_only_when_present() -> None:
+def test_comments_column_shows_engagement_only_when_present() -> None:
     discussed = issue("test/repo#1", "Discussed")
     quiet = issue("test/repo#2", "Quiet")
     snapshot = workspace_snapshot(discussed, quiet)
@@ -1248,35 +1224,44 @@ def test_comments_column_and_detail_show_engagement_only_when_present() -> None:
     )
     assert [str(value) for value in ascending] == ["-", "4"]
 
-    detail = selection_detail_text(contexts[row_key("issue", discussed["id"])])
+    detail = issue_metadata_text(contexts[row_key("issue", discussed["id"])])
     assert "Comments: 4\n" in detail
     assert (
         "Pull requests:\n"
         "  #12 open https://github.com/test/repo/pull/12\n"
         "  #41 merged https://github.com/test/repo/pull/41\n"
-        "Agent sessions:"
+        "Relationships:"
     ) in detail
 
-    quiet_detail = selection_detail_text(contexts[row_key("issue", quiet["id"])])
-    assert "Comments:" not in quiet_detail
-    assert "Pull requests:" not in quiet_detail
+    quiet_detail = issue_metadata_text(contexts[row_key("issue", quiet["id"])])
+    assert "Comments: 0\n" in quiet_detail
+    assert "Pull requests:\n  -\n" in quiet_detail
 
 
-def test_issue_detail_leads_with_the_feed_byline() -> None:
+def issue_metadata_text(context: IssueListRow) -> str:
+    return detail_items_text(issue_metadata_items(context))
+
+
+def test_issue_byline_frames_the_issue_as_opened_by_its_author() -> None:
     now = datetime(2026, 8, 29, 5, 33, 4, tzinfo=UTC)
     selected_issue = issue("test/repo#12", "Byline")
     selected_issue["createdAt"] = "2026-08-26T05:33:04Z"
-    context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
 
-    detail = selection_detail_text(context, now=now)
-
-    assert detail.startswith("opened 3d ago by ned2\n")
+    assert issue_byline(selected_issue, now=now) == "opened 3d ago by ned2"
 
     selected_issue["author"] = None
     selected_issue["createdAt"] = "2026-08-29T05:20:00Z"
-    context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
 
-    assert selection_detail_text(context, now=now).startswith("opened 13m ago\n")
+    assert issue_byline(selected_issue, now=now) == "opened 13m ago"
+
+
+def test_issue_location_is_the_url_or_the_local_file_line() -> None:
+    hosted = issue("test/repo#12", "Hosted")
+    assert issue_location(hosted) == str(hosted["location"]["url"])
+
+    local = issue("test/repo#13", "Local")
+    local["location"] = {"kind": "local", "path": "TASKS.md", "line": 7}
+    assert issue_location(local) == "TASKS.md:7"
 
 
 def test_issue_number_column_uses_the_bare_project_local_number() -> None:
@@ -1504,12 +1489,12 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     assert isinstance(number_cell, IssueNumberCell)
     assert number_cell.justify == "right"
     assert cells[selected_key][DEFAULT_COLUMNS.index("agent_state")] == "Ⅱ"
-    detail = selection_detail_text(contexts[selected_key])
+    detail = issue_metadata_text(contexts[selected_key])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail
 
 
-def test_selection_detail_excludes_labels_used_as_priority() -> None:
+def test_issue_metadata_excludes_labels_used_as_priority() -> None:
     selected_issue = issue("test/repo#1", "First")
     selected_issue["labels"] = [
         "bug",
@@ -1524,7 +1509,7 @@ def test_selection_detail_excludes_labels_used_as_priority() -> None:
     ]
     context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
 
-    detail = selection_detail_text(context)
+    detail = issue_metadata_text(context)
 
     assert "Priority: P0" in detail
     assert "Labels: bug" in detail
@@ -1536,7 +1521,7 @@ def test_selection_detail_excludes_labels_used_as_priority() -> None:
 
 
 @pytest.mark.asyncio
-async def test_selection_detail_uses_one_current_store_projection() -> None:
+async def test_issue_view_uses_one_current_store_projection() -> None:
     selected_issue = issue("test/repo#1", "First")
     snapshot = workspace_snapshot(selected_issue)
     store = WorkspaceObservationStore(snapshot)
@@ -1567,11 +1552,12 @@ async def test_selection_detail_uses_one_current_store_projection() -> None:
         store.replace_agent_runs(
             [observed_run], {selected_issue["id"]: [observed_run.id]}
         )
-        app.show_row(selected_key)
+        app.open_issue(selected_key)
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+        await pilot.pause()
 
-        assert "Agents" not in detail_plain(app, "#project-detail")
         assert "codex-session:current (running, issue/current)" in detail_plain(
-            app, "#selection-detail"
+            app.screen, "#issue-view-metadata"
         )
 
 
@@ -1667,7 +1653,7 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
         await wait_until(lambda: app.store.revision == 2)
 
         assert app.selected_row_key == selected_key
-        assert pane_title(app, "#selection-pane") == "#70: Transfer me"
+        assert selected_title(app) == "#70: Transfer me"
 
 
 class RacingCollector:
@@ -1712,7 +1698,7 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
             collector.release.set()
             await asyncio.sleep(0.1)
             assert app.store.checkpoint() == new
-            assert pane_title(app, "#selection-pane") == "#1: New result"
+            assert selected_title(app) == "#1: New result"
     finally:
         collector.release.set()
 
@@ -2003,7 +1989,7 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
 
         await wait_until(lambda: alert(app).region.height == 1)
         assert alert(app).region.width == 60
-        assert_context_above_full_width_queue(app)
+        assert_panes_stack_above_full_width_queue(app)
 
         app.store.replace(workspace_snapshot(issue("test/repo#1", "First")))
         app.update_diagnostics()
@@ -2047,11 +2033,26 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         view = app.screen
         assert isinstance(view, IssueScreen)
-        assert str(view.query_one("#issue-view-title", Static).render()) == "Second"
-        subtitle = str(view.query_one("#issue-view-subtitle", Static).render())
-        assert subtitle.startswith("test/repo#2 · Test Repository · open · opened ")
+        assert not view.query("#issue-view-title")
+        # One heading line: where the Issue lives pushed left, and when it
+        # was opened pushed right.
+        location_widget = view.query_one("#issue-view-location", Static)
+        subtitle_widget = view.query_one("#issue-view-subtitle", Static)
+        assert str(location_widget.render()) == str(second["location"]["url"])
+        subtitle = str(subtitle_widget.render())
+        assert subtitle.startswith("opened ")
         assert subtitle.endswith(" by ned2")
+        assert " · " not in subtitle
+        assert subtitle_widget.styles.text_align == "right"
+        assert subtitle_widget.styles.text_style.italic
+        heading = view.query_one("#issue-view-heading")
+        assert heading.region.height == 1
+        assert location_widget.region.y == subtitle_widget.region.y
+        assert location_widget.region.x == heading.region.x
+        assert location_widget.region.right <= subtitle_widget.region.x
+        assert subtitle_widget.region.right == heading.region.right
         markdown = view.query_one("#issue-view-markdown", Markdown)
+        assert markdown.region.y == heading.region.bottom
         assert markdown.query("MarkdownH1")
         assert markdown.query("MarkdownBulletList")
         assert not view.query("#issue-view-empty")
@@ -2061,6 +2062,13 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         # focus is still cued by the border colour rather than a heavier bar.
         body = view.query_one("#issue-view-body")
         metadata = view.query_one("#issue-view-metadata")
+        assert body._border_title is not None
+        assert body._border_title.plain == "#2: Second"
+        assert (
+            body.styles.border_title_color
+            == metadata.styles.border_title_color
+            == app.main_screen.query_one("#queue-pane").styles.border_title_color
+        )
         assert body.styles.border_top[0] == metadata.styles.border_top[0] == "round"
         assert body.styles.border_top[1] != metadata.styles.border_top[1]
 
@@ -2254,24 +2262,19 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
     ) in bare_text
 
 
-def test_detail_panes_render_labels_as_tracker_coloured_chips() -> None:
+def test_issue_view_renders_labels_as_tracker_coloured_chips() -> None:
     labelled = issue("test/repo#1", "Labelled")
     labelled["labels"] = ["bug", "priority/p1"]
     snapshot = workspace_snapshot(labelled)
     snapshot_of(snapshot.projects[0]).label_colors = {"bug": "d73a4a"}
     context = query_issue_list(snapshot).rows[0]
 
-    for items in (
-        selection_detail_items(context),
-        issue_metadata_items(context),
-    ):
-        labels = next(item for item in items if item.label == "Labels")
-        assert isinstance(labels.value, Text)
-        assert labels.value.plain == " bug "
-        assert [str(span.style) for span in labels.value.spans] == [
-            "#ffffff on #d73a4a"
-        ]
-        assert "Labels: bug" in detail_items_text(items)
+    items = issue_metadata_items(context)
+    labels = next(item for item in items if item.label == "Labels")
+    assert isinstance(labels.value, Text)
+    assert labels.value.plain == " bug "
+    assert [str(span.style) for span in labels.value.spans] == ["#ffffff on #d73a4a"]
+    assert "Labels: bug" in detail_items_text(items)
 
 
 def list_rows(
@@ -2303,7 +2306,7 @@ def footer_keys(app: DashpotApp) -> set[str]:
 
 
 @pytest.mark.asyncio
-async def test_main_screen_composes_the_pane_row_between_detail_and_issues() -> None:
+async def test_main_screen_stacks_the_panes_above_the_issues() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -2313,15 +2316,11 @@ async def test_main_screen_composes_the_pane_row_between_detail_and_issues() -> 
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
 
-        detail_row = app.query_one("#detail-row")
-        list_row = app.query_one("#list-row")
         sessions = app.query_one("#sessions-pane", ListPane)
         worktrees = app.query_one("#worktrees-pane", ListPane)
         queue_pane = app.query_one("#queue-pane")
-        assert detail_row.region.bottom <= list_row.region.y
-        assert list_row.region.bottom <= queue_pane.region.y
-        assert sessions.region.y == worktrees.region.y
-        assert sessions.region.right <= worktrees.region.x
+        assert_panes_stack_above_full_width_queue(app)
+        assert sessions.region.bottom == worktrees.region.y
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         # An empty pane is one honest line inside its frame, not a blank box.
@@ -2391,13 +2390,11 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         pane = prepare_pane(app, "sessions-pane")
+        worktrees = app.query_one("#worktrees-pane", ListPane)
 
         def flex_height() -> int:
-            """The height shared by the detail row and the Issue table."""
-            return sum(
-                app.query_one(selector).region.height
-                for selector in ("#detail-row", "#queue-pane")
-            )
+            """The Issue table's height, which is whatever the panes leave."""
+            return app.query_one("#queue-pane").region.height
 
         list_row = app.query_one("#list-row")
         initial_flex_height = flex_height()
@@ -2406,10 +2403,10 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         pane.show_rows(list_rows(3))
         await wait_until(lambda: pane.region.height == pane_chrome(pane) + 3)
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
-        # Frame, header and three records; the flex rows give up only what
-        # the pane row (the taller of its two panes) grows by.
+        # Frame, header and three records; the Issue table gives up only what
+        # the pane stack grows by.
         assert pane.region.height == pane_chrome(pane) + 3
-        assert list_row.region.height == pane.region.height
+        assert list_row.region.height == pane.region.height + worktrees.region.height
         assert not pane.table.show_vertical_scrollbar
         assert not app.query_one("#sessions-pane .list-pane-empty").display
         assert flex_height() == initial_flex_height - (
@@ -2421,9 +2418,12 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
         # A pane never exceeds its cap; a horizontal scrollbar comes out of
         # the records shown rather than out of the Issue table.
-        assert pane.region.height == list_row.region.height == 2 + 1 + 8
+        assert pane.region.height == 2 + 1 + 8
+        assert list_row.region.height == 2 + 1 + 8 + worktrees.region.height
         assert pane.table.show_vertical_scrollbar
-        assert flex_height() == initial_flex_height - (11 - initial_row_height)
+        assert flex_height() == initial_flex_height - (
+            list_row.region.height - initial_row_height
+        )
         pane.table.move_cursor(row=11)
         await pilot.pause()
         assert pane.table.scroll_y > 0
@@ -2437,7 +2437,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_compact_layout_stacks_the_panes_and_caps_each_one() -> None:
+async def test_panes_stack_full_width_at_every_breakpoint() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -2469,10 +2469,11 @@ async def test_compact_layout_stacks_the_panes_and_caps_each_one() -> None:
         assert app.query_one("#queue-pane").region.bottom <= body.region.bottom
 
         await pilot.resize_terminal(120, 50)
-        await wait_until(lambda: sessions.region.y == worktrees.region.y)
-        assert app.screen.has_class("-wide")
-        assert sessions.region.y == worktrees.region.y
-        assert sessions.region.right <= worktrees.region.x
+        await wait_until(lambda: app.screen.has_class("-wide"))
+        await wait_until(lambda: sessions.region.width == body.region.width)
+        assert_panes_stack_above_full_width_queue(app)
+        assert sessions.region.height == 2 + 1 + 8
+        assert worktrees.region.height == pane_chrome(worktrees) + 2
 
 
 @pytest.mark.asyncio
@@ -2482,7 +2483,9 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         refresh_seconds=0,
     )
 
-    async with app.run_test(size=(80, 24)) as pilot:
+    # 18 rows: Header, Footer, the Issue table's minimum of 6 and its blank
+    # line leave 9, which the two stacked panes split into a record each.
+    async with app.run_test(size=(80, 18)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         sessions = prepare_pane(app, "sessions-pane")
@@ -2496,7 +2499,6 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         body = app.query_one("#body")
         queue_pane = app.query_one("#queue-pane")
         footer = app.query_one(Footer)
-        assert app.query_one("#detail-row").region.height >= 7
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= footer.region.y
         # Room for one record each; the rest scrolls behind the count.
@@ -2506,12 +2508,10 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         )
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
         assert body.region.height >= (
-            app.query_one("#detail-row").region.height
-            + app.query_one("#list-row").region.height
-            + queue_pane.region.height
+            app.query_one("#list-row").region.height + queue_pane.region.height
         )
 
-        await pilot.resize_terminal(80, 30)
+        await pilot.resize_terminal(80, 24)
         await wait_until(
             lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 4
         )
@@ -2520,7 +2520,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         assert queue_pane.region.bottom <= app.query_one(Footer).region.y
 
         # Too short even for a record each: the panes collapse to their counts.
-        await pilot.resize_terminal(80, 21)
+        await pilot.resize_terminal(80, 16)
         await wait_until(lambda: sessions.region.height == worktrees.region.height == 2)
         assert sessions.region.height == worktrees.region.height == 2
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 12"
@@ -2529,7 +2529,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
 
 
 @pytest.mark.asyncio
-async def test_pane_cursor_leaves_the_detail_panes_alone_and_enter_finds_the_issue() -> (
+async def test_pane_cursor_leaves_the_issue_selection_alone_and_enter_finds_it() -> (
     None
 ):
     snapshot = workspace_snapshot(
@@ -2540,8 +2540,7 @@ async def test_pane_cursor_leaves_the_detail_panes_alone_and_enter_finds_the_iss
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
-        assert pane_title(app, "#selection-pane") == "#1: First"
-        project_detail = detail_plain(app, "#project-detail")
+        assert selected_title(app) == "#1: First"
         pane = prepare_pane(app, "sessions-pane")
         pane.show_rows(
             (
@@ -2555,8 +2554,7 @@ async def test_pane_cursor_leaves_the_detail_panes_alone_and_enter_finds_the_iss
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == ("unbound", 1)
-        assert pane_title(app, "#selection-pane") == "#1: First"
-        assert detail_plain(app, "#project-detail") == project_detail
+        assert selected_title(app) == "#1: First"
 
         await pilot.press("enter")
         await pilot.pause()
@@ -2567,7 +2565,7 @@ async def test_pane_cursor_leaves_the_detail_panes_alone_and_enter_finds_the_iss
         await pilot.press("enter")
         await pilot.pause()
         assert app.selected_row_key == row_key("issue", "I_test/repo#2")
-        assert pane_title(app, "#selection-pane") == "#2: Second"
+        assert selected_title(app) == "#2: Second"
         assert app.query_one("#queue", DataTable).cursor_row == 1
         assert not isinstance(app.screen, IssueScreen)
         assert pane.table.has_focus
@@ -2713,8 +2711,6 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
         assert str(table.get_row_at(2)[0]) == "○ unknown"
         assert str(table.get_row_at(2)[6]) == "-"
         assert not app.query_one("#sessions-pane .list-pane-empty").display
-        # The pane title is the one agent count; PROJECT STATUS no longer has one.
-        assert "Agents" not in detail_plain(app, "#project-detail")
 
 
 @pytest.mark.asyncio
@@ -2732,20 +2728,20 @@ async def test_enter_on_a_bound_session_highlights_its_issue_and_unbound_is_safe
     async with app.run_test(size=(160, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
-        assert pane_title(app, "#selection-pane") == "#1: First"
+        assert selected_title(app) == "#1: First"
 
         await pilot.press("2")
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
-        assert pane_title(app, "#selection-pane") == "#1: First"
+        assert selected_title(app) == "#1: First"
 
         await pilot.press("up")
         await pilot.press("enter")
         await pilot.pause()
         assert app.selected_row_key == row_key("issue", "I_test/repo#2")
-        assert pane_title(app, "#selection-pane") == "#2: Second"
+        assert selected_title(app) == "#2: Second"
         assert not isinstance(app.screen, IssueScreen)
         assert app.sessions_pane().table.has_focus
 
@@ -2858,7 +2854,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
             "dirty",
         ]
         # Highlighting a worktree leaves the Issue-driven panes alone.
-        assert pane_title(app, "#selection-pane") == "#1: First"
+        assert selected_title(app) == "#1: First"
         await pilot.press("enter")
         await pilot.pause()
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")

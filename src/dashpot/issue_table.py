@@ -120,7 +120,7 @@ class LabelsCell(Text):
 
 
 def label_chips(labels: Sequence[str], colors: Mapping[str, str]) -> Text:
-    """Labels as coloured chips that may wrap, for detail panes."""
+    """Labels as coloured chips that may wrap, for the Issue view."""
     return append_label_chips(Text(), tuple(labels), colors)
 
 
@@ -138,6 +138,14 @@ def append_label_chips(
     if not labels:
         text.append("-")
     return text
+
+
+def issue_state_colors(*, dark: bool) -> dict[str, str]:
+    """The Issue state colours as CSS variables (``$issue-open`` and so on)."""
+    return {
+        f"issue-{kind}": colors[1] if dark else colors[0]
+        for kind, colors in GITHUB_ISSUE_STATE_COLORS.items()
+    }
 
 
 def issue_state_chip(issue: Issue, label: str, *, dark: bool) -> Text:

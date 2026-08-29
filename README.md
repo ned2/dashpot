@@ -476,21 +476,23 @@ over every key and serializes the store's `checkpoint()`, so it remains one
 complete snapshot. Collection happens off the UI thread, and the table is
 reconciled by stable row keys.
 
-The main screen is a single pane of glass composed of three rows: the
-`PROJECT STATUS` and `ISSUE` detail panes, a pane row of `SESSIONS` and
-`WORKTREES`, and the full-width `ISSUES` table. Nothing is switched to: every
-active Agent Session and every observed Worktree is listed in its pane, with
-the count in the pane title and an honest one-line empty state. The pane row
-is sized to its content rather than sharing the flex height: each pane grows
-with its records up to a cap of eight and scrolls beyond it, and the cap
-shrinks before the detail row or the Issue table would drop below its minimum
-height, so the panes only ever cost the Issue table what they actually use.
-Below the compact breakpoint the two panes stack. `Tab` and `Shift+Tab` cycle
-focus Issues → Sessions → Worktrees, `1`, `2` and `3` jump to a list and `/`
-to the Issue search. The row cursor in the Sessions and Worktrees panes is for
-scrolling, copying and refresh scope (`r`); only the Issue table drives the
-detail panes, and `Enter` on a session with an Issue Binding highlights that
-Issue in the Issue table. The Sessions pane is its own read model
+The main screen is a single pane of glass: the Header names the observed
+Project by its Repository Anchor (`Dashpot — /path/to/repo`), and below it
+the full-width `SESSIONS` and `WORKTREES` panes stack above the full-width
+`ISSUES` table. Nothing is switched to: every active Agent Session and every
+observed Worktree is listed in its pane, with the count in the pane title and
+an honest one-line empty state. The panes are sized to their content rather
+than sharing the flex height: each grows with its records up to a cap of
+eight and scrolls beyond it, and the cap shrinks before the Issue table would
+drop below its minimum height, so the panes only ever cost the Issue table
+what they actually use. `Tab` and `Shift+Tab` cycle focus Issues → Sessions →
+Worktrees, `1`, `2` and `3` jump to a list and `/` to the Issue search. The
+row cursor in the Sessions and Worktrees panes is for scrolling, copying and
+refresh scope (`r`); only the Issue table drives the Issue selection, `Enter`
+on an Issue opens it in the full-screen Issue view (its location on the left
+of the heading line, `opened 3d ago by ned2` on the right, and both panes'
+borders in the Issue's state colour), and `Enter` on a session with an Issue
+Binding highlights that Issue in the Issue table. The Sessions pane is its own read model
 ([`session_list.py`](src/dashpot/session_list.py), queried through
 `WorkspaceObservationStore.query_sessions`): every active Agent Session of the
 observed Project exactly once, sorted running → waiting → unknown and then by
