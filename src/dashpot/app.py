@@ -337,11 +337,12 @@ class DashpotApp(App[None]):
             self.reconcile_rows()
 
     def add_table_columns(self, table: SpreadTable[TableCell]) -> None:
-        table.spread_weights.clear()
         for column in column_specs(self.issue_view.columns):
-            table.add_column(column_label(column, self.issue_view.sort), key=column.key)
-            if column.flex is not None:
-                table.spread_weights[column.key] = column.flex
+            table.add_column(
+                column_label(column, self.issue_view.sort),
+                key=column.key,
+                flex=column.flex,
+            )
 
     def action_columns(self) -> None:
         self.push_screen(

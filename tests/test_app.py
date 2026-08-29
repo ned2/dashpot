@@ -2897,7 +2897,7 @@ def column_widths(table: DataTable[Any]) -> list[int]:
 
 
 @pytest.mark.asyncio
-async def test_every_table_spreads_its_columns_to_the_pane_edge() -> None:
+async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -2905,56 +2905,44 @@ async def test_every_table_spreads_its_columns_to_the_pane_edge() -> None:
 
     async with app.run_test(size=(160, 50)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
+        queue = app.query_one("#queue", DataTable)
+        await wait_until(
+            lambda: sum(column_widths(queue)) == queue.scrollable_content_region.width
+        )
+        columns = list(queue.columns.values())
+        assert all(not column.auto_width for column in columns)
+        shares = {
+            str(column.key.value): column.width - column.content_width
+            for column in columns
+        }
+        # Every column keeps its content; the surplus goes in proportion to
+        # it, except the one-glyph icon columns, which opt out.
+        assert min(shares.values()) >= 0
+        assert shares["issue_state"] == shares["agent_state"] == 0
+        assert shares["title"] > shares["agent_state"] > 0 or shares["title"] > 0
+        for column in columns:
+            for other in columns:
+                if column.content_width < other.content_width:
+                    assert shares[str(column.key.value)] <= shares[str(other.key.value)]
+
+        # The list panes stay content-sized.
         sessions = prepare_pane(app, "sessions-pane")
         sessions.show_rows(list_rows(2, prefix="session"))
         await pilot.pause()
-        tables = [
-            app.query_one("#queue", DataTable),
-            sessions.table,
-            app.query_one("#worktrees", DataTable),
-            app.query_one("#branches", DataTable),
-        ]
-        for table in tables:
-            await wait_until(
-                lambda table=table: (
-                    sum(column_widths(table)) == table.scrollable_content_region.width
-                )
-            )
-            # Every column keeps its content and the surplus is shared in
-            # proportion to it: a wider column never gets the smaller share.
-            columns = list(table.columns.values())
-            assert all(not column.auto_width for column in columns)
-            shares = [column.width - column.content_width for column in columns]
-            assert min(shares) >= 0
-            for share, column in zip(shares, columns, strict=True):
-                for other_share, other in zip(shares, columns, strict=True):
-                    if column.content_width < other.content_width:
-                        assert share <= other_share
+        for table_id in ("sessions", "worktrees", "branches"):
+            table = app.query_one(f"#{table_id}", DataTable)
+            assert all(column.auto_width for column in table.columns.values())
+            assert sum(column_widths(table)) < table.scrollable_content_region.width
 
-        # The one-glyph icon columns of the Issue table opt out of the surplus.
-        queue = tables[0]
-        icon_shares = {
-            str(column.key.value): column.width - column.content_width
-            for column in queue.columns.values()
-            if str(column.key.value) in {"issue_state", "agent_state"}
-        }
-        assert icon_shares == {"issue_state": 0, "agent_state": 0}
-        assert sum(column_widths(queue)) == queue.scrollable_content_region.width
-
-        # Content wider than the pane cannot be spread: the columns are their
-        # content and the table scrolls sideways instead of squeezing anything.
-        sessions.show_rows(list_rows(2, prefix="s" * 200))
+        # Too narrow to spread: the columns are their content and the table
+        # scrolls sideways instead of squeezing anything.
+        await pilot.resize_terminal(30, 50)
         await wait_until(
-            lambda: all(column.auto_width for column in sessions.table.columns.values())
+            lambda: all(column.auto_width for column in queue.columns.values())
         )
-        assert sum(column_widths(sessions.table)) > (
-            sessions.table.scrollable_content_region.width
-        )
+        assert sum(column_widths(queue)) > queue.scrollable_content_region.width
 
-        sessions.show_rows(list_rows(2, prefix="session"))
+        await pilot.resize_terminal(160, 50)
         await wait_until(
-            lambda: (
-                sum(column_widths(sessions.table))
-                == sessions.table.scrollable_content_region.width
-            )
+            lambda: sum(column_widths(queue)) == queue.scrollable_content_region.width
         )

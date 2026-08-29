@@ -18,10 +18,8 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.content import Content
 from textual.message import Message
-from textual.widgets import Static
+from textual.widgets import DataTable, Static
 from typing_extensions import override
-
-from .spread_table import SpreadTable
 
 ListCell = str | Text
 
@@ -34,9 +32,6 @@ ELLIPSIS = "…"
 class ListColumn:
     key: str
     label: str
-    # Share of the pane's spare width: ``None`` follows the content width,
-    # ``0`` keeps the column at its content.
-    flex: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,21 +94,19 @@ class ListPane(Vertical):
 
     @override
     def compose(self) -> ComposeResult:
-        yield SpreadTable(id=self.table_id, cursor_type="row", zebra_stripes=True)
+        yield DataTable(id=self.table_id, cursor_type="row", zebra_stripes=True)
         yield Static(self.empty_message, classes="list-pane-empty", markup=False)
 
     def on_mount(self) -> None:
         table = self.table
         for column in self.columns:
             table.add_column(column.label, key=column.key)
-            if column.flex is not None:
-                table.spread_weights[column.key] = column.flex
         self.show_rows(())
 
     @property
-    def table(self) -> SpreadTable[ListCell]:
+    def table(self) -> DataTable[ListCell]:
         """The pane's table; `query_one` cannot name the cell type itself."""
-        return cast("SpreadTable[ListCell]", self.query_one(SpreadTable))
+        return cast("DataTable[ListCell]", self.query_one(DataTable))
 
     @property
     def count(self) -> int:

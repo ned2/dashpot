@@ -1,15 +1,16 @@
-"""A DataTable whose columns share the table's spare width evenly."""
+"""A DataTable whose columns share the table's spare width."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Self
 
+from rich.text import TextType
 from textual import events
 from textual.geometry import Size
 from textual.render import measure
 from textual.widgets import DataTable
-from textual.widgets.data_table import RowKey
+from textual.widgets.data_table import ColumnKey, RowKey
 from typing_extensions import override
 
 if TYPE_CHECKING:
@@ -19,37 +20,49 @@ else:  # The generic parameter is only spelled at type-check time.
 
 
 class SpreadTable(DataTable[CellType]):
-    """A DataTable that spreads its spare width evenly across the columns.
+    """A DataTable that spreads its spare width across the columns.
 
     Textual sizes a column to its content or to a fixed width; neither fills
     the pane. Every column keeps its content as a minimum and receives a
     share of whatever width is left in proportion to that content, as a
     browser lays out an auto table, so the columns reach the pane's edge at
-    any size and the long columns take most of the room. When the content alone is wider than the pane the
-    columns fall back to their content widths and the table scrolls
-    horizontally, as before.
+    any size and the long columns take most of the room. A column added with
+    an explicit ``flex`` uses that weight instead; ``0`` pins it to its
+    content, as for a one-glyph icon. When the content alone is wider than
+    the pane the columns fall back to their content widths and the table
+    scrolls horizontally, as before.
     """
 
-    _spread_weights: dict[str, int] | None = None
+    # Explicit weights by column key; created on first use rather than in
+    # ``__init__``, whose long DataTable signature would have to be repeated.
+    _flex: dict[ColumnKey, int] | None = None
 
-    @property
-    def spread_weights(self) -> dict[str, int]:
-        """Explicit share weights by column key, replacing the content width.
-
-        ``0`` pins a column to its content, as for a one-glyph icon.
-        """
-        # Created on first use rather than in ``__init__``, whose long
-        # DataTable signature would otherwise have to be repeated here.
-        if self._spread_weights is None:
-            self._spread_weights = {}
-        return self._spread_weights
+    @override
+    def add_column(
+        self,
+        label: TextType,
+        *,
+        width: int | None = None,
+        key: str | None = None,
+        default: CellType | None = None,
+        flex: int | None = None,
+    ) -> ColumnKey:
+        column_key = super().add_column(label, width=width, key=key, default=default)
+        if flex is not None:
+            if self._flex is None:
+                self._flex = {}
+            self._flex[column_key] = flex
+        return column_key
 
     @override
     def clear(self, columns: bool = False) -> Self:
         super().clear(columns)
-        # Textual only ever widens a column, so a cleared table would keep the
-        # width of rows it no longer shows; the labels are all that is left.
-        if not columns:
+        if columns:
+            self._flex = None
+        else:
+            # Textual only ever widens a column, so a cleared table would keep
+            # the width of rows it no longer shows; the labels are all that
+            # is left.
             console = self.app.console
             for column in self.columns.values():
                 column.content_width = measure(console, column.label, 1)
@@ -72,26 +85,21 @@ class SpreadTable(DataTable[CellType]):
         columns = list(self.columns.values())
         if not columns:
             return
-        padding = 2 * self.cell_padding
+        flex = self._flex or {}
         available = self.scrollable_content_region.width - self._row_label_column_width
-        surplus = available - sum(column.content_width + padding for column in columns)
+        widths = spread_widths(
+            available,
+            [column.content_width for column in columns],
+            [flex.get(column.key, column.content_width) for column in columns],
+            padding=2 * self.cell_padding,
+        )
         previous = [
             (column.auto_width, column.get_render_width(self)) for column in columns
         ]
-        if surplus <= 0:
-            for column in columns:
-                column.auto_width = True
-        else:
-            shares = proportional_shares(
-                surplus,
-                [
-                    self.spread_weights.get(str(column.key.value), column.content_width)
-                    for column in columns
-                ],
-            )
-            for column, share in zip(columns, shares, strict=True):
-                column.auto_width = False
-                column.width = column.content_width + share
+        for column, width in zip(columns, widths, strict=True):
+            column.auto_width = width is None
+            if width is not None:
+                column.width = width
         current = [
             (column.auto_width, column.get_render_width(self)) for column in columns
         ]
@@ -103,6 +111,27 @@ class SpreadTable(DataTable[CellType]):
         self._update_count += 1
         self._clear_caches()
         self.refresh()
+
+
+def spread_widths(
+    available: int,
+    content_widths: Sequence[int],
+    weights: Sequence[int],
+    *,
+    padding: int = 0,
+) -> list[int | None]:
+    """Widths that fill ``available``, or ``None`` per column when they cannot.
+
+    Each column keeps its content width and gains a share of the surplus in
+    proportion to its weight. When the content alone (with ``padding`` per
+    column) does not fit, every width is ``None``: the column is its content
+    and the table scrolls.
+    """
+    surplus = available - sum(width + padding for width in content_widths)
+    if surplus <= 0:
+        return [None] * len(content_widths)
+    shares = proportional_shares(surplus, weights)
+    return [width + share for width, share in zip(content_widths, shares, strict=True)]
 
 
 def proportional_shares(total: int, weights: Sequence[int]) -> list[int]:
