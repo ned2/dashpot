@@ -2920,12 +2920,16 @@ async def test_every_table_spreads_its_columns_to_the_pane_edge() -> None:
                     sum(column_widths(table)) == table.scrollable_content_region.width
                 )
             )
-            widths = column_widths(table)
-            # Every column keeps its content and the surplus is shared evenly.
-            assert all(not column.auto_width for column in table.columns.values())
-            assert max(widths) - min(widths) <= max(
-                column.content_width for column in table.columns.values()
-            )
+            # Every column keeps its content and the surplus is shared in
+            # proportion to it: a wider column never gets the smaller share.
+            columns = list(table.columns.values())
+            assert all(not column.auto_width for column in columns)
+            shares = [column.width - column.content_width for column in columns]
+            assert min(shares) >= 0
+            for share, column in zip(shares, columns, strict=True):
+                for other_share, other in zip(shares, columns, strict=True):
+                    if column.content_width < other.content_width:
+                        assert share <= other_share
 
         # Content wider than the pane cannot be spread: the columns are their
         # content and the table scrolls sideways instead of squeezing anything.

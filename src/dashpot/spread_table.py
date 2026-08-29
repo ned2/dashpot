@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Self
 
 from textual import events
@@ -22,9 +22,10 @@ class SpreadTable(DataTable[CellType]):
     """A DataTable that spreads its spare width evenly across the columns.
 
     Textual sizes a column to its content or to a fixed width; neither fills
-    the pane. Every column keeps its content as a minimum and receives an
-    equal share of whatever width is left, so the columns reach the pane's
-    edge at any size. When the content alone is wider than the pane the
+    the pane. Every column keeps its content as a minimum and receives a
+    share of whatever width is left in proportion to that content, as a
+    browser lays out an auto table, so the columns reach the pane's edge at
+    any size and the long columns take most of the room. When the content alone is wider than the pane the
     columns fall back to their content widths and the table scrolls
     horizontally, as before.
     """
@@ -53,7 +54,7 @@ class SpreadTable(DataTable[CellType]):
         self.spread_columns()
 
     def spread_columns(self) -> None:
-        """Give each column its content width plus an equal share of the rest."""
+        """Give each column its content width plus a proportional share of the rest."""
         columns = list(self.columns.values())
         if not columns:
             return
@@ -67,10 +68,12 @@ class SpreadTable(DataTable[CellType]):
             for column in columns:
                 column.auto_width = True
         else:
-            share, remainder = divmod(surplus, len(columns))
-            for index, column in enumerate(columns):
+            shares = proportional_shares(
+                surplus, [column.content_width for column in columns]
+            )
+            for column, share in zip(columns, shares, strict=True):
                 column.auto_width = False
-                column.width = column.content_width + share + (index < remainder)
+                column.width = column.content_width + share
         current = [
             (column.auto_width, column.get_render_width(self)) for column in columns
         ]
@@ -82,3 +85,28 @@ class SpreadTable(DataTable[CellType]):
         self._update_count += 1
         self._clear_caches()
         self.refresh()
+
+
+def proportional_shares(total: int, weights: Sequence[int]) -> list[int]:
+    """Split ``total`` in proportion to ``weights``, so the parts sum exactly.
+
+    This is the browsers' rule for a table wider than its content: the excess
+    goes to the columns in proportion to their content width, so a title
+    column absorbs most of it and a chip column stays tight. Rounding follows
+    the largest remainders; all-zero weights share evenly.
+    """
+    if not weights:
+        return []
+    if not any(weights):
+        weights = [1] * len(weights)
+    scale = sum(weights)
+    exact = [total * weight / scale for weight in weights]
+    shares = [int(part) for part in exact]
+    remainders = sorted(
+        range(len(weights)),
+        key=lambda index: exact[index] - shares[index],
+        reverse=True,
+    )
+    for index in remainders[: total - sum(shares)]:
+        shares[index] += 1
+    return shares

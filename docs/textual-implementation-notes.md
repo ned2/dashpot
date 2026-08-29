@@ -206,7 +206,10 @@ community workaround is the same in every thread: on resize, set
 [`spread_table.py`](../src/dashpot/spread_table.py) is that workaround as a
 subclass used by every Dashpot table: after the base class measures content
 (`_update_dimensions`) and on every resize, each column gets its content width
-plus an equal share of the surplus, and the columns fall back to content
+plus a share of the surplus in proportion to that content — the browsers' rule
+for an auto-layout table wider than its content ([CSS Tables 3](https://www.w3.org/TR/css-tables-3/)),
+and what Rich's `Table(expand=True)` does — so a title or path column absorbs
+most of the room and a chip column stays tight. The columns fall back to content
 widths with a horizontal scrollbar when the content alone is wider than the
 table. It also resets `content_width` to the label on `clear()`, because
 Textual only ever widens a column
