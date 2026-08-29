@@ -61,6 +61,7 @@ def observation_target(root: str = "/repo") -> ObservationTarget:
         "available",
         2,
         [],
+        "main",
     )
 
 
@@ -275,6 +276,7 @@ class ProjectCollectorTests(unittest.TestCase):
             "available",
             7,
             [],
+            "linked",
         )
         observed_anchors: list[Path] = []
 

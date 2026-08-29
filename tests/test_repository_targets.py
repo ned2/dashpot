@@ -60,6 +60,8 @@ def test_observes_main_and_linked_targets_from_nul_porcelain(
     assert inventory.targets[0].dirty is False
     assert inventory.targets[0].availability == "available"
     assert inventory.targets[0].elapsed_ms == 4
+    assert inventory.targets[0].role == "main"
+    assert inventory.targets[1].role == "linked"
     assert inventory.targets[1].branch is None
     assert inventory.targets[1].detached is True
     assert inventory.targets[1].dirty is True
@@ -111,6 +113,10 @@ def test_preserves_locked_prunable_and_missing_targets_but_excludes_bare(
     assert [item.code for item in by_path[str(missing)].diagnostics] == [
         "target-missing"
     ]
+    # Retained unavailable targets keep the role Git reported for them.
+    assert by_path[str(locked)].role == "main"
+    assert by_path[str(prunable)].role == "linked"
+    assert by_path[str(missing)].role == "linked"
     assert [item.code for item in inventory.diagnostics] == ["target-bare"]
     assert len(runner.calls) == 2
 
@@ -149,6 +155,13 @@ def test_combines_all_anchors_deduplicates_paths_and_isolates_discovery_failure(
         str(first),
         str(linked),
         str(second),
+    ]
+    # Each listing names its own main working tree first; the role comes
+    # from that ordering, never from the path's name.
+    assert [target.role for target in inventory.targets] == [
+        "main",
+        "linked",
+        "main",
     ]
     assert [item.code for item in inventory.diagnostics] == ["target-discovery"]
 
@@ -190,6 +203,7 @@ def test_real_git_inventory_tracks_linked_worktree_runtime_lifecycle(
     removed = observe_observation_targets([main])
 
     assert [target.path for target in clean.targets] == [str(main), str(linked)]
+    assert [target.role for target in clean.targets] == ["main", "linked"]
     assert {target.path: target.dirty for target in clean.targets}[str(linked)] is False
     assert {target.path: target.dirty for target in dirty.targets}[str(linked)] is True
     assert [target.path for target in removed.targets] == [str(main)]

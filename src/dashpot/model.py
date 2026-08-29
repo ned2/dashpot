@@ -6,6 +6,9 @@ from typing import Any, Literal, TypeAlias
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
 TargetAvailability = Literal["available", "unavailable"]
+# Git topology, as `git worktree list` reports it: the main working tree is
+# listed first, followed by each linked working tree.
+TargetRole = Literal["main", "linked"]
 Issue: TypeAlias = dict[str, Any]
 
 
@@ -49,6 +52,7 @@ class ObservationTarget:
     availability: TargetAvailability
     elapsed_ms: int
     diagnostics: list[Diagnostic]
+    role: TargetRole
 
 
 @dataclass(slots=True)

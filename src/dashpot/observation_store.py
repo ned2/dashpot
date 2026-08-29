@@ -21,6 +21,7 @@ from .model import (
     WorkspaceSnapshot,
 )
 from .session_list import SessionListResult, _query_indexed_session_list
+from .worktree_list import WorktreeListResult, _query_indexed_worktree_list
 
 ObservationKind = Literal["workspace", "projects", "agent-runs"]
 Key = TypeVar("Key")
@@ -209,6 +210,17 @@ class WorkspaceObservationStore:
             issues=state.issues,
             agent_runs=state.agent_runs,
             issue_runs=state.issue_runs,
+            revision=state.revision,
+        )
+        return deepcopy(result)
+
+    def query_worktrees(self) -> WorktreeListResult:
+        """Query every observed Observation Target with its located sessions."""
+        state = self._state
+        result = _query_indexed_worktree_list(
+            projects=state.projects,
+            observation_targets=state.observation_targets,
+            agent_runs=state.agent_runs,
             revision=state.revision,
         )
         return deepcopy(result)

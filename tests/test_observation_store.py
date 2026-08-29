@@ -121,6 +121,7 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
             availability="available",
             elapsed_ms=1,
             diagnostics=[],
+            role="main",
         )
     ]
     second = workspace(
@@ -210,6 +211,7 @@ def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() ->
             availability="available",
             elapsed_ms=2,
             diagnostics=[],
+            role="main",
         )
     ]
     unavailable_snapshot.diagnostics = [

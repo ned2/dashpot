@@ -108,6 +108,7 @@ def workspace_snapshot(
         availability="available",
         elapsed_ms=3,
         diagnostics=[],
+        role="main",
     )
     project_snapshot = ProjectSnapshot(
         project_id="project:test-repo",
@@ -2328,15 +2329,17 @@ async def test_main_screen_composes_the_pane_row_between_detail_and_issues() -> 
         assert sessions.region.y == worktrees.region.y
         assert sessions.region.right <= worktrees.region.x
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
-        assert pane_title(app, "#worktrees-pane") == "WORKTREES · 0"
+        assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         # An empty pane is one honest line inside its frame, not a blank box.
-        assert sessions.region.height == worktrees.region.height == 3
+        assert sessions.region.height == 3
+        assert worktrees.region.height == pane_chrome(worktrees) + 1
         empty_messages = [
             str(message.render())
             for message in app.query(".list-pane-empty").results(Static)
             if message.display
         ]
-        assert empty_messages == ["no active sessions", "no worktrees observed yet"]
+        assert empty_messages == ["no active sessions"]
+        assert not app.query_one("#worktrees-pane .list-pane-empty").display
         assert app.query_one("#queue", DataTable).has_focus
         assert queue_pane.region.height >= 6
         assert {"tab", "1", "2", "3"} <= footer_keys(app)
@@ -2402,25 +2405,31 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
                 for selector in ("#detail-row", "#queue-pane")
             )
 
+        list_row = app.query_one("#list-row")
         initial_flex_height = flex_height()
+        initial_row_height = list_row.region.height
 
         pane.show_rows(list_rows(3))
         await pilot.pause()
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
-        # Frame, header and three records; the flex rows give up only that.
+        # Frame, header and three records; the flex rows give up only what
+        # the pane row (the taller of its two panes) grows by.
         assert pane.region.height == pane_chrome(pane) + 3
+        assert list_row.region.height == pane.region.height
         assert not pane.table.show_vertical_scrollbar
         assert not app.query_one("#sessions-pane .list-pane-empty").display
-        assert flex_height() == initial_flex_height - (pane.region.height - 3)
+        assert flex_height() == initial_flex_height - (
+            list_row.region.height - initial_row_height
+        )
 
         pane.show_rows(list_rows(12))
         await pilot.pause()
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
         # A pane never exceeds its cap; a horizontal scrollbar comes out of
         # the records shown rather than out of the Issue table.
-        assert pane.region.height == 2 + 1 + 8
+        assert pane.region.height == list_row.region.height == 2 + 1 + 8
         assert pane.table.show_vertical_scrollbar
-        assert flex_height() == initial_flex_height - 8
+        assert flex_height() == initial_flex_height - (11 - initial_row_height)
         pane.table.move_cursor(row=11)
         await pilot.pause()
         assert pane.table.scroll_y > 0
@@ -2429,6 +2438,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         await pilot.pause()
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane.region.height == 3
+        assert list_row.region.height == initial_row_height
         assert flex_height() == initial_flex_height
 
 
@@ -2780,3 +2790,86 @@ async def test_session_selection_survives_refresh_by_identity_or_moves_on() -> N
         await pilot.pause()
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 2"
         assert pane.highlighted() == (row_key("session", "a"), 0)
+
+
+@pytest.mark.asyncio
+async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() -> None:
+    first = workspace_snapshot(issue("test/repo#1", "First"))
+    linked = ObservationTarget(
+        path="/repo-linked",
+        head="def456789",
+        branch="feature",
+        detached=False,
+        dirty=True,
+        availability="available",
+        elapsed_ms=2,
+        diagnostics=[],
+        role="linked",
+    )
+    with_linked = workspace_snapshot(issue("test/repo#1", "First"))
+    snapshot_of(with_linked.projects[0]).observation_targets.append(linked)
+    app = DashpotApp(SequenceCollector(first, with_linked, first), refresh_seconds=0)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        pane = app.worktrees_pane()
+        assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
+        labels = [str(column.label) for column in pane.table.columns.values()]
+        assert labels == [
+            "PROJECT",
+            "PATH",
+            "ROLE",
+            "BRANCH",
+            "HEAD",
+            "TREE",
+            "STATE",
+            "SESSIONS",
+        ]
+        main_cells = [str(cell) for cell in pane.table.get_row_at(0)]
+        assert main_cells == [
+            "Test Repository",
+            "/repo",
+            "main · anchor",
+            "main",
+            "abcdef1",
+            "clean",
+            "available",
+            "-",
+        ]
+
+        app.request_refresh("manual")
+        await wait_until(lambda: app.store.revision == 2)
+        await pilot.pause()
+        assert pane_title(app, "#worktrees-pane") == "WORKTREES · 2"
+        await pilot.press("3")
+        await pilot.press("down")
+        await pilot.pause()
+        assert pane.highlighted() == (
+            row_key("worktree", "project:test-repo", "/repo-linked"),
+            1,
+        )
+        linked_cells = [str(cell) for cell in pane.table.get_row_at(1)]
+        assert linked_cells[1:6] == [
+            "/repo-linked",
+            "linked",
+            "feature",
+            "def4567",
+            "dirty",
+        ]
+        # Highlighting a worktree leaves the Issue-driven panes alone.
+        assert pane_title(app, "#selection-pane") == "#1: First"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert not isinstance(app.screen, IssueScreen)
+
+        # The linked worktree is removed: the cursor moves to a neighbour.
+        app.request_refresh("manual")
+        await wait_until(lambda: app.store.revision == 3)
+        await pilot.pause()
+        assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
+        assert pane.highlighted() == (
+            row_key("worktree", "project:test-repo", "/repo"),
+            0,
+        )
