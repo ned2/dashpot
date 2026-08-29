@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -15,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from .file_locks import locked_path, prune_lock_file
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .repository import git, is_within
 from .work_store import WorkStore
@@ -428,12 +428,11 @@ class HookRecordStore:
         """Delete a stale record only if it still equals ``observed``.
 
         The conditional re-read under the session's lock means a record that a
-        hook updated between observation and cleanup is kept. Lock files are
-        never deleted. Returns whether the record was removed.
+        hook updated between observation and cleanup is kept. The lock file
+        is left for ``prune_lock`` to reclaim on a later pass. Returns whether
+        the record was removed.
         """
-        if not SESSION_ID.fullmatch(session_id):
-            raise RuntimeError("hook sessionId contains unsupported characters")
-        destination = self.directory / f"{session_id}.json"
+        destination = self._record_path(session_id)
         with self._locked(session_id):
             try:
                 current = self._read(destination)
@@ -444,16 +443,44 @@ class HookRecordStore:
             destination.unlink(missing_ok=True)
             return True
 
+    def prune_lock(self, session_id: str) -> bool:
+        """Delete the session's lock file once no record remains behind it.
+
+        A record is absent only when the session ended gracefully, was pruned
+        as gone, or has not published yet; the last case holds the lock while
+        it writes, so the pruner waits for it and then finds the record.
+        Returns whether the lock file was removed.
+        """
+        return prune_lock_file(
+            self._lock_path(session_id), self._record_path(session_id)
+        )
+
+    def orphaned_locks(self) -> list[str]:
+        """Session ids of lock files in this store that guard no record."""
+        if not self.directory.is_dir():
+            return []
+        orphaned: list[str] = []
+        for path in sorted(self.directory.glob(".*.lock")):
+            session_id = path.name[1 : -len(".lock")]
+            if not SESSION_ID.fullmatch(session_id):
+                continue
+            if not self._record_path(session_id).exists():
+                orphaned.append(session_id)
+        return orphaned
+
+    def _record_path(self, session_id: str) -> Path:
+        if not SESSION_ID.fullmatch(session_id):
+            raise RuntimeError("hook sessionId contains unsupported characters")
+        return self.directory / f"{session_id}.json"
+
+    def _lock_path(self, session_id: str) -> Path:
+        return self.directory / f".{session_id}.lock"
+
     @contextmanager
     def _locked(self, session_id: str) -> Iterator[None]:
         self.directory.mkdir(parents=True, exist_ok=True)
-        lock_path = self.directory / f".{session_id}.lock"
-        with lock_path.open("a+") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        with locked_path(self._lock_path(session_id)):
+            yield
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any] | None:
@@ -740,6 +767,11 @@ def observe_hook_sessions(
                 previous.run.last_activity_at or ""
             ):
                 latest[session.run.id] = session
+        # Records pruned above, or ended gracefully, leave their lock files
+        # behind; reclaim those that guard nothing.
+        for session_id in store.orphaned_locks():
+            with contextlib.suppress(OSError):
+                store.prune_lock(session_id)
     unknown_by_reason: dict[str, int] = {}
     for session in latest.values():
         if session.liveness.liveness == "unknown":

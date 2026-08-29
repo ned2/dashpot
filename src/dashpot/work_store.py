@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -11,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from .file_locks import locked_path
 from .model import Diagnostic
 
 WORK_STORE_VERSION = 1
@@ -76,14 +76,20 @@ class WorkStore:
         return destination
 
     def stop(self, session_key: str) -> bool:
-        """End the session's active Agent Run; the session itself stays alive."""
+        """End the session's active Agent Run; the session itself stays alive.
+
+        The record's lock file goes with it: a `start` queued behind this stop
+        re-acquires on a fresh lock file rather than the unlinked one.
+        """
         destination = self._destination(session_key)
         with self._locked(session_key):
             try:
                 destination.unlink()
-                return True
+                stopped = True
             except FileNotFoundError:
-                return False
+                stopped = False
+            self._lock_path(session_key).unlink(missing_ok=True)
+            return stopped
 
     def active(self) -> tuple[list[ActiveWork], list[Diagnostic]]:
         """Read every active Agent Run, diagnosing malformed state."""
@@ -155,16 +161,14 @@ class WorkStore:
             branch=branch,
         )
 
+    def _lock_path(self, session_key: str) -> Path:
+        return self.directory / f".{session_key}.lock"
+
     @contextmanager
     def _locked(self, session_key: str) -> Iterator[None]:
         self.directory.mkdir(parents=True, exist_ok=True)
-        lock_path = self.directory / f".{session_key}.lock"
-        with lock_path.open("a+") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        with locked_path(self._lock_path(session_key)):
+            yield
 
     def _replace(
         self, destination: Path, record: dict[str, Any], session_key: str

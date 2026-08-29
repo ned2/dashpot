@@ -270,7 +270,7 @@ application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
 Each refresh checks that a session's recorded process is still the one that
 published the record. A graceful `SessionEnd` removes the session's record. A
 session that was killed, or whose `SessionEnd` hook never ran, is dropped
-quietly and its stale record is cleaned up; it only becomes a Diagnostics
+quietly and its stale record and lock file are cleaned up; it only becomes a Diagnostics
 warning when it leaves an orphaned Agent Run behind (see below). When the
 process cannot be observed at all (for example from inside a sandboxed process
 namespace) the session is shown with `unknown` state rather than assumed to

@@ -61,6 +61,8 @@ def test_stop_removes_only_that_sessions_work(tmp_path: Path) -> None:
 
     active, _ = store.active()
     assert [item.session_key for item in active] == ["codex-2-bb"]
+    assert not (store.directory / ".codex-1-aa.lock").exists()
+    assert (store.directory / ".codex-2-bb.lock").exists()
 
 
 def test_two_sessions_on_one_issue_are_independent_records(

@@ -566,7 +566,36 @@ class HookObserverTests(unittest.TestCase):
         self.assertFalse((self.state_dir / "ended.json").exists())
         self.assertFalse((self.state_dir / "gone.json").exists())
         self.assertTrue((self.state_dir / "live.json").exists())
-        self.assertTrue((self.state_dir / ".gone.lock").exists())
+        self.assertTrue((self.state_dir / ".live.lock").exists())
+        self.assertFalse((self.state_dir / ".gone.lock").exists())
+        self.assertFalse((self.state_dir / ".ended.lock").exists())
+
+    def test_observation_reclaims_lock_files_that_guard_no_record(self) -> None:
+        self.write("live", "running", self.process)
+        (self.state_dir / ".orphaned.lock").touch()
+        (self.state_dir / ".not a session id.lock").touch()
+
+        observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=table_lookup({42: self.process}),
+        )
+
+        self.assertFalse((self.state_dir / ".orphaned.lock").exists())
+        self.assertTrue((self.state_dir / ".live.lock").exists())
+        self.assertTrue((self.state_dir / ".not a session id.lock").exists())
+
+    def test_prune_lock_keeps_the_lock_of_an_existing_record(self) -> None:
+        self.write("live", "running", self.process)
+        store = HookRecordStore(self.state_dir)
+
+        self.assertFalse(store.prune_lock("live"))
+        self.assertTrue((self.state_dir / ".live.lock").exists())
+
+        (self.state_dir / "live.json").unlink()
+        self.assertEqual(["live"], store.orphaned_locks())
+        self.assertTrue(store.prune_lock("live"))
+        self.assertFalse((self.state_dir / ".live.lock").exists())
 
     def test_prune_is_conditional_on_the_observed_record(self) -> None:
         self.write("stale", "running", self.process)
