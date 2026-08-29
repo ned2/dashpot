@@ -89,8 +89,9 @@ def summarize_alerts(
     unavailable_projects: list[str] = []
     unavailable_issues: list[str] = []
     stale_issues: list[tuple[str, str | None]] = []
+    unavailable_scans: list[str] = []
+    stale_scans: list[str] = []
     unavailable_targets: list[str] = []
-    stale_targets: list[str] = []
     for project in store.checkpoint().projects:
         label = project.display_label
         snapshot = project.snapshot
@@ -102,9 +103,9 @@ def summarize_alerts(
         elif snapshot.issue_source_status == "stale":
             stale_issues.append((label, snapshot.issue_source_last_good_at))
         if snapshot.target_status == "unavailable":
-            unavailable_targets.append(label)
+            unavailable_scans.append(label)
         elif snapshot.target_status == "stale":
-            stale_targets.append(label)
+            stale_scans.append(label)
         else:
             unavailable_targets.extend(
                 f"{label} {target.path}"
@@ -132,6 +133,14 @@ def summarize_alerts(
                 "error" if diagnostic.severity == "error" else "warning"
             )
             items.append(AlertItem(severity, diagnostic.message))
+    if unavailable_scans:
+        items.append(
+            AlertItem(
+                "warning",
+                "Unavailable worktrees and branches: "
+                f"{_join(unavailable_scans, 'Projects')}",
+            )
+        )
     if unavailable_targets:
         items.append(
             AlertItem(
@@ -152,11 +161,11 @@ def summarize_alerts(
                     f"Stale Issues: {len(stale_issues)} Projects",
                 )
             )
-    if stale_targets:
+    if stale_scans:
         items.append(
             AlertItem(
                 "warning",
-                f"Stale worktrees: {_join(stale_targets, 'Projects')}",
+                f"Stale worktrees and branches: {_join(stale_scans, 'Projects')}",
             )
         )
 

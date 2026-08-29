@@ -181,6 +181,6 @@ def test_stale_and_unavailable_worktree_observations_are_warnings() -> None:
     assert alert is not None
     assert alert.severity == "warning"
     assert [item.text for item in alert.items] == [
-        "Unavailable worktrees: Beta",
-        "Stale worktrees: Alpha",
+        "Unavailable worktrees and branches: Beta",
+        "Stale worktrees and branches: Alpha",
     ]
