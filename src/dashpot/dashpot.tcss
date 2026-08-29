@@ -11,12 +11,11 @@ Screen {
 /* The Sessions, Worktrees and Branches panes stack full-width above the Issue table,
    each sized to its content: a pane grows with its records up to the cap on
    its table and scrolls beyond it, so the Issue table only pays for rows in
-   use. The stacked panes touch: their frames separate them, and a blank line
-   would come straight out of the Issue table. */
+   use. Each pane carries the blank line below it, which separates it from the
+   next pane and, for the last one, from the Issue table. */
 #list-row {
     width: 1fr;
     height: auto;
-    margin-bottom: 1;
     layout: vertical;
 }
 
@@ -25,6 +24,7 @@ Screen {
 #branches-pane {
     width: 1fr;
     height: auto;
+    margin-bottom: 1;
     border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;

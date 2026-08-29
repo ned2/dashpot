@@ -78,13 +78,15 @@ BRANCHES_PANE_LABEL = "BRANCHES"
 # Focus cycles through the four lists in reading order; the Header and
 # the Issue controls are not part of the cycle.
 LIST_TABLE_IDS = ("queue", "sessions", "worktrees", "branches")
-# The blank line between the pane stack and the Issue table, and a list
-# pane's frame and header, all of which come out of the height a pane's
-# records get. An empty pane is its frame and one message line.
-ROW_MARGINS = 1
+# A list pane's blank line below it, its frame and its header, all of which
+# come out of the height that pane's records get. The last pane's margin is
+# the gap before the Issue table. An empty pane is its frame and one message
+# line.
+PANE_MARGIN = 1
 PANE_FRAME = 2
 PANE_HEADER = 1
-EMPTY_PANE_HEIGHT = PANE_FRAME + 1
+PANE_CHROME = PANE_MARGIN + PANE_FRAME + PANE_HEADER
+EMPTY_PANE_HEIGHT = PANE_MARGIN + PANE_FRAME + 1
 # The Header's sub-title until an observed Project supplies its anchor.
 DEFAULT_SUB_TITLE = "passive workspace view"
 
@@ -667,15 +669,14 @@ class DashpotApp(App[None]):
         shrinks first, to a frame with a count when nothing else fits.
         """
         minimum = self.main_screen.query_one("#queue-pane").styles.min_height
-        fixed = ROW_MARGINS + (int(minimum.value) if minimum is not None else 0)
-        remaining = body.height - fixed
+        remaining = body.height - (int(minimum.value) if minimum is not None else 0)
         # Hand out height smallest wish first, so a pane that wants less than
         # an even share never holds back one that wants more.
         wishes = sorted(self.list_panes(), key=pane_wish)
         for index, pane in enumerate(wishes):
             granted = min(pane_wish(pane), remaining // (len(wishes) - index))
             remaining -= granted
-            row_cap = granted - PANE_FRAME - PANE_HEADER
+            row_cap = granted - PANE_CHROME
             pane.fit_rows(row_cap if row_cap >= 1 else 0)
 
     def reconcile_list_panes(self) -> None:
@@ -905,7 +906,7 @@ def pane_wish(pane: ListPane) -> int:
     """
     if not pane.count:
         return EMPTY_PANE_HEIGHT
-    return PANE_FRAME + PANE_HEADER + min(pane.count, DEFAULT_ROW_CAP) + 1
+    return PANE_CHROME + min(pane.count, DEFAULT_ROW_CAP) + 1
 
 
 def issue_search_sort_terms(

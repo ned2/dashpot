@@ -24,7 +24,7 @@ from textual.dom import DOMNode
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Markdown, Select, Static
 
-from dashpot.app import DEFAULT_SUB_TITLE, DashpotApp, project_label
+from dashpot.app import DEFAULT_SUB_TITLE, PANE_MARGIN, DashpotApp, project_label
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
 from dashpot.issue_list import IssueListQuery, IssueListRow, query_issue_list, row_key
@@ -2376,8 +2376,9 @@ async def test_main_screen_stacks_the_panes_above_the_issues() -> None:
         branches = app.query_one("#branches-pane", ListPane)
         queue_pane = app.query_one("#queue-pane")
         assert_panes_stack_above_full_width_queue(app)
-        assert sessions.region.bottom == worktrees.region.y
-        assert worktrees.region.bottom == branches.region.y
+        # One blank line separates back-to-back panes.
+        assert sessions.region.bottom + 1 == worktrees.region.y
+        assert worktrees.region.bottom + 1 == branches.region.y
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         # The Branches pane says how old its remote facts are: Dashpot never
@@ -2469,6 +2470,10 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
                 other.region.height for other in app.list_panes() if other is not pane
             )
 
+        def stack_margins() -> int:
+            """Each pane carries the blank line below it, inside `#list-row`."""
+            return PANE_MARGIN * len(app.list_panes())
+
         list_row = app.query_one("#list-row")
         initial_flex_height = flex_height()
         initial_row_height = list_row.region.height
@@ -2479,7 +2484,9 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         # Frame, header and three records; the Issue table gives up only what
         # the pane stack grows by.
         assert pane.region.height == pane_chrome(pane) + 3
-        assert list_row.region.height == pane.region.height + other_panes_height()
+        assert list_row.region.height == (
+            pane.region.height + other_panes_height() + stack_margins()
+        )
         assert not pane.table.show_vertical_scrollbar
         assert not app.query_one("#sessions-pane .list-pane-empty").display
         assert flex_height() == initial_flex_height - (
@@ -2492,7 +2499,9 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         # A pane never exceeds its cap; a horizontal scrollbar comes out of
         # the records shown rather than out of the Issue table.
         assert pane.region.height == 2 + 1 + 8
-        assert list_row.region.height == 2 + 1 + 8 + other_panes_height()
+        assert list_row.region.height == (
+            2 + 1 + 8 + other_panes_height() + stack_margins()
+        )
         assert pane.table.show_vertical_scrollbar
         assert flex_height() == initial_flex_height - (
             list_row.region.height - initial_row_height
@@ -2556,10 +2565,10 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         refresh_seconds=0,
     )
 
-    # 20 rows: Header, Footer, the Issue table's minimum of 6 and its blank
-    # line leave 11; the empty Branches pane takes the 3 it wants and the two
-    # full panes split the rest into a record each.
-    async with app.run_test(size=(80, 20)) as pilot:
+    # 22 rows: Header, Footer and the Issue table's minimum of 6 leave 14;
+    # the empty Branches pane takes the 4 it wants, frame, line and margin,
+    # and the two full panes split the rest into a record each.
+    async with app.run_test(size=(80, 22)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         sessions = prepare_pane(app, "sessions-pane")
@@ -2585,7 +2594,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
             app.query_one("#list-row").region.height + queue_pane.region.height
         )
 
-        await pilot.resize_terminal(80, 26)
+        await pilot.resize_terminal(80, 28)
         await wait_until(
             lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 4
         )
@@ -2595,7 +2604,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
 
         # Too short even for a record each: the full panes collapse to their
         # counts while the empty one keeps its honest line.
-        await pilot.resize_terminal(80, 18)
+        await pilot.resize_terminal(80, 20)
         await wait_until(lambda: sessions.region.height == worktrees.region.height == 2)
         assert sessions.region.height == worktrees.region.height == 2
         assert app.query_one("#branches-pane").region.height == 3
