@@ -2658,13 +2658,14 @@ def session_run(
     issue_id: str | None = None,
     harness: str = "codex",
     last_activity_at: str | None = "2026-08-25T00:59:00Z",
+    target: str = "/repo",
 ) -> AgentRun:
     return AgentRun(
         id=run_id,
         harness=harness,
         process_or_session=run_id,
         state=cast("RunState", state),
-        observation_target="/repo",
+        observation_target=target,
         observation_project_id="project:test-repo",
         branch="main",
         issue_id=issue_id,
@@ -2713,10 +2714,10 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
         ]
         table = app.sessions_pane().table
         labels = [str(column.label) for column in table.columns.values()]
+        # Every session is in the one Worktree, so TARGET says nothing.
         assert labels == [
             "STATE",
             "HARNESS",
-            "TARGET",
             "BRANCH",
             "ISSUE",
             "DIRECTORY",
@@ -2724,14 +2725,49 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
         ]
         first = [str(cell) for cell in table.get_row_at(0)]
         assert first[:2] == ["● running", "Claude Code"]
-        assert first[4] == "no active Issue work"
-        assert first[5] == "src"
+        assert first[3] == "no active Issue work"
+        # With TARGET dropped, DIRECTORY locates itself in full.
+        assert first[4] == "/repo/src"
         second = [str(cell) for cell in table.get_row_at(1)]
         assert second[0] == "◐ waiting"
-        assert second[4] == "#2 Second"
+        assert second[3] == "#2 Second"
         assert str(table.get_row_at(2)[0]) == "○ unknown"
-        assert str(table.get_row_at(2)[6]) == "-"
+        assert str(table.get_row_at(2)[5]) == "-"
         assert not app.query_one("#sessions-pane .list-pane-empty").display
+
+
+@pytest.mark.asyncio
+async def test_sessions_target_column_follows_the_worktrees_in_view() -> None:
+    issues = (issue("test/repo#1", "First"),)
+    spread = sessions_snapshot(
+        session_run("codex-session:main"),
+        session_run("codex-session:linked", target="/repo/wt/issue-42"),
+        issues=issues,
+    )
+    together = sessions_snapshot(session_run("codex-session:main"), issues=issues)
+    app = DashpotApp(SequenceCollector(spread, together), refresh_seconds=0)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+
+        table = app.sessions_pane().table
+        assert "TARGET" in [str(column.label) for column in table.columns.values()]
+        assert {
+            str(table.get_row_at(index)[2]) for index in range(table.row_count)
+        } == {"/repo", "/repo/wt/issue-42"}
+
+        # The linked Worktree's session ends, and the column stops earning
+        # its width without waiting for a restart.
+        await pilot.press("r")
+        await wait_until(lambda: app.store.revision == 2)
+        await pilot.pause()
+
+        table = app.sessions_pane().table
+        assert "TARGET" not in [str(column.label) for column in table.columns.values()]
+        assert table.row_count == 1
+        assert [str(cell) for cell in table.get_row_at(0)][2] == "main"
+        assert [str(cell) for cell in table.get_row_at(0)][4] == "/repo/src"
 
 
 @pytest.mark.asyncio

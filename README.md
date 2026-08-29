@@ -519,7 +519,13 @@ most recent activity, with any bound Issue joined from the Work Store's
 accepted bindings, an `outside Project` marker in place of a target the
 observed Project does not own, an intentional `no active Issue work` value
 when unbound, its working directory relative to its Observation Target, and
-long paths, branches and titles clipped with an ellipsis. The Worktrees pane
+long paths, branches and titles clipped with an ellipsis. `TARGET` is dropped
+altogether while every listed session shares one Observation Target, which is
+the usual shape of a Project with no linked Worktrees; it returns as soon as a
+session sits in another Worktree or outside the Project. Exactly one column
+names the Target, so while `TARGET` is dropped the working directory is shown
+in full (`~`-abbreviated) rather than relative to a Target the pane no longer
+displays. The Worktrees pane
 is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`

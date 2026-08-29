@@ -62,7 +62,7 @@ from .issue_view import IssueScreen
 from .list_pane import DEFAULT_ROW_CAP, ListPane, ListRow
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
-from .session_list import SESSION_COLUMNS, build_session_rows
+from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
@@ -675,18 +675,17 @@ class DashpotApp(App[None]):
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed session, worktree and branch from the store."""
-        self.sessions_pane().show_rows(self.session_rows())
+        sessions = self.store.query_sessions()
+        self.sessions_pane().show_rows(
+            build_session_rows(sessions, dark=self.current_theme.dark),
+            columns=session_columns(sessions),
+        )
         self.worktrees_pane().show_rows(self.worktree_rows())
         branches = self.store.query_branches()
         now = datetime.now(UTC)
         self.branches_pane().show_rows(
             build_branch_rows(branches, dark=self.current_theme.dark, now=now),
             note=fetch_age_text(branches.fetched_at, now),
-        )
-
-    def session_rows(self) -> tuple[ListRow, ...]:
-        return build_session_rows(
-            self.store.query_sessions(), dark=self.current_theme.dark
         )
 
     def worktree_rows(self) -> tuple[ListRow, ...]:

@@ -98,9 +98,7 @@ class ListPane(Vertical):
         yield Static(self.empty_message, classes="list-pane-empty", markup=False)
 
     def on_mount(self) -> None:
-        table = self.table
-        for column in self.columns:
-            table.add_column(column.label, key=column.key)
+        self.declare_columns(self.columns)
         self.show_rows(())
 
     @property
@@ -112,11 +110,27 @@ class ListPane(Vertical):
     def count(self) -> int:
         return len(self.rows_by_key)
 
-    def show_rows(self, rows: Sequence[ListRow], *, note: str | None = None) -> None:
+    def declare_columns(self, columns: Sequence[ListColumn]) -> None:
+        """Replace the pane's columns, which a read model may vary per refresh."""
+        table = self.table
+        self.columns = tuple(columns)
+        table.clear(columns=True)
+        for column in self.columns:
+            table.add_column(column.label, key=column.key)
+
+    def show_rows(
+        self,
+        rows: Sequence[ListRow],
+        *,
+        columns: Sequence[ListColumn] | None = None,
+        note: str | None = None,
+    ) -> None:
         """Replace the listed records, keeping the cursor by row identity.
 
-        ``note`` is a pane-level fact that follows the count in the title,
-        such as how old the Branches pane's remote facts are.
+        ``columns`` re-declares the pane's columns when the read model has
+        dropped one, such as the Sessions pane's single-Observation-Target
+        case. ``note`` is a pane-level fact that follows the count in the
+        title, such as how old the Branches pane's remote facts are.
         """
         table = self.table
         prior_key, prior_index = self.highlighted()
@@ -124,6 +138,8 @@ class ListPane(Vertical):
         if len(desired) != len(rows):
             raise ValueError(f"Duplicate row identity in the {self.label} pane")
         with self.app.batch_update():
+            if columns is not None and tuple(columns) != self.columns:
+                self.declare_columns(columns)
             table.clear()
             for row in rows:
                 table.add_row(*row.cells, key=row.key)

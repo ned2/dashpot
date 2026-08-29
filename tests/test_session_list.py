@@ -27,6 +27,7 @@ from dashpot.session_list import (
     build_session_rows,
     query_session_list,
     session_cells,
+    session_columns,
 )
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 from helpers import present, required
@@ -306,11 +307,13 @@ def test_session_cells_carry_every_scan_level_fact_and_truncate_honestly() -> No
         working_directory="/elsewhere/on/disk",
         last_activity_at="2026-08-27T02:00:00Z",
     )
+    elsewhere = session("work:two", target_path="/projects/other/worktree")
     result = query_session_list(
-        workspace(alpha, runs=[run], issue_runs={"I_alpha#7": ["work:one"]})
+        workspace(alpha, runs=[run, elsewhere], issue_runs={"I_alpha#7": ["work:one"]})
     )
 
-    (row,) = build_session_rows(result, dark=True, now=CURRENT, home=home)
+    rows = build_session_rows(result, dark=True, now=CURRENT, home=home)
+    row = next(item for item in rows if item.key == row_key("session", "work:one"))
 
     assert row.key == row_key("session", "work:one")
     assert row.issue_id == "I_alpha#7"
@@ -345,10 +348,9 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
 
     (row,) = build_session_rows(result, dark=False, now=CURRENT, home=Path("/nowhere"))
 
-    state, _harness, target_cell, branch, issue_cell, directory, age = row.cells
+    state, _harness, branch, issue_cell, directory, age = row.cells
     assert isinstance(state, Text)
     assert state.plain == "○ unknown"
-    assert target_cell == "/project:alpha"
     assert branch == "detached"
     assert isinstance(issue_cell, Text)
     assert issue_cell.plain == UNBOUND_ISSUE_TEXT
@@ -378,3 +380,52 @@ def test_session_row_is_a_single_projection_of_the_agent_run() -> None:
     row = SessionListRow(row_key("session", "s"), session("s"), None)
     assert row.issue is None
     assert row.bound_issue_id is None
+
+
+def test_target_collapses_when_every_session_shares_one_worktree() -> None:
+    alpha = project("project:alpha")
+    here = session("work:one")
+    elsewhere = session("work:two", target_path="/project:alpha/wt/issue-42")
+    outside = session("work:three", "project:missing")
+
+    one_worktree = query_session_list(workspace(alpha, runs=[here]))
+    assert [column.key for column in session_columns(one_worktree)] == [
+        "state",
+        "harness",
+        "branch",
+        "issue",
+        "directory",
+        "activity",
+    ]
+    (row,) = build_session_rows(one_worktree, dark=True, now=CURRENT)
+    assert len(row.cells) == len(SESSION_COLUMNS) - 1
+
+    # Nothing else names the Worktree now, so DIRECTORY carries the whole
+    # path rather than the bare "." it would be relative to its target.
+    at_root = session("work:root", target_path="/home/ned/projects/alpha")
+    deeper = session(
+        "work:deep",
+        target_path="/home/ned/projects/alpha",
+        working_directory="/home/ned/projects/alpha/src/dashpot",
+    )
+    collapsed = query_session_list(workspace(alpha, runs=[at_root, deeper]))
+    directories = {
+        str(row.cells[4])
+        for row in build_session_rows(
+            collapsed, dark=True, now=CURRENT, home=Path("/home/ned")
+        )
+    }
+    assert directories == {"~/projects/alpha", "~/projects/alpha/src/dashpot"}
+
+    # A linked Worktree, or a session that is not in the Project at all, is
+    # what the column exists to tell apart.
+    for runs in ([here, elsewhere], [here, outside]):
+        result = query_session_list(workspace(alpha, runs=list(runs)))
+        assert session_columns(result) == SESSION_COLUMNS
+        assert all(
+            len(row.cells) == len(SESSION_COLUMNS)
+            for row in build_session_rows(result, dark=True, now=CURRENT)
+        )
+
+    # An empty pane keeps its full header rather than guessing.
+    assert session_columns(query_session_list(workspace(alpha))) == SESSION_COLUMNS

@@ -149,6 +149,28 @@ def _descending(value: str) -> str:
     return "".join(chr(0x10FFFF - ord(character)) for character in value)
 
 
+def shows_target(result: SessionListResult) -> bool:
+    """Whether TARGET tells the rows apart, or repeats one checkout on each.
+
+    A Project is usually one Worktree, and then the column is the same path
+    on every row; it earns its width once the sessions are spread across
+    linked Worktrees or independent clones, or once one of them is outside
+    the Project, which is a fact and not a path.
+    """
+    if not result.rows:
+        return True
+    if any(row.project is None for row in result.rows):
+        return True
+    return len({row.session.observation_target for row in result.rows}) > 1
+
+
+def session_columns(result: SessionListResult) -> tuple[ListColumn, ...]:
+    """The pane's columns for this result, without the ones it cannot vary."""
+    if shows_target(result):
+        return SESSION_COLUMNS
+    return tuple(column for column in SESSION_COLUMNS if column.key != "target")
+
+
 def build_session_rows(
     result: SessionListResult,
     *,
@@ -158,10 +180,11 @@ def build_session_rows(
 ) -> tuple[ListRow, ...]:
     """Render the query result as pane rows carrying every scan-level fact."""
     current = now or datetime.now(UTC)
+    target = shows_target(result)
     return tuple(
         ListRow(
             row.key,
-            session_cells(row, dark=dark, now=current, home=home),
+            session_cells(row, dark=dark, now=current, home=home, target=target),
             issue_id=row.bound_issue_id,
         )
         for row in result.rows
@@ -169,19 +192,28 @@ def build_session_rows(
 
 
 def session_cells(
-    row: SessionListRow, *, dark: bool, now: datetime, home: Path | None = None
+    row: SessionListRow,
+    *,
+    dark: bool,
+    now: datetime,
+    home: Path | None = None,
+    target: bool = True,
 ) -> tuple[ListCell, ...]:
     session = row.session
     return (
         session_state_cell(session.state, dark=dark),
         HARNESS_LABELS.get(session.harness, session.harness),
-        session_target_cell(row, home=home),
+        *((session_target_cell(row, home=home),) if target else ()),
         truncate_end(session.branch or "detached", BRANCH_LIMIT),
         session_issue_cell(row),
+        # Exactly one column names the Observation Target: with TARGET
+        # dropped the directory has to locate itself in full.
         truncate_start(
             directory_within_target(
                 session.working_directory, session.observation_target, home=home
-            ),
+            )
+            if target
+            else abbreviate_path(session.working_directory, home=home),
             PATH_LIMIT,
         ),
         relative_age(session.last_activity_at, now) or "-",
