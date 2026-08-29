@@ -1048,6 +1048,61 @@ async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_carry_the_severity_they_were_observed_with() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    target = snapshot_of(snapshot.projects[0]).observation_targets[0]
+    target.diagnostics.append(
+        Diagnostic(
+            "target:/repo",
+            "info",
+            "Observation Target is locked: maintenance",
+            "target-locked",
+        )
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: app.store.revision == 1)
+
+        diagnostics = app.query_one("#diagnostics", Static)
+        rendered = str(diagnostics.render())
+        # An observation reads as one, and does not colour the box amber.
+        assert rendered.startswith("↻ ")
+        assert diagnostics.has_class("-info")
+        assert not diagnostics.has_class("-warning")
+
+    mixed = workspace_snapshot(issue("test/repo#1", "First"))
+    mixed_target = snapshot_of(mixed.projects[0]).observation_targets[0]
+    mixed_target.diagnostics.extend(
+        [
+            Diagnostic(
+                "target:/repo",
+                "info",
+                "Observation Target is locked: maintenance",
+                "target-locked",
+            ),
+            Diagnostic(
+                "target:/repo",
+                "warning",
+                "Observation Target is prunable",
+                "target-prunable",
+            ),
+        ]
+    )
+    app = DashpotApp(SequenceCollector(mixed), refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: app.store.revision == 1)
+
+        diagnostics = app.query_one("#diagnostics", Static)
+        rendered = str(diagnostics.render())
+        assert "↻ " in rendered and "⚠ " in rendered
+        # The box takes the colour of its most severe line.
+        assert diagnostics.has_class("-warning")
+        assert not diagnostics.has_class("-info")
+
+
+@pytest.mark.asyncio
 async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     target = snapshot_of(snapshot.projects[0]).observation_targets[0]

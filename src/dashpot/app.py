@@ -24,7 +24,12 @@ from textual.widgets import DataTable, Footer, Header, Input, Select, Static
 from textual.worker import get_current_worker
 from typing_extensions import override
 
-from .alerts import summarize_alerts
+from .alerts import (
+    SEVERITY_RANK,
+    SEVERITY_SYMBOL,
+    AlertSeverity,
+    summarize_alerts,
+)
 from .branch_list import BRANCH_COLUMNS, build_branch_rows, fetch_age_text
 from .collect import (
     ObservationKey,
@@ -838,22 +843,41 @@ class DashpotApp(App[None]):
         self.sub_title = anchors or DEFAULT_SUB_TITLE
 
     def update_diagnostics(self) -> None:
-        messages: list[str] = list(self.observation_errors.values())
-        messages.extend(f"Search: {message}" for message in self.search_diagnostics)
-        messages.extend(
+        # A refresh failure and a search error are the app's own errors; a
+        # Project's diagnostics carry the severity they were observed with.
+        entries: list[tuple[AlertSeverity, str]] = [
+            ("error", message) for message in self.observation_errors.values()
+        ]
+        entries.extend(
+            ("error", f"Search: {message}") for message in self.search_diagnostics
+        )
+        entries.extend(
             (
+                entry.diagnostic.severity,
                 f"{entry.project_label} · {entry.diagnostic.source}: "
                 f"{entry.diagnostic.message}"
                 if entry.project_label is not None
-                else f"{entry.diagnostic.source}: {entry.diagnostic.message}"
+                else f"{entry.diagnostic.source}: {entry.diagnostic.message}",
             )
             for entry in self.store.diagnostics()
         )
         # The Diagnostics box takes no space at all while there is nothing to
-        # report; `-has-messages` both colours it and displays it.
+        # report; `-has-messages` displays it, and the box is coloured by the
+        # most severe line in it rather than by having any line at all.
         diagnostics = self.main_screen.query_one("#diagnostics", Static)
-        diagnostics.set_class(bool(messages), "-has-messages")
-        diagnostics.update("\n".join(f"! {message}" for message in messages))
+        diagnostics.set_class(bool(entries), "-has-messages")
+        severity = min(
+            (item for item, _message in entries),
+            key=lambda item: SEVERITY_RANK[item],
+            default="info",
+        )
+        for candidate in ("error", "warning", "info"):
+            diagnostics.set_class(
+                bool(entries) and severity == candidate, f"-{candidate}"
+            )
+        diagnostics.update(
+            "\n".join(f"{SEVERITY_SYMBOL[item]} {message}" for item, message in entries)
+        )
         self.update_alert()
 
     def update_alert(self) -> None:

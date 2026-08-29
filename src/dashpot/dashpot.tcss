@@ -190,7 +190,20 @@ DetailRow.-list > .field-value {
 
 #diagnostics.-has-messages {
     display: block;
+}
+
+/* The box takes the colour of its most severe line, so a locked Worktree
+   and a failed refresh no longer read alike. */
+#diagnostics.-info {
+    color: $text-muted;
+}
+
+#diagnostics.-warning {
     color: $warning;
+}
+
+#diagnostics.-error {
+    color: $error;
 }
 
 Screen.-compact #diagnostics {
