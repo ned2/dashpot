@@ -644,8 +644,14 @@ def observe_work_runs(
         for target in targets:
             if target.availability != "available":
                 continue
-            active, store_diagnostics = WorkStore(Path(target.path)).active()
+            store = WorkStore(Path(target.path))
+            active, store_diagnostics = store.active()
             diagnostics.extend(store_diagnostics)
+            # Runs stopped before their lock files were reclaimed leave
+            # orphaned locks behind; sweep those that guard nothing.
+            for session_key in store.orphaned_locks():
+                with contextlib.suppress(OSError):
+                    store.prune_lock(session_key)
             for work in active:
                 process_key: ProcessKey | None = None
                 if work.session_process is not None:

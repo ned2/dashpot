@@ -1178,6 +1178,18 @@ class WorkObserverTests(unittest.TestCase):
         )
         self.assertNotIn("exited", diagnostics[0].message)
 
+    def test_observation_reclaims_work_lock_files_that_guard_no_record(
+        self,
+    ) -> None:
+        self.record_work(self.worktree)
+        store = WorkStore(self.worktree)
+        (store.directory / ".codex-9-zz.lock").touch()
+
+        observe_agent_runs(self.targets(), self.state_dir, lookup=absent())
+
+        self.assertFalse((store.directory / ".codex-9-zz.lock").exists())
+        self.assertTrue((store.directory / ".codex-42-abcd1234.lock").exists())
+
     def test_orphaned_work_survives_observation_until_stopped(self) -> None:
         self.record_work(self.worktree)
 

@@ -146,3 +146,18 @@ def test_concurrent_writers_never_partially_write_state(tmp_path: Path) -> None:
     assert diagnostics == []
     assert len(active) == 8
     assert all(item.issue_id == "I_4" for item in active)
+
+
+def test_orphaned_lock_files_are_reclaimed_and_live_ones_kept(tmp_path: Path) -> None:
+    store = WorkStore(tmp_path)
+    store.start(work(session_key="codex-1-aa"))
+    (store.directory / ".codex-9-zz.lock").touch()
+    (store.directory / ".not a key.lock").touch()
+
+    assert store.orphaned_locks() == ["codex-9-zz"]
+    assert store.prune_lock("codex-9-zz") is True
+    assert store.prune_lock("codex-1-aa") is False
+
+    assert not (store.directory / ".codex-9-zz.lock").exists()
+    assert (store.directory / ".codex-1-aa.lock").exists()
+    assert (store.directory / ".not a key.lock").exists()

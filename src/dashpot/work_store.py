@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .file_locks import locked_path
+from .file_locks import locked_path, prune_lock_file
 from .model import Diagnostic
 
 WORK_STORE_VERSION = 1
@@ -110,6 +110,25 @@ class WorkStore:
                     )
                 )
         return work, diagnostics
+
+    def prune_lock(self, session_key: str) -> bool:
+        """Delete the session's lock file once no record remains behind it."""
+        return prune_lock_file(
+            self._lock_path(session_key), self._destination(session_key)
+        )
+
+    def orphaned_locks(self) -> list[str]:
+        """Session keys of lock files in this store that guard no record."""
+        if not self.directory.is_dir():
+            return []
+        orphaned: list[str] = []
+        for path in sorted(self.directory.glob(".*.lock")):
+            session_key = path.name[1 : -len(".lock")]
+            if not SESSION_KEY.fullmatch(session_key):
+                continue
+            if not self._destination(session_key).exists():
+                orphaned.append(session_key)
+        return orphaned
 
     def _destination(self, session_key: str) -> Path:
         if not SESSION_KEY.fullmatch(session_key):
