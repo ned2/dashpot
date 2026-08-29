@@ -147,7 +147,7 @@ def test_sessions_join_the_branch_they_are_on_and_the_store_serves_the_query() -
 
 
 def test_branch_cells_carry_every_scan_level_fact() -> None:
-    long_name = "feature/" + "x" * 40
+    long_name = "feature/" + "x" * 60
     observation = branchy_project(
         "project:one",
         local("main", upstream="origin/main", checked_out_at="/home/ned/project:one"),
@@ -188,7 +188,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     assert isinstance(gone[2], Text)
     assert (gone[2].plain, str(gone[2].style)) == ("upstream gone", "#cf222e")
     unpushed = branch_cells(by_name[long_name], dark=True, now=CLOCK, home=home)
-    assert str(unpushed[0]) == "feature/" + "x" * 23 + "…"
+    assert str(unpushed[0]) == "feature/" + "x" * 39 + "…"
     assert isinstance(unpushed[2], Text)
     assert unpushed[2].plain == "unpushed"
     assert plain(unpushed[3:5]) == ["abcdef1", "-"]

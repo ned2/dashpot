@@ -35,7 +35,7 @@ from .worktree_list import (
     sessions_cell,
 )
 
-NAME_LIMIT = 32
+NAME_LIMIT = 48
 LOCAL_TEXT = "local"
 IN_SYNC_TEXT = "in sync"
 UNPUSHED_TEXT = "unpushed"
