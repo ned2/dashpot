@@ -56,8 +56,15 @@ def run_pushed_revision(revision: str) -> None:
                 ["git", "worktree", "add", "--detach", str(checkout), revision],
             )
             worktree_added = True
-            child_environment = dict(os.environ)
-            child_environment.pop(PRE_COMMIT_TO_REF, None)
+            # Git exports GIT_DIR and friends to a hook run from a linked
+            # worktree; inherited, they would point every git command in the
+            # pushed-revision checkout (and the tests' own temporary
+            # repositories) back at this worktree.
+            child_environment = {
+                name: value
+                for name, value in os.environ.items()
+                if name != PRE_COMMIT_TO_REF and not name.startswith("GIT_")
+            }
             run_gate(
                 "Quality gates for pushed revision",
                 uv_run("python", "scripts/check_quality.py"),
