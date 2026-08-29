@@ -14,6 +14,7 @@ from textual.binding import BindingType
 from textual.containers import Container, Horizontal, Vertical
 from textual.content import Content
 from textual.css.query import NoMatches
+from textual.geometry import Size
 from textual.message import Message
 from textual.screen import Screen
 from textual.theme import Theme
@@ -65,10 +66,21 @@ from .issue_table import (
     sort_key_for_terms,
 )
 from .issue_view import IssueScreen
+from .list_pane import ListPane, ListRow
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
 
 ISSUE_PANE_LABEL = "ISSUES"
+SESSIONS_PANE_LABEL = "SESSIONS"
+WORKTREES_PANE_LABEL = "WORKTREES"
+# Focus cycles through the three lists in reading order; the detail panes and
+# the Issue controls are not part of the cycle.
+LIST_TABLE_IDS = ("queue", "sessions", "worktrees")
+# Blank lines between the three rows of the body, and a list pane's frame
+# and header, all of which come out of the height a pane's records get.
+ROW_MARGINS = 2
+PANE_FRAME = 2
+PANE_HEADER = 1
 ISSUE_PANE_STATE_CLASSES = (
     "-issue-open",
     "-issue-completed",
@@ -94,6 +106,21 @@ class ObservationFinished(Message):
         self.error = error
 
 
+class BodyResized(Message):
+    """The dashboard body was laid out at a new size."""
+
+    def __init__(self, size: Size) -> None:
+        super().__init__()
+        self.size = size
+
+
+class DashboardBody(Container):
+    """The pane stack; its height is the budget the list panes fit into."""
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.post_message(BodyResized(event.size))
+
+
 RefreshScope = Literal["current", "workspace"]
 
 
@@ -113,6 +140,12 @@ class DashpotApp(App[None]):
         ("r", "refresh", "Refresh"),
         ("shift+r", "refresh_workspace", "Refresh all"),
         ("enter", "open_issue", "Open Issue"),
+        # The list keys sit ahead of the Issue-table controls so a narrow
+        # Footer cuts off sort keys, which the column headers also offer.
+        ("1", "focus_issues", "Issues"),
+        ("2", "focus_sessions", "Sessions"),
+        ("3", "focus_worktrees", "Worktrees"),
+        ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
         ("s", "sort_next", "Sort column"),
@@ -171,7 +204,7 @@ class DashpotApp(App[None]):
     @override
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="body"):
+        with DashboardBody(id="body"):
             with Container(id="detail-row"):
                 with Vertical(id="project-pane"):
                     yield DetailFields(
@@ -183,6 +216,19 @@ class DashpotApp(App[None]):
                         DetailItem("Select a row", kind="message"),
                         id="selection-detail",
                     )
+            with Container(id="list-row"):
+                yield ListPane(
+                    SESSIONS_PANE_LABEL,
+                    empty_message="no active sessions",
+                    id="sessions-pane",
+                    table_id="sessions",
+                )
+                yield ListPane(
+                    WORKTREES_PANE_LABEL,
+                    empty_message="no worktrees observed yet",
+                    id="worktrees-pane",
+                    table_id="worktrees",
+                )
             with Vertical(id="queue-pane"):
                 with Horizontal(id="queue-controls"):
                     yield Select(
@@ -209,6 +255,52 @@ class DashpotApp(App[None]):
         return cast(
             "DataTable[TableCell]", self.main_screen.query_one("#queue", DataTable)
         )
+
+    def sessions_pane(self) -> ListPane:
+        return self.main_screen.query_one("#sessions-pane", ListPane)
+
+    def worktrees_pane(self) -> ListPane:
+        return self.main_screen.query_one("#worktrees-pane", ListPane)
+
+    def list_tables(self) -> tuple[DataTable[Any], ...]:
+        """The three lists in focus-cycle order: Issues, Sessions, Worktrees."""
+        return tuple(
+            self.main_screen.query_one(f"#{table_id}", DataTable)
+            for table_id in LIST_TABLE_IDS
+        )
+
+    def action_focus_issues(self) -> None:
+        self.queue_table().focus()
+
+    def action_focus_sessions(self) -> None:
+        self.sessions_pane().table.focus()
+
+    def action_focus_worktrees(self) -> None:
+        self.worktrees_pane().table.focus()
+
+    def action_focus_search(self) -> None:
+        self.main_screen.query_one("#issue-search", Input).focus()
+
+    @override
+    def action_focus_next(self) -> None:
+        if not self.cycle_list_focus(1):
+            super().action_focus_next()
+
+    @override
+    def action_focus_previous(self) -> None:
+        if not self.cycle_list_focus(-1):
+            super().action_focus_previous()
+
+    def cycle_list_focus(self, step: int) -> bool:
+        """Move focus to the next list when a list has it; otherwise decline."""
+        if self.screen is not self.main_screen:
+            return False
+        tables = self.list_tables()
+        focused = self.main_screen.focused
+        if focused not in tables:
+            return False
+        tables[(tables.index(focused) + step) % len(tables)].focus()
+        return True
 
     def on_mount(self) -> None:
         self.main_screen.query_one("#project-pane").border_title = Content(
@@ -381,6 +473,7 @@ class DashpotApp(App[None]):
             self.request_refresh("initial")
         else:
             self.update_issue_inventory(self.reconcile_rows())
+            self.reconcile_list_panes()
             self.update_diagnostics()
         if self.refresh_seconds > 0:
             self.refresh_timer = self.set_interval(
@@ -405,6 +498,12 @@ class DashpotApp(App[None]):
         self.request_refresh("manual", scope="workspace")
 
     def current_project_id(self) -> str | None:
+        """The Project of the highlighted row in the focused list, if any."""
+        focused = self.main_screen.focused
+        for pane in (self.sessions_pane(), self.worktrees_pane()):
+            if focused is pane.table:
+                highlighted = pane.highlighted_row()
+                return highlighted.project_id if highlighted is not None else None
         row = (
             self.rows_by_key.get(self.selected_row_key)
             if self.selected_row_key is not None
@@ -509,6 +608,7 @@ class DashpotApp(App[None]):
             return
         self.queue_table().loading = False
         self.update_issue_inventory(self.reconcile_rows())
+        self.reconcile_list_panes()
         self.update_diagnostics()
         # Follow-ups are derived from what was published, not from this
         # ticket's key: another key's handler may already have published
@@ -526,6 +626,53 @@ class DashpotApp(App[None]):
         self.main_screen.query_one("#queue-pane").border_title = Content(
             f"{ISSUE_PANE_LABEL} · {issue_inventory_text(result)}"
         )
+
+    def on_body_resized(self, message: BodyResized) -> None:
+        # The last layout of a closing app can report after the screen stack
+        # has been torn down; the panes it would fit are already gone.
+        if self._closing or self._closed or not self.screen_stack:
+            return
+        self.fit_list_panes(message.size)
+
+    def fit_list_panes(self, body: Size) -> None:
+        """Cap each list pane to the height left after the fixed minimums.
+
+        The detail row and the Issue table keep their stylesheet minimums;
+        whatever remains is the pane row's, shared between the two panes when
+        the compact layout stacks them. Textual cannot resolve an
+        over-constrained column (every `fr` row at its minimum), so the cap
+        shrinks first, to a frame with a count when nothing else fits.
+        """
+        fixed = ROW_MARGINS + sum(
+            int(minimum.value)
+            for selector in ("#detail-row", "#queue-pane")
+            if (minimum := self.main_screen.query_one(selector).styles.min_height)
+            is not None
+        )
+        available = body.height - fixed
+        compact = self.is_compact(body.width)
+        panes = (self.sessions_pane(), self.worktrees_pane())
+        pane_height = available // len(panes) if compact else available
+        row_cap = pane_height - PANE_FRAME - PANE_HEADER
+        for pane in panes:
+            pane.fit_rows(row_cap if row_cap >= 1 else 0)
+
+    def is_compact(self, width: int) -> bool:
+        """Whether the screen is below the `-compact` horizontal breakpoint."""
+        return width < self.HORIZONTAL_BREAKPOINTS[-1][0]
+
+    def reconcile_list_panes(self) -> None:
+        """Re-list every observed session and worktree from the store."""
+        self.sessions_pane().show_rows(self.session_rows())
+        self.worktrees_pane().show_rows(self.worktree_rows())
+
+    def session_rows(self) -> tuple[ListRow, ...]:
+        """The Sessions pane rows; the read model arrives with #30."""
+        return ()
+
+    def worktree_rows(self) -> tuple[ListRow, ...]:
+        """The Worktrees pane rows; the read model arrives with #31."""
+        return ()
 
     def reconcile_rows(self) -> IssueListResult:
         """Rebuild the table from the store and return the query result."""
@@ -618,9 +765,26 @@ class DashpotApp(App[None]):
         return self.screen_stack[0] if self.screen_stack else self.screen
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        if event.data_table.id != "queue":
+        if event.data_table.id == "queue":
+            self.open_issue(str(event.row_key.value))
+        elif event.data_table.id == "sessions":
+            row = self.sessions_pane().row(str(event.row_key.value))
+            if row is not None:
+                self.highlight_issue(row.issue_id, project_id=row.project_id)
+
+    def highlight_issue(self, issue_id: str | None, *, project_id: str | None) -> None:
+        """Move the Issue table's cursor to an Issue; nothing happens otherwise."""
+        if issue_id is None:
             return
-        self.open_issue(str(event.row_key.value))
+        table = self.queue_table()
+        for key, row in self.rows_by_key.items():
+            if row.issue is None or row.issue["id"] != issue_id:
+                continue
+            if project_id is not None and row.project.project_id != project_id:
+                continue
+            table.move_cursor(row=table.get_row_index(key), column=0, animate=False)
+            self.show_row(key)
+            return
 
     def action_open_issue(self) -> None:
         if self.selected_row_key is not None:
@@ -640,6 +804,10 @@ class DashpotApp(App[None]):
         # A queued highlight can be dispatched during app shutdown, after the
         # screen and detail panes have been unmounted.
         if self._closing or self._closed or not self.screen_stack:
+            return
+        # Only the Issue table drives the detail panes; a session or worktree
+        # cursor is for scrolling, copying and refresh scope alone.
+        if event.data_table.id != "queue":
             return
         self.show_row(str(event.row_key.value))
 

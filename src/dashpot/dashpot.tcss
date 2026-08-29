@@ -16,6 +16,60 @@ Screen {
     layout: horizontal;
 }
 
+/* The Sessions and Worktrees panes share one row that is sized to its
+   content: each pane grows with its records up to the cap on its table and
+   scrolls beyond it, so the Issue table below only pays for rows in use. */
+#list-row {
+    width: 1fr;
+    height: auto;
+    margin-bottom: 1;
+    layout: horizontal;
+}
+
+#sessions-pane,
+#worktrees-pane {
+    width: 1fr;
+    height: auto;
+    border: round $primary-darken-2;
+    border-title-align: left;
+    border-title-style: bold;
+}
+
+#sessions-pane {
+    margin-right: 1;
+}
+
+/* Each table's cap is set by the app from the height left over after the
+   detail row and the Issue table keep their minimums (see
+   `DashpotApp.fit_list_panes`); the stylesheet only supplies the canvas. */
+#sessions,
+#worktrees {
+    height: auto;
+    background: $background;
+}
+
+#sessions > .datatable--even-row,
+#worktrees > .datatable--even-row {
+    background: $foreground 8%;
+}
+
+.list-pane-empty {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    text-style: italic;
+}
+
+Screen.-compact #list-row {
+    layout: vertical;
+}
+
+/* Stacked panes touch: their frames separate them, and the blank line
+   would come straight out of the Issue table. */
+Screen.-compact #sessions-pane {
+    margin-right: 0;
+}
+
 #queue-pane {
     width: 1fr;
     height: 1fr;
@@ -23,6 +77,13 @@ Screen {
     border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;
+}
+
+/* The focused list is cued by its border colour, like the Issue view panes. */
+#queue-pane:focus-within,
+#sessions-pane:focus-within,
+#worktrees-pane:focus-within {
+    border: round $primary;
 }
 
 #project-pane,
