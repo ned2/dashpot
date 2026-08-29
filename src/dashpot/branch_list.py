@@ -29,26 +29,24 @@ from .model import (
 from .session_list import PATH_LIMIT, abbreviate_path
 from .worktree_list import (
     DIRTY_COLORS,
-    SHORT_HEAD,
     UNAVAILABLE_COLORS,
-    freshness_cell,
     sessions_cell,
 )
 
 NAME_LIMIT = 48
 LOCAL_TEXT = "local"
-IN_SYNC_TEXT = "in sync"
-UNPUSHED_TEXT = "unpushed"
-UPSTREAM_GONE_TEXT = "upstream gone"
+# The sync states are glyph-only, so the column stays as narrow as the
+# ahead/behind counts beside them.
+IN_SYNC_GLYPH = "✓"
+UNPUSHED_GLYPH = "○"
+UPSTREAM_GONE_GLYPH = "✗"
 
 BRANCH_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("name", "BRANCH"),
     ListColumn("where", "WHERE"),
     ListColumn("sync", "SYNC"),
-    ListColumn("head", "HEAD"),
     ListColumn("worktree", "WORKTREE"),
     ListColumn("sessions", "SESSIONS"),
-    ListColumn("state", "STATE"),
     ListColumn("commit", "LAST COMMIT"),
 )
 
@@ -73,14 +71,6 @@ class BranchListRow:
     def committed_at(self) -> str:
         """The newest commit across the refs, which is the row's recency."""
         return max(ref.committed_at for ref in self.refs)
-
-    @property
-    def freshness(self) -> str:
-        """``available``, or ``stale`` when a failed refresh retained the refs."""
-        snapshot = self.project.snapshot
-        if snapshot is not None and snapshot.target_status == "stale":
-            return "stale"
-        return "available"
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +204,6 @@ def branch_cells(
     now: datetime,
     home: Path | None = None,
 ) -> tuple[ListCell, ...]:
-    head = row.refs[0].head
     worktree = row.worktrees[0].path if row.worktrees else None
     if worktree is None:
         worktree = next(
@@ -224,12 +213,10 @@ def branch_cells(
         truncate_end(row.name, NAME_LIMIT),
         where_text(row),
         sync_cell(row.local, dark=dark),
-        head[:SHORT_HEAD] if head else "-",
         truncate_start(abbreviate_path(worktree, home=home), PATH_LIMIT)
         if worktree
         else "-",
         sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
-        freshness_cell(row.freshness, dark=dark),
         relative_age(row.committed_at, now) or "-",
     )
 
@@ -246,16 +233,16 @@ def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
     if local is None:
         return "-"
     if local.upstream_gone:
-        return Text(UPSTREAM_GONE_TEXT, style=UNAVAILABLE_COLORS[dark])
+        return Text(UPSTREAM_GONE_GLYPH, style=UNAVAILABLE_COLORS[dark])
     if local.upstream is None:
-        return Text(UNPUSHED_TEXT, style=DIRTY_COLORS[dark])
+        return Text(UNPUSHED_GLYPH, style=DIRTY_COLORS[dark])
     parts: list[str] = []
     if local.ahead:
         parts.append(f"↑{local.ahead}")
     if local.behind:
         parts.append(f"↓{local.behind}")
     if not parts:
-        return IN_SYNC_TEXT
+        return IN_SYNC_GLYPH
     return Text(" ".join(parts), style=DIRTY_COLORS[dark])
 
 

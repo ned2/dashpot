@@ -155,7 +155,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
         local("ahead-behind", upstream="origin/ahead-behind", ahead=3, behind=2),
         local("gone", upstream="origin/gone", gone=True),
         local(long_name),
-        remote("remote-only", head="9876543210"),
+        remote("remote-only"),
     )
     snapshot_of(observation).observation_targets = [
         target("/home/ned/project:one", role="main", branch="main")
@@ -173,11 +173,9 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     assert plain(main) == [
         "main",
         "local · origin",
-        "in sync",
-        "abcdef1",
+        "✓",
         "~/project:one",
         "◐ 1",
-        "available",
         "1h ago",
     ]
     drifted = branch_cells(by_name["ahead-behind"], dark=True, now=CLOCK, home=home)
@@ -186,30 +184,27 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     assert str(drifted[2].style) == "#d29922"
     gone = branch_cells(by_name["gone"], dark=False, now=CLOCK, home=home)
     assert isinstance(gone[2], Text)
-    assert (gone[2].plain, str(gone[2].style)) == ("upstream gone", "#cf222e")
+    assert (gone[2].plain, str(gone[2].style)) == ("✗", "#cf222e")
     unpushed = branch_cells(by_name[long_name], dark=True, now=CLOCK, home=home)
     assert str(unpushed[0]) == "feature/" + "x" * 39 + "…"
     assert isinstance(unpushed[2], Text)
-    assert unpushed[2].plain == "unpushed"
-    assert plain(unpushed[3:5]) == ["abcdef1", "-"]
+    assert unpushed[2].plain == "○"
+    assert str(unpushed[3]) == "-"
     remote_only = branch_cells(by_name["remote-only"], dark=True, now=CLOCK, home=home)
-    assert plain(remote_only[:4]) == ["remote-only", "origin", "-", "9876543"]
-    assert plain(remote_only[4:7]) == ["-", "-", "available"]
+    assert plain(remote_only[:3]) == ["remote-only", "origin", "-"]
+    assert plain(remote_only[3:5]) == ["-", "-"]
 
     rows = build_branch_rows(result, dark=True, now=CLOCK, home=home)
     assert [row.key for row in rows] == [row.key for row in result.rows]
     assert len(rows[0].cells) == len(BRANCH_COLUMNS)
 
 
-def test_stale_topology_marks_every_branch_and_fetch_age_is_honest() -> None:
+def test_fetch_age_is_honest() -> None:
     observation = branchy_project("project:one", local("main"), fetched_at=None)
     snapshot_of(observation).target_status = "stale"
 
     result = query_branch_list(workspace(observation))
 
     assert result.fetched_at is None
-    assert result.rows[0].freshness == "stale"
-    state = branch_cells(result.rows[0], dark=True, now=CLOCK)[6]
-    assert isinstance(state, Text) and state.plain == "stale"
     assert fetch_age_text(None, CLOCK) == "never fetched"
     assert fetch_age_text("2026-08-27T00:00:00Z", CLOCK) == "remote as of 3h ago"

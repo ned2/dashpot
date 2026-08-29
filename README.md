@@ -535,10 +535,9 @@ Branches pane ([`branch_list.py`](src/dashpot/branch_list.py),
 Remote-Tracking Branches of one branch name into one row, so a branch is
 never listed twice and never needs a second pane: `WHERE` says where it exists
 (`local`, `local · origin`, or `origin` alone for a branch pushed from
-elsewhere), `SYNC` is the local ref's relation to its upstream (`in sync`,
-`↑2 ↓1`, `unpushed`, or `upstream gone`), then short HEAD, the Worktree it is
-checked out in, the active sessions on it, availability and the age of its
-last commit. Rows are sorted checked-out first, then most recent commit. The
+elsewhere), `SYNC` is the local ref's relation to its upstream (`✓` in sync,
+`↑2 ↓1`, `○` unpushed, or `✗` upstream gone), then the Worktree it is checked out
+in, the active sessions on it, and the age of its last commit. Rows are sorted checked-out first, then most recent commit. The
 refs are read with `git for-each-ref` from the first answering Repository
 Anchor; Dashpot never runs `git fetch`, so the pane title carries the age of
 the last fetch (`remote as of 3h ago`, or `never fetched`) as the honest
