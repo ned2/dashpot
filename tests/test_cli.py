@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -403,3 +404,41 @@ def test_integrate_errors_are_reported_without_traceback(
 
     assert code == 2
     assert "no Codex configuration directory" in capsys.readouterr().err
+
+
+def test_anchors_for_two_projects_are_refused_at_startup(tmp_path: Path) -> None:
+    roots = []
+    for name, project_id in (
+        ("dashpot", "project:01947e42-3f67-7c38-a41c-218df18a169b"),
+        ("other", "project:0195aaaa-1111-7c38-a41c-218df18a169b"),
+    ):
+        root = tmp_path / name
+        (root / ".dashpot").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".dashpot" / "config.json").write_text(
+            json.dumps(
+                {
+                    "projectId": project_id,
+                    "displayLabel": name.title(),
+                    "repositoryId": f"repository:{name}",
+                    "issueSource": {"kind": "markdown", "path": "issues"},
+                }
+            )
+        )
+        roots.append(root)
+
+    with (
+        mock.patch.object(cli, "DashpotApp") as app,
+        mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+    ):
+        result = cli.main(
+            ["--workspace", f"personal={roots[0]}", "--workspace", f"client={roots[1]}"]
+        )
+
+    assert result == 2
+    message = stderr.getvalue()
+    assert message.startswith("dashpot: Dashpot observes one Project per run")
+    assert "2 Projects" in message
+    assert str(roots[0].resolve()) in message
+    assert str(roots[1].resolve()) in message
+    app.assert_not_called()
