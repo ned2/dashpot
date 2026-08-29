@@ -245,3 +245,16 @@ def test_codex_and_claude_code_runs_on_one_issue_are_independent(
     assert len(active) == 2
     assert {work.harness for work in active} == {"codex", "claude-code"}
     assert len({work.run_id for work in active}) == 2
+
+
+def test_bare_issue_number_resolves_like_the_prefixed_hint(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+
+    start_issue_work(root, "2", lookup=codex_lookup)
+    bare, _ = WorkStore(root).active()
+    start_issue_work(root, "#2", lookup=codex_lookup)
+    prefixed, _ = WorkStore(root).active()
+
+    assert bare[0].issue_id == "I_crash"
+    assert prefixed[0].issue_id == bare[0].issue_id
+    assert prefixed[0].issue_reference == bare[0].issue_reference == "fix-crash"

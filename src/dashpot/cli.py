@@ -139,7 +139,10 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "reference",
         metavar="REFERENCE",
-        help="Issue Reference, such as owner/repository#12, #12, or a slug",
+        help=(
+            "Issue Reference, such as a bare Issue Number (12), #12, "
+            "owner/repository#12, or a slug"
+        ),
     )
     stop = work_commands.add_parser("stop", help="end this session's active Issue work")
     stop.add_argument(

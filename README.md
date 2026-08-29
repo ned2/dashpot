@@ -284,11 +284,16 @@ An agent session declares which Issue it is working on from inside the
 session, at the worktree where the work happens:
 
 ```bash
-dashpot work start '#123'      # an Issue Number, or a full Issue Reference
+dashpot work start 123         # a bare Issue Number
+dashpot work start '#123'      # the same Issue, # quoted for the shell
+dashpot work start owner/repository#123   # or a full Issue Reference
 dashpot work show              # list active Issue work at this worktree
 dashpot work stop              # end this session's run; the session stays alive
 dashpot work stop --session KEY  # end the orphaned run of a session that is gone
 ```
+
+A bare number and its `#`-prefixed form resolve to the same Issue; Local
+Issue Markdown Projects also accept the Issue's slug.
 
 `dashpot work start` resolves the Reference against the Project configured at
 that worktree, requires it to identify exactly one currently observed Issue,
@@ -336,6 +341,35 @@ complete snapshot. Collection happens off the UI thread, and the table is
 reconciled by stable row keys. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
+
+## Contributing
+
+Every change lands on `main` the same way, whether a human or an agent makes
+it:
+
+1. Branch from `main` for the change.
+2. Commit with the commit hooks installed. A commit message line `Closes #N`
+   is what closes the Issue on GitHub once the commit reaches `main`.
+3. Fast-forward `main` onto the branch and `git push origin main`. The
+   pre-push hook runs the full gate in
+   [`scripts/check_quality.py`](scripts/check_quality.py) against the pushed
+   revision in a detached worktree, so a red gate stops the push.
+4. Watch CI to completion with `gh run watch <id> --exit-status`; the change
+   is done when the run is green.
+
+Agent sessions additionally declare the Issue they are working on with
+`dashpot work start` (see [Issue work opt-in](#issue-work-opt-in)); the
+expectations on agents themselves are in [`AGENTS.md`](AGENTS.md).
+
+## Documentation map
+
+[`CONTEXT.md`](CONTEXT.md) is the ubiquitous language: the terms used in code,
+tests, messages, and docs, each with the phrasings to avoid.
+[`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
+decision. The other files in [`docs/`](docs/) are research and audits that
+informed those decisions and the implementation, such as
+[`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md).
+[`conformance/`](conformance/) documents owned file grammars.
 
 ## License
 
