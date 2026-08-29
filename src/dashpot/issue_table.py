@@ -189,15 +189,15 @@ class ColumnSpec:
     update_width: bool = False
     # Share of the table's spare width: ``None`` follows the content width,
     # ``0`` keeps the column at its content, as for a one-glyph icon.
-    flex: int | None = None
+    spread_weight: int | None = None
     search_field: IssueSearchField | None = None
     sort_key: Callable[[object], SortValue] = _cell_sort_key
     nulls_last: bool = False
 
 
 COLUMN_SPECS = (
-    ColumnSpec("issue_state", "◉", sortable=False, flex=0),
-    ColumnSpec("agent_state", "◈", sortable=False, flex=0),
+    ColumnSpec("issue_state", "◉", sortable=False, spread_weight=0),
+    ColumnSpec("agent_state", "◈", sortable=False, spread_weight=0),
     ColumnSpec(
         "number",
         "#",

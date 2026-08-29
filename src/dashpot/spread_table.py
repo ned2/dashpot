@@ -27,7 +27,7 @@ class SpreadTable(DataTable[CellType]):
     share of whatever width is left in proportion to that content, as a
     browser lays out an auto table, so the columns reach the pane's edge at
     any size and the long columns take most of the room. A column added with
-    an explicit ``flex`` uses that weight instead; ``0`` pins it to its
+    an explicit ``spread_weight`` uses that weight instead; ``0`` pins it to its
     content, as for a one-glyph icon. When the content alone is wider than
     the pane the columns fall back to their content widths and the table
     scrolls horizontally, as before.
@@ -35,7 +35,7 @@ class SpreadTable(DataTable[CellType]):
 
     # Explicit weights by column key; created on first use rather than in
     # ``__init__``, whose long DataTable signature would have to be repeated.
-    _flex: dict[ColumnKey, int] | None = None
+    _spread_weights: dict[ColumnKey, int] | None = None
 
     @override
     def add_column(
@@ -45,20 +45,20 @@ class SpreadTable(DataTable[CellType]):
         width: int | None = None,
         key: str | None = None,
         default: CellType | None = None,
-        flex: int | None = None,
+        spread_weight: int | None = None,
     ) -> ColumnKey:
         column_key = super().add_column(label, width=width, key=key, default=default)
-        if flex is not None:
-            if self._flex is None:
-                self._flex = {}
-            self._flex[column_key] = flex
+        if spread_weight is not None:
+            if self._spread_weights is None:
+                self._spread_weights = {}
+            self._spread_weights[column_key] = spread_weight
         return column_key
 
     @override
     def clear(self, columns: bool = False) -> Self:
         super().clear(columns)
         if columns:
-            self._flex = None
+            self._spread_weights = None
         else:
             # Textual only ever widens a column, so a cleared table would keep
             # the width of rows it no longer shows; the labels are all that
@@ -85,12 +85,12 @@ class SpreadTable(DataTable[CellType]):
         columns = list(self.columns.values())
         if not columns:
             return
-        flex = self._flex or {}
+        weights = self._spread_weights or {}
         available = self.scrollable_content_region.width - self._row_label_column_width
         widths = spread_widths(
             available,
             [column.content_width for column in columns],
-            [flex.get(column.key, column.content_width) for column in columns],
+            [weights.get(column.key, column.content_width) for column in columns],
             padding=2 * self.cell_padding,
         )
         previous = [

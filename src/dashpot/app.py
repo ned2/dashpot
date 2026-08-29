@@ -341,7 +341,7 @@ class DashpotApp(App[None]):
             table.add_column(
                 column_label(column, self.issue_view.sort),
                 key=column.key,
-                flex=column.flex,
+                spread_weight=column.spread_weight,
             )
 
     def action_columns(self) -> None:

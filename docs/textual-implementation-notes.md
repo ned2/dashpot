@@ -211,8 +211,8 @@ plus a share of the surplus in proportion to that content — the browsers' rule
 for an auto-layout table wider than its content ([CSS Tables 3](https://www.w3.org/TR/css-tables-3/)),
 and what Rich's `Table(expand=True)` does — so a title or path column absorbs
 most of the room and a chip column stays tight. A column can override its
-weight with `flex` on `ColumnSpec`, passed through `SpreadTable.add_column`;
-the one-glyph `◉` and `◈` Issue columns use `flex=0` and never grow. The
+weight with `spread_weight` on `ColumnSpec`, passed through `SpreadTable.add_column`;
+the one-glyph `◉` and `◈` Issue columns use `spread_weight=0` and never grow. The
 policy itself is the pure `spread_widths` / `proportional_shares` pair, which
 the widget only applies. The columns fall back to content
 widths with a horizontal scrollbar when the content alone is wider than the
