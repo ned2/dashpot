@@ -49,6 +49,7 @@ from dashpot.issue_table import (
     sort_key_for_terms,
 )
 from dashpot.issue_view import IssueScreen, issue_metadata_items
+from dashpot.list_pane import ListPane, ListRow
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import (
     AgentRun,
@@ -140,12 +141,19 @@ def workspace_snapshot(
 
 
 class SequenceCollector:
-    def __init__(self, *results: WorkspaceSnapshot | Exception) -> None:
+    def __init__(
+        self, *results: WorkspaceSnapshot | Exception, release: Event | None = None
+    ) -> None:
         self.results = list(results)
         self.lock = Lock()
         self.calls = 0
+        # A gated collector holds every observation until the test releases
+        # it, so what the app shows before the first result is deterministic.
+        self.release = release
 
     def refresh(self) -> WorkspaceSnapshot:
+        if self.release is not None:
+            self.release.wait(timeout=2)
         with self.lock:
             result = self.results.pop(0)
             self.calls += 1
@@ -197,12 +205,14 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         issue("test/repo#1", "First"),
         issue("test/repo#2", "Second", "P2"),
     )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    release = Event()
+    app = DashpotApp(SequenceCollector(snapshot, release=release), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)) as pilot:
         # Before the first observation the pane carries only its label, never
         # a fabricated ``Open 0 · Closed 0`` inventory.
         assert pane_title(app, "#queue-pane") == "ISSUES"
+        release.set()
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         table = app.query_one("#queue", DataTable)
@@ -2260,3 +2270,339 @@ def test_detail_panes_render_labels_as_tracker_coloured_chips() -> None:
             "#ffffff on #d73a4a"
         ]
         assert "Labels: bug" in detail_items_text(items)
+
+
+def list_rows(
+    count: int, *, prefix: str = "row", issue_id: str | None = None
+) -> tuple[ListRow, ...]:
+    """Generic pane records; the read models behind them arrive with #30/#31."""
+    return tuple(
+        ListRow(
+            f"{prefix}-{index}",
+            (f"{prefix} {index}", "detail"),
+            project_id="project:test-repo",
+            issue_id=issue_id,
+        )
+        for index in range(count)
+    )
+
+
+def prepare_pane(app: DashpotApp, pane_id: str) -> ListPane:
+    """A pane with the two generic columns the shell tests fill in."""
+    pane = app.query_one(f"#{pane_id}", ListPane)
+    if not pane.table.columns:
+        pane.table.add_column("NAME", key="name")
+        pane.table.add_column("DETAIL", key="detail")
+    return pane
+
+
+def footer_keys(app: DashpotApp) -> set[str]:
+    return {binding.key for _, binding, *_ in app.screen.active_bindings.values()}
+
+
+@pytest.mark.asyncio
+async def test_main_screen_composes_the_pane_row_between_detail_and_issues() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+
+        detail_row = app.query_one("#detail-row")
+        list_row = app.query_one("#list-row")
+        sessions = app.query_one("#sessions-pane", ListPane)
+        worktrees = app.query_one("#worktrees-pane", ListPane)
+        queue_pane = app.query_one("#queue-pane")
+        assert detail_row.region.bottom <= list_row.region.y
+        assert list_row.region.bottom <= queue_pane.region.y
+        assert sessions.region.y == worktrees.region.y
+        assert sessions.region.right <= worktrees.region.x
+        assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
+        assert pane_title(app, "#worktrees-pane") == "WORKTREES · 0"
+        # An empty pane is one honest line inside its frame, not a blank box.
+        assert sessions.region.height == worktrees.region.height == 3
+        empty_messages = [
+            str(message.render())
+            for message in app.query(".list-pane-empty").results(Static)
+            if message.display
+        ]
+        assert empty_messages == ["no active sessions", "no worktrees observed yet"]
+        assert app.query_one("#queue", DataTable).has_focus
+        assert queue_pane.region.height >= 6
+        assert {"tab", "1", "2", "3"} <= footer_keys(app)
+
+
+@pytest.mark.asyncio
+async def test_tab_and_pane_keys_cycle_focus_through_the_three_lists() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        queue = app.query_one("#queue", DataTable)
+        sessions = app.query_one("#sessions", DataTable)
+        worktrees = app.query_one("#worktrees", DataTable)
+        assert queue.has_focus
+
+        await pilot.press("tab")
+        assert sessions.has_focus
+        assert app.query_one("#sessions-pane").has_pseudo_class("focus-within")
+        assert not app.query_one("#queue-pane").has_pseudo_class("focus-within")
+        await pilot.press("tab")
+        assert worktrees.has_focus
+        await pilot.press("tab")
+        assert queue.has_focus
+        await pilot.press("shift+tab")
+        assert worktrees.has_focus
+        await pilot.press("shift+tab")
+        assert sessions.has_focus
+
+        await pilot.press("1")
+        assert queue.has_focus
+        await pilot.press("3")
+        assert worktrees.has_focus
+        await pilot.press("2")
+        assert sessions.has_focus
+        # The Issue controls stay reachable from the keyboard.
+        await pilot.press("slash")
+        assert app.query_one("#issue-search", Input).has_focus
+        await pilot.press("tab")
+        assert queue.has_focus
+
+
+@pytest.mark.asyncio
+async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        pane = prepare_pane(app, "sessions-pane")
+
+        def flex_height() -> int:
+            """The height shared by the detail row and the Issue table."""
+            return sum(
+                app.query_one(selector).region.height
+                for selector in ("#detail-row", "#queue-pane")
+            )
+
+        initial_flex_height = flex_height()
+
+        pane.show_rows(list_rows(3))
+        await pilot.pause()
+        assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
+        # Frame, header and three records; the flex rows give up only that.
+        assert pane.region.height == 2 + 1 + 3
+        assert not pane.table.show_vertical_scrollbar
+        assert not app.query_one("#sessions-pane .list-pane-empty").display
+        assert flex_height() == initial_flex_height - 3
+
+        pane.show_rows(list_rows(12))
+        await pilot.pause()
+        assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
+        assert pane.region.height == 2 + 1 + 8
+        assert pane.table.show_vertical_scrollbar
+        assert flex_height() == initial_flex_height - 8
+        pane.table.move_cursor(row=11)
+        await pilot.pause()
+        assert pane.table.scroll_y > 0
+
+        pane.show_rows(())
+        await pilot.pause()
+        assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
+        assert pane.region.height == 3
+        assert flex_height() == initial_flex_height
+
+
+@pytest.mark.asyncio
+async def test_compact_layout_stacks_the_panes_and_caps_each_one() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(80, 50)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        assert app.screen.has_class("-compact")
+        sessions = prepare_pane(app, "sessions-pane")
+        worktrees = prepare_pane(app, "worktrees-pane")
+        sessions.show_rows(list_rows(12, prefix="session"))
+        worktrees.show_rows(
+            list_rows(2, prefix="/very/long/path/to/a/linked/worktree/checkout/name")
+        )
+        await pilot.pause()
+
+        body = app.query_one("#body")
+        assert sessions.region.width == worktrees.region.width == body.region.width
+        assert sessions.region.bottom <= worktrees.region.y
+        assert sessions.region.height == 2 + 1 + 8
+        assert worktrees.region.height == 2 + 1 + 2
+        assert app.query_one("#queue-pane").region.height >= 6
+        assert app.query_one("#queue-pane").region.bottom <= body.region.bottom
+
+        await pilot.resize_terminal(120, 50)
+        await pilot.pause()
+        assert app.screen.has_class("-wide")
+        assert sessions.region.y == worktrees.region.y
+        assert sessions.region.right <= worktrees.region.x
+
+
+@pytest.mark.asyncio
+async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        sessions = prepare_pane(app, "sessions-pane")
+        worktrees = prepare_pane(app, "worktrees-pane")
+        sessions.show_rows(list_rows(12, prefix="session"))
+        worktrees.show_rows(list_rows(12, prefix="worktree"))
+        await pilot.pause()
+
+        body = app.query_one("#body")
+        queue_pane = app.query_one("#queue-pane")
+        footer = app.query_one(Footer)
+        assert app.query_one("#detail-row").region.height >= 7
+        assert queue_pane.region.height >= 6
+        assert queue_pane.region.bottom <= footer.region.y
+        # Room for one record each; the rest scrolls behind the count.
+        assert sessions.region.height == worktrees.region.height == 2 + 1 + 1
+        assert sessions.table.show_vertical_scrollbar
+        assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
+        assert body.region.height >= (
+            app.query_one("#detail-row").region.height
+            + app.query_one("#list-row").region.height
+            + queue_pane.region.height
+        )
+
+        await pilot.resize_terminal(80, 30)
+        await pilot.pause()
+        assert sessions.region.height == worktrees.region.height == 2 + 1 + 4
+        assert queue_pane.region.height >= 6
+        assert queue_pane.region.bottom <= app.query_one(Footer).region.y
+
+        # Too short even for a record each: the panes collapse to their counts.
+        await pilot.resize_terminal(80, 21)
+        await pilot.pause()
+        assert sessions.region.height == worktrees.region.height == 2
+        assert pane_title(app, "#worktrees-pane") == "WORKTREES · 12"
+        assert queue_pane.region.height >= 6
+        assert queue_pane.region.bottom <= app.query_one(Footer).region.y
+
+
+@pytest.mark.asyncio
+async def test_pane_cursor_leaves_the_detail_panes_alone_and_enter_finds_the_issue() -> (
+    None
+):
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "First"), issue("test/repo#2", "Second")
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        assert pane_title(app, "#selection-pane") == "#1: First"
+        project_detail = detail_plain(app, "#project-detail")
+        pane = prepare_pane(app, "sessions-pane")
+        pane.show_rows(
+            (
+                ListRow("bound", ("bound", "-"), issue_id="I_test/repo#2"),
+                ListRow("unbound", ("unbound", "-")),
+            )
+        )
+        await pilot.pause()
+
+        await pilot.press("2")
+        await pilot.press("down")
+        await pilot.pause()
+        assert pane.highlighted() == ("unbound", 1)
+        assert pane_title(app, "#selection-pane") == "#1: First"
+        assert detail_plain(app, "#project-detail") == project_detail
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert not isinstance(app.screen, IssueScreen)
+
+        await pilot.press("up")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.selected_row_key == row_key("issue", "I_test/repo#2")
+        assert pane_title(app, "#selection-pane") == "#2: Second"
+        assert app.query_one("#queue", DataTable).cursor_row == 1
+        assert not isinstance(app.screen, IssueScreen)
+        assert pane.table.has_focus
+
+
+@pytest.mark.asyncio
+async def test_pane_selection_survives_refresh_by_identity_or_moves_to_a_neighbour() -> (
+    None
+):
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        pane = prepare_pane(app, "worktrees-pane")
+        rows = list_rows(4)
+        pane.show_rows(rows)
+        pane.table.move_cursor(row=2)
+        await pilot.pause()
+        assert pane.highlighted() == ("row-2", 2)
+
+        pane.show_rows((rows[2], rows[0], rows[3]))
+        await pilot.pause()
+        assert pane.highlighted() == ("row-2", 0)
+
+        pane.table.move_cursor(row=2)
+        pane.show_rows((rows[2], rows[0]))
+        await pilot.pause()
+        assert pane.highlighted() == ("row-0", 1)
+
+        pane.show_rows(())
+        await pilot.pause()
+        assert pane.highlighted() == (None, 0)
+        assert pane.highlighted_row() is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_scope_follows_the_focused_pane_row() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        assert app.current_project_id() == "project:test-repo"
+        pane = prepare_pane(app, "worktrees-pane")
+        pane.show_rows(
+            (ListRow("elsewhere", ("elsewhere", "-"), project_id="project:other"),)
+        )
+        await pilot.press("3")
+        await pilot.pause()
+        assert app.current_project_id() == "project:other"
+        pane.show_rows(())
+        await pilot.pause()
+        assert app.current_project_id() is None
+        await pilot.press("1")
+        assert app.current_project_id() == "project:test-repo"
