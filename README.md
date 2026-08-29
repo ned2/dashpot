@@ -361,7 +361,17 @@ the Workspace exactly once, sorted running → waiting → unknown and then by
 most recent activity, with its Project and any bound Issue joined from the
 Work Store's accepted bindings, an intentional `no active Issue work` value
 when unbound, its working directory relative to its Observation Target, and
-long paths, branches and titles clipped with an ellipsis. See
+long paths, branches and titles clipped with an ellipsis. The Worktrees pane
+is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.py),
+`WorkspaceObservationStore.query_worktrees`): every observed Observation
+Target across the Workspace, identified by `(Project Identity, target path)`
+and sorted by Project, then main before linked, then path, with the Git
+topology role `git worktree list` reported (the main working tree is listed
+first), whether the path is a configured Repository Anchor, branch or
+detached state, short HEAD, clean/dirty/unknown working tree, availability
+(`stale` when a failed topology refresh retained the last good targets) and
+a count of the active sessions located there. Target-specific diagnostics
+stay in Diagnostics and the alert line; the row only points there. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
 

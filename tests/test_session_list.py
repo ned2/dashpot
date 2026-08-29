@@ -55,6 +55,7 @@ def target(path: str, branch: str | None = "main") -> ObservationTarget:
         availability="available",
         elapsed_ms=3,
         diagnostics=[],
+        role="main",
     )
 
 

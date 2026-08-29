@@ -43,7 +43,9 @@ def issue(reference: str, project_id: str) -> Issue:
 
 
 def target(root: Path, head: str = "abc123") -> ObservationTarget:
-    return ObservationTarget(str(root), head, "main", False, False, "available", 1, [])
+    return ObservationTarget(
+        str(root), head, "main", False, False, "available", 1, [], "main"
+    )
 
 
 class ScriptedSource(IssueSource):

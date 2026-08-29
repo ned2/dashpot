@@ -13,6 +13,7 @@ from .model import (
     Diagnostic,
     ObservationTarget,
     ObservationTargetInventory,
+    TargetRole,
 )
 
 
@@ -40,6 +41,9 @@ def observe_observation_targets(
     records: list[dict[str, str]] = []
     diagnostics: list[Diagnostic] = []
     seen_paths: set[str] = set()
+    # Git lists the main working tree first in every listing; that ordering,
+    # not the path's name, is the observed topology role.
+    main_paths: set[str] = set()
     for anchor in anchors:
         try:
             result = runner(
@@ -68,8 +72,10 @@ def observe_observation_targets(
                 )
             )
             continue
-        for record in _parse_worktree_records(result.stdout):
+        for index, record in enumerate(_parse_worktree_records(result.stdout)):
             path = record.get("worktree")
+            if path and index == 0:
+                main_paths.add(path)
             if not path:
                 diagnostics.append(
                     Diagnostic(
@@ -87,6 +93,7 @@ def observe_observation_targets(
     targets: list[ObservationTarget] = []
     for record in records:
         path = record["worktree"]
+        role: TargetRole = "main" if path in main_paths else "linked"
         if "bare" in record:
             diagnostics.append(
                 Diagnostic(
@@ -123,7 +130,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(record, branch, detached, target_diagnostics)
+                _unavailable_target(record, role, branch, detached, target_diagnostics)
             )
             continue
         if not record.get("HEAD") or bool(branch) == detached:
@@ -136,7 +143,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(record, branch, detached, target_diagnostics)
+                _unavailable_target(record, role, branch, detached, target_diagnostics)
             )
             continue
         try:
@@ -151,7 +158,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(record, branch, detached, target_diagnostics)
+                _unavailable_target(record, role, branch, detached, target_diagnostics)
             )
             continue
         except OSError as exc:
@@ -164,7 +171,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(record, branch, detached, target_diagnostics)
+                _unavailable_target(record, role, branch, detached, target_diagnostics)
             )
             continue
         if not stat.S_ISDIR(path_mode):
@@ -177,7 +184,7 @@ def observe_observation_targets(
                 )
             )
             targets.append(
-                _unavailable_target(record, branch, detached, target_diagnostics)
+                _unavailable_target(record, role, branch, detached, target_diagnostics)
             )
             continue
         started = clock()
@@ -205,6 +212,7 @@ def observe_observation_targets(
             targets.append(
                 _unavailable_target(
                     record,
+                    role,
                     branch,
                     detached,
                     target_diagnostics,
@@ -238,6 +246,7 @@ def observe_observation_targets(
                 availability=availability,
                 elapsed_ms=elapsed_ms,
                 diagnostics=target_diagnostics,
+                role=role,
             )
         )
     return ObservationTargetInventory(targets, diagnostics)
@@ -245,6 +254,7 @@ def observe_observation_targets(
 
 def _unavailable_target(
     record: dict[str, str],
+    role: TargetRole,
     branch: str | None,
     detached: bool,
     diagnostics: list[Diagnostic],
@@ -259,6 +269,7 @@ def _unavailable_target(
         availability="unavailable",
         elapsed_ms=elapsed_ms,
         diagnostics=diagnostics,
+        role=role,
     )
 
 

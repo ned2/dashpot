@@ -96,7 +96,7 @@ def test_many_stale_projects_are_counted_not_listed() -> None:
 
 def test_unavailable_states_outrank_stale_and_refreshing() -> None:
     unavailable_target = ObservationTarget(
-        "/repo/wt", "abc", "feature", False, None, "unavailable", 1, []
+        "/repo/wt", "abc", "feature", False, None, "unavailable", 1, [], "linked"
     )
     alert = summarize_alerts(
         store(

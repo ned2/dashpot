@@ -70,6 +70,7 @@ from .list_pane import ListPane, ListRow
 from .model import AgentRun, Issue, ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .session_list import SESSION_COLUMNS, build_session_rows
+from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
@@ -227,6 +228,7 @@ class DashpotApp(App[None]):
                 )
                 yield ListPane(
                     WORKTREES_PANE_LABEL,
+                    columns=WORKTREE_COLUMNS,
                     empty_message="no worktrees observed yet",
                     id="worktrees-pane",
                     table_id="worktrees",
@@ -674,8 +676,9 @@ class DashpotApp(App[None]):
         )
 
     def worktree_rows(self) -> tuple[ListRow, ...]:
-        """The Worktrees pane rows; the read model arrives with #31."""
-        return ()
+        return build_worktree_rows(
+            self.store.query_worktrees(), dark=self.current_theme.dark
+        )
 
     def reconcile_rows(self) -> IssueListResult:
         """Rebuild the table from the store and return the query result."""
