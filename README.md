@@ -274,7 +274,12 @@ refresh every Project, `o` to flip the Work list between open, closed, and all
 Issues, the arrow keys to move, `Enter` to read the selected Issue full-screen
 (`Escape` returns to the table), and `q` to quit. The default
 15-second polling period refreshes the selected Project and can be changed with
-`--refresh-seconds`; zero disables polling.
+`--refresh-seconds`; zero disables polling. `dashpot --help` describes every
+command and option, and each command has its own `--help`; an option belongs
+to the command it follows, so the timeout for external commands is given as
+`dashpot init --timeout 5`, not before `init`. Invalid input fails with a
+one-line `dashpot: ...` diagnostic on stderr and exit code 2, the same as a
+startup error.
 
 A Workspace inventory stores named groupings of anchor paths for one Project —
 independent clones, never discovered or persisted worktree paths:

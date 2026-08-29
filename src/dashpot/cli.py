@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated, Literal
+
+from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
 from .app import DashpotApp
 from .collect import ObservationCoordinator
 from .init import initialize_project
 from .integrate import (
-    INTEGRATIONS,
     install_integration,
     integration_status,
     remove_integration,
@@ -26,167 +28,281 @@ from .workspace import (
     resolve_workspace_projects,
 )
 
+Harness = Literal["codex", "claude-code"]
+
+USAGE_EXIT_CODE = 2
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationOptions:
+    """Describe what one Dashpot run observes and how patiently."""
+
+    workspaces: tuple[Workspace, ...] = ()
+    config: Path | None = None
+    timeout: float = 10.0
+    refresh_seconds: float = 15.0
+    state_dir: Path | None = None
+
 
 def parse_workspace_argument(value: str) -> Workspace:
+    """Read one ``[NAME=]PATH`` token as a single-anchor Workspace."""
     if "=" in value:
         name, raw_root = value.split("=", 1)
     else:
         raw_root = value
         name = Path(raw_root).expanduser().resolve().name
     if not name.strip() or not raw_root.strip():
-        raise argparse.ArgumentTypeError("workspace must be PATH or NAME=PATH")
+        raise ValueError("workspace must be PATH or NAME=PATH")
     return Workspace(
         name.strip(),
         (RepositoryAnchor(str(Path(raw_root).expanduser().resolve())),),
     )
 
 
-def non_negative_float(value: str) -> float:
-    try:
-        parsed = float(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("must be a number") from exc
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("must be zero or greater")
-    return parsed
+def _convert_workspaces(type_: object, tokens: Sequence[Token]) -> list[Workspace]:
+    # Cyclopts hands a list-typed option every repeated token in one call and
+    # expects the whole list back; a ValueError here becomes the usage error.
+    return [parse_workspace_argument(token.value) for token in tokens]
 
 
-def positive_float(value: str) -> float:
-    parsed = non_negative_float(value)
-    if parsed == 0:
-        raise argparse.ArgumentTypeError("must be greater than zero")
-    return parsed
+def _format_usage_error(error: CycloptsError) -> str:
+    # One line in the same voice as application errors, without a usage dump.
+    return f"dashpot: {error}"
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="dashpot",
-        description="Passively observe Issues, repositories, and agent runs.",
-    )
-    parser.add_argument(
-        "--workspace",
-        action="append",
-        type=parse_workspace_argument,
-        default=[],
-        metavar="[NAME=]PATH",
-        help=(
-            "repository anchor in a named Workspace (repeatable); defaults to "
-            "the Dashpot workspace config"
-        ),
-    )
-    parser.add_argument(
-        "--config",
-        type=Path,
-        help=(
-            "Dashpot workspace config; by default, observe the configured current "
-            "project or fall back to the standard workspace config"
-        ),
-    )
-    parser.add_argument("--timeout", type=positive_float, default=10.0)
-    parser.add_argument(
-        "--refresh-seconds",
-        type=non_negative_float,
-        default=15.0,
-        help="automatic refresh period; zero disables polling",
-    )
-    parser.add_argument(
-        "--state-dir",
-        type=Path,
-        help="override the directory for agent session records outside configured Projects",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="collect once and print the headless snapshot instead of opening the TUI",
-    )
-    parser.add_argument(
-        "--compact-json",
-        action="store_true",
-        help="omit JSON indentation (implies --json)",
-    )
-    subparsers = parser.add_subparsers(dest="command")
-    init = subparsers.add_parser(
-        "init",
-        help=f"write {PROJECT_CONFIG_NAME} for the current repository",
-        description=(
-            "Configure the current repository as a Dashpot Project. With a "
-            "GitHub origin remote the Issue Source defaults to GitHub and the "
-            "durable repository identity is resolved through the "
-            "authenticated gh CLI."
-        ),
-    )
-    init.add_argument(
-        "--markdown",
-        metavar="PATH",
-        help=(
-            "declare a Local Issue Markdown source at this repository-"
-            "relative path instead of GitHub Issues"
-        ),
-    )
-    work = subparsers.add_parser(
-        "work",
-        help="opt this running agent session into Issue work",
-        description=(
-            "Start, switch, stop, or show explicit Issue work for the agent "
-            "session enclosing this command, recorded at the current "
-            "Worktree's .dashpot/state/."
-        ),
-    )
-    work_commands = work.add_subparsers(dest="work_command", required=True)
-    start = work_commands.add_parser(
-        "start", help="start or switch this session's Issue work"
-    )
-    start.add_argument(
-        "reference",
-        metavar="REFERENCE",
-        help=(
-            "Issue Reference, such as a bare Issue Number (12), #12, "
-            "owner/repository#12, or a slug"
-        ),
-    )
-    stop = work_commands.add_parser("stop", help="end this session's active Issue work")
-    stop.add_argument(
-        "--session",
-        metavar="KEY",
-        help=(
-            "end the orphaned Agent Run recorded for a session that is no "
-            "longer running, instead of this session's own run"
-        ),
-    )
-    work_commands.add_parser("show", help="list active Issue work at this worktree")
-    integrate = subparsers.add_parser(
-        "integrate",
-        help="install the opt-in agent lifecycle integration",
-        description=(
-            "Register, inspect, or remove the opt-in hooks that publish "
-            "agent session lifecycle observations to Dashpot. Nothing is "
-            "installed without running this command."
-        ),
-    )
-    integrate.add_argument(
-        "harness",
-        choices=sorted(INTEGRATIONS),
-        help="the agent harness to integrate",
-    )
-    integrate_action = integrate.add_mutually_exclusive_group()
-    integrate_action.add_argument(
-        "--status",
-        action="store_true",
-        help="report integration state without changing anything",
-    )
-    integrate_action.add_argument(
-        "--remove",
-        action="store_true",
-        help="remove exactly the Dashpot hooks",
-    )
-    return parser
+app = App(
+    name="dashpot",
+    help="Passively observe Issues, repositories, and agent runs.",
+    # Dashpot's flags have no negative forms and its help lists no defaults
+    # for them, so the generated --no-* and --empty-* spellings are dropped.
+    default_parameter=Parameter(negative=()),
+    error_formatter=_format_usage_error,
+)
+
+_Timeout = Annotated[
+    float,
+    Parameter(
+        validator=validators.Number(gt=0),
+        help="seconds allowed for each external command, such as git and gh",
+    ),
+]
 
 
-def create_collector(args: argparse.Namespace) -> ObservationCoordinator:
-    if args.workspace:
-        workspaces = merge_workspaces(args.workspace)
-    elif args.config is not None:
-        workspaces = load_workspaces(args.config.expanduser())
+@app.default
+def observe(
+    *,
+    workspace: Annotated[
+        list[Workspace] | None,
+        Parameter(
+            converter=_convert_workspaces,
+            n_tokens=1,
+            accepts_keys=False,
+            help=(
+                "[NAME=]PATH: repository anchor in a named Workspace "
+                "(repeatable); defaults to the Dashpot workspace config"
+            ),
+        ),
+    ] = None,
+    config: Annotated[
+        Path | None,
+        Parameter(
+            help=(
+                "Dashpot workspace config; by default, observe the configured "
+                "current project or fall back to the standard workspace config"
+            )
+        ),
+    ] = None,
+    timeout: _Timeout = 10.0,
+    refresh_seconds: Annotated[
+        float,
+        Parameter(
+            validator=validators.Number(gte=0),
+            help="automatic refresh period; zero disables polling",
+        ),
+    ] = 15.0,
+    state_dir: Annotated[
+        Path | None,
+        Parameter(
+            help=(
+                "override the directory for agent session records outside "
+                "configured Projects"
+            )
+        ),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        Parameter(
+            name="--json",
+            show_default=False,
+            help="collect once and print the headless snapshot instead of opening the TUI",
+        ),
+    ] = False,
+    compact_json: Annotated[
+        bool,
+        Parameter(show_default=False, help="omit JSON indentation (implies --json)"),
+    ] = False,
+) -> int:
+    """Open the TUI for one Project, or print a headless snapshot."""
+    collector = create_collector(
+        ObservationOptions(
+            workspaces=tuple(workspace or ()),
+            config=config,
+            timeout=timeout,
+            refresh_seconds=refresh_seconds,
+            state_dir=state_dir,
+        )
+    )
+    if json_output or compact_json:
+        # The coordinated barrier publishes every observation and then
+        # checkpoints, so headless output stays a single complete snapshot.
+        print(
+            json.dumps(
+                to_jsonable(collector.refresh()),
+                indent=None if compact_json else 2,
+            )
+        )
+    else:
+        DashpotApp(collector, refresh_seconds=refresh_seconds).run()
+    return 0
+
+
+@app.command
+def init(
+    *,
+    markdown: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "PATH: declare a Local Issue Markdown source at this "
+                "repository-relative path instead of GitHub Issues"
+            )
+        ),
+    ] = None,
+    timeout: _Timeout = 10.0,
+) -> int:
+    """Configure the current repository as a Dashpot Project.
+
+    Writes .dashpot/config.json for the current repository. With a GitHub
+    origin remote the Issue Source defaults to GitHub and the durable
+    repository identity is resolved through the authenticated gh CLI.
+    """
+    _report(
+        initialize_project(
+            Path.cwd().resolve(), markdown_path=markdown, timeout=timeout
+        )
+    )
+    return 0
+
+
+work = App(
+    name="work",
+    help=(
+        "Opt this running agent session into Issue work.\n\n"
+        "Start, switch, stop, or show explicit Issue work for the agent "
+        "session enclosing this command, recorded at the current Worktree's "
+        ".dashpot/state/."
+    ),
+)
+app.command(work)
+
+
+@work.command
+def start(
+    reference: Annotated[
+        str,
+        Parameter(
+            help=(
+                "Issue Reference, such as a bare Issue Number (12), #12, "
+                "owner/repository#12, or a slug"
+            )
+        ),
+    ],
+    /,
+    *,
+    timeout: _Timeout = 10.0,
+) -> int:
+    """Start or switch this session's Issue work."""
+    _report(start_issue_work(Path.cwd().resolve(), reference, timeout=timeout))
+    return 0
+
+
+@work.command
+def stop(
+    *,
+    session: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "KEY: end the orphaned Agent Run recorded for a session that "
+                "is no longer running, instead of this session's own run"
+            )
+        ),
+    ] = None,
+) -> int:
+    """End this session's active Issue work."""
+    _report(stop_issue_work(Path.cwd().resolve(), session_key=session))
+    return 0
+
+
+@work.command
+def show() -> int:
+    """List active Issue work at this worktree."""
+    _report(show_issue_work(Path.cwd().resolve()))
+    return 0
+
+
+_integrate_action = Group("Action", validator=validators.MutuallyExclusive())
+
+
+@app.command
+def integrate(
+    harness: Annotated[Harness, Parameter(help="the agent harness to integrate")],
+    /,
+    *,
+    status: Annotated[
+        bool,
+        Parameter(
+            group=_integrate_action,
+            show_default=False,
+            help="report integration state without changing anything",
+        ),
+    ] = False,
+    remove: Annotated[
+        bool,
+        Parameter(
+            group=_integrate_action,
+            show_default=False,
+            help="remove exactly the Dashpot hooks",
+        ),
+    ] = False,
+) -> int:
+    """Install the opt-in agent lifecycle integration.
+
+    Register, inspect, or remove the opt-in hooks that publish agent session
+    lifecycle observations to Dashpot. Nothing is installed without running
+    this command.
+    """
+    if status:
+        messages = integration_status(harness)
+    elif remove:
+        messages = remove_integration(harness)
+    else:
+        messages = install_integration(harness)
+    _report(messages)
+    return 0
+
+
+def _report(messages: Sequence[str]) -> None:
+    for message in messages:
+        print(message)
+
+
+def create_collector(options: ObservationOptions) -> ObservationCoordinator:
+    """Resolve the Workspaces one run observes into its coordinator."""
+    if options.workspaces:
+        workspaces = merge_workspaces(list(options.workspaces))
+    elif options.config is not None:
+        workspaces = load_workspaces(options.config.expanduser())
     else:
         current = Path.cwd().resolve()
         try:
@@ -211,65 +327,32 @@ def create_collector(args: argparse.Namespace) -> ObservationCoordinator:
                     f"in {inventory}"
                 )
             workspaces = load_workspaces(inventory)
-    resolution = resolve_workspace_projects(workspaces, timeout=args.timeout)
+    resolution = resolve_workspace_projects(workspaces, timeout=options.timeout)
     return ObservationCoordinator(
         resolution.projects,
-        timeout=args.timeout,
-        state_dir=args.state_dir.expanduser() if args.state_dir else None,
+        timeout=options.timeout,
+        state_dir=options.state_dir.expanduser() if options.state_dir else None,
         diagnostics=resolution.diagnostics,
     )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    """Run the Dashpot command line and return its exit code."""
+    tokens = list(sys.argv[1:] if argv is None else argv)
     try:
-        if args.command == "work":
-            current = Path.cwd().resolve()
-            if args.work_command == "start":
-                messages = start_issue_work(
-                    current, args.reference, timeout=args.timeout
-                )
-            elif args.work_command == "stop":
-                messages = stop_issue_work(current, session_key=args.session)
-            else:
-                messages = show_issue_work(current)
-            for message in messages:
-                print(message)
-            return 0
-        if args.command == "integrate":
-            if args.status:
-                messages = integration_status(args.harness)
-            elif args.remove:
-                messages = remove_integration(args.harness)
-            else:
-                messages = install_integration(args.harness)
-            for message in messages:
-                print(message)
-            return 0
-        if args.command == "init":
-            for message in initialize_project(
-                Path.cwd().resolve(),
-                markdown_path=args.markdown,
-                timeout=args.timeout,
-            ):
-                print(message)
-            return 0
-        collector = create_collector(args)
-        if args.json or args.compact_json:
-            # The coordinated barrier publishes every observation and then
-            # checkpoints, so headless output stays a single complete snapshot.
-            print(
-                json.dumps(
-                    to_jsonable(collector.refresh()),
-                    indent=None if args.compact_json else 2,
-                )
-            )
-        else:
-            DashpotApp(collector, refresh_seconds=args.refresh_seconds).run()
+        # Cyclopts would exit 1 on a usage error and exit for us on success;
+        # Dashpot keeps exit 2 for every failure and returns the code instead.
+        result = app(
+            tokens,
+            exit_on_error=False,
+            result_action="return_int_as_exit_code_else_zero",
+        )
+    except CycloptsError:
+        return USAGE_EXIT_CODE
     except RuntimeError as exc:
         print(f"dashpot: {exc}", file=sys.stderr)
-        return 2
-    return 0
+        return USAGE_EXIT_CODE
+    return int(result)
 
 
 if __name__ == "__main__":
