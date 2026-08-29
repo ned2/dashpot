@@ -28,6 +28,7 @@ Screen {
     border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;
+    border-title-color: $foreground;
 }
 
 /* Each table's cap is set by the app from the height left over after the
