@@ -5,6 +5,7 @@ description = "Useful damping for agent-driven projects"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "cyclopts>=4.23.3,<5",
   "textual==8.2.8",
   "typing-extensions>=4.15.0",
 ]
