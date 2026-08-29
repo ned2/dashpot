@@ -37,13 +37,11 @@ class ListColumn:
 class ListRow:
     """One record in a list pane, keyed by the stable identity it survives by.
 
-    ``project_id`` scopes a refresh requested while the row is highlighted;
     ``issue_id`` is the Issue the row navigates to, when it has one.
     """
 
     key: str
     cells: tuple[ListCell, ...]
-    project_id: str | None = None
     issue_id: str | None = None
 
 

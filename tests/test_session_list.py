@@ -20,6 +20,7 @@ from dashpot.model import (
 )
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.session_list import (
+    OUTSIDE_PROJECT_TEXT,
     SESSION_COLUMNS,
     UNBOUND_ISSUE_TEXT,
     SessionListRow,
@@ -213,7 +214,7 @@ def test_accepted_binding_wins_over_the_record_hint_and_unknown_issues_keep_it()
     assert rows["work:two"].issue is None
     assert rows["work:two"].bound_issue_id == "I_alpha#99"
     cells = session_cells(rows["work:two"], dark=True, now=CURRENT)
-    assert cells[5] == "alpha#99"
+    assert cells[4] == "alpha#99"
 
 
 def test_a_session_without_a_project_observation_still_lists() -> None:
@@ -224,7 +225,9 @@ def test_a_session_without_a_project_observation_still_lists() -> None:
     assert result.count == 1
     assert result.rows[0].project is None
     cells = session_cells(result.rows[0], dark=True, now=CURRENT)
-    assert cells[2] == "project:missing"
+    target_cell = cells[2]
+    assert isinstance(target_cell, Text)
+    assert target_cell.plain == OUTSIDE_PROJECT_TEXT
 
 
 def test_correlated_hook_and_work_records_are_one_session_row() -> None:
@@ -284,9 +287,9 @@ def test_correlated_hook_and_work_records_are_one_session_row() -> None:
         assert row.session.state == "running"
         assert required(row.issue)["number"] == 7
         cells = session_cells(row, dark=True, now=CURRENT, home=root)
-        assert cells[4] == "feature"
-        assert cells[5] == "#7 Alpha work"
-        assert cells[6] == "src"
+        assert cells[3] == "feature"
+        assert cells[4] == "#7 Alpha work"
+        assert cells[5] == "src"
 
 
 def test_session_cells_carry_every_scan_level_fact_and_truncate_honestly() -> None:
@@ -310,18 +313,14 @@ def test_session_cells_carry_every_scan_level_fact_and_truncate_honestly() -> No
     (row,) = build_session_rows(result, dark=True, now=CURRENT, home=home)
 
     assert row.key == row_key("session", "work:one")
-    assert row.project_id == "project:alpha"
     assert row.issue_id == "I_alpha#7"
     assert len(row.cells) == len(SESSION_COLUMNS)
-    state, harness, project_label, target_cell, branch, issue_cell, directory, age = (
-        row.cells
-    )
+    state, harness, target_cell, branch, issue_cell, directory, age = row.cells
     assert isinstance(state, Text)
     assert state.plain == "● running"
     assert isinstance(target_cell, str)
     assert isinstance(branch, str)
     assert harness == "Claude Code"
-    assert project_label == "Alpha"
     assert target_cell == truncate_start(
         "~/projects/very/deeply/nested/linked/worktree/checkout", 28
     )
@@ -346,9 +345,7 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
 
     (row,) = build_session_rows(result, dark=False, now=CURRENT, home=Path("/nowhere"))
 
-    state, _harness, _project, target_cell, branch, issue_cell, directory, age = (
-        row.cells
-    )
+    state, _harness, target_cell, branch, issue_cell, directory, age = row.cells
     assert isinstance(state, Text)
     assert state.plain == "○ unknown"
     assert target_cell == "/project:alpha"

@@ -286,7 +286,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert [row.item.label for row in project_fields] == [
             "Workspaces",
             "Anchor",
-            "Agents",
         ]
         assert len({row.field_value.region.x for row in project_fields}) == 1
         assert len({row.field_value.region.x for row in issue_fields}) == 1
@@ -1104,7 +1103,6 @@ async def test_unbound_agent_is_counted_on_the_project_not_listed_as_work() -> N
         table = app.query_one("#queue", DataTable)
         assert table.row_count == 1
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
-        assert "Agents: 1" in detail_plain(app, "#project-detail")
         assert "Unmatched" not in detail_plain(app, "#selection-detail")
         assert pane_title(app, "#selection-pane") == "#1: First"
 
@@ -1571,7 +1569,7 @@ async def test_selection_detail_uses_one_current_store_projection() -> None:
         )
         app.show_row(selected_key)
 
-        assert "Agents: 1" in detail_plain(app, "#project-detail")
+        assert "Agents" not in detail_plain(app, "#project-detail")
         assert "codex-session:current (running, issue/current)" in detail_plain(
             app, "#selection-detail"
         )
@@ -2278,14 +2276,9 @@ def test_detail_panes_render_labels_as_tracker_coloured_chips() -> None:
 def list_rows(
     count: int, *, prefix: str = "row", issue_id: str | None = None
 ) -> tuple[ListRow, ...]:
-    """Generic pane records; the read models behind them arrive with #30/#31."""
+    """Generic pane records standing in for the Sessions and Worktrees rows."""
     return tuple(
-        ListRow(
-            f"{prefix}-{index}",
-            (f"{prefix} {index}", "detail"),
-            project_id="project:test-repo",
-            issue_id=issue_id,
-        )
+        ListRow(f"{prefix}-{index}", (f"{prefix} {index}", "detail"), issue_id=issue_id)
         for index in range(count)
     )
 
@@ -2605,7 +2598,9 @@ async def test_pane_selection_survives_refresh_by_identity_or_moves_to_a_neighbo
 
 
 @pytest.mark.asyncio
-async def test_refresh_scope_follows_the_focused_pane_row() -> None:
+async def test_refresh_scope_is_the_selected_issue_project_whatever_is_focused() -> (
+    None
+):
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -2616,15 +2611,13 @@ async def test_refresh_scope_follows_the_focused_pane_row() -> None:
         await pilot.pause()
         assert app.current_project_id() == "project:test-repo"
         pane = prepare_pane(app, "worktrees-pane")
-        pane.show_rows(
-            (ListRow("elsewhere", ("elsewhere", "-"), project_id="project:other"),)
-        )
+        pane.show_rows((ListRow("elsewhere", ("elsewhere", "-")),))
         await pilot.press("3")
         await pilot.pause()
-        assert app.current_project_id() == "project:other"
+        assert app.current_project_id() == "project:test-repo"
         pane.show_rows(())
         await pilot.pause()
-        assert app.current_project_id() is None
+        assert app.current_project_id() == "project:test-repo"
         await pilot.press("1")
         assert app.current_project_id() == "project:test-repo"
 
@@ -2694,7 +2687,6 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
         assert labels == [
             "STATE",
             "HARNESS",
-            "PROJECT",
             "TARGET",
             "BRANCH",
             "ISSUE",
@@ -2702,17 +2694,17 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
             "ACTIVITY",
         ]
         first = [str(cell) for cell in table.get_row_at(0)]
-        assert first[:3] == ["● running", "Claude Code", "Test Repository"]
-        assert first[5] == "no active Issue work"
-        assert first[6] == "src"
+        assert first[:2] == ["● running", "Claude Code"]
+        assert first[4] == "no active Issue work"
+        assert first[5] == "src"
         second = [str(cell) for cell in table.get_row_at(1)]
         assert second[0] == "◐ waiting"
-        assert second[5] == "#2 Second"
+        assert second[4] == "#2 Second"
         assert str(table.get_row_at(2)[0]) == "○ unknown"
-        assert str(table.get_row_at(2)[7]) == "-"
+        assert str(table.get_row_at(2)[6]) == "-"
         assert not app.query_one("#sessions-pane .list-pane-empty").display
-        # The Project pane's Agents count and the Sessions count agree.
-        assert "Agents: 3" in detail_plain(app, "#project-detail")
+        # The pane title is the one agent count; PROJECT STATUS no longer has one.
+        assert "Agents" not in detail_plain(app, "#project-detail")
 
 
 @pytest.mark.asyncio
@@ -2817,7 +2809,6 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         labels = [str(column.label) for column in pane.table.columns.values()]
         assert labels == [
-            "PROJECT",
             "PATH",
             "ROLE",
             "BRANCH",
@@ -2828,7 +2819,6 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         ]
         main_cells = [str(cell) for cell in pane.table.get_row_at(0)]
         assert main_cells == [
-            "Test Repository",
             "/repo",
             "main · anchor",
             "main",
@@ -2850,7 +2840,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
             1,
         )
         linked_cells = [str(cell) for cell in pane.table.get_row_at(1)]
-        assert linked_cells[1:6] == [
+        assert linked_cells[:5] == [
             "/repo-linked",
             "linked",
             "feature",

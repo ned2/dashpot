@@ -393,8 +393,8 @@ manual Codex configuration.
 
 The hooks report session lifecycle only: which agent sessions are alive at a
 worktree and whether they are running or waiting. A session that has not
-declared an Issue is not listed as Work; it is counted in the Project's
-`Agents` fact until it opts in with `dashpot work start`. Codex and Claude
+declared an Issue is not listed as Work; it is listed in the Sessions pane
+with `no active Issue work` until it opts in with `dashpot work start`. Codex and Claude
 Code sessions are observed side by side with distinct identities, and both may
 work on the same Issue as separate Agent Runs. One user-level installation per
 harness covers every configured repository, including linked worktrees: each
@@ -494,14 +494,15 @@ Issue in the Issue table. The Sessions pane is its own read model
 ([`session_list.py`](src/dashpot/session_list.py), queried through
 `WorkspaceObservationStore.query_sessions`): every active Agent Session of the
 observed Project exactly once, sorted running → waiting → unknown and then by
-most recent activity, with its Project and any bound Issue joined from the
-Work Store's accepted bindings, an intentional `no active Issue work` value
+most recent activity, with any bound Issue joined from the Work Store's
+accepted bindings, an `outside Project` marker in place of a target the
+observed Project does not own, an intentional `no active Issue work` value
 when unbound, its working directory relative to its Observation Target, and
 long paths, branches and titles clipped with an ellipsis. The Worktrees pane
 is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
-and sorted by Project, then main before linked, then path, with the Git
+and sorted main before linked, then path, with the Git
 topology role `git worktree list` reported (the main working tree is listed
 first), whether the path is a configured Repository Anchor, branch or
 detached state, short HEAD, clean/dirty/unknown working tree, availability
