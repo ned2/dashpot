@@ -5,8 +5,11 @@ Guidance for AI coding agents working in this repository.
 ## Orientation
 
 Dashpot is a passive terminal view of declared Issues, repository state, and
-active coding-agent runs; it observes and never controls. The shared context
-for humans and agents is the README:
+active coding-agent runs. Observation never mutates; the named management
+commands (`init`, `integrate`, `work start` / `stop`) mutate only what they
+name, on explicit invocation
+([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md)).
+The shared context for humans and agents is the README:
 
 - [Development setup](README.md#development-setup),
   [Quality gates](README.md#quality-gates), and

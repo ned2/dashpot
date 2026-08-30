@@ -485,9 +485,11 @@ the reasoning stays reviewable.
   request, so the precedent exists.
 - Confidence: medium-high. Depends on nothing; decisions 2, 9, 10, and 11
   depend on it.
-- **Outcome:** (a). To be recorded as an ADR that restates the invariant,
-  lists creation's exact side effects (one path, one Branch, no fetch), and
-  says cleanup and dispatch are not covered by it.
+- **Outcome:** (a). Recorded as
+  [ADR 0008](adr/0008-let-management-commands-mutate-on-explicit-invocation.md)
+  (accepted), which restates the invariant, lists creation's exact side
+  effects (one path, one Branch, no fetch), and says cleanup and dispatch are
+  not covered by it.
 
 ### 2. Smallest interface: directory only, or atomic creation?
 
@@ -677,7 +679,10 @@ the reasoning stays reviewable.
   relocation without evidence.
 - Confidence: medium-high. Touches the Work Store's authority statement, so
   it needs a domain-language update and an ADR.
-- **Outcome:** (b′), drafted as ADR 0009 after adversarial review.
+- **Outcome:** (b′), recorded as
+  [ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md)
+  after adversarial review and accepted once the `PostToolUse(EnterWorktree)`
+  probe below measured the new location.
 
 ### 15. Claude Code `WorktreeCreate` hook (new)
 
@@ -784,8 +789,9 @@ Source rules belong in commands rather than scripts or prose in the skill.
 ## Review outcomes
 
 The user walked through every decision the review left open on 2026-08-30 and
-made these calls. They direct the implementation and the ADRs that will record
-them; the document's status is unchanged until those ADRs exist.
+made these calls. They direct the implementation and the ADRs that record
+them; the document stays a proposal for the commands it describes, which do
+not exist yet.
 
 | # | Decision | Outcome |
 |---|---|---|
@@ -798,12 +804,15 @@ them; the document's status is unchanged until those ADRs exist.
 | 14 | Relocation | `work start` moves the session's record only on a verified relocation (freshest hook record across the Repository's stores at the new Worktree); otherwise refused as wrong-location; `stop` acts wherever the record is; Claude Code gains a `PostToolUse(EnterWorktree)` hook. Scoped to one Git Repository's linked Worktrees. ADR 0009. |
 | 15 | Claude `WorktreeCreate` hook | Not offered; document the `cd` launch. |
 
-Outcomes 1 and 14 are drafted as
+Outcomes 1 and 14 are recorded as
 [ADR 0008](adr/0008-let-management-commands-mutate-on-explicit-invocation.md)
 and
-[ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md)
-(`status: proposed`), tracked by
-[#54](https://github.com/ned2/dashpot/issues/54). The implementation is
+[ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md),
+both accepted on 2026-08-30 under
+[#54](https://github.com/ned2/dashpot/issues/54) — ADR 0009 once the
+`PostToolUse(EnterWorktree)` probe below had been measured — and their
+consequences are applied to the README product statement and domain language
+and to `AGENTS.md`. The implementation is
 tracked as [#55](https://github.com/ned2/dashpot/issues/55) (`work start`
 cross-Worktree semantics), [#56](https://github.com/ned2/dashpot/issues/56)
 (`issue show`), [#57](https://github.com/ned2/dashpot/issues/57)
@@ -835,8 +844,8 @@ predating `.dashpot/config.json`.
 | Main Worktree stays clean, no machine-local state committed | Measured | Outside-repository Worktrees leave `git status` empty; `.dashpot/state/` stayed absent in the main Worktree. |
 | Correct Agent Session, Agent Run, Worktree, Branch, and Issue Binding observed | Measured | Snapshot from the main Worktree listed each run with its Worktree, Branch, and Issue Identity; after the sessions ended, one `work-session-orphaned` diagnostic per run named the right Worktree. |
 | Finished work leaves a reusable Worktree without automatic cleanup | Measured | Both Worktrees remained registered and clean after the sessions ended; nothing removed them. Cleanup refusal test deferred with decision 11. |
-| Relocation leaves no stale binding | Acceptance test (new) | In a Claude Code session: `work start 35` at A, `EnterWorktree path=B`, `work start 35` in the same turn; snapshot lists one run at B, none at A, no conflict (outcome 14). Then `stop` at B ends it. A tool-call `cd B && dashpot work start 35` while the harness stays at A, a sub-agent's `work start` in its own Worktree, and a sandboxed `cd A && work start` after the move are all refused and write nothing. |
-| `PostToolUse(EnterWorktree)` reports the new location | Measurement (new, gates ADR 0009) | Install the matched hook in a disposable Project; after `EnterWorktree path=B`, the record written by that event has `cwd`/`repositoryRoot` at B and is the freshest for the session. If it still reports A, ADR 0009's fallback applies: relocation is verified from the next turn and the skill must not chain the calls. |
+| Relocation leaves no stale binding | Acceptance test (new, for #55) | In a Claude Code session: `work start 35` at A, `EnterWorktree path=B`, `work start 35` in the same turn (valid, per the measured probe below); snapshot lists one run at B, none at A, no conflict (outcome 14). Then `stop` at B ends it. A tool-call `cd B && dashpot work start 35` while the harness stays at A, a sub-agent's `work start` in its own Worktree, and a sandboxed `cd A && work start` after the move are all refused and write nothing. |
+| `PostToolUse(EnterWorktree)` reports the new location | Measured (2026-08-30, Claude Code 2.1.251) | With a project-level `PostToolUse` hook matched to `EnterWorktree` running the installed publisher in Sim (linked Worktrees A and B), a session started at A that called `EnterWorktree path=B` fired the hook once; its input carried `tool_name: EnterWorktree` and `cwd` at B, and the record written from that event had `cwd`, `repositoryRoot`, and `branch` at B and was the freshest for the session across both stores (A kept the earlier `UserPromptSubmit`). ADR 0009 is accepted without its fallback: `work start` may follow `EnterWorktree` in the same turn. The session's graceful `SessionEnd` at B removed only B's record; A's is pruned as gone. |
 | Removability report | Acceptance test (new) | `worktree check` on a clean idle Worktree reports removable; on a dirty one, a locked one (`initializing`, a live Claude session lock, a user lock), one with an active Agent Run, and one with unpushed commits it reports each reason with its Git command, and mutates nothing. |
 | Default naming and root | Acceptance test (new) | With no root configured, `worktree create 35` in `~/p/sim` creates `~/p/sim.worktrees/35-worktree-protocol` on Branch `35-worktree-protocol` from `origin/HEAD`, and the JSON names both sources; with no `origin/HEAD` and one local `main` it reports the guess; with neither it exits 2 naming `--base`. |
 | Skill forward-test | Deferred | Give unprimed Codex and Claude Code the same ordinary prompt and judge outcomes, once the commands exist. |

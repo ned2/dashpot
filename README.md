@@ -7,14 +7,22 @@ coding-agent runs. It makes the small but important project-management pause
 visible before another prompt or agent adds more motion.
 
 Like its [mechanical namesake](https://en.wikipedia.org/wiki/Dashpot), Dashpot is
-intended to reduce oscillation without stopping progress. It observes; it does
-not assign or edit Issues, mutate repositories, or control agent sessions.
+intended to reduce oscillation without stopping progress. Observation never
+mutates: the view, every refresh, and `dashpot --json` never assign or edit
+Issues, change the Git Repository, or control agent sessions. Dashpot's named
+management commands — `init`, `integrate`, `work start` and `stop` — mutate
+only what their name says, on explicit invocation, and report what they
+changed ([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md)).
 
 > [!NOTE]
 > Dashpot is an early implementation extracted from a successful research spike.
 > Its interfaces and packaging are not yet stable.
 
 ## What it observes
+
+Everything below is read, never changed: observation's only writes are the
+housekeeping of Dashpot's own ignored state, such as pruning the hook record of
+a session that has ended.
 
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
 - git Branches, Remote-Tracking Branches, worktrees, HEAD, and dirty state
@@ -250,8 +258,13 @@ itself, taken at turn boundaries.
 **Agent Run**:
 A time-bounded period during one Agent Session when it is explicitly working
 on exactly one Issue. Starting, switching, or stopping Issue work begins or
-ends Agent Runs without ending or restarting the session.
-_Avoid_: Agent Run as a synonym for the whole session
+ends Agent Runs without ending or restarting the session. A live Agent
+Session holds at most one active Agent Run across the linked Worktrees of one
+Git Repository: a session that has moved to another Worktree of the same
+Repository and starts work there switches its run rather than adding one
+([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
+_Avoid_: Agent Run as a synonym for the whole session; a second run at
+another Worktree for a session that has relocated
 
 **Agent Session Identity**:
 The stable, opaque identity a harness gives one Agent Session, as its
@@ -280,9 +293,15 @@ stale observation state.
 _Avoid_: orphaned session for a gone unbound session
 
 **Work Store**:
-The versioned, Project-local record of active Agent Runs beneath a Worktree's
-`.dashpot/state/`. It is the sole authority for which sessions are working on
-which Issues at that Worktree.
+The versioned, Project-local record of active Agent Runs. Each record is
+stored beneath the Worktree its run is at (`.dashpot/state/`), and the records
+at all linked Worktrees of one Git Repository are jointly the sole authority
+for which sessions are working on which Issues in that Repository
+([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
+Independent clones keep distinct Work Stores
+([ADR 0003](docs/adr/0003-prefer-project-local-configuration-and-work-state.md)).
+_Avoid_: treating one Worktree's records as the whole authority for a session
+that may have moved to another Worktree of the same Repository
 
 **Issue Binding**:
 A durable association between an Agent Run and an Issue by Issue Identity,
@@ -517,8 +536,18 @@ Issue Markdown Projects also accept the Issue's slug.
 that worktree, requires it to identify exactly one currently observed Issue,
 and atomically records the resulting durable Issue Identity in the Project-local
 Work Store (`.dashpot/state/work/`). Running `start` again switches the session
-to a new Issue. Once recorded, the binding survives repository renames, Issue
-Reference edits, Local Issue moves, and transfers between configured Projects.
+to a new Issue. A session holds one active run across the linked Worktrees of
+its Git Repository
+([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)):
+once [#55](https://github.com/ned2/dashpot/issues/55) lands, `start` at
+another Worktree of the same Repository switches the run there when the
+session's own hook records show it has moved (a Claude Code `EnterWorktree`),
+refuses when they place the session elsewhere, and `stop` ends the session's
+run wherever in the Repository it is. Until then `start` and `stop` act only
+at the Worktree they run in, and a session recorded at two Worktrees is listed
+with a `work-session-conflict` warning. Once recorded, the binding survives
+repository renames, Issue Reference edits, Local Issue moves, and transfers
+between configured Projects.
 The ordinary TUI continues to show current References; raw identities remain in
 headless output and diagnostics.
 
