@@ -50,6 +50,12 @@ Local Issue slug. `stop` takes no argument. Check what is recorded with
 - Run it **in the checkout where the work happens**. Each linked worktree has
   its own `.dashpot/state/` and its own `.venv`, so the record lands where the
   session is observed.
+- A session holds **one active run across the Repository's worktrees**. If
+  your session moves to another worktree (Claude Code `EnterWorktree`), run
+  `start` again there: Dashpot verifies the move from your own hook records
+  and moves the run. A `cd` inside a tool call, or a sub-agent's shell in
+  another worktree, is not a move; `start` there is refused and writes
+  nothing. `stop` ends your run wherever it is recorded.
 - Run it **via `uv run`**: the `dashpot` console script lives in that
   checkout's `.venv`.
 - It works from a sandboxed shell too: when the harness process cannot be

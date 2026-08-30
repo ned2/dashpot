@@ -19,7 +19,7 @@ from .harnesses import ADAPTERS, HARNESS_DISPLAY, SESSION_ID, SessionIdentityCla
 from .harnesses import is_claude_code_host_process as is_claude_code_host_process
 from .harnesses import is_codex_host_process as is_codex_host_process
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
-from .repository import LockHolder, git, is_within
+from .repository import LockHolder, git, is_within, repository_worktrees
 from .work_store import WorkStore
 
 ISSUE_VALUE = re.compile(r"^\S+$")
@@ -713,12 +713,100 @@ SessionIdentityKey = tuple[str, str]
 
 
 @dataclass(frozen=True, slots=True)
+class SessionLocation:
+    """Where an Agent Session's freshest hook record places it.
+
+    The record's ``repositoryRoot`` (else its ``cwd``) is the Worktree the
+    harness itself last published from, which is the session's current
+    location whatever directory a command inside it runs in.
+    """
+
+    record: HookRecordClassification
+    raw: dict[str, Any]
+    store: Path
+
+    @property
+    def worktree(self) -> Path:
+        root = optional_string(self.raw.get("repositoryRoot"))
+        return Path(root or self.record.cwd)
+
+    @property
+    def process(self) -> ProcessIdentity | None:
+        return process_identity_of(self.raw.get("sessionProcess"))
+
+
+def reachable_hook_stores(
+    worktrees: Sequence[Path], directory: Path | None = None
+) -> list[Path]:
+    """The hook stores a Repository's sessions publish to, plus the global one.
+
+    A session at a Worktree whose checkout predates ``.dashpot/config.json``
+    publishes to the global store, so that store is always reachable too.
+    """
+    stores: list[Path] = []
+    seen: set[Path] = set()
+    candidates = [session_directory(worktree) for worktree in worktrees]
+    candidates.append(directory or state_directory())
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        stores.append(candidate)
+    return stores
+
+
+def locate_agent_session(
+    stores: Sequence[Path],
+    lookup: ProcessLookup = host_process_lookup,
+    *,
+    session_id: str | None = None,
+    process_key: ProcessKey | None = None,
+) -> SessionLocation | None:
+    """Place an Agent Session by its freshest hook record across ``stores``.
+
+    A record is the session's when it carries its Agent Session Identity or
+    was published for its host process; the freshest by ``lastActivityAt``
+    wins, so a record left behind at a Worktree the session moved away from
+    never places it. A record named by ``session_id`` that cannot be read
+    raises ``ValueError``; other unreadable records are not evidence and are
+    skipped.
+    """
+    if session_id is None and process_key is None:
+        raise ValueError("a session is located by its identity or its process")
+    probe = _LivenessProbe(lookup)
+    freshest: SessionLocation | None = None
+    for store in stores:
+        if not store.is_dir():
+            continue
+        for path in sorted(store.glob("*.json")):
+            named = session_id is not None and path.stem == session_id
+            if not named and process_key is None:
+                continue
+            try:
+                raw = read_hook_record(path)
+                record = classify_hook_record(raw, probe, expected_session_id=path.stem)
+            except (OSError, ValueError) as exc:
+                if named:
+                    raise ValueError(str(exc)) from exc
+                continue
+            if not named and record.process_key != process_key:
+                continue
+            if freshest is None or observed_instant(
+                record.last_activity_at
+            ) > observed_instant(freshest.record.last_activity_at):
+                freshest = SessionLocation(record, raw, store)
+    return freshest
+
+
+@dataclass(frozen=True, slots=True)
 class ValidatedSessionIdentity:
     """A claimed Agent Session Identity its harness's hook record confirmed."""
 
     claim: SessionIdentityClaim
     record: HookRecordClassification
     process: ProcessIdentity | None
+    location: SessionLocation | None = None
 
     @property
     def harness(self) -> str:
@@ -733,30 +821,39 @@ def validate_session_claim(
     claim: SessionIdentityClaim,
     worktree: Path,
     lookup: ProcessLookup = host_process_lookup,
+    *,
+    stores: Sequence[Path] | None = None,
 ) -> ValidatedSessionIdentity:
-    """Confirm a claimed identity against its harness's hook record here.
+    """Confirm a claimed identity against its harness's freshest hook record.
 
-    Exactly one record for the same harness and Worktree must exist and still
-    describe a session that is live or unknown; a missing, unreadable, ended,
-    gone, cross-harness, or process-mismatched record raises an actionable
-    ``RuntimeError`` so that no Issue Binding is created from the claim.
+    The record is the session's freshest across every hook store reachable
+    from ``worktree`` — those of the Repository's Worktrees and the global
+    store — and must still describe a session that is live or unknown; a
+    missing, unreadable, ended, gone, cross-harness, or process-mismatched
+    record raises an actionable ``RuntimeError`` so that no Issue Binding is
+    created from the claim. Where that record places the session is
+    returned with it; whether that is ``worktree`` is the caller's question.
     """
     display = HARNESS_DISPLAY[claim.harness]
     name = f"{display} session {claim.session_id} (from {claim.source})"
-    store = HookRecordStore(session_directory(worktree))
+    if stores is None:
+        stores = reachable_hook_stores(repository_worktrees(worktree))
     try:
-        raw = store.read(claim.session_id)
+        location = locate_agent_session(stores, lookup, session_id=claim.session_id)
     except ValueError as exc:
         raise RuntimeError(
-            f"the lifecycle hook record for {name} at {worktree} cannot be "
-            f"read: {exc}; run 'dashpot integrate {claim.harness} --status'"
+            f"the lifecycle hook record for {name} cannot be read: {exc}; "
+            f"run 'dashpot integrate {claim.harness} --status'"
         ) from exc
-    if raw is None:
+    if location is None:
         raise RuntimeError(
-            f"no lifecycle hook record for {name} at {worktree}; the "
-            f"{display} hooks must be installed and have published this "
-            f"session here (check 'dashpot integrate {claim.harness} --status')"
+            f"no lifecycle hook record for {name} at {worktree} or any other "
+            f"Worktree of its Repository; the {display} hooks must be installed "
+            f"and have published this session (check 'dashpot integrate "
+            f"{claim.harness} --status')"
         )
+    raw = location.raw
+    record = location.record
     recorded_harness = optional_string(raw.get("harness")) or "codex"
     if recorded_harness != claim.harness:
         recorded = HARNESS_DISPLAY.get(recorded_harness, recorded_harness)
@@ -764,27 +861,20 @@ def validate_session_claim(
             f"{name} names a hook record published by {recorded}; the "
             f"identities of two harnesses cannot be combined"
         )
-    try:
-        record = classify_hook_record(raw, _LivenessProbe(lookup))
-    except ValueError as exc:
-        raise RuntimeError(
-            f"the lifecycle hook record for {name} at {worktree} cannot be "
-            f"interpreted: {exc}; run 'dashpot integrate {claim.harness} --status'"
-        ) from exc
     if record.outcome in {"ended", "gone"}:
         how = "ended" if record.outcome == "ended" else "whose process is gone"
         raise RuntimeError(
-            f"the lifecycle hook record for {name} at {worktree} is stale "
-            f"({how}); it identifies no running session"
+            f"the lifecycle hook record for {name} at {location.worktree} is "
+            f"stale ({how}); it identifies no running session"
         )
-    process = process_identity_of(raw.get("sessionProcess"))
+    process = location.process
     if claim.pid is not None and process is not None and process.pid != claim.pid:
         raise RuntimeError(
             f"{name} attributes the harness to pid {claim.pid}, but its hook "
             f"record was published for pid {process.pid}; the identities do "
             f"not describe one session"
         )
-    return ValidatedSessionIdentity(claim, record, process)
+    return ValidatedSessionIdentity(claim, record, process, location)
 
 
 def observe_agent_runs(

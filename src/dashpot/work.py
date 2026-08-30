@@ -3,18 +3,22 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from .agents import (
     ProcessIdentity,
+    ProcessKey,
     ProcessLookup,
+    SessionLocation,
     ValidatedSessionIdentity,
     host_process_lookup,
+    locate_agent_session,
     now_iso,
     observe_agent_ancestry,
+    reachable_hook_stores,
     session_liveness,
     validate_session_claim,
 )
@@ -33,7 +37,12 @@ from .project_config import (
     LocalMarkdownIssueSourceConfig,
     load_project_config,
 )
-from .repository import git, github_repo_from_remote, worktree_root
+from .repository import (
+    git,
+    github_repo_from_remote,
+    repository_worktrees,
+    worktree_root,
+)
 from .work_store import ActiveWork, SessionProcess, WorkStore
 
 ISSUE_NUMBER = re.compile(r"^#?([1-9][0-9]*)$")
@@ -66,21 +75,29 @@ class AgentSessionIdentity:
             return None
         return SessionProcess(self.process.pid, self.process.started_at)
 
+    @property
+    def process_key(self) -> ProcessKey | None:
+        if self.process is None:
+            return None
+        return self.process.pid, self.process.started_at
+
 
 def identify_agent_session(
     lookup: ProcessLookup = host_process_lookup,
     *,
     environ: Mapping[str, str] | None = None,
     worktree: Path | None = None,
+    stores: Sequence[Path] | None = None,
 ) -> AgentSessionIdentity:
     """Identify the supported Agent Session enclosing this command.
 
     The harness process in this command's ancestry identifies the session
     when it can be observed. When it cannot, as from a sandbox's isolated
     PID namespace, the session is identified by an Agent Session Identity the
-    environment claims, validated against the lifecycle hook record of the
-    same harness at ``worktree``; without a Worktree there is nothing to
-    validate against and the claim is refused.
+    environment claims, validated against the freshest lifecycle hook record
+    of the same harness across the hook ``stores`` reachable from
+    ``worktree``; without a Worktree there is nothing to validate against and
+    the claim is refused.
     """
     environment = environ if environ is not None else os.environ
     ancestry = observe_agent_ancestry(lookup)
@@ -89,7 +106,9 @@ def identify_agent_session(
         return _process_identity(
             harness,
             process,
-            _corroborating_session_id(harness, process, environment, worktree, lookup),
+            _corroborating_session_id(
+                harness, process, environment, worktree, lookup, stores
+            ),
         )
     claims = _session_claims(environment)
     if not claims:
@@ -103,7 +122,9 @@ def identify_agent_session(
     failures: list[str] = []
     for claim in claims:
         try:
-            validated.append(validate_session_claim(claim, worktree, lookup))
+            validated.append(
+                validate_session_claim(claim, worktree, lookup, stores=stores)
+            )
         except RuntimeError as exc:
             failures.append(str(exc))
     if len(validated) == 1:
@@ -155,6 +176,7 @@ def _corroborating_session_id(
     environment: Mapping[str, str],
     worktree: Path | None,
     lookup: ProcessLookup,
+    stores: Sequence[Path] | None,
 ) -> str | None:
     """A claimed identity of the located harness whose hook record agrees.
 
@@ -167,7 +189,7 @@ def _corroborating_session_id(
         if claim.harness != harness:
             continue
         try:
-            confirmed = validate_session_claim(claim, worktree, lookup)
+            confirmed = validate_session_claim(claim, worktree, lookup, stores=stores)
         except RuntimeError:
             continue
         if confirmed.process is None or confirmed.process.pid == process.pid:
@@ -227,10 +249,31 @@ def start_issue_work(
     lookup: ProcessLookup = host_process_lookup,
     environ: Mapping[str, str] | None = None,
 ) -> list[str]:
-    """Start or switch this session's Issue work at the current Worktree."""
+    """Start or switch this session's Issue work at the current Worktree.
+
+    A live Agent Session holds one active Agent Run across the linked
+    Worktrees of its Git Repository. Its hooks say where it is: when their
+    freshest record places it here, a run it holds at another Worktree is a
+    relocation and is ended in favour of this one; when they place it
+    elsewhere, this command is running where the session is not and is
+    refused. A session with no hook record anywhere starts here, as before.
+    """
     root = worktree_root(current)
-    session = identify_agent_session(lookup, environ=environ, worktree=root)
+    worktrees = repository_worktrees(root)
+    stores = reachable_hook_stores(worktrees)
+    session = identify_agent_session(
+        lookup, environ=environ, worktree=root, stores=stores
+    )
     issue = _resolve_issue(root, reference, timeout)
+    location = _session_location(session, stores, lookup)
+    if location is not None and not _same_worktree(location.worktree, root):
+        raise RuntimeError(
+            f"{session.session_label} is at {location.worktree} according to "
+            f"its freshest {HARNESS_DISPLAY[session.harness]} hook record, not "
+            f"at {root}; Issue work is declared where the session itself runs "
+            f"(a tool call that changes directory, or a sub-agent, does not "
+            f"move the session), so nothing was written"
+        )
     store = WorkStore(root)
     previous = _session_work(store, session)
     if previous is not None and previous.session_key != session.session_key:
@@ -259,14 +302,33 @@ def start_issue_work(
             session_id=session.session_id,
         )
     )
-    if previous is None:
-        return [f"started work on {issue['reference']} ({issue['id']})"]
-    if previous.issue_id == issue["id"]:
-        return [f"already working on {issue['reference']}; run restarted"]
-    return [
-        f"switched from {previous.issue_reference} to {issue['reference']} "
-        f"({issue['id']})"
-    ]
+    elsewhere: list[tuple[Path, ActiveWork]] = []
+    if location is not None:
+        # The hooks place the session here, so a run recorded at another
+        # Worktree of the Repository is where it used to be, and nobody is
+        # left behind there.
+        elsewhere = _stop_elsewhere(session, worktrees, root)
+    if previous is None and elsewhere:
+        (former_worktree, former), *rest = elsewhere
+        messages = [
+            f"switched from {former.issue_reference} at {former_worktree} to "
+            f"{issue['reference']} at {root} ({issue['id']})"
+        ]
+        elsewhere = rest
+    elif previous is None:
+        messages = [f"started work on {issue['reference']} ({issue['id']})"]
+    elif previous.issue_id == issue["id"]:
+        messages = [f"already working on {issue['reference']}; run restarted"]
+    else:
+        messages = [
+            f"switched from {previous.issue_reference} to {issue['reference']} "
+            f"({issue['id']})"
+        ]
+    messages.extend(
+        f"ended this session's earlier run on {work.issue_reference} at {worktree}"
+        for worktree, work in elsewhere
+    )
+    return messages
 
 
 def stop_issue_work(
@@ -276,23 +338,35 @@ def stop_issue_work(
     lookup: ProcessLookup = host_process_lookup,
     environ: Mapping[str, str] | None = None,
 ) -> list[str]:
-    """End an active Agent Run recorded at the current Worktree.
+    """End an active Agent Run of this session, or an orphaned one here.
 
     Without ``session_key`` the run belongs to the Agent Session enclosing this
-    command, which stays alive. With ``session_key`` the run is an Orphaned
-    Agent Run left by a session that is no longer running, so no enclosing
-    session is required; a session observed to be live is refused so its own
-    run cannot be ended from outside. The Work Store's authority is unchanged
-    either way.
+    command, which stays alive; it is ended wherever among the Repository's
+    Worktrees it is recorded, so a session that moved and simply stops does
+    not leave its old Worktree live. With ``session_key`` the run is an
+    Orphaned Agent Run left at this Worktree by a session that is no longer
+    running, so no enclosing session is required; a session observed to be
+    live is refused so its own run cannot be ended from outside. The Work
+    Store's authority is unchanged either way.
     """
     root = worktree_root(current)
     store = WorkStore(root)
     if session_key is None:
-        session = identify_agent_session(lookup, environ=environ, worktree=root)
-        previous = _session_work(store, session)
-        if previous is None or not store.stop(previous.session_key):
+        worktrees = repository_worktrees(root)
+        session = identify_agent_session(
+            lookup,
+            environ=environ,
+            worktree=root,
+            stores=reachable_hook_stores(worktrees),
+        )
+        stopped = _stop_elsewhere(session, worktrees, None)
+        if not stopped:
             return ["no active Issue work for this session"]
-        return [f"stopped work on {previous.issue_reference}"]
+        return [
+            f"stopped work on {work.issue_reference}"
+            + ("" if _same_worktree(worktree, root) else f" at {worktree}")
+            for worktree, work in stopped
+        ]
     previous = _session_work_by_key(store, session_key)
     if previous is None:
         return [f"no active Issue work recorded for session {session_key}"]
@@ -325,6 +399,55 @@ def show_issue_work(current: Path) -> list[str]:
     if not messages:
         messages = ["no active Issue work at this worktree"]
     return messages
+
+
+def _session_location(
+    session: AgentSessionIdentity, stores: Sequence[Path], lookup: ProcessLookup
+) -> SessionLocation | None:
+    """Where the session's hooks last placed it, if they have placed it at all.
+
+    A record that is ended or whose process is gone describes a session that
+    is over, never where this live one is.
+    """
+    if session.session_id is None and session.process_key is None:
+        return None
+    try:
+        location = locate_agent_session(
+            stores,
+            lookup,
+            session_id=session.session_id,
+            process_key=session.process_key,
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            f"the lifecycle hook record for {session.session_label} cannot be "
+            f"read: {exc}; run 'dashpot integrate {session.harness} --status'"
+        ) from exc
+    if location is None or location.record.outcome in {"ended", "gone"}:
+        return None
+    return location
+
+
+def _stop_elsewhere(
+    session: AgentSessionIdentity, worktrees: Sequence[Path], here: Path | None
+) -> list[tuple[Path, ActiveWork]]:
+    """End the session's active runs at every Worktree other than ``here``."""
+    stopped: list[tuple[Path, ActiveWork]] = []
+    for worktree in worktrees:
+        if here is not None and _same_worktree(worktree, here):
+            continue
+        store = WorkStore(worktree)
+        work = _session_work(store, session)
+        if work is not None and store.stop(work.session_key):
+            stopped.append((worktree, work))
+    return stopped
+
+
+def _same_worktree(candidate: Path, worktree: Path) -> bool:
+    try:
+        return candidate.resolve() == worktree.resolve()
+    except OSError:
+        return False
 
 
 def _session_work_by_key(store: WorkStore, session_key: str) -> ActiveWork | None:

@@ -21,4 +21,7 @@ Verified against a real session: a Claude Code sub-agent's shell is a child of t
 session key and `dashpot work show` from the sub-agent reports the main session's run. A
 sub-agent therefore needs no opt-in of its own — and must leave `work start` / `stop` alone,
 since running them from a sub-agent would switch or end the whole session's Issue work. The
-`start` / `stop` calls belong to the main session only.
+`start` / `stop` calls belong to the main session only. With the hooks installed, a
+sub-agent's `work start` in a worktree other than the main session's is refused as running
+where the session is not ([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md));
+`stop` is not, so the rule still matters.
