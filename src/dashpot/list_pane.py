@@ -129,8 +129,8 @@ class ListPane(Vertical):
 
         ``columns`` re-declares the pane's columns when the read model has
         dropped one, such as the Sessions pane's single-Observation-Target
-        case. ``note`` is a pane-level fact that follows the count in the
-        title, such as how old the Branches pane's remote facts are.
+        case. ``note`` is a separate pane-level fact, such as when the
+        Branches pane's Remote-Tracking Branches were last fetched.
         """
         table = self.table
         prior_key, prior_index = self.highlighted()
@@ -144,8 +144,8 @@ class ListPane(Vertical):
             for row in rows:
                 table.add_row(*row.cells, key=row.key)
         self.rows_by_key = desired
-        title = f"{self.label} · {self.count}"
-        self.border_title = Content(f"{title} · {note}" if note else title)
+        self.border_title = Content(f"{self.label} · {self.count}")
+        self.border_subtitle = Content(note) if note else None
         # The empty state is the message line alone: a header over nothing
         # would only cost the Issue table a row.
         table.show_header = bool(rows)

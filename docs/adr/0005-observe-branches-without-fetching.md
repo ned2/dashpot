@@ -14,9 +14,10 @@ for one concept.
 
 Dashpot is a passive view. It reads `git for-each-ref` over both namespaces
 and never runs `git fetch`, so what it shows about a remote is the
-Repository's own copy as of the last fetch. Instead of hiding that, the pane
-title carries the age of `FETCH_HEAD` (`remote as of 3h ago`, or `never
-fetched`) as the freshness of everything remote on the screen.
+Repository's own copy as of the last fetch. Instead of hiding that, the pane's
+lower-right border carries the age of `FETCH_HEAD` (`remote last fetched 3h
+ago`, or `remote never fetched`) as the freshness of everything remote on the
+screen.
 
 ## Considered options
 

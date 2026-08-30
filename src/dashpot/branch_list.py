@@ -247,6 +247,6 @@ def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
 
 
 def fetch_age_text(fetched_at: str | None, now: datetime) -> str:
-    """``remote as of 3h ago``, or that the repository never fetched."""
+    """``remote last fetched 3h ago``, or that it was never fetched."""
     age = relative_age(fetched_at, now)
-    return f"remote as of {age}" if age else "never fetched"
+    return f"remote last fetched {age}" if age else "remote never fetched"

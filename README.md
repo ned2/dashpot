@@ -625,9 +625,9 @@ elsewhere), `SYNC` is the local ref's relation to its upstream (`✓` in sync,
 `↑2 ↓1`, `○` unpushed, or `✗` upstream gone), then the Worktree it is checked out
 in, the active sessions on it, and the age of its last commit. Rows are sorted checked-out first, then most recent commit. The
 refs are read with `git for-each-ref` from the first answering Repository
-Anchor; Dashpot never runs `git fetch`, so the pane title carries the age of
-the last fetch (`remote as of 3h ago`, or `never fetched`) as the honest
-freshness of everything remote
+Anchor; Dashpot never runs `git fetch`, so the lower-right pane border carries
+the age of the last fetch (`remote last fetched 3h ago`, or
+`remote never fetched`) as the honest freshness of everything remote
 ([ADR 0005](docs/adr/0005-observe-branches-without-fetching.md)). See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.

@@ -31,6 +31,14 @@ Screen {
     border-title-color: $foreground;
 }
 
+/* Remote freshness is a secondary fact on the opposite end of the Branches
+   pane's frame, distinct from its label and count. */
+#branches-pane {
+    border-subtitle-align: right;
+    border-subtitle-color: $text-muted;
+    border-subtitle-style: none;
+}
+
 /* Each table's cap is set by the app from the height left over after the
    detail row and the Issue table keep their minimums (see
    `DashpotApp.fit_list_panes`); the stylesheet only supplies the canvas. */

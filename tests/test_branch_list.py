@@ -206,5 +206,5 @@ def test_fetch_age_is_honest() -> None:
     result = query_branch_list(workspace(observation))
 
     assert result.fetched_at is None
-    assert fetch_age_text(None, CLOCK) == "never fetched"
-    assert fetch_age_text("2026-08-27T00:00:00Z", CLOCK) == "remote as of 3h ago"
+    assert fetch_age_text(None, CLOCK) == "remote never fetched"
+    assert fetch_age_text("2026-08-27T00:00:00Z", CLOCK) == "remote last fetched 3h ago"

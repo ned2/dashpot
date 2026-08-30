@@ -211,6 +211,12 @@ def pane_title(app: DashpotApp, selector: str) -> str:
     return title.plain
 
 
+def pane_subtitle(app: DashpotApp, selector: str) -> str:
+    subtitle = app.query_one(selector)._border_subtitle
+    assert subtitle is not None
+    return subtitle.plain
+
+
 @pytest.mark.asyncio
 async def test_initial_refresh_populates_queue_and_detail() -> None:
     snapshot = workspace_snapshot(
@@ -2387,9 +2393,13 @@ async def test_main_screen_stacks_the_panes_above_the_issues() -> None:
         assert worktrees.region.bottom + 1 == branches.region.y
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
-        # The Branches pane says how old its remote facts are: Dashpot never
-        # fetches, and this repository never has.
-        assert pane_title(app, "#branches-pane") == "BRANCHES · 0 · never fetched"
+        # Remote freshness sits apart from the label and count, aligned to the
+        # lower-right pane border. Dashpot never fetches, and this repository
+        # never has.
+        assert pane_title(app, "#branches-pane") == "BRANCHES · 0"
+        assert pane_subtitle(app, "#branches-pane") == "remote never fetched"
+        branches = app.query_one("#branches-pane", ListPane)
+        assert branches.styles.border_subtitle_align == "right"
         # An empty pane is one honest line inside its frame, not a blank box.
         assert sessions.region.height == 3
         assert worktrees.region.height == pane_chrome(worktrees) + 1
