@@ -6,6 +6,7 @@ import re
 import shutil
 import sysconfig
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,12 @@ from .agents import (
     session_directory,
     state_directory,
     summarize_session_records,
+    validate_session_claim,
+)
+from .harnesses import (
+    SESSION_OVERRIDE_VARIABLE,
+    adapter,
+    override_claim,
 )
 from .repository import worktree_root
 
@@ -190,6 +197,7 @@ def integration_status(
     state_dir: Path | None = None,
     current: Path | None = None,
     lookup: ProcessLookup = host_process_lookup,
+    environ: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Report the observable state of one harness's integration."""
     spec = integration(harness)
@@ -231,6 +239,7 @@ def integration_status(
                     messages.append(f"hook publisher: {command}")
     messages.extend(_config_toml_coexistence_warning(spec, home))
     messages.extend(_record_store_status(state_dir, current, lookup))
+    messages.extend(_claimed_identity_status(spec, current, lookup, environ))
     return messages
 
 
@@ -252,9 +261,15 @@ def codex_integration_status(
     state_dir: Path | None = None,
     current: Path | None = None,
     lookup: ProcessLookup = host_process_lookup,
+    environ: Mapping[str, str] | None = None,
 ) -> list[str]:
     return integration_status(
-        "codex", codex_home, state_dir=state_dir, current=current, lookup=lookup
+        "codex",
+        codex_home,
+        state_dir=state_dir,
+        current=current,
+        lookup=lookup,
+        environ=environ,
     )
 
 
@@ -293,6 +308,46 @@ def _record_store_status(
             "does not exist yet)"
         )
     return messages
+
+
+def _claimed_identity_status(
+    spec: HarnessIntegration,
+    current: Path | None,
+    lookup: ProcessLookup,
+    environ: Mapping[str, str] | None,
+) -> list[str]:
+    """Report the Agent Session Identity this command's environment claims.
+
+    This is the identity a sandboxed ``dashpot work start`` would use, so
+    whether it names a live hook record here is what to check when opt-in
+    from a sandbox is refused.
+    """
+    environment = environ if environ is not None else os.environ
+    try:
+        claim = override_claim(environment)
+    except RuntimeError as exc:
+        return [f"Agent Session identity claimed here: {exc}"]
+    if claim is None or claim.harness != spec.harness:
+        claim = adapter(spec.harness).claim_session_identity(environment)
+    if claim is None:
+        return [
+            f"Agent Session identity claimed here: none for {spec.display} "
+            f"(Issue opt-in from a sandbox needs one; {SESSION_OVERRIDE_VARIABLE}"
+            f"={spec.harness}:<session id> states it explicitly)"
+        ]
+    prefix = (
+        f"Agent Session identity claimed here: {spec.display} session "
+        f"{claim.session_id} (from {claim.source})"
+    )
+    try:
+        root = worktree_root(current or Path.cwd())
+    except RuntimeError:
+        return [f"{prefix}, not validated: not inside a Git worktree"]
+    try:
+        validated = validate_session_claim(claim, root, lookup)
+    except RuntimeError as exc:
+        return [f"{prefix}, rejected: {exc}"]
+    return [f"{prefix}, confirmed by its {validated.record.outcome} hook record"]
 
 
 def _describe_records(scope: str, summary: SessionRecordSummary) -> list[str]:

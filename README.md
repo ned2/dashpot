@@ -143,6 +143,21 @@ on exactly one Issue. Starting, switching, or stopping Issue work begins or
 ends Agent Runs without ending or restarting the session.
 _Avoid_: Agent Run as a synonym for the whole session
 
+**Agent Session Identity**:
+The stable, opaque identity a harness gives one Agent Session, as its
+lifecycle hooks publish it. It identifies the session where its host process
+cannot be observed, such as from a sandbox's isolated process namespace, and
+is only ever accepted when the harness's own hook record confirms it.
+_Avoid_: session key, which is the Work Store's record name, and process
+identity, which is evidence of Session Liveness
+
+**Harness Adapter**:
+The per-harness contract through which Dashpot identifies an Agent Session
+from a command running inside it: which host process is the harness itself
+(never a sandbox helper) and what Agent Session Identity the command can see.
+Work Store and observation code speak to the adapters and never to one
+harness's internals.
+
 **Session Liveness**:
 An observation of whether an Agent Session's recorded host process is live,
 gone, or unknown. Unknown means the process could not be observed and is never
@@ -434,6 +449,16 @@ have exited. `dashpot integrate <harness> --status` classifies every session
 record as live, unknown, stale, or unreadable and lists the stale ones, which
 is where to look when lifecycle events seem not to be delivered.
 
+Every hook record carries the harness's own Agent Session Identity (its hook
+`session_id`) beside the host process the hook observed from outside any
+sandbox. Observation joins a Work Store record to its hook record by that
+identity when the record carries one, and by host process identity otherwise,
+so a run opted in from a sandbox adopts the same running/waiting state, and
+is listed once in the Sessions pane, as one opted in from a plain shell.
+Liveness and orphan detection still follow the host process: a session's
+hooks always run on the host, so its record names the harness process even
+when the session's own commands cannot see it.
+
 ## Issue work opt-in
 
 An agent session declares which Issue it is working on from inside the
@@ -460,9 +485,52 @@ Reference edits, Local Issue moves, and transfers between configured Projects.
 The ordinary TUI continues to show current References; raw identities remain in
 headless output and diagnostics.
 
+### How the session is identified
+
+`dashpot work start` and `stop` identify the enclosing Agent Session through
+one harness-neutral seam with a [Harness Adapter](#domain-language) per
+supported harness (`src/dashpot/harnesses.py`), by two routes:
+
+1. **Host process ancestry.** The command walks up its parent processes to
+   the nearest Codex or Claude Code process, as it always has. A sandbox
+   helper such as `codex-linux-sandbox` or `bwrap` is never taken for the
+   harness. This route is authoritative whenever it works; the record is keyed
+   by that process, and the harness's Agent Session Identity is recorded
+   beside it when the environment names one that the hook record corroborates.
+2. **Agent Session Identity.** When the ancestry is hidden — Codex's
+   `codex-linux-sandbox` and Claude Code's bubblewrap sandbox each run the
+   command as PID 2 of a fresh PID namespace — each adapter reads the identity
+   its harness exposes to commands (Codex its thread identifier, Claude Code
+   its session identifier and host PID). Neither harness documents these as
+   stable, so a claim is never trusted on its own: it must name exactly one
+   lifecycle hook record for the same harness at this Worktree
+   (`.dashpot/state/sessions/`) that still describes a live or unknown
+   session, and for Claude Code the record's host PID must agree. The record
+   is then keyed by the host process the hook published, so the same session
+   gets the same record whether or not its commands are sandboxed, and
+   liveness and orphan detection work as before; a record whose hook never saw
+   a host process is keyed by the identity's digest instead. `start`, switching
+   Issues, and `stop` all resolve the session the same way, and a record
+   written before this identity existed is adopted by the same session rather
+   than duplicated.
+
+A missing, unreadable, ended, gone, cross-harness, or PID-mismatched hook
+record refuses the opt-in with a message naming the record and the
+`dashpot integrate <harness> --status` check to run, and writes nothing. When
+the environment names live sessions of both harnesses — a Codex session
+started from inside a Claude Code shell inherits both — the opt-in is refused
+as ambiguous until `DASHPOT_AGENT_SESSION=<harness>:<session id>` states which
+session the command belongs to; that explicit claim is validated like any
+other. `dashpot integrate <harness> --status` reports the identity the
+current environment claims for that harness and whether its hook record here
+confirms or rejects it, which is the first thing to check when a sandboxed
+`work start` is refused.
+
 The Work Store is the sole authority for Issue association. Collection
-correlates each recorded run with the hook's lifecycle observations by process
-identity; a hook record that carries a global Issue binding (the retired
+correlates each recorded run with the hook's lifecycle observations by Agent
+Session Identity or process identity (see
+[Agent session observation](#agent-session-observation)); a hook record
+that carries a global Issue binding (the retired
 `DASHPOT_ISSUE_ID`/`DASHPOT_ISSUE_REF` environment convention) is rejected with
 a diagnostic pointing at `dashpot work start`, never silently combined. When a
 session is gone but its Work Store record remains, that record is an orphaned
@@ -588,9 +656,12 @@ expectations on agents themselves are in [`AGENTS.md`](AGENTS.md).
 The [domain language](#domain-language) defines the terms used in the interface,
 code, and documentation, including phrasings to avoid.
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
-decision. The other files in [`docs/`](docs/) are research and audits that
-informed those decisions and the implementation, such as
-[`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md).
+decision. The other files in [`docs/`](docs/) are research, audits, and active
+proposals that inform decisions and implementation. The proposed agent worktree
+protocol is under review in
+[`docs/proposed-agent-worktree-protocol.md`](docs/proposed-agent-worktree-protocol.md);
+[`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md)
+records the framework research behind the current interface.
 [`conformance/`](conformance/) documents owned file grammars.
 
 ## License

@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from dashpot.agents import ProcessIdentity, ProcessPresent
+from dashpot.agents import (
+    ProcessIdentity,
+    ProcessPresent,
+    session_directory,
+    write_hook_record,
+)
+from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
 from dashpot.work import (
     identify_agent_session,
     show_issue_work,
     start_issue_work,
     stop_issue_work,
 )
-from dashpot.work_store import WorkStore
-from helpers import absent, present
+from dashpot.work_store import SessionProcess, WorkStore
+from helpers import absent, present, unobservable
 
 CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
@@ -258,3 +266,355 @@ def test_bare_issue_number_resolves_like_the_prefixed_hint(tmp_path: Path) -> No
     assert bare[0].issue_id == "I_crash"
     assert prefixed[0].issue_id == bare[0].issue_id
     assert prefixed[0].issue_reference == bare[0].issue_reference == "fix-crash"
+
+
+# --- Sandboxed Agent Sessions: identity by Agent Session Identity -----------
+
+ISOLATED = unobservable("isolated-namespace")
+CODEX_SESSION = "01a05099-1563-79a3-8504-e30d50949ca6"
+CLAUDE_SESSION = "01c7192b-2990-4f83-ad33-290ac22eb4d1"
+CODEX_ENVIRON = {"CODEX_THREAD_ID": CODEX_SESSION}
+CLAUDE_ENVIRON = {"CLAUDE_CODE_SESSION_ID": CLAUDE_SESSION, "CLAUDE_PID": "7777"}
+
+
+def hook_record(
+    root: Path,
+    session_id: str,
+    harness: str,
+    process: ProcessIdentity | None,
+    *,
+    state: str = "running",
+) -> Path:
+    return write_hook_record(
+        {
+            "version": 2,
+            "sessionId": session_id,
+            "harness": harness,
+            "state": state,
+            "cwd": str(root),
+            "repositoryRoot": str(root),
+            "branch": "main",
+            "event": "UserPromptSubmit" if state == "running" else "Stop",
+            "lastActivityAt": "2026-08-30T03:34:35.830802Z",
+            "sessionProcess": process.as_record() if process else None,
+        },
+        session_directory(root),
+    )
+
+
+def legacy_ended_record(root: Path, session_id: str, harness: str) -> None:
+    directory = session_directory(root)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{session_id}.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "sessionId": session_id,
+                "harness": harness,
+                "state": "ended",
+                "cwd": str(root),
+                "repositoryRoot": str(root),
+                "event": "SessionEnd",
+            }
+        )
+    )
+
+
+def test_isolated_namespace_without_a_claim_reproduces_the_gap(tmp_path: Path) -> None:
+    """The real sandbox lookup result, and no identity, is the #53 failure."""
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+
+    with pytest.raises(RuntimeError, match="isolated process namespace") as failure:
+        start_issue_work(root, "build-observer", lookup=ISOLATED, environ={})
+
+    assert "no supported agent session encloses this command" in str(failure.value)
+    assert "dashpot integrate <harness> --status" in str(failure.value)
+    active, _ = WorkStore(root).active()
+    assert active == []
+
+
+def test_codex_session_opts_in_from_its_sandbox_by_hook_identity(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+
+    messages = start_issue_work(
+        root, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON
+    )
+
+    active, diagnostics = WorkStore(root).active()
+    assert diagnostics == []
+    assert len(active) == 1
+    work = active[0]
+    assert work.harness == "codex"
+    assert work.session_id == CODEX_SESSION
+    # The hook published the harness's host process; the record keys and
+    # labels the session exactly as the process route would have.
+    assert work.session_process == SessionProcess(CODEX.pid, CODEX.started_at)
+    assert work.session_key.startswith("codex-4242-")
+    assert work.session_label == "codex pid 4242"
+    assert "started work on build-observer" in messages[0]
+
+
+def test_claude_code_session_opts_in_from_a_hidden_ancestry_by_hook_identity(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
+
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CLAUDE_ENVIRON)
+
+    active, _ = WorkStore(root).active()
+    assert active[0].harness == "claude-code"
+    assert active[0].session_id == CLAUDE_SESSION
+    assert active[0].session_key.startswith("claude-code-7777-")
+
+
+def test_claude_code_with_visible_ancestry_records_its_corroborated_identity(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
+
+    start_issue_work(
+        root, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
+    )
+
+    active, _ = WorkStore(root).active()
+    assert active[0].session_key.startswith("claude-code-7777-")
+    assert active[0].session_id == CLAUDE_SESSION
+
+
+def test_visible_ancestry_ignores_a_claim_that_does_not_corroborate(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    other = ProcessIdentity(9999, 1, "claude", "Tue Aug 25 03:00:00 2026")
+    hook_record(root, CLAUDE_SESSION, "claude-code", other)
+
+    start_issue_work(
+        root,
+        "build-observer",
+        lookup=present(CLAUDE),
+        environ={"CLAUDE_CODE_SESSION_ID": CLAUDE_SESSION},
+    )
+
+    active, _ = WorkStore(root).active()
+    assert active[0].session_process == SessionProcess(CLAUDE.pid, CLAUDE.started_at)
+    assert active[0].session_id is None
+
+
+def test_identity_route_is_stable_across_start_switch_and_stop(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON)
+    first, _ = WorkStore(root).active()
+    switched = start_issue_work(
+        root, "fix-crash", lookup=ISOLATED, environ=CODEX_ENVIRON
+    )
+    second, _ = WorkStore(root).active()
+    stopped = stop_issue_work(root, lookup=ISOLATED, environ=CODEX_ENVIRON)
+
+    assert "switched from build-observer to fix-crash" in switched[0]
+    assert len(second) == 1
+    assert second[0].session_key == first[0].session_key
+    assert second[0].issue_id == "I_crash"
+    assert stopped == ["stopped work on fix-crash"]
+    assert WorkStore(root).active()[0] == []
+
+
+def test_a_session_keeps_one_record_across_sandboxed_and_host_commands(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
+    start_issue_work(root, "build-observer", lookup=present(CLAUDE), environ={})
+
+    messages = stop_issue_work(root, lookup=ISOLATED, environ=CLAUDE_ENVIRON)
+
+    assert messages == ["stopped work on build-observer"]
+    assert WorkStore(root).active()[0] == []
+
+
+def test_a_record_without_a_hook_process_is_keyed_by_session_identity(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", None)
+
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON)
+
+    active, _ = WorkStore(root).active()
+    assert active[0].session_process is None
+    assert active[0].session_id == CODEX_SESSION
+    assert active[0].session_key.startswith("codex-session-")
+    assert CODEX_SESSION not in active[0].session_key
+    assert active[0].session_label == f"codex session {CODEX_SESSION}"
+    assert stop_issue_work(root, lookup=ISOLATED, environ=CODEX_ENVIRON) == [
+        "stopped work on build-observer"
+    ]
+
+
+def test_legacy_record_is_adopted_by_the_same_session(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(root, "build-observer", lookup=codex_lookup, environ={})
+    legacy, _ = WorkStore(root).active()
+    assert legacy[0].session_id is None
+
+    messages = start_issue_work(
+        root, "fix-crash", lookup=ISOLATED, environ=CODEX_ENVIRON
+    )
+
+    active, _ = WorkStore(root).active()
+    assert "switched from build-observer to fix-crash" in messages[0]
+    assert [work.session_key for work in active] == [legacy[0].session_key]
+    assert active[0].session_id == CODEX_SESSION
+
+
+@pytest.mark.parametrize(
+    ("arrange", "environ", "expected"),
+    [
+        pytest.param(
+            lambda root: None,
+            CODEX_ENVIRON,
+            "no lifecycle hook record for Codex session",
+            id="missing",
+        ),
+        pytest.param(
+            lambda root: hook_record(root, CODEX_SESSION, "claude-code", CLAUDE),
+            CODEX_ENVIRON,
+            "published by Claude Code",
+            id="cross-harness",
+        ),
+        pytest.param(
+            # A graceful SessionEnd removes the record; an ended record is a
+            # legacy shape that still identifies no running session.
+            lambda root: legacy_ended_record(root, CLAUDE_SESSION, "claude-code"),
+            CLAUDE_ENVIRON,
+            "is stale (ended)",
+            id="ended",
+        ),
+        pytest.param(
+            lambda root: hook_record(
+                root,
+                CLAUDE_SESSION,
+                "claude-code",
+                ProcessIdentity(4141, 1, "claude", "Tue Aug 25 02:00:00 2026"),
+            ),
+            CLAUDE_ENVIRON,
+            "published for pid 4141",
+            id="pid-mismatch",
+        ),
+        pytest.param(
+            lambda root: (
+                session_directory(root).mkdir(parents=True),
+                (session_directory(root) / f"{CODEX_SESSION}.json").write_text(
+                    "{not json"
+                ),
+            ),
+            CODEX_ENVIRON,
+            "cannot be read",
+            id="unreadable",
+        ),
+    ],
+)
+def test_rejected_identities_fail_actionably_and_write_no_binding(
+    tmp_path: Path,
+    arrange: Callable[[Path], object],
+    environ: dict[str, str],
+    expected: str,
+) -> None:
+    root = repository(tmp_path / "repo")
+    arrange(root)
+
+    with pytest.raises(RuntimeError, match=re.escape(expected)):
+        start_issue_work(root, "build-observer", lookup=ISOLATED, environ=environ)
+
+    assert WorkStore(root).active()[0] == []
+    with pytest.raises(RuntimeError, match=re.escape(expected)):
+        stop_issue_work(root, lookup=ISOLATED, environ=environ)
+
+
+def test_a_gone_session_record_is_stale_not_an_identity(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+
+    with pytest.raises(RuntimeError, match="process is gone"):
+        start_issue_work(root, "build-observer", lookup=absent(), environ=CODEX_ENVIRON)
+
+    assert WorkStore(root).active()[0] == []
+
+
+def test_coexisting_harness_identities_are_ambiguous_until_named(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+    hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
+    both = {**CODEX_ENVIRON, **CLAUDE_ENVIRON}
+
+    with pytest.raises(RuntimeError, match="more than one live Agent Session"):
+        start_issue_work(root, "build-observer", lookup=ISOLATED, environ=both)
+    assert WorkStore(root).active()[0] == []
+
+    named = {**both, SESSION_OVERRIDE_VARIABLE: f"codex:{CODEX_SESSION}"}
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=named)
+
+    active, _ = WorkStore(root).active()
+    assert [work.harness for work in active] == ["codex"]
+    assert active[0].session_id == CODEX_SESSION
+
+
+def test_coexisting_harnesses_resolve_when_only_one_identity_is_live(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
+    both = {**CODEX_ENVIRON, **CLAUDE_ENVIRON}
+
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=both)
+
+    active, _ = WorkStore(root).active()
+    assert [work.harness for work in active] == ["claude-code"]
+
+
+def test_codex_and_claude_code_sandboxed_runs_on_one_issue_are_independent(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+    hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
+
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON)
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CLAUDE_ENVIRON)
+
+    active, _ = WorkStore(root).active()
+    assert {work.harness for work in active} == {"codex", "claude-code"}
+    assert len({work.session_key for work in active}) == 2
+    assert stop_issue_work(root, lookup=ISOLATED, environ=CODEX_ENVIRON) == [
+        "stopped work on build-observer"
+    ]
+    assert [work.harness for work in WorkStore(root).active()[0]] == ["claude-code"]
+
+
+def test_override_must_name_a_supported_harness(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+
+    with pytest.raises(RuntimeError, match=SESSION_OVERRIDE_VARIABLE):
+        start_issue_work(
+            root,
+            "build-observer",
+            lookup=ISOLATED,
+            environ={SESSION_OVERRIDE_VARIABLE: "cursor:abc"},
+        )
+
+
+def test_claim_without_a_worktree_cannot_be_validated() -> None:
+    with pytest.raises(RuntimeError, match="only be validated at a Worktree"):
+        identify_agent_session(ISOLATED, environ=CODEX_ENVIRON)

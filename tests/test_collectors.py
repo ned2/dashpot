@@ -15,6 +15,7 @@ from unittest import mock
 from typing_extensions import override
 
 from dashpot.agents import (
+    AgentAncestry,
     HookRecordStore,
     ProcessAbsent,
     ProcessIdentity,
@@ -23,7 +24,9 @@ from dashpot.agents import (
     host_process_lookup,
     nearest_codex_process,
     now_iso,
+    observe_agent_ancestry,
     observe_agent_runs,
+    process_namespace_is_isolated,
     publish_hook_event,
     session_directory,
     write_hook_record,
@@ -1601,3 +1604,166 @@ class ObservationCoordinatorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SessionIdentityCorrelationTests(unittest.TestCase):
+    """Work Store runs join hook Agent Sessions by Agent Session Identity."""
+
+    @override
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.state_dir = self.root / "hooks"
+        self.state_dir.mkdir()
+        self.worktree = self.root / "repo"
+        self.worktree.mkdir()
+        self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+
+    @override
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def targets(self) -> dict[str, list[ObservationTarget]]:
+        return {"project:example": [observation_target(str(self.worktree))]}
+
+    def write_hook(
+        self,
+        session_id: str,
+        harness: str = "codex",
+        process: ProcessIdentity | None = None,
+        state: str = "running",
+    ) -> None:
+        write_hook_record(
+            {
+                "version": 2,
+                "sessionId": session_id,
+                "harness": harness,
+                "state": state,
+                "cwd": str(self.worktree),
+                "repositoryRoot": str(self.worktree),
+                "branch": "main",
+                "event": "UserPromptSubmit" if state == "running" else "Stop",
+                "lastActivityAt": "2026-08-24T15:00:00Z",
+                "sessionProcess": process.as_record() if process else None,
+            },
+            self.state_dir,
+        )
+
+    def record_work(
+        self,
+        session_key: str,
+        harness: str = "codex",
+        session_id: str | None = None,
+        process: ProcessIdentity | None = None,
+    ) -> ActiveWork:
+        work = ActiveWork(
+            session_key=session_key,
+            harness=harness,
+            session_label=f"{harness} session {session_id}",
+            session_process=(
+                SessionProcess(process.pid, process.started_at) if process else None
+            ),
+            issue_id="I_example/project#7",
+            issue_reference="example/project#7",
+            binding_provenance="explicit-reference",
+            started_at="2026-08-24T14:00:00Z",
+            working_directory=str(self.worktree),
+            branch="feature",
+            session_id=session_id,
+        )
+        WorkStore(self.worktree).start(work)
+        return work
+
+    def test_run_without_a_process_adopts_hook_state_by_session_identity(
+        self,
+    ) -> None:
+        work = self.record_work("codex-session-abc", session_id="thread-1")
+        self.write_hook("thread-1", process=self.process)
+
+        runs, diagnostics = observe_agent_runs(
+            self.targets(), self.state_dir, lookup=present(self.process)
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual([work.run_id], [run.id for run in runs])
+        self.assertEqual("running", runs[0].state)
+        self.assertEqual("I_example/project#7", runs[0].issue_id)
+        self.assertEqual("2026-08-24T15:00:00Z", runs[0].last_activity_at)
+
+    def test_session_identity_is_scoped_to_its_harness(self) -> None:
+        self.record_work("codex-session-abc", session_id="shared-id")
+        self.write_hook("shared-id", harness="claude-code", process=self.process)
+
+        runs, _ = observe_agent_runs(
+            self.targets(), self.state_dir, lookup=present(self.process)
+        )
+
+        # The Codex run cannot adopt a Claude Code session's state, and the
+        # Claude Code session stays listed as its own unbound session.
+        self.assertEqual(
+            {("codex", "unknown"), ("claude-code", "running")},
+            {(run.harness, run.state) for run in runs},
+        )
+
+    def test_hook_record_without_a_process_is_joined_by_identity_only(
+        self,
+    ) -> None:
+        work = self.record_work("codex-session-abc", session_id="thread-2")
+        self.write_hook("thread-2", process=None, state="waiting")
+
+        runs, diagnostics = observe_agent_runs(
+            self.targets(), self.state_dir, lookup=absent()
+        )
+
+        self.assertEqual([work.run_id], [run.id for run in runs])
+        # Session Liveness is unknown for both records, which is never
+        # evidence that the session ended: the run is listed, not orphaned.
+        self.assertEqual("unknown", runs[0].state)
+        self.assertNotIn(
+            "work-session-orphaned", [diagnostic.code for diagnostic in diagnostics]
+        )
+
+    def test_process_keyed_run_with_identity_prefers_identity_then_process(
+        self,
+    ) -> None:
+        work = self.record_work(
+            "codex-42-abcd1234", session_id="thread-3", process=self.process
+        )
+        self.write_hook("thread-3", process=self.process, state="waiting")
+
+        runs, diagnostics = observe_agent_runs(
+            self.targets(), self.state_dir, lookup=present(self.process)
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual([work.run_id], [run.id for run in runs])
+        self.assertEqual("waiting", runs[0].state)
+
+    def test_isolated_namespace_is_recognized_for_each_sandbox_helper(self) -> None:
+        for init in (
+            b"codex-linux-sandbox\0--sandbox-policy-cwd\0/repo\0",
+            b"bwrap\0--unshare-pid\0sh\0",
+            b"/usr/bin/bwrap\0--ro-bind\0/\0/\0",
+        ):
+            with (
+                self.subTest(init=init),
+                mock.patch("dashpot.agents.Path.read_bytes", return_value=init),
+            ):
+                self.assertTrue(process_namespace_is_isolated())
+        for init in (b"/sbin/init\0splash\0", b"/usr/lib/systemd/systemd\0"):
+            with (
+                self.subTest(init=init),
+                mock.patch("dashpot.agents.Path.read_bytes", return_value=init),
+            ):
+                self.assertFalse(process_namespace_is_isolated())
+
+    def test_ancestry_reports_why_the_walk_stopped_short(self) -> None:
+        with mock.patch("dashpot.agents.os.getppid", return_value=10):
+            isolated = observe_agent_ancestry(unobservable("isolated-namespace"))
+            gone = observe_agent_ancestry(absent())
+            helper = ProcessIdentity(10, 1, "bwrap", "x", "bwrap --unshare-pid sh")
+            sandboxed = observe_agent_ancestry(table_lookup({10: helper}))
+
+        self.assertEqual(AgentAncestry(None, "isolated-namespace"), isolated)
+        self.assertEqual(AgentAncestry(None), gone)
+        self.assertEqual(AgentAncestry(None), sandboxed)

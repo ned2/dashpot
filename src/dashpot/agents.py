@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from .file_locks import locked_path, prune_lock_file
+from .harnesses import ADAPTERS, HARNESS_DISPLAY, SESSION_ID, SessionIdentityClaim
+from .harnesses import is_claude_code_host_process as is_claude_code_host_process
+from .harnesses import is_codex_host_process as is_codex_host_process
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .repository import LockHolder, git, is_within
 from .work_store import WorkStore
 
-SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
 ISSUE_VALUE = re.compile(r"^\S+$")
 EVENT_STATES: dict[str, str] = {
     "SessionStart": "running",
@@ -213,30 +215,28 @@ def nearest_codex_process(
     return nearest_harness_process("codex", lookup)
 
 
-def is_codex_host_process(process: ProcessIdentity) -> bool:
-    name = Path(process.command).name.lower()
-    arguments = (process.arguments or "").lower()
-    if "codex-linux-sandbox" in arguments or "sandbox" in name:
-        return False
-    return name == "codex" or name.startswith("codex-")
-
-
-def is_claude_code_host_process(process: ProcessIdentity) -> bool:
-    return Path(process.command).name.lower() == "claude"
-
-
 HARNESS_HOSTS: dict[str, Callable[[ProcessIdentity], bool]] = {
-    "codex": is_codex_host_process,
-    "claude-code": is_claude_code_host_process,
+    adapter.harness: adapter.is_host_process for adapter in ADAPTERS.values()
 }
 
-HARNESS_DISPLAY = {"codex": "Codex", "claude-code": "Claude Code"}
+
+@dataclass(frozen=True, slots=True)
+class AgentAncestry:
+    """What walking up from this command towards a harness process observed.
+
+    ``located`` is the nearest enclosing supported harness process, if the
+    walk reached one; ``unobservable_reason`` is why the walk stopped short
+    when an ancestor could not be observed, such as ``isolated-namespace``.
+    """
+
+    located: tuple[str, ProcessIdentity] | None
+    unobservable_reason: str | None = None
 
 
-def nearest_agent_process(
+def observe_agent_ancestry(
     lookup: ProcessLookup = host_process_lookup,
-) -> tuple[str, ProcessIdentity] | None:
-    """Find the nearest enclosing supported harness process, if any."""
+) -> AgentAncestry:
+    """Walk this command's ancestry to the nearest supported harness process."""
     pid = os.getppid()
     seen: set[int] = set()
     for _ in range(12):
@@ -244,14 +244,23 @@ def nearest_agent_process(
             break
         seen.add(pid)
         observed = lookup(pid)
+        if isinstance(observed, ProcessUnobservable):
+            return AgentAncestry(None, observed.reason)
         if not isinstance(observed, ProcessPresent):
             break
         info = observed.identity
         for harness, matches in HARNESS_HOSTS.items():
             if matches(info):
-                return harness, info
+                return AgentAncestry((harness, info))
         pid = info.parent_pid
-    return None
+    return AgentAncestry(None)
+
+
+def nearest_agent_process(
+    lookup: ProcessLookup = host_process_lookup,
+) -> tuple[str, ProcessIdentity] | None:
+    """Find the nearest enclosing supported harness process, if any."""
+    return observe_agent_ancestry(lookup).located
 
 
 def nearest_harness_process(
@@ -274,11 +283,46 @@ def nearest_harness_process(
     return None
 
 
+# Sandbox helpers that run a command as PID 2 of a fresh PID namespace: the
+# Codex Linux sandbox and bubblewrap, which Claude Code's Linux sandbox uses.
+# Neither is ever the host harness, and nothing on the host is visible from
+# inside them, so probing a recorded PID there would only ever find PID reuse.
+ISOLATING_INITS = ("codex-linux-sandbox", "bwrap")
+
+
 def process_namespace_is_isolated() -> bool:
+    """Whether this command runs inside a sandbox's isolated PID namespace."""
     try:
-        return b"codex-linux-sandbox" in Path("/proc/1/cmdline").read_bytes()
+        cmdline = Path("/proc/1/cmdline").read_bytes()
     except OSError:
         return False
+    executable = Path(cmdline.split(b"\0", 1)[0].decode(errors="replace")).name
+    return executable in ISOLATING_INITS
+
+
+def process_identity_of(expected: object) -> ProcessIdentity | None:
+    """The full process identity a hook record carries, if it is well-formed."""
+    if not isinstance(expected, dict):
+        return None
+    pid = expected.get("pid")
+    parent_pid = expected.get("parentPid")
+    command = expected.get("command")
+    started_at = expected.get("startedAt")
+    if (
+        not isinstance(pid, int)
+        or not isinstance(parent_pid, int)
+        or not isinstance(command, str)
+        or not isinstance(started_at, str)
+    ):
+        return None
+    arguments = expected.get("arguments")
+    return ProcessIdentity(
+        pid,
+        parent_pid,
+        command,
+        started_at,
+        arguments if isinstance(arguments, str) and arguments else None,
+    )
 
 
 def process_key_of(expected: object) -> ProcessKey | None:
@@ -512,6 +556,18 @@ class HookRecordStore:
                 orphaned.append(session_id)
         return orphaned
 
+    def read(self, session_id: str) -> dict[str, Any] | None:
+        """Read one session's current record, or ``None`` when it has none.
+
+        Raises ``ValueError`` when the record exists but cannot be interpreted.
+        """
+        try:
+            return read_hook_record(self._record_path(session_id))
+        except FileNotFoundError:
+            return None
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(str(exc)) from exc
+
     def _record_path(self, session_id: str) -> Path:
         if not SESSION_ID.fullmatch(session_id):
             raise RuntimeError("hook sessionId contains unsupported characters")
@@ -613,6 +669,7 @@ class HookSessionObservation:
     run: AgentRun
     process_key: ProcessKey | None
     liveness: LivenessObservation
+    session_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -652,6 +709,84 @@ class ObservedActivity:
     turn_started_at: str | None
 
 
+SessionIdentityKey = tuple[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedSessionIdentity:
+    """A claimed Agent Session Identity its harness's hook record confirmed."""
+
+    claim: SessionIdentityClaim
+    record: HookRecordClassification
+    process: ProcessIdentity | None
+
+    @property
+    def harness(self) -> str:
+        return self.claim.harness
+
+    @property
+    def session_id(self) -> str:
+        return self.claim.session_id
+
+
+def validate_session_claim(
+    claim: SessionIdentityClaim,
+    worktree: Path,
+    lookup: ProcessLookup = host_process_lookup,
+) -> ValidatedSessionIdentity:
+    """Confirm a claimed identity against its harness's hook record here.
+
+    Exactly one record for the same harness and Worktree must exist and still
+    describe a session that is live or unknown; a missing, unreadable, ended,
+    gone, cross-harness, or process-mismatched record raises an actionable
+    ``RuntimeError`` so that no Issue Binding is created from the claim.
+    """
+    display = HARNESS_DISPLAY[claim.harness]
+    name = f"{display} session {claim.session_id} (from {claim.source})"
+    store = HookRecordStore(session_directory(worktree))
+    try:
+        raw = store.read(claim.session_id)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"the lifecycle hook record for {name} at {worktree} cannot be "
+            f"read: {exc}; run 'dashpot integrate {claim.harness} --status'"
+        ) from exc
+    if raw is None:
+        raise RuntimeError(
+            f"no lifecycle hook record for {name} at {worktree}; the "
+            f"{display} hooks must be installed and have published this "
+            f"session here (check 'dashpot integrate {claim.harness} --status')"
+        )
+    recorded_harness = optional_string(raw.get("harness")) or "codex"
+    if recorded_harness != claim.harness:
+        recorded = HARNESS_DISPLAY.get(recorded_harness, recorded_harness)
+        raise RuntimeError(
+            f"{name} names a hook record published by {recorded}; the "
+            f"identities of two harnesses cannot be combined"
+        )
+    try:
+        record = classify_hook_record(raw, _LivenessProbe(lookup))
+    except ValueError as exc:
+        raise RuntimeError(
+            f"the lifecycle hook record for {name} at {worktree} cannot be "
+            f"interpreted: {exc}; run 'dashpot integrate {claim.harness} --status'"
+        ) from exc
+    if record.outcome in {"ended", "gone"}:
+        how = "ended" if record.outcome == "ended" else "whose process is gone"
+        raise RuntimeError(
+            f"the lifecycle hook record for {name} at {worktree} is stale "
+            f"({how}); it identifies no running session"
+        )
+    process = process_identity_of(raw.get("sessionProcess"))
+    if claim.pid is not None and process is not None and process.pid != claim.pid:
+        raise RuntimeError(
+            f"{name} attributes the harness to pid {claim.pid}, but its hook "
+            f"record was published for pid {process.pid}; the identities do "
+            f"not describe one session"
+        )
+    return ValidatedSessionIdentity(claim, record, process)
+
+
 def observe_agent_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     directory: Path | None = None,
@@ -666,38 +801,64 @@ def observe_agent_runs(
     """
     probe = _LivenessProbe(lookup)
     sessions, diagnostics = observe_hook_sessions(targets_by_project, directory, probe)
-    state_by_process: dict[ProcessKey, ObservedActivity] = {
-        session.process_key: ObservedActivity(
+    activity = ObservedActivityIndex(sessions)
+    work_runs, work_diagnostics = observe_work_runs(targets_by_project, probe, activity)
+    diagnostics.extend(work_diagnostics)
+    runs = list(work_runs)
+    runs.extend(session.run for session in sessions if not activity.consumed(session))
+    return runs, diagnostics
+
+
+class ObservedActivityIndex:
+    """Join Work Store runs to hook Agent Sessions by either identity.
+
+    A run correlates by the harness's Agent Session Identity when the record
+    carries one, else by host process identity; a hook session joined to a
+    run is consumed so the pane lists the session once.
+    """
+
+    def __init__(self, sessions: Sequence[HookSessionObservation]) -> None:
+        self._by_session: dict[SessionIdentityKey, HookSessionObservation] = {}
+        self._by_process: dict[ProcessKey, HookSessionObservation] = {}
+        for session in sessions:
+            self._by_session[session.run.harness, session.session_id] = session
+            if session.process_key is not None:
+                self._by_process[session.process_key] = session
+        self._consumed: set[SessionIdentityKey] = set()
+
+    def adopt(
+        self,
+        harness: str,
+        session_id: str | None,
+        process_key: ProcessKey | None,
+    ) -> ObservedActivity | None:
+        session = None
+        if session_id is not None:
+            session = self._by_session.get((harness, session_id))
+        if session is None and process_key is not None:
+            session = self._by_process.get(process_key)
+        if session is None:
+            return None
+        self._consumed.add((session.run.harness, session.session_id))
+        return ObservedActivity(
             session.run.state,
             session.run.last_activity_at,
             session.run.turn_started_at,
         )
-        for session in sessions
-        if session.process_key is not None
-    }
-    work_runs, consumed, work_diagnostics = observe_work_runs(
-        targets_by_project, probe, state_by_process
-    )
-    diagnostics.extend(work_diagnostics)
-    runs = list(work_runs)
-    runs.extend(
-        session.run
-        for session in sessions
-        if session.process_key is None or session.process_key not in consumed
-    )
-    return runs, diagnostics
+
+    def consumed(self, session: HookSessionObservation) -> bool:
+        return (session.run.harness, session.session_id) in self._consumed
 
 
 def observe_work_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     probe: _LivenessProbe,
-    state_by_process: Mapping[ProcessKey, ObservedActivity],
-) -> tuple[list[AgentRun], set[ProcessKey], list[Diagnostic]]:
+    activity: ObservedActivityIndex,
+) -> tuple[list[AgentRun], list[Diagnostic]]:
     """Turn each Worktree's active Work Store records into bound Agent Runs."""
     runs: list[AgentRun] = []
-    consumed: set[ProcessKey] = set()
     diagnostics: list[Diagnostic] = []
-    sessions_seen: dict[ProcessKey, str] = {}
+    sessions_seen: set[tuple[str, ...]] = set()
     for project_id, targets in sorted(targets_by_project.items()):
         for target in targets:
             if target.availability != "available":
@@ -733,7 +894,13 @@ def observe_work_runs(
                             )
                         )
                         continue
-                    if process_key in sessions_seen:
+                identity: tuple[str, ...] | None = None
+                if process_key is not None:
+                    identity = ("process", str(process_key[0]), process_key[1])
+                elif work.session_id is not None:
+                    identity = ("session", work.harness, work.session_id)
+                if identity is not None:
+                    if identity in sessions_seen:
                         diagnostics.append(
                             Diagnostic(
                                 work.run_id,
@@ -744,18 +911,12 @@ def observe_work_runs(
                                 "work-session-conflict",
                             )
                         )
-                    sessions_seen[process_key] = work.run_id
-                observed = (
-                    state_by_process.get(process_key)
-                    if process_key is not None
-                    else None
-                )
+                    sessions_seen.add(identity)
+                observed = activity.adopt(work.harness, work.session_id, process_key)
                 if observed is None:
                     # No hook has ever reported this run; the Work Store knows
                     # when the work began and nothing about what it has done.
                     observed = ObservedActivity("unknown", None, None)
-                if process_key is not None:
-                    consumed.add(process_key)
                 runs.append(
                     AgentRun(
                         id=work.run_id,
@@ -773,7 +934,7 @@ def observe_work_runs(
                         started_at=work.started_at,
                     )
                 )
-    return runs, consumed, diagnostics
+    return runs, diagnostics
 
 
 def observe_hook_sessions(
@@ -962,6 +1123,7 @@ def record_to_session(
             LivenessObservation(
                 "live" if record.outcome == "live" else "unknown", record.reason
             ),
+            record.session_id,
         ),
         diagnostics,
     )

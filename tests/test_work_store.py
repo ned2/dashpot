@@ -161,3 +161,49 @@ def test_orphaned_lock_files_are_reclaimed_and_live_ones_kept(tmp_path: Path) ->
     assert not (store.directory / ".codex-9-zz.lock").exists()
     assert (store.directory / ".codex-1-aa.lock").exists()
     assert (store.directory / ".not a key.lock").exists()
+
+
+def test_session_identity_round_trips_and_legacy_records_carry_none(
+    tmp_path: Path,
+) -> None:
+    store = WorkStore(tmp_path)
+    recorded = ActiveWork(
+        session_key="codex-session-0123abcd4567",
+        harness="codex",
+        session_label="codex session 01a05099",
+        session_process=None,
+        issue_id="I_one",
+        issue_reference="example/project#7",
+        binding_provenance="explicit-reference",
+        started_at="2026-08-28T01:00:00Z",
+        working_directory="/repo",
+        branch="main",
+        session_id="01a05099",
+    )
+    store.start(recorded)
+    store.start(work())
+    path = store.directory / "codex-42-abcd1234.json"
+    document = json.loads(path.read_text())
+    del document["sessionId"]
+    path.write_text(json.dumps(document))
+
+    active, diagnostics = store.active()
+
+    assert diagnostics == []
+    by_key = {item.session_key: item for item in active}
+    assert by_key["codex-session-0123abcd4567"] == recorded
+    assert by_key["codex-42-abcd1234"].session_id is None
+
+
+def test_malformed_session_identity_is_diagnosed(tmp_path: Path) -> None:
+    store = WorkStore(tmp_path)
+    store.start(work())
+    path = store.directory / "codex-42-abcd1234.json"
+    document = json.loads(path.read_text())
+    document["sessionId"] = "not valid!"
+    path.write_text(json.dumps(document))
+
+    active, diagnostics = store.active()
+
+    assert active == []
+    assert [diagnostic.code for diagnostic in diagnostics] == ["work-store-malformed"]

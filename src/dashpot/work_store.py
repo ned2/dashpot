@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .file_locks import locked_path, prune_lock_file
+from .harnesses import SESSION_ID
 from .model import Diagnostic
 
 WORK_STORE_VERSION = 1
@@ -42,6 +43,10 @@ class ActiveWork:
     started_at: str
     working_directory: str
     branch: str | None
+    # The harness's own Agent Session Identity, as its lifecycle hooks publish
+    # it, when opt-in could confirm one; records written before it was
+    # recorded, or without a hook record to confirm it, carry ``None``.
+    session_id: str | None = None
 
     @property
     def run_id(self) -> str:
@@ -70,6 +75,7 @@ class WorkStore:
             "startedAt": work.started_at,
             "workingDirectory": work.working_directory,
             "branch": work.branch,
+            "sessionId": work.session_id,
         }
         with self._locked(work.session_key):
             self._replace(destination, record, work.session_key)
@@ -167,6 +173,11 @@ class WorkStore:
             ):
                 raise ValueError("sessionProcess needs pid and startedAt")
             session_process = SessionProcess(process["pid"], process["startedAt"])
+        session_id = raw.get("sessionId")
+        if session_id is not None and (
+            not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id)
+        ):
+            raise ValueError("sessionId must be a hook session identity or null")
         return ActiveWork(
             session_key=session_key,
             harness=harness,
@@ -178,6 +189,7 @@ class WorkStore:
             started_at=started_at,
             working_directory=working_directory,
             branch=branch,
+            session_id=session_id,
         )
 
     def _lock_path(self, session_key: str) -> Path:

@@ -479,3 +479,81 @@ def test_each_harness_removal_only_touches_its_own_file(tmp_path: Path) -> None:
 def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="unsupported harness"):
         install_integration("cursor", tmp_path)
+
+
+def test_status_reports_the_identity_a_sandboxed_command_would_claim(
+    tmp_path: Path,
+) -> None:
+    import subprocess
+
+    from dashpot.agents import session_directory
+    from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
+
+    home = codex_home(tmp_path)
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / ".dashpot").mkdir()
+    (root / ".dashpot" / "config.json").write_text("{}")
+    state = tmp_path / "state"
+
+    none = codex_integration_status(
+        home, state_dir=state, current=root, lookup=present(CODEX), environ={}
+    )
+    assert any(
+        "Agent Session identity claimed here: none for Codex" in message
+        and SESSION_OVERRIDE_VARIABLE in message
+        for message in none
+    )
+
+    claimed = {"CODEX_THREAD_ID": "thread-9"}
+    missing = codex_integration_status(
+        home, state_dir=state, current=root, lookup=present(CODEX), environ=claimed
+    )
+    assert any(
+        "Codex session thread-9 (from Codex environment), rejected: no "
+        "lifecycle hook record" in message
+        for message in missing
+    )
+
+    write_hook_record(
+        {**session_record("thread-9", "running"), "repositoryRoot": str(root)},
+        session_directory(root),
+    )
+    confirmed = codex_integration_status(
+        home, state_dir=state, current=root, lookup=present(CODEX), environ=claimed
+    )
+    assert any(
+        "Codex session thread-9 (from Codex environment), confirmed by its "
+        "live hook record" in message
+        for message in confirmed
+    )
+
+    explicit = codex_integration_status(
+        home,
+        state_dir=state,
+        current=root,
+        lookup=present(CODEX),
+        environ={SESSION_OVERRIDE_VARIABLE: "codex:thread-9"},
+    )
+    assert any(
+        f"thread-9 (from {SESSION_OVERRIDE_VARIABLE}), confirmed" in message
+        for message in explicit
+    )
+
+
+def test_status_of_the_other_harness_does_not_borrow_a_claim(tmp_path: Path) -> None:
+    from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
+
+    home = tmp_path / ".claude"
+    home.mkdir()
+
+    messages = integration_status(
+        "claude-code",
+        home,
+        state_dir=tmp_path / "state",
+        current=tmp_path,
+        environ={SESSION_OVERRIDE_VARIABLE: "codex:thread-9", "CODEX_THREAD_ID": "x"},
+    )
+
+    assert any("none for Claude Code" in message for message in messages)

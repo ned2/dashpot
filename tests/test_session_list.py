@@ -463,3 +463,84 @@ def test_activity_says_which_age_it_is_showing() -> None:
 
     blind = session("work:blind", state="unknown", last_activity_at=None)
     assert cell(blind) == "-"
+
+
+def test_sandboxed_bindings_of_both_harnesses_reach_the_sessions_and_issues_read_models() -> (
+    None
+):
+    """A Work Store record joined by Agent Session Identity binds the Issue."""
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        hooks = root / "hooks"
+        hooks.mkdir()
+        worktree = root / "repo"
+        worktree.mkdir()
+        codex = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+        claude = ProcessIdentity(43, 1, "claude", "Tue Aug 25 01:30:00 2026")
+        for harness, session_id, process, state in (
+            ("codex", "codex-thread", codex, "running"),
+            ("claude-code", "claude-session", claude, "waiting"),
+        ):
+            # Opt-in from an isolated sandbox records the identity the hook
+            # published, without a process of its own to observe.
+            WorkStore(worktree).start(
+                ActiveWork(
+                    session_key=f"{harness}-session-{session_id}",
+                    harness=harness,
+                    session_label=f"{harness} session {session_id}",
+                    session_process=None,
+                    issue_id="I_alpha#7",
+                    issue_reference="alpha#7",
+                    binding_provenance="explicit-reference",
+                    started_at="2026-08-24T14:00:00Z",
+                    working_directory=str(worktree),
+                    branch="feature",
+                    session_id=session_id,
+                )
+            )
+            write_hook_record(
+                {
+                    "version": 2,
+                    "sessionId": session_id,
+                    "harness": harness,
+                    "state": state,
+                    "cwd": str(worktree),
+                    "repositoryRoot": str(worktree),
+                    "branch": "feature",
+                    "event": "UserPromptSubmit" if state == "running" else "Stop",
+                    "lastActivityAt": "2026-08-27T03:00:00Z",
+                    "sessionProcess": process.as_record(),
+                },
+                hooks,
+            )
+        targets = {"project:alpha": [target(str(worktree), "feature")]}
+        runs, diagnostics = observe_agent_runs(
+            targets,
+            hooks,
+            lookup=lambda pid: present(codex if pid == 42 else claude)(pid),
+        )
+        alpha = project(
+            "project:alpha",
+            issue("I_alpha#7", 7, "Alpha work"),
+            targets=targets["project:alpha"],
+        )
+        store = WorkspaceObservationStore(workspace(alpha))
+        store.replace_agent_runs(
+            runs, {"I_alpha#7": [run.id for run in runs]}, diagnostics
+        )
+
+        sessions = store.query_sessions()
+        issues = store.query_issues()
+
+        assert diagnostics == []
+        assert sessions.count == 2
+        by_harness = {row.session.harness: row for row in sessions.rows}
+        assert by_harness["codex"].session.state == "running"
+        assert by_harness["claude-code"].session.state == "waiting"
+        for row in sessions.rows:
+            assert required(row.issue)["number"] == 7
+            assert session_cells(row, dark=True, now=CURRENT, home=root)[4] == (
+                "#7 Alpha work"
+            )
+        assert len(issues.rows) == 1
+        assert sorted(issues.rows[0].session_states) == ["running", "waiting"]

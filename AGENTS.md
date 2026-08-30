@@ -49,6 +49,12 @@ Local Issue slug. `stop` takes no argument. Check what is recorded with
   session is observed.
 - Run it **via `uv run`**: the `dashpot` console script lives in that
   checkout's `.venv`.
+- It works from a sandboxed shell too: when the harness process cannot be
+  seen, the session is identified by the Agent Session Identity its hooks
+  published (see [Issue work opt-in](README.md#issue-work-opt-in)). If it is
+  refused, run `uv run dashpot integrate <harness> --status` and read the
+  `Agent Session identity claimed here` line; do not write a Work Store
+  record by hand.
 
 ## Vocabulary
 
