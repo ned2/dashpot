@@ -91,6 +91,49 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
     assert any("already installed" in message for message in messages)
 
 
+def test_a_publisher_path_containing_spaces_is_recognised(tmp_path: Path) -> None:
+    # Ordinary on macOS: the publisher lives under a home directory with a
+    # space, and the installer writes that path unquoted.
+    home = codex_home(tmp_path)
+    command = publisher(tmp_path / "My User")
+    assert " " in str(command)
+    install_codex_integration(home, command_path=command)
+    before = (home / "hooks.json").read_text()
+
+    messages = install_codex_integration(home, command_path=command)
+
+    assert (home / "hooks.json").read_text() == before
+    assert any("already installed" in message for message in messages)
+    stop_groups = read_hooks(home)["hooks"]["Stop"]
+    assert [
+        handler["command"] for group in stop_groups for handler in group["hooks"]
+    ] == [str(command)]
+    status = "\n".join(codex_integration_status(home, current=tmp_path))
+    assert f"installed in {home / 'hooks.json'}" in status
+    remove_codex_integration(home)
+    assert not (home / "hooks.json").exists()
+
+
+def test_a_command_line_with_arguments_is_recognised_by_its_executable(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    handler = {
+        "type": "command",
+        "command": "/old/env/bin/dashpot-codex-hook --verbose",
+        "timeout": 3,
+    }
+    (home / "hooks.json").write_text(
+        json.dumps({"hooks": {"Stop": [{"hooks": [handler]}]}})
+    )
+
+    install_codex_integration(home, command_path=publisher(tmp_path))
+
+    stop_groups = read_hooks(home)["hooks"]["Stop"]
+    assert len(stop_groups) == 1
+    assert len(stop_groups[0]["hooks"]) == 1
+
+
 def test_install_preserves_foreign_hooks_and_unknown_keys(
     tmp_path: Path,
 ) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import sysconfig
 import tempfile
@@ -452,8 +453,17 @@ def _is_dashpot_handler(handler: object) -> bool:
         command = command[0]
     if not isinstance(command, str):
         return False
-    executable = command.split()[0] if command.split() else command
-    return Path(executable).name in HOOK_COMMAND_NAMES
+    # The installer writes the publisher path as one unquoted string, so a
+    # path containing spaces must match whole before it is read as a shell
+    # command line whose first word is the executable.
+    candidates = [command]
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    if words:
+        candidates.append(words[0])
+    return any(Path(candidate).name in HOOK_COMMAND_NAMES for candidate in candidates)
 
 
 def _installed_commands(document: dict[str, Any]) -> dict[str, list[str]]:
