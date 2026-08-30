@@ -615,10 +615,12 @@ class DashpotApp(App[None]):
         # Publishing happens here, on the UI thread, so the store is never
         # mutated while a read model is being rendered from it.
         changes = self.scheduler.publish(self.store)
+        # An accepted observation ends the cold load even when an earlier
+        # publish already carried its change; the spinner must not outlive it.
+        self.queue_table().loading = False
         if not changes:
             self.update_diagnostics()
             return
-        self.queue_table().loading = False
         self.update_issue_inventory(self.reconcile_rows())
         self.reconcile_list_panes()
         self.update_diagnostics()
