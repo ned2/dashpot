@@ -1,17 +1,18 @@
-"""Run the complete local quality gate.
+"""Run the local quality gates.
 
 Direct runs check the current working tree. Under the pre-push hook, the
 `PRE_COMMIT_TO_REF` environment variable names the exact revision being pushed,
-and that revision is checked in a temporary detached worktree instead, so what
-CI will see is what gets verified.
+and that revision is checked in a temporary detached worktree instead. The
+pre-push hook skips tests because CI runs them across the supported matrix.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -41,7 +42,7 @@ def is_null_ref(revision: str) -> bool:
     return bool(revision) and set(revision) == {"0"}
 
 
-def run_pushed_revision(revision: str) -> None:
+def run_pushed_revision(revision: str, *, include_tests: bool = True) -> None:
     """Run the pushed revision's own quality gate in a detached worktree."""
     if is_null_ref(revision):
         print("Skipping quality gates for a deleted ref.")
@@ -65,9 +66,12 @@ def run_pushed_revision(revision: str) -> None:
                 for name, value in os.environ.items()
                 if name != PRE_COMMIT_TO_REF and not name.startswith("GIT_")
             }
+            quality_command = uv_run("python", "scripts/check_quality.py")
+            if not include_tests:
+                quality_command.append("--skip-tests")
             run_gate(
                 "Quality gates for pushed revision",
-                uv_run("python", "scripts/check_quality.py"),
+                quality_command,
                 cwd=checkout,
                 env=child_environment,
             )
@@ -79,13 +83,14 @@ def run_pushed_revision(revision: str) -> None:
                 )
 
 
-def run_quality_gates() -> None:
-    """Run every local gate against locked dependencies and temporary artifacts."""
+def run_quality_gates(*, include_tests: bool = True) -> None:
+    """Run selected local gates with locked dependencies and temporary artifacts."""
     run_gate("Lockfile", ["uv", "lock", "--check"])
     run_gate("Ruff lint", uv_run("ruff", "check", "."))
     run_gate("Ruff format", uv_run("ruff", "format", "--check", "."))
     run_gate("Type checking", uv_run("ty", "check"))
-    run_gate("Tests", uv_run("pytest", "-q"))
+    if include_tests:
+        run_gate("Tests", uv_run("pytest", "-q"))
 
     with TemporaryDirectory(prefix="dashpot-quality-") as temporary_directory:
         distributions = Path(temporary_directory) / "dist"
@@ -101,14 +106,27 @@ def run_quality_gates() -> None:
             raise RuntimeError("Expected exactly one wheel and one source distribution")
 
 
-def main() -> int:
+def parse_include_tests(arguments: Sequence[str] | None = None) -> bool:
+    """Return whether the requested quality gate includes tests."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--skip-tests",
+        action="store_true",
+        help="skip pytest because CI runs the supported test matrix",
+    )
+    options = parser.parse_args(arguments)
+    return not bool(options.skip_tests)
+
+
+def main(arguments: Sequence[str] | None = None) -> int:
     """Run the current tree directly, or the exact revision from pre-push."""
+    include_tests = parse_include_tests(arguments)
     pushed_revision = os.environ.get(PRE_COMMIT_TO_REF)
     try:
         if pushed_revision:
-            run_pushed_revision(pushed_revision)
+            run_pushed_revision(pushed_revision, include_tests=include_tests)
         else:
-            run_quality_gates()
+            run_quality_gates(include_tests=include_tests)
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"\nQuality gate failed: {error}", file=sys.stderr)
         return 1

@@ -1,7 +1,7 @@
 # Shared quality gate. `uv run pre-commit install` enables both the fast commit
-# hooks and the full pre-push gate; `uv run pre-commit run --all-files` runs the
-# commit hooks over every tracked file; `uv run pre-commit autoupdate --freeze`
-# refreshes the pinned revisions (see README.md).
+# hooks and the pre-push gate; `uv run pre-commit run --all-files` runs the commit
+# hooks over every tracked file; `uv run pre-commit autoupdate --freeze` refreshes
+# the pinned revisions (see README.md).
 #
 # Hook order matters: Ruff's lint fixes run before `ruff-format` so formatting
 # has the last word on layout, and ty runs after both so it checks the code as
@@ -50,8 +50,8 @@ repos:
   - repo: local
     hooks:
       - id: full-quality-gate
-        name: full local quality gate
-        entry: uv run --locked python scripts/check_quality.py
+        name: pushed revision quality gate (tests run in CI)
+        entry: uv run --locked python scripts/check_quality.py --skip-tests
         language: system
         always_run: true
         pass_filenames: false

@@ -387,10 +387,11 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   fixes, then `ruff-format`, then [ty](https://docs.astral.sh/ty/) static type
   checking. Ruff's rule selection and ty's rule levels live in
   [`pyproject.toml`](pyproject.toml).
-- **On push**: the full local gate in
+- **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
-  lockfile, Ruff lint and formatting, ty, the test suite, and the distribution
-  build for the exact revision being pushed, in a temporary detached worktree.
+  lockfile, Ruff lint and formatting, ty, and the distribution build for the
+  exact revision being pushed, in a temporary detached worktree. The test suite
+  runs in CI across every supported operating-system and Python-version pair.
 
 Run the commit hooks across every tracked file:
 
@@ -398,7 +399,7 @@ Run the commit hooks across every tracked file:
 uv run pre-commit run --all-files
 ```
 
-Run the full gate directly against the working tree:
+Run the full gate, including the test suite, directly against the working tree:
 
 ```bash
 uv run python scripts/check_quality.py
@@ -883,7 +884,7 @@ it:
 2. Commit with the commit hooks installed. A commit message line `Closes #N`
    is what closes the Issue on GitHub once the commit reaches `main`.
 3. Fast-forward `main` onto the branch and `git push origin main`. The
-   pre-push hook runs the full gate in
+   pre-push hook runs the pushed-revision gate in
    [`scripts/check_quality.py`](scripts/check_quality.py) against the pushed
    revision in a detached worktree, so a red gate stops the push.
 4. Watch CI to completion with `gh run watch <id> --exit-status`; the change
