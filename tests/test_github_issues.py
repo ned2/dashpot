@@ -535,6 +535,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             ),
             (RuntimeError("command timed out after 20s: gh"), "github-timeout"),
             (RuntimeError("command not found: gh"), "github-cli-unavailable"),
+            (OSError("[Errno 24] Too many open files"), "github-request"),
         ]
         for result, expected_code in cases:
             with self.subTest(code=expected_code):

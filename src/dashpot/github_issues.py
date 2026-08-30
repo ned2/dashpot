@@ -238,7 +238,10 @@ class GitHubIssuesSource(IssueSource):
             args.extend(["-f", f"{key}={value}"])
         try:
             result = self.runner(args, self.root, self.timeout)
-        except RuntimeError as exc:
+        except (OSError, RuntimeError) as exc:
+            # The runner maps a missing gh and a timeout to RuntimeError; any
+            # other failure to run it (a permission error, an exhausted
+            # process table) is the same refusal to reach GitHub.
             raise IssueSourceRefreshError(
                 _classify_github_error(str(exc)), str(exc)
             ) from exc
