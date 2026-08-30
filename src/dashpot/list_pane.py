@@ -94,7 +94,7 @@ class ListPane(Vertical):
 
     @override
     def compose(self) -> ComposeResult:
-        yield DataTable(id=self.table_id, cursor_type="row", zebra_stripes=True)
+        yield DataTable(id=self.table_id, cursor_type="row", zebra_stripes=False)
         yield Static(self.empty_message, classes="list-pane-empty", markup=False)
 
     def on_mount(self) -> None:

@@ -41,12 +41,6 @@ Screen {
     background: $background;
 }
 
-#sessions > .datatable--even-row,
-#worktrees > .datatable--even-row,
-#branches > .datatable--even-row {
-    background: $foreground 8%;
-}
-
 .list-pane-empty {
     height: 1;
     padding: 0 1;
@@ -96,15 +90,7 @@ Screen {
 
 #queue {
     height: 1fr;
-    /* The table sits on the pane canvas, so the space below the last row is
-       never mistaken for a stripe. Odd rows deliberately stay unset and
-       inherit that canvas; even rows are the single highlight stripe, tinted
-       from the foreground so it reads in both light and dark themes. */
     background: $background;
-}
-
-#queue > .datatable--even-row {
-    background: $foreground 8%;
 }
 
 DetailRow {
@@ -238,6 +224,13 @@ IssueColumnEditor {
 
 #column-editor-list {
     height: 12;
+}
+
+#column-editor-list > .selection-list--button,
+#column-editor-list > .selection-list--button-selected,
+#column-editor-list > .selection-list--button-highlighted,
+#column-editor-list > .selection-list--button-selected-highlighted {
+    color: $text;
 }
 
 #column-editor-error {

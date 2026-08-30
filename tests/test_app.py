@@ -254,6 +254,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "agent_state",
             "number",
             "title",
+            "labels",
             "last_action",
         )
         assert (SortTerm("last_action", descending=True),) == DEFAULT_SORT
@@ -262,8 +263,13 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "◈",
             "# ↕",
             "TITLE",
+            "LABELS ↕",
             "LAST ACTION ↓",
         ]
+        number_key = next(key for key in table.columns if key.value == "number")
+        number_header = table.columns[number_key].label
+        assert isinstance(number_header, Text)
+        assert number_header.justify == "right"
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert selected_title(app) == "#1: First"
         # The Header names the observed Project by its Repository Anchor,
@@ -433,26 +439,18 @@ def state_chip_background(view: DOMNode) -> str:
 
 
 @pytest.mark.asyncio
-async def test_table_stripes_never_match_the_empty_area_below_the_rows() -> None:
+async def test_main_screen_tables_do_not_use_zebra_stripes() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
-    async with app.run_test(size=(80, 24)) as pilot:
+    async with app.run_test(size=(80, 24)):
         await wait_until(lambda: app.store.revision == 1)
-        table = app.query_one("#queue", DataTable)
-        pane = app.query_one("#queue-pane")
+        tables = tuple(
+            app.query_one(f"#{table_id}", DataTable)
+            for table_id in ("queue", "sessions", "worktrees", "branches")
+        )
 
-        for theme in ("textual-dark", "textual-light"):
-            app.theme = theme
-            await pilot.pause()
-            canvas = pane.background_colors[1]
-            odd = table.get_component_styles("datatable--odd-row").background
-            even = table.get_component_styles("datatable--even-row").background
-            # Un-striped rows are the pane canvas, exactly like the area below
-            # the last row; only the highlight stripe differs from it.
-            assert table.styles.background == canvas
-            assert odd.a == 0
-            assert 0 < even.a < 1
+        assert all(not table.zebra_stripes for table in tables)
 
 
 @pytest.mark.asyncio
@@ -873,6 +871,13 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         editor = app.screen
         assert isinstance(editor, IssueColumnEditor)
         selections = editor.query_one("#column-editor-list")
+        selected_line = selections.render_line(editor.column_order.index("title"))
+        unselected_line = selections.render_line(editor.column_order.index("priority"))
+        assert selected_line.text.startswith("▐X▌")
+        assert unselected_line.text.startswith("▐ ▌")
+        assert (
+            list(selected_line)[1].style.color == list(unselected_line)[1].style.color
+        )
         selections.select("priority")
         selections.highlighted = editor.column_order.index("last_action")
         assert await pilot.click("#column-up")
@@ -884,8 +889,9 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "issue_state",
             "agent_state",
             "number",
-            "last_action",
             "title",
+            "last_action",
+            "labels",
             "priority",
         )
         assert [key.value for key in table.columns] == list(app.issue_view.columns)
@@ -1538,7 +1544,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 5
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 6
     number_cell = cells[selected_key][DEFAULT_COLUMNS.index("number")]
     assert str(number_cell) == "1"
     assert isinstance(number_cell, IssueNumberCell)

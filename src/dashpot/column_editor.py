@@ -2,14 +2,37 @@ from __future__ import annotations
 
 from typing import ClassVar, cast
 
+from rich.segment import Segment
 from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
+from textual.strip import Strip
 from textual.widgets import Button, SelectionList, Static
 from typing_extensions import override
 
 from .issue_table import COLUMN_KEYS, COLUMNS_BY_KEY, ColumnKey
+
+
+class ColumnSelectionList(SelectionList[ColumnKey]):
+    """Show an X only for a selected Issue-table column."""
+
+    @override
+    def render_line(self, y: int) -> Strip:
+        line = super().render_line(y)
+        selection_index = self.scroll_offset.y + y
+        if selection_index >= self.option_count:
+            return line
+        selection = self.get_option_at_index(selection_index)
+        if selection.value in self.selected:
+            return line
+        # Textual always draws an X and distinguishes selection by colour;
+        # replacing its inner segment makes the boolean state readable in
+        # monochrome and independently of the active theme.
+        segments = list(line)
+        inner = segments[1]
+        segments[1] = Segment(" ", inner.style, inner.control)
+        return Strip(segments, line.cell_length)
 
 
 class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
@@ -37,7 +60,7 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
                 "Select visible columns; move the highlighted column to reorder it.",
                 id="column-editor-help",
             )
-            yield SelectionList[ColumnKey](
+            yield ColumnSelectionList(
                 *self.selection_options(self.initially_visible),
                 id="column-editor-list",
             )

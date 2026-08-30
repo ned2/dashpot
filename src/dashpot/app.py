@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from functools import partial
 from typing import Any, ClassVar, Literal, cast
 
-from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
@@ -57,7 +56,7 @@ from .issue_table import (
     TableCell,
     build_rows,
     cells_match,
-    column_label,
+    column_header,
     column_specs,
     issue_state_colors,
     searchable_columns,
@@ -254,7 +253,7 @@ class DashpotApp(App[None]):
                         id="issue-search",
                     )
                     yield Static(issue_result_count_text(0), id="issue-count")
-                yield SpreadTable(id="queue", cursor_type="row", zebra_stripes=True)
+                yield SpreadTable(id="queue", cursor_type="row", zebra_stripes=False)
         yield Static("", id="alert")
         yield Static("", id="diagnostics")
         yield Footer()
@@ -346,7 +345,7 @@ class DashpotApp(App[None]):
     def add_table_columns(self, table: SpreadTable[TableCell]) -> None:
         for column in column_specs(self.issue_view.columns):
             table.add_column(
-                column_label(column, self.issue_view.sort),
+                column_header(column, self.issue_view.sort),
                 key=column.key,
                 spread_weight=column.spread_weight,
             )
@@ -461,9 +460,7 @@ class DashpotApp(App[None]):
             str(key.value): column for key, column in table.columns.items()
         }
         for spec in column_specs(self.issue_view.columns):
-            columns_by_name[spec.key].label = Text(
-                column_label(spec, self.issue_view.sort)
-            )
+            columns_by_name[spec.key].label = column_header(spec, self.issue_view.sort)
         table.refresh()
 
     def sort_rows(self, table: DataTable[TableCell]) -> None:

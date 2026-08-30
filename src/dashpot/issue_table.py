@@ -187,6 +187,7 @@ class ColumnSpec:
     label: str
     sortable: bool = True
     update_width: bool = False
+    header_justify: Literal["left", "center", "right", "full"] | None = None
     # Share of the table's spare width: ``None`` follows the content width,
     # ``0`` keeps the column at its content, as for a one-glyph icon.
     spread_weight: int | None = None
@@ -201,6 +202,7 @@ COLUMN_SPECS = (
     ColumnSpec(
         "number",
         "#",
+        header_justify="right",
         search_field=IssueSearchField.NUMBER,
     ),
     ColumnSpec(
@@ -261,7 +263,6 @@ DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
     for key in COLUMN_KEYS
     if key
     not in {
-        "labels",
         "project",
         "priority",
         "assignees",
@@ -414,6 +415,11 @@ def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
     term = next((term for term in sort if term.column == column.key), None)
     marker = "↕" if term is None else ("↓" if term.descending else "↑")
     return f"{column.label} {marker}"
+
+
+def column_header(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> Text:
+    """Align a column heading with the values it describes."""
+    return Text(column_label(column, sort), justify=column.header_justify)
 
 
 def build_rows(
