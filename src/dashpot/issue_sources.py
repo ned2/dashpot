@@ -63,24 +63,14 @@ class IssueSource:
             label_colors = self._collect_label_colors()
             issue_activity = self._collect_issue_activity()
         except IssueSourceRefreshError as exc:
-            severity: DiagnosticSeverity = (
-                "warning" if self._last_good is not None else "error"
-            )
-            return IssueSourceObservation(
-                status="stale" if self._last_good is not None else "unavailable",
-                attempted_at=attempted_at,
-                last_good_at=self._last_good_at,
-                issues=copy.deepcopy(self._last_good or []),
-                label_colors=dict(self._last_good_label_colors),
-                issue_activity=copy.deepcopy(self._last_good_issue_activity),
-                diagnostics=[
-                    IssueSourceDiagnostic(
-                        source=self.name,
-                        code=exc.code,
-                        severity=severity,
-                        message=str(exc),
-                    )
-                ],
+            return self._failed(attempted_at, exc.code, str(exc))
+        except Exception as exc:
+            # An adapter fault the source did not foresee (an unexpected
+            # response shape, an OSError from its command) is still a failed
+            # refresh: the last good collection is retained and the fault is
+            # reported as a diagnostic rather than raised into the observer.
+            return self._failed(
+                attempted_at, f"{self.name}-internal", f"{type(exc).__name__}: {exc}"
             )
 
         self._last_good = copy.deepcopy(issues)
@@ -95,6 +85,27 @@ class IssueSource:
             diagnostics=[],
             label_colors=label_colors,
             issue_activity=issue_activity,
+        )
+
+    def _failed(
+        self, attempted_at: str, code: str, message: str
+    ) -> IssueSourceObservation:
+        """The observation of a failed refresh: last good values, one diagnostic."""
+        severity: DiagnosticSeverity = (
+            "warning" if self._last_good is not None else "error"
+        )
+        return IssueSourceObservation(
+            status="stale" if self._last_good is not None else "unavailable",
+            attempted_at=attempted_at,
+            last_good_at=self._last_good_at,
+            issues=copy.deepcopy(self._last_good or []),
+            label_colors=dict(self._last_good_label_colors),
+            issue_activity=copy.deepcopy(self._last_good_issue_activity),
+            diagnostics=[
+                IssueSourceDiagnostic(
+                    source=self.name, code=code, severity=severity, message=message
+                )
+            ],
         )
 
     def _collect(self) -> list[dict[str, Any]]:
