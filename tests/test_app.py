@@ -709,6 +709,35 @@ async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default
 
 
 @pytest.mark.asyncio
+async def test_a_chosen_sort_survives_search_keystrokes() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "First"), issue("test/repo#2", "Second")
+    )
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(100, 24)) as pilot:
+        search = app.query_one("#issue-search", Input)
+        await pilot.press("s")
+        chosen = app.issue_view.sort
+        assert chosen != DEFAULT_SORT
+
+        search.value = "s"
+        await wait_until(lambda: app.issue_view.query.text == "s")
+        assert app.issue_view.sort == chosen
+
+        # A sort qualifier takes over while it is present, and removing it
+        # restores the default rather than the earlier choice.
+        search.value = "s sort:created-asc"
+        await wait_until(lambda: app.issue_view.sort == (SortTerm("created"),))
+        search.value = "s"
+        await wait_until(lambda: app.issue_view.sort == DEFAULT_SORT)
+
+
+@pytest.mark.asyncio
 async def test_unsupported_search_sort_is_reported_without_filtering_rows() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     app = DashpotApp(
@@ -1597,13 +1626,12 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
         assert app.issue_view.sort == (SortTerm("number"),)
         assert headers()[2] == "# ↑"
 
-        # A search change restores the default sort; the column then returns
-        # and takes its turn in the cycle.
+        # A search change keeps the chosen sort; the column returns and takes
+        # its turn in the cycle.
         search.value = ""
         await wait_until(lambda: table.row_count == 2)
-        assert app.issue_view.sort == DEFAULT_SORT
-        assert headers()[2:5] == ["# ↕", "TITLE", "PRIORITY ↕"]
-        await pilot.press("s")
+        assert app.issue_view.sort == (SortTerm("number"),)
+        assert headers()[2:5] == ["# ↑", "TITLE", "PRIORITY ↕"]
         await pilot.press("s")
         assert app.issue_view.sort == (SortTerm("priority"),)
         assert headers()[4] == "PRIORITY ↑"

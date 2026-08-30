@@ -423,9 +423,17 @@ class DashpotApp(App[None]):
         parsed_search = parse_issue_search(event.value)
         self.search_diagnostics = parsed_search.diagnostics
         self.update_diagnostics()
+        # A sort qualifier in the search text owns the sort while it is
+        # present, and removing it restores the default; any other keystroke
+        # leaves a sort chosen by key or header click alone.
+        previous_search = parse_issue_search(self.issue_view.query.text)
+        sort: tuple[SortTerm, ...] | None = None
+        if parsed_search.sort is not None:
+            sort = issue_search_sort_terms(parsed_search.sort)
+        elif previous_search.sort is not None:
+            sort = DEFAULT_SORT
         self.set_issue_query(
-            replace(self.issue_view.query, text=event.value),
-            sort=issue_search_sort_terms(parsed_search.sort) or DEFAULT_SORT,
+            replace(self.issue_view.query, text=event.value), sort=sort
         )
 
     def action_cycle_issue_state(self) -> None:
