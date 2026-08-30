@@ -70,7 +70,26 @@ decision as a new ADR in `docs/adr/`.
 
 The gate is `uv run pre-commit run --all-files` and `uv run pytest -q`, both
 clean, before every commit; the pre-push hook then runs the full gate for the
-pushed revision. The conventions the tooling enforces or the code assumes:
+pushed revision.
+
+Under the Codex Linux sandbox, run each full gate with the per-command
+sandbox-escalation mechanism:
+
+- `uv run pre-commit run --all-files`: the sandbox protects the tracked
+  `.codex/config.toml`, while `end-of-file-fixer` opens every selected file for
+  writing before deciding whether it needs a change.
+- `uv run pytest -q` on Python 3.14: the sandbox's blocked asyncio self-pipe
+  wakeup ([openai/codex#15053](https://github.com/openai/codex/issues/15053))
+  can make `asyncio.run()` wait five minutes while shutting down Textual's
+  default executor.
+
+Scope each exception to the exact gate command and state its reason in the
+escalation request. If per-command escalation is unavailable, ask the user to
+run the gate. Keep the checkout's Python version unchanged and treat an
+artificial timer or executor-shutdown patch as masking the environment fault
+rather than fixing a test.
+
+The conventions the tooling enforces or the code assumes:
 
 - Full type annotations on everything in `src/` (Ruff `ANN`), and ty clean
   with no blanket `type: ignore` — an ignore names its rule and says why.
