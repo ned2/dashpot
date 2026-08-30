@@ -399,7 +399,16 @@ Run the commit hooks across every tracked file:
 uv run pre-commit run --all-files
 ```
 
-Run the full gate, including the test suite, directly against the working tree:
+The gate before every commit is both of these, clean:
+
+```bash
+uv run pre-commit run --all-files
+uv run pytest -q
+```
+
+The pushed-revision gate can also be run directly against the working tree; it
+covers the lockfile, Ruff, ty and the distribution build, but not the hygiene
+hooks or the test suite, so it does not replace the two commands above:
 
 ```bash
 uv run python scripts/check_quality.py
@@ -886,7 +895,9 @@ it:
 3. Fast-forward `main` onto the branch and `git push origin main`. The
    pre-push hook runs the pushed-revision gate in
    [`scripts/check_quality.py`](scripts/check_quality.py) against the pushed
-   revision in a detached worktree, so a red gate stops the push.
+   revision in a detached worktree, so a red gate stops the push. That gate
+   deliberately skips the test suite; run `uv run pytest -q` before pushing
+   and let CI confirm it across every platform.
 4. Watch CI to completion with `gh run watch <id> --exit-status`; the change
    is done when the run is green.
 
