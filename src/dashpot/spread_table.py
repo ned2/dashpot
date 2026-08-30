@@ -9,9 +9,10 @@ from rich.text import TextType
 from textual import events
 from textual.geometry import Size
 from textual.render import measure
-from textual.widgets import DataTable
 from textual.widgets.data_table import ColumnKey, RowKey
 from typing_extensions import override
+
+from .focus_table import FocusCursorTable
 
 if TYPE_CHECKING:
     from textual.widgets.data_table import CellType
@@ -19,7 +20,7 @@ else:  # The generic parameter is only spelled at type-check time.
     CellType = Any
 
 
-class SpreadTable(DataTable[CellType]):
+class SpreadTable(FocusCursorTable[CellType]):
     """A DataTable that spreads its spare width across the columns.
 
     Textual sizes a column to its content or to a fixed width; neither fills

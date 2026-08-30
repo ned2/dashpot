@@ -460,6 +460,37 @@ async def test_main_screen_tables_do_not_use_zebra_stripes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_only_focused_main_screen_table_shows_its_row_cursor() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        tables = {
+            table_id: app.query_one(f"#{table_id}", DataTable)
+            for table_id in ("queue", "sessions", "worktrees", "branches")
+        }
+
+        assert {
+            table_id for table_id, table in tables.items() if table.show_cursor
+        } == {"queue"}
+        for key, table_id in (("2", "sessions"), ("3", "worktrees"), ("4", "branches")):
+            await pilot.press(key)
+            assert {
+                current_id for current_id, table in tables.items() if table.show_cursor
+            } == {table_id}
+
+        await pilot.press("slash")
+        assert not any(table.show_cursor for table in tables.values())
+
+        assert await pilot.click("#worktrees", offset=(1, 1))
+        assert tables["worktrees"].has_focus
+        assert {
+            table_id for table_id, table in tables.items() if table.show_cursor
+        } == {"worktrees"}
+
+
+@pytest.mark.asyncio
 async def test_issue_view_color_follows_the_opened_issue() -> None:
     open_issue = issue("test/repo#1", "Open")
     completed_issue = issue("test/repo#2", "Completed")
