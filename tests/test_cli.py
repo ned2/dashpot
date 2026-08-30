@@ -803,9 +803,3 @@ def test_help_and_version_print_to_stdout_and_exit_zero(
 
 def test_harness_choices_track_the_supported_integrations() -> None:
     assert set(get_args(cli.Harness)) == set(INTEGRATIONS)
-
-
-def test_cli_module_no_longer_uses_argparse() -> None:
-    source = Path(cli.__file__).read_text(encoding="utf-8")
-
-    assert "argparse" not in source

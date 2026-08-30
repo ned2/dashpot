@@ -1612,10 +1612,6 @@ class ObservationCoordinatorTests(unittest.TestCase):
         self.assertEqual(2, len(results))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SessionIdentityCorrelationTests(unittest.TestCase):
     """Work Store runs join hook Agent Sessions by Agent Session Identity."""
 
