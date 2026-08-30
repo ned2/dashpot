@@ -183,6 +183,30 @@ def test_stop_by_session_key_refuses_a_live_session(tmp_path: Path) -> None:
     assert len(active) == 1
 
 
+def test_stop_by_session_key_refuses_an_identity_route_session_still_placed(
+    tmp_path: Path,
+) -> None:
+    # A sandboxed session whose hook could not publish a host process is
+    # recorded by Agent Session Identity alone; its hook record is the only
+    # evidence of liveness, and an unended one is not evidence it is over.
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", None)
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON)
+    (session_key,) = issue_ids(root)
+    (work,) = WorkStore(root).active()[0]
+    assert work.session_process is None
+
+    with pytest.raises(RuntimeError, match="still running"):
+        stop_issue_work(root, session_key=session_key, lookup=absent())
+    assert len(WorkStore(root).active()[0]) == 1
+
+    hook_record(root, CODEX_SESSION, "codex", None, state="ended")
+    messages = stop_issue_work(root, session_key=session_key, lookup=absent())
+
+    assert messages[0].startswith("stopped orphaned work on build-observer")
+    assert WorkStore(root).active()[0] == []
+
+
 def test_show_lists_active_work_at_the_worktree(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
     assert show_issue_work(root) == ["no active Issue work at this worktree"]

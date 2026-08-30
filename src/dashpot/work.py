@@ -349,11 +349,7 @@ def stop_issue_work(
     previous = _session_work_by_key(store, session_key)
     if previous is None:
         return [f"no active Issue work recorded for session {session_key}"]
-    if (
-        previous.session_process is not None
-        and session_liveness(previous.session_process.as_record(), lookup).liveness
-        == "live"
-    ):
+    if _recorded_session_is_live(previous, root, lookup):
         raise RuntimeError(
             f"session {session_key} is still running; run 'dashpot work stop' inside it"
         )
@@ -363,6 +359,38 @@ def stop_issue_work(
         f"stopped orphaned work on {previous.issue_reference} for "
         f"{previous.session_label}"
     ]
+
+
+def _recorded_session_is_live(
+    work: ActiveWork, root: Path, lookup: ProcessLookup
+) -> bool:
+    """Whether the session that recorded a run is still observed live.
+
+    A run recorded with its host process is probed directly. One recorded by
+    Agent Session Identity alone - the sandboxed route - has only its hook
+    records to answer from: the freshest that is neither ended nor gone
+    places a session that may still be running, and an unreadable record is
+    not evidence that it is over.
+    """
+    if work.session_process is not None:
+        return (
+            session_liveness(work.session_process.as_record(), lookup).liveness
+            == "live"
+        )
+    if work.session_id is None:
+        return False
+    try:
+        location = locate_agent_session(
+            reachable_hook_stores(repository_worktrees(root)),
+            lookup,
+            session_id=work.session_id,
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            f"the lifecycle hook record for {work.session_label} cannot be "
+            f"read: {exc}; run 'dashpot integrate {work.harness} --status'"
+        ) from exc
+    return location is not None and location.record.outcome not in {"ended", "gone"}
 
 
 def show_issue_work(current: Path) -> list[str]:
