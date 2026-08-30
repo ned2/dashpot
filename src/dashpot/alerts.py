@@ -13,17 +13,23 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from .collect import ObservationKey
+from .glyphs import Glyph
 from .issue_table import relative_age
 from .observation_store import WorkspaceObservationStore
 
 AlertSeverity = Literal["error", "warning", "info"]
 
 SEVERITY_RANK: dict[AlertSeverity, int] = {"error": 0, "warning": 1, "info": 2}
-SEVERITY_SYMBOL: dict[AlertSeverity, str] = {
-    "error": "✖",
-    "warning": "⚠",
-    "info": "↻",
+# The alert line and the Diagnostics box share one severity vocabulary; the
+# colour comes from the stylesheet of whichever box shows the line.
+SEVERITY_GLYPH: dict[AlertSeverity, Glyph] = {
+    "error": Glyph("✖", "error", theme_color="error"),
+    "warning": Glyph("⚠", "warning", theme_color="warning"),
+    "info": Glyph(
+        "↻", "an observation, reported without alarm", theme_color="text-muted"
+    ),
 }
+LEGEND = tuple(SEVERITY_GLYPH.values())
 SEPARATOR = "  ·  "
 
 # Workspace-level diagnostic codes that describe a failing integration rather
@@ -46,7 +52,7 @@ class AlertItem:
 
     @property
     def display(self) -> str:
-        return f"{SEVERITY_SYMBOL[self.severity]} {self.text}"
+        return f"{SEVERITY_GLYPH[self.severity].symbol} {self.text}"
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from rich.text import Text
 
+from .glyphs import Glyph
 from .issue_list import row_key
 from .issue_table import relative_age
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end, truncate_start
@@ -36,10 +37,22 @@ from .worktree_list import (
 NAME_LIMIT = 48
 LOCAL_TEXT = "local"
 # The sync states are glyph-only, so the column stays as narrow as the
-# ahead/behind counts beside them.
-IN_SYNC_GLYPH = "✓"
-UNPUSHED_GLYPH = "○"
-UPSTREAM_GONE_GLYPH = "✗"
+# ahead/behind counts beside them. Unpushed is an empty set rather than an
+# empty circle, which the Sessions family already uses for an unknown state.
+IN_SYNC_GLYPH = Glyph("✓", "in sync with upstream")
+AHEAD_BEHIND_GLYPH = Glyph("↑2 ↓1", "commits ahead of / behind upstream", DIRTY_COLORS)
+UNPUSHED_GLYPH = Glyph("∅", "unpushed: a local branch with no upstream", DIRTY_COLORS)
+UPSTREAM_GONE_GLYPH = Glyph(
+    "✗", "upstream gone: it was configured and no longer exists", UNAVAILABLE_COLORS
+)
+NO_LOCAL_REF_GLYPH = Glyph("-", "remote-only, so there is no local ref to compare")
+LEGEND = (
+    IN_SYNC_GLYPH,
+    AHEAD_BEHIND_GLYPH,
+    UNPUSHED_GLYPH,
+    UPSTREAM_GONE_GLYPH,
+    NO_LOCAL_REF_GLYPH,
+)
 
 BRANCH_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("name", "BRANCH"),
@@ -231,19 +244,21 @@ def where_text(row: BranchListRow) -> str:
 def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
     """How the local branch relates to its upstream; remote-only rows have none."""
     if local is None:
-        return "-"
+        return NO_LOCAL_REF_GLYPH.symbol
     if local.upstream_gone:
-        return Text(UPSTREAM_GONE_GLYPH, style=UNAVAILABLE_COLORS[dark])
+        return Text(
+            UPSTREAM_GONE_GLYPH.symbol, style=UPSTREAM_GONE_GLYPH.style(dark=dark)
+        )
     if local.upstream is None:
-        return Text(UNPUSHED_GLYPH, style=DIRTY_COLORS[dark])
+        return Text(UNPUSHED_GLYPH.symbol, style=UNPUSHED_GLYPH.style(dark=dark))
     parts: list[str] = []
     if local.ahead:
         parts.append(f"↑{local.ahead}")
     if local.behind:
         parts.append(f"↓{local.behind}")
     if not parts:
-        return IN_SYNC_GLYPH
-    return Text(" ".join(parts), style=DIRTY_COLORS[dark])
+        return IN_SYNC_GLYPH.symbol
+    return Text(" ".join(parts), style=AHEAD_BEHIND_GLYPH.style(dark=dark))
 
 
 def fetch_age_text(fetched_at: str | None, now: datetime) -> str:

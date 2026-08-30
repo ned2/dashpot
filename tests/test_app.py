@@ -19,11 +19,14 @@ from threading import Event, Lock
 
 import pytest
 from rich.text import Text
+from textual.content import Content
 from textual.coordinate import Coordinate
 from textual.dom import DOMNode
+from textual.style import Style
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Markdown, Select, Static
 
+from dashpot import session_list
 from dashpot.app import DEFAULT_SUB_TITLE, PANE_MARGIN, DashpotApp, project_label
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
@@ -52,6 +55,7 @@ from dashpot.issue_view import (
     issue_state_class,
     selection_title,
 )
+from dashpot.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
 from dashpot.list_pane import ListPane, ListRow
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import (
@@ -3099,3 +3103,73 @@ async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
         await wait_until(
             lambda: sum(column_widths(queue)) == queue.scrollable_content_region.width
         )
+
+
+@pytest.mark.asyncio
+async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        assert "question_mark" in footer_keys(app)
+
+        await pilot.press("question_mark")
+        await wait_until(lambda: isinstance(app.screen, LegendScreen))
+        screen = app.screen
+        headings = [
+            str(heading.render()) for heading in screen.query(".legend-heading")
+        ]
+        assert headings[0] == "SESSIONS · STATE"
+        assert headings[-1] == "KEYS"
+        assert headings[:-1] == [section_heading(section) for section in LEGEND]
+        rendered = "\n".join(
+            str(section.render()) for section in screen.query(".legend-section")
+        )
+        for glyph in legend_glyphs():
+            assert glyph.symbol in rendered
+            assert glyph.meaning in rendered
+        keys = rendered.splitlines()
+        assert any(line.startswith("?") and line.endswith("Legend") for line in keys)
+        assert any(line.startswith("q") and line.endswith("Quit") for line in keys)
+        # A colour-bearing Glyph shows the swatch the cell would.
+        running = session_list.STATE_GLYPHS["running"]
+        sessions = screen.query_one("#legend-section-0", Static)
+        content = sessions.render()
+        assert isinstance(content, Content)
+        span_style = content.spans[0].style
+        assert isinstance(span_style, Style)
+        swatch = span_style.foreground
+        assert swatch is not None
+        assert swatch.hex6.casefold() == running.style(dark=app.current_theme.dark)
+
+        # A second ? is absorbed by the Legend rather than stacking another.
+        await pilot.press("question_mark")
+        await wait_until(lambda: not isinstance(app.screen, LegendScreen))
+        await pilot.press("question_mark")
+        await wait_until(lambda: isinstance(app.screen, LegendScreen))
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, LegendScreen))
+        assert app.query_one("#queue", DataTable).has_focus
+
+
+@pytest.mark.asyncio
+async def test_legend_is_reachable_from_the_issue_view() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+
+        await pilot.press("question_mark")
+        await wait_until(lambda: isinstance(app.screen, LegendScreen))
+        await pilot.press("escape")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))

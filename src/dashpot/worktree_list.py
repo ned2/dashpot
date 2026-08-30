@@ -24,7 +24,7 @@ from .model import (
     TargetRole,
     WorkspaceSnapshot,
 )
-from .session_list import PATH_LIMIT, STATE_ORDER, STATE_STYLES, abbreviate_path
+from .session_list import PATH_LIMIT, STATE_GLYPHS, STATE_ORDER, abbreviate_path
 
 BRANCH_LIMIT = 24
 SHORT_HEAD = 7
@@ -209,5 +209,5 @@ def sessions_cell(states: Sequence[RunState], *, dark: bool) -> ListCell:
     if not states:
         return "-"
     state = min(states, key=lambda item: STATE_ORDER[item])
-    glyph, light_color, dark_color = STATE_STYLES[state]
-    return Text(f"{glyph} {len(states)}", style=dark_color if dark else light_color)
+    glyph = STATE_GLYPHS[state]
+    return Text(f"{glyph.symbol} {len(states)}", style=glyph.style(dark=dark))

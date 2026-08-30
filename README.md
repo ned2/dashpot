@@ -315,6 +315,22 @@ A mutable Issue Reference used only to establish an Issue Binding at opt-in
 time. A hint never becomes identity and must resolve unambiguously within the
 observed Project.
 
+### Presentation
+
+**Glyph**:
+One rendered symbol paired with the fact it stands for and, when the cell
+colours it, its light and dark colour. Every pane renders from `Glyph`
+values, so a symbol is never separated from its meaning, and a symbol has one
+meaning wherever it is seen.
+_Avoid_: icon or symbol for the value; the symbol is one field of a Glyph
+
+**Legend**:
+The listing of every Glyph the main screen renders, generated from the same
+`Glyph` values the cells render, organised by the pane and column the Glyph
+appears in and reachable with `?` from inside the app.
+_Avoid_: help screen; the Legend also lists the keys, but it explains what is
+on screen rather than how to use the app
+
 ## Development setup
 
 Dashpot requires Python 3.11 or newer and uses
@@ -690,13 +706,31 @@ Remote-Tracking Branches of one branch name into one row, so a branch is
 never listed twice and never needs a second pane: `WHERE` says where it exists
 (`local`, `local · origin`, or `origin` alone for a branch pushed from
 elsewhere), `SYNC` is the local ref's relation to its upstream (`✓` in sync,
-`↑2 ↓1`, `○` unpushed, or `✗` upstream gone), then the Worktree it is checked out
+`↑2 ↓1`, `∅` unpushed, or `✗` upstream gone), then the Worktree it is checked out
 in, the active sessions on it, and the age of its last commit. Rows are sorted checked-out first, then most recent commit. The
 refs are read with `git for-each-ref` from the first answering Repository
 Anchor; Dashpot never runs `git fetch`, so the lower-right pane border carries
 the age of the last fetch (`remote last fetched 3h ago`, or
 `remote never fetched`) as the honest freshness of everything remote
-([ADR 0005](docs/adr/0005-observe-branches-without-fetching.md)). See
+([ADR 0005](docs/adr/0005-observe-branches-without-fetching.md)).
+
+The panes trade words for Glyphs to stay narrow, and `?` opens the Legend
+that explains every one of them ([`legend.py`](src/dashpot/legend.py)). Its
+sections follow the screen top to bottom and name the column a Glyph appears
+in: the Sessions family `●` running, `◐` waiting and `○` unknown (also
+leading the Agent Session count in the Branches and Worktrees `SESSIONS`
+columns), the Branches `SYNC` vocabulary above, the Issues table's `◉` Issue
+state column (`■` in the state colour: open, completed, not planned or
+duplicate), its `◈` Agent Run state column (`▶` running, `Ⅱ` waiting, `?`
+unknown, blank for no Agent Run), the `↕ ↑ ↓` sort markers on its headers,
+and the `✖` error, `⚠` warning and `↻` observation severities the alert line
+and Diagnostics share. The Legend is generated from the `Glyph` values the
+cells render with ([`glyphs.py`](src/dashpot/glyphs.py)), each pane owning
+its own vocabulary, and a test scans the source for any symbol the Legend
+does not explain, so a Glyph cannot be added without appearing there and no
+symbol carries two meanings
+([ADR 0010](docs/adr/0010-derive-the-legend-from-rendered-glyphs.md)). The
+Legend also lists the key bindings. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
 

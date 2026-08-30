@@ -24,8 +24,8 @@ from textual.worker import get_current_worker
 from typing_extensions import override
 
 from .alerts import (
+    SEVERITY_GLYPH,
     SEVERITY_RANK,
-    SEVERITY_SYMBOL,
     AlertSeverity,
     summarize_alerts,
 )
@@ -63,17 +63,22 @@ from .issue_table import (
     sort_key_for_terms,
 )
 from .issue_view import IssueScreen
-from .list_pane import DEFAULT_ROW_CAP, ListPane, ListRow
+from .legend import LegendScreen
+from .list_pane import (
+    BRANCHES_PANE_LABEL,
+    DEFAULT_ROW_CAP,
+    ISSUE_PANE_LABEL,
+    SESSIONS_PANE_LABEL,
+    WORKTREES_PANE_LABEL,
+    ListPane,
+    ListRow,
+)
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
-ISSUE_PANE_LABEL = "ISSUES"
-SESSIONS_PANE_LABEL = "SESSIONS"
-BRANCHES_PANE_LABEL = "BRANCHES"
-WORKTREES_PANE_LABEL = "WORKTREES"
 # Focus cycles through the four lists in reading order; the Header and
 # the Issue controls are not part of the cycle.
 LIST_TABLE_IDS = ("queue", "sessions", "branches", "worktrees")
@@ -138,6 +143,7 @@ class DashpotApp(App[None]):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("q", "quit", "Quit"),
+        ("question_mark", "legend", "Legend"),
         ("r", "refresh", "Refresh"),
         ("shift+r", "refresh_workspace", "Refresh all"),
         ("enter", "open_issue", "Open Issue"),
@@ -355,6 +361,12 @@ class DashpotApp(App[None]):
             IssueColumnEditor(self.issue_view.columns),
             self.apply_issue_columns,
         )
+
+    def action_legend(self) -> None:
+        """Explain every Glyph on screen; a second ``?`` is absorbed by the Legend."""
+        if isinstance(self.screen, LegendScreen):
+            return
+        self.push_screen(LegendScreen())
 
     def apply_issue_columns(self, columns: tuple[ColumnKey, ...] | None) -> None:
         if columns is None or columns == self.issue_view.columns:
@@ -874,7 +886,9 @@ class DashpotApp(App[None]):
                 bool(entries) and severity == candidate, f"-{candidate}"
             )
         diagnostics.update(
-            "\n".join(f"{SEVERITY_SYMBOL[item]} {message}" for item, message in entries)
+            "\n".join(
+                f"{SEVERITY_GLYPH[item].symbol} {message}" for item, message in entries
+            )
         )
         self.update_alert()
 

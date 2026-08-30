@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal, Self, TypeAlias, cast
 
 from rich.text import Text
 
+from .glyphs import Glyph
 from .issue_list import (
     IssueListQuery,
     IssueListResult,
@@ -51,6 +52,29 @@ GITHUB_ISSUE_STATE_COLORS: dict[IssueStateKind, tuple[str, str]] = {
     "not-planned": ("#59636e", "#656c76"),
     "duplicate": ("#59636e", "#656c76"),
 }
+# One block per Issue state; the states differ only by colour, so the Legend
+# shows every one of them.
+ISSUE_STATE_GLYPHS: dict[IssueStateKind, Glyph] = {
+    kind: Glyph("■", f"Issue {kind.replace('-', ' ')}", colors)
+    for kind, colors in GITHUB_ISSUE_STATE_COLORS.items()
+}
+ISSUE_STATE_COLUMN_GLYPH = Glyph("◉", "the Issue state column")
+AGENT_STATE_COLUMN_GLYPH = Glyph("◈", "the Agent Run state column")
+# The column summarizes Issue work without exposing the number of Agent
+# Runs: the liveliest state wins, ranked by the order here.
+AGENT_STATE_GLYPHS: dict[RunState, Glyph] = {
+    "running": Glyph("▶", "an Agent Run on this Issue is running"),
+    "waiting": Glyph("Ⅱ", "an Agent Run on this Issue is waiting"),
+    "unknown": Glyph("?", "an Agent Run on this Issue is in an unknown state"),
+}
+SORT_GLYPHS: dict[bool | None, Glyph] = {
+    None: Glyph("↕", "a sortable column"),
+    False: Glyph("↑", "sorted ascending"),
+    True: Glyph("↓", "sorted descending"),
+}
+LEGEND_ISSUE_STATE = (ISSUE_STATE_COLUMN_GLYPH, *ISSUE_STATE_GLYPHS.values())
+LEGEND_AGENT_STATE = (AGENT_STATE_COLUMN_GLYPH, *AGENT_STATE_GLYPHS.values())
+LEGEND_SORT = tuple(SORT_GLYPHS.values())
 
 
 class IssueTableCell(str):
@@ -72,8 +96,8 @@ class IssueStateCell(Text):
     sort_value: SortValue
 
     def __init__(self, state_kind: IssueStateKind, *, dark: bool) -> None:
-        light_color, dark_color = GITHUB_ISSUE_STATE_COLORS[state_kind]
-        super().__init__("■", style=dark_color if dark else light_color)
+        glyph = ISSUE_STATE_GLYPHS[state_kind]
+        super().__init__(glyph.symbol, style=glyph.style(dark=dark))
         self.state_kind = state_kind
         self.sort_value = (
             "open",
@@ -197,8 +221,12 @@ class ColumnSpec:
 
 
 COLUMN_SPECS = (
-    ColumnSpec("issue_state", "◉", sortable=False, spread_weight=0),
-    ColumnSpec("agent_state", "◈", sortable=False, spread_weight=0),
+    ColumnSpec(
+        "issue_state", ISSUE_STATE_COLUMN_GLYPH.symbol, sortable=False, spread_weight=0
+    ),
+    ColumnSpec(
+        "agent_state", AGENT_STATE_COLUMN_GLYPH.symbol, sortable=False, spread_weight=0
+    ),
     ColumnSpec(
         "number",
         "#",
@@ -413,8 +441,8 @@ def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
     if not column.sortable:
         return column.label
     term = next((term for term in sort if term.column == column.key), None)
-    marker = "↕" if term is None else ("↓" if term.descending else "↑")
-    return f"{column.label} {marker}"
+    marker = SORT_GLYPHS[None if term is None else term.descending]
+    return f"{column.label} {marker.symbol}"
 
 
 def column_header(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> Text:
@@ -564,12 +592,9 @@ def issue_state_cell(issue: Issue, *, dark: bool) -> IssueStateCell:
 
 def agent_state_cell(states: tuple[RunState, ...]) -> IssueTableCell:
     """Summarize Issue work without exposing the number of Agent Runs."""
-    if "running" in states:
-        return IssueTableCell("▶", 3)
-    if "waiting" in states:
-        return IssueTableCell("Ⅱ", 2)
-    if "unknown" in states:
-        return IssueTableCell("?", 1)
+    for index, (state, glyph) in enumerate(AGENT_STATE_GLYPHS.items()):
+        if state in states:
+            return IssueTableCell(glyph.symbol, len(AGENT_STATE_GLYPHS) - index)
     return IssueTableCell("", 0)
 
 

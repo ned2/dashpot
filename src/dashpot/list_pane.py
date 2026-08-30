@@ -25,6 +25,10 @@ from .focus_table import FocusCursorTable
 
 ListCell = str | Text
 
+ISSUE_PANE_LABEL = "ISSUES"
+SESSIONS_PANE_LABEL = "SESSIONS"
+BRANCHES_PANE_LABEL = "BRANCHES"
+WORKTREES_PANE_LABEL = "WORKTREES"
 # Header plus eight records; a longer list scrolls inside the pane.
 DEFAULT_ROW_CAP = 8
 ELLIPSIS = "…"

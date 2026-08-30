@@ -16,6 +16,7 @@ from pathlib import Path
 
 from rich.text import Text
 
+from .glyphs import Glyph
 from .issue_list import row_key
 from .issue_table import relative_age
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end, truncate_start
@@ -24,12 +25,16 @@ from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnaps
 HARNESS_LABELS = {"codex": "Codex", "claude-code": "Claude Code"}
 STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
 # GitHub Primer emphasis colours: running is success, waiting is attention,
-# unknown is muted; each pair is (light theme, dark theme).
-STATE_STYLES: dict[RunState, tuple[str, str, str]] = {
-    "running": ("●", "#1a7f37", "#3fb950"),
-    "waiting": ("◐", "#9a6700", "#d29922"),
-    "unknown": ("○", "#59636e", "#8b949e"),
+# unknown is muted; each pair is (light theme, dark theme). The fill of the
+# circle is the liveliness, which is why the family reads as one.
+STATE_GLYPHS: dict[RunState, Glyph] = {
+    "running": Glyph("●", "an Agent Session is running", ("#1a7f37", "#3fb950")),
+    "waiting": Glyph("◐", "an Agent Session is waiting", ("#9a6700", "#d29922")),
+    "unknown": Glyph(
+        "○", "an Agent Session in an unknown state", ("#59636e", "#8b949e")
+    ),
 }
+LEGEND = tuple(STATE_GLYPHS[state] for state in STATE_ORDER)
 OUTSIDE_PROJECT_TEXT = "outside Project"
 UNBOUND_ISSUE_TEXT = "no active Issue work"
 # Long values are clipped so a row stays scannable; the scan-level fact is
@@ -256,8 +261,8 @@ def session_target_cell(row: SessionListRow, *, home: Path | None = None) -> Lis
 
 
 def session_state_cell(state: RunState, *, dark: bool) -> Text:
-    glyph, light_color, dark_color = STATE_STYLES[state]
-    return Text(f"{glyph} {state}", style=dark_color if dark else light_color)
+    glyph = STATE_GLYPHS[state]
+    return Text(f"{glyph.symbol} {state}", style=glyph.style(dark=dark))
 
 
 def session_issue_cell(row: SessionListRow) -> ListCell:

@@ -188,7 +188,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     unpushed = branch_cells(by_name[long_name], dark=True, now=CLOCK, home=home)
     assert str(unpushed[0]) == "feature/" + "x" * 39 + "…"
     assert isinstance(unpushed[2], Text)
-    assert unpushed[2].plain == "○"
+    assert unpushed[2].plain == "∅"
     assert str(unpushed[3]) == "-"
     remote_only = branch_cells(by_name["remote-only"], dark=True, now=CLOCK, home=home)
     assert plain(remote_only[:3]) == ["remote-only", "origin", "-"]
