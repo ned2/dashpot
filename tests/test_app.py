@@ -3074,6 +3074,30 @@ async def test_sessions_target_column_follows_the_worktrees_in_view() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_theme_change_repaints_the_list_panes() -> None:
+    issues = (issue("test/repo#1", "First"),)
+    snapshot = sessions_snapshot(
+        session_run("codex-session:busy", state="running"), issues=issues
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    running = session_list.STATE_GLYPHS["running"]
+
+    def state_color() -> str:
+        cell = app.sessions_pane().table.get_row_at(0)[0]
+        assert isinstance(cell, Text)
+        return str(cell.style).casefold()
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        assert state_color() == running.style(dark=True)
+
+        app.theme = "textual-light"
+        # Without a new observation, only the theme handler can repaint.
+        await wait_until(lambda: state_color() == running.style(dark=False))
+
+
+@pytest.mark.asyncio
 async def test_enter_on_a_bound_session_highlights_its_issue_and_unbound_is_safe() -> (
     None
 ):

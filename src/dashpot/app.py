@@ -327,6 +327,9 @@ class DashpotApp(App[None]):
 
         if self.store.has_observations:
             self.reconcile_rows()
+            # The list panes render their glyphs in explicit colours chosen
+            # for the theme's brightness, so they repaint with the table.
+            self.reconcile_list_panes()
 
     def table_columns(self, table: DataTable[TableCell]) -> tuple[ColumnKey, ...]:
         """The columns the table shows now: the chosen ones a conditional column may leave."""
