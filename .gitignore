@@ -219,3 +219,5 @@ __marimo__/
 
 # Dashpot local runtime state
 .dashpot/state/
+
+scratch
