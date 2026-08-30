@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Self
 
 from rich.text import TextType
@@ -34,9 +34,11 @@ class SpreadTable(FocusCursorTable[CellType]):
     scrolls horizontally, as before.
     """
 
-    # Explicit weights by column key; created on first use rather than in
-    # ``__init__``, whose long DataTable signature would have to be repeated.
+    # Explicit weights and header tooltips by column key; created on first
+    # use rather than in ``__init__``, whose long DataTable signature would
+    # have to be repeated.
     _spread_weights: dict[ColumnKey, int] | None = None
+    _header_tooltips: dict[ColumnKey, str] | None = None
 
     @override
     def add_column(
@@ -47,12 +49,17 @@ class SpreadTable(FocusCursorTable[CellType]):
         key: str | None = None,
         default: CellType | None = None,
         spread_weight: int | None = None,
+        tooltip: str | None = None,
     ) -> ColumnKey:
         column_key = super().add_column(label, width=width, key=key, default=default)
         if spread_weight is not None:
             if self._spread_weights is None:
                 self._spread_weights = {}
             self._spread_weights[column_key] = spread_weight
+        if tooltip is not None:
+            if self._header_tooltips is None:
+                self._header_tooltips = {}
+            self._header_tooltips[column_key] = tooltip
         return column_key
 
     @override
@@ -60,6 +67,7 @@ class SpreadTable(FocusCursorTable[CellType]):
         super().clear(columns)
         if columns:
             self._spread_weights = None
+            self._header_tooltips = None
         else:
             # Textual only ever widens a column, so a cleared table would keep
             # the width of rows it no longer shows; the labels are all that
@@ -73,6 +81,24 @@ class SpreadTable(FocusCursorTable[CellType]):
     def _on_resize(self, _: events.Resize) -> None:
         super()._on_resize(_)
         self.spread_columns()
+
+    @override
+    def _on_mouse_move(self, event: events.MouseMove) -> None:
+        super()._on_mouse_move(event)
+        # Textual resolves one tooltip per widget when its hover timer fires,
+        # and the headers are painted rather than composed, so the table
+        # reads the hovered column from the segment meta the header render
+        # stamps and offers that column's tooltip as its own.
+        self.tooltip = self.header_tooltip_at(event.style.meta)
+
+    def header_tooltip_at(self, meta: Mapping[str, object]) -> str | None:
+        """The tooltip of the header the mouse rests on, or nothing off a header."""
+        if meta.get("row") != -1 or not self._header_tooltips:
+            return None
+        index = meta.get("column")
+        if not isinstance(index, int) or index >= len(self.ordered_columns):
+            return None
+        return self._header_tooltips.get(self.ordered_columns[index].key)
 
     @override
     def _update_dimensions(self, new_rows: Iterable[RowKey]) -> None:

@@ -24,7 +24,15 @@ from textual.coordinate import Coordinate
 from textual.dom import DOMNode
 from textual.style import Style
 from textual.widget import Widget
-from textual.widgets import DataTable, Footer, Input, Markdown, Select, Static
+from textual.widgets import (
+    DataTable,
+    Footer,
+    Input,
+    Markdown,
+    Select,
+    Static,
+    Tooltip,
+)
 
 from dashpot import session_list
 from dashpot.app import DEFAULT_SUB_TITLE, PANE_MARGIN, DashpotApp, project_label
@@ -32,19 +40,23 @@ from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
 from dashpot.issue_list import IssueListQuery, IssueListRow, query_issue_list, row_key
 from dashpot.issue_table import (
+    AGENT_STATE_COLUMN_GLYPH,
     COLUMN_KEYS,
     COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
     DEFAULT_SORT,
+    ISSUE_STATE_COLUMN_GLYPH,
     IssueNumberCell,
     IssueStateCell,
     IssueTableViewState,
     LabelsCell,
+    PriorityCell,
     SortTerm,
     agent_state_cell,
     build_rows,
     date_cell,
     searchable_columns,
+    shown_columns,
     sort_key_for_terms,
 )
 from dashpot.issue_view import (
@@ -250,9 +262,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "agent_state",
             "number",
             "title",
+            "priority",
             "labels",
             "project",
-            "priority",
             "assignees",
             "author",
             "milestone",
@@ -266,15 +278,18 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "agent_state",
             "number",
             "title",
+            "priority",
             "labels",
             "last_action",
         )
         assert (SortTerm("last_action", descending=True),) == DEFAULT_SORT
+        # Both fixtures carry a priority label, so the conditional column shows.
         assert [str(column.label) for column in table.columns.values()] == [
             "◉",
             "◈",
             "# ↕",
             "TITLE",
+            "PRIORITY ↕",
             "LABELS ↕",
             "LAST ACTION ↓",
         ]
@@ -919,13 +934,13 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         assert isinstance(editor, IssueColumnEditor)
         selections = editor.query_one("#column-editor-list")
         selected_line = selections.render_line(editor.column_order.index("title"))
-        unselected_line = selections.render_line(editor.column_order.index("priority"))
+        unselected_line = selections.render_line(editor.column_order.index("project"))
         assert selected_line.text.startswith("▐X▌")
         assert unselected_line.text.startswith("▐ ▌")
         assert (
             list(selected_line)[1].style.color == list(unselected_line)[1].style.color
         )
-        selections.select("priority")
+        selections.select("project")
         selections.highlighted = editor.column_order.index("last_action")
         assert await pilot.click("#column-up")
         await pilot.pause()
@@ -937,9 +952,10 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "agent_state",
             "number",
             "title",
+            "priority",
             "last_action",
             "labels",
-            "priority",
+            "project",
         )
         assert [key.value for key in table.columns] == list(app.issue_view.columns)
         assert app.selected_row_key == selected_key
@@ -1460,6 +1476,146 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
     assert descending == [chips, empty]
 
 
+def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
+    urgent = issue("test/repo#1", "Urgent")
+    # The most urgent recognized label sets the priority and lends its colour.
+    urgent["labels"] = ["bug", "priority/p3", "priority/P0"]
+    routine = issue("test/repo#2", "Routine")
+    routine["labels"] = ["low"]
+    snapshot = workspace_snapshot(urgent, routine)
+    snapshot_of(snapshot.projects[0]).label_colors = {
+        "bug": "d73a4a",
+        "priority/P0": "b60205",
+        "priority/p3": "0e8a16",
+    }
+    result = query_issue_list(snapshot)
+
+    assert "priority" in DEFAULT_COLUMNS
+    assert shown_columns(DEFAULT_COLUMNS, result.rows) == DEFAULT_COLUMNS
+    for dark in (True, False):
+        _contexts, cells = build_rows(result, columns=("priority", "labels"), dark=dark)
+
+        priority, labels = cells[row_key("issue", urgent["id"])]
+        assert isinstance(priority, PriorityCell)
+        assert priority.plain == " P0 "
+        assert priority.priority == "P0"
+        assert priority.sort_value == 0
+        assert [str(span.style) for span in priority.spans] == ["#ffffff on #b60205"]
+        # The priority labels leave the LABELS chips rather than render twice.
+        assert isinstance(labels, LabelsCell)
+        assert labels.labels == ("bug",)
+        assert labels.plain == " bug "
+        low, bare = cells[row_key("issue", routine["id"])]
+        assert isinstance(low, PriorityCell)
+        assert low.plain == " P3 "
+        assert [str(span.style) for span in low.spans] == ["#ffffff on #6e7781"]
+        assert isinstance(bare, LabelsCell)
+        assert bare.plain == "-"
+
+
+def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() -> None:
+    prioritised = issue("test/repo#1", "Prioritised", "P1")
+    unlabelled = issue("test/repo#2", "Unlabelled")
+    unlabelled["labels"] = ["bug"]
+    without_priority = tuple(key for key in DEFAULT_COLUMNS if key != "priority")
+
+    mixed = query_issue_list(workspace_snapshot(prioritised, unlabelled))
+    assert shown_columns(DEFAULT_COLUMNS, mixed.rows) == DEFAULT_COLUMNS
+    for descending in (False, True):
+        _contexts, cells = build_rows(
+            mixed,
+            columns=("priority",),
+            sort=(SortTerm("priority", descending=descending),),
+        )
+        # An Issue without a priority label shows nothing and sorts after
+        # every priority in either direction: no default is invented.
+        absent = cells[row_key("issue", unlabelled["id"])][0]
+        assert isinstance(absent, PriorityCell)
+        assert absent.plain == ""
+        assert absent.priority is None
+        assert absent.sort_value is None
+        assert list(cells) == [
+            row_key("issue", prioritised["id"]),
+            row_key("issue", unlabelled["id"]),
+        ]
+
+    plain = query_issue_list(workspace_snapshot(unlabelled))
+    assert shown_columns(DEFAULT_COLUMNS, plain.rows) == without_priority
+    assert shown_columns(DEFAULT_COLUMNS, ()) == without_priority
+    assert shown_columns(("title", "labels"), plain.rows) == ("title", "labels")
+
+
+@pytest.mark.asyncio
+async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() -> None:
+    unlabelled = issue("test/repo#1", "Alpha")
+    unlabelled["labels"] = ["bug"]
+    prioritised = issue("test/repo#2", "Zebra", "P0")
+    first = workspace_snapshot(unlabelled)
+    second = workspace_snapshot(unlabelled, prioritised)
+    app = DashpotApp(
+        SequenceCollector(second),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(first),
+    )
+
+    async with app.run_test(size=(100, 28)) as pilot:
+        table = app.query_one("#queue", DataTable)
+        search = app.query_one("#issue-search", Input)
+
+        def headers() -> list[str]:
+            return [str(column.label) for column in table.columns.values()]
+
+        assert app.issue_view.columns == DEFAULT_COLUMNS
+        assert headers() == ["◉", "◈", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
+
+        await app.run_action("refresh")
+        await wait_until(lambda: app.store.revision == 2)
+        await wait_until(lambda: "PRIORITY ↕" in headers())
+        assert headers() == [
+            "◉",
+            "◈",
+            "# ↕",
+            "TITLE",
+            "PRIORITY ↕",
+            "LABELS ↕",
+            "LAST ACTION ↓",
+        ]
+        assert table.row_count == 2
+        assert app.selected_row_key == row_key("issue", unlabelled["id"])
+        priority_cells = {
+            key: table.get_row(key)[4]
+            for key in (
+                row_key("issue", unlabelled["id"]),
+                row_key("issue", prioritised["id"]),
+            )
+        }
+        assert [cell.plain for cell in priority_cells.values()] == ["", " P0 "]
+        assert all(isinstance(cell, PriorityCell) for cell in priority_cells.values())
+
+        search.value = "alpha"
+        await wait_until(lambda: table.row_count == 1)
+        assert headers() == ["◉", "◈", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
+        # Cycling the sort passes over the column the table does not show.
+        await pilot.press("s")
+        assert app.issue_view.sort == (SortTerm("number"),)
+        assert headers()[2] == "# ↑"
+
+        # A search change restores the default sort; the column then returns
+        # and takes its turn in the cycle.
+        search.value = ""
+        await wait_until(lambda: table.row_count == 2)
+        assert app.issue_view.sort == DEFAULT_SORT
+        assert headers()[2:5] == ["# ↕", "TITLE", "PRIORITY ↕"]
+        await pilot.press("s")
+        await pilot.press("s")
+        assert app.issue_view.sort == (SortTerm("priority"),)
+        assert headers()[4] == "PRIORITY ↑"
+        assert table.get_row_at(0)[3] == "Zebra"
+        await pilot.press("shift+s")
+        assert app.issue_view.sort == (SortTerm("priority", descending=True),)
+        assert table.get_row_at(0)[3] == "Zebra"
+
+
 def test_local_markdown_number_is_the_table_id() -> None:
     document = (
         ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
@@ -1591,7 +1747,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     selected_key = row_key("issue", selected_issue["id"])
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 6
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
     number_cell = cells[selected_key][DEFAULT_COLUMNS.index("number")]
     assert str(number_cell) == "1"
     assert isinstance(number_cell, IssueNumberCell)
@@ -1626,6 +1782,12 @@ def test_issue_metadata_excludes_labels_used_as_priority() -> None:
     assert "high" not in detail
     assert "medium" not in detail
     assert "low" not in detail
+    # Without a recognized label the priority is absent, never a default.
+    unprioritised = issue("test/repo#2", "Second")
+    unprioritised["labels"] = ["bug"]
+    context = query_issue_list(workspace_snapshot(unprioritised)).rows[0]
+
+    assert "Priority: -" in issue_metadata_text(context)
 
 
 @pytest.mark.asyncio
@@ -3103,6 +3265,61 @@ async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
         await wait_until(
             lambda: sum(column_widths(queue)) == queue.scrollable_content_region.width
         )
+
+
+def test_glyph_header_tooltips_are_the_meanings_the_legend_shows() -> None:
+    assert COLUMNS_BY_KEY["issue_state"].tooltip == ISSUE_STATE_COLUMN_GLYPH.meaning
+    assert COLUMNS_BY_KEY["agent_state"].tooltip == AGENT_STATE_COLUMN_GLYPH.meaning
+    assert {key for key, spec in COLUMNS_BY_KEY.items() if spec.tooltip} == {
+        "issue_state",
+        "agent_state",
+    }
+
+
+@pytest.mark.asyncio
+async def test_hovering_a_glyph_header_shows_its_meaning() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+    # A zero delay divides by zero inside Textual's Timer; a short one is prompt.
+    app.TOOLTIP_DELAY = 0.01
+
+    # Tooltips are off under run_test unless asked for; without this the
+    # test would pass vacuously.
+    async with app.run_test(size=(100, 28), tooltips=True) as pilot:
+        table = app.query_one("#queue", DataTable)
+        tooltip = app.screen.query_one(Tooltip)
+        widths = [column.get_render_width(table) for column in table.columns.values()]
+        agent_state_x = widths[0]
+        number_x = widths[0] + widths[1]
+
+        async def hover_table(x: int, y: int) -> None:
+            # Leave the table first: Textual hides a showing tooltip on any
+            # further move within the same widget without restarting the
+            # timer, so a fresh entry is what shows the next one.
+            assert await pilot.hover("#issue-search")
+            await wait_until(lambda: not tooltip.display)
+            assert await pilot.hover("#queue", offset=(x, y))
+            await pilot.pause(0.05)
+
+        await hover_table(0, 0)
+        await wait_until(lambda: tooltip.display)
+        assert str(tooltip.content) == ISSUE_STATE_COLUMN_GLYPH.meaning
+
+        await hover_table(agent_state_x, 0)
+        await wait_until(lambda: tooltip.display)
+        assert str(tooltip.content) == AGENT_STATE_COLUMN_GLYPH.meaning
+
+        # Other headers and the cells beneath carry no tooltip.
+        await hover_table(number_x, 0)
+        assert not tooltip.display
+        assert table.tooltip is None
+        await hover_table(0, 1)
+        assert not tooltip.display
+        assert table.tooltip is None
 
 
 @pytest.mark.asyncio

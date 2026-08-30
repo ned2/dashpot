@@ -49,6 +49,7 @@ from .issue_list import (
 )
 from .issue_search import IssueSearchSort, parse_issue_search
 from .issue_table import (
+    COLUMNS_BY_KEY,
     DEFAULT_SORT,
     ColumnKey,
     IssueTableViewState,
@@ -60,6 +61,7 @@ from .issue_table import (
     column_specs,
     issue_state_colors,
     searchable_columns,
+    shown_columns,
     sort_key_for_terms,
 )
 from .issue_view import IssueScreen
@@ -331,7 +333,7 @@ class DashpotApp(App[None]):
             ISSUE_PANE_LABEL
         )
         table = self.queue_table()
-        self.add_table_columns(table)
+        self.show_table_columns(table, shown_columns(self.issue_view.columns, ()))
         table.focus()
         self.theme_changed_signal.subscribe(self, self.on_theme_changed)
 
@@ -348,12 +350,24 @@ class DashpotApp(App[None]):
         if self.store.has_observations:
             self.reconcile_rows()
 
-    def add_table_columns(self, table: SpreadTable[TableCell]) -> None:
-        for column in column_specs(self.issue_view.columns):
+    def table_columns(self, table: DataTable[TableCell]) -> tuple[ColumnKey, ...]:
+        """The columns the table shows now: the chosen ones a conditional column may leave."""
+        return tuple(cast(ColumnKey, str(key.value)) for key in table.columns)
+
+    def show_table_columns(
+        self, table: SpreadTable[TableCell], columns: tuple[ColumnKey, ...]
+    ) -> None:
+        """Rebuild the table's columns when they differ from ``columns``."""
+        if columns == self.table_columns(table):
+            return
+        table.clear(columns=True)
+        self.rendered_cells = {}
+        for column in column_specs(columns):
             table.add_column(
                 column_header(column, self.issue_view.sort),
                 key=column.key,
                 spread_weight=column.spread_weight,
+                tooltip=column.tooltip,
             )
 
     def action_columns(self) -> None:
@@ -373,12 +387,10 @@ class DashpotApp(App[None]):
             return
         self.issue_view = self.issue_view.with_columns(columns)
         table = self.queue_table()
-        table.clear(columns=True)
-        self.rows_by_key = {}
-        self.rendered_cells = {}
-        self.add_table_columns(table)
         if self.store.has_observations:
             self.reconcile_rows()
+            return
+        self.show_table_columns(table, shown_columns(columns, ()))
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         column = cast(ColumnKey, str(event.column_key.value))
@@ -390,10 +402,16 @@ class DashpotApp(App[None]):
         self.apply_issue_sort(issue_view, event.data_table)
 
     def action_sort_next(self) -> None:
-        self.apply_issue_sort(self.issue_view.cycle_sort())
+        table = self.queue_table()
+        self.apply_issue_sort(
+            self.issue_view.cycle_sort(self.table_columns(table)), table
+        )
 
     def action_reverse_sort(self) -> None:
-        self.apply_issue_sort(self.issue_view.reverse_sort())
+        table = self.queue_table()
+        self.apply_issue_sort(
+            self.issue_view.reverse_sort(self.table_columns(table)), table
+        )
 
     def apply_issue_sort(
         self,
@@ -468,19 +486,14 @@ class DashpotApp(App[None]):
             self.reconcile_rows()
 
     def update_sort_headers(self, table: DataTable[TableCell]) -> None:
-        columns_by_name = {
-            str(key.value): column for key, column in table.columns.items()
-        }
-        for spec in column_specs(self.issue_view.columns):
-            columns_by_name[spec.key].label = column_header(spec, self.issue_view.sort)
+        for key, column in table.columns.items():
+            spec = COLUMNS_BY_KEY[cast(ColumnKey, str(key.value))]
+            column.label = column_header(spec, self.issue_view.sort)
         table.refresh()
 
     def sort_rows(self, table: DataTable[TableCell]) -> None:
-        terms = tuple(
-            term
-            for term in self.issue_view.sort
-            if term.column in self.issue_view.columns
-        )
+        shown = self.table_columns(table)
+        terms = tuple(term for term in self.issue_view.sort if term.column in shown)
         if not terms or not table.row_count:
             return
         directions = {term.descending for term in terms}
@@ -720,17 +733,17 @@ class DashpotApp(App[None]):
         self.main_screen.query_one("#issue-count", Static).update(
             issue_result_count_text(result.matched_issue_count)
         )
+        shown = shown_columns(self.issue_view.columns, result.rows)
+        self.show_table_columns(table, shown)
         desired_contexts, desired_cells = build_rows(
             result,
-            columns=self.issue_view.columns,
+            columns=shown,
             sort=self.issue_view.sort,
             dark=self.current_theme.dark,
         )
         old_keys = set(self.rendered_cells)
         new_keys = set(desired_cells)
-        hidden_sort = any(
-            term.column not in self.issue_view.columns for term in self.issue_view.sort
-        )
+        hidden_sort = any(term.column not in shown for term in self.issue_view.sort)
 
         with self.batch_update():
             if hidden_sort:
@@ -746,7 +759,7 @@ class DashpotApp(App[None]):
                         continue
                     previous = self.rendered_cells[key]
                     for column, old_value, new_value in zip(
-                        column_specs(self.issue_view.columns),
+                        column_specs(shown),
                         previous,
                         cells,
                         strict=True,
