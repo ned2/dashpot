@@ -282,7 +282,19 @@ class DashpotApp(App[None]):
             for table_id in LIST_TABLE_IDS
         )
 
+    @property
+    def dashboard_active(self) -> bool:
+        """Whether the dashboard is the screen the user is looking at.
+
+        Dashboard bindings are App-level so they survive focus moving between
+        panes, which also means they fire under the Issue view, the Legend and
+        the column editor; each declines unless the dashboard is on top.
+        """
+        return self.screen is self.main_screen
+
     def action_focus_search(self) -> None:
+        if not self.dashboard_active:
+            return
         self.main_screen.query_one("#issue-search", Input).focus()
 
     @override
@@ -297,7 +309,7 @@ class DashpotApp(App[None]):
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus to the next list when a list has it; otherwise decline."""
-        if self.screen is not self.main_screen:
+        if not self.dashboard_active:
             return False
         tables = self.list_tables()
         focused = self.main_screen.focused
@@ -352,6 +364,8 @@ class DashpotApp(App[None]):
             )
 
     def action_columns(self) -> None:
+        if not self.dashboard_active:
+            return
         self.push_screen(
             IssueColumnEditor(self.issue_view.columns),
             self.apply_issue_columns,
@@ -383,12 +397,16 @@ class DashpotApp(App[None]):
         self.apply_issue_sort(issue_view, event.data_table)
 
     def action_sort_next(self) -> None:
+        if not self.dashboard_active:
+            return
         table = self.queue_table()
         self.apply_issue_sort(
             self.issue_view.cycle_sort(self.table_columns(table)), table
         )
 
     def action_reverse_sort(self) -> None:
+        if not self.dashboard_active:
+            return
         table = self.queue_table()
         self.apply_issue_sort(
             self.issue_view.reverse_sort(self.table_columns(table)), table
@@ -437,6 +455,8 @@ class DashpotApp(App[None]):
         )
 
     def action_cycle_issue_state(self) -> None:
+        if not self.dashboard_active:
+            return
         states = next_issue_states(self.issue_view.query.states)
         # Drive the control so the header, the query, and the Select agree.
         self.main_screen.query_one(
@@ -803,7 +823,7 @@ class DashpotApp(App[None]):
 
     def open_issue(self, key: str) -> None:
         """Read the Issue full-screen; nothing happens without an Issue row."""
-        if isinstance(self.screen, IssueScreen):
+        if not self.dashboard_active:
             return
         row = self.rows_by_key.get(key)
         context = self.store.detail_for(row) if row is not None else None

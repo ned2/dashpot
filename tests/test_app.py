@@ -3455,6 +3455,38 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dashboard_bindings_decline_under_the_issue_view() -> None:
+    app = DashpotApp(
+        SequenceCollector(
+            workspace_snapshot(
+                issue("test/repo#1", "First"), issue("test/repo#2", "Second")
+            )
+        ),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        sort = app.issue_view.sort
+        states = app.issue_view.query.states
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+
+        for key in ("c", "slash", "o", "s", "shift+s", "enter"):
+            await pilot.press(key)
+            await pilot.pause()
+
+        # The hidden dashboard is untouched: no editor stacked over the Issue
+        # view, its search not focused, its sort and state filter unchanged.
+        assert isinstance(app.screen, IssueScreen)
+        assert not app.main_screen.query_one("#issue-search", Input).has_focus
+        assert app.issue_view.sort == sort
+        assert app.issue_view.query.states == states
+        assert len(app.screen_stack) == 2
+
+
+@pytest.mark.asyncio
 async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
