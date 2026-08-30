@@ -65,6 +65,38 @@ Local Issue slug. `stop` takes no argument. Check what is recorded with
   `Agent Session identity claimed here` line; do not write a Work Store
   record by hand.
 
+## Preparing a Worktree for an Issue
+
+Interim instructions until the agent-facing skill
+([#58](https://github.com/ned2/dashpot/issues/58)) exists. When work on an
+Issue should happen in its own linked Worktree, let Dashpot apply the
+conventions ([ADR 0011](docs/adr/0011-prepare-issue-worktrees-by-convention.md))
+rather than running `git worktree add` yourself:
+
+```bash
+uv run dashpot issue show 35 --json          # 1. resolve: exactly one fresh Issue
+uv run dashpot worktree create 35 --json     # 2. create: path, Branch, base reported
+codex -C <path>                              # 3. launch there, or: cd <path> && claude
+uv run dashpot work start 35                 # 4. inside that session, at that Worktree
+```
+
+- `create` refuses rather than guesses: an existing Worktree for the Issue is
+  listed as a hint (pass `--branch NAME` for a second approach), and a base
+  without the Project's configuration, a collision, or a partially created
+  Worktree is reported with its recovery commands. `--dry-run` shows the
+  same report without creating anything.
+- The default Worktree Root is the sibling `<checkout>.worktrees/` of the
+  checkout the command runs in and must lie outside every Worktree of the
+  Project; from a Claude Code `.claude/worktrees/` checkout, name one with
+  `--worktree-root` or `DASHPOT_WORKTREE_ROOT`.
+- A running Claude Code session moves with `EnterWorktree path=<path>` (the
+  path is in `git worktree list` after `create`) and then runs `work start`
+  there; Codex cannot relocate, so it prepares the Worktree for a new
+  session. Run `uv sync --locked --group dev` in the new Worktree first.
+- Finished work leaves the Worktree in place. `uv run dashpot worktree check
+  <path>` reports whether it could be removed and the Git command for each
+  reason it cannot; Dashpot never removes it.
+
 ## Vocabulary
 
 Before changing code, tests, or documentation, read the shared

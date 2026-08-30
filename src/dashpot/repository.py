@@ -55,12 +55,23 @@ def repository_worktrees(root: Path, *, timeout: float = 5) -> list[Path]:
     a bare entry is not a Worktree. Independent clones are not reached
     ([ADR 0003](../../docs/adr/0003-prefer-project-local-configuration-and-work-state.md)).
     """
-    raw = git(root, "worktree", "list", "--porcelain", "-z", timeout=timeout)
     return [
         Path(record["worktree"]).resolve()
-        for record in _parse_worktree_records(raw)
+        for record in worktree_records(root, timeout=timeout)
         if record.get("worktree") and "bare" not in record
     ]
+
+
+def worktree_records(root: Path, *, timeout: float = 5) -> list[dict[str, str]]:
+    """Every record of ``git worktree list``, main working tree first.
+
+    A record maps Git's porcelain keys to their values: ``worktree`` (the
+    path), ``HEAD``, ``branch`` (a full refname), and, when present, the
+    flag keys ``bare``, ``detached``, ``locked``, and ``prunable`` with their
+    reason or an empty string.
+    """
+    raw = git(root, "worktree", "list", "--porcelain", "-z", timeout=timeout)
+    return _parse_worktree_records(raw)
 
 
 # Whether the process holding a Worktree lock is still running. Dashpot asks

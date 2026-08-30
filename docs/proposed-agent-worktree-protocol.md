@@ -833,22 +833,34 @@ predating `.dashpot/config.json`.
 
 | Probe | Status | Result or acceptance test |
 |---|---|---|
-| Bare `35` resolves source-neutrally | Measured | `35`, `'#35'`, and the slug resolve to one Issue in Sim; `ned2/sim#35` fails in a Markdown Project by design. Test for `issue show`: same four inputs, `--json` carries `id`, `reference`, `location`. |
+| Bare `35` resolves source-neutrally | Implemented (#56) | `35`, `'#35'`, and the slug resolve to one Issue in Sim; `ned2/sim#35` fails in a Markdown Project by design. Test for `issue show`: same four inputs, `--json` carries `id`, `reference`, `location`. |
 | Codex and Claude Code start beneath one parent without harness names in identity | Measured | `codex exec -C sim/wt-35` and `cd sim/wt-36 && claude -p` each opted in; Worktree paths and Branches (`sim/35`, `sim/36`) carry no harness. |
 | One harness hands an existing Worktree to the other | Partly measured | Handoff is a `cd`/`-C` into the same path; opt-in works from either harness at the same Worktree (measured with hook records of both harnesses at `wt-35`). Test: Codex `work stop`, then Claude launches at the same path, `work start 35`, snapshot lists one run at that Worktree with a new `startedAt`; `git worktree list` unchanged. |
-| Two independent approaches to one Issue | Acceptance test | `worktree create 35` then `worktree create 35` refuses and lists the existing path; `worktree create 35 --branch 35-alternate` creates `35-alternate`; both opt in to the same Issue Identity as separate runs; no `work-session-conflict`. |
-| Base predating configuration fails before creation | Measured for the current gap | A Worktree at the pre-config tag is observed but `work start` fails there. Test: `worktree create 35 --base pre-config` exits 2 naming the missing or mismatched configuration and creates no path or ref. |
-| Existing path and Branch collisions | Measured in Git | Non-empty path and existing Branch fail; empty directory and unused Branch are adopted by Git. Test: `worktree create` refuses all four unless an explicit adoption option is passed, and refuses `35/alt`-style names. |
-| Concurrent creators | Measured in Git | Same path: one wins, loser leaves a stray Branch. Test: two simultaneous `worktree create 35` yield exactly one Worktree, one Branch, and one exit-2 error naming the winner. |
-| Partial Git failure and recovery evidence | Measured in Git | SIGKILL leaves `locked initializing`; retry fails. Test: a retry after a simulated kill reports the lock reason and the `remove -f -f` / `branch -D` recovery, mutating nothing. |
+| Two independent approaches to one Issue | Implemented (#57) | `worktree create 35` then `worktree create 35` refuses and lists the existing path; `worktree create 35 --branch 35-alternate` creates `35-alternate`; both opt in to the same Issue Identity as separate runs; no `work-session-conflict`. |
+| Base predating configuration fails before creation | Implemented (#57) | A Worktree at the pre-config tag is observed but `work start` fails there. Test: `worktree create 35 --base pre-config` exits 2 naming the missing or mismatched configuration and creates no path or ref. |
+| Existing path and Branch collisions | Implemented (#57) | Non-empty path and existing Branch fail; empty directory and unused Branch are adopted by Git. Test: `worktree create` refuses all four unless an explicit adoption option is passed, and refuses `35/alt`-style names. |
+| Concurrent creators | Implemented (#57) | Same path: one wins, loser leaves a stray Branch. Test: two simultaneous `worktree create 35` yield exactly one Worktree, one Branch, and one exit-2 error naming the winner. |
+| Partial Git failure and recovery evidence | Implemented (#57) | SIGKILL leaves `locked initializing`; retry fails. Test: a retry after a simulated kill reports the lock reason and the `remove -f -f` / `branch -D` recovery, mutating nothing. |
 | Main Worktree stays clean, no machine-local state committed | Measured | Outside-repository Worktrees leave `git status` empty; `.dashpot/state/` stayed absent in the main Worktree. |
 | Correct Agent Session, Agent Run, Worktree, Branch, and Issue Binding observed | Measured | Snapshot from the main Worktree listed each run with its Worktree, Branch, and Issue Identity; after the sessions ended, one `work-session-orphaned` diagnostic per run named the right Worktree. |
 | Finished work leaves a reusable Worktree without automatic cleanup | Measured | Both Worktrees remained registered and clean after the sessions ended; nothing removed them. Cleanup refusal test deferred with decision 11. |
 | Relocation leaves no stale binding | Implemented (#55) | `work start` at B for a session whose freshest hook record is at B ends its run at A and reports `switched from <ref> at A to <ref> at B`; observation lists one run at B, no conflict; `stop` at B ends a run held at A. A `start` where the freshest record places the session elsewhere — a tool-call `cd`, a sub-agent's Worktree, or a sandboxed `start` at A after the move — is refused and writes nothing. Covered by `tests/test_work.py` through the `WorkStore`, hook-record, and fake-process seams, and measured end to end (Claude Code 2.1.251, Sim with the matched `PostToolUse` hook): `work start 35` at A, `EnterWorktree path=B`, `work start 35`, `work show`, `work stop` in one turn reported the switch, listed one run at B, and ended it; the snapshot from the main Worktree afterwards listed no run and no diagnostic. |
 | `PostToolUse(EnterWorktree)` reports the new location | Measured (2026-08-30, Claude Code 2.1.251) | With a project-level `PostToolUse` hook matched to `EnterWorktree` running the installed publisher in Sim (linked Worktrees A and B), a session started at A that called `EnterWorktree path=B` fired the hook once; its input carried `tool_name: EnterWorktree` and `cwd` at B, and the record written from that event had `cwd`, `repositoryRoot`, and `branch` at B and was the freshest for the session across both stores (A kept the earlier `UserPromptSubmit`). ADR 0009 is accepted without its fallback: `work start` may follow `EnterWorktree` in the same turn. The session's graceful `SessionEnd` at B removed only B's record; A's is pruned as gone. |
-| Removability report | Acceptance test (new) | `worktree check` on a clean idle Worktree reports removable; on a dirty one, a locked one (`initializing`, a live Claude session lock, a user lock), one with an active Agent Run, and one with unpushed commits it reports each reason with its Git command, and mutates nothing. |
-| Default naming and root | Acceptance test (new) | With no root configured, `worktree create 35` in `~/p/sim` creates `~/p/sim.worktrees/35-worktree-protocol` on Branch `35-worktree-protocol` from `origin/HEAD`, and the JSON names both sources; with no `origin/HEAD` and one local `main` it reports the guess; with neither it exits 2 naming `--base`. |
+| Removability report | Implemented (#57) | `worktree check` on a clean idle Worktree reports removable; on a dirty one, a locked one (`initializing`, a live Claude session lock, a user lock), one with an active Agent Run, and one with unpushed commits it reports each reason with its Git command, and mutates nothing. |
+| Default naming and root | Implemented (#57) | With no root configured, `worktree create 35` in `~/p/sim` creates `~/p/sim.worktrees/35-worktree-protocol` on Branch `35-worktree-protocol` from `origin/HEAD`, and the JSON names both sources; with no `origin/HEAD` and one local `main` it reports the guess; with neither it exits 2 naming `--base`. |
 | Skill forward-test | Deferred | Give unprimed Codex and Claude Code the same ordinary prompt and judge outcomes, once the commands exist. |
+
+The rows marked *Implemented (#56)* and *(#57)* are covered by
+`tests/test_issue_resolution.py`, `tests/test_worktrees.py`, and
+`tests/test_cli.py` against disposable Local Issue Markdown repositories, and
+the conventions they exercise are recorded in
+[ADR 0011](adr/0011-prepare-issue-worktrees-by-convention.md). Two
+implementation choices go beyond the table: `worktree create` also refuses a
+`--branch` that an existing Branch extends with `/` (the reverse of the D/F
+conflict measured above), and a lost race whose winner is still adding the
+Worktree is reported as `locked 'initializing'` with the recovery commands
+qualified by "if it stays locked", since the same lock signature is both a
+creation in progress and a killed one.
 
 ## Decision path
 
@@ -860,6 +872,7 @@ predating `.dashpot/config.json`.
 3. Implement `issue show` (#56), then `worktree create` and `worktree check`
    (#57) with the acceptance tests in the probe table, against disposable
    repositories and both harnesses, adding interim `AGENTS.md` instructions.
+   Done under ADR 0011; the harness end-to-end run is the skill's forward-test.
 4. Rerun the review probes, including the relocation probe, before writing the
    model-invoked skill.
 5. Write, distribute, and forward-test the skill (#58), pruning instructions

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import get_args
 from unittest import mock
@@ -21,6 +22,7 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from dashpot.workspace import WorkspaceResolution
+from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
 
 
 def write_config_marker(root: Path) -> None:
@@ -376,6 +378,162 @@ def test_work_errors_are_reported_without_traceback(
     assert "no supported agent session" in capsys.readouterr().err
 
 
+def test_issue_show_prints_lines_or_the_issue_profile_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    issue = {
+        "id": "I_35",
+        "number": 35,
+        "reference": "ned2/dashpot#35",
+        "title": "Worktree protocol",
+        "state": "open",
+        "stateReason": None,
+        "location": {
+            "kind": "github",
+            "url": "https://github.com/ned2/dashpot/issues/35",
+        },
+    }
+
+    with mock.patch.object(cli, "show_issue", return_value=issue) as show:
+        assert cli.main(["issue", "show", "35"]) == 0
+    show.assert_called_once_with(Path.cwd().resolve(), "35", timeout=10.0)
+    lines = capsys.readouterr().out
+    assert "ned2/dashpot#35: Worktree protocol" in lines
+    assert "location: https://github.com/ned2/dashpot/issues/35" in lines
+
+    with mock.patch.object(cli, "show_issue", return_value=issue):
+        assert cli.main(["issue", "show", "#35", "--json", "--timeout", "2"]) == 0
+    assert json.loads(capsys.readouterr().out) == issue
+
+    with mock.patch.object(
+        cli, "show_issue", side_effect=RuntimeError("did not match an Issue")
+    ):
+        assert cli.main(["issue", "show", "99"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "dashpot: did not match an Issue\n"
+
+
+PLAN = WorktreePlan(
+    issue_id="I_35",
+    issue_reference="ned2/dashpot#35",
+    path="/w/dashpot.worktrees/35-worktree-protocol",
+    branch="35-worktree-protocol",
+    base_ref="refs/remotes/origin/main",
+    base_source="origin/HEAD",
+    base_commit="e319d3c",
+    worktree_root="/w/dashpot.worktrees",
+    worktree_root_source="default-sibling",
+    dry_run=False,
+    created=True,
+)
+
+
+def test_worktree_create_dispatches_every_option_and_prints_the_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(cli, "create_issue_worktree", return_value=PLAN) as create:
+        assert (
+            cli.main(
+                [
+                    "worktree",
+                    "create",
+                    "35",
+                    "--base",
+                    "main",
+                    "--branch",
+                    "35-alt",
+                    "--worktree-root",
+                    "/w",
+                    "--dry-run",
+                    "--timeout",
+                    "3",
+                ]
+            )
+            == 0
+        )
+    create.assert_called_once_with(
+        Path.cwd().resolve(),
+        "35",
+        base="main",
+        branch="35-alt",
+        worktree_root_option=Path("/w"),
+        dry_run=True,
+        timeout=3.0,
+    )
+    out = capsys.readouterr().out
+    assert out.startswith("created Worktree /w/dashpot.worktrees/35-worktree-protocol")
+    assert "base: refs/remotes/origin/main at e319d3c (from origin/HEAD)" in out
+    assert "worktree root: /w/dashpot.worktrees (from default-sibling)" in out
+
+
+def test_worktree_create_refusal_exits_2_in_both_output_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    refused = replace(
+        PLAN, created=False, refusals=("Branch 35-worktree-protocol already exists",)
+    )
+
+    with mock.patch.object(cli, "create_issue_worktree", return_value=refused):
+        assert cli.main(["worktree", "create", "35"]) == 2
+    captured = capsys.readouterr()
+    assert (
+        captured.err == "dashpot: refused: Branch 35-worktree-protocol already exists\n"
+    )
+    assert captured.out.startswith("refused Worktree ")
+
+    with mock.patch.object(cli, "create_issue_worktree", return_value=refused):
+        assert cli.main(["worktree", "create", "35", "--json"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["created"] is False
+    assert payload["refusals"] == ["Branch 35-worktree-protocol already exists"]
+    assert payload["baseCommit"] == "e319d3c"
+
+
+def test_worktree_check_dispatches_and_prints_the_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report = WorktreeRemovability(
+        path="/w/dashpot.worktrees/35-worktree-protocol",
+        branch="35-worktree-protocol",
+        head="e319d3c",
+        role="linked",
+        removable=False,
+        obstacles=(
+            RemovalObstacle(
+                "dirty", "1 changed path", "git worktree remove --force /w/x"
+            ),
+        ),
+        remove_commands=("git worktree remove /w/x",),
+    )
+
+    with mock.patch.object(cli, "check_worktree", return_value=report) as check:
+        assert cli.main(["worktree", "check", "/w/x"]) == 0
+    check.assert_called_once_with(Path.cwd().resolve(), Path("/w/x"), timeout=10.0)
+    out = capsys.readouterr().out
+    assert "is not removable:" in out
+    assert "- dirty: 1 changed path -> git worktree remove --force /w/x" in out
+
+    with mock.patch.object(cli, "check_worktree", return_value=report):
+        assert cli.main(["worktree", "check", "/w/x", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["removable"] is False
+    assert payload["obstacles"][0]["kind"] == "dirty"
+
+
 def test_integrate_codex_dispatches_install_remove_and_status(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -541,6 +699,10 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
         (["--bogus"], "Unknown option: --bogus"),
         (["work", "start"], "REFERENCE requires an argument"),
         (["work", "bogus"], 'Unknown command "bogus"'),
+        (["issue", "show"], "REFERENCE requires an argument"),
+        (["worktree", "create"], "REFERENCE requires an argument"),
+        (["worktree", "check"], "PATH requires an argument"),
+        (["worktree", "create", "35", "--no-dry-run"], "Unknown option: --no-dry-run"),
         (["init", "--timeout", "0"], "Must be > 0."),
         (["integrate"], "HARNESS requires an argument"),
         (["integrate", "emacs"], 'Choose from: "codex", "claude-code"'),
@@ -571,7 +733,7 @@ def test_root_help_describes_the_command_hierarchy_and_options() -> None:
 
     assert "Usage: dashpot COMMAND [OPTIONS]" in text
     assert "Passively observe Issues, repositories, and agent runs." in text
-    for command in ("init", "integrate", "work"):
+    for command in ("init", "integrate", "issue", "work", "worktree"):
         assert f" {command} " in text
     for option in (
         "--workspace",
@@ -598,6 +760,14 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
 
     start = help_text(["work", "start", "--help"])
     assert "Usage: dashpot work start [OPTIONS] REFERENCE" in start
+
+    create = help_text(["worktree", "create", "--help"])
+    assert "Usage: dashpot worktree create [OPTIONS] REFERENCE" in create
+    for option in ("--base", "--branch", "--worktree-root", "--dry-run", "--json"):
+        assert option in create
+    assert "Usage: dashpot issue show [OPTIONS] REFERENCE" in help_text(
+        ["issue", "show", "--help"]
+    )
     assert "Issue Reference" in start
     assert "--timeout" in start
 

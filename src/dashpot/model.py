@@ -193,7 +193,7 @@ def to_jsonable(value: object) -> object:
         }
     if isinstance(value, dict):
         return {key: to_jsonable(item) for key, item in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, list | tuple):
         return [to_jsonable(item) for item in value]
     return value
 
