@@ -2041,6 +2041,7 @@ async def test_refresh_fans_out_to_every_project(
         await app.run_action("refresh")
         await wait_until(lambda: collectors["alpha"].source.calls == calls["alpha"] + 1)
         await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 1)
+        await wait_until(lambda: not app.in_flight)
 
         assert collectors["alpha"].target_calls == 2
         assert collectors["beta"].target_calls == 2
