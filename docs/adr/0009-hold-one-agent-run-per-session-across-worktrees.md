@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Hold one active Agent Run per Agent Session across a Repository's Worktrees
@@ -60,10 +60,23 @@ and `EnterWorktree` fires none of them, so at the moment a relocated session
 first runs `start` the freshest record would still say A. Claude Code's
 integration therefore adds `PostToolUse` matched to `EnterWorktree` alone —
 one hook invocation per relocation, not per tool call, so ADR 0006's cost
-measurement does not apply. Whether that record's `cwd` is already the new
-Worktree is verified by the protocol's relocation probe before this decision
-is accepted; if it is not, relocation is verified from the next turn boundary
-and the skill must not chain `EnterWorktree` and `start` in one turn.
+measurement does not apply. Measured on 2026-08-30 with Claude Code 2.1.251,
+in a disposable Local Issue Markdown Project with linked Worktrees A and B and
+a project-level `PostToolUse` hook matched to `EnterWorktree` running the
+installed publisher: a session started at A that called `EnterWorktree` with
+`path=B` fired the hook exactly once, its input carried
+`hook_event_name: PostToolUse`, `tool_name: EnterWorktree`, and `cwd` already
+at B (`tool_response.worktreePath` also named B), so the matcher selects the
+tool as assumed; the record the publisher wrote from that event had `cwd`,
+`repositoryRoot`, and `branch` at B and a `lastActivityAt` later than the
+session's `UserPromptSubmit` record at A, so it was the freshest record for
+the session across both stores. A `start` that follows `EnterWorktree` in the
+same turn therefore sees the relocation, and the fallback this decision held
+in reserve — verifying relocation from the next turn boundary and forbidding
+a skill from chaining `EnterWorktree` and `start` in one turn — is not needed.
+The same run showed that the session's graceful `SessionEnd` at B removed only
+B's record; the record left behind at A is stale observation state, pruned
+once its process is gone, and is never the freshest.
 
 ## Considered options
 

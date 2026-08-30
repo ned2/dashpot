@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Let named management commands mutate on explicit invocation
