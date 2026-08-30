@@ -93,6 +93,7 @@ class RemovalObstacle:
         "locked",
         "agent-session",
         "agent-run",
+        "work-store",
         "unpushed",
         "unmerged",
     ]
@@ -743,7 +744,13 @@ def check_worktree(
                 f"{record.outcome} here (last activity {record.last_activity_at})",
             )
         )
-    active, _diagnostics = WorkStore(path).active()
+    active, work_diagnostics = WorkStore(path).active()
+    # A record that cannot be read may still be a live Agent Run; removable
+    # is never claimed on evidence that could not be examined.
+    obstacles.extend(
+        RemovalObstacle("work-store", diagnostic.message)
+        for diagnostic in work_diagnostics
+    )
     for work in active:
         liveness = (
             session_liveness(work.session_process.as_record(), lookup).liveness
@@ -795,14 +802,30 @@ def _branch_obstacles(
         anchor,
         timeout,
     )
+    # The Integration Branch is chosen by the same rule as a new Worktree's
+    # base; when none can be, integration is unknown rather than complete.
+    base_resolution = _Preparation()
     base_ref, _source, base_commit = _resolve_base(
-        anchor, None, _Preparation(), timeout
+        anchor, None, base_resolution, timeout
     )
     unmerged = (
         _count(anchor, f"{base_commit}..refs/heads/{branch}", timeout)
         if base_commit
         else None
     )
+    if unmerged is None:
+        reason = (
+            "; ".join(base_resolution.refusals)
+            if base_resolution.refusals
+            else f"commits not reachable from {base_ref} could not be counted"
+        )
+        obstacles.append(
+            RemovalObstacle(
+                "unmerged",
+                f"cannot tell whether Branch {branch} is integrated: {reason}",
+                f"git log --oneline {branch}",
+            )
+        )
     if upstream.returncode == 0 and upstream.stdout.strip():
         ahead = _count(
             anchor, f"{upstream.stdout.strip()}..refs/heads/{branch}", timeout

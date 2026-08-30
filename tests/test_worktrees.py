@@ -699,6 +699,43 @@ def test_orphaned_run_names_the_stop_command(tmp_path: Path) -> None:
     )
 
 
+def test_an_unreadable_work_store_record_is_an_obstacle(tmp_path: Path) -> None:
+    root = sim(tmp_path)
+    plan = create(root)
+    path = Path(plan.path)
+    work = WorkStore(path).directory
+    work.mkdir(parents=True)
+    (work / "codex-4242-deadbeef.json").write_text("{not json")
+
+    report = check_worktree(root, path, lookup=absent())
+
+    # The record may describe a live Agent Run; removable is never claimed
+    # on evidence that could not be read.
+    assert report.removable is False
+    (obstacle,) = report.obstacles
+    assert obstacle.kind == "work-store"
+    assert "Cannot read Work Store record" in obstacle.detail
+
+
+def test_no_integration_branch_is_reported_not_assumed_merged(tmp_path: Path) -> None:
+    root = sim(tmp_path)
+    plan = create(root)
+    path = Path(plan.path)
+    git(path, "commit", "-q", "--allow-empty", "-m", "local work")
+    git(root, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+    git(root, "branch", "-m", "main", "trunk")
+
+    report = check_worktree(root, path)
+
+    assert report.removable is False
+    by_kind = {obstacle.kind: obstacle for obstacle in report.obstacles}
+    assert "unmerged" in by_kind
+    assert by_kind["unmerged"].detail.startswith(
+        "cannot tell whether Branch worktree-protocol is integrated: "
+        "no base Branch could be chosen"
+    )
+
+
 def test_initializing_lock_names_the_forced_removal(tmp_path: Path) -> None:
     root = sim(tmp_path)
     plan = create(root)
