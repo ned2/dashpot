@@ -72,11 +72,11 @@ from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
-WORKTREES_PANE_LABEL = "WORKTREES"
 BRANCHES_PANE_LABEL = "BRANCHES"
+WORKTREES_PANE_LABEL = "WORKTREES"
 # Focus cycles through the four lists in reading order; the Header and
 # the Issue controls are not part of the cycle.
-LIST_TABLE_IDS = ("queue", "sessions", "worktrees", "branches")
+LIST_TABLE_IDS = ("queue", "sessions", "branches", "worktrees")
 # A list pane's blank line below it, its frame and its header, all of which
 # come out of the height that pane's records get. The last pane's margin is
 # the gap before the Issue table. An empty pane is its frame and one message
@@ -145,8 +145,8 @@ class DashpotApp(App[None]):
         # Footer cuts off sort keys, which the column headers also offer.
         ("1", "focus_issues", "Issues"),
         ("2", "focus_sessions", "Sessions"),
-        ("3", "focus_worktrees", "Worktrees"),
-        ("4", "focus_branches", "Branches"),
+        ("3", "focus_branches", "Branches"),
+        ("4", "focus_worktrees", "Worktrees"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
@@ -224,18 +224,18 @@ class DashpotApp(App[None]):
                     table_id="sessions",
                 )
                 yield ListPane(
-                    WORKTREES_PANE_LABEL,
-                    columns=WORKTREE_COLUMNS,
-                    empty_message="no worktrees observed yet",
-                    id="worktrees-pane",
-                    table_id="worktrees",
-                )
-                yield ListPane(
                     BRANCHES_PANE_LABEL,
                     columns=BRANCH_COLUMNS,
                     empty_message="no branches observed yet",
                     id="branches-pane",
                     table_id="branches",
+                )
+                yield ListPane(
+                    WORKTREES_PANE_LABEL,
+                    columns=WORKTREE_COLUMNS,
+                    empty_message="no worktrees observed yet",
+                    id="worktrees-pane",
+                    table_id="worktrees",
                 )
             with Vertical(id="queue-pane"):
                 with Horizontal(id="queue-controls"):
@@ -267,18 +267,18 @@ class DashpotApp(App[None]):
     def sessions_pane(self) -> ListPane:
         return self.main_screen.query_one("#sessions-pane", ListPane)
 
-    def worktrees_pane(self) -> ListPane:
-        return self.main_screen.query_one("#worktrees-pane", ListPane)
-
     def branches_pane(self) -> ListPane:
         return self.main_screen.query_one("#branches-pane", ListPane)
 
+    def worktrees_pane(self) -> ListPane:
+        return self.main_screen.query_one("#worktrees-pane", ListPane)
+
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
-        return (self.sessions_pane(), self.worktrees_pane(), self.branches_pane())
+        return (self.sessions_pane(), self.branches_pane(), self.worktrees_pane())
 
     def list_tables(self) -> tuple[DataTable[Any], ...]:
-        """The lists in focus-cycle order: Issues, Sessions, Worktrees, Branches."""
+        """The lists in focus-cycle order: Issues, Sessions, Branches, Worktrees."""
         return tuple(
             self.main_screen.query_one(f"#{table_id}", DataTable)
             for table_id in LIST_TABLE_IDS
@@ -290,11 +290,11 @@ class DashpotApp(App[None]):
     def action_focus_sessions(self) -> None:
         self.sessions_pane().table.focus()
 
-    def action_focus_worktrees(self) -> None:
-        self.worktrees_pane().table.focus()
-
     def action_focus_branches(self) -> None:
         self.branches_pane().table.focus()
+
+    def action_focus_worktrees(self) -> None:
+        self.worktrees_pane().table.focus()
 
     def action_focus_search(self) -> None:
         self.main_screen.query_one("#issue-search", Input).focus()
@@ -683,13 +683,13 @@ class DashpotApp(App[None]):
             build_session_rows(sessions, dark=self.current_theme.dark),
             columns=session_columns(sessions),
         )
-        self.worktrees_pane().show_rows(self.worktree_rows())
         branches = self.store.query_branches()
         now = datetime.now(UTC)
         self.branches_pane().show_rows(
             build_branch_rows(branches, dark=self.current_theme.dark, now=now),
             note=fetch_age_text(branches.fetched_at, now),
         )
+        self.worktrees_pane().show_rows(self.worktree_rows())
 
     def worktree_rows(self) -> tuple[ListRow, ...]:
         return build_worktree_rows(

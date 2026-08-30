@@ -176,17 +176,19 @@ async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> Non
 
 
 def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
-    """Sessions over Worktrees over the Issue table, every one the body's width."""
+    """The list panes stack in reading order above the full-width Issue table."""
     body = app.query_one("#body")
     list_row = app.query_one("#list-row")
     sessions = app.query_one("#sessions-pane")
+    branches = app.query_one("#branches-pane")
     worktrees = app.query_one("#worktrees-pane")
     queue_pane = app.query_one("#queue-pane")
 
     assert sessions.region.y == list_row.region.y
-    assert sessions.region.bottom <= worktrees.region.y
+    assert sessions.region.bottom <= branches.region.y
+    assert branches.region.bottom <= worktrees.region.y
     assert worktrees.region.bottom <= list_row.region.bottom <= queue_pane.region.y
-    for pane in (sessions, worktrees, queue_pane):
+    for pane in (sessions, branches, worktrees, queue_pane):
         assert pane.region.x == body.region.x
         assert pane.region.width == body.region.width
     assert queue_pane.region.height >= 6
@@ -474,7 +476,11 @@ async def test_only_focused_main_screen_table_shows_its_row_cursor() -> None:
         assert {
             table_id for table_id, table in tables.items() if table.show_cursor
         } == {"queue"}
-        for key, table_id in (("2", "sessions"), ("3", "worktrees"), ("4", "branches")):
+        for key, table_id in (
+            ("2", "sessions"),
+            ("3", "branches"),
+            ("4", "worktrees"),
+        ):
             await pilot.press(key)
             assert {
                 current_id for current_id, table in tables.items() if table.show_cursor
@@ -2420,8 +2426,8 @@ async def test_main_screen_stacks_the_panes_above_the_issues() -> None:
         queue_pane = app.query_one("#queue-pane")
         assert_panes_stack_above_full_width_queue(app)
         # One blank line separates back-to-back panes.
-        assert sessions.region.bottom + 1 == worktrees.region.y
-        assert worktrees.region.bottom + 1 == branches.region.y
+        assert sessions.region.bottom + 1 == branches.region.y
+        assert branches.region.bottom + 1 == worktrees.region.y
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         # Remote freshness sits apart from the label and count, aligned to the
@@ -2468,24 +2474,24 @@ async def test_tab_and_pane_keys_cycle_focus_through_the_four_lists() -> None:
         assert app.query_one("#sessions-pane").has_pseudo_class("focus-within")
         assert not app.query_one("#queue-pane").has_pseudo_class("focus-within")
         await pilot.press("tab")
-        assert worktrees.has_focus
-        await pilot.press("tab")
         assert branches.has_focus
         assert app.query_one("#branches-pane").has_pseudo_class("focus-within")
         await pilot.press("tab")
+        assert worktrees.has_focus
+        await pilot.press("tab")
         assert queue.has_focus
         await pilot.press("shift+tab")
-        assert branches.has_focus
-        await pilot.press("shift+tab")
         assert worktrees.has_focus
+        await pilot.press("shift+tab")
+        assert branches.has_focus
         await pilot.press("shift+tab")
         assert sessions.has_focus
 
         await pilot.press("1")
         assert queue.has_focus
-        await pilot.press("4")
-        assert branches.has_focus
         await pilot.press("3")
+        assert branches.has_focus
+        await pilot.press("4")
         assert worktrees.has_focus
         await pilot.press("2")
         assert sessions.has_focus
@@ -2752,7 +2758,7 @@ async def test_refresh_scope_is_the_selected_issue_project_whatever_is_focused()
         assert app.current_project_id() == "project:test-repo"
         pane = prepare_pane(app, "worktrees-pane")
         pane.show_rows((ListRow("elsewhere", ("elsewhere", "-")),))
-        await pilot.press("3")
+        await pilot.press("4")
         await pilot.pause()
         assert app.current_project_id() == "project:test-repo"
         pane.show_rows(())
@@ -3000,7 +3006,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         await wait_until(lambda: app.store.revision == 2)
         await pilot.pause()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 2"
-        await pilot.press("3")
+        await pilot.press("4")
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == (
