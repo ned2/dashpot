@@ -200,6 +200,17 @@ DetailRow.-list > .field-value {
     color: $error;
 }
 
+/* Give every visible key binding an equal share of the footer instead of
+   packing the bindings against the left edge. */
+Footer > FooterKey {
+    width: 1fr;
+    text-align: center;
+}
+
+Footer > FooterKey.-command-palette {
+    width: auto;
+}
+
 Screen.-compact #diagnostics {
     max-height: 3;
 }

@@ -14,6 +14,7 @@ import asyncio
 import copy
 import json
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 from threading import Event, Lock
 
@@ -2563,6 +2564,41 @@ def pane_chrome(pane: ListPane) -> int:
 
 def footer_keys(app: DashpotApp) -> set[str]:
     return {binding.key for _, binding, *_ in app.screen.active_bindings.values()}
+
+
+@pytest.mark.asyncio
+async def test_footer_distributes_key_bindings_across_its_width() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+
+        footer = app.query_one(Footer)
+        binding_items = [
+            child
+            for child in footer.children
+            if not child.has_class("-command-palette")
+        ]
+        command_palette = next(
+            child for child in footer.children if child.has_class("-command-palette")
+        )
+
+        assert binding_items[0].region.x == footer.region.x
+        assert all(
+            left.region.right == right.region.x
+            for left, right in pairwise(binding_items)
+        )
+        assert binding_items[-1].region.right == command_palette.region.x
+        assert (
+            max(item.region.width for item in binding_items)
+            - min(item.region.width for item in binding_items)
+            <= 1
+        )
+        assert all(item.styles.text_align == "center" for item in binding_items)
 
 
 @pytest.mark.asyncio
