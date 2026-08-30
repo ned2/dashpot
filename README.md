@@ -812,10 +812,11 @@ decision rather than an omission
 is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
-and sorted main before linked, then path, with the Git
-topology role `git worktree list` reported beside the path, whether the path is a configured Repository Anchor,
-and exceptional `stale` or `unavailable` state. Its four columns are `PATH`,
-`BRANCH`, `TREE`, and `SESSIONS`: normal Branches omit HEAD, detached checkouts
+and sorted main before linked, then path, with its Git topology kind (`main` or
+`linked`) reported in its own column,
+and exceptional `stale` or `unavailable` state. Its five columns are `PATH`,
+`KIND`, `BRANCH`, `TREE`, and `SESSIONS`: `KIND` distinguishes Git's `main`
+and `linked` Worktrees, normal Branches omit HEAD, detached checkouts
 include their short HEAD, the working tree remains clean/dirty/unknown, and
 the last column counts the active Agent Sessions located there. Healthy rows
 do not repeat `available`. Target-specific diagnostics stay in Diagnostics
@@ -826,8 +827,11 @@ Remote-Tracking Branches of one branch name into one row, so a branch is
 never listed twice and never needs a second pane: `WHERE` says where it exists
 (`local`, `local · origin`, or `origin` alone for a branch pushed from
 elsewhere), `SYNC` is the local ref's relation to its upstream (`✓` in sync,
-`↑2 ↓1`, `∅` unpushed, or `✗` upstream gone), then the Worktree it is checked out
-in, the active sessions on it, and the age of its last commit. Rows are sorted checked-out first, then most recent commit. The
+`↑2 ↓1`, `∅` unpushed, or `✗` upstream gone), followed by the active
+sessions on it and the age of its last commit. The Worktrees pane names the
+Branch checked out at every Worktree. Rows are sorted checked-out first, then
+most recent commit. Its five columns are `BRANCH`, `WHERE`, `SYNC`, `SESSIONS`,
+and `LAST COMMIT`. The
 refs are read with `git for-each-ref` from the first answering Repository
 Anchor; Dashpot never runs `git fetch`, so the lower-right pane border carries
 the age of the last fetch (`remote last fetched 3h ago`, or

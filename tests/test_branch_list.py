@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 from rich.text import Text
 
@@ -164,39 +163,44 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     on_main.branch = "main"
     result = query_branch_list(workspace(observation, runs=[on_main]))
     by_name = {row.name: row for row in result.rows}
-    home = Path("/home/ned")
 
     def plain(cells: tuple[str | Text, ...]) -> list[str]:
         return [str(cell) for cell in cells]
 
-    main = branch_cells(by_name["main"], dark=True, now=CLOCK, home=home)
+    main = branch_cells(by_name["main"], dark=True, now=CLOCK)
     assert plain(main) == [
         "main",
         "local · origin",
         "✓",
-        "~/project:one",
         "◐ 1",
         "1h ago",
     ]
-    drifted = branch_cells(by_name["ahead-behind"], dark=True, now=CLOCK, home=home)
+    drifted = branch_cells(by_name["ahead-behind"], dark=True, now=CLOCK)
     assert isinstance(drifted[2], Text)
     assert drifted[2].plain == "↑3 ↓2"
     assert str(drifted[2].style) == "#d29922"
-    gone = branch_cells(by_name["gone"], dark=False, now=CLOCK, home=home)
+    gone = branch_cells(by_name["gone"], dark=False, now=CLOCK)
     assert isinstance(gone[2], Text)
     assert (gone[2].plain, str(gone[2].style)) == ("✗", "#cf222e")
-    unpushed = branch_cells(by_name[long_name], dark=True, now=CLOCK, home=home)
+    unpushed = branch_cells(by_name[long_name], dark=True, now=CLOCK)
     assert str(unpushed[0]) == "feature/" + "x" * 39 + "…"
     assert isinstance(unpushed[2], Text)
     assert unpushed[2].plain == "∅"
     assert str(unpushed[3]) == "-"
-    remote_only = branch_cells(by_name["remote-only"], dark=True, now=CLOCK, home=home)
+    remote_only = branch_cells(by_name["remote-only"], dark=True, now=CLOCK)
     assert plain(remote_only[:3]) == ["remote-only", "origin", "-"]
-    assert plain(remote_only[3:5]) == ["-", "-"]
+    assert plain(remote_only[3:]) == ["-", "1h ago"]
 
-    rows = build_branch_rows(result, dark=True, now=CLOCK, home=home)
+    rows = build_branch_rows(result, dark=True, now=CLOCK)
     assert [row.key for row in rows] == [row.key for row in result.rows]
     assert len(rows[0].cells) == len(BRANCH_COLUMNS)
+    assert [column.label for column in BRANCH_COLUMNS] == [
+        "BRANCH",
+        "WHERE",
+        "SYNC",
+        "SESSIONS",
+        "LAST COMMIT",
+    ]
 
 
 def test_fetch_age_is_honest() -> None:

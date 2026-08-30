@@ -37,6 +37,7 @@ STALE_COLORS = ("#9a6700", "#d29922")
 
 WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("path", "PATH"),
+    ListColumn("kind", "KIND"),
     ListColumn("branch", "BRANCH"),
     ListColumn("tree", "TREE"),
     ListColumn("sessions", "SESSIONS"),
@@ -159,6 +160,7 @@ def worktree_cells(
     target = row.target
     return (
         path_cell(row, dark=dark, home=home),
+        target.role,
         branch_cell(target),
         tree_cell(target.dirty, dark=dark),
         sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
@@ -168,15 +170,12 @@ def worktree_cells(
 def path_cell(
     row: WorktreeListRow, *, dark: bool, home: Path | None = None
 ) -> ListCell:
-    """Annotate the path with topology, anchor status, and exceptional freshness."""
+    """Show the path with exceptional freshness when observation failed."""
     path = truncate_start(abbreviate_path(row.target.path, home=home), PATH_LIMIT)
-    annotations = [row.target.role]
-    if row.anchored:
-        annotations.append("anchor")
     freshness = row.freshness
     if freshness == "available":
-        return f"{path} · {' · '.join(annotations)}"
-    cell = Text(f"{path} · {' · '.join(annotations)} · ")
+        return path
+    cell = Text(f"{path} · ")
     cell.append(freshness, style=freshness_color(freshness, dark=dark))
     return cell
 

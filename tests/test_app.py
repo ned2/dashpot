@@ -3159,10 +3159,11 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         pane = app.worktrees_pane()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         labels = [str(column.label) for column in pane.table.columns.values()]
-        assert labels == ["PATH", "BRANCH", "TREE", "SESSIONS"]
+        assert labels == ["PATH", "KIND", "BRANCH", "TREE", "SESSIONS"]
         main_cells = [str(cell) for cell in pane.table.get_row_at(0)]
         assert main_cells == [
-            "/repo · main · anchor",
+            "/repo",
+            "main",
             "main",
             "clean",
             "-",
@@ -3181,7 +3182,8 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         )
         linked_cells = [str(cell) for cell in pane.table.get_row_at(1)]
         assert linked_cells == [
-            "/repo-linked · linked · unavailable",
+            "/repo-linked · unavailable",
+            "linked",
             "detached @ def4567",
             "unknown",
             "-",
@@ -3198,7 +3200,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         await wait_until(lambda: app.store.revision == 3)
         await pilot.pause()
         stale_cells = [str(cell) for cell in pane.table.get_row_at(1)]
-        assert stale_cells[0] == "/repo-linked · linked · stale"
+        assert stale_cells[0] == "/repo-linked · stale"
 
         # The linked worktree is removed: the cursor moves to a neighbour.
         app.request_refresh("manual")

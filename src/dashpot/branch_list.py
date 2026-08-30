@@ -12,14 +12,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 
 from rich.text import Text
 
 from .glyphs import Glyph
 from .issue_list import row_key
 from .issue_table import relative_age
-from .list_pane import ListCell, ListColumn, ListRow, truncate_end, truncate_start
+from .list_pane import ListCell, ListColumn, ListRow, truncate_end
 from .model import (
     AgentRun,
     Branch,
@@ -27,7 +26,6 @@ from .model import (
     ProjectObservation,
     WorkspaceSnapshot,
 )
-from .session_list import PATH_LIMIT, abbreviate_path
 from .worktree_list import (
     DIRTY_COLORS,
     UNAVAILABLE_COLORS,
@@ -58,7 +56,6 @@ BRANCH_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("name", "BRANCH"),
     ListColumn("where", "WHERE"),
     ListColumn("sync", "SYNC"),
-    ListColumn("worktree", "WORKTREE"),
     ListColumn("sessions", "SESSIONS"),
     ListColumn("commit", "LAST COMMIT"),
 )
@@ -200,12 +197,11 @@ def build_branch_rows(
     *,
     dark: bool,
     now: datetime | None = None,
-    home: Path | None = None,
 ) -> tuple[ListRow, ...]:
     """Render the query result as pane rows carrying every scan-level fact."""
     current = now or datetime.now(UTC)
     return tuple(
-        ListRow(row.key, branch_cells(row, dark=dark, now=current, home=home))
+        ListRow(row.key, branch_cells(row, dark=dark, now=current))
         for row in result.rows
     )
 
@@ -215,20 +211,11 @@ def branch_cells(
     *,
     dark: bool,
     now: datetime,
-    home: Path | None = None,
 ) -> tuple[ListCell, ...]:
-    worktree = row.worktrees[0].path if row.worktrees else None
-    if worktree is None:
-        worktree = next(
-            (ref.checked_out_at for ref in row.refs if ref.checked_out_at), None
-        )
     return (
         truncate_end(row.name, NAME_LIMIT),
         where_text(row),
         sync_cell(row.local, dark=dark),
-        truncate_start(abbreviate_path(worktree, home=home), PATH_LIMIT)
-        if worktree
-        else "-",
         sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
         relative_age(row.committed_at, now) or "-",
     )
