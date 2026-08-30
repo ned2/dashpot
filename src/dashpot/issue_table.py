@@ -27,9 +27,9 @@ ColumnKey = Literal[
     "agent_state",
     "number",
     "title",
+    "priority",
     "labels",
     "project",
-    "priority",
     "assignees",
     "author",
     "milestone",
@@ -122,6 +122,33 @@ class IssueNumberCell(Text):
 # Chip colour for labels whose tracker supplies no palette.
 NEUTRAL_LABEL_COLOR = "6e7781"
 
+# The compact P-level a recognized priority label stands for.
+PriorityLevel = Literal["P0", "P1", "P2", "P3"]
+
+
+class PriorityCell(Text):
+    """An Issue's priority as a chip in the colour of the label that set it.
+
+    An Issue without a recognized priority label renders empty and sorts
+    after every priority: the table never invents a default.
+    """
+
+    __slots__ = ("priority", "sort_value")
+
+    sort_value: SortValue
+
+    def __init__(
+        self,
+        priority: PriorityLevel | None,
+        label: str | None,
+        colors: Mapping[str, str],
+    ) -> None:
+        super().__init__(no_wrap=True)
+        self.priority = priority
+        self.sort_value = None if priority is None else int(priority[1:])
+        if priority is not None and label is not None:
+            append_chip(self, priority, colors.get(label, NEUTRAL_LABEL_COLOR))
+
 
 class LabelsCell(Text):
     """Issue labels rendered as coloured chips, like a tracker's feed."""
@@ -154,14 +181,18 @@ def append_label_chips(
     for index, label in enumerate(labels):
         if index:
             text.append(" ")
-        background = colors.get(label, NEUTRAL_LABEL_COLOR)
-        text.append(
-            f" {label} ",
-            style=f"{chip_foreground(background)} on #{background}",
-        )
+        append_chip(text, label, colors.get(label, NEUTRAL_LABEL_COLOR))
     if not labels:
         text.append("-")
     return text
+
+
+def append_chip(text: Text, label: str, background: str) -> Text:
+    """``label`` as a chip on ``background``, in the text that reads best on it."""
+    return text.append(
+        f" {label} ",
+        style=f"{chip_foreground(background)} on #{background}",
+    )
 
 
 def issue_state_colors(*, dark: bool) -> dict[str, str]:
@@ -196,11 +227,16 @@ def chip_foreground(background: str) -> str:
     return "#000000" if luminance > 0.55 else "#ffffff"
 
 
-TableCell = IssueTableCell | IssueStateCell | IssueNumberCell | LabelsCell
+TableCell = (
+    IssueTableCell | IssueStateCell | IssueNumberCell | LabelsCell | PriorityCell
+)
 
 
 def _cell_sort_key(value: object) -> SortValue:
-    if isinstance(value, (IssueTableCell, IssueStateCell, IssueNumberCell, LabelsCell)):
+    if isinstance(
+        value,
+        (IssueTableCell, IssueStateCell, IssueNumberCell, LabelsCell, PriorityCell),
+    ):
         return value.sort_value
     return cast("SortValue", value)
 
@@ -218,14 +254,32 @@ class ColumnSpec:
     search_field: IssueSearchField | None = None
     sort_key: Callable[[object], SortValue] = _cell_sort_key
     nulls_last: bool = False
+    # What a mouse resting on the header is told, for a one-glyph heading
+    # whose meaning the Legend also explains.
+    tooltip: str | None = None
+    # A conditional column is shown only while some row satisfies this; a
+    # column without one is shown whenever it is chosen.
+    shown_when: Callable[[IssueListRow], bool] | None = None
+
+
+def _has_priority(row: IssueListRow) -> bool:
+    return row.issue is not None and issue_priority(row.issue) is not None
 
 
 COLUMN_SPECS = (
     ColumnSpec(
-        "issue_state", ISSUE_STATE_COLUMN_GLYPH.symbol, sortable=False, spread_weight=0
+        "issue_state",
+        ISSUE_STATE_COLUMN_GLYPH.symbol,
+        sortable=False,
+        spread_weight=0,
+        tooltip=ISSUE_STATE_COLUMN_GLYPH.meaning,
     ),
     ColumnSpec(
-        "agent_state", AGENT_STATE_COLUMN_GLYPH.symbol, sortable=False, spread_weight=0
+        "agent_state",
+        AGENT_STATE_COLUMN_GLYPH.symbol,
+        sortable=False,
+        spread_weight=0,
+        tooltip=AGENT_STATE_COLUMN_GLYPH.meaning,
     ),
     ColumnSpec(
         "number",
@@ -240,6 +294,7 @@ COLUMN_SPECS = (
         update_width=True,
         search_field=IssueSearchField.TITLE,
     ),
+    ColumnSpec("priority", "PRIORITY", nulls_last=True, shown_when=_has_priority),
     ColumnSpec(
         "labels",
         "LABELS",
@@ -253,7 +308,6 @@ COLUMN_SPECS = (
         update_width=True,
         search_field=IssueSearchField.PROJECT,
     ),
-    ColumnSpec("priority", "PRI"),
     ColumnSpec(
         "assignees",
         "ASSIGNEES",
@@ -292,7 +346,6 @@ DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
     if key
     not in {
         "project",
-        "priority",
         "assignees",
         "author",
         "milestone",
@@ -331,9 +384,14 @@ class IssueTableViewState:
             term = SortTerm(column)
         return replace(self, sort=(term,))
 
-    def cycle_sort(self) -> IssueTableViewState:
+    def cycle_sort(
+        self, among: tuple[ColumnKey, ...] | None = None
+    ) -> IssueTableViewState:
+        """Sort by the next sortable column: of ``among`` when the table shows fewer."""
         sortable_columns = tuple(
-            column for column in self.columns if COLUMNS_BY_KEY[column].sortable
+            column
+            for column in (self.columns if among is None else among)
+            if COLUMNS_BY_KEY[column].sortable
         )
         if not sortable_columns:
             return self
@@ -353,9 +411,13 @@ class IssueTableViewState:
             next_column = sortable_columns[0]
         return replace(self, sort=(SortTerm(next_column),))
 
-    def reverse_sort(self) -> IssueTableViewState:
+    def reverse_sort(
+        self, among: tuple[ColumnKey, ...] | None = None
+    ) -> IssueTableViewState:
         sortable_columns = tuple(
-            column for column in self.columns if COLUMNS_BY_KEY[column].sortable
+            column
+            for column in (self.columns if among is None else among)
+            if COLUMNS_BY_KEY[column].sortable
         )
         if not sortable_columns:
             return self
@@ -385,6 +447,22 @@ def column_specs(columns: tuple[ColumnKey, ...]) -> tuple[ColumnSpec, ...]:
     return tuple(COLUMNS_BY_KEY[key] for key in columns)
 
 
+def shown_columns(
+    columns: tuple[ColumnKey, ...], rows: Sequence[IssueListRow]
+) -> tuple[ColumnKey, ...]:
+    """The chosen columns the table shows for ``rows``.
+
+    A conditional column is shown only while some row gives it a value, so
+    an Issue Source that never sets one costs no width for it.
+    """
+    return tuple(key for key in columns if _is_shown(COLUMNS_BY_KEY[key], rows))
+
+
+def _is_shown(spec: ColumnSpec, rows: Sequence[IssueListRow]) -> bool:
+    shown_when = spec.shown_when
+    return shown_when is None or any(shown_when(row) for row in rows)
+
+
 def searchable_columns() -> frozenset[IssueSearchField]:
     return frozenset(
         column.search_field
@@ -396,6 +474,8 @@ def searchable_columns() -> frozenset[IssueSearchField]:
 def cells_match(left: TableCell, right: TableCell) -> bool:
     if isinstance(left, LabelsCell) and isinstance(right, LabelsCell):
         return left.labels == right.labels and left == right
+    if isinstance(left, PriorityCell) and isinstance(right, PriorityCell):
+        return left.priority == right.priority and left == right
     if isinstance(left, IssueStateCell) and isinstance(right, IssueStateCell):
         return (
             left.state_kind == right.state_kind
@@ -490,7 +570,6 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         issue = row.issue
         if issue is None:
             raise RuntimeError("Issue-list Issue row is missing its Issue")
-        priority = issue_priority(issue)
         assignees = tuple(assignee.casefold() for assignee in issue["assignees"])
         return {
             "issue_state": issue_state_cell(issue, dark=dark),
@@ -499,7 +578,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             "title": text_cell(issue["title"]),
             "labels": labels_cell(issue, project),
             "project": text_cell(project.display_label),
-            "priority": IssueTableCell(priority, int(priority[1:])),
+            "priority": priority_cell(issue, project),
             "assignees": IssueTableCell(
                 ", ".join(issue["assignees"]) or "unassigned", assignees
             ),
@@ -538,7 +617,15 @@ def label_colors(project: ProjectObservation) -> Mapping[str, str]:
 
 
 def labels_cell(issue: Issue, project: ProjectObservation) -> LabelsCell:
-    return LabelsCell(tuple(issue["labels"]), label_colors(project))
+    """The Issue's ordinary labels; a recognized priority label is the PRIORITY cell."""
+    labels = tuple(label for label in issue["labels"] if not is_priority_label(label))
+    return LabelsCell(labels, label_colors(project))
+
+
+def priority_cell(issue: Issue, project: ProjectObservation) -> PriorityCell:
+    label = issue_priority_label(issue)
+    priority = None if label is None else PRIORITY_BY_LABEL[label.casefold()]
+    return PriorityCell(priority, label, label_colors(project))
 
 
 def optional_text_cell(value: str | None) -> IssueTableCell:
@@ -598,7 +685,7 @@ def agent_state_cell(states: tuple[RunState, ...]) -> IssueTableCell:
     return IssueTableCell("", 0)
 
 
-PRIORITY_BY_LABEL = {
+PRIORITY_BY_LABEL: dict[str, PriorityLevel] = {
     "priority/p0": "P0",
     "priority/p1": "P1",
     "priority/p2": "P2",
@@ -614,10 +701,15 @@ def is_priority_label(label: str) -> bool:
     return label.casefold() in PRIORITY_BY_LABEL
 
 
-def issue_priority(issue: Issue) -> str:
-    values = [
-        PRIORITY_BY_LABEL[label.casefold()]
-        for label in issue["labels"]
-        if is_priority_label(label)
-    ]
-    return min(values, default="P2")
+def issue_priority_label(issue: Issue) -> str | None:
+    """The recognized label that sets the Issue's priority: the most urgent one."""
+    labels = [label for label in issue["labels"] if is_priority_label(label)]
+    if not labels:
+        return None
+    return min(labels, key=lambda label: PRIORITY_BY_LABEL[label.casefold()])
+
+
+def issue_priority(issue: Issue) -> PriorityLevel | None:
+    """The Issue's compact priority, or nothing when no label declares one."""
+    label = issue_priority_label(issue)
+    return None if label is None else PRIORITY_BY_LABEL[label.casefold()]

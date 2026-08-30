@@ -92,9 +92,15 @@ as a `Search:` error in Diagnostics rather than silently ignored. The count
 beside the search box (`6 issues`) is the number of Issues matching every
 active filter, never an `M of N` total. The Issue table's columns are `◉`
 (Issue state) and `◈` (agent state), which are unsortable, then `#`, `TITLE`,
-`LABELS`, `PROJECT`, `PRI`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
-`COMMENTS`, `CREATED`, and `LAST ACTION`; `PRI` is read from a
-`priority/p0`, `priority/p1`, or `priority/p2` label.
+`PRIORITY`, `LABELS`, `PROJECT`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
+`COMMENTS`, `CREATED`, and `LAST ACTION`. `PRIORITY` is read from a
+recognized priority label (`priority/p0` … `priority/p3`, or `critical`,
+`high`, `medium`, `low`) and shown as a `P0`–`P3` chip in that label's colour;
+the label leaves `LABELS` so it is not rendered twice. The column is
+conditional: it appears only while some Issue in the table carries such a
+label, an Issue without one shows nothing there, and a table with none omits
+the column rather than invent a default, so an Issue Source that does not use
+priority labels pays no width for it.
 
 A Workspace inventory stores named groupings of anchor paths for one Project —
 independent clones, never discovered or persisted worktree paths:
@@ -743,7 +749,9 @@ cells render with ([`glyphs.py`](src/dashpot/glyphs.py)), each pane owning
 its own vocabulary, and a test scans the source for any symbol the Legend
 does not explain, so a Glyph cannot be added without appearing there and no
 symbol carries two meanings
-([ADR 0010](docs/adr/0010-derive-the-legend-from-rendered-glyphs.md)). The
+([ADR 0010](docs/adr/0010-derive-the-legend-from-rendered-glyphs.md)). Its
+mouse complement is a tooltip on the Issues table's `◉` and `◈` headers that
+reads the same `Glyph.meaning` the Legend shows, so the two cannot drift. The
 Legend also lists the key bindings. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.

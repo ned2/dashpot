@@ -186,7 +186,7 @@ def issue_metadata_items(
         DetailItem(issue["author"] or "-", "Author"),
         DetailItem(", ".join(issue["assignees"]) or "unassigned", "Assignees"),
         DetailItem(label_chips(labels, label_colors(context.project)), "Labels"),
-        DetailItem(issue_priority(issue), "Priority"),
+        DetailItem(issue_priority(issue) or "-", "Priority"),
         DetailItem(issue["issueType"] or "-", "Type"),
         DetailItem(issue["milestone"] or "-", "Milestone"),
         DetailItem(_timestamp(issue["createdAt"], current), "Created"),
