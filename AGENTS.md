@@ -72,16 +72,19 @@ The gate is `uv run pre-commit run --all-files` and `uv run pytest -q`, both
 clean, before every commit; the pre-push hook then runs the full gate for the
 pushed revision.
 
-Under the Codex Linux sandbox, run each full gate with the per-command
-sandbox-escalation mechanism:
+Under Codex on Linux, use the per-command sandbox-escalation mechanism for a
+full gate only when its matching condition applies:
 
 - `uv run pre-commit run --all-files`: the sandbox protects the tracked
   `.codex/config.toml`, while `end-of-file-fixer` opens every selected file for
   writing before deciding whether it needs a change.
-- `uv run pytest -q` on Python 3.14: the sandbox's blocked asyncio self-pipe
-  wakeup ([openai/codex#15053](https://github.com/openai/codex/issues/15053))
-  can make `asyncio.run()` wait five minutes while shutting down Textual's
-  default executor.
+- `uv run pytest -q` on Python 3.14: when the command runs under the
+  restricted, network-disabled sandbox profile, its seccomp policy blocks the
+  asyncio self-pipe wakeup
+  ([openai/codex#15053](https://github.com/openai/codex/issues/15053)) and can
+  make `asyncio.run()` wait five minutes while shutting down Textual's default
+  executor. A network-enabled sandbox does not require escalation for this
+  reason.
 
 Scope each exception to the exact gate command and state its reason in the
 escalation request. If per-command escalation is unavailable, ask the user to
