@@ -61,13 +61,13 @@ def bind_issue_runs(
                 )
         elif len(matches) > 1:
             continue
-        elif any(status != "fresh" for status in status_by_project.values()):
+        elif _resolution_deferred(run, status_by_project):
             diagnostics.append(
                 Diagnostic(
                     run.id,
                     "warning",
                     f"Cannot validate bound Issue Identity {run.issue_id} "
-                    "while a Project Issue Source is not fresh",
+                    "while the Project's Issue Source is not fresh",
                     "agent-issue-resolution-deferred",
                 )
             )
@@ -81,3 +81,17 @@ def bind_issue_runs(
                 )
             )
     return IssueBindingResult(list(runs), issue_runs, diagnostics)
+
+
+def _resolution_deferred(run: AgentRun, status_by_project: dict[str, str]) -> bool:
+    """Whether the run's own Project cannot yet vouch for its Issue Binding.
+
+    An Issue Binding names an Issue in the Project the run is observed under,
+    so only that Project's Issue Source needs to be fresh before its absence
+    means anything. A run observed under no known Project falls back to the
+    freshness of every source.
+    """
+    status = status_by_project.get(run.observation_project_id)
+    if status is None:
+        return any(status != "fresh" for status in status_by_project.values())
+    return status != "fresh"

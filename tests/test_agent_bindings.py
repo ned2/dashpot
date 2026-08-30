@@ -135,13 +135,25 @@ def test_persisted_identity_wins_over_stale_reference_with_warning() -> None:
     assert result.diagnostics[0].code == "agent-issue-hint-stale"
 
 
-def test_unobserved_identity_is_deferred_while_any_source_is_not_fresh() -> None:
+def test_unobserved_identity_is_deferred_while_its_project_is_not_fresh() -> None:
     result = bind_issue_runs(
         [project("project-a", status="stale")],
         [run(issue_id="I_unseen")],
     )
 
     assert result.diagnostics[0].code == "agent-issue-resolution-deferred"
+
+
+def test_another_projects_stale_source_does_not_defer_a_fresh_projects_run() -> None:
+    # Only the Issue Source of the Project the run is observed under can vouch
+    # for its Issue Binding; a stale source elsewhere must not mask a dangling
+    # binding here indefinitely.
+    result = bind_issue_runs(
+        [project("project-a"), project("project-b", status="stale")],
+        [run(issue_id="I_unseen")],
+    )
+
+    assert result.diagnostics[0].code == "agent-issue-binding-unobserved"
 
 
 def test_unobserved_identity_with_fresh_sources_is_diagnosed() -> None:
