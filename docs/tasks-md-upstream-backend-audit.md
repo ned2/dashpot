@@ -498,7 +498,8 @@ independent adapters:
 - GitHub runs `gh issue list` directly and builds its own projection.
 
 That split is visible in
-[`sources.py`](../src/dashpot/sources.py): the local adapter requests the CLI's
+`sources.py` (since split into [`local_markdown_issues.py`](../src/dashpot/local_markdown_issues.py)
+and [`github_issues.py`](../src/dashpot/github_issues.py)): the local adapter requests the CLI's
 `summary`/`file`/`line` fields, while the GitHub adapter requests only
 `number,title,labels,assignees,url`. It means some discrepancies are inherited
 from tasks.md, while others are introduced by Dashpot itself.
@@ -524,10 +525,10 @@ There are two important positives in Dashpot's own seam:
 
 - `TaskSource.refresh()` consistently preserves last-good data and distinguishes
   fresh, stale, and unavailable observations
-  ([implementation](../src/dashpot/sources.py#L34-L63)); and
+  ([implementation, now `IssueSource.refresh`](../src/dashpot/issue_sources.py)); and
 - unlike upstream's GitHub adapter, Dashpot does not convert a failed `gh issue
   list` call to an empty queue
-  ([GitHub collection](../src/dashpot/sources.py#L139-L161)).
+  ([GitHub collection, now `GitHubIssuesSource`](../src/dashpot/github_issues.py)).
 
 The seam is nevertheless too implicit for issue #9:
 
@@ -555,7 +556,8 @@ The five focused adapter tests pass, but they test extraction rather than
 substitutability. There are no cross-adapter contract cases for durable
 identity, multiple claimants, blockers/dependencies, pagination, capability
 reporting, or equivalent error semantics
-([tests](../tests/test_sources.py)).
+([tests, now `tests/test_github_issues.py` and
+`tests/test_local_markdown_issues.py`](../tests/test_github_issues.py)).
 
 ## Implications for Dashpot issue #9
 
