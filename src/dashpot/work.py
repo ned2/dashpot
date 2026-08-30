@@ -29,7 +29,7 @@ from .harnesses import (
     override_claim,
 )
 from .issue_resolution import resolve_issue
-from .repository import git, repository_worktrees, worktree_root
+from .repository import git_or_none, repository_worktrees, worktree_root
 from .work_store import ActiveWork, SessionProcess, WorkStore
 
 IdentityRoute = Literal["process", "session"]
@@ -265,12 +265,7 @@ def start_issue_work(
         # Agent Session Identity was recorded or by the other route; one
         # session keeps one record.
         store.stop(previous.session_key)
-    try:
-        branch: str | None = git(
-            root, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2
-        )
-    except RuntimeError:
-        branch = None
+    branch = git_or_none(root, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2)
     store.start(
         ActiveWork(
             session_key=session.session_key,

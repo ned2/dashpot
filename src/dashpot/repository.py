@@ -45,6 +45,14 @@ def git(root: Path, *args: str, timeout: float = 5) -> str:
     return result.stdout.strip()
 
 
+def git_or_none(root: Path, *args: str, timeout: float = 5) -> str | None:
+    """Run a git query whose failure is an ordinary answer, not an error."""
+    try:
+        return git(root, *args, timeout=timeout)
+    except RuntimeError:
+        return None
+
+
 def worktree_root(path: Path) -> Path:
     """Return the current Git Worktree root containing a path."""
     return Path(git(path, "rev-parse", "--show-toplevel")).resolve()

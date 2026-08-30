@@ -19,7 +19,7 @@ from .harnesses import ADAPTERS, HARNESS_DISPLAY, SESSION_ID, SessionIdentityCla
 from .harnesses import is_claude_code_host_process as is_claude_code_host_process
 from .harnesses import is_codex_host_process as is_codex_host_process
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
-from .repository import LockHolder, git, is_within, repository_worktrees
+from .repository import LockHolder, git_or_none, is_within, repository_worktrees
 from .work_store import WorkStore
 
 ISSUE_VALUE = re.compile(r"^\S+$")
@@ -403,12 +403,10 @@ def build_hook_record(
         raise RuntimeError(
             "DASHPOT_ISSUE_REF must be a whitespace-free Issue Reference"
         )
-    try:
-        observed_target = git(cwd, "rev-parse", "--show-toplevel", timeout=2)
-        branch = git(cwd, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2)
-    except RuntimeError:
-        observed_target = None
-        branch = None
+    # Each answer stands alone: a detached HEAD has no symbolic ref but is
+    # still inside a Worktree whose root routes the record.
+    observed_target = git_or_none(cwd, "rev-parse", "--show-toplevel", timeout=2)
+    branch = git_or_none(cwd, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2)
     return {
         "version": 2,
         "sessionId": session_id,

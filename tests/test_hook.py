@@ -2,12 +2,45 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from dashpot import hook
+from dashpot.agents import build_hook_record
+
+
+def git(root: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+
+def test_a_detached_head_still_records_the_repository_root(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    git(
+        root,
+        "-c",
+        "user.email=t@example.com",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "first",
+    )
+    git(root, "checkout", "-q", "--detach")
+    event = {"session_id": "s1", "hook_event_name": "Stop", "cwd": str(root)}
+
+    record = build_hook_record(event, environ={})
+
+    # The root routes the record to the Project's own store; only the
+    # branch name is genuinely unavailable.
+    assert record["repositoryRoot"] == str(root.resolve())
+    assert record["branch"] is None
 
 
 @pytest.mark.parametrize(
