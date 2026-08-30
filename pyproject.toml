@@ -3,12 +3,35 @@ name = "dashpot"
 version = "0.1.0"
 description = "Useful damping for agent-driven projects"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ned Letcher" }]
 requires-python = ">=3.11"
+keywords = ["tui", "textual", "github", "issues", "git", "worktree", "coding-agent"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development",
+  "Topic :: Software Development :: Version Control :: Git",
+]
 dependencies = [
   "cyclopts>=4.23.3,<5",
   "textual==8.2.8",
   "typing-extensions>=4.15.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ned2/dashpot"
+Repository = "https://github.com/ned2/dashpot"
+Issues = "https://github.com/ned2/dashpot/issues"
 
 [project.scripts]
 dashpot = "dashpot.cli:main"
