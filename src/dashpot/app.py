@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, cast
 
 from textual import events
 from textual.app import App, ComposeResult
@@ -129,9 +129,6 @@ class DashboardBody(Container):
         self.post_message(BodyResized(event.size))
 
 
-RefreshScope = Literal["current", "workspace"]
-
-
 class DashpotApp(App[None]):
     TITLE = "Dashpot"
     SUB_TITLE = DEFAULT_SUB_TITLE
@@ -147,14 +144,7 @@ class DashpotApp(App[None]):
         ("q", "quit", "Quit"),
         ("question_mark", "legend", "Legend"),
         ("r", "refresh", "Refresh"),
-        ("shift+r", "refresh_workspace", "Refresh all"),
         ("enter", "open_issue", "Open Issue"),
-        # The list keys sit ahead of the Issue-table controls so a narrow
-        # Footer cuts off sort keys, which the column headers also offer.
-        ("1", "focus_issues", "Issues"),
-        ("2", "focus_sessions", "Sessions"),
-        ("3", "focus_branches", "Branches"),
-        ("4", "focus_worktrees", "Worktrees"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
@@ -291,18 +281,6 @@ class DashpotApp(App[None]):
             self.main_screen.query_one(f"#{table_id}", DataTable)
             for table_id in LIST_TABLE_IDS
         )
-
-    def action_focus_issues(self) -> None:
-        self.queue_table().focus()
-
-    def action_focus_sessions(self) -> None:
-        self.sessions_pane().table.focus()
-
-    def action_focus_branches(self) -> None:
-        self.branches_pane().table.focus()
-
-    def action_focus_worktrees(self) -> None:
-        self.worktrees_pane().table.focus()
 
     def action_focus_search(self) -> None:
         self.main_screen.query_one("#issue-search", Input).focus()
@@ -527,29 +505,13 @@ class DashpotApp(App[None]):
         self.refresh_executor.shutdown(wait=False, cancel_futures=True)
 
     def action_refresh(self) -> None:
-        """Refresh the current Project (the selected row's), or all if none."""
+        """Refresh every observation in the Workspace."""
         if self.refresh_timer is not None:
             self.refresh_timer.reset()
-        self.request_refresh("manual", scope="current")
+        self.request_refresh("manual")
 
-    def action_refresh_workspace(self) -> None:
-        """Fan a refresh out to every Project in the Workspace."""
-        if self.refresh_timer is not None:
-            self.refresh_timer.reset()
-        self.request_refresh("manual", scope="workspace")
-
-    def current_project_id(self) -> str | None:
-        """The Project of the selected Issue row, if any."""
-        row = (
-            self.rows_by_key.get(self.selected_row_key)
-            if self.selected_row_key is not None
-            else None
-        )
-        return row.project.project_id if row is not None else None
-
-    def request_refresh(self, trigger: str, scope: RefreshScope = "workspace") -> None:
-        project_id = self.current_project_id() if scope == "current" else None
-        self.schedule_observations(self.scheduler.keys(project_id), trigger)
+    def request_refresh(self, trigger: str) -> None:
+        self.schedule_observations(self.scheduler.keys(), trigger)
 
     def schedule_observations(
         self, keys: Sequence[ObservationKey], trigger: str

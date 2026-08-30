@@ -64,7 +64,7 @@ superpowers](https://textual.textualize.io/guide/reactivity/#setting-reactives-w
 The desired flow is:
 
 ```text
-timer / r / R bindings ── keyed tickets
+timer / r binding ── keyed tickets
        │
        ▼
 one worker per key ── accepted observation / failure message ──▶ App (publish)

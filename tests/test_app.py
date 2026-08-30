@@ -495,12 +495,8 @@ async def test_only_focused_main_screen_table_shows_its_row_cursor() -> None:
         assert {
             table_id for table_id, table in tables.items() if table.show_cursor
         } == {"queue"}
-        for key, table_id in (
-            ("2", "sessions"),
-            ("3", "branches"),
-            ("4", "worktrees"),
-        ):
-            await pilot.press(key)
+        for table_id in ("sessions", "branches", "worktrees"):
+            await pilot.press("tab")
             assert {
                 current_id for current_id, table in tables.items() if table.show_cursor
             } == {table_id}
@@ -2027,7 +2023,7 @@ async def test_first_published_project_renders_before_a_slow_one(
 
 
 @pytest.mark.asyncio
-async def test_refresh_targets_the_selected_project_and_shift_r_fans_out(
+async def test_refresh_fans_out_to_every_project(
     tmp_path: Path,
 ) -> None:
     coordinator, collectors = coordinated_workspace(tmp_path)
@@ -2039,20 +2035,14 @@ async def test_refresh_targets_the_selected_project_and_shift_r_fans_out(
         beta_key = row_key("issue", "I_beta#1")
         table.move_cursor(row=table.get_row_index(beta_key), animate=False)
         await wait_until(lambda: app.selected_row_key == beta_key)
-        assert app.current_project_id() == "beta"
         calls = {name: c.source.calls for name, c in collectors.items()}
 
         await app.run_action("refresh")
-        await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 1)
-        await asyncio.sleep(0.05)
-
-        assert collectors["alpha"].source.calls == calls["alpha"]
-        assert collectors["beta"].target_calls == 2
-        assert collectors["alpha"].target_calls == 1
-
-        await app.run_action("refresh_workspace")
         await wait_until(lambda: collectors["alpha"].source.calls == calls["alpha"] + 1)
-        await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 2)
+        await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 1)
+
+        assert collectors["alpha"].target_calls == 2
+        assert collectors["beta"].target_calls == 2
         assert app.selected_row_key == beta_key
 
 
@@ -2079,7 +2069,7 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
             assert project is not None and project.snapshot is not None
             return project.snapshot
 
-        await app.run_action("refresh_workspace")
+        await app.run_action("refresh")
         # Each half lands on its own; wait for both to have been published.
         await wait_until(
             lambda: (
@@ -2143,7 +2133,7 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
         await wait_until(lambda: not alert(app).display)
         collectors["beta"].source.release.clear()
 
-        await app.run_action("refresh_workspace")
+        await app.run_action("refresh")
         # On a slow runner the other Projects may still be in flight when the
         # indicator first appears ("refreshing 3 Projects"); only Beta is
         # held, so the readout converges on it.
@@ -2169,7 +2159,7 @@ async def test_quick_refresh_never_flickers_the_indicator(tmp_path: Path) -> Non
         table = app.query_one("#queue", DataTable)
         await wait_until(lambda: table.row_count == 2)
 
-        await app.run_action("refresh_workspace")
+        await app.run_action("refresh")
         for _ in range(20):
             shown.append(bool(alert(app).display))
             await asyncio.sleep(0.01)
@@ -2616,11 +2606,12 @@ async def test_main_screen_stacks_the_panes_above_the_issues() -> None:
         assert not app.query_one("#worktrees-pane .list-pane-empty").display
         assert app.query_one("#queue", DataTable).has_focus
         assert queue_pane.region.height >= 6
-        assert {"tab", "1", "2", "3", "4"} <= footer_keys(app)
+        assert "tab" in footer_keys(app)
+        assert {"1", "2", "3", "4", "shift+r"}.isdisjoint(footer_keys(app))
 
 
 @pytest.mark.asyncio
-async def test_tab_and_pane_keys_cycle_focus_through_the_four_lists() -> None:
+async def test_tab_cycles_focus_through_the_four_lists() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -2653,14 +2644,6 @@ async def test_tab_and_pane_keys_cycle_focus_through_the_four_lists() -> None:
         await pilot.press("shift+tab")
         assert sessions.has_focus
 
-        await pilot.press("1")
-        assert queue.has_focus
-        await pilot.press("3")
-        assert branches.has_focus
-        await pilot.press("4")
-        assert worktrees.has_focus
-        await pilot.press("2")
-        assert sessions.has_focus
         # The Issue controls stay reachable from the keyboard.
         await pilot.press("slash")
         assert app.query_one("#issue-search", Input).has_focus
@@ -2854,7 +2837,7 @@ async def test_pane_cursor_leaves_the_issue_selection_alone_and_enter_finds_it()
         )
         await pilot.pause()
 
-        await pilot.press("2")
+        await pilot.press("tab")
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == ("unbound", 1)
@@ -2907,31 +2890,6 @@ async def test_pane_selection_survives_refresh_by_identity_or_moves_to_a_neighbo
         await pilot.pause()
         assert pane.highlighted() == (None, 0)
         assert pane.highlighted_row() is None
-
-
-@pytest.mark.asyncio
-async def test_refresh_scope_is_the_selected_issue_project_whatever_is_focused() -> (
-    None
-):
-    app = DashpotApp(
-        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
-        refresh_seconds=0,
-    )
-
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
-        await pilot.pause()
-        assert app.current_project_id() == "project:test-repo"
-        pane = prepare_pane(app, "worktrees-pane")
-        pane.show_rows((ListRow("elsewhere", ("elsewhere", "-")),))
-        await pilot.press("4")
-        await pilot.pause()
-        assert app.current_project_id() == "project:test-repo"
-        pane.show_rows(())
-        await pilot.pause()
-        assert app.current_project_id() == "project:test-repo"
-        await pilot.press("1")
-        assert app.current_project_id() == "project:test-repo"
 
 
 def session_run(
@@ -3070,7 +3028,7 @@ async def test_enter_on_a_bound_session_highlights_its_issue_and_unbound_is_safe
         await pilot.pause()
         assert selected_title(app) == "#1: First"
 
-        await pilot.press("2")
+        await pilot.press("tab")
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
@@ -3113,7 +3071,7 @@ async def test_session_selection_survives_refresh_by_identity_or_moves_on() -> N
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         pane = app.sessions_pane()
-        await pilot.press("2")
+        await pilot.press("tab")
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == (row_key("session", "b"), 1)
@@ -3173,7 +3131,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         await wait_until(lambda: app.store.revision == 2)
         await pilot.pause()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 2"
-        await pilot.press("4")
+        await pilot.press("tab", "tab", "tab")
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == (

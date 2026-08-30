@@ -78,8 +78,8 @@ error. Beside observation, the management commands `init`, `integrate`,
 
 | Key | Action |
 |---|---|
-| `r` | Refresh the observed Project; `R` refreshes every observation in the Workspace, which is the same Project in a one-Project run |
-| `1` `2` `3` `4` | Focus the Issues, Sessions, Branches, or Worktrees list; `Tab` / `Shift+Tab` cycle through them in that order |
+| `r` | Refresh every observation in the Workspace |
+| `Tab` / `Shift+Tab` | Cycle through the Issues, Sessions, Branches, and Worktrees lists |
 | `/` | Focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
 | `s` / `S` | Sort by the next sortable column / reverse the current sort; clicking a column header sorts by it too |
