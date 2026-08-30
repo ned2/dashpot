@@ -1665,7 +1665,9 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         harness: str = "codex",
         session_id: str | None = None,
         process: ProcessIdentity | None = None,
+        worktree: Path | None = None,
     ) -> ActiveWork:
+        worktree = worktree or self.worktree
         work = ActiveWork(
             session_key=session_key,
             harness=harness,
@@ -1677,11 +1679,11 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
             issue_reference="example/project#7",
             binding_provenance="explicit-reference",
             started_at="2026-08-24T14:00:00Z",
-            working_directory=str(self.worktree),
+            working_directory=str(worktree),
             branch="feature",
             session_id=session_id,
         )
-        WorkStore(self.worktree).start(work)
+        WorkStore(worktree).start(work)
         return work
 
     def test_run_without_a_process_adopts_hook_state_by_session_identity(
@@ -1699,6 +1701,35 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         self.assertEqual("running", runs[0].state)
         self.assertEqual("I_example/project#7", runs[0].issue_id)
         self.assertEqual("2026-08-24T15:00:00Z", runs[0].last_activity_at)
+
+    def test_one_session_recorded_by_two_routes_is_a_conflict(self) -> None:
+        # The same session opted in at one Worktree by its process and at
+        # another by Agent Session Identity alone; its hook record carries
+        # both, which is how the two records are known to be one session.
+        other = self.root / "repo-linked"
+        other.mkdir()
+        self.record_work(
+            "codex-42-abcd1234", session_id="thread-1", process=self.process
+        )
+        self.record_work("codex-session-abc", session_id="thread-1", worktree=other)
+        self.write_hook("thread-1", process=self.process)
+
+        runs, diagnostics = observe_agent_runs(
+            {
+                "project:example": [
+                    observation_target(str(self.worktree)),
+                    observation_target(str(other)),
+                ]
+            },
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+        # Both records adopt the one hook session's state; each is listed.
+        self.assertEqual(["running", "running"], [run.state for run in runs])
+        self.assertEqual(
+            ["work-session-conflict"], [diagnostic.code for diagnostic in diagnostics]
+        )
 
     def test_session_identity_is_scoped_to_its_harness(self) -> None:
         self.record_work("codex-session-abc", session_id="shared-id")

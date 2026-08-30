@@ -1018,24 +1018,26 @@ def observe_work_runs(
                             )
                         )
                         continue
-                identity: tuple[str, ...] | None = None
+                # One session may be recorded by its process at one Worktree
+                # and by its Agent Session Identity at another (the sandboxed
+                # route), so a run is known by every identity it carries.
+                identities: set[tuple[str, ...]] = set()
                 if process_key is not None:
-                    identity = ("process", str(process_key[0]), process_key[1])
-                elif work.session_id is not None:
-                    identity = ("session", work.harness, work.session_id)
-                if identity is not None:
-                    if identity in sessions_seen:
-                        diagnostics.append(
-                            Diagnostic(
-                                work.run_id,
-                                "warning",
-                                f"{work.session_label} has Issue work recorded "
-                                f"at more than one Worktree; each recorded run "
-                                f"is listed",
-                                "work-session-conflict",
-                            )
+                    identities.add(("process", str(process_key[0]), process_key[1]))
+                if work.session_id is not None:
+                    identities.add(("session", work.harness, work.session_id))
+                if identities & sessions_seen:
+                    diagnostics.append(
+                        Diagnostic(
+                            work.run_id,
+                            "warning",
+                            f"{work.session_label} has Issue work recorded "
+                            f"at more than one Worktree; each recorded run "
+                            f"is listed",
+                            "work-session-conflict",
                         )
-                    sessions_seen.add(identity)
+                    )
+                sessions_seen |= identities
                 observed = activity.adopt(work.harness, work.session_id, process_key)
                 if observed is None:
                     # No hook has ever reported this run; the Work Store knows
