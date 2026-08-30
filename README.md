@@ -318,7 +318,7 @@ at all linked Worktrees of one Git Repository are jointly the sole authority
 for which sessions are working on which Issues in that Repository
 ([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
 Independent clones keep distinct Work Stores
-([ADR 0003](docs/adr/0003-prefer-project-local-configuration-and-work-state.md)).
+([ADR 0003](docs/adr/0003-prefer-project-local-dashpot-state.md)).
 _Avoid_: treating one Worktree's records as the whole authority for a session
 that may have moved to another Worktree of the same Repository
 

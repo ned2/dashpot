@@ -63,7 +63,7 @@ def repository_worktrees(root: Path, *, timeout: float = 5) -> list[Path]:
 
     Git reports the main working tree first and every linked one after it;
     a bare entry is not a Worktree. Independent clones are not reached
-    ([ADR 0003](../../docs/adr/0003-prefer-project-local-configuration-and-work-state.md)).
+    ([ADR 0003](../../docs/adr/0003-prefer-project-local-dashpot-state.md)).
     """
     return [
         Path(record["worktree"]).resolve()
