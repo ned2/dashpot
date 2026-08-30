@@ -502,7 +502,10 @@ def _short_branch(record: Mapping[str, str]) -> str | None:
 def _add_worktree(anchor: Path, plan: WorktreePlan, timeout: float) -> None:
     """Run the one mutation, verify it, and roll back only what it created."""
     path = Path(plan.path)
-    assert plan.base_commit is not None
+    if plan.base_commit is None:
+        # A plan with refusals never reaches here; a plan without a resolved
+        # base is a programming error, and one -O must not silence.
+        raise RuntimeError("worktree plan has no base commit to create from")
     created_directories = _make_directories(path.parent)
     result = run_command(
         ["git", "worktree", "add", "-b", plan.branch, str(path), plan.base_commit],
