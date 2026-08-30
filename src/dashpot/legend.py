@@ -38,7 +38,10 @@ AGENT_STATE_NOTE = "blank when no Agent Run is on the Issue"
 
 LEGEND: tuple[LegendSection, ...] = (
     LegendSection(SESSIONS_PANE_LABEL, "STATE", session_list.LEGEND),
-    LegendSection(BRANCHES_PANE_LABEL, "SYNC", branch_list.LEGEND),
+    LegendSection(BRANCHES_PANE_LABEL, "LOCAL", branch_list.PRESENCE_LEGEND),
+    LegendSection(BRANCHES_PANE_LABEL, "REMOTE", branch_list.PRESENCE_LEGEND),
+    LegendSection(BRANCHES_PANE_LABEL, "UPSTREAM", branch_list.UPSTREAM_LEGEND),
+    LegendSection(BRANCHES_PANE_LABEL, "INTEGRATED", branch_list.INTEGRATION_LEGEND),
     LegendSection(
         BRANCHES_PANE_LABEL, "SESSIONS", session_list.LEGEND, SESSIONS_COUNT_NOTE
     ),

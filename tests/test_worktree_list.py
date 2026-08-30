@@ -251,7 +251,7 @@ def test_linked_worktree_addition_and_removal_follow_the_observed_topology() -> 
     assert required(store.project("project:alpha")).anchors == ["/project:alpha"]
 
 
-def test_worktree_cells_carry_every_scan_level_fact_and_clip_long_values() -> None:
+def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> None:
     home = Path("/home/agent")
     long_path = "/home/agent/projects/very/deeply/nested/linked/worktree/checkout"
     alpha = project(
@@ -281,9 +281,7 @@ def test_worktree_cells_carry_every_scan_level_fact_and_clip_long_values() -> No
     assert sessions == "-"
 
     path, kind, branch, tree, sessions = linked_row.cells
-    assert isinstance(path, str)
-    assert path.startswith("…") and path.endswith("worktree/checkout")
-    assert len(path) == 28
+    assert path == "~/projects/very/deeply/nested/linked/worktree/checkout"
     assert kind == "linked"
     assert isinstance(branch, str)
     assert branch.endswith("…") and len(branch) == 24

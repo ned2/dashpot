@@ -9,7 +9,7 @@ the row rather than a second row or a second pane. Identity is
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -33,29 +33,48 @@ from .worktree_list import (
 )
 
 NAME_LIMIT = 48
-LOCAL_TEXT = "local"
-# The sync states are glyph-only, so the column stays as narrow as the
-# ahead/behind counts beside them. Unpushed is an empty set rather than an
-# empty circle, which the Sessions family already uses for an unknown state.
-IN_SYNC_GLYPH = Glyph("✓", "in sync with upstream")
+# Presence and relation states are glyph-only so their columns stay narrow.
+REF_PRESENT_GLYPH = Glyph("✓", "a Branch ref exists in this location")
+IN_SYNC_GLYPH = Glyph("=", "in sync with upstream")
 AHEAD_BEHIND_GLYPH = Glyph("↑2 ↓1", "commits ahead of / behind upstream", DIRTY_COLORS)
-UNPUSHED_GLYPH = Glyph("∅", "unpushed: a local branch with no upstream", DIRTY_COLORS)
+NO_UPSTREAM_GLYPH = Glyph("∅", "no upstream is configured", DIRTY_COLORS)
 UPSTREAM_GONE_GLYPH = Glyph(
     "✗", "upstream gone: it was configured and no longer exists", UNAVAILABLE_COLORS
 )
 NO_LOCAL_REF_GLYPH = Glyph("-", "remote-only, so there is no local ref to compare")
-LEGEND = (
+INTEGRATED_GLYPH = Glyph(
+    "⊆", "all local Branch commits are reachable from the Integration Branch"
+)
+UNINTEGRATED_GLYPH = Glyph(
+    "↑2",
+    "commits not reachable from the Integration Branch",
+    DIRTY_COLORS,
+)
+NO_INTEGRATION_GLYPH = Glyph(
+    "⊘", "no Integration Branch comparison is available", UNAVAILABLE_COLORS
+)
+PRESENCE_LEGEND = (REF_PRESENT_GLYPH,)
+UPSTREAM_LEGEND = (
     IN_SYNC_GLYPH,
     AHEAD_BEHIND_GLYPH,
-    UNPUSHED_GLYPH,
+    NO_UPSTREAM_GLYPH,
     UPSTREAM_GONE_GLYPH,
     NO_LOCAL_REF_GLYPH,
 )
+INTEGRATION_LEGEND = (
+    INTEGRATED_GLYPH,
+    UNINTEGRATED_GLYPH,
+    NO_INTEGRATION_GLYPH,
+    NO_LOCAL_REF_GLYPH,
+)
+LEGEND = PRESENCE_LEGEND + UPSTREAM_LEGEND + INTEGRATION_LEGEND
 
 BRANCH_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("name", "BRANCH"),
-    ListColumn("where", "WHERE"),
-    ListColumn("sync", "SYNC"),
+    ListColumn("local", "LOCAL"),
+    ListColumn("remote", "REMOTE"),
+    ListColumn("upstream", "UPSTREAM"),
+    ListColumn("integrated", "INTEGRATED"),
     ListColumn("sessions", "SESSIONS"),
     ListColumn("commit", "LAST COMMIT"),
 )
@@ -90,6 +109,7 @@ class BranchListResult:
     # When the Remote-Tracking Branches were last fetched; Dashpot reports
     # the age rather than fetching.
     fetched_at: str | None = None
+    integration_refs: tuple[str, ...] = ()
 
     @property
     def count(self) -> int:
@@ -187,8 +207,19 @@ def _query_indexed_branch_list(
         for project in projects.values()
         if project.snapshot is not None and project.snapshot.fetched_at is not None
     ]
+    integration_refs = sorted(
+        {
+            project.snapshot.integration_ref
+            for project in projects.values()
+            if project.snapshot is not None
+            and project.snapshot.integration_ref is not None
+        }
+    )
     return BranchListResult(
-        tuple(rows), revision, fetched_at=max(fetched, default=None)
+        tuple(rows),
+        revision,
+        fetched_at=max(fetched, default=None),
+        integration_refs=tuple(integration_refs),
     )
 
 
@@ -214,18 +245,13 @@ def branch_cells(
 ) -> tuple[ListCell, ...]:
     return (
         truncate_end(row.name, NAME_LIMIT),
-        where_text(row),
+        REF_PRESENT_GLYPH.symbol if row.local is not None else "",
+        REF_PRESENT_GLYPH.symbol if row.remotes else "",
         sync_cell(row.local, dark=dark),
+        integration_cell(row.local, dark=dark),
         sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
         relative_age(row.committed_at, now) or "-",
     )
-
-
-def where_text(row: BranchListRow) -> str:
-    """Where the branch exists: ``local``, ``local · origin`` or ``origin``."""
-    places: list[str] = [LOCAL_TEXT] if row.local is not None else []
-    places.extend(ref.remote or "" for ref in row.remotes)
-    return " · ".join(places)
 
 
 def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
@@ -237,7 +263,10 @@ def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
             UPSTREAM_GONE_GLYPH.symbol, style=UPSTREAM_GONE_GLYPH.style(dark=dark)
         )
     if local.upstream is None:
-        return Text(UNPUSHED_GLYPH.symbol, style=UNPUSHED_GLYPH.style(dark=dark))
+        return Text(
+            NO_UPSTREAM_GLYPH.symbol,
+            style=NO_UPSTREAM_GLYPH.style(dark=dark),
+        )
     parts: list[str] = []
     if local.ahead:
         parts.append(f"↑{local.ahead}")
@@ -248,7 +277,37 @@ def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
     return Text(" ".join(parts), style=AHEAD_BEHIND_GLYPH.style(dark=dark))
 
 
+def integration_cell(local: Branch | None, *, dark: bool) -> ListCell:
+    """Report whether every commit is reachable from the Integration Branch."""
+    if local is None:
+        return NO_LOCAL_REF_GLYPH.symbol
+    count = local.unintegrated_commits
+    if count is None:
+        return Text(
+            NO_INTEGRATION_GLYPH.symbol,
+            style=NO_INTEGRATION_GLYPH.style(dark=dark),
+        )
+    if count == 0:
+        return INTEGRATED_GLYPH.symbol
+    return Text(f"↑{count}", style=UNINTEGRATED_GLYPH.style(dark=dark))
+
+
 def fetch_age_text(fetched_at: str | None, now: datetime) -> str:
     """``remote last fetched 3h ago``, or that it was never fetched."""
     age = relative_age(fetched_at, now)
     return f"remote last fetched {age}" if age else "remote never fetched"
+
+
+def branch_note(
+    integration_refs: Sequence[str], fetched_at: str | None, now: datetime
+) -> str:
+    """Name the Integration Branch and the freshness of remote facts."""
+    if not integration_refs:
+        integration = "integration unavailable"
+    elif len(integration_refs) > 1:
+        integration = "integration varies"
+    else:
+        ref = integration_refs[0]
+        short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+        integration = f"integration {short}"
+    return f"{integration} · {fetch_age_text(fetched_at, now)}"

@@ -68,7 +68,7 @@ def test_a_symbol_carries_one_meaning() -> None:
     }
     assert collisions == {}
     assert session_list.STATE_GLYPHS["unknown"].symbol != (
-        branch_list.UNPUSHED_GLYPH.symbol
+        branch_list.NO_UPSTREAM_GLYPH.symbol
     )
 
 

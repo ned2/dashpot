@@ -145,6 +145,7 @@ class ProjectCollector:
             [*inventory.diagnostics, *branches.diagnostics],
             branches=branches.branches,
             fetched_at=branches.fetched_at,
+            integration_ref=branches.integration_ref,
         )
 
     def refresh(self) -> ProjectSnapshot:
@@ -179,6 +180,7 @@ class ProjectCollector:
             target_last_good_at=(attempted_at if target_status == "fresh" else None),
             branches=target_inventory.branches,
             fetched_at=target_inventory.fetched_at,
+            integration_ref=target_inventory.integration_ref,
         )
 
 
@@ -244,6 +246,7 @@ class _SourceObservation:
     issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
     branches: list[Branch] = field(default_factory=list)
     fetched_at: str | None = None
+    integration_ref: str | None = None
 
     def retained_after_failure(
         self,
@@ -548,6 +551,7 @@ class ObservationCoordinator:
             elapsed_ms=0,
             branches=list(inventory.branches),
             fetched_at=inventory.fetched_at,
+            integration_ref=inventory.integration_ref,
         )
 
     def _failed(
@@ -605,6 +609,7 @@ class ObservationCoordinator:
                 target_last_good_at=targets.last_good_at,
                 branches=deepcopy(targets.branches),
                 fetched_at=targets.fetched_at,
+                integration_ref=targets.integration_ref,
             )
         return ProjectObservation(
             project.project_id,

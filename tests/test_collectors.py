@@ -213,12 +213,18 @@ class ProjectCollectorTests(unittest.TestCase):
             remote=None,
             head="abc123",
             committed_at="2026-08-27T00:00:00Z",
+            unintegrated_commits=0,
         )
         anchors_seen: list[list[Path]] = []
 
         def observe_branches(anchors: Sequence[Path]) -> BranchObservation:
             anchors_seen.append(list(anchors))
-            return BranchObservation([branch], "2026-08-27T01:00:00Z", [])
+            return BranchObservation(
+                [branch],
+                "2026-08-27T01:00:00Z",
+                [],
+                "refs/remotes/origin/main",
+            )
 
         collector = ProjectCollector(
             resolved_project(),
@@ -233,11 +239,15 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual([[Path("/repo")], [Path("/repo")]], anchors_seen)
         self.assertEqual([branch], snapshot.branches)
         self.assertEqual("2026-08-27T01:00:00Z", snapshot.fetched_at)
+        self.assertEqual("refs/remotes/origin/main", snapshot.integration_ref)
         self.assertEqual([branch], inventory.branches)
         self.assertEqual("2026-08-27T01:00:00Z", inventory.fetched_at)
+        self.assertEqual("refs/remotes/origin/main", inventory.integration_ref)
         payload = jsonable(snapshot)
         self.assertEqual("refs/heads/main", payload["branches"][0]["refname"])
+        self.assertEqual(0, payload["branches"][0]["unintegratedCommits"])
         self.assertEqual("2026-08-27T01:00:00Z", payload["fetchedAt"])
+        self.assertEqual("refs/remotes/origin/main", payload["integrationRef"])
 
     def test_source_label_palette_travels_with_the_snapshot(self) -> None:
         collector = ProjectCollector(

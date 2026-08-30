@@ -15,7 +15,7 @@ from pathlib import Path
 from rich.text import Text
 
 from .issue_list import row_key
-from .list_pane import ListCell, ListColumn, ListRow, truncate_end, truncate_start
+from .list_pane import ListCell, ListColumn, ListRow, truncate_end
 from .model import (
     AgentRun,
     ObservationTarget,
@@ -24,7 +24,7 @@ from .model import (
     TargetRole,
     WorkspaceSnapshot,
 )
-from .session_list import PATH_LIMIT, STATE_GLYPHS, STATE_ORDER, abbreviate_path
+from .session_list import STATE_GLYPHS, STATE_ORDER, abbreviate_path
 
 BRANCH_LIMIT = 24
 SHORT_HEAD = 7
@@ -171,7 +171,7 @@ def path_cell(
     row: WorktreeListRow, *, dark: bool, home: Path | None = None
 ) -> ListCell:
     """Show the path with exceptional freshness when observation failed."""
-    path = truncate_start(abbreviate_path(row.target.path, home=home), PATH_LIMIT)
+    path = abbreviate_path(row.target.path, home=home)
     freshness = row.freshness
     if freshness == "available":
         return path

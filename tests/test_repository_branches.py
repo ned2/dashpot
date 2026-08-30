@@ -38,7 +38,13 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
             ref("refs/tags/not-a-branch", "999"),
         ]
     )
-    runner = SequenceRunner(completed(listing + "\n"), completed(".git\n"))
+    runner = SequenceRunner(
+        completed(listing + "\n"),
+        completed("refs/heads/main\nrefs/heads/local-only\n"),
+        completed("2\n"),
+        completed("1\n"),
+        completed(".git\n"),
+    )
 
     observation = observe_branches([anchor], runner=runner)
 
@@ -50,6 +56,25 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
             f"--format={BRANCH_REF_FORMAT}",
             "refs/heads",
             "refs/remotes",
+        ],
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname)",
+            "--merged=refs/remotes/origin/main",
+            "refs/heads",
+        ],
+        [
+            "git",
+            "rev-list",
+            "--count",
+            "refs/remotes/origin/main..refs/heads/feature",
+        ],
+        [
+            "git",
+            "rev-list",
+            "--count",
+            "refs/remotes/origin/main..refs/heads/orphan",
         ],
         ["git", "rev-parse", "--git-common-dir"],
     ]
@@ -68,20 +93,26 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     main = by_ref["refs/heads/main"]
     assert (main.name, main.remote, main.upstream) == ("main", None, "origin/main")
     assert (main.ahead, main.behind, main.upstream_gone) == (0, 0, False)
+    assert main.unintegrated_commits == 0
     assert main.checked_out_at == str(anchor)
     assert main.committed_at == "2026-08-27T03:00:00Z"
     feature = by_ref["refs/heads/feature"]
     assert (feature.ahead, feature.behind, feature.upstream_gone) == (2, 1, False)
+    assert feature.unintegrated_commits == 2
     local_only = by_ref["refs/heads/local-only"]
     assert (local_only.upstream, local_only.ahead, local_only.behind) == (
         None,
         None,
         None,
     )
+    assert local_only.unintegrated_commits == 0
     assert by_ref["refs/heads/orphan"].upstream_gone is True
+    assert by_ref["refs/heads/orphan"].unintegrated_commits == 1
     upstream_main = by_ref["refs/remotes/upstream/main"]
     assert (upstream_main.name, upstream_main.remote) == ("main", "upstream")
     assert upstream_main.upstream is None
+    assert upstream_main.unintegrated_commits is None
+    assert observation.integration_ref == "refs/remotes/origin/main"
     assert observation.fetched_at is not None
     assert observation.fetched_at.endswith("Z")
 
@@ -94,6 +125,7 @@ def test_first_answering_anchor_is_authoritative_and_failures_are_diagnosed(
     runner = SequenceRunner(
         completed("", stderr="fatal: not a git repository", returncode=128),
         completed(ref("refs/heads/main", "aaa") + "\n"),
+        completed("refs/heads/main\n"),
         OSError("git missing"),
     )
 
@@ -103,8 +135,15 @@ def test_first_answering_anchor_is_authoritative_and_failures_are_diagnosed(
     # A repository that never fetched has no FETCH_HEAD; a failed lookup of
     # the common directory is the same honest answer.
     assert observation.fetched_at is None
+    assert observation.integration_ref == "refs/heads/main"
+    assert observation.branches[0].unintegrated_commits == 0
     assert observation.diagnostics == []
-    assert [call[1] for call in runner.calls] == [broken, working, working]
+    assert [call[1] for call in runner.calls] == [
+        broken,
+        working,
+        working,
+        working,
+    ]
 
 
 def test_every_anchor_failing_reports_each_one() -> None:
@@ -114,8 +153,31 @@ def test_every_anchor_failing_reports_each_one() -> None:
 
     assert observation.branches == []
     assert observation.fetched_at is None
+    assert observation.integration_ref is None
     assert [(item.source, item.code) for item in observation.diagnostics] == [
         ("anchor:/a", "branch-discovery"),
         ("anchor:/b", "branch-discovery"),
     ]
     assert observation.diagnostics[1].message == "Cannot list Branches: boom"
+
+
+def test_ambiguous_local_defaults_leave_integration_unavailable() -> None:
+    listing = "\n".join(
+        [ref("refs/heads/main", "aaa"), ref("refs/heads/master", "bbb")]
+    )
+    runner = SequenceRunner(completed(listing + "\n"), completed(".git\n"))
+
+    observation = observe_branches([Path("/repo")], runner=runner)
+
+    assert observation.integration_ref is None
+    assert all(branch.unintegrated_commits is None for branch in observation.branches)
+    assert [call[0] for call in runner.calls] == [
+        [
+            "git",
+            "for-each-ref",
+            f"--format={BRANCH_REF_FORMAT}",
+            "refs/heads",
+            "refs/remotes",
+        ],
+        ["git", "rev-parse", "--git-common-dir"],
+    ]

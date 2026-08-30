@@ -4,8 +4,8 @@ import json
 import re
 import stat
 import time
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -33,6 +33,8 @@ BRANCH_REF_FIELDS = (
 BRANCH_REF_FORMAT = "%00".join(BRANCH_REF_FIELDS)
 LOCAL_REF_PREFIX = "refs/heads/"
 REMOTE_REF_PREFIX = "refs/remotes/"
+ORIGIN_HEAD_REF = "refs/remotes/origin/HEAD"
+DEFAULT_BRANCHES = ("main", "master")
 
 
 def git(root: Path, *args: str, timeout: float = 5) -> str:
@@ -367,6 +369,7 @@ class BranchObservation:
     branches: list[Branch]
     fetched_at: str | None
     diagnostics: list[Diagnostic]
+    integration_ref: str | None = None
 
 
 def observe_branches(
@@ -402,13 +405,26 @@ def observe_branches(
             detail = result.stderr.strip() or f"exit {result.returncode}"
             diagnostics.append(_branch_diagnostic(anchor, detail))
             continue
+        lines = [line for line in result.stdout.splitlines() if line]
         branches = [
             branch
-            for line in result.stdout.splitlines()
-            if line and (branch := _parse_branch_record(line)) is not None
+            for line in lines
+            if (branch := _parse_branch_record(line)) is not None
         ]
+        integration_ref = _integration_ref(lines, branches)
+        if integration_ref is not None:
+            branches = _observe_integration(
+                branches,
+                integration_ref,
+                anchor,
+                runner=runner,
+                timeout=timeout,
+            )
         return BranchObservation(
-            branches, _fetched_at(anchor, runner=runner, timeout=timeout), []
+            branches,
+            _fetched_at(anchor, runner=runner, timeout=timeout),
+            [],
+            integration_ref,
         )
     return BranchObservation([], None, diagnostics)
 
@@ -456,6 +472,105 @@ def _parse_branch_record(line: str) -> Branch | None:
         upstream_gone=gone,
         checked_out_at=worktree_path or None,
     )
+
+
+def _integration_ref(lines: Sequence[str], branches: Sequence[Branch]) -> str | None:
+    """Choose origin/HEAD, else the unique local main or master Branch."""
+    refnames = {branch.refname for branch in branches}
+    origin_head: str | None = None
+    for line in lines:
+        fields = line.split("\0")
+        if len(fields) == len(BRANCH_REF_FIELDS):
+            refname, *_other, symref = fields
+            if refname == ORIGIN_HEAD_REF:
+                origin_head = symref or None
+                break
+    return choose_integration_ref(origin_head, refnames)
+
+
+def choose_integration_ref(
+    origin_head: str | None, available_refs: Iterable[str]
+) -> str | None:
+    """Choose origin/HEAD, else the unique available local main or master ref."""
+    refnames = set(available_refs)
+    if origin_head is not None and origin_head in refnames:
+        return origin_head
+    local_defaults = [
+        f"{LOCAL_REF_PREFIX}{name}"
+        for name in DEFAULT_BRANCHES
+        if f"{LOCAL_REF_PREFIX}{name}" in refnames
+    ]
+    return local_defaults[0] if len(local_defaults) == 1 else None
+
+
+def _observe_integration(
+    branches: Sequence[Branch],
+    integration_ref: str,
+    anchor: Path,
+    *,
+    runner: CommandRunner,
+    timeout: float,
+) -> list[Branch]:
+    """Count each local Branch's commits not reachable from the integration ref."""
+    try:
+        merged = runner(
+            [
+                "git",
+                "for-each-ref",
+                "--format=%(refname)",
+                f"--merged={integration_ref}",
+                "refs/heads",
+            ],
+            anchor,
+            timeout,
+        )
+    except (OSError, RuntimeError):
+        return list(branches)
+    if merged.returncode != 0:
+        return list(branches)
+    integrated = set(merged.stdout.splitlines())
+    observed: list[Branch] = []
+    for branch in branches:
+        if branch.remote is not None:
+            observed.append(branch)
+            continue
+        count = (
+            0
+            if branch.refname in integrated
+            else _unintegrated_commit_count(
+                anchor,
+                integration_ref,
+                branch.refname,
+                runner=runner,
+                timeout=timeout,
+            )
+        )
+        observed.append(replace(branch, unintegrated_commits=count))
+    return observed
+
+
+def _unintegrated_commit_count(
+    anchor: Path,
+    integration_ref: str,
+    branch_ref: str,
+    *,
+    runner: CommandRunner,
+    timeout: float,
+) -> int | None:
+    try:
+        result = runner(
+            ["git", "rev-list", "--count", f"{integration_ref}..{branch_ref}"],
+            anchor,
+            timeout,
+        )
+    except (OSError, RuntimeError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
 
 
 def _utc_timestamp(value: str) -> str:

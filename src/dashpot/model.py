@@ -77,6 +77,9 @@ class Branch:
     behind: int | None = None
     upstream_gone: bool = False
     checked_out_at: str | None = None
+    # Commits reachable from this local Branch but not the Integration Branch;
+    # ``None`` when no comparison was available or for a Remote-Tracking Branch.
+    unintegrated_commits: int | None = None
 
 
 @dataclass(slots=True)
@@ -85,9 +88,11 @@ class ObservationTargetInventory:
     diagnostics: list[Diagnostic]
     # Every observed Branch of the repository, and when its Remote-Tracking
     # Branches were last fetched (``None`` when the repository never fetched).
-    # Dashpot never fetches, so that age is the remote facts' freshness.
+    # Dashpot never fetches, so that age is the remote facts' freshness;
+    # ``integration_ref`` is the ref their reachability facts compare with.
     branches: list[Branch] = field(default_factory=list)
     fetched_at: str | None = None
+    integration_ref: str | None = None
 
 
 @dataclass(slots=True)
@@ -134,9 +139,11 @@ class ProjectSnapshot:
     issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
     # Branches are observed with the worktree topology and share its
     # freshness; ``fetched_at`` is the last fetch of the Remote-Tracking
-    # Branches, which Dashpot reports rather than refreshes.
+    # Branches, which Dashpot reports rather than refreshes. ``integration_ref``
+    # is the Integration Branch their reachability facts compare with.
     branches: list[Branch] = field(default_factory=list)
     fetched_at: str | None = None
+    integration_ref: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

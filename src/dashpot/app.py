@@ -29,7 +29,7 @@ from .alerts import (
     AlertSeverity,
     summarize_alerts,
 )
-from .branch_list import BRANCH_COLUMNS, build_branch_rows, fetch_age_text
+from .branch_list import BRANCH_COLUMNS, branch_note, build_branch_rows
 from .collect import (
     ObservationKey,
     ObservationOutcome,
@@ -674,7 +674,7 @@ class DashpotApp(App[None]):
         now = datetime.now(UTC)
         self.branches_pane().show_rows(
             build_branch_rows(branches, dark=self.current_theme.dark, now=now),
-            note=fetch_age_text(branches.fetched_at, now),
+            note=branch_note(branches.integration_refs, branches.fetched_at, now),
         )
         self.worktrees_pane().show_rows(self.worktree_rows())
 

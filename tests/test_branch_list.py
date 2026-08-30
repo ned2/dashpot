@@ -7,10 +7,10 @@ from rich.text import Text
 from dashpot.branch_list import (
     BRANCH_COLUMNS,
     branch_cells,
+    branch_note,
     build_branch_rows,
     fetch_age_text,
     query_branch_list,
-    where_text,
 )
 from dashpot.issue_list import row_key
 from dashpot.model import Branch, ProjectObservation
@@ -31,6 +31,7 @@ def local(
     gone: bool = False,
     committed_at: str = "2026-08-27T02:00:00Z",
     checked_out_at: str | None = None,
+    unintegrated_commits: int | None = None,
 ) -> Branch:
     if upstream is not None and ahead is None and not gone:
         ahead, behind = 0, 0
@@ -45,6 +46,7 @@ def local(
         behind=behind,
         upstream_gone=gone,
         checked_out_at=checked_out_at,
+        unintegrated_commits=unintegrated_commits,
     )
 
 
@@ -65,11 +67,15 @@ def remote(
 
 
 def branchy_project(
-    project_id: str, *branches: Branch, fetched_at: str | None = NOW
+    project_id: str,
+    *branches: Branch,
+    fetched_at: str | None = NOW,
+    integration_ref: str | None = "refs/remotes/origin/main",
 ) -> ProjectObservation:
     observation = project(project_id, target(f"/{project_id}", role="main"))
     snapshot_of(observation).branches = list(branches)
     snapshot_of(observation).fetched_at = fetched_at
+    snapshot_of(observation).integration_ref = integration_ref
     return observation
 
 
@@ -89,6 +95,7 @@ def test_local_and_remote_refs_of_one_name_are_one_row() -> None:
 
     assert result.count == 4
     assert result.fetched_at == NOW
+    assert result.integration_refs == ("refs/remotes/origin/main",)
     by_name = {row.name: row for row in result.rows}
     assert set(by_name) == {"main", "feature", "scratch", "elsewhere"}
     main = by_name["main"]
@@ -96,10 +103,7 @@ def test_local_and_remote_refs_of_one_name_are_one_row() -> None:
     assert main.local is not None and main.local.upstream == "origin/main"
     assert [ref.remote for ref in main.remotes] == ["origin", "upstream"]
     assert [target.path for target in main.worktrees] == ["/project:one"]
-    assert where_text(main) == "local · origin · upstream"
-    assert where_text(by_name["scratch"]) == "local"
     assert by_name["scratch"].remotes == ()
-    assert where_text(by_name["elsewhere"]) == "origin"
     assert by_name["elsewhere"].local is None
 
 
@@ -149,11 +153,22 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     long_name = "feature/" + "x" * 60
     observation = branchy_project(
         "project:one",
-        local("main", upstream="origin/main", checked_out_at="/home/ned/project:one"),
+        local(
+            "main",
+            upstream="origin/main",
+            checked_out_at="/home/ned/project:one",
+            unintegrated_commits=0,
+        ),
         remote("main"),
-        local("ahead-behind", upstream="origin/ahead-behind", ahead=3, behind=2),
+        local(
+            "ahead-behind",
+            upstream="origin/ahead-behind",
+            ahead=3,
+            behind=2,
+            unintegrated_commits=3,
+        ),
         local("gone", upstream="origin/gone", gone=True),
-        local(long_name),
+        local(long_name, unintegrated_commits=0),
         remote("remote-only"),
     )
     snapshot_of(observation).observation_targets = [
@@ -170,34 +185,44 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     main = branch_cells(by_name["main"], dark=True, now=CLOCK)
     assert plain(main) == [
         "main",
-        "local · origin",
         "✓",
+        "✓",
+        "=",
+        "⊆",
         "◐ 1",
         "1h ago",
     ]
     drifted = branch_cells(by_name["ahead-behind"], dark=True, now=CLOCK)
-    assert isinstance(drifted[2], Text)
-    assert drifted[2].plain == "↑3 ↓2"
-    assert str(drifted[2].style) == "#d29922"
+    assert isinstance(drifted[3], Text)
+    assert drifted[3].plain == "↑3 ↓2"
+    assert str(drifted[3].style) == "#d29922"
+    assert isinstance(drifted[4], Text)
+    assert drifted[4].plain == "↑3"
+    assert str(drifted[4].style) == "#d29922"
     gone = branch_cells(by_name["gone"], dark=False, now=CLOCK)
-    assert isinstance(gone[2], Text)
-    assert (gone[2].plain, str(gone[2].style)) == ("✗", "#cf222e")
-    unpushed = branch_cells(by_name[long_name], dark=True, now=CLOCK)
-    assert str(unpushed[0]) == "feature/" + "x" * 39 + "…"
-    assert isinstance(unpushed[2], Text)
-    assert unpushed[2].plain == "∅"
-    assert str(unpushed[3]) == "-"
+    assert isinstance(gone[3], Text)
+    assert (gone[3].plain, str(gone[3].style)) == ("✗", "#cf222e")
+    assert isinstance(gone[4], Text)
+    assert (gone[4].plain, str(gone[4].style)) == ("⊘", "#cf222e")
+    no_upstream = branch_cells(by_name[long_name], dark=True, now=CLOCK)
+    assert str(no_upstream[0]) == "feature/" + "x" * 39 + "…"
+    assert isinstance(no_upstream[3], Text)
+    assert no_upstream[3].plain == "∅"
+    assert no_upstream[4] == "⊆"
+    assert str(no_upstream[5]) == "-"
     remote_only = branch_cells(by_name["remote-only"], dark=True, now=CLOCK)
-    assert plain(remote_only[:3]) == ["remote-only", "origin", "-"]
-    assert plain(remote_only[3:]) == ["-", "1h ago"]
+    assert plain(remote_only[:5]) == ["remote-only", "", "✓", "-", "-"]
+    assert plain(remote_only[5:]) == ["-", "1h ago"]
 
     rows = build_branch_rows(result, dark=True, now=CLOCK)
     assert [row.key for row in rows] == [row.key for row in result.rows]
     assert len(rows[0].cells) == len(BRANCH_COLUMNS)
     assert [column.label for column in BRANCH_COLUMNS] == [
         "BRANCH",
-        "WHERE",
-        "SYNC",
+        "LOCAL",
+        "REMOTE",
+        "UPSTREAM",
+        "INTEGRATED",
         "SESSIONS",
         "LAST COMMIT",
     ]
@@ -212,3 +237,10 @@ def test_fetch_age_is_honest() -> None:
     assert result.fetched_at is None
     assert fetch_age_text(None, CLOCK) == "remote never fetched"
     assert fetch_age_text("2026-08-27T00:00:00Z", CLOCK) == "remote last fetched 3h ago"
+    assert branch_note((), None, CLOCK) == (
+        "integration unavailable · remote never fetched"
+    )
+    assert (
+        branch_note(("refs/remotes/origin/main",), "2026-08-27T00:00:00Z", CLOCK)
+        == "integration origin/main · remote last fetched 3h ago"
+    )

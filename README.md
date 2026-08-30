@@ -255,6 +255,14 @@ as of the last `git fetch`. Dashpot reads it and reports its age; it never
 fetches.
 _Avoid_: remote branch for the local copy, which may be behind the remote
 
+**Integration Branch**:
+The Branch against which Dashpot observes whether every commit of a local
+Branch is reachable: `origin/HEAD`, else the unique local `main` or `master`.
+It is selected from local Git facts and never fetched. Integration is exact
+commit reachability, not patch equivalence, so a squash or cherry-pick remains
+unintegrated until a person reviews it.
+_Avoid_: upstream, which is a local Branch's configured synchronization target
+
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.
@@ -818,20 +826,25 @@ and exceptional `stale` or `unavailable` state. Its five columns are `PATH`,
 `KIND`, `BRANCH`, `TREE`, and `SESSIONS`: `KIND` distinguishes Git's `main`
 and `linked` Worktrees, normal Branches omit HEAD, detached checkouts
 include their short HEAD, the working tree remains clean/dirty/unknown, and
-the last column counts the active Agent Sessions located there. Healthy rows
+the last column counts the active Agent Sessions located there. `PATH` keeps
+the full home-abbreviated path and the table scrolls horizontally when its
+content is wider than the pane. Healthy rows
 do not repeat `available`. Target-specific diagnostics stay in Diagnostics
 and the alert line; the row only points there. The
 Branches pane ([`branch_list.py`](src/dashpot/branch_list.py),
 `WorkspaceObservationStore.query_branches`) joins the local ref and the
 Remote-Tracking Branches of one branch name into one row, so a branch is
-never listed twice and never needs a second pane: `WHERE` says where it exists
-(`local`, `local · origin`, or `origin` alone for a branch pushed from
-elsewhere), `SYNC` is the local ref's relation to its upstream (`✓` in sync,
-`↑2 ↓1`, `∅` unpushed, or `✗` upstream gone), followed by the active
-sessions on it and the age of its last commit. The Worktrees pane names the
+never listed twice and never needs a second pane. `LOCAL` and `REMOTE` show
+`✓` when a ref exists in that namespace. `UPSTREAM` is the local ref's
+relation to its configured upstream (`=` in sync, `↑2 ↓1`, `∅` no upstream,
+or `✗` upstream gone). `INTEGRATED` is exact reachability from the Integration
+Branch (`⊆` when every commit is reachable, `↑2` for two that are not, or `⊘`
+when no comparison is available), followed by the active sessions on it and
+the age of its last commit. The pane subtitle names the Integration Branch
+and the age of the Remote-Tracking Branches. The Worktrees pane names the
 Branch checked out at every Worktree. Rows are sorted checked-out first, then
-most recent commit. Its five columns are `BRANCH`, `WHERE`, `SYNC`, `SESSIONS`,
-and `LAST COMMIT`. The
+most recent commit. Its seven columns are `BRANCH`, `LOCAL`, `REMOTE`,
+`UPSTREAM`, `INTEGRATED`, `SESSIONS`, and `LAST COMMIT`. The
 refs are read with `git for-each-ref` from the first answering Repository
 Anchor; Dashpot never runs `git fetch`, so the lower-right pane border carries
 the age of the last fetch (`remote last fetched 3h ago`, or
@@ -843,7 +856,8 @@ that explains every one of them ([`legend.py`](src/dashpot/legend.py)). Its
 sections follow the screen top to bottom and name the column a Glyph appears
 in: the Sessions family `●` running, `◐` waiting and `○` unknown (also
 leading the Agent Session count in the Branches and Worktrees `SESSIONS`
-columns), the Branches `SYNC` vocabulary above, the Issues table's `◉` Issue
+columns), the Branches presence, `UPSTREAM`, and `INTEGRATED` vocabularies
+above, the Issues table's `◉` Issue
 state column (`■` in the state colour: open, completed, not planned or
 duplicate), its `◈` Agent Run state column (`▶` running, `Ⅱ` waiting, `?`
 unknown, blank for no Agent Run), the `↕ ↑ ↓` sort markers on its headers,

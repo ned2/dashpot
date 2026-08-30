@@ -2626,7 +2626,9 @@ async def test_main_screen_stacks_the_panes_above_the_issues() -> None:
         # lower-right pane border. Dashpot never fetches, and this repository
         # never has.
         assert pane_title(app, "#branches-pane") == "BRANCHES · 0"
-        assert pane_subtitle(app, "#branches-pane") == "remote never fetched"
+        assert pane_subtitle(app, "#branches-pane") == (
+            "integration unavailable · remote never fetched"
+        )
         branches = app.query_one("#branches-pane", ListPane)
         assert branches.styles.border_subtitle_align == "right"
         # An empty pane is one honest line inside its frame, not a blank box.

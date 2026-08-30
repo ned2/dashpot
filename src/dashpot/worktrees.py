@@ -35,7 +35,9 @@ from .project_config import (
     parse_project_config,
 )
 from .repository import (
+    DEFAULT_BRANCHES,
     LockHolderProbe,
+    choose_integration_ref,
     git,
     is_within,
     lock_holder,
@@ -53,7 +55,6 @@ WORKTREE_ROOT_SUFFIX = ".worktrees"
 # GitHub's own Issue-branch slug: lower-case words joined by single hyphens,
 # kept short enough to read in a Branch listing.
 SLUG_LIMIT = 48
-DEFAULT_BRANCHES = ("main", "master")
 INITIALIZING_LOCK = "initializing"
 
 
@@ -312,19 +313,31 @@ def _resolve_base(
     head = run_command(
         ["git", "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"], anchor, timeout
     )
-    if head.returncode == 0 and head.stdout.strip():
-        ref = head.stdout.strip()
-        commit = _commit_of(anchor, ref, timeout)
-        if commit is not None:
-            return ref, "origin/HEAD", commit
-    local = [
-        name
+    origin_head = (
+        head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else None
+    )
+    origin_commit = (
+        _commit_of(anchor, origin_head, timeout) if origin_head is not None else None
+    )
+    origin_refs = (
+        [origin_head] if origin_head is not None and origin_commit is not None else []
+    )
+    ref = choose_integration_ref(origin_head, origin_refs)
+    if ref is not None:
+        return ref, "origin/HEAD", origin_commit
+    candidates = [
+        f"refs/heads/{name}"
         for name in DEFAULT_BRANCHES
         if _commit_of(anchor, f"refs/heads/{name}", timeout) is not None
     ]
-    if len(local) == 1:
-        ref = f"refs/heads/{local[0]}"
+    ref = choose_integration_ref(None, candidates)
+    if ref is not None:
         return ref, "local-branch", _commit_of(anchor, ref, timeout)
+    local = [
+        name.removeprefix("refs/heads/")
+        for name in candidates
+        if name.startswith("refs/heads/")
+    ]
     preparation.refusals.append(
         "no base Branch could be chosen: origin/HEAD is not set and there is "
         + ("no" if not local else "more than one")
