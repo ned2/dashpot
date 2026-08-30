@@ -17,13 +17,121 @@ not assign or edit Issues, mutate repositories, or control agent sessions.
 ## What it observes
 
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
-- git branch, worktree, HEAD, and dirty state
+- git Branches, Remote-Tracking Branches, worktrees, HEAD, and dirty state
 - Codex and Claude Code lifecycle records published through opt-in hooks
 - source freshness, failures, and last-good state
 - durable Agent Run bindings through opaque Issue Identity
 
 Each source remains independent in the read model. A failed Issue refresh, for
 example, does not erase the last good Issue collection or hide repository facts.
+
+## Usage
+
+Open the TUI for a Project — Dashpot observes exactly one Project per run:
+
+```bash
+cd /path/to/configured/project
+uv run dashpot
+
+uv run dashpot --workspace personal=/path/to/project
+uv run dashpot --workspace personal=/path/first-clone \
+  --workspace personal=/path/second-clone
+```
+
+Without arguments, Dashpot observes the current directory when it contains
+`.dashpot/config.json`. Outside a configured Project it loads explicit Repository
+Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
+`--workspace` arguments each name one anchor and take precedence; repeat the
+same Workspace name to include independent clones of the same Project. Anchors
+that resolve to more than one Project are refused with a message naming them
+(see [ADR 0004](docs/adr/0004-observe-one-project-per-run.md)). Use `--config`
+to select a different Workspace inventory.
+
+The Header's title is `Dashpot` and its sub-title is the observed Project's
+Repository Anchor path, or `passive workspace view` until the first
+observation lands. The default 15-second polling period refreshes the
+observed Project and can be changed with `--refresh-seconds`; zero disables
+polling. `--timeout` bounds every external `git` and `gh` command (default 10
+seconds), `--state-dir` overrides where session records land outside a
+configured Project (the flag form of `DASHPOT_STATE_DIR`), and `--version`
+prints the installed version. `dashpot --help` describes every command and
+option, and each command has its own `--help`; an option belongs to the
+command it follows, so the timeout for `init` is given as `dashpot init
+--timeout 5`, not before `init`. Invalid input fails with a one-line
+`dashpot: ...` diagnostic on stderr and exit code 2, the same as a startup
+error.
+
+### Keys
+
+| Key | Action |
+|---|---|
+| `r` | Refresh the observed Project; `R` refreshes every observation in the Workspace, which is the same Project in a one-Project run |
+| `1` `2` `3` `4` | Focus the Issues, Sessions, Branches, or Worktrees list; `Tab` / `Shift+Tab` cycle through them in that order |
+| `/` | Focus the Issue search |
+| `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
+| `s` / `S` | Sort by the next sortable column / reverse the current sort; clicking a column header sorts by it too |
+| `c` | Open the column editor: toggle the visible Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
+| Arrow keys | Move the row cursor in the focused list |
+| `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, highlight that Issue in the table |
+| `q` | Quit |
+
+The search box takes whitespace- or quote-separated terms matched against the
+Issue's number, title, labels, Project, assignees, author, milestone, and
+type, plus one `sort:` term — `sort:created`, `sort:updated`, or either with
+an `-asc` / `-desc` suffix (`-desc` is the default) — which overrides the
+column sort while it is present. A search the parser cannot read is reported
+as a `Search:` error in Diagnostics rather than silently ignored. The count
+beside the search box (`6 issues`) is the number of Issues matching every
+active filter, never an `M of N` total. The Issue table's columns are `◉`
+(Issue state) and `◈` (agent state), which are unsortable, then `#`, `TITLE`,
+`LABELS`, `PROJECT`, `PRI`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
+`COMMENTS`, `CREATED`, and `LAST ACTION`; `PRI` is read from a
+`priority/p0`, `priority/p1`, or `priority/p2` label.
+
+A Workspace inventory stores named groupings of anchor paths for one Project —
+independent clones, never discovered or persisted worktree paths:
+
+```json
+{
+  "workspaces": [
+    {
+      "name": "personal",
+      "anchors": [
+        "/home/me/projects/dashpot",
+        "/home/me/independent-clones/dashpot"
+      ]
+    }
+  ]
+}
+```
+
+Relative anchor paths are resolved relative to the inventory file. Every anchor
+is validated independently, and clones with the same Project Identity and
+Repository Identity are presented as one Project. Anchor order is significant:
+the first valid anchor for a Project supplies its display label and is the
+authoritative checkout used for Issue collection.
+
+On every refresh, Dashpot asks Git for the main and linked worktrees reachable
+from every configured anchor. These runtime Observation Targets are deduplicated
+by path and report branch or detached state, HEAD, dirty state, availability,
+elapsed time, and target-specific diagnostics. Locked, prunable, missing, and
+inaccessible targets remain visible without degrading the Project's Issue
+Source. A Worktree locked by a running process is a coding agent working in
+it, which is the steady state and is reported as nothing at all; the lock is
+diagnosed once the process it names has exited, because that lock outlives its
+session and keeps the Worktree from being pruned. Target inventory is never persisted, and Project-level Issues are still
+collected exactly once from the authoritative anchor.
+
+The same collector has a headless JSON interface:
+
+```bash
+uv run dashpot --workspace my-project=/path/to/project --json
+```
+
+The TUI uses each Project's mutable display label. Headless snapshots also
+include its durable `projectId` and `repositoryId`, along with Workspace names
+and Repository Anchors, so automation and diagnostics do not depend on labels or
+paths for identity.
 
 ## Domain language
 
@@ -135,7 +243,9 @@ directory. It is evidence about execution, never Project or Issue identity.
 **Agent Session**:
 The lifetime of one harness conversation or process, such as a single Codex
 run. A session is never permanently bound to an Issue; its lifecycle state
-(running, waiting, or unknown) is an observation of the session itself.
+(running, waiting, or unknown) and activity age (how long the current turn
+has run, or how long it has been idle) are observations of the session
+itself, taken at turn boundaries.
 
 **Agent Run**:
 A time-bounded period during one Agent Session when it is explicitly working
@@ -192,7 +302,7 @@ Dashpot requires Python 3.11 or newer and uses
 [uv](https://docs.astral.sh/uv/) for its locked development environment.
 
 ```bash
-uv sync --group dev
+uv sync --locked --group dev
 uv run pre-commit install
 uv run pytest -q
 ```
@@ -266,81 +376,6 @@ uv run pytest -q
 uv build
 ```
 
-Open the TUI for a Project — Dashpot observes exactly one Project per run:
-
-```bash
-cd /path/to/configured/project
-uv run dashpot
-
-uv run dashpot --workspace personal=/path/to/project
-uv run dashpot --workspace personal=/path/first-clone \
-  --workspace personal=/path/second-clone
-```
-
-Without arguments, Dashpot observes the current directory when it contains
-`.dashpot/config.json`. Outside a configured Project it loads explicit Repository
-Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
-`--workspace` arguments each name one anchor and take precedence; repeat the
-same Workspace name to include independent clones of the same Project. Anchors
-that resolve to more than one Project are refused with a message naming them
-(see [ADR 0004](docs/adr/0004-observe-one-project-per-run.md)). Use `--config`
-to select a different Workspace inventory. Use `r` to refresh the selected Project, `R` to
-refresh every Project, `o` to flip the Work list between open, closed, and all
-Issues, the arrow keys to move, `Enter` to read the selected Issue full-screen
-(`Escape` returns to the table), and `q` to quit. The default
-15-second polling period refreshes the selected Project and can be changed with
-`--refresh-seconds`; zero disables polling. `dashpot --help` describes every
-command and option, and each command has its own `--help`; an option belongs
-to the command it follows, so the timeout for external commands is given as
-`dashpot init --timeout 5`, not before `init`. Invalid input fails with a
-one-line `dashpot: ...` diagnostic on stderr and exit code 2, the same as a
-startup error.
-
-A Workspace inventory stores named groupings of anchor paths for one Project —
-independent clones, never discovered or persisted worktree paths:
-
-```json
-{
-  "workspaces": [
-    {
-      "name": "personal",
-      "anchors": [
-        "/home/me/projects/dashpot",
-        "/home/me/independent-clones/dashpot"
-      ]
-    }
-  ]
-}
-```
-
-Relative anchor paths are resolved relative to the inventory file. Every anchor
-is validated independently, and clones with the same Project Identity and
-Repository Identity are presented as one Project. Anchor order is significant:
-the first valid anchor for a Project supplies its display label and is the
-authoritative checkout used for Issue collection.
-
-On every refresh, Dashpot asks Git for the main and linked worktrees reachable
-from every configured anchor. These runtime Observation Targets are deduplicated
-by path and report branch or detached state, HEAD, dirty state, availability,
-elapsed time, and target-specific diagnostics. Locked, prunable, missing, and
-inaccessible targets remain visible without degrading the Project's Issue
-Source. A Worktree locked by a running process is a coding agent working in
-it, which is the steady state and is reported as nothing at all; the lock is
-diagnosed once the process it names has exited, because that lock outlives its
-session and keeps the Worktree from being pruned. Target inventory is never persisted, and Project-level Issues are still
-collected exactly once from the authoritative anchor.
-
-The same collector has a headless JSON interface:
-
-```bash
-uv run dashpot --workspace my-project=/path/to/project --json
-```
-
-The TUI uses each Project's mutable display label. Headless snapshots also
-include its durable `projectId` and `repositoryId`, along with Workspace names
-and Repository Anchors, so automation and diagnostics do not depend on labels or
-paths for identity.
-
 ## Project configuration
 
 Configure a repository as a Dashpot Project with `dashpot init`, run from
@@ -399,8 +434,8 @@ relative file or directory:
 
 The owned file grammar is documented in
 [`conformance/issue/local-markdown.md`](conformance/issue/local-markdown.md).
-By default, both adapters collect the complete source inventory, including open
-and closed Issues; source collection does not apply a lifecycle filter. The TUI
+Both adapters collect the complete source inventory, including open and
+closed Issues; source collection does not apply a lifecycle filter. The TUI
 defaults its Work list to open Issues. Both adapters are currently read-only.
 
 ## Agent session observation
@@ -427,7 +462,9 @@ alone and points out that Codex merges both layers.
 manual Codex configuration.
 
 The hooks report session lifecycle only: which agent sessions are alive at a
-worktree and whether they are running or waiting. A session that has not
+worktree and whether they are running or waiting. Codex registers
+`SessionStart`, `UserPromptSubmit`, `Stop`, `Interrupt`, and `SessionEnd`;
+Claude Code the same set without `Interrupt`. A session that has not
 declared an Issue is not listed as Work; it is listed in the Sessions pane
 with `no active Issue work` until it opts in with `dashpot work start`. Codex and Claude
 Code sessions are observed side by side with distinct identities, and both may
@@ -541,9 +578,9 @@ or reassigns Issue work on its own.
 
 ## Design
 
-Observation is scheduled per key rather than as one refresh: each Project's
+Observation is scheduled per key rather than as one refresh: the Project's
 Issue Source and its worktree topology are observed independently, and Agent
-Runs are observed once per Workspace whenever a Project has been published. An
+Runs are observed once per Workspace whenever the Project has been published. An
 [`ObservationCoordinator`](src/dashpot/collect.py) tracks a generation per key
 so a superseded observation can never overwrite a newer one, retains the last
 good result per key when a refresh fails, and composes each Project from its
@@ -551,21 +588,22 @@ latest accepted halves. The Textual interface publishes every accepted
 observation into a process-local `WorkspaceObservationStore` as soon as it
 lands, then re-queries source-neutral Issue-list read models carrying a store
 revision; a slow GitHub call therefore never delays branch or dirty state.
-`r` refreshes the selected row's Project (or all when nothing is selected) and
-`R` fans out to the whole Workspace. Exceptional state is summarized in a
+`r` refreshes the observed Project and `R` fans out to every key in the
+Workspace; with one Project per run the two coincide. Exceptional state is summarized in a
 one-line alert above Diagnostics that takes no space while everything is
 healthy: refresh failures and unavailable Projects are errors, unavailable or
 stale worktrees and stale Issue Sources are warnings, and a refresh that has
 been running longer than a moment is shown as information. The alert is
 derived from current observations and clears itself on recovery; toasts are
 reserved for manual-refresh failures and their recovery, and Diagnostics keeps
-the durable detail. Headless JSON runs a coordinated barrier
+the durable detail: the box takes no space while it is empty and is coloured
+by the most severe line it holds. Headless JSON runs a coordinated barrier
 over every key and serializes the store's `checkpoint()`, so it remains one
 complete snapshot. Collection happens off the UI thread, and the table is
 reconciled by stable row keys.
 
-The main screen is a single pane of glass: the Header names the observed
-Project by its Repository Anchor (`Dashpot — /path/to/repo`), and below it
+The main screen is a single pane of glass: the Header sub-titles `Dashpot`
+with the observed Project's Repository Anchor path, and below it
 the full-width `SESSIONS`, `BRANCHES` and `WORKTREES` panes stack above the
 full-width `ISSUES` table. Nothing is switched to: every active Agent
 Session, every observed Worktree and every Branch is listed in its pane, with
@@ -590,7 +628,9 @@ most recent activity, with any bound Issue joined from the Work Store's
 accepted bindings, an `outside Project` marker in place of a target the
 observed Project does not own, an intentional `no active Issue work` value
 when unbound, its working directory relative to its Observation Target, and
-long paths, branches and titles clipped with an ellipsis. `TARGET` is dropped
+long paths, branches and titles clipped with an ellipsis. Its columns are
+`STATE`, `HARNESS`, `TARGET`, `BRANCH`, `ISSUE`, `DIRECTORY`, and
+`ACTIVITY`. `TARGET` is dropped
 altogether while every listed session shares one Observation Target, which is
 the usual shape of a Project with no linked Worktrees; it returns as soon as a
 session sits in another Worktree or outside the Project. Exactly one column
@@ -608,8 +648,7 @@ is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.p
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
 and sorted main before linked, then path, with the Git
-topology role `git worktree list` reported beside the path (the main working
-tree is listed first), whether the path is a configured Repository Anchor,
+topology role `git worktree list` reported beside the path, whether the path is a configured Repository Anchor,
 and exceptional `stale` or `unavailable` state. Its four columns are `PATH`,
 `BRANCH`, `TREE`, and `SESSIONS`: normal Branches omit HEAD, detached checkouts
 include their short HEAD, the working tree remains clean/dirty/unknown, and
