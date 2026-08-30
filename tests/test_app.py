@@ -3455,6 +3455,30 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.sub_title != DEFAULT_SUB_TITLE
+
+        app.show_row(row_key("issue", "I_gone"))
+
+        # Nothing is selected, so the Open Issue binding opens nothing rather
+        # than the previously selected Issue.
+        assert app.selected_row_key is None
+        assert app.sub_title != DEFAULT_SUB_TITLE
+        app.action_open_issue()
+        await pilot.pause()
+        assert not isinstance(app.screen, IssueScreen)
+
+
+@pytest.mark.asyncio
 async def test_legend_is_reachable_from_the_issue_view() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),

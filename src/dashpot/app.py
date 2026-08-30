@@ -825,10 +825,10 @@ class DashpotApp(App[None]):
     def show_row(self, key: str) -> None:
         row = self.rows_by_key.get(key)
         context = self.store.detail_for(row) if row is not None else None
-        if context is None:
-            return
-        self.selected_row_key = key
-        self.update_header(context.project)
+        # A row the store can no longer detail selects nothing; keeping the
+        # previous selection would open the wrong Issue.
+        self.selected_row_key = key if context is not None else None
+        self.update_header(context.project if context is not None else None)
 
     def update_header(self, project: ProjectObservation | None = None) -> None:
         """Sub-title the Header with the selected Project's Repository Anchor.
