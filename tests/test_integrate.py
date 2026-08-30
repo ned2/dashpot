@@ -473,7 +473,7 @@ def test_each_harness_removal_only_touches_its_own_file(tmp_path: Path) -> None:
 
     assert not (codex / "hooks.json").exists()
     document = json.loads((claude / "settings.json").read_text())
-    assert set(document["hooks"]) == set(CLAUDE_CODE_HOOK_EVENTS)
+    assert set(document["hooks"]) == {*CLAUDE_CODE_HOOK_EVENTS, "PostToolUse"}
 
 
 def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
@@ -557,3 +557,60 @@ def test_status_of_the_other_harness_does_not_borrow_a_claim(tmp_path: Path) -> 
     )
 
     assert any("none for Claude Code" in message for message in messages)
+
+
+# --- Claude Code: PostToolUse matched to EnterWorktree alone (ADR 0009) ------
+
+
+def test_claude_code_subscribes_post_tool_use_to_enter_worktree_alone(
+    tmp_path: Path,
+) -> None:
+    home = claude_home(tmp_path)
+    command = claude_publisher(tmp_path)
+
+    install_integration("claude-code", home, command_path=command)
+
+    document = json.loads((home / "settings.json").read_text())
+    assert document["hooks"]["PostToolUse"] == [
+        {
+            "matcher": "EnterWorktree",
+            "hooks": [{"type": "command", "command": str(command), "timeout": 3}],
+        }
+    ]
+    before = (home / "settings.json").read_text()
+    messages = install_integration("claude-code", home, command_path=command)
+    assert (home / "settings.json").read_text() == before
+    assert any("already installed" in message for message in messages)
+    status = integration_status(
+        "claude-code", home, state_dir=tmp_path / "no-state", current=tmp_path
+    )
+    assert any("PostToolUse(EnterWorktree)" in message for message in status)
+    assert not any("missing hook events" in message for message in status)
+
+    remove_integration("claude-code", home)
+
+    assert not (home / "settings.json").exists()
+
+
+def test_claude_code_status_flags_a_missing_matched_hook(tmp_path: Path) -> None:
+    home = claude_home(tmp_path)
+    command = claude_publisher(tmp_path)
+    install_integration("claude-code", home, command_path=command)
+    document = json.loads((home / "settings.json").read_text())
+    del document["hooks"]["PostToolUse"]
+    (home / "settings.json").write_text(json.dumps(document))
+
+    messages = integration_status(
+        "claude-code", home, state_dir=tmp_path / "no-state", current=tmp_path
+    )
+
+    missing = [message for message in messages if "missing hook events" in message]
+    assert missing and "PostToolUse(EnterWorktree)" in missing[0]
+
+
+def test_codex_subscribes_no_matched_events(tmp_path: Path) -> None:
+    home = codex_home(tmp_path)
+
+    install_codex_integration(home, command_path=publisher(tmp_path))
+
+    assert "PostToolUse" not in read_hooks(home)

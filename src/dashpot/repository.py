@@ -48,6 +48,21 @@ def worktree_root(path: Path) -> Path:
     return Path(git(path, "rev-parse", "--show-toplevel")).resolve()
 
 
+def repository_worktrees(root: Path, *, timeout: float = 5) -> list[Path]:
+    """List every Worktree of the Git Repository one Worktree belongs to.
+
+    Git reports the main working tree first and every linked one after it;
+    a bare entry is not a Worktree. Independent clones are not reached
+    ([ADR 0003](../../docs/adr/0003-prefer-project-local-configuration-and-work-state.md)).
+    """
+    raw = git(root, "worktree", "list", "--porcelain", "-z", timeout=timeout)
+    return [
+        Path(record["worktree"]).resolve()
+        for record in _parse_worktree_records(raw)
+        if record.get("worktree") and "bare" not in record
+    ]
+
+
 # Whether the process holding a Worktree lock is still running. Dashpot asks
 # the process adapter through this seam; observing processes is not this
 # module's job, and a lock Git reports is only a fact about one.

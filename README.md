@@ -499,7 +499,12 @@ manual Codex configuration.
 The hooks report session lifecycle only: which agent sessions are alive at a
 worktree and whether they are running or waiting. Codex registers
 `SessionStart`, `UserPromptSubmit`, `Stop`, `Interrupt`, and `SessionEnd`;
-Claude Code the same set without `Interrupt`. A session that has not
+Claude Code the same set without `Interrupt`, plus `PostToolUse` matched to
+its `EnterWorktree` tool alone, so a session that moves to another Worktree
+is placed there as soon as it arrives — one hook invocation per relocation,
+never per tool call
+([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
+A session that has not
 declared an Issue is not listed as Work; it is listed in the Sessions pane
 with `no active Issue work` until it opts in with `dashpot work start`. Codex and Claude
 Code sessions are observed side by side with distinct identities, and both may
@@ -554,14 +559,21 @@ and atomically records the resulting durable Issue Identity in the Project-local
 Work Store (`.dashpot/state/work/`). Running `start` again switches the session
 to a new Issue. A session holds one active run across the linked Worktrees of
 its Git Repository
-([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)):
-once [#55](https://github.com/ned2/dashpot/issues/55) lands, `start` at
-another Worktree of the same Repository switches the run there when the
-session's own hook records show it has moved (a Claude Code `EnterWorktree`),
-refuses when they place the session elsewhere, and `stop` ends the session's
-run wherever in the Repository it is. Until then `start` and `stop` act only
-at the Worktree they run in, and a session recorded at two Worktrees is listed
-with a `work-session-conflict` warning. Once recorded, the binding survives
+([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)),
+and its own hooks say where it is: the freshest hook record for the session
+across the stores of every Worktree `git worktree list` reports, plus the
+global store. When that record places the session at the Worktree where
+`start` runs, a run it still holds at another Worktree is a relocation (a
+Claude Code `EnterWorktree`): `start` ends it and reports
+`switched from <ref> at <old Worktree> to <ref> at <new Worktree>`. When it
+places the session elsewhere, the command is running where the session is
+not — a tool call that changed directory, or a sub-agent's shell — and
+`start` refuses, names that Worktree, and writes nothing. `stop` ends the
+session's run wherever in the Repository it is recorded. A session with no
+hook record anywhere starts where it runs, as before, so the invariant is
+enforced only once the harness hooks are installed; runs recorded by an older
+Dashpot, or across independent clones, keep the `work-session-conflict`
+warning. Once recorded, the binding survives
 repository renames, Issue Reference edits, Local Issue moves, and transfers
 between configured Projects.
 The ordinary TUI continues to show current References; raw identities remain in
@@ -584,10 +596,12 @@ supported harness (`src/dashpot/harnesses.py`), by two routes:
    command as PID 2 of a fresh PID namespace — each adapter reads the identity
    its harness exposes to commands (Codex its thread identifier, Claude Code
    its session identifier and host PID). Neither harness documents these as
-   stable, so a claim is never trusted on its own: it must name exactly one
-   lifecycle hook record for the same harness at this Worktree
-   (`.dashpot/state/sessions/`) that still describes a live or unknown
-   session, and for Claude Code the record's host PID must agree. The record
+   stable, so a claim is never trusted on its own: its freshest lifecycle
+   hook record for the same harness across the Repository's hook stores
+   (each Worktree's `.dashpot/state/sessions/` and the global store) must
+   still describe a live or unknown session, and for Claude Code the record's
+   host PID must agree; a stale record left at a Worktree the session moved
+   away from never confirms a `start` there. The record
    is then keyed by the host process the hook published, so the same session
    gets the same record whether or not its commands are sandboxed, and
    liveness and orphan detection work as before; a record whose hook never saw

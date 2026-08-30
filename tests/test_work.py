@@ -10,11 +10,15 @@ import pytest
 
 from dashpot.agents import (
     ProcessIdentity,
+    ProcessLookup,
     ProcessPresent,
+    observe_agent_runs,
     session_directory,
+    state_directory,
     write_hook_record,
 )
 from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
+from dashpot.model import ObservationTarget
 from dashpot.work import (
     identify_agent_session,
     show_issue_work,
@@ -56,6 +60,12 @@ def issue_document(*, issue_id: str, number: int, reference: str, title: str) ->
     return "\n".join(
         ["---", json.dumps(metadata, indent=2), "---", f"# {title}", "", "Body.", ""]
     )
+
+
+@pytest.fixture(autouse=True)
+def _global_hook_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the global hook store in the test's own directory."""
+    monkeypatch.setenv("DASHPOT_STATE_DIR", str(tmp_path / "global-state"))
 
 
 def repository(root: Path) -> Path:
@@ -277,6 +287,10 @@ CODEX_ENVIRON = {"CODEX_THREAD_ID": CODEX_SESSION}
 CLAUDE_ENVIRON = {"CLAUDE_CODE_SESSION_ID": CLAUDE_SESSION, "CLAUDE_PID": "7777"}
 
 
+EARLIER = "2026-08-30T03:34:35.830802Z"
+LATER = "2026-08-30T03:40:00.000000Z"
+
+
 def hook_record(
     root: Path,
     session_id: str,
@@ -284,7 +298,14 @@ def hook_record(
     process: ProcessIdentity | None,
     *,
     state: str = "running",
+    at: str = EARLIER,
+    store: Path | None = None,
 ) -> Path:
+    """Publish a hook record placing the session at ``root``.
+
+    It lands in ``root``'s own store unless ``store`` names another, as the
+    global store does for a Worktree whose checkout predates configuration.
+    """
     return write_hook_record(
         {
             "version": 2,
@@ -295,10 +316,10 @@ def hook_record(
             "repositoryRoot": str(root),
             "branch": "main",
             "event": "UserPromptSubmit" if state == "running" else "Stop",
-            "lastActivityAt": "2026-08-30T03:34:35.830802Z",
+            "lastActivityAt": at,
             "sessionProcess": process.as_record() if process else None,
         },
-        session_directory(root),
+        store if store is not None else session_directory(root),
     )
 
 
@@ -618,3 +639,156 @@ def test_override_must_name_a_supported_harness(tmp_path: Path) -> None:
 def test_claim_without_a_worktree_cannot_be_validated() -> None:
     with pytest.raises(RuntimeError, match="only be validated at a Worktree"):
         identify_agent_session(ISOLATED, environ=CODEX_ENVIRON)
+
+
+# --- One active Agent Run per session across a Repository's Worktrees -------
+
+
+def linked_worktree(root: Path, path: Path, branch: str) -> Path:
+    """Commit the Project's configuration and Issues, then link a Worktree."""
+    subprocess.run(["git", "add", ".dashpot", "issues"], cwd=root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-q",
+            "-m",
+            "seed",
+        ],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", branch, str(path)],
+        cwd=root,
+        check=True,
+    )
+    return path.resolve()
+
+
+def two_worktrees(tmp_path: Path) -> tuple[Path, Path]:
+    main = repository(tmp_path / "repo").resolve()
+    linked = linked_worktree(main, tmp_path / "repo-linked", "linked")
+    return main, linked
+
+
+def target(worktree: Path) -> ObservationTarget:
+    return ObservationTarget(
+        str(worktree), "abc123", "main", False, False, "available", 0, [], "main"
+    )
+
+
+ROUTES = [
+    pytest.param(codex_lookup, {}, id="process-route"),
+    pytest.param(ISOLATED, CODEX_ENVIRON, id="sandboxed-claim"),
+]
+
+
+@pytest.mark.parametrize(("lookup", "environ"), ROUTES)
+def test_start_after_a_verified_relocation_moves_the_run(
+    tmp_path: Path, lookup: ProcessLookup, environ: dict[str, str]
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX, at=EARLIER)
+    start_issue_work(a, "build-observer", lookup=lookup, environ=environ)
+    hook_record(b, CODEX_SESSION, "codex", CODEX, at=LATER)
+
+    messages = start_issue_work(b, "fix-crash", lookup=lookup, environ=environ)
+
+    assert messages == [
+        f"switched from build-observer at {a} to fix-crash at {b} (I_crash)"
+    ]
+    assert WorkStore(a).active()[0] == []
+    assert list(issue_ids(b).values()) == ["I_crash"]
+    assert show_issue_work(a) == ["no active Issue work at this worktree"]
+    assert len(show_issue_work(b)) == 1
+
+
+def test_start_where_the_session_is_not_is_refused(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+
+    with pytest.raises(RuntimeError, match=re.escape(f"is at {a}")):
+        start_issue_work(b, "fix-crash", lookup=codex_lookup, environ={})
+
+    assert WorkStore(b).active()[0] == []
+    assert list(issue_ids(a).values()) == ["I_observer"]
+
+
+@pytest.mark.parametrize(("lookup", "environ"), ROUTES)
+def test_a_stale_record_cannot_confirm_a_start_where_the_session_left(
+    tmp_path: Path, lookup: ProcessLookup, environ: dict[str, str]
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX, at=EARLIER)
+    hook_record(b, CODEX_SESSION, "codex", CODEX, at=LATER)
+
+    with pytest.raises(RuntimeError, match=re.escape(f"is at {b}")):
+        start_issue_work(a, "build-observer", lookup=lookup, environ=environ)
+
+    assert WorkStore(a).active()[0] == []
+    assert WorkStore(b).active()[0] == []
+
+
+def test_a_global_store_record_places_a_session_at_its_worktree(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX, store=state_directory())
+
+    with pytest.raises(RuntimeError, match=re.escape(f"is at {a}")):
+        start_issue_work(b, "fix-crash", lookup=codex_lookup, environ={})
+    messages = start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+
+    assert messages == ["started work on build-observer (I_observer)"]
+    assert WorkStore(b).active()[0] == []
+
+
+def test_stop_ends_the_run_wherever_in_the_repository_it_is(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+
+    messages = stop_issue_work(b, lookup=codex_lookup, environ={})
+
+    assert messages == [f"stopped work on build-observer at {a}"]
+    assert WorkStore(a).active()[0] == []
+    assert stop_issue_work(b, lookup=codex_lookup, environ={}) == [
+        "no active Issue work for this session"
+    ]
+
+
+def test_without_hook_records_a_session_starts_where_it_runs(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+
+    messages = start_issue_work(b, "fix-crash", lookup=codex_lookup, environ={})
+
+    assert messages == ["started work on fix-crash (I_crash)"]
+    assert list(issue_ids(a).values()) == ["I_observer"]
+    assert list(issue_ids(b).values()) == ["I_crash"]
+
+
+def test_a_relocated_session_is_observed_once_without_conflict(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX, at=EARLIER)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+    hook_record(b, CODEX_SESSION, "codex", CODEX, at=LATER)
+    start_issue_work(b, "build-observer", lookup=codex_lookup, environ={})
+
+    runs, diagnostics = observe_agent_runs(
+        {"project:test": [target(a), target(b)]},
+        state_directory(),
+        lookup=codex_lookup,
+    )
+
+    assert [(run.observation_target, run.issue_id) for run in runs] == [
+        (str(b), "I_observer")
+    ]
+    assert "work-session-conflict" not in {item.code for item in diagnostics}

@@ -47,10 +47,25 @@ class HarnessIntegration:
     command_name: str
     events: tuple[str, ...]
     checks_config_toml: bool
+    # Events subscribed for one tool alone, as ``(event, matcher)``: the
+    # publisher runs once per matching tool call rather than per event.
+    matched_events: tuple[tuple[str, str], ...] = ()
 
     @property
     def default_home(self) -> Path:
         return Path.home() / self.home_name
+
+    @property
+    def hook_labels(self) -> tuple[str, ...]:
+        """Every subscription, matched ones spelled ``Event(matcher)``."""
+        return (
+            *self.events,
+            *(hook_label(event, matcher) for event, matcher in self.matched_events),
+        )
+
+
+def hook_label(event: str, matcher: str | None) -> str:
+    return f"{event}({matcher})" if matcher else event
 
 
 CODEX = HarnessIntegration(
@@ -77,6 +92,10 @@ CLAUDE_CODE = HarnessIntegration(
     command_name="dashpot-claude-code-hook",
     events=("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"),
     checks_config_toml=False,
+    # ``EnterWorktree`` moves a running session to another Worktree without
+    # firing any lifecycle event, so its completion is observed on its own:
+    # one invocation per relocation, not per tool call (ADR 0009).
+    matched_events=(("PostToolUse", "EnterWorktree"),),
 )
 
 INTEGRATIONS = {spec.harness: spec for spec in (CODEX, CLAUDE_CODE)}
@@ -136,12 +155,19 @@ def install_integration(
         "command": str(command),
         "timeout": HOOK_TIMEOUT,
     }
-    for event in spec.events:
+    subscriptions: list[tuple[str, str | None]] = [
+        *((event, None) for event in spec.events),
+        *spec.matched_events,
+    ]
+    for event, matcher in subscriptions:
         groups = hooks.get(event)
         if not isinstance(groups, list):
             groups = []
         kept, _ours = _split_dashpot_handlers(groups)
-        kept.append({"hooks": [dict(handler)]})
+        group: dict[str, Any] = {"hooks": [dict(handler)]}
+        if matcher is not None:
+            group = {"matcher": matcher, **group}
+        kept.append(group)
         hooks[event] = kept
     messages: list[str] = []
     if json.dumps(document, sort_keys=True) != original:
@@ -219,7 +245,7 @@ def integration_status(
             messages.append(f"not installed: no Dashpot hooks in {path}")
         else:
             events = sorted(commands)
-            missing = [event for event in spec.events if event not in commands]
+            missing = [label for label in spec.hook_labels if label not in commands]
             messages.append(f"installed in {path} for: {', '.join(events)}")
             if missing:
                 messages.append(
@@ -409,7 +435,9 @@ def _split_dashpot_handlers(
                 ours.append(handler)
             else:
                 remaining.append(handler)
-        if remaining or set(group) - {"hooks"}:
+        # A group that held only Dashpot handlers matches nothing once they
+        # are gone; its matcher is part of the subscription, not user state.
+        if remaining or set(group) - {"hooks", "matcher"}:
             preserved = dict(group)
             preserved["hooks"] = remaining
             kept.append(preserved)
@@ -429,7 +457,7 @@ def _is_dashpot_handler(handler: object) -> bool:
 
 
 def _installed_commands(document: dict[str, Any]) -> dict[str, list[str]]:
-    """Map each hook event to the Dashpot commands registered for it."""
+    """Map each subscription label to the Dashpot commands registered for it."""
     commands: dict[str, list[str]] = {}
     hooks = document.get("hooks")
     if not isinstance(hooks, dict):
@@ -437,14 +465,18 @@ def _installed_commands(document: dict[str, Any]) -> dict[str, list[str]]:
     for event, groups in hooks.items():
         if not isinstance(groups, list):
             continue
-        _, ours = _split_dashpot_handlers(list(groups))
-        if ours:
-            commands[event] = [
+        for group in groups:
+            _, ours = _split_dashpot_handlers([group])
+            if not ours:
+                continue
+            matcher = group.get("matcher") if isinstance(group, dict) else None
+            label = hook_label(event, matcher if isinstance(matcher, str) else None)
+            commands.setdefault(label, []).extend(
                 handler["command"]
                 if isinstance(handler.get("command"), str)
                 else handler["command"][0]
                 for handler in ours
-            ]
+            )
     return commands
 
 
