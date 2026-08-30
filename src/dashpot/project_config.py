@@ -31,12 +31,22 @@ class ProjectConfig:
 
 
 def load_project_config(root: Path) -> ProjectConfig:
+    """Read the Project configuration tracked at a Worktree's root."""
     path = root / PROJECT_CONFIG_NAME
     try:
-        raw: Any = json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise RuntimeError(f"Project configuration not found: {path}") from exc
-    except (OSError, json.JSONDecodeError) as exc:
+    except OSError as exc:
+        raise RuntimeError(f"cannot read Project configuration {path}: {exc}") from exc
+    return parse_project_config(text, path)
+
+
+def parse_project_config(text: str, path: Path) -> ProjectConfig:
+    """Validate Project configuration text; ``path`` names it in diagnostics."""
+    try:
+        raw: Any = json.loads(text)
+    except json.JSONDecodeError as exc:
         raise RuntimeError(f"cannot read Project configuration {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise RuntimeError(f"{path} must contain a JSON object")

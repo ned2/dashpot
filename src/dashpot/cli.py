@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -17,6 +17,7 @@ from .integrate import (
     integration_status,
     remove_integration,
 )
+from .issue_resolution import describe_issue, show_issue
 from .model import RepositoryAnchor, Workspace, to_jsonable
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
@@ -26,6 +27,12 @@ from .workspace import (
     load_workspaces,
     merge_workspaces,
     resolve_workspace_projects,
+)
+from .worktrees import (
+    check_worktree,
+    create_issue_worktree,
+    describe_removability,
+    describe_worktree_plan,
 )
 
 Harness = Literal["codex", "claude-code"]
@@ -251,6 +258,146 @@ def show() -> int:
     return 0
 
 
+_IssueHint = Annotated[
+    str,
+    Parameter(
+        help=(
+            "Issue Hint: a bare Issue Number (12), #12, a full Issue Reference "
+            "such as owner/repository#12, or a Local Issue slug"
+        )
+    ),
+]
+_JsonOutput = Annotated[
+    bool,
+    Parameter(
+        name="--json",
+        show_default=False,
+        help="print the result as JSON with camelCase keys instead of lines",
+    ),
+]
+
+
+issue = App(
+    name="issue",
+    help=(
+        "Resolve Issues through the configured Issue Source.\n\n"
+        "Source-neutral: the same Issue Hints work for a GitHub Project and a "
+        "Local Issue Markdown Project, and nothing is written."
+    ),
+)
+app.command(issue)
+
+
+@issue.command(name="show")
+def issue_show(
+    reference: _IssueHint,
+    /,
+    *,
+    timeout: _Timeout = 10.0,
+    json_output: _JsonOutput = False,
+) -> int:
+    """Resolve one Issue Hint and print the Issue Profile."""
+    found = show_issue(Path.cwd().resolve(), reference, timeout=timeout)
+    if json_output:
+        print(json.dumps(found, indent=2))
+    else:
+        _report(describe_issue(found))
+    return 0
+
+
+worktree = App(
+    name="worktree",
+    help=(
+        "Prepare and inspect linked Worktrees for Issue work.\n\n"
+        "create is the one command here that mutates: one linked Worktree at "
+        "one path outside every Worktree of the Project, on one new Branch, "
+        "never fetching (ADR 0008). check is read-only and removes nothing."
+    ),
+)
+app.command(worktree)
+
+
+@worktree.command(name="create")
+def worktree_create(
+    reference: _IssueHint,
+    /,
+    *,
+    base: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "REF: the commit to branch from; defaults to origin/HEAD, else "
+                "the one local main or master Branch"
+            )
+        ),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "NAME: the new Branch; defaults to <number>-<title-slug> "
+                "(a Local Issue's slug)"
+            )
+        ),
+    ] = None,
+    worktree_root: Annotated[
+        Path | None,
+        Parameter(
+            help=(
+                "DIR: the parent directory for the Worktree; defaults to "
+                "DASHPOT_WORKTREE_ROOT, then the worktreeRoot setting, then "
+                "the sibling <checkout>.worktrees/"
+            )
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        Parameter(
+            show_default=False,
+            help="report the path, Branch, base, root, and refusals without creating",
+        ),
+    ] = False,
+    timeout: _Timeout = 10.0,
+    json_output: _JsonOutput = False,
+) -> int:
+    """Create a linked Worktree on a new Branch for an Issue."""
+    plan = create_issue_worktree(
+        Path.cwd().resolve(),
+        reference,
+        base=base,
+        branch=branch,
+        worktree_root_option=worktree_root,
+        dry_run=dry_run,
+        timeout=timeout,
+    )
+    if json_output:
+        print(json.dumps(to_jsonable(plan), indent=2))
+    else:
+        lines = describe_worktree_plan(plan)
+        _report(line for line in lines if not line.startswith("refused: "))
+        for line in lines:
+            if line.startswith("refused: "):
+                print(f"dashpot: {line}", file=sys.stderr)
+    return USAGE_EXIT_CODE if plan.refusals else 0
+
+
+@worktree.command(name="check")
+def worktree_check(
+    path: Annotated[Path, Parameter(help="PATH: the Worktree to report on")],
+    /,
+    *,
+    timeout: _Timeout = 10.0,
+    json_output: _JsonOutput = False,
+) -> int:
+    """Report whether a Worktree is removable, and each reason it is not."""
+    report = check_worktree(Path.cwd().resolve(), path, timeout=timeout)
+    if json_output:
+        print(json.dumps(to_jsonable(report), indent=2))
+    else:
+        _report(describe_removability(report))
+    return 0
+
+
 _integrate_action = Group("Action", validator=validators.MutuallyExclusive())
 
 
@@ -292,7 +439,7 @@ def integrate(
     return 0
 
 
-def _report(messages: Sequence[str]) -> None:
+def _report(messages: Iterable[str]) -> None:
     for message in messages:
         print(message)
 

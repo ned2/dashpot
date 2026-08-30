@@ -799,6 +799,42 @@ def locate_agent_session(
     return freshest
 
 
+def sessions_at_worktree(
+    worktree: Path,
+    stores: Sequence[Path],
+    lookup: ProcessLookup = host_process_lookup,
+) -> list[SessionLocation]:
+    """Every live or unknown Agent Session whose hooks last placed it at ``worktree``.
+
+    Ended and gone records describe sessions that are over and are not
+    reported; a record that cannot be read is not evidence and is skipped.
+    """
+    probe = _LivenessProbe(lookup)
+    target = worktree.resolve()
+    freshest: dict[str, SessionLocation] = {}
+    for store in stores:
+        if not store.is_dir():
+            continue
+        for path in sorted(store.glob("*.json")):
+            try:
+                raw = read_hook_record(path)
+                record = classify_hook_record(raw, probe, expected_session_id=path.stem)
+            except (OSError, ValueError):
+                continue
+            location = SessionLocation(record, raw, store)
+            previous = freshest.get(record.session_id)
+            if previous is None or observed_instant(
+                record.last_activity_at
+            ) > observed_instant(previous.record.last_activity_at):
+                freshest[record.session_id] = location
+    return [
+        location
+        for _session_id, location in sorted(freshest.items())
+        if location.record.outcome not in {"ended", "gone"}
+        and location.worktree.resolve() == target
+    ]
+
+
 @dataclass(frozen=True, slots=True)
 class ValidatedSessionIdentity:
     """A claimed Agent Session Identity its harness's hook record confirmed."""

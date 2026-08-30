@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from .agents import (
     ProcessIdentity,
@@ -22,7 +21,6 @@ from .agents import (
     session_liveness,
     validate_session_claim,
 )
-from .github_issues import GitHubIssuesSource
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
@@ -30,23 +28,9 @@ from .harnesses import (
     native_claims,
     override_claim,
 )
-from .issue_sources import IssueSource
-from .local_markdown_issues import LocalMarkdownIssuesSource
-from .project_config import (
-    GitHubIssueSourceConfig,
-    LocalMarkdownIssueSourceConfig,
-    load_project_config,
-)
-from .repository import (
-    git,
-    github_repo_from_remote,
-    repository_worktrees,
-    worktree_root,
-)
+from .issue_resolution import resolve_issue
+from .repository import git, repository_worktrees, worktree_root
 from .work_store import ActiveWork, SessionProcess, WorkStore
-
-ISSUE_NUMBER = re.compile(r"^#?([1-9][0-9]*)$")
-
 
 IdentityRoute = Literal["process", "session"]
 
@@ -264,7 +248,7 @@ def start_issue_work(
     session = identify_agent_session(
         lookup, environ=environ, worktree=root, stores=stores
     )
-    issue = _resolve_issue(root, reference, timeout)
+    issue = resolve_issue(root, reference, timeout)
     location = _session_location(session, stores, lookup)
     if location is not None and not _same_worktree(location.worktree, root):
         raise RuntimeError(
@@ -472,52 +456,3 @@ def _session_work(store: WorkStore, session: AgentSessionIdentity) -> ActiveWork
         ):
             return work
     return None
-
-
-def _resolve_issue(root: Path, reference: str, timeout: float) -> dict[str, Any]:
-    """Resolve a mutable Issue Reference to exactly one observed Issue."""
-    config = load_project_config(root)
-    if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        if not github_repo_from_remote(root):
-            raise RuntimeError(
-                "a GitHub Issue Source requires this Worktree to have a "
-                "GitHub origin remote"
-            )
-        source: IssueSource = GitHubIssuesSource(
-            root,
-            project_id=config.project_id,
-            repository_id=config.repository_id,
-            timeout=timeout,
-        )
-    elif isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
-        source = LocalMarkdownIssuesSource(
-            root,
-            project_id=config.project_id,
-            issues_path=Path(config.issue_source.path),
-        )
-    else:  # pragma: no cover - exhaustive guard for future source kinds.
-        raise RuntimeError("unsupported configured Issue Source")
-    observation = source.refresh()
-    if observation.status != "fresh":
-        details = "; ".join(
-            diagnostic.message for diagnostic in observation.diagnostics
-        )
-        raise RuntimeError(
-            f"cannot resolve Issue Reference while the Issue Source is "
-            f"{observation.status}: {details or 'no diagnostics'}"
-        )
-    number_match = ISSUE_NUMBER.fullmatch(reference)
-    if number_match:
-        number = int(number_match.group(1))
-        matches = [issue for issue in observation.issues if issue["number"] == number]
-    else:
-        matches = [
-            issue for issue in observation.issues if issue["reference"] == reference
-        ]
-    if len(matches) == 1:
-        return matches[0]
-    if matches:
-        raise RuntimeError(f"Issue Reference {reference!r} is ambiguous")
-    raise RuntimeError(
-        f"Issue Reference {reference!r} did not match an Issue in this Project"
-    )

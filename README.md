@@ -67,7 +67,12 @@ option, and each command has its own `--help`; an option belongs to the
 command it follows, so the timeout for `init` is given as `dashpot init
 --timeout 5`, not before `init`. Invalid input fails with a one-line
 `dashpot: ...` diagnostic on stderr and exit code 2, the same as a startup
-error.
+error. Beside observation, the management commands `init`, `integrate`,
+`work`, `issue show`, and `worktree create` / `check` are documented in
+[Project configuration](#project-configuration),
+[Agent session observation](#agent-session-observation),
+[Issue work opt-in](#issue-work-opt-in), and
+[Issue Worktrees](#issue-worktrees).
 
 ### Keys
 
@@ -320,6 +325,21 @@ entity.
 A mutable Issue Reference used only to establish an Issue Binding at opt-in
 time. A hint never becomes identity and must resolve unambiguously within the
 observed Project.
+
+**Issue Worktree**:
+A linked Worktree `dashpot worktree create` prepared for an Issue, on a new
+Branch from a base commit that carries the Project's configuration
+([ADR 0011](docs/adr/0011-prepare-issue-worktrees-by-convention.md)). Its
+path and Branch name are Issue Hints for people and launchers; only a
+`work start` run inside a session there creates an Issue Binding, and one
+Issue may have any number of Issue Worktrees.
+_Avoid_: "the" Worktree of an Issue; reading a Worktree or Branch as Issue work
+
+**Worktree Root**:
+The machine-local directory new Issue Worktrees are created under:
+`--worktree-root`, else `DASHPOT_WORKTREE_ROOT`, else the `worktreeRoot`
+setting, else the sibling `<anchor name>.worktrees/` of the Repository
+Anchor. It is never part of the tracked Project configuration.
 
 ### Presentation
 
@@ -640,6 +660,86 @@ Agent Run: it is excluded from the listed runs and reported once as an
 actionable `work-session-orphaned` diagnostic naming the Issue and the
 `dashpot work stop --session <key>` command that ends it. Dashpot never stops
 or reassigns Issue work on its own.
+
+## Issue Worktrees
+
+Two source-neutral commands prepare Issue work in a linked Worktree, so an
+agent or a person never has to choose between `gh` and Local Issue Markdown
+or re-derive Git's collision rules. Both run from any directory of a
+configured Worktree, which is the Repository Anchor of the result:
+
+```bash
+dashpot issue show 35                 # resolve an Issue Hint, print the profile
+dashpot issue show '#35' --json       # the complete Issue Profile as JSON
+dashpot worktree create 35            # a linked Worktree on Branch 35-<title-slug>
+dashpot worktree create 35 --dry-run  # the same report, creating nothing
+dashpot worktree create 35 --branch 35-alternate --base main --worktree-root ~/w
+dashpot worktree check ~/w/35-alternate   # read-only: removable, or why not
+```
+
+`issue show` accepts the Issue Hints `work start` accepts — a bare Issue
+Number, `#35`, a full Issue Reference, or a Local Issue slug — and prints the
+reference, title, state, and location, or with `--json` the complete Issue
+Profile with the snapshot's camelCase keys. A source that is not fresh, no
+match, or an ambiguous hint is refused with exit code 2; nothing is written.
+
+`worktree create` is a management command under
+[ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md):
+it creates one linked Worktree at one path outside every Worktree of the
+Project, on one new Branch, and never fetches, pushes, merges, deletes, or
+moves anything. Its conventions are recorded in
+[ADR 0011](docs/adr/0011-prepare-issue-worktrees-by-convention.md):
+
+- **Worktree Root:** `--worktree-root DIR`, else `DASHPOT_WORKTREE_ROOT`,
+  else `worktreeRoot` in the machine-local `~/.config/dashpot/settings.json`
+  (`XDG_CONFIG_HOME` respected), else the sibling directory
+  `<anchor parent>/<anchor name>.worktrees/`. The root is real-path
+  normalised, refused inside any Worktree of the Project, and reported with
+  its source.
+- **Base:** `--base REF`, else `origin/HEAD`, else the one local `main` or
+  `master` when exactly one exists, else a refusal naming `--base`; resolved
+  to an exact commit, never fetched, and reported with its source. The base
+  revision's `.dashpot/config.json` must carry the anchor's Project and
+  Repository Identity, checked before anything is created.
+- **Branch:** `--branch NAME`, else `<number>-<title-slug>` (a Local Issue's
+  slug), validated with `git check-ref-format --branch`; a name that extends
+  an existing Branch with `/` is refused. The path leaf is the Branch with
+  `/` replaced by `-`.
+- **Refusals**, all before Git is called and each reported: a non-empty
+  path, an empty directory Dashpot did not create, an existing or
+  checked-out Branch, a registered Worktree at the path (one locked
+  `initializing` by a killed `git worktree add` is reported with the
+  `git worktree remove -f -f` and `git branch -D` recovery), and, for the
+  default name, an existing Worktree whose Branch starts with the Issue
+  Number — listed as a hint; pass `--branch` for a second approach.
+- **Rollback:** when `git worktree add` fails, only a Branch this invocation
+  created that still points at the base commit and is checked out nowhere,
+  and the empty directories it created, are removed; a populated path, a
+  lock, or another creator's Worktree is reported and left alone. The
+  command verifies the result: a registered, unlocked, clean Worktree at the
+  base commit on the new Branch, with the main Worktree unchanged.
+
+`--dry-run` reports the path, Branch, base commit and source, root and
+source, and every refusal, without creating anything. `--json` prints the
+same facts (`issueId`, `issueReference`, `path`, `branch`, `baseRef`,
+`baseSource`, `baseCommit`, `worktreeRoot`, `worktreeRootSource`, `dryRun`,
+`created`, `refusals`, `hints`); a refusal exits 2 in either mode.
+
+`worktree check <path>` is read-only. It reports the Worktree removable, or
+each reason it is not with the command that acts on it: dirty state, a lock
+with its reason and whether the holding process is alive (`initializing`
+names the forced removal), Agent Sessions whose hooks place them there,
+Agent Runs recorded there (an Orphaned Agent Run names its
+`dashpot work stop --session` command), and commits not on the upstream or
+the base Branch. Dashpot removes nothing.
+
+The created Worktree carries no harness. Launch whichever harness should
+work there with its working directory set — `codex -C <path>` or
+`cd <path> && claude` — and declare the Issue from inside that session with
+`dashpot work start` ([Issue work opt-in](#issue-work-opt-in)); Claude Code's
+own `--worktree` is not used because it places, names, bases, and may reset
+Worktrees by its own rules. Each Worktree owns its own `.venv` and
+`.dashpot/state/`.
 
 ## Design
 
