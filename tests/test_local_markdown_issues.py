@@ -63,6 +63,33 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
         self.assertEqual({}, observation.label_colors)
         self.assertEqual({}, observation.issue_activity)
 
+    def test_directory_refresh_orders_by_posix_path_not_by_path_parts(self) -> None:
+        # "a-b.md" precedes "a/b.md" as text, and it is the text the contract
+        # orders by; comparing Paths part by part would reverse them.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            issues = root / "issues"
+            (issues / "a").mkdir(parents=True)
+            (issues / "a" / "b.md").write_text(
+                local_document(
+                    issue_id="I_nested", number=2, reference="nested", title="Nested"
+                )
+            )
+            (issues / "a-b.md").write_text(
+                local_document(
+                    issue_id="I_flat", number=1, reference="flat", title="Flat"
+                )
+            )
+
+            observation = LocalMarkdownIssuesSource(
+                root, issues_path=Path("issues"), project_id=PROJECT_ID
+            ).refresh()
+
+        self.assertEqual(
+            ["issues/a-b.md", "issues/a/b.md"],
+            [issue["location"]["path"] for issue in observation.issues],
+        )
+
     def test_directory_refresh_collects_markdown_files_in_path_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

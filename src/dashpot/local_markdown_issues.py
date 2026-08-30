@@ -72,7 +72,14 @@ class LocalMarkdownIssuesSource(IssueSource):
                     "markdown-not-found",
                     f"Configured Local Issue path does not exist: {self.issues_path}",
                 )
-            paths = sorted(path.rglob("*.md")) if path.is_dir() else [path]
+            # The contract orders documents by repository-relative POSIX path;
+            # sorting Paths compares their parts, which puts "a/b.md" before
+            # "a-b.md" though "/" sorts after "-" as text.
+            paths = (
+                sorted(path.rglob("*.md"), key=lambda found: found.as_posix())
+                if path.is_dir()
+                else [path]
+            )
             issues: list[dict[str, Any]] = []
             seen_issue_ids: set[str] = set()
             issue_paths_by_number: dict[int, str] = {}
