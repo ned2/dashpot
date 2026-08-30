@@ -71,11 +71,11 @@ LEGEND = PRESENCE_LEGEND + UPSTREAM_LEGEND + INTEGRATION_LEGEND
 
 BRANCH_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("name", "BRANCH"),
-    ListColumn("local", "LOCAL"),
-    ListColumn("remote", "REMOTE"),
-    ListColumn("upstream", "UPSTREAM"),
-    ListColumn("integrated", "INTEGRATED"),
-    ListColumn("sessions", "SESSIONS"),
+    ListColumn("local", "LOCAL", justify="center"),
+    ListColumn("remote", "REMOTE", justify="center"),
+    ListColumn("upstream", "UPSTREAM", justify="center"),
+    ListColumn("integrated", "INTEGRATED", justify="center"),
+    ListColumn("sessions", "SESSIONS", justify="center"),
     ListColumn("commit", "LAST COMMIT"),
 )
 

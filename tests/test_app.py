@@ -69,7 +69,7 @@ from dashpot.issue_view import (
     selection_title,
 )
 from dashpot.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
-from dashpot.list_pane import ListPane, ListRow
+from dashpot.list_pane import ListColumn, ListPane, ListRow
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import (
     AgentRun,
@@ -2557,6 +2557,29 @@ def prepare_pane(app: DashpotApp, pane_id: str) -> ListPane:
     return pane
 
 
+@pytest.mark.asyncio
+async def test_list_columns_align_their_headers_and_values() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        pane = app.sessions_pane()
+        pane.declare_columns((ListColumn("value", "VALUE", justify="center"),))
+        pane.show_rows((ListRow("row", (Text("styled", style="red"),)),))
+        await pilot.pause()
+
+        header = next(iter(pane.table.columns.values())).label
+        value = pane.table.get_row_at(0)[0]
+        assert isinstance(header, Text)
+        assert header.justify == "center"
+        assert isinstance(value, Text)
+        assert value.justify == "center"
+        assert str(value.style) == "red"
+
+
 def pane_chrome(pane: ListPane) -> int:
     """The frame, header and any horizontal scrollbar around a pane's records."""
     return 2 + 1 + (1 if pane.table.show_horizontal_scrollbar else 0)
@@ -3154,8 +3177,12 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         await pilot.pause()
         pane = app.worktrees_pane()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
-        labels = [str(column.label) for column in pane.table.columns.values()]
+        columns = list(pane.table.columns.values())
+        labels = [str(column.label) for column in columns]
         assert labels == ["PATH", "KIND", "BRANCH", "TREE", "SESSIONS"]
+        sessions_header = columns[-1].label
+        assert isinstance(sessions_header, Text)
+        assert sessions_header.justify == "center"
         main_cells = [str(cell) for cell in pane.table.get_row_at(0)]
         assert main_cells == [
             "/repo",
@@ -3164,6 +3191,9 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
             "clean",
             "-",
         ]
+        sessions_value = pane.table.get_row_at(0)[-1]
+        assert isinstance(sessions_value, Text)
+        assert sessions_value.justify == "center"
 
         app.request_refresh("manual")
         await wait_until(lambda: app.store.revision == 2)

@@ -226,6 +226,15 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
         "SESSIONS",
         "LAST COMMIT",
     ]
+    assert [column.justify for column in BRANCH_COLUMNS] == [
+        None,
+        "center",
+        "center",
+        "center",
+        "center",
+        "center",
+        None,
+    ]
 
 
 def test_fetch_age_is_honest() -> None:

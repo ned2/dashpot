@@ -40,7 +40,7 @@ WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("kind", "KIND"),
     ListColumn("branch", "BRANCH"),
     ListColumn("tree", "TREE"),
-    ListColumn("sessions", "SESSIONS"),
+    ListColumn("sessions", "SESSIONS", justify="center"),
 )
 
 

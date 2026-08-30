@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -38,6 +38,7 @@ ELLIPSIS = "…"
 class ListColumn:
     key: str
     label: str
+    justify: Literal["left", "center", "right", "full"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +123,12 @@ class ListPane(Vertical):
         self.columns = tuple(columns)
         table.clear(columns=True)
         for column in self.columns:
-            table.add_column(column.label, key=column.key)
+            label = (
+                column.label
+                if column.justify is None
+                else Text(column.label, justify=column.justify)
+            )
+            table.add_column(label, key=column.key)
 
     def show_rows(
         self,
@@ -148,7 +154,13 @@ class ListPane(Vertical):
                 self.declare_columns(columns)
             table.clear()
             for row in rows:
-                table.add_row(*row.cells, key=row.key)
+                cells = tuple(
+                    self._justify_cell(cell, self.columns[index].justify)
+                    if index < len(self.columns)
+                    else cell
+                    for index, cell in enumerate(row.cells)
+                )
+                table.add_row(*cells, key=row.key)
         self.rows_by_key = desired
         self.border_title = Content(f"{self.label} · {self.count}")
         self.border_subtitle = Content(note) if note else None
@@ -165,6 +177,20 @@ class ListPane(Vertical):
         else:
             selected_index = min(prior_index, table.row_count - 1)
         table.move_cursor(row=selected_index, column=0, animate=False)
+
+    @staticmethod
+    def _justify_cell(
+        cell: ListCell,
+        justify: Literal["left", "center", "right", "full"] | None,
+    ) -> ListCell:
+        """Align one cell while preserving any Glyph styling it carries."""
+        if justify is None:
+            return cell
+        if isinstance(cell, Text):
+            aligned = cell.copy()
+            aligned.justify = justify
+            return aligned
+        return Text(cell, justify=justify)
 
     def fit_rows(self, row_cap: int) -> None:
         """Cap the visible records so the panes never crowd out the Issue table.
