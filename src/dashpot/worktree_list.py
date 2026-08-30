@@ -37,11 +37,8 @@ STALE_COLORS = ("#9a6700", "#d29922")
 
 WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("path", "PATH"),
-    ListColumn("role", "ROLE"),
     ListColumn("branch", "BRANCH"),
-    ListColumn("head", "HEAD"),
     ListColumn("tree", "TREE"),
-    ListColumn("state", "STATE"),
     ListColumn("sessions", "SESSIONS"),
 )
 
@@ -161,19 +158,35 @@ def worktree_cells(
 ) -> tuple[ListCell, ...]:
     target = row.target
     return (
-        truncate_start(abbreviate_path(target.path, home=home), PATH_LIMIT),
-        role_text(target.role, anchored=row.anchored),
-        truncate_end(target.branch or "detached", BRANCH_LIMIT),
-        target.head[:SHORT_HEAD] if target.head else "-",
+        path_cell(row, dark=dark, home=home),
+        branch_cell(target),
         tree_cell(target.dirty, dark=dark),
-        freshness_cell(row.freshness, dark=dark),
         sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
     )
 
 
-def role_text(role: TargetRole, *, anchored: bool) -> str:
-    """The Git topology role, marked when the path is a Repository Anchor."""
-    return f"{role} · anchor" if anchored else role
+def path_cell(
+    row: WorktreeListRow, *, dark: bool, home: Path | None = None
+) -> ListCell:
+    """Annotate the path with topology, anchor status, and exceptional freshness."""
+    path = truncate_start(abbreviate_path(row.target.path, home=home), PATH_LIMIT)
+    annotations = [row.target.role]
+    if row.anchored:
+        annotations.append("anchor")
+    freshness = row.freshness
+    if freshness == "available":
+        return f"{path} · {' · '.join(annotations)}"
+    cell = Text(f"{path} · {' · '.join(annotations)} · ")
+    cell.append(freshness, style=freshness_color(freshness, dark=dark))
+    return cell
+
+
+def branch_cell(target: ObservationTarget) -> str:
+    """Show a Branch name, or the useful short HEAD for a detached checkout."""
+    if target.branch is not None:
+        return truncate_end(target.branch, BRANCH_LIMIT)
+    head = target.head[:SHORT_HEAD]
+    return f"detached @ {head}" if head else "detached"
 
 
 def tree_cell(dirty: bool | None, *, dark: bool) -> ListCell:
@@ -184,13 +197,11 @@ def tree_cell(dirty: bool | None, *, dark: bool) -> ListCell:
     return "clean"
 
 
-def freshness_cell(freshness: str, *, dark: bool) -> ListCell:
-    """Availability that points at Diagnostics for the target's own detail."""
+def freshness_color(freshness: str, *, dark: bool) -> str:
+    """Choose emphasis for freshness that points at the target's Diagnostics."""
     if freshness == "unavailable":
-        return Text("unavailable", style=UNAVAILABLE_COLORS[dark])
-    if freshness == "stale":
-        return Text("stale", style=STALE_COLORS[dark])
-    return freshness
+        return UNAVAILABLE_COLORS[dark]
+    return STALE_COLORS[dark]
 
 
 def sessions_cell(states: Sequence[RunState], *, dark: bool) -> ListCell:

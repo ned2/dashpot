@@ -2923,17 +2923,22 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
     linked = ObservationTarget(
         path="/repo-linked",
         head="def456789",
-        branch="feature",
-        detached=False,
-        dirty=True,
-        availability="available",
+        branch=None,
+        detached=True,
+        dirty=None,
+        availability="unavailable",
         elapsed_ms=2,
         diagnostics=[],
         role="linked",
     )
     with_linked = workspace_snapshot(issue("test/repo#1", "First"))
     snapshot_of(with_linked.projects[0]).observation_targets.append(linked)
-    app = DashpotApp(SequenceCollector(first, with_linked, first), refresh_seconds=0)
+    stale_with_linked = copy.deepcopy(with_linked)
+    snapshot_of(stale_with_linked.projects[0]).target_status = "stale"
+    app = DashpotApp(
+        SequenceCollector(first, with_linked, stale_with_linked, first),
+        refresh_seconds=0,
+    )
 
     async with app.run_test(size=(160, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
@@ -2941,23 +2946,12 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         pane = app.worktrees_pane()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         labels = [str(column.label) for column in pane.table.columns.values()]
-        assert labels == [
-            "PATH",
-            "ROLE",
-            "BRANCH",
-            "HEAD",
-            "TREE",
-            "STATE",
-            "SESSIONS",
-        ]
+        assert labels == ["PATH", "BRANCH", "TREE", "SESSIONS"]
         main_cells = [str(cell) for cell in pane.table.get_row_at(0)]
         assert main_cells == [
-            "/repo",
-            "main · anchor",
+            "/repo · main · anchor",
             "main",
-            "abcdef1",
             "clean",
-            "available",
             "-",
         ]
 
@@ -2973,12 +2967,11 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
             1,
         )
         linked_cells = [str(cell) for cell in pane.table.get_row_at(1)]
-        assert linked_cells[:5] == [
-            "/repo-linked",
-            "linked",
-            "feature",
-            "def4567",
-            "dirty",
+        assert linked_cells == [
+            "/repo-linked · linked · unavailable",
+            "detached @ def4567",
+            "unknown",
+            "-",
         ]
         # Highlighting a worktree leaves the Issue-driven panes alone.
         assert selected_title(app) == "#1: First"
@@ -2987,9 +2980,16 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert app.selected_row_key == row_key("issue", "I_test/repo#1")
         assert not isinstance(app.screen, IssueScreen)
 
-        # The linked worktree is removed: the cursor moves to a neighbour.
+        # A retained topology names stale explicitly without restoring STATE.
         app.request_refresh("manual")
         await wait_until(lambda: app.store.revision == 3)
+        await pilot.pause()
+        stale_cells = [str(cell) for cell in pane.table.get_row_at(1)]
+        assert stale_cells[0] == "/repo-linked · linked · stale"
+
+        # The linked worktree is removed: the cursor moves to a neighbour.
+        app.request_refresh("manual")
+        await wait_until(lambda: app.store.revision == 4)
         await pilot.pause()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         assert pane.highlighted() == (

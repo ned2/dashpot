@@ -177,12 +177,12 @@ def test_active_sessions_join_the_target_they_are_located_at() -> None:
     assert [run.id for run in rows["/project:alpha/linked"].sessions] == ["one", "two"]
     assert [run.id for run in rows["/project:alpha"].sessions] == ["three"]
     cells = worktree_cells(rows["/project:alpha/linked"], dark=True)
-    sessions_cell = cells[6]
+    sessions_cell = cells[3]
     assert isinstance(sessions_cell, Text)
     assert sessions_cell.plain == "● 2"
     main_cells = worktree_cells(rows["/project:alpha"], dark=True)
-    assert isinstance(main_cells[6], Text)
-    assert main_cells[6].plain == "○ 1"
+    assert isinstance(main_cells[3], Text)
+    assert main_cells[3].plain == "○ 1"
 
 
 def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
@@ -196,10 +196,11 @@ def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
     assert fresh["/project:alpha/missing"].freshness == "unavailable"
     assert fresh["/project:alpha"].freshness == "available"
     missing_cells = worktree_cells(fresh["/project:alpha/missing"], dark=False)
-    assert missing_cells[3] == "-"
-    assert isinstance(missing_cells[4], Text) and missing_cells[4].plain == "unknown"
-    assert isinstance(missing_cells[5], Text)
-    assert missing_cells[5].plain == "unavailable"
+    assert missing_cells[1] == "main"
+    assert isinstance(missing_cells[2], Text) and missing_cells[2].plain == "unknown"
+    assert isinstance(missing_cells[0], Text)
+    assert missing_cells[0].plain == "/project:alpha/missing · linked · unavailable"
+    assert missing_cells[0].spans[0].style == "#cf222e"
 
     # A failed topology refresh retains the last good targets as stale; the
     # Project's other rows are not blanked.
@@ -210,8 +211,10 @@ def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
     rows = {row.target.path: row for row in store.query_worktrees().rows}
     assert rows["/project:alpha"].freshness == "stale"
     assert rows["/project:alpha/missing"].freshness == "stale"
-    state_cell = worktree_cells(rows["/project:alpha"], dark=True)[5]
-    assert isinstance(state_cell, Text) and state_cell.plain == "stale"
+    path_cell = worktree_cells(rows["/project:alpha"], dark=True)[0]
+    assert isinstance(path_cell, Text)
+    assert path_cell.plain == "/project:alpha · main · anchor · stale"
+    assert path_cell.spans[0].style == "#d29922"
 
 
 def test_linked_worktree_addition_and_removal_follow_the_observed_topology() -> None:
@@ -269,23 +272,20 @@ def test_worktree_cells_carry_every_scan_level_fact_and_clip_long_values() -> No
         "worktree", "project:alpha", "/home/agent/projects/alpha"
     )
     assert main_row.issue_id is None
-    path, role, branch, head, tree, state, sessions = main_row.cells
-    assert path == "~/projects/alpha"
-    assert role == "main · anchor"
+    path, branch, tree, sessions = main_row.cells
+    assert path == "~/projects/alpha · main · anchor"
     assert branch == "main"
-    assert head == "abcdef1"
     assert isinstance(tree, Text) and tree.plain == "dirty"
-    assert state == "available"
     assert sessions == "-"
 
-    path, role, branch, head, tree, _state, sessions = linked_row.cells
+    path, branch, tree, sessions = linked_row.cells
     assert isinstance(path, str)
-    assert path.startswith("…") and path.endswith("worktree/checkout")
-    assert len(path) == 28
-    assert role == "linked"
+    assert path.startswith("…") and path.endswith("worktree/checkout · linked")
+    clipped_path, annotation = path.split(" · ")
+    assert len(clipped_path) == 28
+    assert annotation == "linked"
     assert isinstance(branch, str)
     assert branch.endswith("…") and len(branch) == 24
-    assert head == "0123456"
     assert tree == "clean"
     assert isinstance(sessions, Text) and sessions.plain == "● 1"
 
@@ -293,4 +293,13 @@ def test_worktree_cells_carry_every_scan_level_fact_and_clip_long_values() -> No
 def test_detached_targets_say_so() -> None:
     alpha = project("project:alpha", target("/project:alpha", role="main", branch=None))
     (row,) = build_worktree_rows(query_worktree_list(workspace(alpha)), dark=False)
-    assert row.cells[2] == "detached"
+    assert row.cells[1] == "detached @ abcdef1"
+
+    without_head = project(
+        "project:alpha",
+        target("/project:alpha", role="main", branch=None, head=""),
+    )
+    (row,) = build_worktree_rows(
+        query_worktree_list(workspace(without_head)), dark=False
+    )
+    assert row.cells[1] == "detached"

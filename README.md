@@ -540,12 +540,14 @@ is likewise its own read model ([`worktree_list.py`](src/dashpot/worktree_list.p
 `WorkspaceObservationStore.query_worktrees`): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
 and sorted main before linked, then path, with the Git
-topology role `git worktree list` reported (the main working tree is listed
-first), whether the path is a configured Repository Anchor, branch or
-detached state, short HEAD, clean/dirty/unknown working tree, availability
-(`stale` when a failed topology refresh retained the last good targets) and
-a count of the active sessions located there. Target-specific diagnostics
-stay in Diagnostics and the alert line; the row only points there. The
+topology role `git worktree list` reported beside the path (the main working
+tree is listed first), whether the path is a configured Repository Anchor,
+and exceptional `stale` or `unavailable` state. Its four columns are `PATH`,
+`BRANCH`, `TREE`, and `SESSIONS`: normal Branches omit HEAD, detached checkouts
+include their short HEAD, the working tree remains clean/dirty/unknown, and
+the last column counts the active Agent Sessions located there. Healthy rows
+do not repeat `available`. Target-specific diagnostics stay in Diagnostics
+and the alert line; the row only points there. The
 Branches pane ([`branch_list.py`](src/dashpot/branch_list.py),
 `WorkspaceObservationStore.query_branches`) joins the local ref and the
 Remote-Tracking Branches of one branch name into one row, so a branch is
