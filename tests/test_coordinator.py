@@ -20,7 +20,7 @@ from dashpot.issue_sources import IssueSource
 from dashpot.model import (
     AgentRun,
     ObservationTarget,
-    ObservationTargetInventory,
+    RepositoryStateInventory,
     ResolvedProject,
     WorkspaceSnapshot,
 )
@@ -101,12 +101,12 @@ class ScriptedCollector:
     def observe_issues(self):
         return self.source.refresh()
 
-    def observe_targets(self) -> ObservationTargetInventory:
+    def observe_targets(self) -> RepositoryStateInventory:
         self.target_calls += 1
         self.targets_release.wait(timeout=2)
         if self.target_failures:
             raise self.target_failures.pop(0)
-        return ObservationTargetInventory(
+        return RepositoryStateInventory(
             targets=[target(self.root, self.head)], diagnostics=[]
         )
 

@@ -263,6 +263,12 @@ commit reachability, not patch equivalence, so a squash or cherry-pick remains
 unintegrated until a person reviews it.
 _Avoid_: upstream, which is a local Branch's configured synchronization target
 
+**Repository State**:
+The observed Git facts of one Project's Repository as one carrier: its
+Observation Targets and Branches, with when the Remote-Tracking facts were
+last fetched and which Integration Branch reachability compares against. It is
+observation, never configuration or identity.
+
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.

@@ -23,9 +23,9 @@ from .model import (
     Diagnostic,
     IssueActivity,
     ObservationTarget,
-    ObservationTargetInventory,
     ProjectObservation,
     ProjectSnapshot,
+    RepositoryStateInventory,
     ResolvedProject,
     SourceStatus,
     WorkspaceSnapshot,
@@ -48,10 +48,10 @@ WorkspaceAgentObserver = Callable[
     [Mapping[str, Sequence[ObservationTarget]]],
     tuple[list[AgentRun], list[Diagnostic]],
 ]
-ObservationTargetObserver = Callable[[Sequence[Path]], ObservationTargetInventory]
+ObservationTargetObserver = Callable[[Sequence[Path]], RepositoryStateInventory]
 BranchObserver = Callable[[Sequence[Path]], BranchObservation]
 
-ObservationKind = Literal["issues", "targets", "agent-runs", "workspace"]
+ScheduledObservationKind = Literal["issues", "targets", "agent-runs", "workspace"]
 WORKSPACE_SCOPE = "*"
 
 
@@ -59,7 +59,7 @@ WORKSPACE_SCOPE = "*"
 class ObservationKey:
     """One independently scheduled observation: a kind for one Project."""
 
-    kind: ObservationKind
+    kind: ScheduledObservationKind
     project_id: str = WORKSPACE_SCOPE
 
     @property
@@ -122,7 +122,7 @@ class ProjectObserver(Protocol):
 
     def observe_issues(self) -> IssueSourceObservation: ...
 
-    def observe_targets(self) -> ObservationTargetInventory: ...
+    def observe_targets(self) -> RepositoryStateInventory: ...
 
 
 class ProjectCollector:
@@ -146,12 +146,12 @@ class ProjectCollector:
     def observe_issues(self) -> IssueSourceObservation:
         return self.source.refresh()
 
-    def observe_targets(self) -> ObservationTargetInventory:
-        """Observe the worktree topology and the Branches as one repository state."""
+    def observe_targets(self) -> RepositoryStateInventory:
+        """Observe the worktree topology and the Branches as one Repository State."""
         anchors = [Path(anchor) for anchor in self.project.anchors]
         inventory = self.target_observer(anchors)
         branches = self.branch_observer(anchors)
-        return ObservationTargetInventory(
+        return RepositoryStateInventory(
             targets=inventory.targets,
             diagnostics=[*inventory.diagnostics, *branches.diagnostics],
             branches=branches.branches,
@@ -284,7 +284,7 @@ def _issue_half(observation: IssueSourceObservation) -> _SourceObservation:
 
 
 def _target_half(
-    inventory: ObservationTargetInventory, attempted_at: str
+    inventory: RepositoryStateInventory, attempted_at: str
 ) -> _SourceObservation:
     """Shape one fresh target inventory as the targets half of a Project."""
     return _SourceObservation(

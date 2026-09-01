@@ -13,8 +13,8 @@ from __future__ import annotations
 import contextlib
 import os
 import re
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -113,12 +113,14 @@ class WorktreeRemovability:
     remove_commands: tuple[str, ...] = ()
 
 
-@dataclass(slots=True)
-class _Preparation:
-    """The facts a plan is assembled from, with the refusals met on the way."""
+@dataclass(frozen=True, slots=True)
+class _BaseResolution:
+    """The chosen base ref, the rule that chose it, its commit, and any refusals."""
 
-    refusals: list[str] = field(default_factory=list)
-    hints: list[str] = field(default_factory=list)
+    ref: str | None
+    source: BaseSource | None
+    commit: str | None
+    refusals: tuple[str, ...] = ()
 
 
 def create_issue_worktree(
@@ -146,7 +148,8 @@ def create_issue_worktree(
     issue = resolve_issue(anchor, hint, timeout)
     environment = environ if environ is not None else os.environ
     machine = settings if settings is not None else load_settings()
-    preparation = _Preparation()
+    refusals: list[str] = []
+    hints: list[str] = []
     records = git.worktree_records()
     worktrees = [
         Path(record["worktree"]).resolve()
@@ -157,44 +160,42 @@ def create_issue_worktree(
     root, root_source = resolve_worktree_root(
         anchor, worktree_root_option, environment, machine
     )
-    for existing in worktrees:
-        if is_within(root, existing):
-            preparation.refusals.append(
-                f"Worktree root {root} is inside the Worktree {existing}; a new "
-                f"Worktree is created outside every Worktree of the Project "
-                f"(choose another --worktree-root or {WORKTREE_ROOT_VARIABLE})"
-            )
-            break
+    refusals.extend(_check_worktree_root(root, worktrees))
 
     branch_name = branch if branch is not None else default_branch_name(issue)
-    _validate_branch_name(git, branch_name, preparation)
+    refusals.extend(_check_branch_name(git, branch_name))
     path = root / branch_name.replace("/", "-")
 
-    base_ref, base_source, base_commit = _resolve_base(git, base, preparation)
-    if base_commit is not None:
-        _check_base_compatibility(
-            git, config, base_ref or base_commit, base_commit, preparation
+    resolution = _resolve_base(git, base)
+    refusals.extend(resolution.refusals)
+    if resolution.commit is not None:
+        refusals.extend(
+            _check_base_compatibility(
+                git, config, resolution.ref or resolution.commit, resolution.commit
+            )
         )
 
-    _check_collisions(git, records, path, branch_name, preparation)
+    refusals.extend(_check_collisions(git, records, path, branch_name))
     if branch is None:
-        _existing_issue_worktrees(issue, branch_name, records, preparation)
+        matches = _existing_issue_worktree_matches(issue, branch_name, records)
+        hints.extend(f"{match_path} (Branch {name})" for match_path, name in matches)
+        refusals.extend(_check_existing_issue_worktrees(str(issue.number), matches))
 
     plan = WorktreePlan(
         issue_id=issue.id,
         issue_reference=issue.reference,
         path=str(path),
         branch=branch_name,
-        base_ref=base_ref,
-        base_source=base_source,
-        base_commit=base_commit,
+        base_ref=resolution.ref,
+        base_source=resolution.source,
+        base_commit=resolution.commit,
         worktree_root=str(root),
         worktree_root_source=root_source,
         dry_run=dry_run,
-        refusals=tuple(preparation.refusals),
-        hints=tuple(preparation.hints),
+        refusals=tuple(refusals),
+        hints=tuple(hints),
     )
-    if dry_run or plan.refusals or base_commit is None:
+    if dry_run or plan.refusals or resolution.commit is None:
         return plan
     _add_worktree(git, plan)
     return WorktreePlan(
@@ -256,22 +257,36 @@ def title_slug(title: str) -> str:
     return slug or (words[0][:SLUG_LIMIT] if words else "")
 
 
-def _validate_branch_name(git: Git, branch: str, preparation: _Preparation) -> None:
+def _check_worktree_root(root: Path, worktrees: Sequence[Path]) -> list[str]:
+    """Refuse a Worktree root that lies inside a Worktree of the Project."""
+    for existing in worktrees:
+        if is_within(root, existing):
+            return [
+                f"Worktree root {root} is inside the Worktree {existing}; a new "
+                f"Worktree is created outside every Worktree of the Project "
+                f"(choose another --worktree-root or {WORKTREE_ROOT_VARIABLE})"
+            ]
+    return []
+
+
+def _check_branch_name(git: Git, branch: str) -> list[str]:
+    """Refuse a Branch name Git cannot create beside the existing Branches."""
     if git.maybe("check-ref-format", "--branch", branch) is None:
-        preparation.refusals.append(f"{branch!r} is not a valid Branch name")
-        return
+        return [f"{branch!r} is not a valid Branch name"]
+    refusals: list[str] = []
     for existing in _local_branches(git):
         if branch.startswith(f"{existing}/"):
-            preparation.refusals.append(
+            refusals.append(
                 f"Branch name {branch} extends the existing Branch {existing} "
                 f"with '/', which Git cannot create; choose another --branch"
             )
         elif existing.startswith(f"{branch}/"):
-            preparation.refusals.append(
+            refusals.append(
                 f"Branch name {branch} is a prefix of the existing Branch "
                 f"{existing}, which Git cannot create beside it; choose another "
                 f"--branch"
             )
+    return refusals
 
 
 def _local_branches(git: Git) -> list[str]:
@@ -279,19 +294,19 @@ def _local_branches(git: Git) -> list[str]:
     return [record[0] for record in records if record[0]]
 
 
-def _resolve_base(
-    git: Git, option: str | None, preparation: _Preparation
-) -> tuple[str | None, BaseSource | None, str | None]:
+def _resolve_base(git: Git, option: str | None) -> _BaseResolution:
     """The base ref, which rule chose it, and its exact commit; never fetched."""
     if option is not None:
         commit = _commit_of(git, option)
         if commit is None:
-            preparation.refusals.append(
-                f"--base {option} does not name a commit in this Repository"
+            return _BaseResolution(
+                option,
+                "--base",
+                None,
+                (f"--base {option} does not name a commit in this Repository",),
             )
-            return option, "--base", None
         ref = git.maybe("rev-parse", "--symbolic-full-name", option) or option
-        return ref, "--base", commit
+        return _BaseResolution(ref, "--base", commit)
     origin_head = git.maybe("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
     origin_head = origin_head or None
     origin_commit = _commit_of(git, origin_head) if origin_head is not None else None
@@ -300,7 +315,7 @@ def _resolve_base(
     )
     ref = choose_integration_ref(origin_head, origin_refs)
     if ref is not None:
-        return ref, "origin/HEAD", origin_commit
+        return _BaseResolution(ref, "origin/HEAD", origin_commit)
     # Each candidate ref is resolved exactly once; the chosen ref's commit is
     # reused rather than resolved again.
     commits = {
@@ -311,18 +326,22 @@ def _resolve_base(
     candidates = list(commits)
     ref = choose_integration_ref(None, candidates)
     if ref is not None:
-        return ref, "local-branch", commits[ref]
+        return _BaseResolution(ref, "local-branch", commits[ref])
     local = [
         name.removeprefix("refs/heads/")
         for name in candidates
         if name.startswith("refs/heads/")
     ]
-    preparation.refusals.append(
-        "no base Branch could be chosen: origin/HEAD is not set and there is "
-        + ("no" if not local else "more than one")
-        + " local main or master Branch; pass --base REF"
+    return _BaseResolution(
+        None,
+        None,
+        None,
+        (
+            "no base Branch could be chosen: origin/HEAD is not set and there is "
+            + ("no" if not local else "more than one")
+            + " local main or master Branch; pass --base REF",
+        ),
     )
-    return None, None, None
 
 
 def _commit_of(git: Git, ref: str) -> str | None:
@@ -337,24 +356,21 @@ def _check_base_compatibility(
     config: ProjectConfig,
     base_ref: str,
     base_commit: str,
-    preparation: _Preparation,
-) -> None:
+) -> list[str]:
     """The base revision must carry the anchor's Project and Repository Identity."""
     shown = git.run("show", f"{base_commit}:{PROJECT_CONFIG_NAME}")
     if shown.returncode != 0:
-        preparation.refusals.append(
+        return [
             f"base {base_ref} ({base_commit[:12]}) has no {PROJECT_CONFIG_NAME}; "
             f"a session there could be observed but never opt into Issue work; "
             f"choose a --base that carries the Project configuration"
-        )
-        return
+        ]
     try:
         base_config = parse_project_config(
             shown.stdout, Path(f"{base_ref}:{PROJECT_CONFIG_NAME}")
         )
     except RuntimeError as exc:
-        preparation.refusals.append(f"base {base_ref} ({base_commit[:12]}): {exc}")
-        return
+        return [f"base {base_ref} ({base_commit[:12]}): {exc}"]
     mismatches = [
         f"{label} {theirs} (the Repository Anchor has {ours})"
         for label, theirs, ours in (
@@ -364,11 +380,12 @@ def _check_base_compatibility(
         if theirs != ours
     ]
     if mismatches:
-        preparation.refusals.append(
+        return [
             f"base {base_ref} ({base_commit[:12]}) carries "
             + " and ".join(mismatches)
             + "; it configures a different Project"
-        )
+        ]
+    return []
 
 
 def _check_collisions(
@@ -376,19 +393,20 @@ def _check_collisions(
     records: list[dict[str, str]],
     path: Path,
     branch: str,
-    preparation: _Preparation,
-) -> None:
+) -> list[str]:
+    """Refuse a path or Branch something already occupies."""
+    refusals: list[str] = []
     registered = _registered_at(records, path)
     if registered is not None:
         lock = registered.get("locked")
         if lock is not None and INITIALIZING_LOCK in lock:
-            preparation.refusals.append(
+            refusals.append(
                 f"{path} is a partially created Worktree (locked: {lock}); "
                 f"recover with 'git worktree remove -f -f {path}' and "
                 f"'git branch -D {_short_branch(registered) or branch}'"
             )
         else:
-            preparation.refusals.append(
+            refusals.append(
                 f"{path} is already a Worktree"
                 + (
                     f" on Branch {_short_branch(registered)}"
@@ -397,12 +415,12 @@ def _check_collisions(
                 )
             )
     elif path.is_symlink() or path.is_file():
-        preparation.refusals.append(f"{path} exists and is not a directory")
+        refusals.append(f"{path} exists and is not a directory")
     elif path.is_dir():
         if any(path.iterdir()):
-            preparation.refusals.append(f"{path} exists and is not empty")
+            refusals.append(f"{path} exists and is not empty")
         else:
-            preparation.refusals.append(
+            refusals.append(
                 f"{path} is an empty directory Dashpot did not create; remove it "
                 f"or choose another --branch"
             )
@@ -415,36 +433,41 @@ def _check_collisions(
             ),
             None,
         )
-        preparation.refusals.append(
+        refusals.append(
             f"Branch {branch} already exists"
             + (f" and is checked out at {checked_out}" if checked_out else "")
             + "; pass --branch NAME for a separate approach"
         )
+    return refusals
 
 
-def _existing_issue_worktrees(
+def _existing_issue_worktree_matches(
     issue: IssueProfile,
     default_branch: str,
     records: list[dict[str, str]],
-    preparation: _Preparation,
-) -> None:
-    """Refuse the default name when a Worktree already looks like this Issue's."""
+) -> list[tuple[str, str]]:
+    """Worktrees whose Branch looks like this Issue's, as (path, Branch) pairs."""
     number = str(issue.number)
-    matches = [
+    return [
         (record["worktree"], name)
         for record in records
         if (name := _short_branch(record)) is not None
         and (name in (default_branch, number) or name.startswith(f"{number}-"))
     ]
+
+
+def _check_existing_issue_worktrees(
+    number: str, matches: Sequence[tuple[str, str]]
+) -> list[str]:
+    """Refuse the default name when a Worktree already looks like this Issue's."""
     if not matches:
-        return
-    preparation.hints.extend(f"{path} (Branch {name})" for path, name in matches)
-    preparation.refusals.append(
+        return []
+    return [
         f"a Worktree whose Branch looks like Issue #{number}'s already exists: "
         + ", ".join(f"{path} on {name}" for path, name in matches)
         + "; that is a hint, not Issue work — reuse it, or pass --branch NAME "
         "for a separate approach"
-    )
+    ]
 
 
 def _registered_at(records: list[dict[str, str]], path: Path) -> dict[str, str] | None:
@@ -754,15 +777,15 @@ def _branch_obstacles(git: Git, path: Path, branch: str) -> list[RemovalObstacle
     )
     # The Integration Branch is chosen by the same rule as a new Worktree's
     # base; when none can be, integration is unknown rather than complete.
-    base_resolution = _Preparation()
-    base_ref, _source, base_commit = _resolve_base(git, None, base_resolution)
+    resolution = _resolve_base(git, None)
+    base_ref, base_commit = resolution.ref, resolution.commit
     unmerged = (
         _count(git, f"{base_commit}..refs/heads/{branch}") if base_commit else None
     )
     if unmerged is None:
         reason = (
-            "; ".join(base_resolution.refusals)
-            if base_resolution.refusals
+            "; ".join(resolution.refusals)
+            if resolution.refusals
             else f"commits not reachable from {base_ref} could not be counted"
         )
         obstacles.append(

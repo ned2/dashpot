@@ -16,7 +16,7 @@ from .model import (
     Branch,
     Diagnostic,
     ObservationTarget,
-    ObservationTargetInventory,
+    RepositoryStateInventory,
     TargetRole,
 )
 
@@ -124,10 +124,41 @@ def observe_observation_targets(
     git: Git | None = None,
     clock: Callable[[], float] = time.monotonic,
     process_lookup: LockHolderProbe | None = None,
-) -> ObservationTargetInventory:
+) -> RepositoryStateInventory:
     """Discover and inspect executable Observation Targets for Repository Anchors."""
     # The default root is a placeholder: every command retargets to its anchor.
     adapter = git if git is not None else Git(Path.cwd(), timeout)
+    discovery = _discover_target_records(anchors, adapter)
+    targets: list[ObservationTarget] = []
+    diagnostics = list(discovery.diagnostics)
+    for record in discovery.records:
+        path = record["worktree"]
+        role: TargetRole = "main" if path in discovery.main_paths else "linked"
+        if "bare" in record:
+            diagnostics.append(
+                Diagnostic(
+                    source=f"target:{path}",
+                    severity="info",
+                    message=f"Git repository entry is bare and cannot be observed: {path}",
+                    code="target-bare",
+                )
+            )
+            continue
+        targets.append(_observe_target(record, role, adapter, clock, process_lookup))
+    return RepositoryStateInventory(targets=targets, diagnostics=diagnostics)
+
+
+@dataclass(frozen=True, slots=True)
+class _TargetDiscovery:
+    """The worktree records the Repository Anchors reach, deduplicated by path."""
+
+    records: tuple[dict[str, str], ...]
+    main_paths: frozenset[str]
+    diagnostics: tuple[Diagnostic, ...]
+
+
+def _discover_target_records(anchors: Sequence[Path], git: Git) -> _TargetDiscovery:
+    """Discover every worktree record the Repository Anchors reach."""
     records: list[dict[str, str]] = []
     diagnostics: list[Diagnostic] = []
     seen_paths: set[str] = set()
@@ -136,7 +167,7 @@ def observe_observation_targets(
     main_paths: set[str] = set()
     for anchor in anchors:
         try:
-            anchor_records = adapter.at(anchor).worktree_records()
+            anchor_records = git.at(anchor).worktree_records()
         except GitError as exc:
             diagnostics.append(
                 Diagnostic(
@@ -164,175 +195,154 @@ def observe_observation_targets(
             if path not in seen_paths:
                 seen_paths.add(path)
                 records.append(record)
+    return _TargetDiscovery(tuple(records), frozenset(main_paths), tuple(diagnostics))
 
-    targets: list[ObservationTarget] = []
-    for record in records:
-        path = record["worktree"]
-        role: TargetRole = "main" if path in main_paths else "linked"
-        if "bare" in record:
-            diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="info",
-                    message=f"Git repository entry is bare and cannot be observed: {path}",
-                    code="target-bare",
-                )
-            )
-            continue
-        branch = record.get("branch")
-        if branch and branch.startswith("refs/heads/"):
-            branch = branch.removeprefix("refs/heads/")
-        detached = "detached" in record
-        target_diagnostics: list[Diagnostic] = []
-        if "locked" in record:
-            locked = lock_diagnostic(
-                path, record["locked"] or "no reason reported", process_lookup
-            )
-            if locked is not None:
-                target_diagnostics.append(locked)
-        if "prunable" in record:
-            reason = record["prunable"] or "no reason reported"
-            target_diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="warning",
-                    message=f"Observation Target is prunable: {reason}",
-                    code="target-prunable",
-                )
-            )
-            targets.append(
-                _unavailable_target(record, role, branch, detached, target_diagnostics)
-            )
-            continue
-        if not record.get("HEAD") or bool(branch) == detached:
-            target_diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="warning",
-                    message="Git returned a malformed worktree record",
-                    code="target-malformed",
-                )
-            )
-            targets.append(
-                _unavailable_target(record, role, branch, detached, target_diagnostics)
-            )
-            continue
-        try:
-            path_mode = Path(path).stat().st_mode
-        except FileNotFoundError:
-            target_diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="warning",
-                    message=f"Observation Target does not exist: {path}",
-                    code="target-missing",
-                )
-            )
-            targets.append(
-                _unavailable_target(record, role, branch, detached, target_diagnostics)
-            )
-            continue
-        except OSError as exc:
-            target_diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="warning",
-                    message=f"Cannot inspect Observation Target path: {exc}",
-                    code="target-inaccessible",
-                )
-            )
-            targets.append(
-                _unavailable_target(record, role, branch, detached, target_diagnostics)
-            )
-            continue
-        if not stat.S_ISDIR(path_mode):
-            target_diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="warning",
-                    message=f"Observation Target is not a directory: {path}",
-                    code="target-missing",
-                )
-            )
-            targets.append(
-                _unavailable_target(record, role, branch, detached, target_diagnostics)
-            )
-            continue
-        started = clock()
-        try:
-            result = adapter.at(Path(path)).run(
-                "status", "--porcelain=v1", "--untracked-files=normal"
-            )
-        except GitError as exc:
-            elapsed_ms = round((clock() - started) * 1000)
-            target_diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="warning",
-                    message=f"Cannot inspect Observation Target: {exc.detail}",
-                    code="target-inaccessible",
-                )
-            )
-            targets.append(
-                _unavailable_target(
-                    record,
-                    role,
-                    branch,
-                    detached,
-                    target_diagnostics,
-                    elapsed_ms,
-                )
-            )
-            continue
-        elapsed_ms = round((clock() - started) * 1000)
-        if result.returncode != 0:
-            detail = result.stderr.strip() or f"exit {result.returncode}"
-            target_diagnostics.append(
-                Diagnostic(
-                    source=f"target:{path}",
-                    severity="warning",
-                    message=f"Cannot inspect Observation Target: {detail}",
-                    code="target-inaccessible",
-                )
-            )
-            availability = "unavailable"
-            dirty = None
-        else:
-            availability = "available"
-            dirty = bool(result.stdout)
-        targets.append(
-            ObservationTarget(
-                path=path,
-                head=record["HEAD"],
-                branch=branch,
-                detached=detached,
-                dirty=dirty,
-                availability=availability,
-                elapsed_ms=elapsed_ms,
-                diagnostics=target_diagnostics,
-                role=role,
-            )
+
+def _observe_target(
+    record: dict[str, str],
+    role: TargetRole,
+    git: Git,
+    clock: Callable[[], float],
+    process_lookup: LockHolderProbe | None,
+) -> ObservationTarget:
+    """Inspect one discovered worktree record as an Observation Target."""
+    path = record["worktree"]
+    branch = record.get("branch")
+    if branch and branch.startswith("refs/heads/"):
+        branch = branch.removeprefix("refs/heads/")
+    detached = "detached" in record
+    diagnostics: list[Diagnostic] = []
+    if "locked" in record:
+        locked = lock_diagnostic(
+            path, record["locked"] or "no reason reported", process_lookup
         )
-    return ObservationTargetInventory(targets=targets, diagnostics=diagnostics)
+        if locked is not None:
+            diagnostics.append(locked)
+    if "prunable" in record:
+        reason = record["prunable"] or "no reason reported"
+        return _unavailable(
+            record,
+            role,
+            branch,
+            detached,
+            diagnostics,
+            message=f"Observation Target is prunable: {reason}",
+            code="target-prunable",
+        )
+    if not record.get("HEAD") or bool(branch) == detached:
+        return _unavailable(
+            record,
+            role,
+            branch,
+            detached,
+            diagnostics,
+            message="Git returned a malformed worktree record",
+            code="target-malformed",
+        )
+    try:
+        path_mode = Path(path).stat().st_mode
+    except FileNotFoundError:
+        return _unavailable(
+            record,
+            role,
+            branch,
+            detached,
+            diagnostics,
+            message=f"Observation Target does not exist: {path}",
+            code="target-missing",
+        )
+    except OSError as exc:
+        return _unavailable(
+            record,
+            role,
+            branch,
+            detached,
+            diagnostics,
+            message=f"Cannot inspect Observation Target path: {exc}",
+            code="target-inaccessible",
+        )
+    if not stat.S_ISDIR(path_mode):
+        return _unavailable(
+            record,
+            role,
+            branch,
+            detached,
+            diagnostics,
+            message=f"Observation Target is not a directory: {path}",
+            code="target-missing",
+        )
+    started = clock()
+    try:
+        result = git.at(Path(path)).run(
+            "status", "--porcelain=v1", "--untracked-files=normal"
+        )
+    except GitError as exc:
+        return _unavailable(
+            record,
+            role,
+            branch,
+            detached,
+            diagnostics,
+            message=f"Cannot inspect Observation Target: {exc.detail}",
+            code="target-inaccessible",
+            elapsed_ms=round((clock() - started) * 1000),
+        )
+    elapsed_ms = round((clock() - started) * 1000)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        return _unavailable(
+            record,
+            role,
+            branch,
+            detached,
+            diagnostics,
+            message=f"Cannot inspect Observation Target: {detail}",
+            code="target-inaccessible",
+            elapsed_ms=elapsed_ms,
+        )
+    return ObservationTarget(
+        path=path,
+        head=record["HEAD"],
+        branch=branch,
+        detached=detached,
+        dirty=bool(result.stdout),
+        availability="available",
+        elapsed_ms=elapsed_ms,
+        diagnostics=diagnostics,
+        role=role,
+    )
 
 
-def _unavailable_target(
+def _unavailable(
     record: dict[str, str],
     role: TargetRole,
     branch: str | None,
     detached: bool,
     diagnostics: list[Diagnostic],
+    *,
+    message: str,
+    code: str,
     elapsed_ms: int = 0,
 ) -> ObservationTarget:
+    """Shape one failed record as an unavailable target carrying its diagnostic."""
+    path = record["worktree"]
     return ObservationTarget(
-        path=record["worktree"],
+        path=path,
         head=record.get("HEAD", ""),
         branch=branch,
         detached=detached,
         dirty=None,
         availability="unavailable",
         elapsed_ms=elapsed_ms,
-        diagnostics=diagnostics,
+        diagnostics=[
+            *diagnostics,
+            Diagnostic(
+                source=f"target:{path}",
+                severity="warning",
+                message=message,
+                code=code,
+            ),
+        ],
         role=role,
     )
 

@@ -43,8 +43,8 @@ from dashpot.model import (
     IssueActivity,
     LinkedPullRequest,
     ObservationTarget,
-    ObservationTargetInventory,
     ProjectSnapshot,
+    RepositoryStateInventory,
     ResolvedProject,
     TargetAvailability,
     WorkspaceSnapshot,
@@ -81,10 +81,8 @@ def observation_target(
     )
 
 
-def target_inventory(root: str = "/repo") -> ObservationTargetInventory:
-    return ObservationTargetInventory(
-        targets=[observation_target(root)], diagnostics=[]
-    )
+def target_inventory(root: str = "/repo") -> RepositoryStateInventory:
+    return RepositoryStateInventory(targets=[observation_target(root)], diagnostics=[])
 
 
 def resolved_project(
@@ -352,7 +350,7 @@ class ProjectCollectorTests(unittest.TestCase):
 
         def observe_targets(anchors):
             observed_anchors.extend(anchors)
-            return ObservationTargetInventory(targets=[target], diagnostics=[])
+            return RepositoryStateInventory(targets=[target], diagnostics=[])
 
         collector = ProjectCollector(
             project,
@@ -387,7 +385,7 @@ class ProjectCollectorTests(unittest.TestCase):
         collector = ProjectCollector(
             resolved_project(),
             FakeSource(),
-            target_observer=lambda _anchors: ObservationTargetInventory(
+            target_observer=lambda _anchors: RepositoryStateInventory(
                 targets=[target], diagnostics=[]
             ),
         )
@@ -1519,8 +1517,8 @@ class FakeProjectCollector:
             diagnostics=(),
         )
 
-    def observe_targets(self) -> ObservationTargetInventory:
-        return ObservationTargetInventory(
+    def observe_targets(self) -> RepositoryStateInventory:
+        return RepositoryStateInventory(
             targets=copy.deepcopy(self.snapshot.observation_targets), diagnostics=[]
         )
 

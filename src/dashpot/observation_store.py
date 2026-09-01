@@ -24,7 +24,7 @@ from .model import (
 from .session_list import SessionListResult, _query_indexed_session_list
 from .worktree_list import WorktreeListResult, _query_indexed_worktree_list
 
-ObservationKind = Literal["workspace", "projects", "agent-runs"]
+StoreChangeKind = Literal["workspace", "projects", "agent-runs"]
 Key = TypeVar("Key")
 Value = TypeVar("Value")
 
@@ -32,7 +32,7 @@ Value = TypeVar("Value")
 @dataclass(frozen=True, slots=True)
 class StoreChange:
     revision: int
-    kinds: frozenset[ObservationKind]
+    kinds: frozenset[StoreChangeKind]
     project_ids: frozenset[str] = frozenset()
     issue_keys: frozenset[tuple[str, str]] = frozenset()
     observation_target_keys: frozenset[tuple[str, str]] = frozenset()
@@ -442,7 +442,7 @@ def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
         if any(run_id in agent_run_ids for run_id in run_ids)
     )
     issue_keys.update(key for key in after.issues if key[1] in binding_issue_ids)
-    kinds: set[ObservationKind] = set()
+    kinds: set[StoreChangeKind] = set()
     if project_ids:
         kinds.add("projects")
     if agent_run_ids or before.issue_runs != after.issue_runs:

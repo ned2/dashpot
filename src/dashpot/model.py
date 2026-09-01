@@ -85,7 +85,9 @@ class Branch(ObservationModel):
     unintegrated_commits: int | None = None
 
 
-class ObservationTargetInventory(ObservationModel):
+class RepositoryStateInventory(ObservationModel):
+    """Carry one Repository's observed state: Observation Targets and Branches."""
+
     targets: LaxSequence[ObservationTarget]
     diagnostics: LaxSequence[Diagnostic]
     # Every observed Branch of the repository, and when its Remote-Tracking
