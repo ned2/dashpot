@@ -18,7 +18,9 @@ The deciding question for every value is its seam, not its shape: **a value
 earns a Pydantic model when data crosses a trust or persistence boundary
 through it — untrusted input, persisted state, or a published wire shape. A
 value that is constructed, not parsed, stays a frozen, slotted stdlib
-dataclass.** Migration is never a mechanical decorator replacement.
+dataclass.** A model is earned by a seam, and a value that acquires one
+later is promoted then; migration is never a mechanical decorator
+replacement.
 
 ## The Dashpot model convention
 
@@ -129,11 +131,34 @@ A PR series, observable behavior preserved at each step, per #85:
   re-creates the #77 defect, freezing the hooks documents would normalize
   foreign state, and forbidding extras in the hook record would break
   re-persisting records written by a newer Dashpot.
-- **Migrate every dataclass to Pydantic:** rejected; for trusted internal
-  values validation is dead weight at import and construction time, and a
-  frozen, slotted dataclass is the deeper module — nothing to configure,
-  nothing to serialize. `ColumnSpec` cannot migrate at all (callable
-  fields).
+- **Migrate every dataclass to Pydantic** (for one idiom and uniform
+  tooling): rejected, for four concrete reasons.
+  - *Hot-path construction cost.* A model validates every construction; the
+    retained read models are rebuilt wholesale on every refresh and every
+    search keystroke, and this codebase has already measured per-refresh
+    object costs as a defect (#68's six workspace copies per refresh).
+    `model_construct()` avoids the cost only by giving up the guarantee.
+  - *Structural carve-outs exist anyway.* `ColumnSpec` holds callables, the
+    table cells subclass `str` and Rich `Text`, message payloads carry
+    Textual objects — values Pydantic can neither validate nor serialize.
+    Uniformity is unreachable; the only choice is where the line is drawn,
+    and a seam is a principle where `arbitrary_types_allowed` is an accident.
+  - *A constructor that cannot fail is a feature.* For trusted values a
+    shape error is a bug that Ruff `ANN` and ty catch at check time; making
+    every construction a potential `ValidationError` threads a new runtime
+    failure path through code bound by the one-line `dashpot:` error
+    contract (#73).
+  - *The split itself carries information.* `BaseModel` on a value signals
+    that a trust or persistence seam is in play and its aliases and
+    unknown-field policy matter; `@dataclass(frozen=True, slots=True)`
+    signals plain trusted data. Uniform models erase that signal and put
+    Pydantic's whole API surface in scope everywhere.
+
+  The classification is therefore per-seam, not permanent: a retained value
+  that later acquires a seam (say a structured `dashpot work --json`) is
+  promoted to a model in a small mechanical change, not a re-litigation of
+  this ADR. The accepted uniformity cost is two copy idioms,
+  `dataclasses.replace` beside `model_copy`.
 - **`TypedDict` for the Issue Profile** (the lighter option in #72):
   rejected here; it types keys but keeps `dict` mutability, does no runtime
   validation, and leaves `conform_issue`'s hand-rolled checks in place —
