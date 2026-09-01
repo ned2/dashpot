@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from dashpot.agents import write_hook_record
+from dashpot.hook_records import write_hook_record
 from dashpot.integrate import (
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
@@ -520,8 +520,8 @@ def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
 def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     tmp_path: Path,
 ) -> None:
-    from dashpot.agents import session_directory
     from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
+    from dashpot.hook_records import session_directory
 
     home = codex_home(tmp_path)
     root = tmp_path / "repo"

@@ -13,9 +13,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from dashpot.agents import ProcessIdentity, session_directory, write_hook_record
 from dashpot.commands import CommandResult
 from dashpot.git import Git
+from dashpot.hook_records import session_directory, write_hook_record
 from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
@@ -26,9 +26,11 @@ from dashpot.model import (
     ProjectSnapshot,
     RunState,
     SourceStatus,
+    TargetAvailability,
     TargetRole,
     WorkspaceSnapshot,
 )
+from dashpot.processes import ProcessIdentity
 
 NOW = "2026-08-27T03:00:00Z"
 
@@ -320,6 +322,28 @@ def legacy_ended_record(root: Path, session_id: str, harness: str) -> None:
 
 
 # --- Read-model snapshots ----------------------------------------------------
+
+
+def observation_target(
+    root: str = "/repo",
+    *,
+    branch: str | None = "main",
+    dirty: bool | None = False,
+    availability: TargetAvailability = "available",
+    diagnostics: Sequence[Diagnostic] = (),
+) -> ObservationTarget:
+    """Build the observed Observation Target the observer suites share."""
+    return ObservationTarget(
+        path=root,
+        head="abc123",
+        branch=branch,
+        detached=False,
+        dirty=dirty,
+        availability=availability,
+        elapsed_ms=2,
+        diagnostics=tuple(diagnostics),
+        role="main",
+    )
 
 
 def target(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from dashpot.agents import ProcessIdentity
 from dashpot.harnesses import (
     ADAPTERS,
     CLAUDE_CODE,
@@ -13,6 +12,7 @@ from dashpot.harnesses import (
     native_claims,
     override_claim,
 )
+from dashpot.processes import ProcessIdentity
 
 STARTED = "Tue Aug 25 01:00:00 2026"
 

@@ -12,22 +12,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .agents import (
+from .harnesses import (
     HARNESS_DISPLAY,
-    ProcessLookup,
+    SESSION_OVERRIDE_VARIABLE,
+    adapter,
+    override_claim,
+)
+from .hook_records import (
     SessionRecordSummary,
     StaleSessionRecord,
-    host_process_lookup,
     session_directory,
     state_directory,
     summarize_session_records,
     validate_session_claim,
 )
-from .harnesses import (
-    SESSION_OVERRIDE_VARIABLE,
-    adapter,
-    override_claim,
-)
+from .processes import ProcessLookup, host_process_lookup
 from .repository import worktree_root
 
 HOOK_TIMEOUT = 3

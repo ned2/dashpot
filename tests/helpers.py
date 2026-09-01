@@ -14,7 +14,9 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
 
-from dashpot.agents import (
+from dashpot.issue_profile import IssueProfile, conform_issue
+from dashpot.model import ProjectObservation, ProjectSnapshot, to_jsonable
+from dashpot.processes import (
     ProcessAbsent,
     ProcessIdentity,
     ProcessLookup,
@@ -22,8 +24,6 @@ from dashpot.agents import (
     ProcessPresent,
     ProcessUnobservable,
 )
-from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.model import ProjectObservation, ProjectSnapshot, to_jsonable
 
 T = TypeVar("T")
 

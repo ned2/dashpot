@@ -9,7 +9,8 @@ import pytest
 from rich.text import Text
 
 import factories
-from dashpot.agents import ProcessIdentity, observe_agent_runs, write_hook_record
+from dashpot.agents import observe_agent_runs
+from dashpot.hook_records import write_hook_record
 from dashpot.issue_list import row_key
 from dashpot.issue_profile import IssueProfile
 from dashpot.list_pane import truncate_end, truncate_start
@@ -20,6 +21,7 @@ from dashpot.model import (
     RunState,
 )
 from dashpot.observation_store import WorkspaceObservationStore
+from dashpot.processes import ProcessIdentity
 from dashpot.session_list import (
     OUTSIDE_PROJECT_TEXT,
     SESSION_COLUMNS,

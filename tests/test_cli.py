@@ -12,7 +12,6 @@ import pytest
 from rich.console import Console
 
 from dashpot import cli
-from dashpot.agents import ProcessIdentity
 from dashpot.hook import publish_from_stream
 from dashpot.integrate import INTEGRATIONS
 from dashpot.issue_profile import conform_issue
@@ -22,6 +21,7 @@ from dashpot.model import (
     Workspace,
     WorkspaceSnapshot,
 )
+from dashpot.processes import ProcessIdentity
 from dashpot.workspace import WorkspaceResolution
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
 from factories import write_config_marker

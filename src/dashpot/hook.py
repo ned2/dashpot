@@ -4,7 +4,7 @@ import json
 import sys
 from typing import Any, TextIO
 
-from .agents import publish_hook_event
+from .hook_records import publish_hook_event
 
 # A failed publish is reported but never blocks the session: Claude Code reads
 # exit code 2 as "deny this action and feed stderr back to the model", which

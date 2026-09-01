@@ -15,10 +15,11 @@ from pathlib import Path
 import pytest
 
 from dashpot import worktrees
-from dashpot.agents import ProcessIdentity, session_directory, write_hook_record
 from dashpot.commands import CommandResult, run_command
 from dashpot.git import Git
+from dashpot.hook_records import session_directory, write_hook_record
 from dashpot.model import to_jsonable
+from dashpot.processes import ProcessIdentity
 from dashpot.settings import Settings
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.worktrees import (

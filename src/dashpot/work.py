@@ -7,20 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .agents import (
-    ProcessIdentity,
-    ProcessKey,
-    ProcessLookup,
-    SessionLocation,
-    ValidatedSessionIdentity,
-    host_process_lookup,
-    locate_agent_session,
-    now_iso,
-    observe_agent_ancestry,
-    reachable_hook_stores,
-    session_liveness,
-    validate_session_claim,
-)
 from .git import Git
 from .harnesses import (
     HARNESS_DISPLAY,
@@ -29,7 +15,23 @@ from .harnesses import (
     native_claims,
     override_claim,
 )
+from .hook_records import (
+    SessionLocation,
+    ValidatedSessionIdentity,
+    locate_agent_session,
+    now_iso,
+    reachable_hook_stores,
+    validate_session_claim,
+)
 from .issue_resolution import resolve_issue
+from .liveness import session_liveness
+from .processes import (
+    ProcessIdentity,
+    ProcessKey,
+    ProcessLookup,
+    host_process_lookup,
+    observe_agent_ancestry,
+)
 from .repository import repository_worktrees, worktree_root
 from .work_store import ActiveWork, SessionProcess, WorkStore
 

@@ -11,7 +11,7 @@ from typing import Literal, Protocol, runtime_checkable
 from pydantic import ValidationError
 
 from .agent_bindings import bind_issue_runs
-from .agents import lock_holder_probe, observe_agent_runs
+from .agents import observe_agent_runs
 from .git import Git
 from .github_issues import GitHubIssuesSource
 from .issue_profile import IssueProfile
@@ -31,6 +31,7 @@ from .model import (
     WorkspaceSnapshot,
 )
 from .observation_store import StoreChange, WorkspaceObservationStore
+from .processes import lock_holder_probe
 from .project_config import (
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from dashpot import hook
-from dashpot.agents import build_hook_record
+from dashpot.hook_records import build_hook_record
 from factories import git
 
 

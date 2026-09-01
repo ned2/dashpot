@@ -250,6 +250,7 @@ class HookRecordClassification:
     harness: str
     state: str
     cwd: str
+    repository_root: str | None
     branch: str | None
     event: str | None
     last_activity_at: str | None
@@ -310,8 +311,7 @@ class SessionLocation:
 
     @property
     def worktree(self) -> Path:
-        root = optional_string(self.raw.get("repositoryRoot"))
-        return Path(root or self.record.cwd)
+        return Path(self.record.repository_root or self.record.cwd)
 
     @property
     def process(self) -> ProcessIdentity | None:
@@ -383,6 +383,7 @@ def classify_hook_record(
         harness=harness,
         state=event_state,
         cwd=cwd,
+        repository_root=optional_string(raw.get("repositoryRoot")),
         branch=optional_string(raw.get("branch")),
         event=optional_string(raw.get("event")),
         last_activity_at=optional_string(raw.get("lastActivityAt")),
@@ -600,13 +601,10 @@ def validate_session_claim(
             f"and have published this session (check 'dashpot integrate "
             f"{claim.harness} --status')"
         )
-    raw = location.raw
     record = location.record
-    recorded_harness = optional_string(raw.get("harness")) or "codex"
-    if recorded_harness != claim.harness:
-        recorded = HARNESS_DISPLAY.get(recorded_harness, recorded_harness)
+    if record.harness != claim.harness:
         raise RuntimeError(
-            f"{name} names a hook record published by {recorded}; the "
+            f"{name} names a hook record published by {record.display}; the "
             f"identities of two harnesses cannot be combined"
         )
     if record.outcome in {"ended", "gone"}:

@@ -18,17 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .agents import (
-    ProcessLookup,
-    host_process_lookup,
-    reachable_hook_stores,
-    session_liveness,
-    sessions_at_worktree,
-)
 from .git import Git, GitError
 from .harnesses import HARNESS_DISPLAY
+from .hook_records import reachable_hook_stores, sessions_at_worktree
 from .issue_profile import IssueProfile
 from .issue_resolution import resolve_issue
+from .liveness import session_liveness
+from .processes import ProcessLookup, host_process_lookup
 from .project_config import (
     PROJECT_CONFIG_NAME,
     ProjectConfig,
