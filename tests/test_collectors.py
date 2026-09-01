@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -22,11 +23,11 @@ from dashpot.agents import (
     ProcessPresent,
     ProcessUnobservable,
     host_process_lookup,
+    namespace_is_isolated,
     nearest_codex_process,
     now_iso,
     observe_agent_ancestry,
     observe_agent_runs,
-    process_namespace_is_isolated,
     publish_hook_event,
     session_directory,
     write_hook_record,
@@ -1832,24 +1833,6 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         self.assertEqual([work.run_id], [run.id for run in runs])
         self.assertEqual("waiting", runs[0].state)
 
-    def test_isolated_namespace_is_recognized_for_each_sandbox_helper(self) -> None:
-        for init in (
-            b"codex-linux-sandbox\0--sandbox-policy-cwd\0/repo\0",
-            b"bwrap\0--unshare-pid\0sh\0",
-            b"/usr/bin/bwrap\0--ro-bind\0/\0/\0",
-        ):
-            with (
-                self.subTest(init=init),
-                mock.patch("dashpot.agents.Path.read_bytes", return_value=init),
-            ):
-                self.assertTrue(process_namespace_is_isolated())
-        for init in (b"/sbin/init\0splash\0", b"/usr/lib/systemd/systemd\0"):
-            with (
-                self.subTest(init=init),
-                mock.patch("dashpot.agents.Path.read_bytes", return_value=init),
-            ):
-                self.assertFalse(process_namespace_is_isolated())
-
     def test_ancestry_reports_why_the_walk_stopped_short(self) -> None:
         with mock.patch("dashpot.agents.os.getppid", return_value=10):
             isolated = observe_agent_ancestry(unobservable("isolated-namespace"))
@@ -1860,3 +1843,73 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         self.assertEqual(AgentAncestry(None, "isolated-namespace"), isolated)
         self.assertEqual(AgentAncestry(None), gone)
         self.assertEqual(AgentAncestry(None), sandboxed)
+
+
+class NamespaceIsolationTests(unittest.TestCase):
+    def namespace_root(
+        self,
+        init: bytes = b"/sbin/init\0splash\0",
+        cgroup: str = "0::/init.scope\n",
+        markers: tuple[str, ...] = (),
+    ) -> Path:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        (root / "proc" / "1").mkdir(parents=True)
+        (root / "proc" / "1" / "cmdline").write_bytes(init)
+        (root / "proc" / "1" / "cgroup").write_text(cgroup)
+        for marker in markers:
+            (root / marker).parent.mkdir(parents=True, exist_ok=True)
+            (root / marker).touch()
+        return root
+
+    def test_isolation_is_recognized_for_each_sandbox_helper(self) -> None:
+        for init in (
+            b"codex-linux-sandbox\0--sandbox-policy-cwd\0/repo\0",
+            b"bwrap\0--unshare-pid\0sh\0",
+            b"/usr/bin/bwrap\0--ro-bind\0/\0/\0",
+        ):
+            with self.subTest(init=init):
+                self.assertTrue(namespace_is_isolated(self.namespace_root(init)))
+
+    def test_a_host_init_reads_as_not_isolated(self) -> None:
+        for init, cgroup in (
+            (b"/sbin/init\0splash\0", "0::/init.scope\n"),
+            (b"/usr/lib/systemd/systemd\0", "1:name=systemd:/init.scope\n"),
+        ):
+            with self.subTest(init=init, cgroup=cgroup):
+                self.assertFalse(
+                    namespace_is_isolated(self.namespace_root(init, cgroup))
+                )
+
+    def test_isolation_is_recognized_for_each_container_shape(self) -> None:
+        # A container's PID 1 is its entrypoint, so the engines are recognized
+        # by their marker files and cgroup names, not by the init command.
+        entrypoint = b"/entrypoint.sh\0serve\0"
+        for markers in ((".dockerenv",), ("run/.containerenv",)):
+            with self.subTest(markers=markers):
+                self.assertTrue(
+                    namespace_is_isolated(
+                        self.namespace_root(entrypoint, "0::/\n", markers)
+                    )
+                )
+        for cgroup in (
+            "12:pids:/docker/0123abc\n",
+            "3:cpu:/machine.slice/libpod-abc.scope\n",
+            "2:memory:/kubepods/besteffort/pod9/abc\n",
+            "5:pids:/lxc/mycontainer\n",
+            "4:cpu:/system.slice/containerd.service/abc\n",
+        ):
+            with self.subTest(cgroup=cgroup):
+                self.assertTrue(
+                    namespace_is_isolated(self.namespace_root(entrypoint, cgroup))
+                )
+
+    def test_an_unreadable_proc_reads_as_not_isolated(self) -> None:
+        root = self.namespace_root()
+        shutil.rmtree(root / "proc")
+        self.assertFalse(namespace_is_isolated(root))
+
+    def test_an_unreadable_cmdline_still_reads_the_cgroup(self) -> None:
+        root = self.namespace_root(cgroup="12:pids:/docker/0123abc\n")
+        (root / "proc" / "1" / "cmdline").unlink()
+        self.assertTrue(namespace_is_isolated(root))

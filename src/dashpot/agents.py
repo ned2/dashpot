@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -294,16 +295,46 @@ def nearest_harness_process(
 # Neither is ever the host harness, and nothing on the host is visible from
 # inside them, so probing a recorded PID there would only ever find PID reuse.
 ISOLATING_INITS = ("codex-linux-sandbox", "bwrap")
+# Docker and Podman leave a marker file at the container root; other engines
+# name themselves in PID 1's control groups on cgroup v1 layouts. A markerless
+# engine under cgroup v2 (PID 1's cgroup reads ``0::/``) is a known gap that
+# still errs toward the old behaviour, never toward a false "gone".
+CONTAINER_MARKERS = (".dockerenv", "run/.containerenv")
+CONTAINER_CGROUP_TOKENS = ("docker", "libpod", "kubepods", "lxc", "containerd")
 
 
+@cache
 def process_namespace_is_isolated() -> bool:
-    """Whether this command runs inside a sandbox's isolated PID namespace."""
+    """Whether this command runs inside a sandbox's isolated PID namespace.
+
+    A process cannot leave its PID namespace, so the answer is computed once
+    per process rather than re-read from ``/proc`` on every liveness probe.
+    """
+    return namespace_is_isolated(Path("/"))
+
+
+def namespace_is_isolated(root: Path) -> bool:
+    """Whether the PID namespace at this filesystem root hides host processes.
+
+    Sandbox helpers run as PID 1 of the namespace they unshare, and a
+    container's PID 1 is its entrypoint; in both layouts a harness running
+    outside is unobservable from inside, never gone.
+    """
+    for marker in CONTAINER_MARKERS:
+        if (root / marker).exists():
+            return True
     try:
-        cmdline = Path("/proc/1/cmdline").read_bytes()
+        cmdline = (root / "proc/1/cmdline").read_bytes()
+    except OSError:
+        cmdline = b""
+    executable = Path(cmdline.split(b"\0", 1)[0].decode(errors="replace")).name
+    if executable in ISOLATING_INITS:
+        return True
+    try:
+        cgroup = (root / "proc/1/cgroup").read_text()
     except OSError:
         return False
-    executable = Path(cmdline.split(b"\0", 1)[0].decode(errors="replace")).name
-    return executable in ISOLATING_INITS
+    return any(token in cgroup for token in CONTAINER_CGROUP_TOKENS)
 
 
 def process_identity_of(expected: object) -> ProcessIdentity | None:
