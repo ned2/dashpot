@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
   "cyclopts>=4.23.3,<5",
+  "pydantic>=2.13.5,<3",
   "textual==8.2.8",
   "typing-extensions>=4.15.0",
 ]
@@ -41,6 +42,7 @@ dashpot-claude-code-hook = "dashpot.hook:claude_code_main"
 
 [dependency-groups]
 dev = [
+  "jsonschema",
   "pre-commit",
   "pytest",
   "pytest-asyncio",
