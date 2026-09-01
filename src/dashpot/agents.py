@@ -3,28 +3,25 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 import subprocess
 import sys
-import tempfile
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from .file_locks import locked_path, prune_lock_file
 from .git import Git, GitError
 from .harnesses import ADAPTERS, HARNESS_DISPLAY, SESSION_ID, SessionIdentityClaim
 from .harnesses import is_claude_code_host_process as is_claude_code_host_process
 from .harnesses import is_codex_host_process as is_codex_host_process
+from .json_records import optional_string, require_string
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
+from .record_store import LockedRecordStore
 from .repository import LockHolder, is_within, repository_worktrees
 from .work_store import WorkStore
 
-ISSUE_VALUE = re.compile(r"^\S+$")
 EVENT_STATES: dict[str, str] = {
     "SessionStart": "running",
     "UserPromptSubmit": "running",
@@ -432,15 +429,10 @@ def build_hook_record(
     if state is None:
         raise RuntimeError(f"unsupported hook event: {event_name}")
     cwd = Path(require_string(event.get("cwd"), "cwd")).expanduser().resolve()
-    environment = environ if environ is not None else os.environ
-    issue_id = environment.get("DASHPOT_ISSUE_ID") or None
-    issue_reference = environment.get("DASHPOT_ISSUE_REF") or None
-    if issue_id and not ISSUE_VALUE.fullmatch(issue_id):
-        raise RuntimeError("DASHPOT_ISSUE_ID must be a whitespace-free Issue Identity")
-    if issue_reference and not ISSUE_VALUE.fullmatch(issue_reference):
-        raise RuntimeError(
-            "DASHPOT_ISSUE_REF must be a whitespace-free Issue Reference"
-        )
+    # ``environ`` stays in the signature for its callers even though records
+    # no longer read anything from the environment: the retired
+    # DASHPOT_ISSUE_ID/DASHPOT_ISSUE_REF global-binding convention was the
+    # last such read, and the Work Store is the sole binding authority now.
     # Each answer stands alone: a detached HEAD has no symbolic ref but is
     # still inside a Worktree whose root routes the record. A hook must never
     # break its harness, so a Git that cannot answer at all — a vanished cwd,
@@ -462,8 +454,6 @@ def build_hook_record(
         "cwd": str(cwd),
         "repositoryRoot": observed_target,
         "branch": branch,
-        "issueId": issue_id,
-        "issueReferenceHint": issue_reference,
         "event": event_name,
         "source": event.get("source"),
         "turnId": event.get("turn_id"),
@@ -494,67 +484,33 @@ def write_hook_record(record: dict[str, Any], directory: Path) -> Path:
     return HookRecordStore(directory).write(record)
 
 
-class HookRecordStore:
+class HookRecordStore(LockedRecordStore):
     """Own the lifecycle of hook Agent Session records in one directory.
 
-    Events are published atomically, stable Issue bindings are promoted, a
-    graceful ``SessionEnd`` removes the session's record, and confirmed stale
-    records can be pruned without racing a concurrent hook write.
+    Events are published atomically, a graceful ``SessionEnd`` removes the
+    session's record, and confirmed stale records can be pruned without
+    racing a concurrent hook write.
     """
 
     def __init__(self, directory: Path) -> None:
-        self.directory = directory
+        super().__init__(
+            directory, SESSION_ID, "hook sessionId contains unsupported characters"
+        )
 
     def write(self, record: dict[str, Any]) -> Path:
-        self.directory.mkdir(parents=True, exist_ok=True)
         session_id = require_string(record.get("sessionId"), "sessionId")
-        if not SESSION_ID.fullmatch(session_id):
-            raise RuntimeError("hook sessionId contains unsupported characters")
-        destination = self.directory / f"{session_id}.json"
+        destination = self.record_path(session_id)
         if record.get("state") == "ended":
             # A graceful SessionEnd ends the Agent Session; a tombstone would
             # only be an active-looking record that observers have to skip.
-            with self._locked(session_id):
+            with self.locked(session_id):
                 destination.unlink(missing_ok=True)
             return destination
         current = dict(record)
-        try:
-            current_issue_id = validated_optional_issue_value(
-                current.get("issueId"), "issueId"
-            )
-            current_issue_hint = validated_optional_issue_value(
-                current.get("issueReferenceHint"), "issueReferenceHint"
-            )
-        except ValueError as exc:
-            raise RuntimeError(str(exc)) from exc
-        current["issueId"] = current_issue_id
-        current["issueReferenceHint"] = current_issue_hint
-        with self._locked(session_id):
+        with self.locked(session_id):
             previous = self._read(destination)
-            if previous is not None:
-                try:
-                    previous_issue_id = validated_optional_issue_value(
-                        previous.get("issueId"), "issueId"
-                    )
-                    previous_issue_hint = validated_optional_issue_value(
-                        previous.get("issueReferenceHint"), "issueReferenceHint"
-                    )
-                except ValueError as exc:
-                    raise RuntimeError(str(exc)) from exc
-                if (
-                    previous_issue_id
-                    and current_issue_id
-                    and previous_issue_id != current_issue_id
-                ):
-                    raise RuntimeError(
-                        "an Agent Run cannot be rebound to a different Issue Identity"
-                    )
-                if current_issue_id is None:
-                    current["issueId"] = previous_issue_id
-                if current_issue_hint is None:
-                    current["issueReferenceHint"] = previous_issue_hint
             current["turnStartedAt"] = turn_started_at(current, previous)
-            self._replace(destination, current, session_id)
+            self.replace(session_id, current)
         return destination
 
     def prune(self, session_id: str, observed: Mapping[str, Any]) -> bool:
@@ -565,8 +521,8 @@ class HookRecordStore:
         is left for ``prune_lock`` to reclaim on a later pass. Returns whether
         the record was removed.
         """
-        destination = self._record_path(session_id)
-        with self._locked(session_id):
+        destination = self.record_path(session_id)
+        with self.locked(session_id):
             try:
                 current = self._read(destination)
             except (RuntimeError, ValueError):
@@ -576,56 +532,17 @@ class HookRecordStore:
             destination.unlink(missing_ok=True)
             return True
 
-    def prune_lock(self, session_id: str) -> bool:
-        """Delete the session's lock file once no record remains behind it.
-
-        A record is absent only when the session ended gracefully, was pruned
-        as gone, or has not published yet; the last case holds the lock while
-        it writes, so the pruner waits for it and then finds the record.
-        Returns whether the lock file was removed.
-        """
-        return prune_lock_file(
-            self._lock_path(session_id), self._record_path(session_id)
-        )
-
-    def orphaned_locks(self) -> list[str]:
-        """Session ids of lock files in this store that guard no record."""
-        if not self.directory.is_dir():
-            return []
-        orphaned: list[str] = []
-        for path in sorted(self.directory.glob(".*.lock")):
-            session_id = path.name[1 : -len(".lock")]
-            if not SESSION_ID.fullmatch(session_id):
-                continue
-            if not self._record_path(session_id).exists():
-                orphaned.append(session_id)
-        return orphaned
-
     def read(self, session_id: str) -> dict[str, Any] | None:
         """Read one session's current record, or ``None`` when it has none.
 
         Raises ``ValueError`` when the record exists but cannot be interpreted.
         """
         try:
-            return read_hook_record(self._record_path(session_id))
+            return read_hook_record(self.record_path(session_id))
         except FileNotFoundError:
             return None
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(str(exc)) from exc
-
-    def _record_path(self, session_id: str) -> Path:
-        if not SESSION_ID.fullmatch(session_id):
-            raise RuntimeError("hook sessionId contains unsupported characters")
-        return self.directory / f"{session_id}.json"
-
-    def _lock_path(self, session_id: str) -> Path:
-        return self.directory / f".{session_id}.lock"
-
-    @contextmanager
-    def _locked(self, session_id: str) -> Iterator[None]:
-        self.directory.mkdir(parents=True, exist_ok=True)
-        with locked_path(self._lock_path(session_id)):
-            yield
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any] | None:
@@ -636,22 +553,6 @@ class HookRecordStore:
         if not isinstance(raw, dict):
             raise RuntimeError(f"hook record is not an object: {path}")
         return raw
-
-    def _replace(
-        self, destination: Path, record: dict[str, Any], session_id: str
-    ) -> None:
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{session_id}.", dir=self.directory
-        )
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(descriptor, "w") as stream:
-                json.dump(record, stream, indent=2)
-                stream.write("\n")
-            os.replace(temporary, destination)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
 
 
 def session_directory(worktree: Path) -> Path:
@@ -1038,10 +939,13 @@ def observe_work_runs(
             active, store_diagnostics = store.active()
             diagnostics.extend(store_diagnostics)
             # Runs stopped before their lock files were reclaimed leave
-            # orphaned locks behind; sweep those that guard nothing.
+            # orphaned locks behind; sweep those that guard nothing, and the
+            # temporary files a crashed writer never renamed into place.
             for session_key in store.orphaned_locks():
                 with contextlib.suppress(OSError):
                     store.prune_lock(session_key)
+            with contextlib.suppress(OSError):
+                store.sweep_temporaries()
             for work in active:
                 process_key: ProcessKey | None = None
                 if work.session_process is not None:
@@ -1168,10 +1072,13 @@ def observe_hook_sessions(
             ) >= observed_instant(previous.run.last_activity_at):
                 latest[session.run.id] = session
         # Records pruned above, or ended gracefully, leave their lock files
-        # behind; reclaim those that guard nothing.
+        # behind; reclaim those that guard nothing, and the temporary files a
+        # crashed writer never renamed into place.
         for session_id in store.orphaned_locks():
             with contextlib.suppress(OSError):
                 store.prune_lock(session_id)
+        with contextlib.suppress(OSError):
+            store.sweep_temporaries()
     unknown_by_reason: dict[str, int] = {}
     for session in latest.values():
         if session.liveness.liveness == "unknown":
@@ -1390,21 +1297,3 @@ def locate_observation_target(
             code="agent-target-mismatch",
         )
     return root_target, None
-
-
-def require_string(value: object, name: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise RuntimeError(f"hook input needs non-empty {name}")
-    return value
-
-
-def optional_string(value: object) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def validated_optional_issue_value(value: object, name: str) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not ISSUE_VALUE.fullmatch(value):
-        raise ValueError(f"record {name} must be a whitespace-free string or null")
-    return value

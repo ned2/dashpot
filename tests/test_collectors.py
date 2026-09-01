@@ -921,35 +921,6 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual([], runs)
         self.assertIn("does not match its filename", diagnostics[0].message)
 
-    def test_resume_event_preserves_initial_issue_binding(self) -> None:
-        base_event = {
-            "session_id": "resume-me",
-            "cwd": "/repo",
-            "hook_event_name": "SessionStart",
-        }
-        publish_hook_event(
-            base_event,
-            self.state_dir,
-            environ={
-                "DASHPOT_ISSUE_ID": "I_stable",
-                "DASHPOT_ISSUE_REF": "example/project#7",
-            },
-            process=self.process,
-        )
-
-        publish_hook_event(
-            {**base_event, "hook_event_name": "Stop"},
-            self.state_dir,
-            environ={},
-            process=self.process,
-        )
-
-        record = json.loads((self.state_dir / "resume-me.json").read_text())
-        self.assertEqual(2, record["version"])
-        self.assertEqual("I_stable", record["issueId"])
-        self.assertEqual("example/project#7", record["issueReferenceHint"])
-        self.assertEqual("waiting", record["state"])
-
     def test_interrupt_event_publishes_a_waiting_record(self) -> None:
         publish_hook_event(
             {
@@ -964,19 +935,6 @@ class HookObserverTests(unittest.TestCase):
 
         record = json.loads((self.state_dir / "interrupted.json").read_text())
         self.assertEqual("waiting", record["state"])
-
-    def test_write_rejects_malformed_issue_values(self) -> None:
-        record = {
-            "version": 2,
-            "sessionId": "invalid-write",
-            "issueId": "not an identity",
-            "issueReferenceHint": "example/project#7",
-        }
-
-        with self.assertRaisesRegex(RuntimeError, "whitespace-free"):
-            write_hook_record(record, self.state_dir)
-
-        self.assertFalse((self.state_dir / "invalid-write.json").exists())
 
     def test_nearest_agent_process_prefers_the_nearest_harness(self) -> None:
         from dashpot.agents import nearest_agent_process
