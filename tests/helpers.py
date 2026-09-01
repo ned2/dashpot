@@ -7,9 +7,10 @@ dereferencing an ``Optional``.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -30,6 +31,15 @@ _CONFORMANCE_FIXTURES = Path(__file__).parents[1] / "conformance" / "issue" / "f
 _GITHUB_FIXTURE: dict[str, Any] = json.loads(
     (_CONFORMANCE_FIXTURES / "github.json").read_text()
 )
+
+
+async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> None:
+    """Poll inside the running event loop until ``predicate`` holds."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError("condition was not met before timeout")
+        await asyncio.sleep(0.01)
 
 
 def required(value: T | None) -> T:

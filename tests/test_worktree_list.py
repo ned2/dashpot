@@ -5,16 +5,13 @@ from pathlib import Path
 
 from rich.text import Text
 
+import factories
 from dashpot.issue_list import row_key
 from dashpot.model import (
-    AgentRun,
     ObservationTarget,
     ProjectObservation,
-    ProjectSnapshot,
-    RunState,
     SourceStatus,
     TargetRole,
-    WorkspaceSnapshot,
 )
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.worktree_list import (
@@ -23,9 +20,8 @@ from dashpot.worktree_list import (
     query_worktree_list,
     worktree_cells,
 )
+from factories import session, workspace
 from helpers import required
-
-NOW = "2026-08-27T03:00:00Z"
 
 
 def target(
@@ -37,16 +33,8 @@ def target(
     dirty: bool | None = False,
     available: bool = True,
 ) -> ObservationTarget:
-    return ObservationTarget(
-        path=path,
-        head=head,
-        branch=branch,
-        detached=branch is None,
-        dirty=dirty,
-        availability="available" if available else "unavailable",
-        elapsed_ms=3,
-        diagnostics=[],
-        role=role,
+    return factories.target(
+        path, role=role, branch=branch, head=head, dirty=dirty, available=available
     )
 
 
@@ -57,61 +45,12 @@ def project(
     anchors: tuple[str, ...] | None = None,
     target_status: SourceStatus = "fresh",
 ) -> ProjectObservation:
-    display_label = label or project_id.removeprefix("project:").title()
-    snapshot = ProjectSnapshot(
-        project_id=project_id,
-        display_label=display_label,
-        repository_id=f"repository:{project_id}",
-        collected_at=NOW,
-        issue_source_status="fresh",
-        issue_source_attempted_at=NOW,
-        issue_source_last_good_at=NOW,
-        observation_targets=list(targets),
-        issues=[],
-        diagnostics=[],
+    return factories.project(
+        project_id,
+        label=label,
+        targets=targets,
+        anchors=anchors,
         target_status=target_status,
-    )
-    anchor_paths = list(anchors or (f"/{project_id}",))
-    return ProjectObservation(
-        project_id=project_id,
-        display_label=display_label,
-        repository_id=snapshot.repository_id,
-        workspaces=["test"],
-        anchors=anchor_paths,
-        primary_anchor=anchor_paths[0],
-        status="fresh",
-        elapsed_ms=3,
-        snapshot=snapshot,
-        diagnostics=[],
-    )
-
-
-def session(
-    run_id: str, project_id: str, target_path: str, state: RunState = "waiting"
-) -> AgentRun:
-    return AgentRun(
-        id=run_id,
-        harness="codex",
-        process_or_session=run_id,
-        state=state,
-        observation_target=target_path,
-        observation_project_id=project_id,
-        branch="main",
-        issue_id=None,
-        issue_reference_hint=None,
-    )
-
-
-def workspace(
-    *projects: ProjectObservation, runs: list[AgentRun] | None = None
-) -> WorkspaceSnapshot:
-    return WorkspaceSnapshot(
-        collected_at=NOW,
-        elapsed_ms=9,
-        projects=list(projects),
-        agent_runs=runs or [],
-        issue_runs={},
-        diagnostics=[],
     )
 
 

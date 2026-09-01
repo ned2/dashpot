@@ -24,12 +24,8 @@ from dashpot.model import (
 )
 from dashpot.workspace import WorkspaceResolution
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
+from factories import write_config_marker
 from helpers import issue_payload
-
-
-def write_config_marker(root: Path) -> None:
-    (root / ".dashpot").mkdir(exist_ok=True)
-    (root / ".dashpot" / "config.json").write_text("{}")
 
 
 def project(root: Path) -> ResolvedProject:

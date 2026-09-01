@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from dashpot.agents import ProcessIdentity, write_hook_record
+from dashpot.agents import write_hook_record
 from dashpot.integrate import (
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
@@ -17,24 +17,20 @@ from dashpot.integrate import (
     remove_codex_integration,
     remove_integration,
 )
+from factories import CODEX, git, hook_record_document, write_config_marker
 from helpers import absent, present, unobservable
-
-CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
 
 def session_record(session_id: str, state: str = "waiting") -> dict[str, Any]:
-    return {
-        "version": 2,
-        "sessionId": session_id,
-        "harness": "codex",
-        "state": state,
-        "cwd": "/repo",
-        "repositoryRoot": "/repo",
-        "branch": "main",
-        "event": "Stop",
-        "lastActivityAt": "2026-08-24T15:00:00Z",
-        "sessionProcess": CODEX.as_record(),
-    }
+    return hook_record_document(
+        "/repo",
+        session_id,
+        "codex",
+        CODEX,
+        state=state,
+        at="2026-08-24T15:00:00Z",
+        event="Stop",
+    )
 
 
 def codex_home(root: Path) -> Path:
@@ -401,14 +397,11 @@ def test_status_when_nothing_is_installed(tmp_path: Path) -> None:
 def test_status_reports_the_current_projects_session_store(
     tmp_path: Path,
 ) -> None:
-    import subprocess
-
     home = codex_home(tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    (repo / ".dashpot").mkdir()
-    (repo / ".dashpot" / "config.json").write_text("{}")
+    git(repo, "init", "-q")
+    write_config_marker(repo)
     sessions = repo / ".dashpot" / "state" / "sessions"
     sessions.mkdir(parents=True)
     (sessions / "one.json").write_text("{}")
@@ -527,17 +520,14 @@ def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
 def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     tmp_path: Path,
 ) -> None:
-    import subprocess
-
     from dashpot.agents import session_directory
     from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
 
     home = codex_home(tmp_path)
     root = tmp_path / "repo"
     root.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / ".dashpot").mkdir()
-    (root / ".dashpot" / "config.json").write_text("{}")
+    git(root, "init", "-q")
+    write_config_marker(root)
     state = tmp_path / "state"
 
     none = codex_integration_status(

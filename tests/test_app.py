@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+import factories
 from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_table import ColumnKey
-from helpers import required, snapshot_of
+from helpers import required, snapshot_of, wait_until
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
@@ -17,6 +18,7 @@ from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 from threading import Event, Lock
+from unittest import mock
 
 import pytest
 from rich.text import Text
@@ -77,8 +79,6 @@ from dashpot.model import (
     IssueActivity,
     LinkedPullRequest,
     ObservationTarget,
-    ProjectObservation,
-    ProjectSnapshot,
     RunState,
     SourceStatus,
     WorkspaceSnapshot,
@@ -121,47 +121,24 @@ def workspace_snapshot(
     diagnostics: list[Diagnostic] | None = None,
     elapsed_ms: int = 12,
 ) -> WorkspaceSnapshot:
-    target = ObservationTarget(
-        path="/repo",
-        head="abcdef123456",
-        branch="main",
-        detached=False,
-        dirty=False,
-        availability="available",
-        elapsed_ms=3,
-        diagnostics=[],
-        role="main",
-    )
-    project_snapshot = ProjectSnapshot(
-        project_id="project:test-repo",
-        display_label="Test Repository",
+    project = factories.project(
+        "project:test-repo",
+        *issues,
+        label="Test Repository",
         repository_id="repository:test-repo",
-        collected_at=NOW,
-        issue_source_status=status,
-        issue_source_attempted_at=NOW,
-        issue_source_last_good_at=NOW if status != "unavailable" else None,
-        observation_targets=[target],
-        issues=list(issues),
-        diagnostics=diagnostics or [],
-    )
-    project = ProjectObservation(
-        project_id="project:test-repo",
-        display_label="Test Repository",
-        repository_id="repository:test-repo",
-        workspaces=["test"],
-        anchors=["/repo"],
-        primary_anchor="/repo",
+        targets=[factories.target("/repo")],
+        anchors=("/repo",),
         status=status,
+        diagnostics=diagnostics or [],
         elapsed_ms=elapsed_ms,
-        snapshot=project_snapshot,
-        diagnostics=[],
+        now=NOW,
     )
-    return WorkspaceSnapshot(
-        NOW,
-        elapsed_ms,
-        [project],
-        agent_runs=runs or [],
+    return factories.workspace(
+        project,
+        runs=runs,
         issue_runs={item.id: [] for item in issues},
+        elapsed_ms=elapsed_ms,
+        now=NOW,
     )
 
 
@@ -185,14 +162,6 @@ class SequenceCollector:
         if isinstance(result, Exception):
             raise result
         return result
-
-
-async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while not predicate():
-        if asyncio.get_running_loop().time() >= deadline:
-            raise AssertionError("condition was not met before timeout")
-        await asyncio.sleep(0.01)
 
 
 def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
@@ -2053,14 +2022,20 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
     )
 
     try:
-        async with app.run_test(size=(80, 24)):
+        async with app.run_test(size=(80, 24)) as pilot:
             app.request_refresh("manual")
             await wait_until(collector.started.is_set)
             app.request_refresh("manual")
             await wait_until(lambda: app.store.checkpoint() == new)
 
             collector.release.set()
-            await asyncio.sleep(0.1)
+            # A deterministic drain rather than a wall-clock sleep: shutdown
+            # returns only after the superseded observation's thread has run
+            # to completion, and once the workers and message queue are idle
+            # any acceptance of its stale result would already have landed.
+            app.refresh_executor.shutdown(wait=True)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
             assert app.store.checkpoint() == new
             assert selected_title(app) == "#1: New result"
     finally:
@@ -2252,19 +2227,27 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
 async def test_quick_refresh_never_flickers_the_indicator(tmp_path: Path) -> None:
     coordinator, _collectors = coordinated_workspace(tmp_path)
     app = DashpotApp(coordinator, refresh_seconds=0, refresh_indicator_seconds=1.0)
-    shown: list[bool] = []
 
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
         await wait_until(lambda: table.row_count == 2)
-
-        await app.run_action("refresh")
-        for _ in range(20):
-            shown.append(bool(alert(app).display))
-            await asyncio.sleep(0.01)
+        # The initial refresh settles first so its own indicator timer cannot
+        # bleed into what the manual refresh is being measured for.
         await wait_until(lambda: not app.in_flight)
+        assert app.refresh_indicator_timer is None
 
-        assert not any(shown)
+        # The refresh schedules its indicator timer while the spy is in
+        # place, so a timer that fires is counted rather than raced against.
+        with mock.patch.object(
+            app, "show_refreshing", wraps=app.show_refreshing
+        ) as indicator:
+            await app.run_action("refresh")
+            await wait_until(lambda: not app.in_flight)
+
+            # A completed refresh stops the pending timer, so the indicator
+            # callback never ran and nothing was ever shown to flicker.
+            assert indicator.call_count == 0
+        assert not alert(app).display
         assert app.refresh_indicator_timer is None
 
 
@@ -3078,16 +3061,13 @@ def session_run(
     last_activity_at: str | None = "2026-08-25T00:59:00Z",
     target: str = "/repo",
 ) -> AgentRun:
-    return AgentRun(
-        id=run_id,
+    return factories.agent_run(
+        run_id,
+        "project:test-repo",
         harness=harness,
-        process_or_session=run_id,
         state=cast("RunState", state),
-        observation_target=target,
-        observation_project_id="project:test-repo",
-        branch="main",
         issue_id=issue_id,
-        issue_reference_hint=None,
+        target_path=target,
         working_directory="/repo/src",
         last_activity_at=last_activity_at,
     )

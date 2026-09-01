@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import factories
 from dashpot.alerts import summarize_alerts
 from dashpot.collect import AGENT_RUNS_KEY, ObservationKey
 from dashpot.model import (
     Diagnostic,
     ObservationTarget,
     ProjectObservation,
-    ProjectSnapshot,
     SourceStatus,
     WorkspaceSnapshot,
 )
@@ -26,32 +26,17 @@ def project(
     targets: list[ObservationTarget] | None = None,
     missing: bool = False,
 ) -> ProjectObservation:
-    snapshot = None
-    if not missing:
-        snapshot = ProjectSnapshot(
-            project_id=project_id,
-            display_label=project_id.title(),
-            repository_id=f"repository:{project_id}",
-            collected_at="2026-08-28T12:00:00Z",
-            issue_source_status=issue_status,
-            issue_source_attempted_at="2026-08-28T12:00:00Z",
-            issue_source_last_good_at=last_good_at,
-            observation_targets=targets or [],
-            issues=[],
-            diagnostics=[],
-            target_status=target_status,
-        )
-    return ProjectObservation(
+    return factories.project(
         project_id,
-        project_id.title(),
-        f"repository:{project_id}",
-        ["test"],
-        ["/repo"],
-        "/repo",
-        "unavailable" if missing else issue_status,
-        1,
-        snapshot,
-        [],
+        label=project_id.title(),
+        targets=targets,
+        anchors=("/repo",),
+        status=issue_status,
+        target_status=target_status,
+        last_good_at=last_good_at,
+        elapsed_ms=1,
+        now="2026-08-28T12:00:00Z",
+        missing=missing,
     )
 
 

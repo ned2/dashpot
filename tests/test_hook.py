@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,10 +9,7 @@ import pytest
 
 from dashpot import hook
 from dashpot.agents import build_hook_record
-
-
-def git(root: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+from factories import git
 
 
 def test_a_detached_head_still_records_the_repository_root(tmp_path: Path) -> None:

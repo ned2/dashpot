@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -16,21 +15,18 @@ from dashpot.project_config import (
     LocalMarkdownIssueSourceConfig,
     load_project_config,
 )
+from factories import write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
 
 def write_config(root: Path, issue_source: dict[str, Any]) -> None:
-    (root / ".dashpot").mkdir(exist_ok=True)
-    (root / ".dashpot" / "config.json").write_text(
-        json.dumps(
-            {
-                "projectId": PROJECT_ID,
-                "displayLabel": "Dashpot",
-                "repositoryId": "R_dashpot",
-                "issueSource": issue_source,
-            }
-        )
+    write_project_config(
+        root,
+        project_id=PROJECT_ID,
+        display_label="Dashpot",
+        repository_id="R_dashpot",
+        issue_source=issue_source,
     )
 
 

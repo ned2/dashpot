@@ -4,6 +4,7 @@ import copy
 
 import pytest
 
+import factories
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
@@ -12,15 +13,12 @@ from dashpot.model import (
     Diagnostic,
     ObservationTarget,
     ProjectObservation,
-    ProjectSnapshot,
     SourceStatus,
-    WorkspaceSnapshot,
     to_jsonable,
 )
 from dashpot.observation_store import WorkspaceObservationStore
+from factories import NOW, workspace
 from helpers import make_issue, required, snapshot_of
-
-NOW = "2026-08-27T03:00:00Z"
 
 
 def issue(issue_id: str, title: str, state: str = "open") -> IssueProfile:
@@ -42,59 +40,17 @@ def project(
     *issues: IssueProfile,
     status: SourceStatus = "fresh",
 ) -> ProjectObservation:
-    label = project_id.removeprefix("project:").title()
-    snapshot = ProjectSnapshot(
-        project_id=project_id,
-        display_label=label,
-        repository_id=f"repository:{project_id}",
-        collected_at=NOW,
-        issue_source_status=status,
-        issue_source_attempted_at=NOW,
-        issue_source_last_good_at=NOW if status != "unavailable" else None,
-        observation_targets=[],
-        issues=list(issues),
-        diagnostics=[],
-    )
-    return ProjectObservation(
-        project_id=project_id,
-        display_label=label,
-        repository_id=snapshot.repository_id,
-        workspaces=["test"],
-        anchors=[f"/{project_id}"],
-        primary_anchor=f"/{project_id}",
-        status=status,
-        elapsed_ms=3,
-        snapshot=snapshot,
-        diagnostics=[],
-    )
-
-
-def workspace(
-    *projects: ProjectObservation,
-    runs: list[AgentRun] | None = None,
-    issue_runs: dict[str, list[str]] | None = None,
-) -> WorkspaceSnapshot:
-    return WorkspaceSnapshot(
-        collected_at=NOW,
-        elapsed_ms=9,
-        projects=list(projects),
-        agent_runs=runs or [],
-        issue_runs=issue_runs or {},
-        diagnostics=[],
-    )
+    return factories.project(project_id, *issues, status=status)
 
 
 def run(run_id: str, project_id: str, issue_id: str | None) -> AgentRun:
-    return AgentRun(
-        id=run_id,
-        harness="codex",
-        process_or_session=run_id,
-        state="waiting",
-        observation_target=f"/{project_id}",
-        observation_project_id=project_id,
+    return factories.agent_run(
+        run_id,
+        project_id,
         branch="issue/16-observation-store",
         issue_id=issue_id,
-        issue_reference_hint=None,
+        working_directory=None,
+        last_activity_at=None,
     )
 
 

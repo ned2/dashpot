@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import shutil
 import subprocess
 import tempfile
 import threading
-import time
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
@@ -46,10 +46,12 @@ from dashpot.model import (
     ObservationTargetInventory,
     ProjectSnapshot,
     ResolvedProject,
+    WorkspaceSnapshot,
 )
 from dashpot.repository import BranchObservation, observe_github_repository_identity
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
-from helpers import absent, jsonable, present, snapshot_of, table_lookup, unobservable
+from factories import hook_record_document, write_config_marker
+from helpers import absent, jsonable, present, table_lookup, unobservable
 
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
@@ -416,18 +418,16 @@ class HookObserverTests(unittest.TestCase):
         repository_root: str = "/repo",
     ) -> None:
         write_hook_record(
-            {
-                "version": 2,
-                "sessionId": session_id,
-                "harness": "codex",
-                "state": state,
-                "cwd": cwd,
-                "repositoryRoot": repository_root,
-                "branch": "main",
-                "event": "Stop" if state == "waiting" else "PreToolUse",
-                "lastActivityAt": "2026-08-24T15:00:00Z",
-                "sessionProcess": process.as_record() if process else None,
-            },
+            hook_record_document(
+                repository_root,
+                session_id,
+                "codex",
+                process,
+                state=state,
+                at="2026-08-24T15:00:00Z",
+                cwd=cwd,
+                event="Stop" if state == "waiting" else "PreToolUse",
+            ),
             self.state_dir,
         )
 
@@ -1162,26 +1162,22 @@ class HookRoutingTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def record(self, state: str, last_activity_at: str) -> dict[str, Any]:
-        return {
-            "version": 2,
-            "sessionId": "routed",
-            "harness": "codex",
-            "state": state,
-            "cwd": str(self.worktree),
-            "repositoryRoot": str(self.worktree),
-            "branch": "main",
-            "event": "Stop" if state == "waiting" else "PreToolUse",
-            "lastActivityAt": last_activity_at,
-            "sessionProcess": self.process.as_record(),
-        }
+        return hook_record_document(
+            self.worktree,
+            "routed",
+            "codex",
+            self.process,
+            state=state,
+            at=last_activity_at,
+            event="Stop" if state == "waiting" else "PreToolUse",
+        )
 
     def targets(self) -> dict[str, list[ObservationTarget]]:
         return {"project:example": [observation_target(str(self.worktree))]}
 
     def test_publish_routes_to_a_configured_projects_local_store(self) -> None:
         subprocess.run(["git", "init", "-q"], cwd=self.worktree, check=True)
-        (self.worktree / ".dashpot").mkdir()
-        (self.worktree / ".dashpot" / "config.json").write_text("{}")
+        write_config_marker(self.worktree)
 
         written = publish_hook_event(
             {
@@ -1293,18 +1289,15 @@ class WorkObserverTests(unittest.TestCase):
 
     def write_hook(self, session_id: str, state: str, cwd: str) -> None:
         write_hook_record(
-            {
-                "version": 2,
-                "sessionId": session_id,
-                "harness": "codex",
-                "state": state,
-                "cwd": cwd,
-                "repositoryRoot": cwd,
-                "branch": "main",
-                "event": "Stop" if state == "waiting" else "PreToolUse",
-                "lastActivityAt": "2026-08-24T15:00:00Z",
-                "sessionProcess": self.process.as_record(),
-            },
+            hook_record_document(
+                cwd,
+                session_id,
+                "codex",
+                self.process,
+                state=state,
+                at="2026-08-24T15:00:00Z",
+                event="Stop" if state == "waiting" else "PreToolUse",
+            ),
             self.state_dir,
         )
 
@@ -1485,23 +1478,40 @@ class FakeProjectCollector:
 
 
 class ObservationCoordinatorTests(unittest.TestCase):
+    """Coordinator behavior over real (if empty) anchor directories."""
+
+    @override
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name).resolve()
+
+    @override
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def anchor(self, name: str) -> str:
+        """A real directory for an anchor, so no ``is_dir`` needs patching."""
+        path = self.root / name
+        path.mkdir(exist_ok=True)
+        return str(path)
+
     def test_workspace_correlates_run_to_transferred_issue_by_identity(self) -> None:
-        project_a = resolved_project("/project-a", "project-a")
-        project_b = resolved_project("/project-b", "project-b")
-        snapshot_a = project_snapshot("/project-a", [])
+        project_a = resolved_project(self.anchor("project-a"), "project-a")
+        project_b = resolved_project(self.anchor("project-b"), "project-b")
+        snapshot_a = project_snapshot(self.anchor("project-a"), [])
         snapshot_a.project_id = "project-a"
         transferred_payload = issue_payload("new/repository#70")
         transferred_payload["id"] = "I_stable"
         transferred_payload["projectId"] = "project-b"
         transferred = conform_issue(transferred_payload)
-        snapshot_b = project_snapshot("/project-b", [transferred])
+        snapshot_b = project_snapshot(self.anchor("project-b"), [transferred])
         snapshot_b.project_id = "project-b"
         run = AgentRun(
             id="codex-session:transfer",
             harness="codex",
             process_or_session="transfer hook",
             state="running",
-            observation_target="/project-a",
+            observation_target=self.anchor("project-a"),
             observation_project_id="project-a",
             branch="issue/old/repository#7",
             issue_id="I_stable",
@@ -1518,26 +1528,25 @@ class ObservationCoordinatorTests(unittest.TestCase):
             agent_observer=lambda _targets: ([run], []),
         )
 
-        with mock.patch.object(Path, "is_dir", return_value=True):
-            snapshot = collector.refresh()
+        snapshot = collector.refresh()
 
         self.assertEqual([run], snapshot.agent_runs)
         self.assertEqual({"I_stable": [run.id]}, snapshot.issue_runs)
 
     def test_unbound_hinted_run_stays_unbound_without_promotion(self) -> None:
-        current_project = resolved_project("/project-a", "project-a")
+        current_project = resolved_project(self.anchor("project-a"), "project-a")
         current_payload = issue_payload("owner/repository#15")
         current_payload["id"] = "I_observed"
         current_payload["projectId"] = "project-a"
         current_issue = conform_issue(current_payload)
-        current_snapshot = project_snapshot("/project-a", [current_issue])
+        current_snapshot = project_snapshot(self.anchor("project-a"), [current_issue])
         current_snapshot.project_id = "project-a"
         hinted_run = AgentRun(
             id="codex-session:hinted",
             harness="codex",
             process_or_session="hinted hook",
             state="running",
-            observation_target="/project-a",
+            observation_target=self.anchor("project-a"),
             observation_project_id="project-a",
             branch="main",
             issue_id=None,
@@ -1550,27 +1559,27 @@ class ObservationCoordinatorTests(unittest.TestCase):
             agent_observer=lambda _targets: ([hinted_run], []),
         )
 
-        with mock.patch.object(Path, "is_dir", return_value=True):
-            snapshot = collector.refresh()
+        snapshot = collector.refresh()
 
         self.assertEqual({"I_observed": []}, snapshot.issue_runs)
         self.assertIsNone(snapshot.agent_runs[0].issue_id)
         self.assertEqual([], snapshot.diagnostics)
 
     def test_grouped_clone_target_collects_project_once(self) -> None:
+        clone_one = self.anchor("clone-one")
         grouped = ResolvedProject(
             "project:example",
             "Example",
             "repository:example",
             ("personal",),
-            ("/clone-one", "/clone-two"),
-            "/clone-one",
+            (clone_one, self.anchor("clone-two")),
+            clone_one,
         )
         factory_calls: list[ResolvedProject] = []
 
         def factory(current_target, **_kwargs):
             factory_calls.append(current_target)
-            return FakeProjectCollector(project_snapshot("/clone-one"))
+            return FakeProjectCollector(project_snapshot(clone_one))
 
         collector = ObservationCoordinator(
             [grouped],
@@ -1578,31 +1587,31 @@ class ObservationCoordinatorTests(unittest.TestCase):
             agent_observer=lambda _targets: ([], []),
         )
 
-        with mock.patch.object(Path, "is_dir", return_value=True):
-            snapshot = collector.refresh()
+        snapshot = collector.refresh()
 
         self.assertEqual([grouped], factory_calls)
         self.assertEqual(1, len(snapshot.projects))
 
     def test_one_failed_project_does_not_blank_the_workspace(self) -> None:
-        good_snapshot = project_snapshot("/good")
+        good = self.anchor("good")
+        bad = self.anchor("bad")
+        good_snapshot = project_snapshot(good)
 
         def factory(current_target, **_kwargs):
-            if current_target.primary_anchor == "/bad":
+            if current_target.primary_anchor == bad:
                 raise RuntimeError("fixture failure")
             return FakeProjectCollector(good_snapshot)
 
         collector = ObservationCoordinator(
             [
-                resolved_project("/good", "project:good"),
-                resolved_project("/bad", "project:bad"),
+                resolved_project(good, "project:good"),
+                resolved_project(bad, "project:bad"),
             ],
             factory=factory,
             agent_observer=lambda _targets: ([], []),
         )
 
-        with mock.patch.object(Path, "is_dir", return_value=True):
-            snapshot = collector.refresh()
+        snapshot = collector.refresh()
 
         self.assertEqual(
             ["fresh", "unavailable"],
@@ -1611,18 +1620,18 @@ class ObservationCoordinatorTests(unittest.TestCase):
         self.assertIn("fixture failure", snapshot.projects[1].diagnostics[0].message)
 
     def test_agent_observer_failure_does_not_blank_projects(self) -> None:
+        repo = self.anchor("repo")
         collector = ObservationCoordinator(
-            [resolved_project()],
+            [resolved_project(repo)],
             factory=lambda _project, **_kwargs: FakeProjectCollector(
-                project_snapshot()
+                project_snapshot(repo)
             ),
             agent_observer=lambda _targets: (_ for _ in ()).throw(
                 RuntimeError("agent observation crashed")
             ),
         )
 
-        with mock.patch.object(Path, "is_dir", return_value=True):
-            snapshot = collector.refresh()
+        snapshot = collector.refresh()
 
         self.assertEqual(1, len(snapshot.projects))
         self.assertIsNotNone(snapshot.projects[0].snapshot)
@@ -1630,43 +1639,54 @@ class ObservationCoordinatorTests(unittest.TestCase):
         self.assertEqual("agent-observation", snapshot.diagnostics[0].code)
 
     def test_overlapping_refreshes_are_serialized(self) -> None:
+        repo = self.anchor("repo")
         active = 0
         maximum_active = 0
         counter_lock = threading.Lock()
-        good_snapshot = project_snapshot()
+        # The barrier holds the first observation open long enough for an
+        # unserialized second refresh to enter it, which the overlap counter
+        # would record. Serialized refreshes never meet: the first times out
+        # at the barrier and proceeds alone, and each caller still gets a
+        # complete workspace — an unserialized run is superseded mid-flight
+        # and hands one caller a workspace with no projects.
+        overlap_window = threading.Barrier(2)
+        good_snapshot = project_snapshot(repo)
 
-        class SlowCollector(FakeProjectCollector):
+        class GatedCollector(FakeProjectCollector):
             @override
             def observe_issues(self) -> IssueSourceObservation:
                 nonlocal active, maximum_active
                 with counter_lock:
                     active += 1
                     maximum_active = max(maximum_active, active)
-                time.sleep(0.03)
+                with contextlib.suppress(threading.BrokenBarrierError):
+                    overlap_window.wait(timeout=0.25)
                 with counter_lock:
                     active -= 1
                 return super().observe_issues()
 
         collector = ObservationCoordinator(
-            [resolved_project()],
-            factory=lambda _target, **_kwargs: SlowCollector(good_snapshot),
+            [resolved_project(repo)],
+            factory=lambda _target, **_kwargs: GatedCollector(good_snapshot),
             agent_observer=lambda _targets: ([], []),
         )
-        results: list[ProjectSnapshot] = []
+        results: list[WorkspaceSnapshot] = []
 
         def refresh() -> None:
-            results.append(snapshot_of(collector.refresh().projects[0]))
+            results.append(collector.refresh())
 
-        with mock.patch.object(Path, "is_dir", return_value=True):
-            first = threading.Thread(target=refresh)
-            second = threading.Thread(target=refresh)
-            first.start()
-            second.start()
-            first.join()
-            second.join()
+        first = threading.Thread(target=refresh)
+        second = threading.Thread(target=refresh)
+        first.start()
+        second.start()
+        first.join()
+        second.join()
 
         self.assertEqual(1, maximum_active)
         self.assertEqual(2, len(results))
+        for workspace in results:
+            self.assertEqual(1, len(workspace.projects))
+            self.assertEqual("fresh", workspace.projects[0].status)
 
 
 class SessionIdentityCorrelationTests(unittest.TestCase):
@@ -1697,18 +1717,14 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         state: str = "running",
     ) -> None:
         write_hook_record(
-            {
-                "version": 2,
-                "sessionId": session_id,
-                "harness": harness,
-                "state": state,
-                "cwd": str(self.worktree),
-                "repositoryRoot": str(self.worktree),
-                "branch": "main",
-                "event": "UserPromptSubmit" if state == "running" else "Stop",
-                "lastActivityAt": "2026-08-24T15:00:00Z",
-                "sessionProcess": process.as_record() if process else None,
-            },
+            hook_record_document(
+                self.worktree,
+                session_id,
+                harness,
+                process,
+                state=state,
+                at="2026-08-24T15:00:00Z",
+            ),
             self.state_dir,
         )
 

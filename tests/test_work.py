@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from collections.abc import Callable
@@ -15,7 +14,6 @@ from dashpot.agents import (
     observe_agent_runs,
     session_directory,
     state_directory,
-    write_hook_record,
 )
 from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
 from dashpot.model import ObservationTarget
@@ -26,40 +24,21 @@ from dashpot.work import (
     stop_issue_work,
 )
 from dashpot.work_store import SessionProcess, WorkStore
+from factories import (
+    CLAUDE,
+    CODEX,
+    EARLIER,
+    LATER,
+    dashpot_project,
+    hook_record,
+    legacy_ended_record,
+    write_project_config,
+)
 from helpers import absent, present, unobservable
-
-CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
 
 def codex_lookup(_pid: int) -> ProcessPresent:
     return ProcessPresent(CODEX)
-
-
-def issue_document(*, issue_id: str, number: int, reference: str, title: str) -> str:
-    metadata = {
-        "id": issue_id,
-        "number": number,
-        "reference": reference,
-        "state": "open",
-        "stateReason": None,
-        "labels": [],
-        "assignees": [],
-        "author": "ned",
-        "relationships": {
-            "parent": None,
-            "subIssues": [],
-            "blockedBy": [],
-            "blocking": [],
-        },
-        "issueType": None,
-        "milestone": None,
-        "createdAt": "2026-08-26T05:33:04Z",
-        "updatedAt": "2026-08-26T08:32:48Z",
-        "closedAt": None,
-    }
-    return "\n".join(
-        ["---", json.dumps(metadata, indent=2), "---", f"# {title}", "", "Body.", ""]
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -69,38 +48,7 @@ def _global_hook_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def repository(root: Path) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / ".dashpot").mkdir()
-    (root / ".dashpot" / "config.json").write_text(
-        json.dumps(
-            {
-                "projectId": "project:test",
-                "displayLabel": "Test",
-                "repositoryId": "repository:test",
-                "issueSource": {"kind": "markdown", "path": "issues"},
-            }
-        )
-    )
-    issues = root / "issues"
-    issues.mkdir()
-    (issues / "build-observer.md").write_text(
-        issue_document(
-            issue_id="I_observer",
-            number=1,
-            reference="build-observer",
-            title="Build observer",
-        )
-    )
-    (issues / "fix-crash.md").write_text(
-        issue_document(
-            issue_id="I_crash",
-            number=2,
-            reference="fix-crash",
-            title="Fix crash",
-        )
-    )
-    return root
+    return dashpot_project(root)
 
 
 def issue_ids(root: Path) -> dict[str, str]:
@@ -238,16 +186,7 @@ def test_unmatched_reference_is_an_actionable_error(tmp_path: Path) -> None:
 
 def test_unavailable_issue_source_defers_resolution(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
-    (root / ".dashpot" / "config.json").write_text(
-        json.dumps(
-            {
-                "projectId": "project:test",
-                "displayLabel": "Test",
-                "repositoryId": "repository:test",
-                "issueSource": {"kind": "markdown", "path": "missing"},
-            }
-        )
-    )
+    write_project_config(root, issue_source={"kind": "markdown", "path": "missing"})
 
     with pytest.raises(RuntimeError, match="unavailable"):
         start_issue_work(root, "build-observer", lookup=codex_lookup)
@@ -259,9 +198,6 @@ def test_session_identity_is_stable_for_one_process(tmp_path: Path) -> None:
 
     assert first == second
     assert first.session_key.startswith("codex-4242-")
-
-
-CLAUDE = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
 
 
 def test_claude_code_session_can_opt_into_issue_work(tmp_path: Path) -> None:
@@ -309,60 +245,6 @@ CODEX_SESSION = "01a05099-1563-79a3-8504-e30d50949ca6"
 CLAUDE_SESSION = "01c7192b-2990-4f83-ad33-290ac22eb4d1"
 CODEX_ENVIRON = {"CODEX_THREAD_ID": CODEX_SESSION}
 CLAUDE_ENVIRON = {"CLAUDE_CODE_SESSION_ID": CLAUDE_SESSION, "CLAUDE_PID": "7777"}
-
-
-EARLIER = "2026-08-30T03:34:35.830802Z"
-LATER = "2026-08-30T03:40:00.000000Z"
-
-
-def hook_record(
-    root: Path,
-    session_id: str,
-    harness: str,
-    process: ProcessIdentity | None,
-    *,
-    state: str = "running",
-    at: str = EARLIER,
-    store: Path | None = None,
-) -> Path:
-    """Publish a hook record placing the session at ``root``.
-
-    It lands in ``root``'s own store unless ``store`` names another, as the
-    global store does for a Worktree whose checkout predates configuration.
-    """
-    return write_hook_record(
-        {
-            "version": 2,
-            "sessionId": session_id,
-            "harness": harness,
-            "state": state,
-            "cwd": str(root),
-            "repositoryRoot": str(root),
-            "branch": "main",
-            "event": "UserPromptSubmit" if state == "running" else "Stop",
-            "lastActivityAt": at,
-            "sessionProcess": process.as_record() if process else None,
-        },
-        store if store is not None else session_directory(root),
-    )
-
-
-def legacy_ended_record(root: Path, session_id: str, harness: str) -> None:
-    directory = session_directory(root)
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{session_id}.json").write_text(
-        json.dumps(
-            {
-                "version": 2,
-                "sessionId": session_id,
-                "harness": harness,
-                "state": "ended",
-                "cwd": str(root),
-                "repositoryRoot": str(root),
-                "event": "SessionEnd",
-            }
-        )
-    )
 
 
 def test_isolated_namespace_without_a_claim_reproduces_the_gap(tmp_path: Path) -> None:

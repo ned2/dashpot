@@ -6,6 +6,7 @@ from pathlib import Path
 
 from rich.text import Text
 
+import factories
 from dashpot.agents import ProcessIdentity, observe_agent_runs, write_hook_record
 from dashpot.issue_list import row_key
 from dashpot.issue_profile import IssueProfile
@@ -14,9 +15,7 @@ from dashpot.model import (
     AgentRun,
     ObservationTarget,
     ProjectObservation,
-    ProjectSnapshot,
     RunState,
-    WorkspaceSnapshot,
 )
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.session_list import (
@@ -30,9 +29,9 @@ from dashpot.session_list import (
     session_columns,
 )
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
+from factories import workspace
 from helpers import make_issue, present, required
 
-NOW = "2026-08-27T03:00:00Z"
 CURRENT = datetime(2026, 8, 27, 3, 5, tzinfo=UTC)
 
 
@@ -41,17 +40,7 @@ def issue(issue_id: str, number: int, title: str) -> IssueProfile:
 
 
 def target(path: str, branch: str | None = "main") -> ObservationTarget:
-    return ObservationTarget(
-        path=path,
-        head="abcdef123456",
-        branch=branch,
-        detached=branch is None,
-        dirty=False,
-        availability="available",
-        elapsed_ms=3,
-        diagnostics=[],
-        role="main",
-    )
+    return factories.target(path, branch=branch)
 
 
 def project(
@@ -59,30 +48,8 @@ def project(
     *issues: IssueProfile,
     targets: list[ObservationTarget] | None = None,
 ) -> ProjectObservation:
-    label = project_id.removeprefix("project:").title()
-    snapshot = ProjectSnapshot(
-        project_id=project_id,
-        display_label=label,
-        repository_id=f"repository:{project_id}",
-        collected_at=NOW,
-        issue_source_status="fresh",
-        issue_source_attempted_at=NOW,
-        issue_source_last_good_at=NOW,
-        observation_targets=targets or [target(f"/{project_id}")],
-        issues=list(issues),
-        diagnostics=[],
-    )
-    return ProjectObservation(
-        project_id=project_id,
-        display_label=label,
-        repository_id=snapshot.repository_id,
-        workspaces=["test"],
-        anchors=[f"/{project_id}"],
-        primary_anchor=f"/{project_id}",
-        status="fresh",
-        elapsed_ms=3,
-        snapshot=snapshot,
-        diagnostics=[],
+    return factories.project(
+        project_id, *issues, targets=targets or [target(f"/{project_id}")]
     )
 
 
@@ -99,33 +66,17 @@ def session(
     working_directory: str | None = None,
     last_activity_at: str | None = "2026-08-27T03:00:00Z",
 ) -> AgentRun:
-    return AgentRun(
-        id=run_id,
+    return factories.agent_run(
+        run_id,
+        project_id,
         harness=harness,
-        process_or_session=run_id,
         state=state,
-        observation_target=target_path or f"/{project_id}",
-        observation_project_id=project_id,
-        branch=branch,
         issue_id=issue_id,
-        issue_reference_hint=hint,
+        hint=hint,
+        branch=branch,
+        target_path=target_path,
         working_directory=working_directory or target_path or f"/{project_id}",
         last_activity_at=last_activity_at,
-    )
-
-
-def workspace(
-    *projects: ProjectObservation,
-    runs: list[AgentRun] | None = None,
-    issue_runs: dict[str, list[str]] | None = None,
-) -> WorkspaceSnapshot:
-    return WorkspaceSnapshot(
-        collected_at=NOW,
-        elapsed_ms=9,
-        projects=list(projects),
-        agent_runs=runs or [],
-        issue_runs=issue_runs or {},
-        diagnostics=[],
     )
 
 

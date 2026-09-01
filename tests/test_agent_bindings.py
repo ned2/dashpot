@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import factories
 from dashpot.agent_bindings import bind_issue_runs
 from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
     ProjectObservation,
-    ProjectSnapshot,
     SourceStatus,
 )
 from helpers import make_issue
@@ -16,29 +16,14 @@ NOW = "2026-08-27T00:00:00Z"
 def project(
     project_id: str, *issues: IssueProfile, status: SourceStatus = "fresh"
 ) -> ProjectObservation:
-    snapshot = ProjectSnapshot(
-        project_id=project_id,
-        display_label=project_id,
-        repository_id=f"repository:{project_id}",
-        collected_at=NOW,
-        issue_source_status=status,
-        issue_source_attempted_at=NOW,
-        issue_source_last_good_at=NOW,
-        observation_targets=[],
-        issues=list(issues),
-        diagnostics=[],
-    )
-    return ProjectObservation(
+    return factories.project(
         project_id,
-        project_id,
-        f"repository:{project_id}",
-        ["test"],
-        [f"/{project_id}"],
-        f"/{project_id}",
-        status,
-        1,
-        snapshot,
-        [],
+        *issues,
+        label=project_id,
+        status=status,
+        last_good_at=NOW,
+        elapsed_ms=1,
+        now=NOW,
     )
 
 
@@ -48,17 +33,16 @@ def run(
     reference_hint: str | None = "old/repository#7",
     observation_project_id: str = "project-a",
 ) -> AgentRun:
-    return AgentRun(
-        id="work:codex:one:2026-08-27T00:00:00Z",
-        harness="codex",
-        process_or_session="codex pid 42",
+    return factories.agent_run(
+        "work:codex:one:2026-08-27T00:00:00Z",
+        observation_project_id,
         state="running",
-        observation_target="/project-a",
-        observation_project_id=observation_project_id,
-        branch="main",
         issue_id=issue_id,
-        issue_reference_hint=reference_hint,
+        hint=reference_hint,
+        target_path="/project-a",
+        working_directory=None,
         last_activity_at=NOW,
+        process_or_session="codex pid 42",
     )
 
 

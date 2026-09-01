@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
@@ -9,6 +8,7 @@ from unittest import mock
 from dashpot.commands import CommandResult
 from dashpot.model import Diagnostic
 from dashpot.repository import LockHolder, observe_observation_targets
+from factories import git
 
 
 class SequenceRunner:
@@ -245,18 +245,18 @@ def test_real_git_inventory_tracks_linked_worktree_runtime_lifecycle(
     main = tmp_path / "main"
     linked = tmp_path / "linked"
     main.mkdir()
-    _git(main, "init")
-    _git(main, "config", "user.email", "dashpot@example.invalid")
-    _git(main, "config", "user.name", "Dashpot Tests")
+    git(main, "init")
+    git(main, "config", "user.email", "dashpot@example.invalid")
+    git(main, "config", "user.name", "Dashpot Tests")
     (main / "tracked.txt").write_text("base\n")
-    _git(main, "add", "tracked.txt")
-    _git(main, "commit", "-m", "initial")
-    _git(main, "worktree", "add", "-b", "feature", str(linked))
+    git(main, "add", "tracked.txt")
+    git(main, "commit", "-m", "initial")
+    git(main, "worktree", "add", "-b", "feature", str(linked))
 
     clean = observe_observation_targets([main])
     (linked / "untracked.txt").write_text("change\n")
     dirty = observe_observation_targets([main])
-    _git(main, "worktree", "remove", "--force", str(linked))
+    git(main, "worktree", "remove", "--force", str(linked))
     removed = observe_observation_targets([main])
 
     assert [target.path for target in clean.targets] == [str(main), str(linked)]
@@ -278,13 +278,3 @@ def test_unstatable_target_is_inaccessible_not_missing(tmp_path: Path) -> None:
     assert inventory.targets[0].availability == "unavailable"
     assert inventory.targets[0].diagnostics[0].code == "target-inaccessible"
     assert len(runner.calls) == 1
-
-
-def _git(root: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )

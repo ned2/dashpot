@@ -150,7 +150,7 @@ The conventions the tooling enforces or the code assumes:
 - Tests drive public seams: `observe_agent_runs` with a fake process lookup
   rather than the process adapter, the `WorkStore` rather than its files,
   Textual screens through `App.run_test` / `pilot` and the `wait_until`
-  helper in `tests/test_app.py`. Fakes stand in for GitHub; nothing in the
+  helper in `tests/helpers.py`. Fakes stand in for GitHub; nothing in the
   suite talks to the network.
 - A lockfile change is its own task. Install with `uv sync --locked --group
   dev`; never relock or upgrade a dependency as a side effect of other work.

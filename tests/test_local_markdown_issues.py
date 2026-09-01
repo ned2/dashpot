@@ -12,6 +12,7 @@ from dashpot.issue_profile import (
     semantically_equivalent,
 )
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
+from factories import local_issue_document
 from issue_source_conformance import (
     assert_fresh_observation,
     assert_stale_observation,
@@ -33,22 +34,8 @@ def location_path(issue: IssueProfile) -> str:
 def local_document(
     *, issue_id: str, reference: str, title: str, number: int = 9
 ) -> str:
-    fixture_lines = RAW_FIXTURE.read_text().splitlines()
-    front_matter_end = fixture_lines.index("---", 1)
-    metadata = json.loads("\n".join(fixture_lines[1:front_matter_end]))
-    metadata["id"] = issue_id
-    metadata["number"] = number
-    metadata["reference"] = reference
-    return "\n".join(
-        [
-            "---",
-            json.dumps(metadata, indent=2),
-            "---",
-            f"# {title}",
-            "",
-            "A complete local Issue.",
-            "",
-        ]
+    return local_issue_document(
+        issue_id=issue_id, reference=reference, title=title, number=number
     )
 
 

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from rich.text import Text
 
+import factories
 from dashpot.branch_list import (
     BRANCH_COLUMNS,
     branch_cells,
@@ -15,8 +16,8 @@ from dashpot.branch_list import (
 from dashpot.issue_list import row_key
 from dashpot.model import Branch, ProjectObservation
 from dashpot.observation_store import WorkspaceObservationStore
+from factories import NOW, session, target, workspace
 from helpers import snapshot_of
-from test_worktree_list import NOW, project, session, target, workspace
 
 CLOCK = datetime(2026, 8, 27, 3, 0, 0, tzinfo=UTC)
 
@@ -72,7 +73,9 @@ def branchy_project(
     fetched_at: str | None = NOW,
     integration_ref: str | None = "refs/remotes/origin/main",
 ) -> ProjectObservation:
-    observation = project(project_id, target(f"/{project_id}", role="main"))
+    observation = factories.project(
+        project_id, targets=[target(f"/{project_id}", role="main")]
+    )
     snapshot_of(observation).branches = list(branches)
     snapshot_of(observation).fetched_at = fetched_at
     snapshot_of(observation).integration_ref = integration_ref

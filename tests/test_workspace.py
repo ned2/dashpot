@@ -13,6 +13,7 @@ from dashpot.workspace import (
     load_workspaces,
     resolve_workspace_projects,
 )
+from factories import write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
@@ -25,16 +26,12 @@ def write_project(
     repository_id: str = "repository:dashpot",
     source: dict[str, Any] | None = None,
 ) -> None:
-    (root / ".dashpot").mkdir(parents=True, exist_ok=True)
-    (root / ".dashpot" / "config.json").write_text(
-        json.dumps(
-            {
-                "projectId": project_id,
-                "displayLabel": display_label,
-                "repositoryId": repository_id,
-                "issueSource": source or {"kind": "markdown", "path": "issues"},
-            }
-        )
+    write_project_config(
+        root,
+        project_id=project_id,
+        display_label=display_label,
+        repository_id=repository_id,
+        issue_source=source,
     )
 
 

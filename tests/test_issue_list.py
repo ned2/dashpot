@@ -4,6 +4,7 @@ import copy
 
 import pytest
 
+import factories
 from dashpot.issue_list import (
     IssueListQuery,
     empty_issue_message,
@@ -15,8 +16,6 @@ from dashpot.issue_list import (
 from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
-    ProjectObservation,
-    ProjectSnapshot,
     WorkspaceSnapshot,
 )
 from helpers import make_issue
@@ -41,35 +40,19 @@ def issue(issue_id: str, state: str, **overrides: object) -> IssueProfile:
 
 
 def workspace(*issues: IssueProfile) -> WorkspaceSnapshot:
-    snapshot = ProjectSnapshot(
-        project_id="project:one",
-        display_label="One",
+    project = factories.project(
+        "project:one",
+        *issues,
         repository_id="repository:one",
-        collected_at=NOW,
-        issue_source_status="fresh",
-        issue_source_attempted_at=NOW,
-        issue_source_last_good_at=NOW,
-        observation_targets=[],
-        issues=list(issues),
-        diagnostics=[],
-    )
-    project = ProjectObservation(
-        project_id="project:one",
-        display_label="One",
-        repository_id="repository:one",
-        workspaces=["test"],
-        anchors=["/one"],
-        primary_anchor="/one",
-        status="fresh",
+        anchors=("/one",),
         elapsed_ms=1,
-        snapshot=snapshot,
-        diagnostics=[],
+        now=NOW,
     )
-    return WorkspaceSnapshot(
-        NOW,
-        1,
-        [project],
+    return factories.workspace(
+        project,
         issue_runs={item.id: [] for item in issues},
+        elapsed_ms=1,
+        now=NOW,
     )
 
 
@@ -326,14 +309,12 @@ def test_query_rejects_duplicate_agent_run_identities() -> None:
 
 
 def agent_run(session_id: str, *, issue_id: str | None) -> AgentRun:
-    return AgentRun(
-        id=f"codex-session:{session_id}",
-        harness="codex",
-        process_or_session=session_id,
-        state="waiting",
-        observation_target="/one",
-        observation_project_id="project:one",
-        branch="main",
+    return factories.agent_run(
+        f"codex-session:{session_id}",
+        "project:one",
         issue_id=issue_id,
-        issue_reference_hint=None,
+        target_path="/one",
+        working_directory=None,
+        last_activity_at=None,
+        process_or_session=session_id,
     )

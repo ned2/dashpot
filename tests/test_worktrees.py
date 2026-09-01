@@ -8,7 +8,6 @@ predates ``.dashpot/config.json``; nothing talks to the network.
 from __future__ import annotations
 
 import json
-import subprocess
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -31,8 +30,8 @@ from dashpot.worktrees import (
     resolve_worktree_root,
     title_slug,
 )
+from factories import WORKTREE_PROTOCOL_ISSUES, git, write_issues
 from helpers import absent, make_issue, table_lookup
-from test_work import issue_document
 
 CONFIG = {
     "projectId": "project:sim",
@@ -40,12 +39,6 @@ CONFIG = {
     "repositoryId": "repository:sim",
     "issueSource": {"kind": "markdown", "path": "issues"},
 }
-
-
-def git(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=root, check=True, capture_output=True, text=True
-    ).stdout.strip()
 
 
 def sim(tmp_path: Path, *, origin_head: bool = True) -> Path:
@@ -62,19 +55,7 @@ def sim(tmp_path: Path, *, origin_head: bool = True) -> Path:
     git(root, "tag", "pre-config")
     (root / ".dashpot").mkdir()
     (root / ".dashpot" / "config.json").write_text(json.dumps(CONFIG))
-    issues = root / "issues"
-    issues.mkdir()
-    (issues / "worktree-protocol.md").write_text(
-        issue_document(
-            issue_id="I_35",
-            number=35,
-            reference="worktree-protocol",
-            title="Worktree protocol",
-        )
-    )
-    (issues / "other.md").write_text(
-        issue_document(issue_id="I_36", number=36, reference="other", title="Other")
-    )
+    write_issues(root, WORKTREE_PROTOCOL_ISSUES)
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "configure")
     if origin_head:

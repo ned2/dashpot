@@ -1,45 +1,19 @@
 from __future__ import annotations
 
-import json
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from dashpot.issue_profile import conform_issue
 from dashpot.issue_resolution import describe_issue, resolve_issue, show_issue
+from factories import WORKTREE_PROTOCOL_ISSUES, dashpot_project
 from helpers import make_issue
-from test_work import issue_document
 
 
 def repository(root: Path, *, issues_path: str = "issues") -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / ".dashpot").mkdir()
-    (root / ".dashpot" / "config.json").write_text(
-        json.dumps(
-            {
-                "projectId": "project:test",
-                "displayLabel": "Test",
-                "repositoryId": "repository:test",
-                "issueSource": {"kind": "markdown", "path": issues_path},
-            }
-        )
+    return dashpot_project(
+        root, issues=WORKTREE_PROTOCOL_ISSUES, issues_path=issues_path
     )
-    issues = root / "issues"
-    issues.mkdir()
-    (issues / "worktree-protocol.md").write_text(
-        issue_document(
-            issue_id="I_35",
-            number=35,
-            reference="worktree-protocol",
-            title="Worktree protocol",
-        )
-    )
-    (issues / "other.md").write_text(
-        issue_document(issue_id="I_36", number=36, reference="other", title="Other")
-    )
-    return root
 
 
 @pytest.mark.parametrize("hint", ["35", "#35", "worktree-protocol"])
