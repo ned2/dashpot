@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Annotated, TypeVar
+from typing import Annotated, NoReturn, TypeVar
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict
 from pydantic.alias_generators import to_camel
@@ -38,10 +39,50 @@ def _tuple_from_list(value: object) -> object:
 
 _T = TypeVar("_T")
 
+# ``Sequence`` is the declared seam so producers may pass lists or tuples;
+# the validator makes every stored value a tuple.
 LaxSequence = TypeAliasType(
     "LaxSequence",
-    Annotated[tuple[_T, ...], BeforeValidator(_tuple_from_list)],
+    Annotated[Sequence[_T], BeforeValidator(_tuple_from_list)],
     type_params=(_T,),
+)
+
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+class FrozenDict(dict[_K, _V]):
+    """Reject in-place mutation of a published model's mapping field.
+
+    A ``dict`` subclass so serialization and strict validation treat it as a
+    plain mapping; every mutator is closed because ``frozen=True`` on a model
+    does not reach into its collections.
+    """
+
+    def _reject(self, *args: object, **kwargs: object) -> NoReturn:
+        raise TypeError(f"{type(self).__name__} does not support mutation")
+
+    __setitem__ = _reject
+    __delitem__ = _reject
+    __ior__ = _reject
+    clear = _reject
+    pop = _reject
+    popitem = _reject
+    setdefault = _reject
+    update = _reject
+
+
+def _frozen_mapping(value: Mapping[_K, _V]) -> FrozenDict[_K, _V]:
+    return FrozenDict(value)
+
+
+# ``Mapping`` is the declared seam so producers may pass any mapping and
+# readers get a read-only view; the validator makes every stored value a
+# ``FrozenDict``.
+FrozenMapping = TypeAliasType(
+    "FrozenMapping",
+    Annotated[Mapping[_K, _V], AfterValidator(_frozen_mapping)],
+    type_params=(_K, _V),
 )
 
 # The hour range is in the pattern because RFC 3339 forbids ISO 8601's

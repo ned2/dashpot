@@ -16,8 +16,8 @@ def assert_fresh_observation(
     test.assertEqual("fresh", observation.status)
     test.assertEqual(attempted_at, observation.attempted_at)
     test.assertEqual(attempted_at, observation.last_good_at)
-    test.assertEqual(expected_issues, observation.issues)
-    test.assertEqual([], observation.diagnostics)
+    test.assertEqual(tuple(expected_issues), observation.issues)
+    test.assertEqual((), observation.diagnostics)
 
 
 def assert_unavailable_observation(
@@ -31,7 +31,7 @@ def assert_unavailable_observation(
     test.assertEqual("unavailable", observation.status)
     test.assertEqual(attempted_at, observation.attempted_at)
     test.assertIsNone(observation.last_good_at)
-    test.assertEqual([], observation.issues)
+    test.assertEqual((), observation.issues)
     test.assertEqual(1, len(observation.diagnostics))
     diagnostic = observation.diagnostics[0]
     test.assertEqual(source_name, diagnostic.source)
@@ -53,7 +53,7 @@ def assert_stale_observation(
     test.assertEqual("stale", observation.status)
     test.assertEqual(attempted_at, observation.attempted_at)
     test.assertEqual(last_good_at, observation.last_good_at)
-    test.assertEqual(expected_issues, observation.issues)
+    test.assertEqual(tuple(expected_issues), observation.issues)
     test.assertEqual(1, len(observation.diagnostics))
     diagnostic = observation.diagnostics[0]
     test.assertEqual(source_name, diagnostic.source)

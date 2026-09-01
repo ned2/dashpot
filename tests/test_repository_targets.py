@@ -54,7 +54,7 @@ def test_observes_main_and_linked_targets_from_nul_porcelain(
         [main], runner=runner, clock=lambda: next(times)
     )
 
-    assert inventory.diagnostics == []
+    assert inventory.diagnostics == ()
     assert [target.path for target in inventory.targets] == [str(main), str(linked)]
     assert inventory.targets[0].branch == "main"
     assert inventory.targets[0].detached is False
@@ -83,7 +83,7 @@ def test_a_lock_is_reported_only_once_its_holder_is_gone(tmp_path: Path) -> None
         "locked claude session cyclopts-cli (pid 1699806 start 8792235)\0\0"
     )
 
-    def observe(holder: str) -> list[Diagnostic]:
+    def observe(holder: str) -> Sequence[Diagnostic]:
         runner = SequenceRunner(completed(porcelain), completed())
         times = iter([1.0, 1.001])
         inventory = observe_observation_targets(
@@ -97,7 +97,7 @@ def test_a_lock_is_reported_only_once_its_holder_is_gone(tmp_path: Path) -> None
         return inventory.targets[0].diagnostics
 
     # A session holding its own Worktree is the steady state, not a report.
-    assert observe("live") == []
+    assert observe("live") == ()
 
     # A lock that outlived its session keeps the Worktree from being pruned.
     stale = observe("gone")

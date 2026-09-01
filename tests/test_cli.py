@@ -208,7 +208,9 @@ def test_no_argument_cli_falls_back_to_standard_workspace_config(
 
 def test_json_mode_prints_snapshot() -> None:
     collector = mock.Mock()
-    collector.refresh.return_value = WorkspaceSnapshot("2026-08-25T01:00:00Z", 4, [])
+    collector.refresh.return_value = WorkspaceSnapshot(
+        collected_at="2026-08-25T01:00:00Z", elapsed_ms=4, projects=[]
+    )
 
     with (
         mock.patch.object(

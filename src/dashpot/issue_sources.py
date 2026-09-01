@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import copy
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
 from .issue_profile import IssueProfile
 from .model import IssueActivity
+from .models import FrozenDict
 
 IssueSourceStatus = Literal["fresh", "stale", "unavailable"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
@@ -22,19 +22,26 @@ class IssueSourceDiagnostic:
     message: str
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class IssueSourceObservation:
+    """One adapter refresh outcome, constructed by the source it came from.
+
+    Constructed from already-validated Issue Profiles rather than parsed, so
+    it stays a frozen dataclass (ADR 0013); the mappings are frozen views so
+    a consumer cannot corrupt the source's retained last-good state.
+    """
+
     status: IssueSourceStatus
     attempted_at: str
     last_good_at: str | None
-    issues: list[IssueProfile]
-    diagnostics: list[IssueSourceDiagnostic]
+    issues: tuple[IssueProfile, ...]
+    diagnostics: tuple[IssueSourceDiagnostic, ...]
     # Presentation facts about the source's labels (name -> "rrggbb"). They
     # sit beside the Issue profile rather than inside it: a label's colour is
     # a property of the tracker, not of any one Issue.
-    label_colors: dict[str, str] = field(default_factory=dict)
+    label_colors: Mapping[str, str] = field(default_factory=dict)
     # Comment counts and linked pull requests keyed by Issue Identity.
-    issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
+    issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
 
 
 class IssueSourceRefreshError(RuntimeError):
@@ -74,18 +81,20 @@ class IssueSource:
                 attempted_at, f"{self.name}-internal", f"{type(exc).__name__}: {exc}"
             )
 
-        self._last_good = copy.deepcopy(issues)
+        # Issue Profiles and Issue Activity are frozen values, so retaining
+        # them needs fresh containers, never deep copies.
+        self._last_good = list(issues)
         self._last_good_at = attempted_at
         self._last_good_label_colors = dict(label_colors)
-        self._last_good_issue_activity = copy.deepcopy(issue_activity)
+        self._last_good_issue_activity = dict(issue_activity)
         return IssueSourceObservation(
             status="fresh",
             attempted_at=attempted_at,
             last_good_at=attempted_at,
-            issues=issues,
-            diagnostics=[],
-            label_colors=label_colors,
-            issue_activity=issue_activity,
+            issues=tuple(issues),
+            diagnostics=(),
+            label_colors=FrozenDict(label_colors),
+            issue_activity=FrozenDict(issue_activity),
         )
 
     def _failed(
@@ -99,14 +108,14 @@ class IssueSource:
             status="stale" if self._last_good is not None else "unavailable",
             attempted_at=attempted_at,
             last_good_at=self._last_good_at,
-            issues=copy.deepcopy(self._last_good or []),
-            label_colors=dict(self._last_good_label_colors),
-            issue_activity=copy.deepcopy(self._last_good_issue_activity),
-            diagnostics=[
+            issues=tuple(self._last_good or ()),
+            label_colors=FrozenDict(self._last_good_label_colors),
+            issue_activity=FrozenDict(self._last_good_issue_activity),
+            diagnostics=(
                 IssueSourceDiagnostic(
                     source=self.name, code=code, severity=severity, message=message
-                )
-            ],
+                ),
+            ),
         )
 
     def _collect(self) -> list[IssueProfile]:

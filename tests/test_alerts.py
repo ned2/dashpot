@@ -43,7 +43,10 @@ def project(
 def store(*projects: ProjectObservation, diagnostics=()) -> WorkspaceObservationStore:
     return WorkspaceObservationStore(
         WorkspaceSnapshot(
-            "2026-08-28T12:00:00Z", 1, list(projects), diagnostics=list(diagnostics)
+            collected_at="2026-08-28T12:00:00Z",
+            elapsed_ms=1,
+            projects=list(projects),
+            diagnostics=list(diagnostics),
         )
     )
 
@@ -81,7 +84,15 @@ def test_many_stale_projects_are_counted_not_listed() -> None:
 
 def test_unavailable_states_outrank_stale_and_refreshing() -> None:
     unavailable_target = ObservationTarget(
-        "/repo/wt", "abc", "feature", False, None, "unavailable", 1, [], "linked"
+        path="/repo/wt",
+        head="abc",
+        branch="feature",
+        detached=False,
+        dirty=None,
+        availability="unavailable",
+        elapsed_ms=1,
+        diagnostics=[],
+        role="linked",
     )
     alert = summarize_alerts(
         store(
@@ -110,16 +121,16 @@ def test_refresh_failures_and_integration_failures_are_errors() -> None:
             project("alpha"),
             diagnostics=[
                 Diagnostic(
-                    "workspace",
-                    "warning",
-                    "Cannot observe Agent Runs: boom",
-                    "agent-observation",
+                    source="workspace",
+                    severity="warning",
+                    message="Cannot observe Agent Runs: boom",
+                    code="agent-observation",
                 ),
                 Diagnostic(
-                    "run:x",
-                    "warning",
-                    "hint no longer matches",
-                    "agent-issue-hint-stale",
+                    source="run:x",
+                    severity="warning",
+                    message="hint no longer matches",
+                    code="agent-issue-hint-stale",
                 ),
             ],
         ),

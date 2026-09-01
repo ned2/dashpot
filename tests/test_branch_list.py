@@ -14,7 +14,7 @@ from dashpot.branch_list import (
     query_branch_list,
 )
 from dashpot.issue_list import row_key
-from dashpot.model import Branch, ProjectObservation
+from dashpot.model import Branch, ObservationTarget, ProjectObservation
 from dashpot.observation_store import WorkspaceObservationStore
 from factories import NOW, session, target, workspace
 from helpers import snapshot_of
@@ -72,14 +72,19 @@ def branchy_project(
     *branches: Branch,
     fetched_at: str | None = NOW,
     integration_ref: str | None = "refs/remotes/origin/main",
+    targets: list[ObservationTarget] | None = None,
 ) -> ProjectObservation:
     observation = factories.project(
-        project_id, targets=[target(f"/{project_id}", role="main")]
+        project_id,
+        targets=(
+            targets if targets is not None else [target(f"/{project_id}", role="main")]
+        ),
+        branches=branches,
     )
-    snapshot_of(observation).branches = list(branches)
-    snapshot_of(observation).fetched_at = fetched_at
-    snapshot_of(observation).integration_ref = integration_ref
-    return observation
+    snapshot = snapshot_of(observation).model_copy(
+        update={"fetched_at": fetched_at, "integration_ref": integration_ref}
+    )
+    return observation.model_copy(update={"snapshot": snapshot})
 
 
 def test_local_and_remote_refs_of_one_name_are_one_row() -> None:
@@ -118,10 +123,8 @@ def test_checked_out_branches_lead_then_the_most_recent_commit() -> None:
         local("older", committed_at="2026-08-26T00:00:00Z"),
         remote("zeta", committed_at="2026-08-26T00:00:00Z"),
         remote("alpha", committed_at="2026-08-26T00:00:00Z"),
+        targets=[target("/project:one", role="main", branch="old-but-checked-out")],
     )
-    snapshot_of(observation).observation_targets = [
-        target("/project:one", role="main", branch="old-but-checked-out")
-    ]
 
     result = query_branch_list(workspace(observation))
 
@@ -138,8 +141,9 @@ def test_sessions_join_the_branch_they_are_on_and_the_store_serves_the_query() -
     observation = branchy_project(
         "project:one", local("issue/1", upstream="origin/issue/1"), remote("issue/1")
     )
-    on_branch = session("codex:1", "project:one", "/project:one", state="running")
-    on_branch.branch = "issue/1"
+    on_branch = session(
+        "codex:1", "project:one", "/project:one", state="running"
+    ).model_copy(update={"branch": "issue/1"})
     elsewhere = session("codex:2", "project:one", "/project:one")
     store = WorkspaceObservationStore(
         workspace(observation, runs=[on_branch, elsewhere])
@@ -173,12 +177,11 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
         local("gone", upstream="origin/gone", gone=True),
         local(long_name, unintegrated_commits=0),
         remote("remote-only"),
+        targets=[target("/home/ned/project:one", role="main", branch="main")],
     )
-    snapshot_of(observation).observation_targets = [
-        target("/home/ned/project:one", role="main", branch="main")
-    ]
-    on_main = session("codex:1", "project:one", "/home/ned/project:one")
-    on_main.branch = "main"
+    on_main = session("codex:1", "project:one", "/home/ned/project:one").model_copy(
+        update={"branch": "main"}
+    )
     result = query_branch_list(workspace(observation, runs=[on_main]))
     by_name = {row.name: row for row in result.rows}
 
@@ -242,7 +245,13 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
 
 def test_fetch_age_is_honest() -> None:
     observation = branchy_project("project:one", local("main"), fetched_at=None)
-    snapshot_of(observation).target_status = "stale"
+    observation = observation.model_copy(
+        update={
+            "snapshot": snapshot_of(observation).model_copy(
+                update={"target_status": "stale"}
+            )
+        }
+    )
 
     result = query_branch_list(workspace(observation))
 

@@ -142,6 +142,36 @@ def workspace_snapshot(
     )
 
 
+def with_first_project(
+    observed: WorkspaceSnapshot, **updates: object
+) -> WorkspaceSnapshot:
+    """Copy the snapshot with its first Project observation updated."""
+    project = observed.projects[0].model_copy(update=updates)
+    return observed.model_copy(update={"projects": (project, *observed.projects[1:])})
+
+
+def with_first_project_snapshot(
+    observed: WorkspaceSnapshot, **updates: object
+) -> WorkspaceSnapshot:
+    """Copy the snapshot with its first Project Snapshot updated."""
+    project = observed.projects[0]
+    return with_first_project(
+        observed, snapshot=snapshot_of(project).model_copy(update=updates)
+    )
+
+
+def with_first_target(
+    observed: WorkspaceSnapshot, **updates: object
+) -> WorkspaceSnapshot:
+    """Copy the snapshot with its first Observation Target updated."""
+    project_snapshot = snapshot_of(observed.projects[0])
+    target = project_snapshot.observation_targets[0].model_copy(update=updates)
+    return with_first_project_snapshot(
+        observed,
+        observation_targets=(target, *project_snapshot.observation_targets[1:]),
+    )
+
+
 class SequenceCollector:
     def __init__(
         self, *results: WorkspaceSnapshot | Exception, release: Event | None = None
@@ -1038,17 +1068,19 @@ async def test_failed_refresh_keeps_last_good_rows_and_shows_diagnostic() -> Non
 @pytest.mark.asyncio
 async def test_unavailable_project_observation_keeps_last_good_issue_rows() -> None:
     first = workspace_snapshot(issue("test/repo#1", "Last good"))
-    unavailable = copy.deepcopy(first)
-    unavailable.projects[0].status = "unavailable"
-    unavailable.projects[0].snapshot = None
-    unavailable.projects[0].diagnostics = [
-        Diagnostic(
-            "project:test-repo",
-            "error",
-            "repository is unavailable",
-            "project-collection",
-        )
-    ]
+    unavailable = with_first_project(
+        first,
+        status="unavailable",
+        snapshot=None,
+        diagnostics=(
+            Diagnostic(
+                source="project:test-repo",
+                severity="error",
+                message="repository is unavailable",
+                code="project-collection",
+            ),
+        ),
+    )
     app = DashpotApp(
         SequenceCollector(unavailable),
         refresh_seconds=0,
@@ -1081,20 +1113,28 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
         issue_id="I_test/repo#1",
         issue_reference_hint="test/repo#1",
     )
-    first.agent_runs = [observed_run]
-    first.issue_runs = {"I_test/repo#1": [observed_run.id]}
-    unavailable = copy.deepcopy(first)
-    unavailable.issue_runs = {}
-    project = unavailable.projects[0]
-    project.status = "unavailable"
-    project_snapshot = snapshot_of(project)
-    project_snapshot.issue_source_status = "unavailable"
-    project_snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
-    project_snapshot.issue_source_last_good_at = None
-    project_snapshot.issues = []
-    project_snapshot.diagnostics = [
-        Diagnostic("github", "error", "GitHub unavailable", "github-command")
-    ]
+    first = first.model_copy(
+        update={
+            "agent_runs": (observed_run,),
+            "issue_runs": {"I_test/repo#1": (observed_run.id,)},
+        }
+    )
+    unavailable = with_first_project_snapshot(
+        first.model_copy(update={"issue_runs": {}}),
+        issue_source_status="unavailable",
+        issue_source_attempted_at="2026-08-27T04:00:00Z",
+        issue_source_last_good_at=None,
+        issues=(),
+        diagnostics=(
+            Diagnostic(
+                source="github",
+                severity="error",
+                message="GitHub unavailable",
+                code="github-command",
+            ),
+        ),
+    )
+    unavailable = with_first_project(unavailable, status="unavailable")
     app = DashpotApp(
         SequenceCollector(unavailable),
         refresh_seconds=0,
@@ -1116,13 +1156,18 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
 @pytest.mark.asyncio
 async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
     snapshot = workspace_snapshot()
-    snapshot.diagnostics.append(
-        Diagnostic(
-            "project:conflicted",
-            "error",
-            "Project Identity project:conflicted has conflicting Repository identities",
-            "project-repository-conflict",
-        )
+    snapshot = snapshot.model_copy(
+        update={
+            "diagnostics": (
+                *snapshot.diagnostics,
+                Diagnostic(
+                    source="project:conflicted",
+                    severity="error",
+                    message="Project Identity project:conflicted has conflicting Repository identities",
+                    code="project-repository-conflict",
+                ),
+            )
+        }
     )
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
@@ -1138,13 +1183,17 @@ async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
 async def test_diagnostics_carry_the_severity_they_were_observed_with() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     target = snapshot_of(snapshot.projects[0]).observation_targets[0]
-    target.diagnostics.append(
-        Diagnostic(
-            "target:/repo",
-            "info",
-            "Observation Target is locked: maintenance",
-            "target-locked",
-        )
+    snapshot = with_first_target(
+        snapshot,
+        diagnostics=(
+            *target.diagnostics,
+            Diagnostic(
+                source="target:/repo",
+                severity="info",
+                message="Observation Target is locked: maintenance",
+                code="target-locked",
+            ),
+        ),
     )
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
@@ -1160,21 +1209,23 @@ async def test_diagnostics_carry_the_severity_they_were_observed_with() -> None:
 
     mixed = workspace_snapshot(issue("test/repo#1", "First"))
     mixed_target = snapshot_of(mixed.projects[0]).observation_targets[0]
-    mixed_target.diagnostics.extend(
-        [
+    mixed = with_first_target(
+        mixed,
+        diagnostics=(
+            *mixed_target.diagnostics,
             Diagnostic(
-                "target:/repo",
-                "info",
-                "Observation Target is locked: maintenance",
-                "target-locked",
+                source="target:/repo",
+                severity="info",
+                message="Observation Target is locked: maintenance",
+                code="target-locked",
             ),
             Diagnostic(
-                "target:/repo",
-                "warning",
-                "Observation Target is prunable",
-                "target-prunable",
+                source="target:/repo",
+                severity="warning",
+                message="Observation Target is prunable",
+                code="target-prunable",
             ),
-        ]
+        ),
     )
     app = DashpotApp(SequenceCollector(mixed), refresh_seconds=0)
 
@@ -1193,17 +1244,21 @@ async def test_diagnostics_carry_the_severity_they_were_observed_with() -> None:
 async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     target = snapshot_of(snapshot.projects[0]).observation_targets[0]
-    target.availability = "unavailable"
-    target.branch = None
-    target.detached = False
-    target.dirty = None
-    target.diagnostics.append(
-        Diagnostic(
-            "target:/repo",
-            "warning",
-            "Observation Target is prunable",
-            "target-prunable",
-        )
+    snapshot = with_first_target(
+        snapshot,
+        availability="unavailable",
+        branch=None,
+        detached=False,
+        dirty=None,
+        diagnostics=(
+            *target.diagnostics,
+            Diagnostic(
+                source="target:/repo",
+                severity="warning",
+                message="Observation Target is prunable",
+                code="target-prunable",
+            ),
+        ),
     )
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
@@ -1270,10 +1325,17 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
 
 
 def test_project_uses_display_label_independent_of_workspace_and_anchor() -> None:
-    project = workspace_snapshot().projects[0]
-    project.display_label = "Portable Project"
-    project.workspaces = ["personal", "client"]
-    project.primary_anchor = "/moved/checkout"
+    project = (
+        workspace_snapshot()
+        .projects[0]
+        .model_copy(
+            update={
+                "display_label": "Portable Project",
+                "workspaces": ("personal", "client"),
+                "primary_anchor": "/moved/checkout",
+            }
+        )
+    )
 
     assert project_label(project) == "Portable Project"
 
@@ -1350,16 +1412,26 @@ def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None
 def test_comments_column_shows_engagement_only_when_present() -> None:
     discussed = issue("test/repo#1", "Discussed")
     quiet = issue("test/repo#2", "Quiet")
-    snapshot = workspace_snapshot(discussed, quiet)
-    snapshot_of(snapshot.projects[0]).issue_activity = {
-        discussed.id: IssueActivity(
-            comment_count=4,
-            linked_pull_requests=[
-                LinkedPullRequest(12, "https://github.com/test/repo/pull/12", "open"),
-                LinkedPullRequest(41, "https://github.com/test/repo/pull/41", "merged"),
-            ],
-        )
-    }
+    snapshot = with_first_project_snapshot(
+        workspace_snapshot(discussed, quiet),
+        issue_activity={
+            discussed.id: IssueActivity(
+                comment_count=4,
+                linked_pull_requests=[
+                    LinkedPullRequest(
+                        number=12,
+                        url="https://github.com/test/repo/pull/12",
+                        state="open",
+                    ),
+                    LinkedPullRequest(
+                        number=41,
+                        url="https://github.com/test/repo/pull/41",
+                        state="merged",
+                    ),
+                ],
+            )
+        },
+    )
 
     contexts, cells = build_rows(query_issue_list(snapshot), columns=("comments",))
 
@@ -1490,11 +1562,10 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
         "Bare",
         labels=[],
     )
-    snapshot = workspace_snapshot(labelled, bare)
-    snapshot_of(snapshot.projects[0]).label_colors = {
-        "bug": "d73a4a",
-        "enhancement": "a2eeef",
-    }
+    snapshot = with_first_project_snapshot(
+        workspace_snapshot(labelled, bare),
+        label_colors={"bug": "d73a4a", "enhancement": "a2eeef"},
+    )
 
     _contexts, cells = build_rows(query_issue_list(snapshot), columns=("labels",))
 
@@ -1533,12 +1604,14 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
         "Routine",
         labels=["low"],
     )
-    snapshot = workspace_snapshot(urgent, routine)
-    snapshot_of(snapshot.projects[0]).label_colors = {
-        "bug": "d73a4a",
-        "priority/P0": "b60205",
-        "priority/p3": "0e8a16",
-    }
+    snapshot = with_first_project_snapshot(
+        workspace_snapshot(urgent, routine),
+        label_colors={
+            "bug": "d73a4a",
+            "priority/P0": "b60205",
+            "priority/p3": "0e8a16",
+        },
+    )
     result = query_issue_list(snapshot)
 
     assert "priority" in DEFAULT_COLUMNS
@@ -1801,7 +1874,9 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
         issue_reference_hint=selected_issue.reference,
     )
     snapshot = workspace_snapshot(selected_issue, runs=[run])
-    snapshot.issue_runs[selected_issue.id] = [run.id]
+    snapshot = snapshot.model_copy(
+        update={"issue_runs": {**snapshot.issue_runs, selected_issue.id: (run.id,)}}
+    )
 
     contexts, cells = build_rows(query_issue_list(snapshot))
 
@@ -1897,15 +1972,20 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
 def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> None:
     duplicated = issue("test/repo#1", "First")
     snapshot = workspace_snapshot(duplicated)
-    second = copy.deepcopy(snapshot.projects[0])
-    second.project_id = "project:other-repo"
-    second.display_label = "Other Repository"
-    second.repository_id = "repository:other-repo"
-    second_snapshot = snapshot_of(second)
-    second_snapshot.project_id = second.project_id
-    second_snapshot.display_label = second.display_label
-    second_snapshot.repository_id = second.repository_id
-    snapshot.projects.append(second)
+    other_identity = {
+        "project_id": "project:other-repo",
+        "display_label": "Other Repository",
+        "repository_id": "repository:other-repo",
+    }
+    second = snapshot.projects[0].model_copy(
+        update={
+            **other_identity,
+            "snapshot": snapshot_of(snapshot.projects[0]).model_copy(
+                update=other_identity
+            ),
+        }
+    )
+    snapshot = snapshot.model_copy(update={"projects": (*snapshot.projects, second)})
 
     contexts, cells = build_rows(query_issue_list(snapshot))
 
@@ -1960,17 +2040,25 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
 async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     transferred = issue("old/repository#7", "Transfer me")
     first = workspace_snapshot(transferred)
-    second = copy.deepcopy(first)
-    second.projects[0].project_id = "project:new-repository"
-    second.projects[0].display_label = "New Repository"
-    second_snapshot = snapshot_of(second.projects[0])
-    second_snapshot.project_id = "project:new-repository"
-    second_snapshot.display_label = "New Repository"
-    second_snapshot.issues[0] = issue(
-        "new/repository#70",
-        "Transfer me",
-        id=transferred.id,
-        projectId="project:new-repository",
+    second_snapshot = snapshot_of(first.projects[0]).model_copy(
+        update={
+            "project_id": "project:new-repository",
+            "display_label": "New Repository",
+            "issues": (
+                issue(
+                    "new/repository#70",
+                    "Transfer me",
+                    id=transferred.id,
+                    projectId="project:new-repository",
+                ),
+            ),
+        }
+    )
+    second = with_first_project(
+        first,
+        project_id="project:new-repository",
+        display_label="New Repository",
+        snapshot=second_snapshot,
     )
     selected_key = row_key("issue", transferred.id)
     app = DashpotApp(
@@ -2088,7 +2176,7 @@ async def test_first_published_project_renders_before_a_slow_one(
             await wait_until(
                 lambda: (
                     app.store.checkpoint().issue_runs
-                    == {"I_alpha#1": [], "I_beta#1": []}
+                    == {"I_alpha#1": (), "I_beta#1": ()}
                 )
             )
     finally:
@@ -2292,8 +2380,10 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
 
 @pytest.mark.asyncio
 async def test_simultaneous_states_share_one_line_in_priority_order() -> None:
-    stale = workspace_snapshot(issue("test/repo#1", "First"), status="stale")
-    snapshot_of(stale.projects[0]).observation_targets[0].availability = "unavailable"
+    stale = with_first_target(
+        workspace_snapshot(issue("test/repo#1", "First"), status="stale"),
+        availability="unavailable",
+    )
     app = DashpotApp(
         SequenceCollector(RuntimeError("boom")),
         refresh_seconds=0,
@@ -2549,15 +2639,24 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
         issue_reference_hint=None,
     )
     snapshot = workspace_snapshot(parent, child, runs=[run])
-    snapshot.issue_runs[child.id] = [run.id]
-    snapshot_of(snapshot.projects[0]).issue_activity = {
-        child.id: IssueActivity(
-            comment_count=2,
-            linked_pull_requests=[
-                LinkedPullRequest(9, "https://github.com/test/repo/pull/9", "merged")
-            ],
-        )
-    }
+    snapshot = snapshot.model_copy(
+        update={"issue_runs": {**snapshot.issue_runs, child.id: (run.id,)}}
+    )
+    snapshot = with_first_project_snapshot(
+        snapshot,
+        issue_activity={
+            child.id: IssueActivity(
+                comment_count=2,
+                linked_pull_requests=[
+                    LinkedPullRequest(
+                        number=9,
+                        url="https://github.com/test/repo/pull/9",
+                        state="merged",
+                    )
+                ],
+            )
+        },
+    )
     context = next(row for row in query_issue_list(snapshot).rows if row.issue is child)
 
     text = detail_items_text(issue_metadata_items(context, now=now))
@@ -2625,8 +2724,9 @@ def test_issue_view_renders_labels_as_tracker_coloured_chips() -> None:
         "Labelled",
         labels=["bug", "priority/p1"],
     )
-    snapshot = workspace_snapshot(labelled)
-    snapshot_of(snapshot.projects[0]).label_colors = {"bug": "d73a4a"}
+    snapshot = with_first_project_snapshot(
+        workspace_snapshot(labelled), label_colors={"bug": "d73a4a"}
+    )
     context = query_issue_list(snapshot).rows[0]
 
     items = issue_metadata_items(context)
@@ -3077,10 +3177,11 @@ def sessions_snapshot(
     *runs: AgentRun, issues: tuple[IssueProfile, ...]
 ) -> WorkspaceSnapshot:
     snapshot = workspace_snapshot(*issues, runs=list(runs))
+    issue_runs = {key: list(value) for key, value in snapshot.issue_runs.items()}
     for run in runs:
         if run.issue_id is not None:
-            snapshot.issue_runs.setdefault(run.issue_id, []).append(run.id)
-    return snapshot
+            issue_runs.setdefault(run.issue_id, []).append(run.id)
+    return snapshot.model_copy(update={"issue_runs": issue_runs})
 
 
 def session_pane_keys(app: DashpotApp) -> list[str]:
@@ -3286,9 +3387,14 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         role="linked",
     )
     with_linked = workspace_snapshot(issue("test/repo#1", "First"))
-    snapshot_of(with_linked.projects[0]).observation_targets.append(linked)
-    stale_with_linked = copy.deepcopy(with_linked)
-    snapshot_of(stale_with_linked.projects[0]).target_status = "stale"
+    with_linked = with_first_project_snapshot(
+        with_linked,
+        observation_targets=(
+            *snapshot_of(with_linked.projects[0]).observation_targets,
+            linked,
+        ),
+    )
+    stale_with_linked = with_first_project_snapshot(with_linked, target_status="stale")
     app = DashpotApp(
         SequenceCollector(first, with_linked, stale_with_linked, first),
         refresh_seconds=0,

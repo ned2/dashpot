@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .issue_profile import IssueProfile
 from .model import AgentRun, Diagnostic, ProjectObservation
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class IssueBindingResult:
-    agent_runs: list[AgentRun]
-    issue_runs: dict[str, list[str]]
-    diagnostics: list[Diagnostic]
+    """Validated Issue Bindings; the caller keeps its own Agent Runs."""
+
+    issue_runs: Mapping[str, tuple[str, ...]]
+    diagnostics: tuple[Diagnostic, ...]
 
 
 def bind_issue_runs(
@@ -34,10 +35,10 @@ def bind_issue_runs(
     }
     diagnostics = [
         Diagnostic(
-            f"issue:{issue_id}",
-            "error",
-            f"Issue Identity {issue_id} appears in more than one Project",
-            "agent-issue-identity-conflict",
+            source=f"issue:{issue_id}",
+            severity="error",
+            message=f"Issue Identity {issue_id} appears in more than one Project",
+            code="agent-issue-identity-conflict",
         )
         for issue_id in sorted(conflicting_ids)
     ]
@@ -53,11 +54,11 @@ def bind_issue_runs(
             ):
                 diagnostics.append(
                     Diagnostic(
-                        run.id,
-                        "warning",
-                        f"Issue reference hint {run.issue_reference_hint!r} "
+                        source=run.id,
+                        severity="warning",
+                        message=f"Issue reference hint {run.issue_reference_hint!r} "
                         "no longer matches the bound Issue's current Reference",
-                        "agent-issue-hint-stale",
+                        code="agent-issue-hint-stale",
                     )
                 )
         elif len(matches) > 1:
@@ -65,23 +66,28 @@ def bind_issue_runs(
         elif _resolution_deferred(run, status_by_project):
             diagnostics.append(
                 Diagnostic(
-                    run.id,
-                    "warning",
-                    f"Cannot validate bound Issue Identity {run.issue_id} "
+                    source=run.id,
+                    severity="warning",
+                    message=f"Cannot validate bound Issue Identity {run.issue_id} "
                     "while the Project's Issue Source is not fresh",
-                    "agent-issue-resolution-deferred",
+                    code="agent-issue-resolution-deferred",
                 )
             )
         else:
             diagnostics.append(
                 Diagnostic(
-                    run.id,
-                    "warning",
-                    f"Bound Issue Identity {run.issue_id} was not observed",
-                    "agent-issue-binding-unobserved",
+                    source=run.id,
+                    severity="warning",
+                    message=f"Bound Issue Identity {run.issue_id} was not observed",
+                    code="agent-issue-binding-unobserved",
                 )
             )
-    return IssueBindingResult(list(runs), issue_runs, diagnostics)
+    return IssueBindingResult(
+        issue_runs={
+            issue_id: tuple(run_ids) for issue_id, run_ids in issue_runs.items()
+        },
+        diagnostics=tuple(diagnostics),
+    )
 
 
 def _resolution_deferred(run: AgentRun, status_by_project: dict[str, str]) -> bool:

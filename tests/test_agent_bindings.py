@@ -56,7 +56,7 @@ def test_persisted_identity_survives_reference_change_and_project_transfer() -> 
         [run(issue_id="I_stable")],
     )
 
-    assert result.issue_runs == {"I_stable": ["work:codex:one:2026-08-27T00:00:00Z"]}
+    assert result.issue_runs == {"I_stable": ("work:codex:one:2026-08-27T00:00:00Z",)}
     assert result.diagnostics[0].code == "agent-issue-hint-stale"
 
 
@@ -70,9 +70,8 @@ def test_unbound_run_is_left_alone_without_hint_resolution() -> None:
         [run(issue_id=None, reference_hint="owner/repository#15")],
     )
 
-    assert result.issue_runs == {"I_hint": []}
-    assert result.agent_runs[0].issue_id is None
-    assert result.diagnostics == []
+    assert result.issue_runs == {"I_hint": ()}
+    assert result.diagnostics == ()
 
 
 def test_duplicate_persisted_identity_across_projects_is_a_conflict() -> None:
@@ -84,7 +83,7 @@ def test_duplicate_persisted_identity_across_projects_is_a_conflict() -> None:
         [run(issue_id="I_duplicate")],
     )
 
-    assert result.issue_runs == {"I_duplicate": []}
+    assert result.issue_runs == {"I_duplicate": ()}
     assert result.diagnostics[0].code == "agent-issue-identity-conflict"
     assert len(result.diagnostics) == 1
 
@@ -110,7 +109,7 @@ def test_persisted_identity_wins_over_stale_reference_with_warning() -> None:
         [run(issue_id="I_stable", reference_hint="old/repository#7")],
     )
 
-    assert result.issue_runs == {"I_stable": ["work:codex:one:2026-08-27T00:00:00Z"]}
+    assert result.issue_runs == {"I_stable": ("work:codex:one:2026-08-27T00:00:00Z",)}
     assert result.diagnostics[0].code == "agent-issue-hint-stale"
 
 
@@ -173,5 +172,5 @@ def test_two_runs_on_one_issue_are_independently_listed() -> None:
 
     result = bind_issue_runs([project("project-a", issue)], [first, second])
 
-    assert result.issue_runs == {"I_shared": ["work:codex:one:t1", "work:codex:two:t2"]}
-    assert result.diagnostics == []
+    assert result.issue_runs == {"I_shared": ("work:codex:one:t1", "work:codex:two:t2")}
+    assert result.diagnostics == ()

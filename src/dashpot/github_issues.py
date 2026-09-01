@@ -170,7 +170,8 @@ class GitHubIssuesSource(IssueSource):
 
     @override
     def _collect_issue_activity(self) -> dict[str, IssueActivity]:
-        return copy.deepcopy(self._issue_activity)
+        # IssueActivity values are frozen; only the container needs copying.
+        return dict(self._issue_activity)
 
     def _collect_issue_nodes(self) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
@@ -444,12 +445,13 @@ def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
     Engagement is presentation only, so anything missing or malformed reads
     as no engagement rather than failing the observation.
     """
-    activity = IssueActivity()
+    comment_count = 0
     comments = record.get("comments")
     if isinstance(comments, Mapping):
         total = comments.get("totalCount")
         if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
-            activity.comment_count = total
+            comment_count = total
+    linked_pull_requests: list[LinkedPullRequest] = []
     references = record.get("closedByPullRequestsReferences")
     nodes = references.get("nodes") if isinstance(references, Mapping) else None
     for node in nodes if isinstance(nodes, list) else []:
@@ -467,11 +469,15 @@ def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
             and isinstance(state, str)
             and state in _PULL_REQUEST_STATES
         ):
-            activity.linked_pull_requests.append(
-                LinkedPullRequest(number, url, _PULL_REQUEST_STATES[state])
+            linked_pull_requests.append(
+                LinkedPullRequest(
+                    number=number, url=url, state=_PULL_REQUEST_STATES[state]
+                )
             )
-    activity.linked_pull_requests.sort(key=lambda pull: pull.number)
-    return activity
+    linked_pull_requests.sort(key=lambda pull: pull.number)
+    return IssueActivity(
+        comment_count=comment_count, linked_pull_requests=linked_pull_requests
+    )
 
 
 def _optional_object_string(

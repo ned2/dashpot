@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 
+import pydantic
 import pytest
 
 import factories
@@ -55,11 +56,12 @@ def run(run_id: str, project_id: str, issue_id: str | None) -> AgentRun:
 
 
 def test_seed_round_trips_checkpoint_and_isolates_owned_state() -> None:
+    # Isolation from the caller's mutable inputs is proven in
+    # test_observation_aliasing; the snapshot itself is frozen.
     observed = workspace(project("project:one", issue("I_one", "First")))
     expected = copy.deepcopy(observed)
 
     store = WorkspaceObservationStore(observed)
-    observed.projects[0].display_label = "Mutated by caller"
 
     assert store.revision == 1
     assert store.has_observations
@@ -70,29 +72,32 @@ def test_seed_round_trips_checkpoint_and_isolates_owned_state() -> None:
 def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
     first = workspace(project("project:one", issue("I_one", "First")))
     observed_run = run("codex:one", "project:one", "I_two")
-    updated_project = project("project:one", issue("I_two", "Second"))
-    snapshot_of(updated_project).observation_targets = [
-        ObservationTarget(
-            path="/project:one",
-            head="abc123",
-            branch="main",
-            detached=False,
-            dirty=False,
-            availability="available",
-            elapsed_ms=1,
-            diagnostics=[],
-            role="main",
-        )
-    ]
-    snapshot_of(updated_project).branches = [
-        Branch(
-            refname="refs/heads/main",
-            name="main",
-            remote=None,
-            head="abc123",
-            committed_at="2026-08-27T00:00:00Z",
-        )
-    ]
+    updated_project = factories.project(
+        "project:one",
+        issue("I_two", "Second"),
+        targets=[
+            ObservationTarget(
+                path="/project:one",
+                head="abc123",
+                branch="main",
+                detached=False,
+                dirty=False,
+                availability="available",
+                elapsed_ms=1,
+                diagnostics=[],
+                role="main",
+            )
+        ],
+        branches=[
+            Branch(
+                refname="refs/heads/main",
+                name="main",
+                remote=None,
+                head="abc123",
+                committed_at="2026-08-27T00:00:00Z",
+            )
+        ],
+    )
     second = workspace(
         updated_project,
         runs=[observed_run],
@@ -130,17 +135,20 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
 def test_unavailable_project_replacement_retains_last_good_snapshot() -> None:
     available = project("project:one", issue("I_one", "Last good"))
     store = WorkspaceObservationStore(workspace(available))
-    unavailable = copy.deepcopy(available)
-    unavailable.status = "unavailable"
-    unavailable.snapshot = None
-    unavailable.diagnostics = [
-        Diagnostic(
-            "project:project:one",
-            "error",
-            "repository is unavailable",
-            "project-collection",
-        )
-    ]
+    unavailable = available.model_copy(
+        update={
+            "status": "unavailable",
+            "snapshot": None,
+            "diagnostics": (
+                Diagnostic(
+                    source="project:project:one",
+                    severity="error",
+                    message="repository is unavailable",
+                    code="project-collection",
+                ),
+            ),
+        }
+    )
 
     change = store.replace_project(unavailable)
     checkpoint = store.checkpoint()
@@ -164,30 +172,39 @@ def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() ->
             issue_runs={"I_one": [observed_run.id]},
         )
     )
-    unavailable = copy.deepcopy(available)
-    unavailable.status = "fresh"
-    unavailable_snapshot = snapshot_of(unavailable)
-    unavailable_snapshot.collected_at = "2026-08-27T04:00:00Z"
-    unavailable_snapshot.issue_source_status = "unavailable"
-    unavailable_snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
-    unavailable_snapshot.issue_source_last_good_at = None
-    unavailable_snapshot.issues = []
-    unavailable_snapshot.observation_targets = [
-        ObservationTarget(
-            path="/current-target",
-            head="def456",
-            branch="main",
-            detached=False,
-            dirty=True,
-            availability="available",
-            elapsed_ms=2,
-            diagnostics=[],
-            role="main",
-        )
-    ]
-    unavailable_snapshot.diagnostics = [
-        Diagnostic("github", "error", "GitHub unavailable", "github-command")
-    ]
+    unavailable_snapshot = snapshot_of(available).model_copy(
+        update={
+            "collected_at": "2026-08-27T04:00:00Z",
+            "issue_source_status": "unavailable",
+            "issue_source_attempted_at": "2026-08-27T04:00:00Z",
+            "issue_source_last_good_at": None,
+            "issues": (),
+            "observation_targets": (
+                ObservationTarget(
+                    path="/current-target",
+                    head="def456",
+                    branch="main",
+                    detached=False,
+                    dirty=True,
+                    availability="available",
+                    elapsed_ms=2,
+                    diagnostics=[],
+                    role="main",
+                ),
+            ),
+            "diagnostics": (
+                Diagnostic(
+                    source="github",
+                    severity="error",
+                    message="GitHub unavailable",
+                    code="github-command",
+                ),
+            ),
+        }
+    )
+    unavailable = available.model_copy(
+        update={"status": "fresh", "snapshot": unavailable_snapshot}
+    )
 
     store.replace(workspace(unavailable, runs=[observed_run], issue_runs={}))
     accepted = store.checkpoint().projects[0]
@@ -207,8 +224,9 @@ def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() ->
 def test_fresh_empty_issue_source_clears_prior_issues() -> None:
     available = project("project:one", issue("I_one", "Last good"))
     store = WorkspaceObservationStore(workspace(available))
-    empty = copy.deepcopy(available)
-    snapshot_of(empty).issues = []
+    empty = available.model_copy(
+        update={"snapshot": snapshot_of(available).model_copy(update={"issues": ()})}
+    )
 
     store.replace_project(empty)
 
@@ -219,31 +237,40 @@ def test_fresh_empty_issue_source_clears_prior_issues() -> None:
 def test_source_last_good_is_not_carried_across_repository_identity_change() -> None:
     available = project("project:one", issue("I_one", "Last good"))
     store = WorkspaceObservationStore(workspace(available))
-    unavailable = copy.deepcopy(available)
-    unavailable.repository_id = "repository:replacement"
-    unavailable_snapshot = snapshot_of(unavailable)
-    unavailable_snapshot.repository_id = "repository:replacement"
-    unavailable.status = "unavailable"
-    unavailable_snapshot.issue_source_status = "unavailable"
-    unavailable_snapshot.issue_source_last_good_at = None
-    unavailable_snapshot.issues = []
+    unavailable_snapshot = snapshot_of(available).model_copy(
+        update={
+            "repository_id": "repository:replacement",
+            "issue_source_status": "unavailable",
+            "issue_source_last_good_at": None,
+            "issues": (),
+        }
+    )
+    unavailable = available.model_copy(
+        update={
+            "repository_id": "repository:replacement",
+            "status": "unavailable",
+            "snapshot": unavailable_snapshot,
+        }
+    )
 
     store.replace_project(unavailable)
 
     accepted = store.checkpoint().projects[0]
     assert accepted.status == "unavailable"
-    assert snapshot_of(accepted).issues == []
+    assert snapshot_of(accepted).issues == ()
 
 
 def test_adapter_supplied_stale_collection_remains_authoritative() -> None:
     available = project("project:one", issue("I_one", "Old"))
     store = WorkspaceObservationStore(workspace(available))
-    stale = copy.deepcopy(available)
-    stale.status = "stale"
-    stale_snapshot = snapshot_of(stale)
-    stale_snapshot.issue_source_status = "stale"
-    stale_snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
-    stale_snapshot.issues[0] = issue("I_one", "Adapter last good")
+    stale_snapshot = snapshot_of(available).model_copy(
+        update={
+            "issue_source_status": "stale",
+            "issue_source_attempted_at": "2026-08-27T04:00:00Z",
+            "issues": (issue("I_one", "Adapter last good"),),
+        }
+    )
+    stale = available.model_copy(update={"status": "stale", "snapshot": stale_snapshot})
 
     store.replace_project(stale)
 
@@ -278,8 +305,10 @@ def test_change_reports_only_the_changed_project_qualified_issue() -> None:
         project("project:two", copy.deepcopy(duplicated)),
     )
     store = WorkspaceObservationStore(first)
-    changed = copy.deepcopy(first)
-    snapshot_of(changed.projects[0]).issues[0] = issue("I_shared", "Changed in one")
+    changed = workspace(
+        project("project:one", issue("I_shared", "Changed in one")),
+        project("project:two", copy.deepcopy(duplicated)),
+    )
 
     change = store.replace(changed)
 
@@ -312,8 +341,7 @@ def test_bound_run_record_change_reports_its_issue_key() -> None:
             issue_runs={"I_one": [observed_run.id]},
         )
     )
-    changed_run = copy.deepcopy(observed_run)
-    changed_run.state = "running"
+    changed_run = observed_run.model_copy(update={"state": "running"})
 
     change = store.replace_agent_runs([changed_run], {"I_one": [changed_run.id]})
 
@@ -333,8 +361,7 @@ def test_binding_transfer_reports_old_and_new_issue_keys() -> None:
             issue_runs={"I_one": [observed_run.id]},
         )
     )
-    transferred = copy.deepcopy(observed_run)
-    transferred.issue_id = "I_two"
+    transferred = observed_run.model_copy(update={"issue_id": "I_two"})
 
     change = store.replace_agent_runs([transferred], {"I_two": [transferred.id]})
 
@@ -352,8 +379,7 @@ def test_binding_removal_and_missing_issue_do_not_fabricate_issue_keys() -> None
             issue_runs={"I_one": [observed_run.id]},
         )
     )
-    missing = copy.deepcopy(observed_run)
-    missing.issue_id = "I_missing"
+    missing = observed_run.model_copy(update={"issue_id": "I_missing"})
 
     change = store.replace_agent_runs([missing], {"I_missing": [missing.id]})
 
@@ -374,18 +400,32 @@ def test_agent_run_observation_replaces_bindings_independently() -> None:
     assert change.issue_keys == frozenset({("project:one", "I_one")})
     assert change.agent_run_ids == frozenset({observed_run.id})
     assert result.rows[0].observed_runs == (observed_run,)
-    assert store.checkpoint().issue_runs == {"I_one": [observed_run.id]}
+    assert store.checkpoint().issue_runs == {"I_one": (observed_run.id,)}
 
 
 def test_diagnostics_are_project_qualified_without_exposing_store_state() -> None:
-    observed = project("project:one")
-    observed.diagnostics.append(Diagnostic("project:one", "warning", "project warning"))
-    snapshot = workspace(observed)
-    snapshot.diagnostics.append(Diagnostic("workspace", "warning", "workspace warning"))
+    observed = project("project:one").model_copy(
+        update={
+            "diagnostics": (
+                Diagnostic(
+                    source="project:one", severity="warning", message="project warning"
+                ),
+            )
+        }
+    )
+    snapshot = workspace(
+        observed,
+        diagnostics=[
+            Diagnostic(
+                source="workspace", severity="warning", message="workspace warning"
+            )
+        ],
+    )
     store = WorkspaceObservationStore(snapshot)
 
     diagnostics = store.diagnostics()
-    diagnostics[0].diagnostic.message = "mutated by caller"
+    with pytest.raises(pydantic.ValidationError):
+        diagnostics[0].diagnostic.message = "mutated by caller"  # ty: ignore[invalid-assignment]
 
     assert [entry.project_label for entry in diagnostics] == [None, "One"]
     assert [entry.diagnostic.message for entry in store.diagnostics()] == [
@@ -397,8 +437,9 @@ def test_diagnostics_are_project_qualified_without_exposing_store_state() -> Non
 def test_invalid_replacement_is_rejected_atomically() -> None:
     first = workspace(project("project:one", issue("I_one", "First")))
     store = WorkspaceObservationStore(first)
-    duplicated = copy.deepcopy(first)
-    duplicated.projects.append(copy.deepcopy(duplicated.projects[0]))
+    duplicated = first.model_copy(
+        update={"projects": (*first.projects, first.projects[0])}
+    )
 
     with pytest.raises(ValueError, match="Duplicate Project Identity"):
         store.replace(duplicated)
@@ -462,15 +503,15 @@ def test_partial_replacements_isolate_store_owned_state() -> None:
 
     store.replace_project(replacement_project)
     store.replace_agent_runs([replacement_run], replacement_bindings)
-    snapshot_of(replacement_project).issues[0] = issue("I_two", "Caller mutation")
-    replacement_run.state = "running"
+    # The published values are frozen; the caller's own binding map is not,
+    # and clearing it after publication must not reach the store.
     replacement_bindings["I_two"].clear()
 
     context = store.issue("I_two", project_id="project:one")
     assert context is not None
     assert context.issue.title == "Second"
     assert context.observed_runs[0].state == "waiting"
-    assert store.checkpoint().issue_runs == {"I_two": ["codex:two"]}
+    assert store.checkpoint().issue_runs == {"I_two": ("codex:two",)}
 
 
 def test_detail_for_refreshes_all_issue_and_project_run_fields() -> None:
@@ -583,11 +624,16 @@ def test_store_query_result_cannot_mutate_owned_observations() -> None:
 
     returned = store.query_issues()
     row = returned.rows[0]
-    row.project.display_label = "Caller Project"
-    # The Issue Profile itself is frozen, so a caller cannot mutate it; the
-    # remaining mutable observation values still must not reach the store.
-    snapshot_of(row.project).issues[0] = issue("I_one", "Caller Issue")
-    row.observed_runs[0].state = "running"
+    # Every observation value a query returns is frozen, so a caller cannot
+    # reach the store's owned state through one.
+    with pytest.raises(pydantic.ValidationError):
+        row.project.display_label = "Caller Project"  # ty: ignore[invalid-assignment]
+    with pytest.raises(TypeError):
+        snapshot_of(row.project).issues[0] = issue(  # ty: ignore[invalid-assignment]
+            "I_one", "Caller Issue"
+        )
+    with pytest.raises(pydantic.ValidationError):
+        row.observed_runs[0].state = "running"  # ty: ignore[invalid-assignment]
 
     current = store.query_issues().rows[0]
     checkpoint = store.checkpoint()

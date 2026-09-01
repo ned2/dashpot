@@ -51,9 +51,8 @@ model, and no profile field carries a default. The model also removes
 not dearer.
 
 Adjacent but source-shaped, staying beside (not inside) the profile:
-`IssueActivity` / `LinkedPullRequest` (model.py:26,33 — mutable today,
-deep-copied at issue_sources.py:79,103 and github_issues.py:173) join the
-observation family in §3. The lenient parsers `_label_colors` and
+`IssueActivity` / `LinkedPullRequest` (model.py — frozen with #68, their
+deep copies deleted) joined the observation family in §3. The lenient parsers `_label_colors` and
 `_issue_activity` (github_issues.py:405,441) stay hand-written: leniency is
 their contract.
 
@@ -116,36 +115,36 @@ models with immutable collections deliver #68's outcome and give the
 serialization seam (§5) typed input in one move; #68's aliasing tests land
 first as the safety net either way.
 
-| Value | Where | Today |
+Done with #68. The family froze as planned:
+
+| Value | Where | Now |
 | --- | --- | --- |
-| `Diagnostic`, `LinkedPullRequest`, `IssueActivity` | model.py:15,26,33 | mutable `slots=True`; `IssueActivity` mutated in place by its builder |
-| `ObservationTarget`, `Branch`, `ObservationTargetInventory` | model.py:45,58,85 | mutable; `Branch`'s real invariants live in its docstring |
-| `AgentRun` | model.py:98 | mutable, 13 fields, bare-`str` timestamps |
-| `ProjectSnapshot`, `ProjectObservation`, `WorkspaceSnapshot` | model.py:118,170,184 | mutable; the shapes `--json` and every read model consume |
-| `IssueSourceObservation`, `IssueSourceDiagnostic` | issue_sources.py:24,16 | mutable / frozen pair crossing the adapter boundary |
-| `_SourceObservation`, `_AgentObservation` | collect.py:235,270 | mutable by design (`elapsed_ms` assigned post hoc) — supply at construction instead |
-| `BranchObservation` | repository.py:374 | mutable command result |
-| `IssueBindingResult` | agent_bindings.py:9 | mutable `slots=True`; named directly in #68, whose note that its pass-through `agent_runs` field can be dropped once frozen applies here |
+| `Diagnostic`, `LinkedPullRequest`, `IssueActivity` | model.py | frozen `ObservationModel`; `IssueActivity` built in one construction |
+| `ObservationTarget`, `Branch`, `ObservationTargetInventory` | model.py | frozen `ObservationModel` |
+| `AgentRun` | model.py | frozen `ObservationModel` (timestamps still bare `str`) |
+| `ProjectSnapshot`, `ProjectObservation`, `WorkspaceSnapshot` | model.py | frozen `ObservationModel`; `to_jsonable` keeps the `--json` shape byte-identical (None fields omitted) |
+| `IssueSourceObservation`, `IssueSourceDiagnostic` | issue_sources.py | frozen `slots=True` pair — constructed from validated profiles, never parsed, so it stays a dataclass per ADR 0013 |
+| `_SourceObservation`, `_AgentObservation` | collect.py | frozen `slots=True`; `elapsed_ms` supplied via `dataclasses.replace` at the timing seam |
+| `BranchObservation` | repository.py | mutable command result (unchanged; adapter-internal, §6 family) |
+| `IssueBindingResult` | agent_bindings.py | frozen `slots=True`; the pass-through `agent_runs` field was dropped |
 
-Deepcopy pressure these mutabilities cause (deleted only behind aliasing
-tests, per #68): ~15 sites in `observation_store.py` (copy-in 101, 114, 152,
-185, 191; copy-out 212-296; checkpoint 362-365), `collect.py` 178, 534,
-602-610, 629, and the source-boundary copies in `issue_sources.py` 76-103.
-`_StoreState` (observation_store.py:58) is a frozen shell over mutable dicts
-and follows the family. The frozen-shell-over-mutable-payload wrappers
-`HookSessionObservation` (agents.py:666), `IssueContext`
-(observation_store.py:45), and `WorkspaceResolution` (workspace.py:31) become
-honest once their payloads freeze.
+The deepcopy guards those mutabilities forced are gone from
+`observation_store.py`, `collect.py`, and `issue_sources.py`, deleted behind
+the aliasing tests in `tests/test_observation_aliasing.py`; last-good
+retention keeps fresh containers (`tuple`, `FrozenDict`), never deep copies.
+`_StoreState` keeps one deliberately mutable dict (`issue_runs`, restored in
+place) with the reason recorded at the site. The frozen-shell wrappers
+`HookSessionObservation` (agents.py), `IssueContext` (observation_store.py),
+and `WorkspaceResolution` (workspace.py) are now honest.
 
-Two cautions for this family. A `frozen=True` model with a bare `dict`
-field is unhashable and its dict is still freely mutable in place — and
-the mapping fields here (`label_colors`, `issue_activity`, `issue_runs`)
-are exactly what `_checkpoint` deep-copies, so they take the shared
-frozen-mapping type, not `dict`. And Pydantic copies collections during
-validation, which makes #68's publish-then-mutate-the-caller's-input test
-pass almost for free — the aliasing tests must also mutate the
-*published* value's collections, or a bare `dict` field would pass the
-suite while reopening the hole.
+Two cautions this family honoured. A `frozen=True` model with a bare `dict`
+field is unhashable and its dict is still freely mutable in place — so the
+mapping fields (`label_colors`, `issue_activity`, `issue_runs`) take the
+shared `FrozenMapping` type from models.py, not `dict`. And Pydantic copies
+collections during validation, which makes the
+publish-then-mutate-the-caller's-input test pass almost for free — the
+aliasing tests therefore also mutate the *published* value's collections,
+so a bare `dict` field cannot pass the suite while reopening the hole.
 
 ## 4. Persisted configuration — Pydantic, after characterization
 
@@ -261,8 +260,8 @@ exemptions:
   `SessionListRow/Result` (session_list.py:57,73), `BranchListRow/Result`
   (branch_list.py:83,105), `WorktreeListRow/Result` (worktree_list.py:47,66),
   `IssueContext`, `ObservedDiagnostic` (observation_store.py:45,52),
-  `_ResolvedAnchor` (workspace.py:37), `ResolvedProject` (model.py:160 —
-  already the frozen/tuple exemplar the mutable observation values lack).
+  `_ResolvedAnchor` (workspace.py:37), `ResolvedProject` (model.py —
+  the frozen/tuple exemplar the observation values now match).
 - **UI-only values**: `ColumnSpec` (issue_table.py:244 — holds callables, so
   structurally not serializable), `SortTerm`, `IssueTableViewState`
   (issue_table.py:360,369 — its `__post_init__` validation is fine where it

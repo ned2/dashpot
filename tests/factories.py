@@ -17,6 +17,7 @@ from dashpot.agents import ProcessIdentity, session_directory, write_hook_record
 from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
+    Branch,
     Diagnostic,
     ObservationTarget,
     ProjectObservation,
@@ -319,6 +320,7 @@ def project(
     label: str | None = None,
     repository_id: str | None = None,
     targets: Sequence[ObservationTarget] | None = None,
+    branches: Sequence[Branch] | None = None,
     anchors: Sequence[str] | None = None,
     status: SourceStatus = "fresh",
     target_status: SourceStatus = "fresh",
@@ -348,6 +350,7 @@ def project(
             issues=list(issues),
             diagnostics=list(diagnostics),
             target_status=target_status,
+            branches=list(branches or []),
         )
     return ProjectObservation(
         project_id=project_id,

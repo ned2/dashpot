@@ -46,6 +46,7 @@ from dashpot.model import (
     ObservationTargetInventory,
     ProjectSnapshot,
     ResolvedProject,
+    TargetAvailability,
     WorkspaceSnapshot,
 )
 from dashpot.repository import BranchObservation, observe_github_repository_identity
@@ -59,22 +60,31 @@ ISSUE_FIXTURE = json.loads(
 )
 
 
-def observation_target(root: str = "/repo") -> ObservationTarget:
+def observation_target(
+    root: str = "/repo",
+    *,
+    branch: str | None = "main",
+    dirty: bool | None = False,
+    availability: TargetAvailability = "available",
+    diagnostics: Sequence[Diagnostic] = (),
+) -> ObservationTarget:
     return ObservationTarget(
-        root,
-        "abc123",
-        "main",
-        False,
-        False,
-        "available",
-        2,
-        [],
-        "main",
+        path=root,
+        head="abc123",
+        branch=branch,
+        detached=False,
+        dirty=dirty,
+        availability=availability,
+        elapsed_ms=2,
+        diagnostics=tuple(diagnostics),
+        role="main",
     )
 
 
 def target_inventory(root: str = "/repo") -> ObservationTargetInventory:
-    return ObservationTargetInventory([observation_target(root)], [])
+    return ObservationTargetInventory(
+        targets=[observation_target(root)], diagnostics=[]
+    )
 
 
 def resolved_project(
@@ -91,10 +101,13 @@ def resolved_project(
 
 
 def project_snapshot(
-    root: str = "/repo", issues: list[IssueProfile] | None = None
+    root: str = "/repo",
+    issues: list[IssueProfile] | None = None,
+    *,
+    project_id: str = "project:example",
 ) -> ProjectSnapshot:
     return ProjectSnapshot(
-        project_id="project:example",
+        project_id=project_id,
         display_label="Example",
         repository_id="repository:example",
         collected_at="2026-08-24T15:00:00Z",
@@ -155,7 +168,9 @@ class PaletteSource(FakeSource):
             issue().id: IssueActivity(
                 comment_count=2,
                 linked_pull_requests=[
-                    LinkedPullRequest(41, "https://example.test/pull/41", "merged")
+                    LinkedPullRequest(
+                        number=41, url="https://example.test/pull/41", state="merged"
+                    )
                 ],
             )
         }
@@ -243,10 +258,10 @@ class ProjectCollectorTests(unittest.TestCase):
         inventory = collector.observe_targets()
 
         self.assertEqual([[Path("/repo")], [Path("/repo")]], anchors_seen)
-        self.assertEqual([branch], snapshot.branches)
+        self.assertEqual((branch,), snapshot.branches)
         self.assertEqual("2026-08-27T01:00:00Z", snapshot.fetched_at)
         self.assertEqual("refs/remotes/origin/main", snapshot.integration_ref)
-        self.assertEqual([branch], inventory.branches)
+        self.assertEqual((branch,), inventory.branches)
         self.assertEqual("2026-08-27T01:00:00Z", inventory.fetched_at)
         self.assertEqual("refs/remotes/origin/main", inventory.integration_ref)
         payload = jsonable(snapshot)
@@ -283,7 +298,7 @@ class ProjectCollectorTests(unittest.TestCase):
         snapshot = collector.refresh()
         payload = jsonable(snapshot)
 
-        self.assertEqual([], snapshot.issues)
+        self.assertEqual((), snapshot.issues)
         self.assertEqual("project:example", payload["projectId"])
         self.assertEqual("Example", payload["displayLabel"])
         self.assertEqual("repository:example", payload["repositoryId"])
@@ -323,21 +338,21 @@ class ProjectCollectorTests(unittest.TestCase):
             "/clone-one",
         )
         target = ObservationTarget(
-            "/clone-two-linked",
-            "def456",
-            "feature",
-            False,
-            True,
-            "available",
-            7,
-            [],
-            "linked",
+            path="/clone-two-linked",
+            head="def456",
+            branch="feature",
+            detached=False,
+            dirty=True,
+            availability="available",
+            elapsed_ms=7,
+            diagnostics=[],
+            role="linked",
         )
         observed_anchors: list[Path] = []
 
         def observe_targets(anchors):
             observed_anchors.extend(anchors)
-            return ObservationTargetInventory([target], [])
+            return ObservationTargetInventory(targets=[target], diagnostics=[])
 
         collector = ProjectCollector(
             project,
@@ -348,7 +363,7 @@ class ProjectCollectorTests(unittest.TestCase):
         snapshot = collector.refresh()
 
         self.assertEqual([Path("/clone-one"), Path("/clone-two")], observed_anchors)
-        self.assertEqual([target], snapshot.observation_targets)
+        self.assertEqual((target,), snapshot.observation_targets)
         self.assertEqual(1, len(snapshot.issues))
         self.assertEqual(1, source.collection_count)
         self.assertEqual(
@@ -357,21 +372,24 @@ class ProjectCollectorTests(unittest.TestCase):
         )
 
     def test_unavailable_target_does_not_degrade_issue_source(self) -> None:
-        target = observation_target()
-        target.availability = "unavailable"
-        target.dirty = None
-        target.diagnostics.append(
-            Diagnostic(
-                "target:/repo",
-                "warning",
-                "target unavailable",
-                "target-inaccessible",
-            )
+        target = observation_target(
+            availability="unavailable",
+            dirty=None,
+            diagnostics=[
+                Diagnostic(
+                    source="target:/repo",
+                    severity="warning",
+                    message="target unavailable",
+                    code="target-inaccessible",
+                )
+            ],
         )
         collector = ProjectCollector(
             resolved_project(),
             FakeSource(),
-            target_observer=lambda _anchors: ObservationTargetInventory([target], []),
+            target_observer=lambda _anchors: ObservationTargetInventory(
+                targets=[target], diagnostics=[]
+            ),
         )
 
         snapshot = collector.refresh()
@@ -393,7 +411,7 @@ class ProjectCollectorTests(unittest.TestCase):
 
         self.assertEqual("fresh", snapshot.issue_source_status)
         self.assertEqual(1, len(snapshot.issues))
-        self.assertEqual([], snapshot.observation_targets)
+        self.assertEqual((), snapshot.observation_targets)
         self.assertEqual("target-discovery", snapshot.diagnostics[0].code)
 
 
@@ -524,8 +542,7 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual([], diagnostics)
 
     def test_linked_worktree_record_is_associated_with_its_target(self) -> None:
-        linked = observation_target("/repo-linked")
-        linked.branch = "feature"
+        linked = observation_target("/repo-linked", branch="feature")
         self.write(
             "linked",
             "running",
@@ -1443,8 +1460,7 @@ class WorkObserverTests(unittest.TestCase):
 
     def test_unavailable_target_work_records_are_not_read(self) -> None:
         self.record_work(self.worktree)
-        target = observation_target(str(self.worktree))
-        target.availability = "unavailable"
+        target = observation_target(str(self.worktree), availability="unavailable")
 
         runs, diagnostics = observe_agent_runs(
             {"project:example": [target]},
@@ -1467,13 +1483,13 @@ class FakeProjectCollector:
             status=self.snapshot.issue_source_status,
             attempted_at=self.snapshot.issue_source_attempted_at,
             last_good_at=self.snapshot.issue_source_last_good_at,
-            issues=copy.deepcopy(self.snapshot.issues),
-            diagnostics=[],
+            issues=tuple(self.snapshot.issues),
+            diagnostics=(),
         )
 
     def observe_targets(self) -> ObservationTargetInventory:
         return ObservationTargetInventory(
-            copy.deepcopy(self.snapshot.observation_targets), []
+            targets=copy.deepcopy(self.snapshot.observation_targets), diagnostics=[]
         )
 
 
@@ -1498,14 +1514,16 @@ class ObservationCoordinatorTests(unittest.TestCase):
     def test_workspace_correlates_run_to_transferred_issue_by_identity(self) -> None:
         project_a = resolved_project(self.anchor("project-a"), "project-a")
         project_b = resolved_project(self.anchor("project-b"), "project-b")
-        snapshot_a = project_snapshot(self.anchor("project-a"), [])
-        snapshot_a.project_id = "project-a"
+        snapshot_a = project_snapshot(
+            self.anchor("project-a"), [], project_id="project-a"
+        )
         transferred_payload = issue_payload("new/repository#70")
         transferred_payload["id"] = "I_stable"
         transferred_payload["projectId"] = "project-b"
         transferred = conform_issue(transferred_payload)
-        snapshot_b = project_snapshot(self.anchor("project-b"), [transferred])
-        snapshot_b.project_id = "project-b"
+        snapshot_b = project_snapshot(
+            self.anchor("project-b"), [transferred], project_id="project-b"
+        )
         run = AgentRun(
             id="codex-session:transfer",
             harness="codex",
@@ -1530,8 +1548,8 @@ class ObservationCoordinatorTests(unittest.TestCase):
 
         snapshot = collector.refresh()
 
-        self.assertEqual([run], snapshot.agent_runs)
-        self.assertEqual({"I_stable": [run.id]}, snapshot.issue_runs)
+        self.assertEqual((run,), snapshot.agent_runs)
+        self.assertEqual({"I_stable": (run.id,)}, snapshot.issue_runs)
 
     def test_unbound_hinted_run_stays_unbound_without_promotion(self) -> None:
         current_project = resolved_project(self.anchor("project-a"), "project-a")
@@ -1539,8 +1557,9 @@ class ObservationCoordinatorTests(unittest.TestCase):
         current_payload["id"] = "I_observed"
         current_payload["projectId"] = "project-a"
         current_issue = conform_issue(current_payload)
-        current_snapshot = project_snapshot(self.anchor("project-a"), [current_issue])
-        current_snapshot.project_id = "project-a"
+        current_snapshot = project_snapshot(
+            self.anchor("project-a"), [current_issue], project_id="project-a"
+        )
         hinted_run = AgentRun(
             id="codex-session:hinted",
             harness="codex",
@@ -1561,9 +1580,9 @@ class ObservationCoordinatorTests(unittest.TestCase):
 
         snapshot = collector.refresh()
 
-        self.assertEqual({"I_observed": []}, snapshot.issue_runs)
+        self.assertEqual({"I_observed": ()}, snapshot.issue_runs)
         self.assertIsNone(snapshot.agent_runs[0].issue_id)
-        self.assertEqual([], snapshot.diagnostics)
+        self.assertEqual((), snapshot.diagnostics)
 
     def test_grouped_clone_target_collects_project_once(self) -> None:
         clone_one = self.anchor("clone-one")
@@ -1635,7 +1654,7 @@ class ObservationCoordinatorTests(unittest.TestCase):
 
         self.assertEqual(1, len(snapshot.projects))
         self.assertIsNotNone(snapshot.projects[0].snapshot)
-        self.assertEqual([], snapshot.agent_runs)
+        self.assertEqual((), snapshot.agent_runs)
         self.assertEqual("agent-observation", snapshot.diagnostics[0].code)
 
     def test_overlapping_refreshes_are_serialized(self) -> None:

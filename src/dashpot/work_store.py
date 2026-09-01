@@ -109,10 +109,10 @@ class WorkStore:
             except (OSError, json.JSONDecodeError, ValueError) as exc:
                 diagnostics.append(
                     Diagnostic(
-                        f"work:{path}",
-                        "warning",
-                        f"Cannot read Work Store record {path}: {exc}",
-                        "work-store-malformed",
+                        source=f"work:{path}",
+                        severity="warning",
+                        message=f"Cannot read Work Store record {path}: {exc}",
+                        code="work-store-malformed",
                     )
                 )
         return work, diagnostics

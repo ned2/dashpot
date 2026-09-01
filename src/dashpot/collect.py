@@ -4,10 +4,11 @@ import concurrent.futures
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
+
+from pydantic import ValidationError
 
 from .agent_bindings import bind_issue_runs
 from .agents import lock_holder_probe, observe_agent_runs
@@ -108,6 +109,12 @@ class ObservationScheduler(Protocol):
     ) -> Sequence[ObservationKey]: ...
 
 
+# What an observation seam may raise: adapter failures, and the strict
+# frozen models rejecting a malformed observation — either becomes a
+# Diagnostic rather than failing the whole refresh.
+OBSERVATION_FAILURES = (OSError, RuntimeError, ValidationError)
+
+
 class ProjectObserver(Protocol):
     """What the coordinator asks of a per-Project collector."""
 
@@ -141,8 +148,8 @@ class ProjectCollector:
         inventory = self.target_observer(anchors)
         branches = self.branch_observer(anchors)
         return ObservationTargetInventory(
-            inventory.targets,
-            [*inventory.diagnostics, *branches.diagnostics],
+            targets=inventory.targets,
+            diagnostics=[*inventory.diagnostics, *branches.diagnostics],
             branches=branches.branches,
             fetched_at=branches.fetched_at,
             integration_ref=branches.integration_ref,
@@ -155,10 +162,13 @@ class ProjectCollector:
         try:
             target_inventory = self.observe_targets()
             target_status: SourceStatus = "fresh"
-        except (OSError, RuntimeError) as exc:
+        except OBSERVATION_FAILURES as exc:
             target_status = "unavailable"
             target_inventory = ObservationTargetInventory(
-                [], [_target_discovery_diagnostic(self.project.project_id, exc)]
+                targets=[],
+                diagnostics=[
+                    _target_discovery_diagnostic(self.project.project_id, exc)
+                ],
             )
         diagnostics = list(target_inventory.diagnostics)
         diagnostics[0:0] = _issue_diagnostics(issue_observation)
@@ -173,8 +183,8 @@ class ProjectCollector:
             observation_targets=target_inventory.targets,
             issues=issue_observation.issues,
             diagnostics=diagnostics,
-            label_colors=dict(issue_observation.label_colors),
-            issue_activity=deepcopy(issue_observation.issue_activity),
+            label_colors=issue_observation.label_colors,
+            issue_activity=issue_observation.issue_activity,
             target_status=target_status,
             target_attempted_at=attempted_at,
             target_last_good_at=(attempted_at if target_status == "fresh" else None),
@@ -231,20 +241,20 @@ def create_project_collector(
     )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class _SourceObservation:
     """The latest accepted result for one Project half (Issues or targets)."""
 
     status: SourceStatus
     attempted_at: str
     last_good_at: str | None
-    data: list[Any]
-    diagnostics: list[Diagnostic]
-    project_diagnostics: list[Diagnostic]
+    data: tuple[Any, ...]
+    diagnostics: tuple[Diagnostic, ...]
+    project_diagnostics: tuple[Diagnostic, ...]
     elapsed_ms: int
-    label_colors: dict[str, str] = field(default_factory=dict)
-    issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
-    branches: list[Branch] = field(default_factory=list)
+    label_colors: Mapping[str, str] = field(default_factory=dict)
+    issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
+    branches: tuple[Branch, ...] = ()
     fetched_at: str | None = None
     integration_ref: str | None = None
 
@@ -260,17 +270,17 @@ class _SourceObservation:
             self,
             status="stale",
             attempted_at=attempted_at,
-            diagnostics=[] if project_failure else [diagnostic],
-            project_diagnostics=[diagnostic] if project_failure else [],
+            diagnostics=() if project_failure else (diagnostic,),
+            project_diagnostics=(diagnostic,) if project_failure else (),
             elapsed_ms=0,
         )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class _AgentObservation:
-    agent_runs: list[AgentRun]
-    issue_runs: dict[str, list[str]]
-    diagnostics: list[Diagnostic]
+    agent_runs: tuple[AgentRun, ...]
+    issue_runs: Mapping[str, tuple[str, ...]]
+    diagnostics: tuple[Diagnostic, ...]
     elapsed_ms: int = 0
 
 
@@ -369,7 +379,11 @@ class ObservationCoordinator:
             started = time.monotonic()
             if key.kind == "agent-runs":
                 agent = self._observe_agent_runs()
-                agent.elapsed_ms = round((time.monotonic() - started) * 1000)
+                # Timing belongs to this seam, so it is stamped by rebuilding
+                # the frozen value rather than assigning into it.
+                agent = replace(
+                    agent, elapsed_ms=round((time.monotonic() - started) * 1000)
+                )
                 with self._state_lock:
                     if self._generations.get(key) != ticket.generation:
                         return ObservationOutcome(ticket, accepted=False)
@@ -382,7 +396,9 @@ class ObservationCoordinator:
             with self._state_lock:
                 previous = self._observations.get(key)
             observation = self._observe_project_half(key, previous)
-            observation.elapsed_ms = round((time.monotonic() - started) * 1000)
+            observation = replace(
+                observation, elapsed_ms=round((time.monotonic() - started) * 1000)
+            )
             with self._state_lock:
                 if self._generations.get(key) != ticket.generation:
                     return ObservationOutcome(ticket, accepted=False)
@@ -494,30 +510,30 @@ class ObservationCoordinator:
         attempted_at = self.clock()
         try:
             collector = self._collector(project)
-        except (OSError, RuntimeError) as exc:
+        except OBSERVATION_FAILURES as exc:
             return self._failed(
                 previous,
                 attempted_at,
                 Diagnostic(
-                    f"project:{project.project_id}",
-                    "error",
-                    str(exc),
-                    "project-collection",
+                    source=f"project:{project.project_id}",
+                    severity="error",
+                    message=str(exc),
+                    code="project-collection",
                 ),
                 project_failure=True,
             )
         if key.kind == "issues":
             try:
                 issue_observation = collector.observe_issues()
-            except (OSError, RuntimeError) as exc:
+            except OBSERVATION_FAILURES as exc:
                 return self._failed(
                     previous,
                     attempted_at,
                     Diagnostic(
-                        f"project:{project.project_id}",
-                        "error",
-                        f"Cannot collect Issues: {exc}",
-                        "issue-collection",
+                        source=f"project:{project.project_id}",
+                        severity="error",
+                        message=f"Cannot collect Issues: {exc}",
+                        code="issue-collection",
                     ),
                     project_failure=False,
                 )
@@ -526,15 +542,15 @@ class ObservationCoordinator:
                 attempted_at=issue_observation.attempted_at,
                 last_good_at=issue_observation.last_good_at,
                 data=issue_observation.issues,
-                diagnostics=_issue_diagnostics(issue_observation),
-                project_diagnostics=[],
+                diagnostics=tuple(_issue_diagnostics(issue_observation)),
+                project_diagnostics=(),
                 elapsed_ms=0,
-                label_colors=dict(issue_observation.label_colors),
-                issue_activity=deepcopy(issue_observation.issue_activity),
+                label_colors=issue_observation.label_colors,
+                issue_activity=issue_observation.issue_activity,
             )
         try:
             inventory = collector.observe_targets()
-        except (OSError, RuntimeError) as exc:
+        except OBSERVATION_FAILURES as exc:
             return self._failed(
                 previous,
                 attempted_at,
@@ -545,11 +561,11 @@ class ObservationCoordinator:
             status="fresh",
             attempted_at=attempted_at,
             last_good_at=attempted_at,
-            data=inventory.targets,
-            diagnostics=list(inventory.diagnostics),
-            project_diagnostics=[],
+            data=tuple(inventory.targets),
+            diagnostics=tuple(inventory.diagnostics),
+            project_diagnostics=(),
             elapsed_ms=0,
-            branches=list(inventory.branches),
+            branches=tuple(inventory.branches),
             fetched_at=inventory.fetched_at,
             integration_ref=inventory.integration_ref,
         )
@@ -570,9 +586,9 @@ class ObservationCoordinator:
             status="unavailable",
             attempted_at=attempted_at,
             last_good_at=None,
-            data=[],
-            diagnostics=[] if project_failure else [diagnostic],
-            project_diagnostics=[diagnostic] if project_failure else [],
+            data=(),
+            diagnostics=() if project_failure else (diagnostic,),
+            project_diagnostics=(diagnostic,) if project_failure else (),
             elapsed_ms=0,
         )
 
@@ -599,34 +615,36 @@ class ObservationCoordinator:
                 issue_source_status=issues.status,
                 issue_source_attempted_at=issues.attempted_at,
                 issue_source_last_good_at=issues.last_good_at,
-                observation_targets=deepcopy(targets.data),
-                issues=deepcopy(issues.data),
+                observation_targets=targets.data,
+                issues=issues.data,
                 diagnostics=[*issues.diagnostics, *targets.diagnostics],
-                label_colors=dict(issues.label_colors),
-                issue_activity=deepcopy(issues.issue_activity),
+                label_colors=issues.label_colors,
+                issue_activity=issues.issue_activity,
                 target_status=targets.status,
                 target_attempted_at=targets.attempted_at,
                 target_last_good_at=targets.last_good_at,
-                branches=deepcopy(targets.branches),
+                branches=targets.branches,
                 fetched_at=targets.fetched_at,
                 integration_ref=targets.integration_ref,
             )
         return ProjectObservation(
-            project.project_id,
-            project.display_label,
-            project.repository_id,
-            list(project.workspaces),
-            list(project.anchors),
-            project.primary_anchor,
-            issues.status,
-            elapsed_ms,
-            snapshot,
-            project_diagnostics,
+            project_id=project.project_id,
+            display_label=project.display_label,
+            repository_id=project.repository_id,
+            workspaces=project.workspaces,
+            anchors=project.anchors,
+            primary_anchor=project.primary_anchor,
+            status=issues.status,
+            elapsed_ms=elapsed_ms,
+            snapshot=snapshot,
+            diagnostics=project_diagnostics,
         )
 
     def _observe_agent_runs(self) -> _AgentObservation:
+        # Project Observations are frozen, so sharing them outside the lock
+        # only needs a snapshot of the mapping itself.
         with self._state_lock:
-            published = deepcopy(self._composed)
+            published = dict(self._composed)
         targets_by_project = {
             project_id: observation.snapshot.observation_targets
             for project_id, observation in published.items()
@@ -634,14 +652,14 @@ class ObservationCoordinator:
         }
         try:
             agent_runs, agent_diagnostics = self.agent_observer(targets_by_project)
-        except (OSError, RuntimeError) as exc:
+        except OBSERVATION_FAILURES as exc:
             agent_runs = []
             agent_diagnostics = [
                 Diagnostic(
-                    "workspace",
-                    "warning",
-                    f"Cannot observe Agent Runs: {exc}",
-                    "agent-observation",
+                    source="workspace",
+                    severity="warning",
+                    message=f"Cannot observe Agent Runs: {exc}",
+                    code="agent-observation",
                 )
             ]
         # Projects not yet composed take part in binding as unobserved so a
@@ -652,9 +670,9 @@ class ObservationCoordinator:
         ]
         binding = bind_issue_runs(binding_projects, agent_runs)
         return _AgentObservation(
-            binding.agent_runs,
+            tuple(agent_runs),
             binding.issue_runs,
-            [*self.diagnostics, *agent_diagnostics, *binding.diagnostics],
+            (*self.diagnostics, *agent_diagnostics, *binding.diagnostics),
         )
 
 
@@ -710,16 +728,16 @@ class SnapshotScheduler:
 
 def _pending_project(project: ResolvedProject) -> ProjectObservation:
     return ProjectObservation(
-        project.project_id,
-        project.display_label,
-        project.repository_id,
-        list(project.workspaces),
-        list(project.anchors),
-        project.primary_anchor,
-        "unavailable",
-        0,
-        None,
-        [],
+        project_id=project.project_id,
+        display_label=project.display_label,
+        repository_id=project.repository_id,
+        workspaces=project.workspaces,
+        anchors=project.anchors,
+        primary_anchor=project.primary_anchor,
+        status="unavailable",
+        elapsed_ms=0,
+        snapshot=None,
+        diagnostics=[],
     )
 
 
@@ -728,10 +746,10 @@ def _issue_diagnostics(
 ) -> list[Diagnostic]:
     return [
         Diagnostic(
-            diagnostic.source,
-            diagnostic.severity,
-            diagnostic.message,
-            diagnostic.code,
+            source=diagnostic.source,
+            severity=diagnostic.severity,
+            message=diagnostic.message,
+            code=diagnostic.code,
         )
         for diagnostic in observation.diagnostics
     ]
@@ -739,10 +757,10 @@ def _issue_diagnostics(
 
 def _target_discovery_diagnostic(project_id: str, exc: BaseException) -> Diagnostic:
     return Diagnostic(
-        f"project:{project_id}",
-        "warning",
-        f"Cannot discover Observation Targets: {exc}",
-        "target-discovery",
+        source=f"project:{project_id}",
+        severity="warning",
+        message=f"Cannot discover Observation Targets: {exc}",
+        code="target-discovery",
     )
 
 

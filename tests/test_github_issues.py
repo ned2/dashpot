@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import pydantic
+
 from dashpot.commands import CommandResult
 from dashpot.github_issues import (
     GitHubIssueNormalizationError,
@@ -473,7 +475,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         self.assertEqual("fresh", observation.status)
         activity = observation.issue_activity[observation.issues[0].id]
         self.assertEqual(0, activity.comment_count)
-        self.assertEqual([], activity.linked_pull_requests)
+        self.assertEqual((), activity.linked_pull_requests)
 
         bare = raw_fixture()
         del bare["comments"]
@@ -540,7 +542,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
                 self.assertEqual("unavailable", observation.status)
                 self.assertEqual(expected_code, observation.diagnostics[0].code)
 
-    def test_failure_retains_a_deep_copy_of_last_good_issues(self) -> None:
+    def test_failure_retains_last_good_issues_isolated_from_the_caller(self) -> None:
         runner = SequenceRunner(
             [
                 completed(issue_page([raw_fixture()])),
@@ -552,10 +554,18 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"],
         )
         fresh = github.refresh()
-        # The profile is frozen, so a caller can only swap a list element.
-        fresh.issues[0] = normalize(dict(raw_fixture(), title="caller mutation"))
-        fresh.label_colors["enhancement"] = "000000"
-        fresh.issue_activity[fresh.issues[0].id].comment_count = 99
+        # The whole observation is frozen: every caller mutation is rejected,
+        # so the retained last-good values need no defensive copies.
+        # Each ty ignore silences the static rejection of exactly the
+        # runtime mutation this test proves is refused.
+        with self.assertRaises(TypeError):
+            fresh.issues[0] = normalize(  # ty: ignore[invalid-assignment]
+                dict(raw_fixture(), title="caller mutation")
+            )
+        with self.assertRaises(TypeError):
+            fresh.label_colors["enhancement"] = "000000"  # ty: ignore[invalid-assignment]
+        with self.assertRaises(pydantic.ValidationError):
+            fresh.issue_activity[fresh.issues[0].id].comment_count = 99  # ty: ignore[invalid-assignment]
 
         stale = github.refresh()
 
@@ -582,7 +592,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = source(SequenceRunner([completed(response)])).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
         self.assertEqual("github-permission", observation.diagnostics[0].code)
 
     def test_malformed_json_is_a_structured_diagnostic(self) -> None:
@@ -656,14 +666,14 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = source(runner).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
         self.assertEqual("github-profile", observation.diagnostics[0].code)
 
     def test_empty_repository_is_a_fresh_empty_collection(self) -> None:
         observation = source(SequenceRunner([completed(issue_page([]))])).refresh()
 
         self.assertEqual("fresh", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
 
 
 if __name__ == "__main__":

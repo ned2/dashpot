@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
@@ -65,7 +64,7 @@ class _StoreState:
     branches: dict[tuple[str, str], Branch]
     agent_runs: dict[str, AgentRun]
     issue_runs: dict[str, list[str]]
-    diagnostics: list[Diagnostic]
+    diagnostics: tuple[Diagnostic, ...]
 
 
 class WorkspaceObservationStore:
@@ -82,7 +81,7 @@ class WorkspaceObservationStore:
             branches={},
             agent_runs={},
             issue_runs={},
-            diagnostics=[],
+            diagnostics=(),
         )
         if snapshot is not None:
             self.replace(snapshot)
@@ -98,11 +97,10 @@ class WorkspaceObservationStore:
     def replace(self, snapshot: WorkspaceSnapshot) -> StoreChange:
         """Atomically accept a complete collector checkpoint."""
         before = self._state
-        incoming = deepcopy(snapshot)
 
         accepted_projects: list[ProjectObservation] = []
         retained_issue_ids: set[str] = set()
-        for project in incoming.projects:
+        for project in snapshot.projects:
             accepted, retained = self._preserve_last_good(project, before.projects)
             accepted_projects.append(accepted)
             retained_issue_ids.update(retained)
@@ -110,8 +108,12 @@ class WorkspaceObservationStore:
         issues = _issues_by_project(projects)
         observation_targets = _targets_by_project(projects)
         branches = _branches_by_project(projects)
-        agent_runs = _agent_runs_by_id(incoming.agent_runs)
-        issue_runs = deepcopy(incoming.issue_runs)
+        agent_runs = _agent_runs_by_id(snapshot.agent_runs)
+        # The store owns its binding index and restore writes into it, so the
+        # frozen snapshot mapping is expanded into fresh mutable containers.
+        issue_runs = {
+            issue_id: list(run_ids) for issue_id, run_ids in snapshot.issue_runs.items()
+        }
         _restore_retained_issue_runs(
             issue_runs,
             agent_runs,
@@ -122,15 +124,15 @@ class WorkspaceObservationStore:
         return self._commit(
             _StoreState(
                 revision=before.revision,
-                collected_at=incoming.collected_at,
-                elapsed_ms=incoming.elapsed_ms,
+                collected_at=snapshot.collected_at,
+                elapsed_ms=snapshot.elapsed_ms,
                 projects=projects,
                 issues=issues,
                 observation_targets=observation_targets,
                 branches=branches,
                 agent_runs=agent_runs,
                 issue_runs=issue_runs,
-                diagnostics=incoming.diagnostics,
+                diagnostics=tuple(snapshot.diagnostics),
             )
         )
 
@@ -147,9 +149,7 @@ class WorkspaceObservationStore:
         produced this publish as the Workspace's latest collection metadata.
         """
         before = self._state
-        accepted, _retained = self._preserve_last_good(
-            deepcopy(observation), before.projects
-        )
+        accepted, _retained = self._preserve_last_good(observation, before.projects)
         projects = dict(before.projects)
         projects[accepted.project_id] = accepted
         issues = _issues_by_project(projects)
@@ -182,13 +182,13 @@ class WorkspaceObservationStore:
         replaced when given; ``None`` leaves the current ones in place.
         """
         before = self._state
-        accepted_agent_runs = _agent_runs_by_id(deepcopy(agent_runs))
+        accepted_agent_runs = _agent_runs_by_id(agent_runs)
         accepted_issue_runs = {
             issue_id: list(run_ids) for issue_id, run_ids in issue_runs.items()
         }
         updates = _metadata_updates(before, collected_at, elapsed_ms)
         if diagnostics is not None:
-            updates["diagnostics"] = deepcopy(list(diagnostics))
+            updates["diagnostics"] = tuple(diagnostics)
 
         return self._commit(
             replace(
@@ -209,7 +209,7 @@ class WorkspaceObservationStore:
             query=query,
             revision=state.revision,
         )
-        return deepcopy(result)
+        return result
 
     def query_sessions(self) -> SessionListResult:
         """Query every active Agent Session, with its Project and Issue joined."""
@@ -221,7 +221,7 @@ class WorkspaceObservationStore:
             issue_runs=state.issue_runs,
             revision=state.revision,
         )
-        return deepcopy(result)
+        return result
 
     def query_worktrees(self) -> WorktreeListResult:
         """Query every observed Observation Target with its located sessions."""
@@ -232,7 +232,7 @@ class WorkspaceObservationStore:
             agent_runs=state.agent_runs,
             revision=state.revision,
         )
-        return deepcopy(result)
+        return result
 
     def query_branches(self) -> BranchListResult:
         """Query every observed Branch by name, with its refs and locations joined."""
@@ -244,15 +244,14 @@ class WorkspaceObservationStore:
             agent_runs=state.agent_runs,
             revision=state.revision,
         )
-        return deepcopy(result)
+        return result
 
     def projects(self) -> tuple[ProjectObservation, ...]:
         """Every observed Project, in acceptance order."""
-        return tuple(deepcopy(project) for project in self._state.projects.values())
+        return tuple(self._state.projects.values())
 
     def project(self, project_id: str) -> ProjectObservation | None:
-        project = self._state.projects.get(project_id)
-        return deepcopy(project) if project is not None else None
+        return self._state.projects.get(project_id)
 
     def issue(
         self,
@@ -268,13 +267,12 @@ class WorkspaceObservationStore:
         ]
         if len(contexts) != 1:
             return None
-        return deepcopy(contexts[0])
+        return contexts[0]
 
     def detail_for(self, row: IssueListRow) -> IssueListRow | None:
         """Resolve a queried row's identity against the current state."""
         state = self._state
-        context = _issue_detail(state, row, row.issue) if row.kind == "issue" else None
-        return deepcopy(context)
+        return _issue_detail(state, row, row.issue) if row.kind == "issue" else None
 
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
         state = self._state
@@ -289,7 +287,7 @@ class WorkspaceObservationStore:
                 ObservedDiagnostic(diagnostic, project.display_label)
                 for diagnostic in diagnostics
             )
-        return deepcopy(tuple(entries))
+        return tuple(entries)
 
     def checkpoint(self) -> WorkspaceSnapshot:
         """Return a detached serializable view of the latest accepted state."""
@@ -310,7 +308,7 @@ class WorkspaceObservationStore:
         retained_issue_ids = frozenset(issue.id for issue in previous.snapshot.issues)
         if incoming.snapshot is None and incoming.status == "unavailable":
             return (
-                replace(incoming, snapshot=deepcopy(previous.snapshot)),
+                incoming.model_copy(update={"snapshot": previous.snapshot}),
                 retained_issue_ids,
             )
         if (
@@ -318,14 +316,17 @@ class WorkspaceObservationStore:
             and incoming.snapshot.issue_source_status == "unavailable"
             and previous.snapshot.issue_source_last_good_at is not None
         ):
-            snapshot = replace(
-                incoming.snapshot,
-                issue_source_status="stale",
-                issue_source_last_good_at=(previous.snapshot.issue_source_last_good_at),
-                issues=deepcopy(previous.snapshot.issues),
+            snapshot = incoming.snapshot.model_copy(
+                update={
+                    "issue_source_status": "stale",
+                    "issue_source_last_good_at": (
+                        previous.snapshot.issue_source_last_good_at
+                    ),
+                    "issues": previous.snapshot.issues,
+                }
             )
             return (
-                replace(incoming, status="stale", snapshot=snapshot),
+                incoming.model_copy(update={"status": "stale", "snapshot": snapshot}),
                 retained_issue_ids,
             )
         return incoming, frozenset[str]()
@@ -350,13 +351,14 @@ def _metadata_updates(
 
 
 def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
+    # Every value is frozen, so a checkpoint is detached by construction.
     return WorkspaceSnapshot(
         collected_at=state.collected_at,
         elapsed_ms=state.elapsed_ms,
-        projects=deepcopy(list(state.projects.values())),
-        agent_runs=deepcopy(list(state.agent_runs.values())),
-        issue_runs=deepcopy(state.issue_runs),
-        diagnostics=deepcopy(state.diagnostics),
+        projects=tuple(state.projects.values()),
+        agent_runs=tuple(state.agent_runs.values()),
+        issue_runs=state.issue_runs,
+        diagnostics=state.diagnostics,
     )
 
 
@@ -460,7 +462,7 @@ def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
 
 def _workspace_metadata(
     state: _StoreState,
-) -> tuple[str, int, list[Diagnostic]]:
+) -> tuple[str, int, tuple[Diagnostic, ...]]:
     return state.collected_at, state.elapsed_ms, state.diagnostics
 
 

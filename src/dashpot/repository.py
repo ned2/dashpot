@@ -5,7 +5,7 @@ import re
 import stat
 import time
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -117,16 +117,16 @@ def lock_diagnostic(
         return None
     if holder == "gone":
         return Diagnostic(
-            f"target:{path}",
-            "warning",
-            f"Observation Target is locked by a process that has exited: {reason}",
-            "target-locked-stale",
+            source=f"target:{path}",
+            severity="warning",
+            message=f"Observation Target is locked by a process that has exited: {reason}",
+            code="target-locked-stale",
         )
     return Diagnostic(
-        f"target:{path}",
-        "info",
-        f"Observation Target is locked: {reason}",
-        "target-locked",
+        source=f"target:{path}",
+        severity="info",
+        message=f"Observation Target is locked: {reason}",
+        code="target-locked",
     )
 
 
@@ -155,10 +155,10 @@ def observe_observation_targets(
         except (OSError, RuntimeError) as exc:
             diagnostics.append(
                 Diagnostic(
-                    f"anchor:{anchor}",
-                    "warning",
-                    f"Cannot discover Observation Targets: {exc}",
-                    "target-discovery",
+                    source=f"anchor:{anchor}",
+                    severity="warning",
+                    message=f"Cannot discover Observation Targets: {exc}",
+                    code="target-discovery",
                 )
             )
             continue
@@ -166,10 +166,10 @@ def observe_observation_targets(
             detail = result.stderr.strip() or f"exit {result.returncode}"
             diagnostics.append(
                 Diagnostic(
-                    f"anchor:{anchor}",
-                    "warning",
-                    f"Cannot discover Observation Targets: {detail}",
-                    "target-discovery",
+                    source=f"anchor:{anchor}",
+                    severity="warning",
+                    message=f"Cannot discover Observation Targets: {detail}",
+                    code="target-discovery",
                 )
             )
             continue
@@ -180,10 +180,10 @@ def observe_observation_targets(
             if not path:
                 diagnostics.append(
                     Diagnostic(
-                        f"anchor:{anchor}",
-                        "warning",
-                        "Git returned a malformed worktree record without a path",
-                        "target-malformed",
+                        source=f"anchor:{anchor}",
+                        severity="warning",
+                        message="Git returned a malformed worktree record without a path",
+                        code="target-malformed",
                     )
                 )
                 continue
@@ -198,10 +198,10 @@ def observe_observation_targets(
         if "bare" in record:
             diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "info",
-                    f"Git repository entry is bare and cannot be observed: {path}",
-                    "target-bare",
+                    source=f"target:{path}",
+                    severity="info",
+                    message=f"Git repository entry is bare and cannot be observed: {path}",
+                    code="target-bare",
                 )
             )
             continue
@@ -220,10 +220,10 @@ def observe_observation_targets(
             reason = record["prunable"] or "no reason reported"
             target_diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "warning",
-                    f"Observation Target is prunable: {reason}",
-                    "target-prunable",
+                    source=f"target:{path}",
+                    severity="warning",
+                    message=f"Observation Target is prunable: {reason}",
+                    code="target-prunable",
                 )
             )
             targets.append(
@@ -233,10 +233,10 @@ def observe_observation_targets(
         if not record.get("HEAD") or bool(branch) == detached:
             target_diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "warning",
-                    "Git returned a malformed worktree record",
-                    "target-malformed",
+                    source=f"target:{path}",
+                    severity="warning",
+                    message="Git returned a malformed worktree record",
+                    code="target-malformed",
                 )
             )
             targets.append(
@@ -248,10 +248,10 @@ def observe_observation_targets(
         except FileNotFoundError:
             target_diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "warning",
-                    f"Observation Target does not exist: {path}",
-                    "target-missing",
+                    source=f"target:{path}",
+                    severity="warning",
+                    message=f"Observation Target does not exist: {path}",
+                    code="target-missing",
                 )
             )
             targets.append(
@@ -261,10 +261,10 @@ def observe_observation_targets(
         except OSError as exc:
             target_diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "warning",
-                    f"Cannot inspect Observation Target path: {exc}",
-                    "target-inaccessible",
+                    source=f"target:{path}",
+                    severity="warning",
+                    message=f"Cannot inspect Observation Target path: {exc}",
+                    code="target-inaccessible",
                 )
             )
             targets.append(
@@ -274,10 +274,10 @@ def observe_observation_targets(
         if not stat.S_ISDIR(path_mode):
             target_diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "warning",
-                    f"Observation Target is not a directory: {path}",
-                    "target-missing",
+                    source=f"target:{path}",
+                    severity="warning",
+                    message=f"Observation Target is not a directory: {path}",
+                    code="target-missing",
                 )
             )
             targets.append(
@@ -300,10 +300,10 @@ def observe_observation_targets(
             elapsed_ms = round((clock() - started) * 1000)
             target_diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "warning",
-                    f"Cannot inspect Observation Target: {exc}",
-                    "target-inaccessible",
+                    source=f"target:{path}",
+                    severity="warning",
+                    message=f"Cannot inspect Observation Target: {exc}",
+                    code="target-inaccessible",
                 )
             )
             targets.append(
@@ -322,10 +322,10 @@ def observe_observation_targets(
             detail = result.stderr.strip() or f"exit {result.returncode}"
             target_diagnostics.append(
                 Diagnostic(
-                    f"target:{path}",
-                    "warning",
-                    f"Cannot inspect Observation Target: {detail}",
-                    "target-inaccessible",
+                    source=f"target:{path}",
+                    severity="warning",
+                    message=f"Cannot inspect Observation Target: {detail}",
+                    code="target-inaccessible",
                 )
             )
             availability = "unavailable"
@@ -346,7 +346,7 @@ def observe_observation_targets(
                 role=role,
             )
         )
-    return ObservationTargetInventory(targets, diagnostics)
+    return ObservationTargetInventory(targets=targets, diagnostics=diagnostics)
 
 
 def _unavailable_target(
@@ -439,10 +439,10 @@ def observe_branches(
 
 def _branch_diagnostic(anchor: Path, detail: str) -> Diagnostic:
     return Diagnostic(
-        f"anchor:{anchor}",
-        "warning",
-        f"Cannot list Branches: {detail}",
-        "branch-discovery",
+        source=f"anchor:{anchor}",
+        severity="warning",
+        message=f"Cannot list Branches: {detail}",
+        code="branch-discovery",
     )
 
 
@@ -553,7 +553,7 @@ def _observe_integration(
                 timeout=timeout,
             )
         )
-        observed.append(replace(branch, unintegrated_commits=count))
+        observed.append(branch.model_copy(update={"unintegrated_commits": count}))
     return observed
 
 

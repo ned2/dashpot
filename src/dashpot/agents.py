@@ -1043,15 +1043,15 @@ def observe_work_runs(
                     if liveness.liveness == "gone":
                         diagnostics.append(
                             Diagnostic(
-                                work.run_id,
-                                "warning",
-                                f"{work.session_label} is gone but still "
+                                source=work.run_id,
+                                severity="warning",
+                                message=f"{work.session_label} is gone but still "
                                 f"records Issue work on "
                                 f"{work.issue_reference} ({work.issue_id}) at "
                                 f"{target.path}; run 'dashpot work stop "
                                 f"--session {work.session_key}' at that "
                                 f"Worktree to end the orphaned Agent Run",
-                                "work-session-orphaned",
+                                code="work-session-orphaned",
                             )
                         )
                         continue
@@ -1066,12 +1066,12 @@ def observe_work_runs(
                 if identities & sessions_seen:
                     diagnostics.append(
                         Diagnostic(
-                            work.run_id,
-                            "warning",
-                            f"{work.session_label} has Issue work recorded "
+                            source=work.run_id,
+                            severity="warning",
+                            message=f"{work.session_label} has Issue work recorded "
                             f"at more than one Worktree; each recorded run "
                             f"is listed",
-                            "work-session-conflict",
+                            code="work-session-conflict",
                         )
                     )
                 sessions_seen |= identities
@@ -1134,9 +1134,9 @@ def observe_hook_sessions(
             except (OSError, ValueError) as exc:
                 diagnostics.append(
                     Diagnostic(
-                        SESSION_DIAGNOSTIC_SOURCE,
-                        "warning",
-                        f"Cannot read {path}: {exc}",
+                        source=SESSION_DIAGNOSTIC_SOURCE,
+                        severity="warning",
+                        message=f"Cannot read {path}: {exc}",
                     )
                 )
                 continue
@@ -1169,10 +1169,10 @@ def observe_hook_sessions(
             unknown_by_reason[reason] = unknown_by_reason.get(reason, 0) + 1
     diagnostics.extend(
         Diagnostic(
-            SESSION_DIAGNOSTIC_SOURCE,
-            "info",
-            f"Liveness of {count} Agent Session(s) is unknown: {reason}",
-            "agent-session-liveness-unknown",
+            source=SESSION_DIAGNOSTIC_SOURCE,
+            severity="info",
+            message=f"Liveness of {count} Agent Session(s) is unknown: {reason}",
+            code="agent-session-liveness-unknown",
         )
         for reason, count in sorted(unknown_by_reason.items())
     )
@@ -1245,13 +1245,13 @@ def record_to_session(
     if raw.get("issueId") is not None or raw.get("issueReferenceHint") is not None:
         diagnostics.append(
             Diagnostic(
-                record.run_id,
-                "warning",
-                f"Rejecting the global Issue binding recorded for "
+                source=record.run_id,
+                severity="warning",
+                message=f"Rejecting the global Issue binding recorded for "
                 f"{record.display} session {record.session_id}: bindings are "
                 f"Project-local now; run 'dashpot work start' from the "
                 f"session instead",
-                "agent-global-binding-rejected",
+                code="agent-global-binding-rejected",
             )
         )
     located, target_diagnostic = locate_observation_target(
@@ -1373,11 +1373,11 @@ def locate_observation_target(
             optional_string(raw.get("harness")) or "codex", "agent"
         )
         return None, Diagnostic(
-            SESSION_DIAGNOSTIC_SOURCE,
-            "warning",
-            f"Ignoring {display} session {session_id}: recorded Repository root "
+            source=SESSION_DIAGNOSTIC_SOURCE,
+            severity="warning",
+            message=f"Ignoring {display} session {session_id}: recorded Repository root "
             "and working directory resolve to different Observation Targets",
-            "agent-target-mismatch",
+            code="agent-target-mismatch",
         )
     return root_target, None
 

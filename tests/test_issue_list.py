@@ -39,7 +39,11 @@ def issue(issue_id: str, state: str, **overrides: object) -> IssueProfile:
     return make_issue(**fields)
 
 
-def workspace(*issues: IssueProfile) -> WorkspaceSnapshot:
+def workspace(
+    *issues: IssueProfile,
+    runs: list[AgentRun] | None = None,
+    issue_runs: dict[str, list[str]] | None = None,
+) -> WorkspaceSnapshot:
     project = factories.project(
         "project:one",
         *issues,
@@ -50,7 +54,8 @@ def workspace(*issues: IssueProfile) -> WorkspaceSnapshot:
     )
     return factories.workspace(
         project,
-        issue_runs={item.id: [] for item in issues},
+        runs=runs,
+        issue_runs={item.id: [] for item in issues} | (issue_runs or {}),
         elapsed_ms=1,
         now=NOW,
     )
@@ -67,11 +72,13 @@ def test_default_query_returns_open_issues_without_forgetting_observed_count() -
 
 
 def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
-    observed = workspace(issue("I_open", "open"))
     bound = agent_run("bound", issue_id="I_open")
     unbound = agent_run("unbound", issue_id=None)
-    observed.agent_runs = [bound, unbound]
-    observed.issue_runs["I_open"] = [bound.id]
+    observed = workspace(
+        issue("I_open", "open"),
+        runs=[bound, unbound],
+        issue_runs={"I_open": [bound.id]},
+    )
 
     result = query_issue_list(observed)
 
@@ -82,9 +89,8 @@ def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
 
 
 def test_project_with_only_unbound_runs_has_no_rows() -> None:
-    observed = workspace(issue("I_closed", "closed"))
     unbound = agent_run("unbound", issue_id=None)
-    observed.agent_runs = [unbound]
+    observed = workspace(issue("I_closed", "closed"), runs=[unbound])
 
     result = query_issue_list(observed)
 
@@ -285,7 +291,9 @@ def test_sort_qualifier_does_not_participate_in_lexical_matching() -> None:
 
 def test_query_rejects_duplicate_project_identities() -> None:
     observed = workspace(issue("I_open", "open"))
-    observed.projects.append(copy.deepcopy(observed.projects[0]))
+    observed = observed.model_copy(
+        update={"projects": (*observed.projects, observed.projects[0])}
+    )
 
     with pytest.raises(ValueError, match="Duplicate Project Identity"):
         query_issue_list(observed)
@@ -300,9 +308,11 @@ def test_query_rejects_duplicate_issue_identities_within_project() -> None:
 
 
 def test_query_rejects_duplicate_agent_run_identities() -> None:
-    observed = workspace(issue("I_open", "open"))
     duplicated = agent_run("shared", issue_id="I_open")
-    observed.agent_runs = [duplicated, copy.deepcopy(duplicated)]
+    observed = workspace(
+        issue("I_open", "open"),
+        runs=[duplicated, copy.deepcopy(duplicated)],
+    )
 
     with pytest.raises(ValueError, match="Duplicate Agent Run Identity"):
         query_issue_list(observed)

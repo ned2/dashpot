@@ -584,7 +584,15 @@ def two_worktrees(tmp_path: Path) -> tuple[Path, Path]:
 
 def target(worktree: Path) -> ObservationTarget:
     return ObservationTarget(
-        str(worktree), "abc123", "main", False, False, "available", 0, [], "main"
+        path=str(worktree),
+        head="abc123",
+        branch="main",
+        detached=False,
+        dirty=False,
+        availability="available",
+        elapsed_ms=0,
+        diagnostics=[],
+        role="main",
     )
 
 

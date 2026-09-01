@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
+import pydantic
+import pytest
 from rich.text import Text
 
 import factories
@@ -90,8 +91,9 @@ def test_store_lists_every_target_across_projects_in_topology_order() -> None:
     # A detached record, not the path's name, is why the row is linked.
     assert result.rows[2].target.role == "linked"
     assert result.rows[2].target.detached is True
-    # The rows are a detached projection of the store's observations.
-    result.rows[0].target.dirty = True
+    # The rows are a frozen projection of the store's observations.
+    with pytest.raises(pydantic.ValidationError):
+        result.rows[0].target.dirty = True  # ty: ignore[invalid-assignment]
     assert store.query_worktrees().rows[0].target.dirty is False
 
 
@@ -144,8 +146,14 @@ def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
 
     # A failed topology refresh retains the last good targets as stale; the
     # Project's other rows are not blanked.
-    stale = replace(alpha, status="stale")
-    required(stale.snapshot).target_status = "stale"
+    stale = alpha.model_copy(
+        update={
+            "status": "stale",
+            "snapshot": required(alpha.snapshot).model_copy(
+                update={"target_status": "stale"}
+            ),
+        }
+    )
     store.replace_project(stale)
 
     rows = {row.target.path: row for row in store.query_worktrees().rows}
@@ -177,7 +185,7 @@ def test_linked_worktree_addition_and_removal_follow_the_observed_topology() -> 
         "/project:alpha/new-linked",
     ]
     added = store.query_worktrees().rows[1]
-    assert added.project.anchors == ["/project:alpha"]
+    assert added.project.anchors == ("/project:alpha",)
     assert added.anchored is False
 
     store.replace_project(
@@ -187,7 +195,7 @@ def test_linked_worktree_addition_and_removal_follow_the_observed_topology() -> 
         "/project:alpha"
     ]
     # The Project observation still names only its configured anchor.
-    assert required(store.project("project:alpha")).anchors == ["/project:alpha"]
+    assert required(store.project("project:alpha")).anchors == ("/project:alpha",)
 
 
 def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> None:

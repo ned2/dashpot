@@ -185,7 +185,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             ).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
         self.assertEqual("markdown-path", observation.diagnostics[0].code)
 
     def test_discovered_file_symlink_cannot_escape_the_repository_anchor(self) -> None:
@@ -222,7 +222,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             ).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
         self.assertEqual("markdown-not-found", observation.diagnostics[0].code)
 
     def test_permission_failure_is_distinct_from_malformed_content(self) -> None:
@@ -262,8 +262,8 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             ).refresh()
 
         self.assertEqual("fresh", observation.status)
-        self.assertEqual([], observation.issues)
-        self.assertEqual([], observation.diagnostics)
+        self.assertEqual((), observation.issues)
+        self.assertEqual((), observation.diagnostics)
 
     def test_duplicate_issue_identity_fails_the_whole_collection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -286,7 +286,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             ).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
         self.assertEqual("markdown-duplicate-identity", observation.diagnostics[0].code)
 
     def test_duplicate_issue_number_fails_the_whole_collection(self) -> None:
@@ -314,13 +314,13 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             ).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
         self.assertEqual("markdown-duplicate-number", observation.diagnostics[0].code)
         self.assertIn("Issue Number #17", observation.diagnostics[0].message)
         self.assertIn("issues/first.md", observation.diagnostics[0].message)
         self.assertIn("issues/second.md", observation.diagnostics[0].message)
 
-    def test_failure_retains_a_deep_copy_of_last_good_issues(self) -> None:
+    def test_failure_retains_last_good_issues_isolated_from_the_caller(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             issue_path = root / "issue.md"
@@ -340,13 +340,17 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             )
             fresh = source.refresh()
             expected = list(fresh.issues)
-            # The profile is frozen, so a caller can only swap a list element.
-            fresh.issues[0] = conform_issue(
-                dict(
-                    expected[0].model_dump(mode="json", by_alias=True),
-                    title="caller mutation",
+            # The whole observation is frozen: a caller cannot swap an
+            # element, so the retained collection needs no defensive copy.
+            # The ty ignore silences the static rejection of exactly the
+            # runtime mutation this test proves is refused.
+            with self.assertRaises(TypeError):
+                fresh.issues[0] = conform_issue(  # ty: ignore[invalid-assignment]
+                    dict(
+                        expected[0].model_dump(mode="json", by_alias=True),
+                        title="caller mutation",
+                    )
                 )
-            )
             issue_path.write_text("not a Local Issue")
 
             stale = source.refresh()
@@ -428,7 +432,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             ).refresh()
 
         self.assertEqual("unavailable", observation.status)
-        self.assertEqual([], observation.issues)
+        self.assertEqual((), observation.issues)
         self.assertEqual("markdown-malformed", observation.diagnostics[0].code)
         self.assertIn("issues/bad.md", observation.diagnostics[0].message)
 

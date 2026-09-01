@@ -15,6 +15,7 @@ from typing import Literal
 from .collect import ObservationKey
 from .glyphs import Glyph
 from .issue_table import relative_age
+from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 
 AlertSeverity = Literal["error", "warning", "info"]
@@ -85,7 +86,10 @@ def summarize_alerts(
     flight long enough to be worth showing.
     """
     items: list[AlertItem] = []
-    labels = _labels(store)
+    # Frozen observations make these reads cheap shared views, not copies.
+    projects = store.projects()
+    workspace_diagnostics = store.checkpoint().diagnostics
+    labels = _labels(projects)
     current = (now or _utc_now)()
 
     failed_scopes = _ordered_scopes(failures or {}, labels)
@@ -98,7 +102,7 @@ def summarize_alerts(
     unavailable_scans: list[str] = []
     stale_scans: list[str] = []
     unavailable_targets: list[str] = []
-    for project in store.checkpoint().projects:
+    for project in projects:
         label = project.display_label
         snapshot = project.snapshot
         if snapshot is None:
@@ -133,7 +137,7 @@ def summarize_alerts(
                 f"Unavailable Issues: {_join(unavailable_issues, 'Projects')}",
             )
         )
-    for diagnostic in store.checkpoint().diagnostics:
+    for diagnostic in workspace_diagnostics:
         if diagnostic.code in INTEGRATION_FAILURE_CODES:
             severity: AlertSeverity = (
                 "error" if diagnostic.severity == "error" else "warning"
@@ -186,11 +190,8 @@ def summarize_alerts(
     return Alert(tuple(items))
 
 
-def _labels(store: WorkspaceObservationStore) -> dict[str, str]:
-    return {
-        project.project_id: project.display_label
-        for project in store.checkpoint().projects
-    }
+def _labels(projects: Sequence[ProjectObservation]) -> dict[str, str]:
+    return {project.project_id: project.display_label for project in projects}
 
 
 def _ordered_scopes(

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .issue_profile import IssueProfile
+from .models import FrozenMapping, LaxSequence, PublishedModel
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
@@ -15,8 +16,11 @@ TargetAvailability = Literal["available", "unavailable"]
 TargetRole = Literal["main", "linked"]
 
 
-@dataclass(slots=True)
-class Diagnostic:
+class ObservationModel(PublishedModel):
+    """Freeze a published observation value on the shared model base."""
+
+
+class Diagnostic(ObservationModel):
     source: str
     severity: Literal["info", "warning", "error"]
     message: str
@@ -26,15 +30,13 @@ class Diagnostic:
 PullRequestState = Literal["open", "closed", "merged"]
 
 
-@dataclass(slots=True)
-class LinkedPullRequest:
+class LinkedPullRequest(ObservationModel):
     number: int
     url: str
     state: PullRequestState
 
 
-@dataclass(slots=True)
-class IssueActivity:
+class IssueActivity(ObservationModel):
     """Tracker engagement facts that sit beside the Issue profile.
 
     They are GitHub-shaped rather than source-neutral, so they travel with
@@ -42,11 +44,10 @@ class IssueActivity:
     """
 
     comment_count: int = 0
-    linked_pull_requests: list[LinkedPullRequest] = field(default_factory=list)
+    linked_pull_requests: LaxSequence[LinkedPullRequest] = ()
 
 
-@dataclass(slots=True)
-class ObservationTarget:
+class ObservationTarget(ObservationModel):
     path: str
     head: str
     branch: str | None
@@ -54,12 +55,11 @@ class ObservationTarget:
     dirty: bool | None
     availability: TargetAvailability
     elapsed_ms: int
-    diagnostics: list[Diagnostic]
+    diagnostics: LaxSequence[Diagnostic]
     role: TargetRole
 
 
-@dataclass(slots=True)
-class Branch:
+class Branch(ObservationModel):
     """One Git ref under ``refs/heads`` or ``refs/remotes``, as observed.
 
     Identity is the full ``refname``: ``refs/heads/x`` and
@@ -85,21 +85,19 @@ class Branch:
     unintegrated_commits: int | None = None
 
 
-@dataclass(slots=True)
-class ObservationTargetInventory:
-    targets: list[ObservationTarget]
-    diagnostics: list[Diagnostic]
+class ObservationTargetInventory(ObservationModel):
+    targets: LaxSequence[ObservationTarget]
+    diagnostics: LaxSequence[Diagnostic]
     # Every observed Branch of the repository, and when its Remote-Tracking
     # Branches were last fetched (``None`` when the repository never fetched).
     # Dashpot never fetches, so that age is the remote facts' freshness;
     # ``integration_ref`` is the ref their reachability facts compare with.
-    branches: list[Branch] = field(default_factory=list)
+    branches: LaxSequence[Branch] = ()
     fetched_at: str | None = None
     integration_ref: str | None = None
 
 
-@dataclass(slots=True)
-class AgentRun:
+class AgentRun(ObservationModel):
     id: str
     harness: str
     process_or_session: str
@@ -118,8 +116,7 @@ class AgentRun:
     started_at: str | None = None
 
 
-@dataclass(slots=True)
-class ProjectSnapshot:
+class ProjectSnapshot(ObservationModel):
     project_id: str
     display_label: str
     repository_id: str
@@ -127,9 +124,9 @@ class ProjectSnapshot:
     issue_source_status: SourceStatus
     issue_source_attempted_at: str
     issue_source_last_good_at: str | None
-    observation_targets: list[ObservationTarget]
-    issues: list[IssueProfile]
-    diagnostics: list[Diagnostic]
+    observation_targets: LaxSequence[ObservationTarget]
+    issues: LaxSequence[IssueProfile]
+    diagnostics: LaxSequence[Diagnostic]
     # Worktree topology is observed independently of the Issue Source, so its
     # freshness is reported separately. ``None`` timestamps mean the targets
     # were never attempted for this snapshot (single-shot collectors).
@@ -138,13 +135,13 @@ class ProjectSnapshot:
     target_last_good_at: str | None = None
     # Tracker label colours (name -> "rrggbb") for the labels its Issues carry;
     # empty when the source has no palette.
-    label_colors: dict[str, str] = field(default_factory=dict)
-    issue_activity: dict[str, IssueActivity] = field(default_factory=dict)
+    label_colors: FrozenMapping[str, str] = Field(default_factory=dict)
+    issue_activity: FrozenMapping[str, IssueActivity] = Field(default_factory=dict)
     # Branches are observed with the worktree topology and share its
     # freshness; ``fetched_at`` is the last fetch of the Remote-Tracking
     # Branches, which Dashpot reports rather than refreshes. ``integration_ref``
     # is the Integration Branch their reachability facts compare with.
-    branches: list[Branch] = field(default_factory=list)
+    branches: LaxSequence[Branch] = ()
     fetched_at: str | None = None
     integration_ref: str | None = None
 
@@ -170,31 +167,38 @@ class ResolvedProject:
     primary_anchor: str
 
 
-@dataclass(slots=True)
-class ProjectObservation:
+class ProjectObservation(ObservationModel):
     project_id: str
     display_label: str
     repository_id: str
-    workspaces: list[str]
-    anchors: list[str]
+    workspaces: LaxSequence[str]
+    anchors: LaxSequence[str]
     primary_anchor: str
     status: SourceStatus
     elapsed_ms: int
     snapshot: ProjectSnapshot | None
-    diagnostics: list[Diagnostic]
+    diagnostics: LaxSequence[Diagnostic]
 
 
-@dataclass(slots=True)
-class WorkspaceSnapshot:
+class WorkspaceSnapshot(ObservationModel):
     collected_at: str
     elapsed_ms: int
-    projects: list[ProjectObservation]
-    agent_runs: list[AgentRun] = field(default_factory=list)
-    issue_runs: dict[str, list[str]] = field(default_factory=dict)
-    diagnostics: list[Diagnostic] = field(default_factory=list)
+    projects: LaxSequence[ProjectObservation]
+    agent_runs: LaxSequence[AgentRun] = ()
+    issue_runs: FrozenMapping[str, LaxSequence[str]] = Field(default_factory=dict)
+    diagnostics: LaxSequence[Diagnostic] = ()
 
 
 def to_jsonable(value: object) -> object:
+    # The observation models keep the dataclass wire shape they migrated from
+    # (camelCase keys, absent rather than null None fields), so the `--json`
+    # seam is byte-identical across the ADR 0013 step 7 freeze.
+    if isinstance(value, ObservationModel):
+        return {
+            camel_case(name): to_jsonable(getattr(value, name))
+            for name in type(value).model_fields
+            if getattr(value, name) is not None
+        }
     # TEMPORARY (ADR 0013 step 3b): dump a model with today's wire shape —
     # camelCase keys and explicit nulls, never the dataclass omit-None rule.
     # Deleted with the rest of to_jsonable at step 8.

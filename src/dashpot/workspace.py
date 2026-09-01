@@ -143,10 +143,10 @@ def resolve_workspace_projects(
             except (OSError, RuntimeError) as exc:
                 diagnostics.append(
                     Diagnostic(
-                        f"anchor:{anchor.path}",
-                        "error",
-                        str(exc),
-                        getattr(exc, "code", "repository-anchor"),
+                        source=f"anchor:{anchor.path}",
+                        severity="error",
+                        message=str(exc),
+                        code=getattr(exc, "code", "repository-anchor"),
                     )
                 )
 
@@ -171,11 +171,11 @@ def resolve_workspace_projects(
             )
             diagnostics.append(
                 Diagnostic(
-                    f"project:{project_id}",
-                    "error",
-                    f"Project Identity {project_id} resolves to conflicting durable "
+                    source=f"project:{project_id}",
+                    severity="error",
+                    message=f"Project Identity {project_id} resolves to conflicting durable "
                     f"Repository identities: {evidence}",
-                    "project-repository-conflict",
+                    code="project-repository-conflict",
                 )
             )
             continue
@@ -186,11 +186,11 @@ def resolve_workspace_projects(
             evidence = ", ".join(anchor.root for anchor in anchors)
             diagnostics.append(
                 Diagnostic(
-                    f"project:{project_id}",
-                    "error",
-                    f"Project Identity {project_id} has conflicting Issue Sources "
+                    source=f"project:{project_id}",
+                    severity="error",
+                    message=f"Project Identity {project_id} has conflicting Issue Sources "
                     f"across Repository Anchors: {evidence}",
-                    "project-source-conflict",
+                    code="project-source-conflict",
                 )
             )
             continue

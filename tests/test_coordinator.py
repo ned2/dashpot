@@ -44,7 +44,15 @@ def issue(reference: str, project_id: str) -> IssueProfile:
 
 def target(root: Path, head: str = "abc123") -> ObservationTarget:
     return ObservationTarget(
-        str(root), head, "main", False, False, "available", 1, [], "main"
+        path=str(root),
+        head=head,
+        branch="main",
+        detached=False,
+        dirty=False,
+        availability="available",
+        elapsed_ms=1,
+        diagnostics=[],
+        role="main",
     )
 
 
@@ -98,7 +106,9 @@ class ScriptedCollector:
         self.targets_release.wait(timeout=2)
         if self.target_failures:
             raise self.target_failures.pop(0)
-        return ObservationTargetInventory([target(self.root, self.head)], [])
+        return ObservationTargetInventory(
+            targets=[target(self.root, self.head)], diagnostics=[]
+        )
 
 
 class Clock:
@@ -463,15 +473,15 @@ def test_agent_runs_observe_composed_targets_and_defer_pending_bindings(
     assert list(observed_targets[-1]) == ["alpha"]
     deferred = list(store.checkpoint().diagnostics)
     assert [d.code for d in deferred] == ["agent-issue-resolution-deferred"]
-    assert store.checkpoint().issue_runs == {"I_alpha#1": []}
+    assert store.checkpoint().issue_runs == {"I_alpha#1": ()}
 
     for ticket in coordinator.request(coordinator.keys("beta")):
         coordinator.observe(ticket)
     coordinator.publish(store)
 
     assert sorted(observed_targets[-1]) == ["alpha", "beta"]
-    assert store.checkpoint().diagnostics == []
-    assert store.checkpoint().issue_runs["I_beta#1"] == ["codex-session:one"]
+    assert store.checkpoint().diagnostics == ()
+    assert store.checkpoint().issue_runs["I_beta#1"] == ("codex-session:one",)
 
 
 def test_barrier_refresh_is_a_complete_checkpoint(workspace) -> None:
@@ -491,14 +501,16 @@ def test_barrier_refresh_is_a_complete_checkpoint(workspace) -> None:
     assert all(project.status == "fresh" for project in snapshot.projects)
     assert snapshot.collected_at.startswith("2026-08-28")
     assert snapshot.elapsed_ms >= 0
-    assert snapshot.issue_runs == {"I_alpha#1": [], "I_beta#1": []}
+    assert snapshot.issue_runs == {"I_alpha#1": (), "I_beta#1": ()}
     # A second barrier is independent and still complete.
     again = coordinator.refresh()
     assert [project.project_id for project in again.projects] == ["alpha", "beta"]
 
 
 def test_snapshot_scheduler_publishes_a_whole_checkpoint_once() -> None:
-    snapshot = WorkspaceSnapshot("2026-08-28T00:00:00Z", 1, [])
+    snapshot = WorkspaceSnapshot(
+        collected_at="2026-08-28T00:00:00Z", elapsed_ms=1, projects=[]
+    )
 
     class Collector:
         def refresh(self) -> WorkspaceSnapshot:

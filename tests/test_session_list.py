@@ -4,6 +4,8 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pydantic
+import pytest
 from rich.text import Text
 
 import factories
@@ -114,8 +116,9 @@ def test_store_lists_every_active_session_once_with_its_relationships() -> None:
     assert by_id[unbound.id].bound_issue_id is None
     assert required(by_id[elsewhere.id].project).display_label == "Beta"
     assert required(by_id[elsewhere.id].issue).number == 2
-    # The rows are a detached projection: the store's observations stay put.
-    result.rows[0].session.state = "running"
+    # The rows are a frozen projection: the store's observations stay put.
+    with pytest.raises(pydantic.ValidationError):
+        result.rows[0].session.state = "running"  # ty: ignore[invalid-assignment]
     assert store.query_sessions().rows[0].session.state == "waiting"
 
 
@@ -290,8 +293,7 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
         state="unknown",
         branch=None,
         last_activity_at=None,
-    )
-    run.working_directory = None
+    ).model_copy(update={"working_directory": None})
     result = query_session_list(workspace(project("project:alpha"), runs=[run]))
 
     (row,) = build_session_rows(result, dark=False, now=CURRENT, home=Path("/nowhere"))
@@ -389,22 +391,25 @@ def test_activity_says_which_age_it_is_showing() -> None:
         (row,) = build_session_rows(result, dark=True, now=CURRENT)
         return str(row.cells[5])
 
-    running = session("work:running", state="running", last_activity_at=activity)
-    running.turn_started_at = turn
+    running = session(
+        "work:running", state="running", last_activity_at=activity
+    ).model_copy(update={"turn_started_at": turn})
     assert cell(running) == "running 35m"
 
     waiting = session("work:waiting", state="waiting", last_activity_at=activity)
     assert cell(waiting) == "idle 5m"
 
     # A turn that started moments ago is a duration, never a point in time.
-    fresh = session("work:fresh", state="running", last_activity_at=CURRENT.isoformat())
-    fresh.turn_started_at = "2026-08-27T03:04:30Z"
+    fresh = session(
+        "work:fresh", state="running", last_activity_at=CURRENT.isoformat()
+    ).model_copy(update={"turn_started_at": "2026-08-27T03:04:30Z"})
     assert cell(fresh) == "running <1m"
 
     # Nothing has observed this run; when its work began is a different fact
     # and is labelled as one.
-    unobserved = session("work:unobserved", state="unknown", last_activity_at=None)
-    unobserved.started_at = started
+    unobserved = session(
+        "work:unobserved", state="unknown", last_activity_at=None
+    ).model_copy(update={"started_at": started})
     assert cell(unobserved) == "started 3h ago"
 
     blind = session("work:blind", state="unknown", last_activity_at=None)

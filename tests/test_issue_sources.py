@@ -45,7 +45,7 @@ def test_an_unforeseen_adapter_fault_is_a_failed_refresh_not_a_raise() -> None:
     # ADR 0002: a failed refresh yields a diagnostic and keeps the last good
     # collection; it never propagates into the observer.
     assert observation.status == "stale"
-    assert observation.issues == [FIXTURE_ISSUE]
+    assert observation.issues == (FIXTURE_ISSUE,)
     (diagnostic,) = observation.diagnostics
     assert diagnostic.code == "faulty-internal"
     assert diagnostic.severity == "warning"
@@ -59,5 +59,5 @@ def test_a_fault_before_any_good_collection_is_unavailable() -> None:
     observation = source.refresh()
 
     assert observation.status == "unavailable"
-    assert observation.issues == []
+    assert observation.issues == ()
     assert observation.diagnostics[0].severity == "error"
