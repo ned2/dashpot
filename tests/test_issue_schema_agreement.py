@@ -85,11 +85,6 @@ VALID_CASES: dict[str, dict[str, Any]] = {
     "fractional-seconds": mutated(
         lambda issue: issue.update(createdAt="2026-08-26T05:33:04.250Z")
     ),
-    # `datetime.fromisoformat` accepts ISO 8601's end-of-day 24:00:00, so
-    # today's validator does; the schema pattern matches that behavior.
-    "end-of-day-timestamp": mutated(
-        lambda issue: issue.update(createdAt="2026-08-26T24:00:00Z")
-    ),
     "dotted-relative-path": {
         **markdown_issue(),
         "location": {"kind": "markdown", "path": "docs/notes/ISSUES.md", "line": 7},
@@ -137,6 +132,12 @@ INVALID_CASES: dict[str, dict[str, Any]] = {
     ),
     "month-thirteen-timestamp": mutated(
         lambda issue: issue.update(createdAt="2026-13-01T05:33:04Z")
+    ),
+    # RFC 3339 forbids ISO 8601's end-of-day 24:00:00, and `fromisoformat`
+    # accepts it only on some Python versions; the shared timestamp pattern
+    # closes that version-dependent leniency.
+    "end-of-day-timestamp": mutated(
+        lambda issue: issue.update(createdAt="2026-08-26T24:00:00Z")
     ),
     "past-end-of-day-timestamp": mutated(
         lambda issue: issue.update(createdAt="2026-08-26T24:30:00Z")

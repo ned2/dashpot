@@ -44,7 +44,11 @@ LaxSequence = TypeAliasType(
     type_params=(_T,),
 )
 
-_RFC_3339_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
+# The hour range is in the pattern because RFC 3339 forbids ISO 8601's
+# end-of-day 24:00:00, which `fromisoformat` accepts on some Python versions.
+_RFC_3339_UTC = re.compile(
+    r"\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):\d{2}:\d{2}(?:\.\d+)?Z"
+)
 
 
 def validate_rfc3339_timestamp(value: str) -> str:
