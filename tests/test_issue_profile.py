@@ -6,11 +6,16 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from dashpot.issue_profile import (
+    GitHubIssueOrigin,
     IssueProfileError,
+    MarkdownIssueLocation,
     conform_issue,
     semantic_projection,
     semantically_equivalent,
+    validate_issue_profile,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -145,6 +150,123 @@ class IssueProfileTests(unittest.TestCase):
             IssueProfileError, "unexpected fields: schemaVersion"
         ):
             conform_issue(issue)
+
+
+class IssueProfileModelTests(unittest.TestCase):
+    def test_aliases_expose_snake_case_fields_for_camel_case_keys(self) -> None:
+        profile = validate_issue_profile(fixture("github.json"))
+
+        self.assertEqual(
+            "project:01947e42-3f67-7c38-a41c-218df18a169b", profile.project_id
+        )
+        self.assertIsNone(profile.state_reason)
+        self.assertEqual(("I_child_1", "I_child_2"), profile.relationships.sub_issues)
+        self.assertEqual("2026-08-26T05:33:04Z", profile.created_at)
+        self.assertEqual(
+            fixture("github.json"), profile.model_dump(mode="json", by_alias=True)
+        )
+
+    def test_the_profile_is_frozen_after_validation(self) -> None:
+        profile = validate_issue_profile(fixture("github.json"))
+
+        with self.assertRaises(ValidationError):
+            # The frozen refusal is the behavior under test.
+            profile.title = "Renamed"  # ty: ignore[invalid-assignment]
+        self.assertIsInstance(hash(profile), int)
+
+    def test_strict_validation_refuses_coerced_scalars(self) -> None:
+        coercions: list[tuple[str, object, str]] = [
+            ("number", "9", "number must be a positive integer"),
+            ("number", True, "number must be a positive integer"),
+            ("body", 5, "body must be a string"),
+            ("state", 1, "state must be 'open' or 'closed'"),
+            ("title", 7, "title must be a non-empty string"),
+        ]
+        for key, invalid, message in coercions:
+            with self.subTest(key=key, invalid=invalid):
+                issue = fixture("github.json")
+                issue[key] = invalid
+                with self.assertRaisesRegex(IssueProfileError, message):
+                    conform_issue(issue)
+
+    def test_set_like_collections_accept_only_arrays(self) -> None:
+        issue = fixture("github.json")
+        issue["labels"] = tuple(issue["labels"])
+
+        with self.assertRaisesRegex(IssueProfileError, "labels must be an array"):
+            conform_issue(issue)
+
+    def test_origin_and_location_discriminate_on_kind(self) -> None:
+        profile = validate_issue_profile(fixture("github.json"))
+        self.assertIsInstance(profile.origin, GitHubIssueOrigin)
+
+        moved = fixture("github.json")
+        moved["origin"] = {"kind": "markdown"}
+        moved["location"] = {"kind": "markdown", "path": "ISSUES.md", "line": 3}
+        self.assertIsInstance(
+            validate_issue_profile(moved).location, MarkdownIssueLocation
+        )
+
+        crossed = fixture("github.json")
+        crossed["origin"] = {"kind": "markdown", "repositoryId": "R_kgDOUEerrg"}
+        with self.assertRaisesRegex(
+            IssueProfileError, "origin has unexpected fields: repositoryId"
+        ):
+            conform_issue(crossed)
+
+        unlocated = fixture("github.json")
+        unlocated["location"] = {"kind": "markdown", "path": "ISSUES.md"}
+        with self.assertRaisesRegex(
+            IssueProfileError, "location is missing fields: line"
+        ):
+            conform_issue(unlocated)
+
+        unkinded = fixture("github.json")
+        unkinded["origin"] = {"repositoryId": "R_kgDOUEerrg"}
+        with self.assertRaisesRegex(
+            IssueProfileError, "origin.kind must be 'github' or 'markdown'"
+        ):
+            conform_issue(unkinded)
+
+    def test_nested_unexpected_fields_are_rejected(self) -> None:
+        issue = fixture("github.json")
+        issue["relationships"]["notes"] = []
+
+        with self.assertRaisesRegex(
+            IssueProfileError, "relationships has unexpected fields: notes"
+        ):
+            conform_issue(issue)
+
+    def test_timestamps_must_round_trip_as_real_rfc3339_instants(self) -> None:
+        for invalid, message in (
+            ("2026-13-01T05:33:04Z", "must be a valid RFC 3339 timestamp"),
+            ("2026-02-30T05:33:04Z", "must be a valid RFC 3339 timestamp"),
+            ("2026-08-26T05:33:04", "RFC 3339 UTC timestamp ending in Z"),
+            ("2026-08-26 05:33:04Z", "RFC 3339 UTC timestamp ending in Z"),
+        ):
+            with self.subTest(invalid=invalid):
+                issue = fixture("github.json")
+                issue["updatedAt"] = invalid
+                with self.assertRaisesRegex(IssueProfileError, message):
+                    conform_issue(issue)
+
+        fractional = fixture("github.json")
+        fractional["updatedAt"] = "2026-08-26T08:32:48.500Z"
+        self.assertEqual(
+            "2026-08-26T08:32:48.500Z", conform_issue(fractional)["updatedAt"]
+        )
+
+    def test_conform_issue_leaves_the_caller_input_unchanged(self) -> None:
+        issue = fixture("github.json")
+        issue["labels"].reverse()
+        snapshot = copy.deepcopy(issue)
+
+        conformed = conform_issue(issue)
+
+        self.assertEqual(snapshot, issue)
+        self.assertEqual(
+            ["enhancement", "needs-triage", "priority/P1"], conformed["labels"]
+        )
 
 
 if __name__ == "__main__":
