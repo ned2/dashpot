@@ -12,7 +12,12 @@ from typing_extensions import override
 from .commands import CommandRunner, run_command
 from .errors import DashpotError
 from .issue_profile import IssueProfile, IssueProfileError, conform_issue
-from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
+from .issue_sources import (
+    Clock,
+    CollectedIssues,
+    IssueSource,
+    IssueSourceRefreshError,
+)
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
 
 _STATE_REASONS = {
@@ -118,22 +123,23 @@ class GitHubIssuesSource(IssueSource):
         self.repository_id = repository_id
         self.timeout = timeout
         self.runner = runner
-        self._label_colors: dict[str, str] = {}
-        self._issue_activity: dict[str, IssueActivity] = {}
 
     @property
     @override
     def name(self) -> str:
         return "github-issues"
 
+    @property
     @override
-    def _collect(self) -> list[IssueProfile]:
+    def code_prefix(self) -> str:
+        return "github"
+
+    @override
+    def _collect(self) -> CollectedIssues:
         records = self._collect_issue_nodes()
         issues: list[IssueProfile] = []
         label_colors: dict[str, str] = {}
         issue_activity: dict[str, IssueActivity] = {}
-        seen_issue_ids: set[str] = set()
-        seen_issue_numbers: set[int] = set()
         for record in records:
             complete_record = self._complete_nested_connections(record)
             label_colors.update(_label_colors(complete_record))
@@ -145,34 +151,13 @@ class GitHubIssuesSource(IssueSource):
                 )
             except GitHubIssueNormalizationError as exc:
                 raise IssueSourceRefreshError("github-profile", str(exc)) from exc
-            issue_id = issue.id
-            if issue_id in seen_issue_ids:
-                raise IssueSourceRefreshError(
-                    "github-pagination",
-                    f"GitHub returned duplicate Issue identity {issue_id}",
-                )
-            issue_number = issue.number
-            if issue_number in seen_issue_numbers:
-                raise IssueSourceRefreshError(
-                    "github-pagination",
-                    f"GitHub returned duplicate Issue Number #{issue_number}",
-                )
-            seen_issue_ids.add(issue_id)
-            seen_issue_numbers.add(issue_number)
             issues.append(issue)
-            issue_activity[issue_id] = _issue_activity(complete_record)
-        self._label_colors = label_colors
-        self._issue_activity = issue_activity
-        return issues
-
-    @override
-    def _collect_label_colors(self) -> dict[str, str]:
-        return dict(self._label_colors)
-
-    @override
-    def _collect_issue_activity(self) -> dict[str, IssueActivity]:
-        # IssueActivity values are frozen; only the container needs copying.
-        return dict(self._issue_activity)
+            issue_activity[issue.id] = _issue_activity(complete_record)
+        return CollectedIssues(
+            issues=tuple(issues),
+            label_colors=label_colors,
+            issue_activity=issue_activity,
+        )
 
     def _collect_issue_nodes(self) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []

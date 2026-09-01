@@ -16,7 +16,7 @@ from dashpot.collect import (
     SnapshotScheduler,
 )
 from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.issue_sources import IssueSource
+from dashpot.issue_sources import CollectedIssues, IssueSource
 from dashpot.model import (
     AgentRun,
     ObservationTarget,
@@ -75,17 +75,17 @@ class ScriptedSource(IssueSource):
         return f"scripted:{self.project_id}"
 
     @override
-    def _collect(self) -> list[IssueProfile]:
+    def _collect(self) -> CollectedIssues:
         with self.lock:
             self.calls += 1
         self.started.set()
         self.release.wait(timeout=2)
         if not self.collections:
-            return [issue(f"{self.project_id}#1", self.project_id)]
+            return CollectedIssues((issue(f"{self.project_id}#1", self.project_id),))
         result = self.collections.pop(0)
         if isinstance(result, Exception):
             raise result
-        return result
+        return CollectedIssues(tuple(result))
 
 
 class ScriptedCollector:

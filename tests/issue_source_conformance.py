@@ -40,6 +40,54 @@ def assert_unavailable_observation(
     test.assertTrue(diagnostic.message)
 
 
+def assert_duplicate_identity_is_refused(
+    test: unittest.TestCase,
+    observation: IssueSourceObservation,
+    *,
+    attempted_at: str,
+    source_name: str,
+    diagnostic_code: str,
+    issue_id: str,
+    seen_at: tuple[str, str],
+) -> None:
+    """Assert a first-cycle refusal: a source with a good cycle goes stale instead."""
+    assert_unavailable_observation(
+        test,
+        observation,
+        attempted_at=attempted_at,
+        source_name=source_name,
+        diagnostic_code=diagnostic_code,
+    )
+    message = observation.diagnostics[0].message
+    test.assertIn(f"duplicate Issue identity {issue_id}", message)
+    for location in seen_at:
+        test.assertIn(location, message)
+
+
+def assert_duplicate_number_is_refused(
+    test: unittest.TestCase,
+    observation: IssueSourceObservation,
+    *,
+    attempted_at: str,
+    source_name: str,
+    diagnostic_code: str,
+    issue_number: int,
+    seen_at: tuple[str, str],
+) -> None:
+    """Assert a first-cycle refusal: a source with a good cycle goes stale instead."""
+    assert_unavailable_observation(
+        test,
+        observation,
+        attempted_at=attempted_at,
+        source_name=source_name,
+        diagnostic_code=diagnostic_code,
+    )
+    message = observation.diagnostics[0].message
+    test.assertIn(f"duplicate Issue Number #{issue_number}", message)
+    for location in seen_at:
+        test.assertIn(location, message)
+
+
 def assert_stale_observation(
     test: unittest.TestCase,
     observation: IssueSourceObservation,

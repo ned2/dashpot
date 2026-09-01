@@ -14,7 +14,11 @@ from typing_extensions import override
 
 import factories
 from dashpot.issue_profile import IssueProfile
-from dashpot.issue_sources import IssueSource, IssueSourceRefreshError
+from dashpot.issue_sources import (
+    CollectedIssues,
+    IssueSource,
+    IssueSourceRefreshError,
+)
 from dashpot.model import IssueActivity, WorkspaceSnapshot
 from dashpot.observation_store import WorkspaceObservationStore
 from factories import agent_run, project, workspace
@@ -56,18 +60,14 @@ class _ScriptedSource(IssueSource):
         return "scripted"
 
     @override
-    def _collect(self) -> list[IssueProfile]:
+    def _collect(self) -> CollectedIssues:
         if self.fail:
             raise IssueSourceRefreshError("scripted-down", "scripted failure")
-        return self._issues
-
-    @override
-    def _collect_label_colors(self) -> dict[str, str]:
-        return self._label_colors
-
-    @override
-    def _collect_issue_activity(self) -> dict[str, IssueActivity]:
-        return self._issue_activity
+        return CollectedIssues(
+            issues=tuple(self._issues),
+            label_colors=self._label_colors,
+            issue_activity=self._issue_activity,
+        )
 
 
 # --- Direction one: the caller's input, mutated after publication ------------

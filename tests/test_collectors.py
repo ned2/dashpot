@@ -15,7 +15,11 @@ from typing_extensions import override
 from dashpot.collect import ObservationCoordinator, ProjectCollector
 from dashpot.commands import CommandResult
 from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.issue_sources import IssueSource, IssueSourceObservation
+from dashpot.issue_sources import (
+    CollectedIssues,
+    IssueSource,
+    IssueSourceObservation,
+)
 from dashpot.model import (
     AgentRun,
     Branch,
@@ -97,8 +101,8 @@ class FakeSource(IssueSource):
         return "fake"
 
     @override
-    def _collect(self) -> list[IssueProfile]:
-        return [issue()]
+    def _collect(self) -> CollectedIssues:
+        return CollectedIssues((issue(),))
 
 
 class EmptySource(IssueSource):
@@ -108,27 +112,29 @@ class EmptySource(IssueSource):
         return "empty"
 
     @override
-    def _collect(self) -> list[IssueProfile]:
-        return []
+    def _collect(self) -> CollectedIssues:
+        return CollectedIssues(())
 
 
 class PaletteSource(FakeSource):
     @override
-    def _collect_label_colors(self) -> dict[str, str]:
-        return {"enhancement": "a2eeef"}
-
-    @override
-    def _collect_issue_activity(self) -> dict[str, IssueActivity]:
-        return {
-            issue().id: IssueActivity(
-                comment_count=2,
-                linked_pull_requests=[
-                    LinkedPullRequest(
-                        number=41, url="https://example.test/pull/41", state="merged"
-                    )
-                ],
-            )
-        }
+    def _collect(self) -> CollectedIssues:
+        return CollectedIssues(
+            issues=(issue(),),
+            label_colors={"enhancement": "a2eeef"},
+            issue_activity={
+                issue().id: IssueActivity(
+                    comment_count=2,
+                    linked_pull_requests=[
+                        LinkedPullRequest(
+                            number=41,
+                            url="https://example.test/pull/41",
+                            state="merged",
+                        )
+                    ],
+                )
+            },
+        )
 
 
 class CountingSource(FakeSource):
@@ -137,7 +143,7 @@ class CountingSource(FakeSource):
         self.collection_count = 0
 
     @override
-    def _collect(self) -> list[IssueProfile]:
+    def _collect(self) -> CollectedIssues:
         self.collection_count += 1
         return super()._collect()
 

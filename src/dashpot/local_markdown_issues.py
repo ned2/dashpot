@@ -8,7 +8,12 @@ from typing_extensions import override
 
 from .errors import DashpotError
 from .issue_profile import IssueProfile, IssueProfileError, conform_issue
-from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
+from .issue_sources import (
+    Clock,
+    CollectedIssues,
+    IssueSource,
+    IssueSourceRefreshError,
+)
 
 _LOCAL_METADATA_KEYS = {
     "id",
@@ -57,8 +62,13 @@ class LocalMarkdownIssuesSource(IssueSource):
     def name(self) -> str:
         return "local-markdown-issues"
 
+    @property
     @override
-    def _collect(self) -> list[IssueProfile]:
+    def code_prefix(self) -> str:
+        return "markdown"
+
+    @override
+    def _collect(self) -> CollectedIssues:
         try:
             root = self.root.resolve()
             path = (root / self.issues_path).resolve()
@@ -82,8 +92,6 @@ class LocalMarkdownIssuesSource(IssueSource):
                 else [path]
             )
             issues: list[IssueProfile] = []
-            seen_issue_ids: set[str] = set()
-            issue_paths_by_number: dict[int, str] = {}
             for issue_path in paths:
                 if not issue_path.resolve().is_relative_to(root):
                     raise IssueSourceRefreshError(
@@ -101,22 +109,6 @@ class LocalMarkdownIssuesSource(IssueSource):
                     raise LocalMarkdownIssueError(
                         f"{relative_path}: {exc}", code=exc.code
                     ) from exc
-                issue_id = issue.id
-                if issue_id in seen_issue_ids:
-                    raise IssueSourceRefreshError(
-                        "markdown-duplicate-identity",
-                        f"Local Markdown contains duplicate Issue identity {issue_id}",
-                    )
-                issue_number = issue.number
-                previous_path = issue_paths_by_number.get(issue_number)
-                if previous_path is not None:
-                    raise IssueSourceRefreshError(
-                        "markdown-duplicate-number",
-                        f"Local Markdown Issue Number #{issue_number} appears in "
-                        f"both {previous_path} and {relative_path}",
-                    )
-                seen_issue_ids.add(issue_id)
-                issue_paths_by_number[issue_number] = relative_path
                 issues.append(issue)
         except LocalMarkdownIssueError as exc:
             raise IssueSourceRefreshError(exc.code, str(exc)) from exc
@@ -128,7 +120,7 @@ class LocalMarkdownIssuesSource(IssueSource):
             raise IssueSourceRefreshError("markdown-not-found", str(exc)) from exc
         except OSError as exc:
             raise IssueSourceRefreshError("markdown-io", str(exc)) from exc
-        return issues
+        return CollectedIssues(tuple(issues))
 
 
 def parse_local_markdown_issue(

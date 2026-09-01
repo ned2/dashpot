@@ -16,6 +16,8 @@ from dashpot.github_issues import (
 )
 from dashpot.issue_profile import IssueProfile, conform_issue
 from issue_source_conformance import (
+    assert_duplicate_identity_is_refused,
+    assert_duplicate_number_is_refused,
     assert_fresh_observation,
     assert_stale_observation,
     assert_unavailable_observation,
@@ -354,7 +356,28 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         self.assertIn("cursor=issues-100", runner.calls[1][0])
         self.assertIn("cursor=issues-200", runner.calls[2][0])
 
-    def test_duplicate_issue_number_is_a_pagination_diagnostic(self) -> None:
+    def test_duplicate_issue_identity_fails_the_whole_collection(self) -> None:
+        first = issue_record(9)
+        second = issue_record(10)
+        second["id"] = first["id"]
+        runner = SequenceRunner([completed(issue_page([first, second]))])
+
+        observation = source(runner).refresh()
+
+        assert_duplicate_identity_is_refused(
+            self,
+            observation,
+            attempted_at="2026-08-26T10:00:00Z",
+            source_name="github-issues",
+            diagnostic_code="github-duplicate-identity",
+            issue_id="I_issue_9",
+            seen_at=(
+                "https://github.com/ned2/dashpot/issues/9",
+                "https://github.com/ned2/dashpot/issues/10",
+            ),
+        )
+
+    def test_duplicate_issue_number_fails_the_whole_collection(self) -> None:
         first = issue_record(9)
         second = issue_record(9)
         second["id"] = "I_other_identity"
@@ -362,9 +385,18 @@ class GitHubIssuesSourceTests(unittest.TestCase):
 
         observation = source(runner).refresh()
 
-        self.assertEqual("unavailable", observation.status)
-        self.assertEqual("github-pagination", observation.diagnostics[0].code)
-        self.assertIn("duplicate Issue Number #9", observation.diagnostics[0].message)
+        assert_duplicate_number_is_refused(
+            self,
+            observation,
+            attempted_at="2026-08-26T10:00:00Z",
+            source_name="github-issues",
+            diagnostic_code="github-duplicate-number",
+            issue_number=9,
+            seen_at=(
+                "https://github.com/ned2/dashpot/issues/9",
+                "https://github.com/ned2/dashpot/issues/9",
+            ),
+        )
 
     def test_repeated_outer_cursor_is_a_pagination_diagnostic(self) -> None:
         runner = SequenceRunner(

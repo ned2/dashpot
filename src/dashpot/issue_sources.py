@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -45,6 +46,22 @@ class IssueSourceObservation:
     issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class CollectedIssues:
+    """One complete collection cycle, returned whole by an adapter's ``_collect``.
+
+    Built from already-validated Issue Profiles, so it stays a frozen
+    dataclass (ADR 0013). Returning the palette and activity beside the
+    Issues keeps a cycle self-consistent and leaves the adapter stateless
+    across cycles: a failed ``_collect`` has no instance stash to leak into
+    the next observation.
+    """
+
+    issues: tuple[IssueProfile, ...]
+    label_colors: Mapping[str, str] = field(default_factory=dict)
+    issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
+
+
 class IssueSourceRefreshError(DashpotError, RuntimeError):
     """A refresh the Issue Source itself diagnosed, with its diagnostic code."""
 
@@ -53,7 +70,7 @@ class IssueSourceRefreshError(DashpotError, RuntimeError):
         self.code = code
 
 
-class IssueSource:
+class IssueSource(ABC):
     """Refresh complete Issue collections while retaining the last good value."""
 
     def __init__(self, *, clock: Clock | None = None) -> None:
@@ -64,15 +81,20 @@ class IssueSource:
         self._last_good_issue_activity: dict[str, IssueActivity] = {}
 
     @property
+    @abstractmethod
     def name(self) -> str:
-        raise NotImplementedError
+        """Name this source as it appears on its diagnostics."""
+
+    @property
+    def code_prefix(self) -> str:
+        """Prefix the shared diagnostic codes; defaults to the source name."""
+        return self.name
 
     def refresh(self) -> IssueSourceObservation:
         attempted_at = self._clock()
         try:
-            issues = self._collect()
-            label_colors = self._collect_label_colors()
-            issue_activity = self._collect_issue_activity()
+            collected = self._collect()
+            self._check_collection_invariants(collected)
         except IssueSourceRefreshError as exc:
             return self._failed(attempted_at, exc.code, str(exc))
         except Exception as exc:
@@ -86,19 +108,45 @@ class IssueSource:
 
         # Issue Profiles and Issue Activity are frozen values, so retaining
         # them needs fresh containers, never deep copies.
-        self._last_good = list(issues)
+        self._last_good = list(collected.issues)
         self._last_good_at = attempted_at
-        self._last_good_label_colors = dict(label_colors)
-        self._last_good_issue_activity = dict(issue_activity)
+        self._last_good_label_colors = dict(collected.label_colors)
+        self._last_good_issue_activity = dict(collected.issue_activity)
         return IssueSourceObservation(
             status="fresh",
             attempted_at=attempted_at,
             last_good_at=attempted_at,
-            issues=tuple(issues),
+            issues=collected.issues,
             diagnostics=(),
-            label_colors=FrozenDict(label_colors),
-            issue_activity=FrozenDict(issue_activity),
+            label_colors=FrozenDict(collected.label_colors),
+            issue_activity=FrozenDict(collected.issue_activity),
         )
+
+    def _check_collection_invariants(self, collected: CollectedIssues) -> None:
+        """Refuse a collection that repeats an Issue identity or Issue Number.
+
+        The Issue Profile contract makes both unique within a complete Project
+        collection, so the invariant lives here rather than in each adapter.
+        """
+        issues_by_id: dict[str, IssueProfile] = {}
+        issues_by_number: dict[int, IssueProfile] = {}
+        for issue in collected.issues:
+            previous = issues_by_id.get(issue.id)
+            if previous is not None:
+                raise IssueSourceRefreshError(
+                    f"{self.code_prefix}-duplicate-identity",
+                    f"{self.name} collected duplicate Issue identity {issue.id}, "
+                    f"seen at {_seen_at(previous)} and {_seen_at(issue)}",
+                )
+            previous = issues_by_number.get(issue.number)
+            if previous is not None:
+                raise IssueSourceRefreshError(
+                    f"{self.code_prefix}-duplicate-number",
+                    f"{self.name} collected duplicate Issue Number #{issue.number}, "
+                    f"seen at {_seen_at(previous)} and {_seen_at(issue)}",
+                )
+            issues_by_id[issue.id] = issue
+            issues_by_number[issue.number] = issue
 
     def _failed(
         self, attempted_at: str, code: str, message: str
@@ -121,22 +169,26 @@ class IssueSource:
             ),
         )
 
-    def _collect(self) -> list[IssueProfile]:
-        raise NotImplementedError
+    @abstractmethod
+    def _collect(self) -> CollectedIssues:
+        """Observe one complete collection cycle, with its labels and activity.
 
-    def _collect_label_colors(self) -> dict[str, str]:
-        """Colours for the labels observed by the latest ``_collect``.
-
-        Sources without a palette (Local Markdown) leave every label neutral.
+        The one adapter hook: diagnose a failed cycle by raising
+        ``IssueSourceRefreshError``; sources without a palette or activity
+        (Local Markdown) leave those mappings empty.
         """
-        return {}
 
-    def _collect_issue_activity(self) -> dict[str, IssueActivity]:
-        """Engagement facts for the Issues observed by the latest ``_collect``.
 
-        Sources without comments or pull requests (Local Markdown) report none.
-        """
-        return {}
+def _seen_at(issue: IssueProfile) -> str:
+    """The Issue Location as one actionable string.
+
+    A local twin of ``issue_resolution.issue_location``: importing it here
+    would cycle through the adapters this module is the base of.
+    """
+    location = issue.location
+    if location.kind == "github":
+        return location.url
+    return f"{location.path}:{location.line}"
 
 
 def utc_now() -> str:

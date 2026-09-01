@@ -14,6 +14,8 @@ from dashpot.issue_profile import (
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from factories import local_issue_document
 from issue_source_conformance import (
+    assert_duplicate_identity_is_refused,
+    assert_duplicate_number_is_refused,
     assert_fresh_observation,
     assert_stale_observation,
     assert_unavailable_observation,
@@ -283,11 +285,18 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
+                clock=lambda: "2026-08-26T10:00:00Z",
             ).refresh()
 
-        self.assertEqual("unavailable", observation.status)
-        self.assertEqual((), observation.issues)
-        self.assertEqual("markdown-duplicate-identity", observation.diagnostics[0].code)
+        assert_duplicate_identity_is_refused(
+            self,
+            observation,
+            attempted_at="2026-08-26T10:00:00Z",
+            source_name="local-markdown-issues",
+            diagnostic_code="markdown-duplicate-identity",
+            issue_id="I_duplicate",
+            seen_at=("issues/first.md", "issues/second.md"),
+        )
 
     def test_duplicate_issue_number_fails_the_whole_collection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -311,14 +320,18 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
                 root,
                 issues_path=Path("issues"),
                 project_id=PROJECT_ID,
+                clock=lambda: "2026-08-26T10:00:00Z",
             ).refresh()
 
-        self.assertEqual("unavailable", observation.status)
-        self.assertEqual((), observation.issues)
-        self.assertEqual("markdown-duplicate-number", observation.diagnostics[0].code)
-        self.assertIn("Issue Number #17", observation.diagnostics[0].message)
-        self.assertIn("issues/first.md", observation.diagnostics[0].message)
-        self.assertIn("issues/second.md", observation.diagnostics[0].message)
+        assert_duplicate_number_is_refused(
+            self,
+            observation,
+            attempted_at="2026-08-26T10:00:00Z",
+            source_name="local-markdown-issues",
+            diagnostic_code="markdown-duplicate-number",
+            issue_number=17,
+            seen_at=("issues/first.md", "issues/second.md"),
+        )
 
     def test_failure_retains_last_good_issues_isolated_from_the_caller(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
