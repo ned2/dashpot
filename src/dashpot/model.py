@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, is_dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Literal
+
+from pydantic import BaseModel
+
+from .issue_profile import IssueProfile
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
@@ -9,7 +13,6 @@ TargetAvailability = Literal["available", "unavailable"]
 # Git topology, as `git worktree list` reports it: the main working tree is
 # listed first, followed by each linked working tree.
 TargetRole = Literal["main", "linked"]
-Issue: TypeAlias = dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -125,7 +128,7 @@ class ProjectSnapshot:
     issue_source_attempted_at: str
     issue_source_last_good_at: str | None
     observation_targets: list[ObservationTarget]
-    issues: list[Issue]
+    issues: list[IssueProfile]
     diagnostics: list[Diagnostic]
     # Worktree topology is observed independently of the Issue Source, so its
     # freshness is reported separately. ``None`` timestamps mean the targets
@@ -192,6 +195,11 @@ class WorkspaceSnapshot:
 
 
 def to_jsonable(value: object) -> object:
+    # TEMPORARY (ADR 0013 step 3b): dump a model with today's wire shape —
+    # camelCase keys and explicit nulls, never the dataclass omit-None rule.
+    # Deleted with the rest of to_jsonable at step 8.
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", by_alias=True)
     if is_dataclass(value):
         return {
             camel_case(item.name): to_jsonable(getattr(value, item.name))

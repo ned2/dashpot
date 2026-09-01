@@ -5,11 +5,11 @@ import copy
 import pytest
 
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
+from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
     Branch,
     Diagnostic,
-    Issue,
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
@@ -18,25 +18,28 @@ from dashpot.model import (
     to_jsonable,
 )
 from dashpot.observation_store import WorkspaceObservationStore
-from helpers import issue_of, required, snapshot_of
+from helpers import make_issue, required, snapshot_of
 
 NOW = "2026-08-27T03:00:00Z"
 
 
-def issue(issue_id: str, title: str) -> Issue:
-    return {
-        "id": issue_id,
-        "number": 1,
-        "state": "open",
-        "title": title,
-        "labels": [],
-        "assignees": [],
-    }
+def issue(issue_id: str, title: str, state: str = "open") -> IssueProfile:
+    return make_issue(
+        id=issue_id,
+        number=1,
+        state=state,
+        title=title,
+        labels=[],
+        assignees=[],
+        author=None,
+        milestone=None,
+        issueType=None,
+    )
 
 
 def project(
     project_id: str,
-    *issues: Issue,
+    *issues: IssueProfile,
     status: SourceStatus = "fresh",
 ) -> ProjectObservation:
     label = project_id.removeprefix("project:").title()
@@ -162,7 +165,7 @@ def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
     assert required(store.project("project:one")).display_label == "One"
     assert context is not None
     assert context.project.project_id == "project:one"
-    assert context.issue["title"] == "Second"
+    assert context.issue.title == "Second"
     assert context.observed_runs == (observed_run,)
     assert store.issue("I_one") is None
     assert store.checkpoint() == second
@@ -190,7 +193,7 @@ def test_unavailable_project_replacement_retains_last_good_snapshot() -> None:
     assert change.kinds == frozenset({"projects"})
     assert checkpoint.projects[0].status == "unavailable"
     assert checkpoint.projects[0].snapshot is not None
-    assert snapshot_of(checkpoint.projects[0]).issues[0]["title"] == "Last good"
+    assert snapshot_of(checkpoint.projects[0]).issues[0].title == "Last good"
     assert checkpoint.projects[0].diagnostics == unavailable.diagnostics
     assert store.query_issues().observed_issue_count == 1
 
@@ -236,7 +239,7 @@ def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() ->
     assert accepted.status == "stale"
     accepted_snapshot = snapshot_of(accepted)
     assert accepted_snapshot.issue_source_status == "stale"
-    assert accepted_snapshot.issues[0]["title"] == "Last good"
+    assert accepted_snapshot.issues[0].title == "Last good"
     assert accepted_snapshot.issue_source_last_good_at == NOW
     assert accepted_snapshot.issue_source_attempted_at == "2026-08-27T04:00:00Z"
     assert accepted_snapshot.collected_at == "2026-08-27T04:00:00Z"
@@ -284,11 +287,11 @@ def test_adapter_supplied_stale_collection_remains_authoritative() -> None:
     stale_snapshot = snapshot_of(stale)
     stale_snapshot.issue_source_status = "stale"
     stale_snapshot.issue_source_attempted_at = "2026-08-27T04:00:00Z"
-    stale_snapshot.issues[0]["title"] = "Adapter last good"
+    stale_snapshot.issues[0] = issue("I_one", "Adapter last good")
 
     store.replace_project(stale)
 
-    assert issue_of(store.issue("I_one"))["title"] == "Adapter last good"
+    assert required(store.issue("I_one")).issue.title == "Adapter last good"
 
 
 def test_conflicting_issue_identities_remain_project_qualified() -> None:
@@ -320,7 +323,7 @@ def test_change_reports_only_the_changed_project_qualified_issue() -> None:
     )
     store = WorkspaceObservationStore(first)
     changed = copy.deepcopy(first)
-    snapshot_of(changed.projects[0]).issues[0]["title"] = "Changed in one"
+    snapshot_of(changed.projects[0]).issues[0] = issue("I_shared", "Changed in one")
 
     change = store.replace(changed)
 
@@ -503,13 +506,13 @@ def test_partial_replacements_isolate_store_owned_state() -> None:
 
     store.replace_project(replacement_project)
     store.replace_agent_runs([replacement_run], replacement_bindings)
-    snapshot_of(replacement_project).issues[0]["title"] = "Caller mutation"
+    snapshot_of(replacement_project).issues[0] = issue("I_two", "Caller mutation")
     replacement_run.state = "running"
     replacement_bindings["I_two"].clear()
 
     context = store.issue("I_two", project_id="project:one")
     assert context is not None
-    assert context.issue["title"] == "Second"
+    assert context.issue.title == "Second"
     assert context.observed_runs[0].state == "waiting"
     assert store.checkpoint().issue_runs == {"I_two": ["codex:two"]}
 
@@ -545,8 +548,8 @@ def test_detail_for_keeps_conflicting_issues_project_qualified() -> None:
 
     store.replace_project(changed)
 
-    assert issue_of(store.detail_for(old_rows["project:one"]))["title"] == "Changed"
-    assert issue_of(store.detail_for(old_rows["project:two"]))["title"] == "Original"
+    assert required(store.detail_for(old_rows["project:one"])).issue.title == "Changed"
+    assert required(store.detail_for(old_rows["project:two"])).issue.title == "Original"
 
 
 def test_detail_for_unique_issue_follows_transfer_but_not_ambiguity() -> None:
@@ -583,8 +586,7 @@ def test_detail_for_returns_none_for_disappeared_domain_identities() -> None:
 
 def test_store_query_matches_standalone_query_across_rich_state() -> None:
     shared = issue("I_shared", "Shared")
-    closed = issue("I_closed", "Closed navigation")
-    closed["state"] = "closed"
+    closed = issue("I_closed", "Closed navigation", state="closed")
     bound = run("codex:bound", "project:one", "I_shared")
     unmatched = run("codex:unmatched", "project:two", None)
     store = WorkspaceObservationStore(
@@ -626,14 +628,16 @@ def test_store_query_result_cannot_mutate_owned_observations() -> None:
     returned = store.query_issues()
     row = returned.rows[0]
     row.project.display_label = "Caller Project"
-    issue_of(row)["title"] = "Caller Issue"
+    # The Issue Profile itself is frozen, so a caller cannot mutate it; the
+    # remaining mutable observation values still must not reach the store.
+    snapshot_of(row.project).issues[0] = issue("I_one", "Caller Issue")
     row.observed_runs[0].state = "running"
 
     current = store.query_issues().rows[0]
     checkpoint = store.checkpoint()
     assert current.project.display_label == "One"
-    assert issue_of(current)["title"] == "First"
+    assert current.issue.title == "First"
     assert current.observed_runs[0].state == "waiting"
     assert checkpoint.projects[0].display_label == "One"
-    assert snapshot_of(checkpoint.projects[0]).issues[0]["title"] == "First"
+    assert snapshot_of(checkpoint.projects[0]).issues[0].title == "First"
     assert checkpoint.agent_runs[0].state == "waiting"

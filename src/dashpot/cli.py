@@ -299,7 +299,7 @@ def issue_show(
     """Resolve one Issue Hint and print the Issue Profile."""
     found = show_issue(Path.cwd().resolve(), reference, timeout=timeout)
     if json_output:
-        print(json.dumps(found, indent=2))
+        print(json.dumps(found.model_dump(mode="json", by_alias=True), indent=2))
     else:
         _report(describe_issue(found))
     return 0

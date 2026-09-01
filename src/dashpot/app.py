@@ -811,7 +811,7 @@ class DashpotApp(App[None]):
             return
         table = self.queue_table()
         for key, row in self.rows_by_key.items():
-            if row.issue is None or row.issue["id"] != issue_id:
+            if row.issue.id != issue_id:
                 continue
             table.move_cursor(row=table.get_row_index(key), column=0, animate=False)
             self.show_row(key)

@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
+from .issue_profile import IssueProfile
 from .issue_search import parse_issue_search
-from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnapshot
+from .model import AgentRun, ProjectObservation, RunState, WorkspaceSnapshot
 
 IssueState = Literal["open", "closed"]
 RowKind = Literal["issue"]
@@ -24,26 +25,28 @@ class IssueSearchField(StrEnum):
     TYPE = "type"
     TITLE = "title"
 
-    def values(self, issue: Issue, project: ProjectObservation) -> tuple[str, ...]:
+    def values(
+        self, issue: IssueProfile, project: ProjectObservation
+    ) -> tuple[str, ...]:
         if self is IssueSearchField.PROJECT:
             return (project.display_label,)
         if self is IssueSearchField.NUMBER:
-            return (f"#{issue['number']}",)
+            return (f"#{issue.number}",)
         if self is IssueSearchField.ASSIGNEES:
-            return tuple(str(value) for value in issue.get("assignees", []))
+            return issue.assignees
         if self is IssueSearchField.LABELS:
-            return tuple(str(value) for value in issue.get("labels", []))
+            return issue.labels
         if self is IssueSearchField.AUTHOR:
-            return _optional_value(issue.get("author"))
+            return _optional_value(issue.author)
         if self is IssueSearchField.MILESTONE:
-            return _optional_value(issue.get("milestone"))
+            return _optional_value(issue.milestone)
         if self is IssueSearchField.TYPE:
-            return _optional_value(issue.get("issueType"))
-        return (str(issue.get("title", "")),)
+            return _optional_value(issue.issue_type)
+        return (issue.title,)
 
 
-def _optional_value(value: object) -> tuple[str, ...]:
-    return (str(value),) if value else ()
+def _optional_value(value: str | None) -> tuple[str, ...]:
+    return (value,) if value else ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +61,7 @@ class IssueListRow:
     key: str
     kind: RowKind
     project: ProjectObservation
-    issue: Issue | None = None
+    issue: IssueProfile
     observed_runs: tuple[AgentRun, ...] = ()
     project_runs: tuple[AgentRun, ...] = ()
     session_states: tuple[RunState, ...] = ()
@@ -85,7 +88,7 @@ def query_issue_list(
 ) -> IssueListResult:
     """Query source-neutral Issue-list rows from complete observed state."""
     projects: dict[str, ProjectObservation] = {}
-    issues: dict[tuple[str, str], Issue] = {}
+    issues: dict[tuple[str, str], IssueProfile] = {}
     for project in snapshot.projects:
         if project.project_id in projects:
             raise ValueError(f"Duplicate Project Identity {project.project_id}")
@@ -93,10 +96,10 @@ def query_issue_list(
         if project.snapshot is None:
             continue
         for issue in project.snapshot.issues:
-            key = (project.project_id, issue["id"])
+            key = (project.project_id, issue.id)
             if key in issues:
                 raise ValueError(
-                    f"Duplicate Issue Identity {issue['id']} in {project.project_id}"
+                    f"Duplicate Issue Identity {issue.id} in {project.project_id}"
                 )
             issues[key] = issue
     agent_runs: dict[str, AgentRun] = {}
@@ -117,14 +120,14 @@ def query_issue_list(
 def _query_indexed_issue_list(
     *,
     projects: Mapping[str, ProjectObservation],
-    issues: Mapping[tuple[str, str], Issue],
+    issues: Mapping[tuple[str, str], IssueProfile],
     agent_runs: Mapping[str, AgentRun],
     issue_runs: Mapping[str, Sequence[str]],
     query: IssueListQuery,
     revision: int,
 ) -> IssueListResult:
     issue_id_counts = Counter(issue_id for _project_id, issue_id in issues)
-    issues_by_project: dict[str, list[Issue]] = {
+    issues_by_project: dict[str, list[IssueProfile]] = {
         project_id: [] for project_id in projects
     }
     for (project_id, _issue_id), issue in issues.items():
@@ -148,13 +151,11 @@ def _query_indexed_issue_list(
     for project in projects.values():
         project_issues = issues_by_project[project.project_id]
         observed_issue_count += len(project_issues)
-        open_issue_count += sum(
-            1 for issue in project_issues if issue["state"] == "open"
-        )
+        open_issue_count += sum(1 for issue in project_issues if issue.state == "open")
         visible_issues = [
             issue
             for issue in project_issues
-            if issue["state"] in query.states
+            if issue.state in query.states
             and _matches_search(issue, project, query.search_fields, search_terms)
         ]
         # Only Issues are rows, like an Issue tracker's feed: a Project with
@@ -162,11 +163,11 @@ def _query_indexed_issue_list(
         for issue in visible_issues:
             matched_issue_count += 1
             key = (
-                row_key("issue", issue["id"])
-                if issue_id_counts[issue["id"]] == 1
-                else row_key("issue", project.project_id, issue["id"])
+                row_key("issue", issue.id)
+                if issue_id_counts[issue.id] == 1
+                else row_key("issue", project.project_id, issue.id)
             )
-            bound_run_ids = issue_runs.get(issue["id"], [])
+            bound_run_ids = issue_runs.get(issue.id, [])
             observed_runs = tuple(
                 agent_runs[run_id] for run_id in bound_run_ids if run_id in agent_runs
             )
@@ -250,7 +251,7 @@ def empty_issue_message(query: IssueListQuery) -> str:
 
 
 def _searchable_issue_text(
-    issue: Issue,
+    issue: IssueProfile,
     project: ProjectObservation,
     fields: frozenset[IssueSearchField],
 ) -> str:
@@ -259,7 +260,7 @@ def _searchable_issue_text(
 
 
 def _matches_search(
-    issue: Issue,
+    issue: IssueProfile,
     project: ProjectObservation,
     fields: frozenset[IssueSearchField],
     terms: tuple[str, ...],

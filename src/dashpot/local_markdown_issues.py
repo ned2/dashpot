@@ -6,7 +6,7 @@ from typing import Any
 
 from typing_extensions import override
 
-from .issue_profile import IssueProfileError, conform_issue
+from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
 _LOCAL_METADATA_KEYS = {
@@ -57,7 +57,7 @@ class LocalMarkdownIssuesSource(IssueSource):
         return "local-markdown-issues"
 
     @override
-    def _collect(self) -> list[dict[str, Any]]:
+    def _collect(self) -> list[IssueProfile]:
         try:
             root = self.root.resolve()
             path = (root / self.issues_path).resolve()
@@ -80,7 +80,7 @@ class LocalMarkdownIssuesSource(IssueSource):
                 if path.is_dir()
                 else [path]
             )
-            issues: list[dict[str, Any]] = []
+            issues: list[IssueProfile] = []
             seen_issue_ids: set[str] = set()
             issue_paths_by_number: dict[int, str] = {}
             for issue_path in paths:
@@ -100,13 +100,13 @@ class LocalMarkdownIssuesSource(IssueSource):
                     raise LocalMarkdownIssueError(
                         f"{relative_path}: {exc}", code=exc.code
                     ) from exc
-                issue_id = issue["id"]
+                issue_id = issue.id
                 if issue_id in seen_issue_ids:
                     raise IssueSourceRefreshError(
                         "markdown-duplicate-identity",
                         f"Local Markdown contains duplicate Issue identity {issue_id}",
                     )
-                issue_number = issue["number"]
+                issue_number = issue.number
                 previous_path = issue_paths_by_number.get(issue_number)
                 if previous_path is not None:
                     raise IssueSourceRefreshError(
@@ -132,7 +132,7 @@ class LocalMarkdownIssuesSource(IssueSource):
 
 def parse_local_markdown_issue(
     text: str, *, project_id: str, path: str
-) -> dict[str, Any]:
+) -> IssueProfile:
     """Parse one Local Issue Markdown document."""
 
     lines = text.splitlines()

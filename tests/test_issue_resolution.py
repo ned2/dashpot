@@ -8,6 +8,7 @@ import pytest
 
 from dashpot.issue_profile import conform_issue
 from dashpot.issue_resolution import describe_issue, resolve_issue, show_issue
+from helpers import make_issue
 from test_work import issue_document
 
 
@@ -49,8 +50,8 @@ def test_number_prefixed_number_and_slug_resolve_to_one_issue(
 
     issue = resolve_issue(root, hint)
 
-    assert issue["id"] == "I_35"
-    assert issue["reference"] == "worktree-protocol"
+    assert issue.id == "I_35"
+    assert issue.reference == "worktree-protocol"
 
 
 def test_full_github_reference_matches_nothing_in_a_markdown_project(
@@ -85,8 +86,8 @@ def test_show_resolves_from_a_subdirectory_and_returns_the_profile(
 
     issue = show_issue(nested, "35")
 
-    assert conform_issue(issue) == issue
-    assert issue["location"] == {
+    assert conform_issue(issue.model_dump(mode="json", by_alias=True)) == issue
+    assert issue.location.model_dump(by_alias=True) == {
         "kind": "markdown",
         "path": "issues/worktree-protocol.md",
         "line": 24,
@@ -108,18 +109,18 @@ def test_describe_issue_names_reference_title_state_and_location(
 
 
 def test_describe_issue_renders_a_github_location_as_its_url() -> None:
-    issue = {
-        "reference": "ned2/dashpot#35",
-        "title": "T",
-        "number": 35,
-        "state": "closed",
-        "stateReason": "completed",
-        "id": "I_x",
-        "location": {
+    issue = make_issue(
+        id="I_x",
+        number=35,
+        reference="ned2/dashpot#35",
+        title="T",
+        state="closed",
+        stateReason="completed",
+        location={
             "kind": "github",
             "url": "https://github.com/ned2/dashpot/issues/35",
         },
-    }
+    )
 
     lines = describe_issue(issue)
 

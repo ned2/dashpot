@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import unittest
-from typing import Any
 
+from dashpot.issue_profile import IssueProfile
 from dashpot.issue_sources import IssueSourceObservation
 
 
@@ -11,7 +11,7 @@ def assert_fresh_observation(
     observation: IssueSourceObservation,
     *,
     attempted_at: str,
-    expected_issues: list[dict[str, Any]],
+    expected_issues: list[IssueProfile],
 ) -> None:
     test.assertEqual("fresh", observation.status)
     test.assertEqual(attempted_at, observation.attempted_at)
@@ -48,7 +48,7 @@ def assert_stale_observation(
     last_good_at: str,
     source_name: str,
     diagnostic_code: str,
-    expected_issues: list[dict[str, Any]],
+    expected_issues: list[IssueProfile],
 ) -> None:
     test.assertEqual("stale", observation.status)
     test.assertEqual(attempted_at, observation.attempted_at)

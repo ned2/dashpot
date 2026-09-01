@@ -18,9 +18,10 @@ from rich.text import Text
 
 from .glyphs import Glyph
 from .issue_list import row_key
+from .issue_profile import IssueProfile
 from .issue_table import relative_age
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end, truncate_start
-from .model import AgentRun, Issue, ProjectObservation, RunState, WorkspaceSnapshot
+from .model import AgentRun, ProjectObservation, RunState, WorkspaceSnapshot
 
 HARNESS_LABELS = {"codex": "Codex", "claude-code": "Claude Code"}
 STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
@@ -61,12 +62,12 @@ class SessionListRow:
     key: str
     session: AgentRun
     project: ProjectObservation | None
-    issue: Issue | None = None
+    issue: IssueProfile | None = None
 
     @property
     def bound_issue_id(self) -> str | None:
         if self.issue is not None:
-            return str(self.issue["id"])
+            return self.issue.id
         return self.session.issue_id
 
 
@@ -85,7 +86,7 @@ def query_session_list(
 ) -> SessionListResult:
     """Query the Sessions pane rows from complete observed state."""
     projects: dict[str, ProjectObservation] = {}
-    issues: dict[tuple[str, str], Issue] = {}
+    issues: dict[tuple[str, str], IssueProfile] = {}
     for project in snapshot.projects:
         if project.project_id in projects:
             raise ValueError(f"Duplicate Project Identity {project.project_id}")
@@ -93,7 +94,7 @@ def query_session_list(
         if project.snapshot is None:
             continue
         for issue in project.snapshot.issues:
-            issues[project.project_id, issue["id"]] = issue
+            issues[project.project_id, issue.id] = issue
     agent_runs: dict[str, AgentRun] = {}
     for run in snapshot.agent_runs:
         if run.id in agent_runs:
@@ -111,7 +112,7 @@ def query_session_list(
 def _query_indexed_session_list(
     *,
     projects: Mapping[str, ProjectObservation],
-    issues: Mapping[tuple[str, str], Issue],
+    issues: Mapping[tuple[str, str], IssueProfile],
     agent_runs: Mapping[str, AgentRun],
     issue_runs: Mapping[str, Sequence[str]],
     revision: int,
@@ -268,7 +269,7 @@ def session_state_cell(state: RunState, *, dark: bool) -> Text:
 def session_issue_cell(row: SessionListRow) -> ListCell:
     """The bound Issue by number and title, or an intentional unbound value."""
     if row.issue is not None:
-        return truncate_end(f"#{row.issue['number']} {row.issue['title']}", ISSUE_LIMIT)
+        return truncate_end(f"#{row.issue.number} {row.issue.title}", ISSUE_LIMIT)
     if row.bound_issue_id is not None:
         # Bound to an Issue this Project's source has not shown yet.
         return truncate_end(

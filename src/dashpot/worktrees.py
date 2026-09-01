@@ -16,7 +16,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from .agents import (
     ProcessLookup,
@@ -27,6 +27,7 @@ from .agents import (
 )
 from .commands import run_command
 from .harnesses import HARNESS_DISPLAY
+from .issue_profile import IssueProfile
 from .issue_resolution import resolve_issue
 from .project_config import (
     PROJECT_CONFIG_NAME,
@@ -182,8 +183,8 @@ def create_issue_worktree(
         _existing_issue_worktrees(issue, branch_name, records, preparation)
 
     plan = WorktreePlan(
-        issue_id=issue["id"],
-        issue_reference=issue["reference"],
+        issue_id=issue.id,
+        issue_reference=issue.reference,
         path=str(path),
         branch=branch_name,
         base_ref=base_ref,
@@ -236,12 +237,12 @@ def resolve_worktree_root(
     return sibling.resolve(), "default-sibling"
 
 
-def default_branch_name(issue: Mapping[str, Any]) -> str:
+def default_branch_name(issue: IssueProfile) -> str:
     """GitHub's Issue-branch convention, ``<number>-<title-slug>``; a slug for a Local Issue."""
-    if issue["origin"]["kind"] == "markdown":
-        return str(issue["reference"])
-    slug = title_slug(str(issue["title"]))
-    number = issue["number"]
+    if issue.origin.kind == "markdown":
+        return issue.reference
+    slug = title_slug(issue.title)
+    number = issue.number
     return f"{number}-{slug}" if slug else str(number)
 
 
@@ -460,13 +461,13 @@ def _check_collisions(
 
 
 def _existing_issue_worktrees(
-    issue: Mapping[str, Any],
+    issue: IssueProfile,
     default_branch: str,
     records: list[dict[str, str]],
     preparation: _Preparation,
 ) -> None:
     """Refuse the default name when a Worktree already looks like this Issue's."""
-    number = str(issue["number"])
+    number = str(issue.number)
     matches = [
         (record["worktree"], name)
         for record in records

@@ -23,6 +23,7 @@ from dashpot.model import (
 )
 from dashpot.workspace import WorkspaceResolution
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
+from helpers import make_issue
 
 
 def write_config_marker(root: Path) -> None:
@@ -384,18 +385,18 @@ def test_issue_show_prints_lines_or_the_issue_profile_json(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    issue = {
-        "id": "I_35",
-        "number": 35,
-        "reference": "ned2/dashpot#35",
-        "title": "Worktree protocol",
-        "state": "open",
-        "stateReason": None,
-        "location": {
+    issue = make_issue(
+        id="I_35",
+        number=35,
+        reference="ned2/dashpot#35",
+        title="Worktree protocol",
+        state="open",
+        stateReason=None,
+        location={
             "kind": "github",
             "url": "https://github.com/ned2/dashpot/issues/35",
         },
-    }
+    )
 
     with mock.patch.object(cli, "show_issue", return_value=issue) as show:
         assert cli.main(["issue", "show", "35"]) == 0
@@ -406,7 +407,9 @@ def test_issue_show_prints_lines_or_the_issue_profile_json(
 
     with mock.patch.object(cli, "show_issue", return_value=issue):
         assert cli.main(["issue", "show", "#35", "--json", "--timeout", "2"]) == 0
-    assert json.loads(capsys.readouterr().out) == issue
+    assert json.loads(capsys.readouterr().out) == issue.model_dump(
+        mode="json", by_alias=True
+    )
 
     with mock.patch.object(
         cli, "show_issue", side_effect=RuntimeError("did not match an Issue")

@@ -23,6 +23,7 @@ from typing_extensions import override
 
 from .detail_fields import DetailFields, DetailItem
 from .issue_list import IssueListRow
+from .issue_profile import IssueProfile
 from .issue_table import (
     is_priority_label,
     issue_activity,
@@ -33,7 +34,7 @@ from .issue_table import (
     label_colors,
     relative_age,
 )
-from .model import Issue, ProjectObservation
+from .model import ProjectObservation
 
 EMPTY_BODY_MESSAGE = "This Issue has no description."
 
@@ -51,10 +52,8 @@ class IssueScreen(Screen[None]):
 
     def __init__(self, context: IssueListRow, *, now: datetime | None = None) -> None:
         super().__init__()
-        if context.issue is None:
-            raise ValueError("an Issue view needs an Issue row")
         self.context = context
-        self.issue: Issue = context.issue
+        self.issue: IssueProfile = context.issue
         self.now = now
 
     @override
@@ -76,8 +75,8 @@ class IssueScreen(Screen[None]):
                         id="issue-view-subtitle",
                         markup=False,
                     )
-                if issue["body"].strip():
-                    yield Markdown(issue["body"], id="issue-view-markdown")
+                if issue.body.strip():
+                    yield Markdown(issue.body, id="issue-view-markdown")
                 else:
                     yield Static(
                         EMPTY_BODY_MESSAGE,
@@ -125,42 +124,40 @@ class IssueScreen(Screen[None]):
         self.dismiss(None)
 
 
-def issue_byline(issue: Issue, *, now: datetime | None = None) -> str:
+def issue_byline(issue: IssueProfile, *, now: datetime | None = None) -> str:
     """Frame an Issue as ``opened 3d ago by ned2``."""
     current = now or datetime.now(UTC)
     parts = ["opened"]
-    age = relative_age(issue["createdAt"], current)
+    age = relative_age(issue.created_at, current)
     if age:
         parts.append(age)
-    if issue["author"]:
-        parts.append(f"by {issue['author']}")
+    if issue.author:
+        parts.append(f"by {issue.author}")
     return " ".join(parts)
 
 
 def selection_title(context: IssueListRow) -> str:
     """Title the selected Issue with its compact human label."""
-    if context.issue:
-        return f"#{context.issue['number']}: {context.issue['title']}"
-    return "SELECTION"
+    return f"#{context.issue.number}: {context.issue.title}"
 
 
-def issue_state_class(issue: Issue) -> str:
+def issue_state_class(issue: IssueProfile) -> str:
     """The stylesheet class that colours the view by the Issue's state."""
     return f"-issue-{issue_state_kind(issue)}"
 
 
-def issue_location(issue: Issue) -> str:
+def issue_location(issue: IssueProfile) -> str:
     """Where the Issue lives: its GitHub URL, or ``path:line`` for a Local Issue."""
-    location = issue["location"]
-    if location["kind"] == "github":
-        return str(location["url"])
-    return f"{location['path']}:{location['line']}"
+    location = issue.location
+    if location.kind == "github":
+        return location.url
+    return f"{location.path}:{location.line}"
 
 
-def issue_state_label(issue: Issue) -> str:
+def issue_state_label(issue: IssueProfile) -> str:
     kind = issue_state_kind(issue)
     if kind == "open":
-        return "reopened" if issue["stateReason"] == "reopened" else "open"
+        return "reopened" if issue.state_reason == "reopened" else "open"
     if kind == "completed":
         return "closed as completed"
     return f"closed as {kind}"
@@ -175,23 +172,21 @@ def issue_metadata_items(
     one shape across Issues; empty collections show a single ``-`` entry.
     """
     issue = context.issue
-    if issue is None:
-        raise ValueError("Issue metadata needs an Issue row")
     current = now or datetime.now(UTC)
-    labels = [label for label in issue["labels"] if not is_priority_label(label)]
+    labels = [label for label in issue.labels if not is_priority_label(label)]
     items: list[DetailItem] = [
         DetailItem(
             issue_state_chip(issue, issue_state_label(issue), dark=dark), "State"
         ),
-        DetailItem(issue["author"] or "-", "Author"),
-        DetailItem(", ".join(issue["assignees"]) or "unassigned", "Assignees"),
+        DetailItem(issue.author or "-", "Author"),
+        DetailItem(", ".join(issue.assignees) or "unassigned", "Assignees"),
         DetailItem(label_chips(labels, label_colors(context.project)), "Labels"),
         DetailItem(issue_priority(issue) or "-", "Priority"),
-        DetailItem(issue["issueType"] or "-", "Type"),
-        DetailItem(issue["milestone"] or "-", "Milestone"),
-        DetailItem(_timestamp(issue["createdAt"], current), "Created"),
-        DetailItem(_timestamp(issue["updatedAt"], current), "Updated"),
-        DetailItem(_timestamp(issue["closedAt"], current), "Closed"),
+        DetailItem(issue.issue_type or "-", "Type"),
+        DetailItem(issue.milestone or "-", "Milestone"),
+        DetailItem(_timestamp(issue.created_at, current), "Created"),
+        DetailItem(_timestamp(issue.updated_at, current), "Updated"),
+        DetailItem(_timestamp(issue.closed_at, current), "Closed"),
     ]
 
     activity = issue_activity(issue, context.project)
@@ -205,13 +200,13 @@ def issue_metadata_items(
     else:
         items.append(DetailItem("-", kind="list"))
 
-    relationships = issue["relationships"]
+    relationships = issue.relationships
     items.append(DetailItem("Relationships", kind="section"))
-    related = [
-        ("Parent", [relationships["parent"]] if relationships["parent"] else []),
-        ("Sub-issues", relationships["subIssues"]),
-        ("Blocked by", relationships["blockedBy"]),
-        ("Blocking", relationships["blocking"]),
+    related: list[tuple[str, tuple[str, ...]]] = [
+        ("Parent", (relationships.parent,) if relationships.parent else ()),
+        ("Sub-issues", relationships.sub_issues),
+        ("Blocked by", relationships.blocked_by),
+        ("Blocking", relationships.blocking),
     ]
     if not any(ids for _label, ids in related):
         items.append(DetailItem("-", kind="list"))
@@ -251,6 +246,6 @@ def _describe_related(issue_id: str, project: ProjectObservation) -> str:
     Project, otherwise fall back to its opaque identity."""
     if project.snapshot is not None:
         for candidate in project.snapshot.issues:
-            if candidate["id"] == issue_id:
-                return f"#{candidate['number']} {candidate['title']}"
+            if candidate.id == issue_id:
+                return f"#{candidate.number} {candidate.title}"
     return issue_id

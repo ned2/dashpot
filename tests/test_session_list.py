@@ -8,10 +8,10 @@ from rich.text import Text
 
 from dashpot.agents import ProcessIdentity, observe_agent_runs, write_hook_record
 from dashpot.issue_list import row_key
+from dashpot.issue_profile import IssueProfile
 from dashpot.list_pane import truncate_end, truncate_start
 from dashpot.model import (
     AgentRun,
-    Issue,
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
@@ -30,21 +30,14 @@ from dashpot.session_list import (
     session_columns,
 )
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
-from helpers import present, required
+from helpers import make_issue, present, required
 
 NOW = "2026-08-27T03:00:00Z"
 CURRENT = datetime(2026, 8, 27, 3, 5, tzinfo=UTC)
 
 
-def issue(issue_id: str, number: int, title: str) -> Issue:
-    return {
-        "id": issue_id,
-        "number": number,
-        "state": "open",
-        "title": title,
-        "labels": [],
-        "assignees": [],
-    }
+def issue(issue_id: str, number: int, title: str) -> IssueProfile:
+    return make_issue(id=issue_id, number=number, state="open", title=title)
 
 
 def target(path: str, branch: str | None = "main") -> ObservationTarget:
@@ -62,7 +55,9 @@ def target(path: str, branch: str | None = "main") -> ObservationTarget:
 
 
 def project(
-    project_id: str, *issues: Issue, targets: list[ObservationTarget] | None = None
+    project_id: str,
+    *issues: IssueProfile,
+    targets: list[ObservationTarget] | None = None,
 ) -> ProjectObservation:
     label = project_id.removeprefix("project:").title()
     snapshot = ProjectSnapshot(
@@ -161,13 +156,13 @@ def test_store_lists_every_active_session_once_with_its_relationships() -> None:
         row_key("session", "work:codex:three"),
     ]
     by_id = {row.session.id: row for row in result.rows}
-    assert required(by_id[bound.id].issue)["title"] == "Alpha work"
+    assert required(by_id[bound.id].issue).title == "Alpha work"
     assert by_id[bound.id].bound_issue_id == "I_alpha#7"
     assert required(by_id[bound.id].project).display_label == "Alpha"
     assert by_id[unbound.id].issue is None
     assert by_id[unbound.id].bound_issue_id is None
     assert required(by_id[elsewhere.id].project).display_label == "Beta"
-    assert required(by_id[elsewhere.id].issue)["number"] == 2
+    assert required(by_id[elsewhere.id].issue).number == 2
     # The rows are a detached projection: the store's observations stay put.
     result.rows[0].session.state = "running"
     assert store.query_sessions().rows[0].session.state == "waiting"
@@ -211,7 +206,7 @@ def test_accepted_binding_wins_over_the_record_hint_and_unknown_issues_keep_it()
 
     rows = {row.session.id: row for row in store.query_sessions().rows}
 
-    assert required(rows["work:one"].issue)["id"] == "I_alpha#7"
+    assert required(rows["work:one"].issue).id == "I_alpha#7"
     assert rows["work:two"].issue is None
     assert rows["work:two"].bound_issue_id == "I_alpha#99"
     cells = session_cells(rows["work:two"], dark=True, now=CURRENT)
@@ -286,7 +281,7 @@ def test_correlated_hook_and_work_records_are_one_session_row() -> None:
         assert result.count == 1
         row = result.rows[0]
         assert row.session.state == "running"
-        assert required(row.issue)["number"] == 7
+        assert required(row.issue).number == 7
         cells = session_cells(row, dark=True, now=CURRENT, home=root)
         assert cells[3] == "feature"
         assert cells[4] == "#7 Alpha work"
@@ -538,7 +533,7 @@ def test_sandboxed_bindings_of_both_harnesses_reach_the_sessions_and_issues_read
         assert by_harness["codex"].session.state == "running"
         assert by_harness["claude-code"].session.state == "waiting"
         for row in sessions.rows:
-            assert required(row.issue)["number"] == 7
+            assert required(row.issue).number == 7
             assert session_cells(row, dark=True, now=CURRENT, home=root)[4] == (
                 "#7 Alpha work"
             )

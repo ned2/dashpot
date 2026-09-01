@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 from dashpot.agent_bindings import bind_issue_runs
+from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
-    Issue,
     ProjectObservation,
     ProjectSnapshot,
     SourceStatus,
 )
+from helpers import make_issue
 
 NOW = "2026-08-27T00:00:00Z"
 
 
 def project(
-    project_id: str, *issues: Issue, status: SourceStatus = "fresh"
+    project_id: str, *issues: IssueProfile, status: SourceStatus = "fresh"
 ) -> ProjectObservation:
     snapshot = ProjectSnapshot(
         project_id=project_id,
@@ -62,11 +63,9 @@ def run(
 
 
 def test_persisted_identity_survives_reference_change_and_project_transfer() -> None:
-    transferred = {
-        "id": "I_stable",
-        "projectId": "project-b",
-        "reference": "new/repository#70",
-    }
+    transferred = make_issue(
+        id="I_stable", projectId="project-b", reference="new/repository#70"
+    )
 
     result = bind_issue_runs(
         [project("project-a"), project("project-b", transferred)],
@@ -78,11 +77,9 @@ def test_persisted_identity_survives_reference_change_and_project_transfer() -> 
 
 
 def test_unbound_run_is_left_alone_without_hint_resolution() -> None:
-    hinted = {
-        "id": "I_hint",
-        "projectId": "project-a",
-        "reference": "owner/repository#15",
-    }
+    hinted = make_issue(
+        id="I_hint", projectId="project-a", reference="owner/repository#15"
+    )
 
     result = bind_issue_runs(
         [project("project-a", hinted)],
@@ -95,8 +92,8 @@ def test_unbound_run_is_left_alone_without_hint_resolution() -> None:
 
 
 def test_duplicate_persisted_identity_across_projects_is_a_conflict() -> None:
-    first = {"id": "I_duplicate", "projectId": "project-a", "reference": "a#1"}
-    second = {"id": "I_duplicate", "projectId": "project-b", "reference": "b#2"}
+    first = make_issue(id="I_duplicate", projectId="project-a", reference="a#1")
+    second = make_issue(id="I_duplicate", projectId="project-b", reference="b#2")
 
     result = bind_issue_runs(
         [project("project-a", first), project("project-b", second)],
@@ -109,8 +106,8 @@ def test_duplicate_persisted_identity_across_projects_is_a_conflict() -> None:
 
 
 def test_duplicate_identity_is_diagnosed_even_without_an_agent_binding() -> None:
-    first = {"id": "I_duplicate", "projectId": "project-a", "reference": "a#1"}
-    second = {"id": "I_duplicate", "projectId": "project-b", "reference": "b#2"}
+    first = make_issue(id="I_duplicate", projectId="project-a", reference="a#1")
+    second = make_issue(id="I_duplicate", projectId="project-b", reference="b#2")
 
     result = bind_issue_runs(
         [project("project-a", first), project("project-b", second)], []
@@ -120,11 +117,9 @@ def test_duplicate_identity_is_diagnosed_even_without_an_agent_binding() -> None
 
 
 def test_persisted_identity_wins_over_stale_reference_with_warning() -> None:
-    current = {
-        "id": "I_stable",
-        "projectId": "project-a",
-        "reference": "new/repository#70",
-    }
+    current = make_issue(
+        id="I_stable", projectId="project-a", reference="new/repository#70"
+    )
 
     result = bind_issue_runs(
         [project("project-a", current)],
@@ -166,11 +161,9 @@ def test_unobserved_identity_with_fresh_sources_is_diagnosed() -> None:
 
 
 def test_two_runs_on_one_issue_are_independently_listed() -> None:
-    issue = {
-        "id": "I_shared",
-        "projectId": "project-a",
-        "reference": "owner/repository#15",
-    }
+    issue = make_issue(
+        id="I_shared", projectId="project-a", reference="owner/repository#15"
+    )
     first = AgentRun(
         id="work:codex:one:t1",
         harness="codex",

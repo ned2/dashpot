@@ -31,7 +31,7 @@ from dashpot.worktrees import (
     resolve_worktree_root,
     title_slug,
 )
-from helpers import absent, table_lookup
+from helpers import absent, make_issue, table_lookup
 from test_work import issue_document
 
 CONFIG = {
@@ -182,17 +182,16 @@ def test_json_shape_names_every_source(tmp_path: Path) -> None:
 
 
 def test_github_issue_branch_follows_githubs_convention() -> None:
-    issue = {
-        "origin": {"kind": "github", "repositoryId": "R_x"},
-        "number": 35,
-        "title": "Add `dashpot worktree create` & check: for Issue Worktrees!",
-        "reference": "ned2/dashpot#35",
-    }
+    issue = make_issue(
+        number=35,
+        title="Add `dashpot worktree create` & check: for Issue Worktrees!",
+        reference="ned2/dashpot#35",
+    )
 
     assert (
         default_branch_name(issue) == "35-add-dashpot-worktree-create-check-for-issue"
     )
-    assert default_branch_name({**issue, "title": "***"}) == "35"
+    assert default_branch_name(make_issue(number=35, title="***")) == "35"
 
 
 def test_title_slug_cuts_at_a_word_boundary() -> None:

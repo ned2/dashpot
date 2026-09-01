@@ -4,8 +4,9 @@ import copy
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal
 
+from .issue_profile import IssueProfile
 from .model import IssueActivity
 
 IssueSourceStatus = Literal["fresh", "stale", "unavailable"]
@@ -26,7 +27,7 @@ class IssueSourceObservation:
     status: IssueSourceStatus
     attempted_at: str
     last_good_at: str | None
-    issues: list[dict[str, Any]]
+    issues: list[IssueProfile]
     diagnostics: list[IssueSourceDiagnostic]
     # Presentation facts about the source's labels (name -> "rrggbb"). They
     # sit beside the Issue profile rather than inside it: a label's colour is
@@ -47,7 +48,7 @@ class IssueSource:
 
     def __init__(self, *, clock: Clock | None = None) -> None:
         self._clock = clock or utc_now
-        self._last_good: list[dict[str, Any]] | None = None
+        self._last_good: list[IssueProfile] | None = None
         self._last_good_at: str | None = None
         self._last_good_label_colors: dict[str, str] = {}
         self._last_good_issue_activity: dict[str, IssueActivity] = {}
@@ -108,7 +109,7 @@ class IssueSource:
             ],
         )
 
-    def _collect(self) -> list[dict[str, Any]]:
+    def _collect(self) -> list[IssueProfile]:
         raise NotImplementedError
 
     def _collect_label_colors(self) -> dict[str, str]:

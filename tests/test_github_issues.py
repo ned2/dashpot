@@ -12,6 +12,7 @@ from dashpot.github_issues import (
     GitHubIssuesSource,
     normalize_github_issue,
 )
+from dashpot.issue_profile import IssueProfile, conform_issue
 from issue_source_conformance import (
     assert_fresh_observation,
     assert_stale_observation,
@@ -29,11 +30,11 @@ def raw_fixture() -> dict[str, Any]:
     return json.loads(RAW_FIXTURE.read_text())
 
 
-def expected_fixture() -> dict[str, Any]:
-    return json.loads(EXPECTED_FIXTURE.read_text())
+def expected_fixture() -> IssueProfile:
+    return conform_issue(json.loads(EXPECTED_FIXTURE.read_text()))
 
 
-def normalize(record: dict[str, Any], **overrides: str) -> dict[str, Any]:
+def normalize(record: dict[str, Any], **overrides: str) -> IssueProfile:
     return normalize_github_issue(
         record,
         project_id=overrides.get("project_id", PROJECT_ID),
@@ -136,17 +137,11 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
     def test_plural_assignees_and_all_relationships_are_preserved(self) -> None:
         issue = normalize(raw_fixture())
 
-        self.assertEqual(["ned2", "octocat"], issue["assignees"])
-        self.assertEqual("I_parent_1", issue["relationships"]["parent"])
-        self.assertEqual(
-            ["I_child_1", "I_child_2"], issue["relationships"]["subIssues"]
-        )
-        self.assertEqual(
-            ["I_blocker_1", "I_blocker_2"], issue["relationships"]["blockedBy"]
-        )
-        self.assertEqual(
-            ["I_blocked_1", "I_blocked_2"], issue["relationships"]["blocking"]
-        )
+        self.assertEqual(("ned2", "octocat"), issue.assignees)
+        self.assertEqual("I_parent_1", issue.relationships.parent)
+        self.assertEqual(("I_child_1", "I_child_2"), issue.relationships.sub_issues)
+        self.assertEqual(("I_blocker_1", "I_blocker_2"), issue.relationships.blocked_by)
+        self.assertEqual(("I_blocked_1", "I_blocked_2"), issue.relationships.blocking)
 
     def test_repository_rename_changes_reference_not_identity(self) -> None:
         before = normalize(raw_fixture())
@@ -156,11 +151,12 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
 
         after = normalize(renamed)
 
-        self.assertEqual(before["id"], after["id"])
-        self.assertEqual(before["projectId"], after["projectId"])
-        self.assertEqual(before["number"], after["number"])
-        self.assertEqual("open-dashpot/dashpot#9", after["reference"])
-        self.assertEqual(renamed["url"], after["location"]["url"])
+        self.assertEqual(before.id, after.id)
+        self.assertEqual(before.project_id, after.project_id)
+        self.assertEqual(before.number, after.number)
+        self.assertEqual("open-dashpot/dashpot#9", after.reference)
+        assert after.location.kind == "github"
+        self.assertEqual(renamed["url"], after.location.url)
 
     def test_transfer_preserves_issue_identity_and_changes_membership(self) -> None:
         before = normalize(raw_fixture())
@@ -178,12 +174,13 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
             repository_id="R_operations",
         )
 
-        self.assertEqual(before["id"], after["id"])
-        self.assertEqual("project:operations", after["projectId"])
-        self.assertEqual(41, after["number"])
-        self.assertEqual("open-dashpot/operations#41", after["reference"])
-        self.assertEqual("R_operations", after["origin"]["repositoryId"])
-        self.assertNotIn("number", after["origin"])
+        self.assertEqual(before.id, after.id)
+        self.assertEqual("project:operations", after.project_id)
+        self.assertEqual(41, after.number)
+        self.assertEqual("open-dashpot/operations#41", after.reference)
+        assert after.origin.kind == "github"
+        self.assertEqual("R_operations", after.origin.repository_id)
+        self.assertNotIn("number", after.origin.model_dump(by_alias=True))
 
     def test_number_must_be_a_positive_integer(self) -> None:
         for invalid in (None, 0, -1, "9", 9.0, True):
@@ -241,11 +238,11 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
 
         issue = normalize(record)
 
-        self.assertIsNone(issue["author"])
-        self.assertIsNone(issue["relationships"]["parent"])
-        self.assertEqual([], issue["labels"])
-        self.assertEqual([], issue["assignees"])
-        self.assertEqual([], issue["relationships"]["blockedBy"])
+        self.assertIsNone(issue.author)
+        self.assertIsNone(issue.relationships.parent)
+        self.assertEqual((), issue.labels)
+        self.assertEqual((), issue.assignees)
+        self.assertEqual((), issue.relationships.blocked_by)
 
     def test_closed_lifecycle_values_are_normalized(self) -> None:
         record = raw_fixture()
@@ -255,9 +252,9 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
 
         issue = normalize(record)
 
-        self.assertEqual("closed", issue["state"])
-        self.assertEqual("not-planned", issue["stateReason"])
-        self.assertEqual(record["closedAt"], issue["closedAt"])
+        self.assertEqual("closed", issue.state)
+        self.assertEqual("not-planned", issue.state_reason)
+        self.assertEqual(record["closedAt"], issue.closed_at)
 
     def test_duplicate_state_reason_is_preserved(self) -> None:
         record = raw_fixture()
@@ -265,7 +262,7 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
         record["stateReason"] = "DUPLICATE"
         record["closedAt"] = "2026-08-26T10:00:00Z"
 
-        self.assertEqual("duplicate", normalize(record)["stateReason"])
+        self.assertEqual("duplicate", normalize(record).state_reason)
 
     def test_unknown_state_reason_is_rejected_instead_of_erased(self) -> None:
         record = raw_fixture()
@@ -304,7 +301,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         self.assertIn("comments { totalCount }", query)
         self.assertIn("closedByPullRequestsReferences", query)
         self.assertNotIn("tasks.md", query)
-        activity = observation.issue_activity[observation.issues[0]["id"]]
+        activity = observation.issue_activity[observation.issues[0].id]
         self.assertEqual(3, activity.comment_count)
         self.assertEqual(
             [(12, "open"), (41, "merged")],
@@ -314,7 +311,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             "https://github.com/ned2/dashpot/pull/41",
             activity.linked_pull_requests[1].url,
         )
-        self.assertNotIn("comments", observation.issues[0])
+        self.assertNotIn("comments", observation.issues[0].model_dump(by_alias=True))
         self.assertEqual(
             {
                 "priority/P1": "b60205",
@@ -351,8 +348,8 @@ class GitHubIssuesSourceTests(unittest.TestCase):
 
         self.assertEqual("fresh", observation.status)
         self.assertEqual(201, len(observation.issues))
-        self.assertEqual("I_issue_1", observation.issues[0]["id"])
-        self.assertEqual("I_issue_201", observation.issues[-1]["id"])
+        self.assertEqual("I_issue_1", observation.issues[0].id)
+        self.assertEqual("I_issue_201", observation.issues[-1].id)
         self.assertEqual(3, len(runner.calls))
         self.assertIn("cursor=issues-100", runner.calls[1][0])
         self.assertIn("cursor=issues-200", runner.calls[2][0])
@@ -422,10 +419,11 @@ class GitHubIssuesSourceTests(unittest.TestCase):
                 self.assertEqual("fresh", observation.status)
                 self.assertIn(f"cursor={connection_name}-1", runner.calls[1][0])
                 self.assertIn(f"connection: {connection_name}", runner.calls[1][0][4])
+                dumped = observation.issues[0].model_dump(mode="json", by_alias=True)
                 if connection_name in {"labels", "assignees"}:
-                    actual = observation.issues[0][connection_name]
+                    actual = dumped[connection_name]
                 else:
-                    actual = observation.issues[0]["relationships"][connection_name]
+                    actual = dumped["relationships"][connection_name]
                 self.assertEqual(sorted([first, later]), actual)
 
     def test_label_colors_follow_nested_pagination_and_stay_out_of_the_profile(
@@ -454,10 +452,10 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             observation.label_colors,
         )
         self.assertEqual(
-            ["bad-colour", "first-label", "later-label", "no-colour"],
-            observation.issues[0]["labels"],
+            ("bad-colour", "first-label", "later-label", "no-colour"),
+            observation.issues[0].labels,
         )
-        self.assertNotIn("labelColors", observation.issues[0])
+        self.assertNotIn("labelColors", observation.issues[0].model_dump(by_alias=True))
 
     def test_missing_or_malformed_engagement_reads_as_none(self) -> None:
         record = raw_fixture()
@@ -474,7 +472,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = source(runner).refresh()
 
         self.assertEqual("fresh", observation.status)
-        activity = observation.issue_activity[observation.issues[0]["id"]]
+        activity = observation.issue_activity[observation.issues[0].id]
         self.assertEqual(0, activity.comment_count)
         self.assertEqual([], activity.linked_pull_requests)
 
@@ -484,7 +482,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = source(SequenceRunner([completed(issue_page([bare]))])).refresh()
         self.assertEqual("fresh", observation.status)
         self.assertEqual(
-            0, observation.issue_activity[observation.issues[0]["id"]].comment_count
+            0, observation.issue_activity[observation.issues[0].id].comment_count
         )
 
     def test_repeated_nested_cursor_is_a_pagination_diagnostic(self) -> None:
@@ -555,9 +553,10 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"],
         )
         fresh = github.refresh()
-        fresh.issues[0]["title"] = "caller mutation"
+        # The profile is frozen, so a caller can only swap a list element.
+        fresh.issues[0] = normalize(dict(raw_fixture(), title="caller mutation"))
         fresh.label_colors["enhancement"] = "000000"
-        fresh.issue_activity[fresh.issues[0]["id"]].comment_count = 99
+        fresh.issue_activity[fresh.issues[0].id].comment_count = 99
 
         stale = github.refresh()
 
@@ -571,7 +570,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             expected_issues=[expected_fixture()],
         )
         self.assertEqual("a2eeef", stale.label_colors["enhancement"])
-        self.assertEqual(3, stale.issue_activity[stale.issues[0]["id"]].comment_count)
+        self.assertEqual(3, stale.issue_activity[stale.issues[0].id].comment_count)
 
     def test_graphql_errors_are_diagnostics_and_partial_data_is_discarded(self) -> None:
         response = json.dumps(
@@ -635,10 +634,11 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = github.refresh()
 
         self.assertEqual("fresh", observation.status)
-        self.assertEqual("ned2/renamed-dashpot#9", observation.issues[0]["reference"])
+        self.assertEqual("ned2/renamed-dashpot#9", observation.issues[0].reference)
+        location = observation.issues[0].location
+        assert location.kind == "github"
         self.assertEqual(
-            "https://github.com/ned2/renamed-dashpot/issues/9",
-            observation.issues[0]["location"]["url"],
+            "https://github.com/ned2/renamed-dashpot/issues/9", location.url
         )
 
     def test_missing_repository_is_a_repository_diagnostic(self) -> None:

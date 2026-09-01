@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .model import AgentRun, Diagnostic, Issue, ProjectObservation
+from .issue_profile import IssueProfile
+from .model import AgentRun, Diagnostic, ProjectObservation
 
 
 @dataclass(slots=True)
@@ -18,14 +19,14 @@ def bind_issue_runs(
     runs: Sequence[AgentRun],
 ) -> IssueBindingResult:
     """Validate Work Store Issue Bindings against the observed Issue universe."""
-    issues_by_id: dict[str, list[Issue]] = {}
+    issues_by_id: dict[str, list[IssueProfile]] = {}
     status_by_project: dict[str, str] = {}
     for project in projects:
         status_by_project[project.project_id] = project.status
         if project.snapshot is None:
             continue
         for issue in project.snapshot.issues:
-            issues_by_id.setdefault(issue["id"], []).append(issue)
+            issues_by_id.setdefault(issue.id, []).append(issue)
 
     issue_runs: dict[str, list[str]] = {issue_id: [] for issue_id in issues_by_id}
     conflicting_ids = {
@@ -48,7 +49,7 @@ def bind_issue_runs(
             issue_runs[run.issue_id].append(run.id)
             if (
                 run.issue_reference_hint
-                and matches[0]["reference"] != run.issue_reference_hint
+                and matches[0].reference != run.issue_reference_hint
             ):
                 diagnostics.append(
                     Diagnostic(

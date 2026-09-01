@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_table import ColumnKey
-from dashpot.model import Issue
 from helpers import required, snapshot_of
 
 if TYPE_CHECKING:
@@ -92,7 +92,9 @@ ISSUE_FIXTURE = json.loads(
 )
 
 
-def issue(reference: str, title: str, priority: str = "P1") -> Issue:
+def issue(
+    reference: str, title: str, priority: str = "P1", **overrides: object
+) -> IssueProfile:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["id"] = f"I_{reference}"
     number_text = reference.rpartition("#")[2]
@@ -102,7 +104,8 @@ def issue(reference: str, title: str, priority: str = "P1") -> Issue:
     value["title"] = title
     value["labels"] = [f"priority/{priority.lower()}"]
     value["assignees"] = []
-    return value
+    value.update(overrides)
+    return conform_issue(value)
 
 
 def column_sort_key(column: ColumnKey) -> Callable[[object], SupportsRichComparison]:
@@ -112,7 +115,7 @@ def column_sort_key(column: ColumnKey) -> Callable[[object], SupportsRichCompari
 
 
 def workspace_snapshot(
-    *issues: Issue,
+    *issues: IssueProfile,
     runs: list[AgentRun] | None = None,
     status: SourceStatus = "fresh",
     diagnostics: list[Diagnostic] | None = None,
@@ -158,7 +161,7 @@ def workspace_snapshot(
         elapsed_ms,
         [project],
         agent_runs=runs or [],
-        issue_runs={item["id"]: [] for item in issues},
+        issue_runs={item.id: [] for item in issues},
     )
 
 
@@ -329,13 +332,12 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 @pytest.mark.asyncio
 async def test_app_renders_the_injected_issue_list_query() -> None:
     open_issue = issue("test/repo#1", "Open")
-    closed_issue = issue("test/repo#2", "Closed")
-    closed_issue.update(
-        {
-            "state": "closed",
-            "stateReason": "completed",
-            "closedAt": "2026-08-27T01:00:00Z",
-        }
+    closed_issue = issue(
+        "test/repo#2",
+        "Closed",
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T01:00:00Z",
     )
     snapshot = workspace_snapshot(open_issue, closed_issue)
     app = DashpotApp(
@@ -350,7 +352,7 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
         await wait_until(lambda: app.store.revision == 1)
 
         assert app.query_one("#queue", DataTable).row_count == 1
-        assert app.selected_row_key == row_key("issue", closed_issue["id"])
+        assert app.selected_row_key == row_key("issue", closed_issue.id)
         assert selected_title(app) == "#2: Closed"
 
 
@@ -377,13 +379,12 @@ async def test_issue_view_tracks_github_issue_state_colors(
     dark_color: str,
     light_color: str,
 ) -> None:
-    selected_issue = issue("test/repo#1", "Stateful")
-    selected_issue.update(
-        {
-            "state": state,
-            "stateReason": reason,
-            "closedAt": NOW if state == "closed" else None,
-        }
+    selected_issue = issue(
+        "test/repo#1",
+        "Stateful",
+        state=state,
+        stateReason=reason,
+        closedAt=NOW if state == "closed" else None,
     )
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(selected_issue)),
@@ -397,7 +398,7 @@ async def test_issue_view_tracks_github_issue_state_colors(
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         table = app.query_one("#queue", DataTable)
-        issue_key = row_key("issue", selected_issue["id"])
+        issue_key = row_key("issue", selected_issue.id)
         state_cell = table.get_cell(issue_key, "issue_state")
         assert isinstance(state_cell, IssueStateCell)
         assert state_cell.plain == "■"
@@ -515,13 +516,12 @@ async def test_only_focused_main_screen_table_shows_its_row_cursor() -> None:
 @pytest.mark.asyncio
 async def test_issue_view_color_follows_the_opened_issue() -> None:
     open_issue = issue("test/repo#1", "Open")
-    completed_issue = issue("test/repo#2", "Completed")
-    completed_issue.update(
-        {
-            "state": "closed",
-            "stateReason": "completed",
-            "closedAt": NOW,
-        }
+    completed_issue = issue(
+        "test/repo#2",
+        "Completed",
+        state="closed",
+        stateReason="completed",
+        closedAt=NOW,
     )
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(open_issue, completed_issue)),
@@ -534,7 +534,7 @@ async def test_issue_view_color_follows_the_opened_issue() -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
 
-        app.open_issue(row_key("issue", open_issue["id"]))
+        app.open_issue(row_key("issue", open_issue.id))
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
         view = app.screen.query_one("#issue-view")
@@ -543,7 +543,7 @@ async def test_issue_view_color_follows_the_opened_issue() -> None:
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        app.open_issue(row_key("issue", completed_issue["id"]))
+        app.open_issue(row_key("issue", completed_issue.id))
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
         view = app.screen.query_one("#issue-view")
@@ -643,12 +643,21 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
 
 @pytest.mark.asyncio
 async def test_default_sort_orders_last_action_newest_first_and_missing_last() -> None:
-    older = issue("test/repo#1", "Older")
-    older["updatedAt"] = "2026-08-25T01:00:00Z"
-    missing = issue("test/repo#2", "Missing")
-    missing["updatedAt"] = None
-    newest = issue("test/repo#3", "Newest")
-    newest["updatedAt"] = "2026-08-27T01:00:00Z"
+    older = issue(
+        "test/repo#1",
+        "Older",
+        updatedAt="2026-08-25T01:00:00Z",
+    )
+    missing = issue(
+        "test/repo#2",
+        "Missing",
+        updatedAt=None,
+    )
+    newest = issue(
+        "test/repo#3",
+        "Newest",
+        updatedAt="2026-08-27T01:00:00Z",
+    )
     snapshot = workspace_snapshot(older, missing, newest)
     app = DashpotApp(
         SequenceCollector(snapshot),
@@ -670,12 +679,18 @@ async def test_default_sort_orders_last_action_newest_first_and_missing_last() -
 async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default() -> (
     None
 ):
-    recently_active = issue("test/repo#1", "Recently active")
-    recently_active["createdAt"] = "2026-08-01T01:00:00Z"
-    recently_active["updatedAt"] = "2026-08-28T01:00:00Z"
-    newly_created = issue("test/repo#2", "Newly created")
-    newly_created["createdAt"] = "2026-08-27T01:00:00Z"
-    newly_created["updatedAt"] = "2026-08-27T02:00:00Z"
+    recently_active = issue(
+        "test/repo#1",
+        "Recently active",
+        createdAt="2026-08-01T01:00:00Z",
+        updatedAt="2026-08-28T01:00:00Z",
+    )
+    newly_created = issue(
+        "test/repo#2",
+        "Newly created",
+        createdAt="2026-08-27T01:00:00Z",
+        updatedAt="2026-08-27T02:00:00Z",
+    )
     snapshot = workspace_snapshot(recently_active, newly_created)
     app = DashpotApp(
         SequenceCollector(snapshot),
@@ -698,14 +713,14 @@ async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default
 
         assert "created" not in app.issue_view.columns
         assert table.get_row_at(0)[title_column] == "Newly created"
-        assert app.selected_row_key == row_key("issue", recently_active["id"])
+        assert app.selected_row_key == row_key("issue", recently_active.id)
 
         search.value = ""
         await wait_until(lambda: app.issue_view.sort == DEFAULT_SORT)
         await pilot.pause()
 
         assert table.get_row_at(0)[title_column] == "Recently active"
-        assert app.selected_row_key == row_key("issue", recently_active["id"])
+        assert app.selected_row_key == row_key("issue", recently_active.id)
 
 
 @pytest.mark.asyncio
@@ -759,13 +774,12 @@ async def test_unsupported_search_sort_is_reported_without_filtering_rows() -> N
 
 @pytest.mark.asyncio
 async def test_visible_filters_update_result_count_but_not_inventory() -> None:
-    closed_issue = issue("test/repo#3", "Archived Zebra")
-    closed_issue.update(
-        {
-            "state": "closed",
-            "stateReason": "completed",
-            "closedAt": "2026-08-27T01:00:00Z",
-        }
+    closed_issue = issue(
+        "test/repo#3",
+        "Archived Zebra",
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T01:00:00Z",
     )
     snapshot = workspace_snapshot(
         issue("test/repo#1", "Zebra"),
@@ -794,7 +808,7 @@ async def test_visible_filters_update_result_count_but_not_inventory() -> None:
 
         state.value = "closed"
         await wait_until(
-            lambda: app.selected_row_key == row_key("issue", closed_issue["id"])
+            lambda: app.selected_row_key == row_key("issue", closed_issue.id)
         )
         assert str(count.render()) == "1 issue"
         assert pane_title(app, "#queue-pane") == inventory
@@ -802,10 +816,13 @@ async def test_visible_filters_update_result_count_but_not_inventory() -> None:
 
 @pytest.mark.asyncio
 async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
-    closed_issue = issue("test/repo#3", "Done")
-    closed_issue["state"] = "closed"
-    closed_issue["stateReason"] = "completed"
-    closed_issue["closedAt"] = NOW
+    closed_issue = issue(
+        "test/repo#3",
+        "Done",
+        state="closed",
+        stateReason="completed",
+        closedAt=NOW,
+    )
     snapshot = workspace_snapshot(issue("test/repo#1", "Alpha"), closed_issue)
     app = DashpotApp(
         SequenceCollector(snapshot),
@@ -824,7 +841,7 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         await pilot.press("o")
         await wait_until(lambda: state.value == "closed")
         await wait_until(
-            lambda: app.selected_row_key == row_key("issue", closed_issue["id"])
+            lambda: app.selected_row_key == row_key("issue", closed_issue.id)
         )
         assert app.issue_view.query.states == frozenset({"closed"})
         assert str(count.render()) == "1 issue"
@@ -873,10 +890,13 @@ async def test_result_count_handles_empty_and_singular_states() -> None:
 
 @pytest.mark.asyncio
 async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
-    closed_issue = issue("test/repo#3", "Done")
-    closed_issue["state"] = "closed"
-    closed_issue["stateReason"] = "completed"
-    closed_issue["closedAt"] = NOW
+    closed_issue = issue(
+        "test/repo#3",
+        "Done",
+        state="closed",
+        stateReason="completed",
+        closedAt=NOW,
+    )
     snapshot = workspace_snapshot(
         issue("test/repo#1", "Zebra"), issue("test/repo#2", "Alpha"), closed_issue
     )
@@ -907,10 +927,13 @@ async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
 @pytest.mark.asyncio
 async def test_published_observation_updates_inventory_and_result_count() -> None:
     first = workspace_snapshot(issue("test/repo#1", "First"))
-    closed_issue = issue("test/repo#3", "Done")
-    closed_issue["state"] = "closed"
-    closed_issue["stateReason"] = "completed"
-    closed_issue["closedAt"] = NOW
+    closed_issue = issue(
+        "test/repo#3",
+        "Done",
+        state="closed",
+        stateReason="completed",
+        closedAt=NOW,
+    )
     second = workspace_snapshot(
         issue("test/repo#1", "First"), issue("test/repo#2", "Second"), closed_issue
     )
@@ -1287,23 +1310,29 @@ def test_project_uses_display_label_independent_of_workspace_and_anchor() -> Non
 
 
 def test_row_projection_respects_visible_column_order() -> None:
-    selected_issue = issue("test/repo#1", "First")
-    selected_issue["assignees"] = ["ned2"]
+    selected_issue = issue(
+        "test/repo#1",
+        "First",
+        assignees=["ned2"],
+    )
 
     contexts, cells = build_rows(
         query_issue_list(workspace_snapshot(selected_issue)),
         columns=("title", "assignees", "project"),
     )
 
-    selected_key = row_key("issue", selected_issue["id"])
+    selected_key = row_key("issue", selected_issue.id)
     assert set(contexts) == {selected_key}
     assert cells[selected_key] == ("First", "ned2", "Test Repository")
 
 
 def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> None:
     authored = issue("test/repo#1", "Authored")
-    anonymous = issue("test/repo#2", "Anonymous")
-    anonymous["author"] = None
+    anonymous = issue(
+        "test/repo#2",
+        "Anonymous",
+        author=None,
+    )
 
     _contexts, cells = build_rows(
         query_issue_list(workspace_snapshot(authored, anonymous)),
@@ -1311,11 +1340,11 @@ def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> 
     )
 
     assert "author" not in DEFAULT_COLUMNS
-    assert cells[row_key("issue", authored["id"])] == ("ned2",)
-    assert cells[row_key("issue", anonymous["id"])] == ("-",)
+    assert cells[row_key("issue", authored.id)] == ("ned2",)
+    assert cells[row_key("issue", anonymous.id)] == ("-",)
     values = [
-        cells[row_key("issue", anonymous["id"])][0],
-        cells[row_key("issue", authored["id"])][0],
+        cells[row_key("issue", anonymous.id)][0],
+        cells[row_key("issue", authored.id)][0],
     ]
     ascending = sorted(values, key=sort_key_for_terms((SortTerm("author"),)))
     assert [str(value) for value in ascending] == ["ned2", "-"]
@@ -1323,9 +1352,12 @@ def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> 
 
 def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None:
     classified = issue("test/repo#1", "Classified")
-    plain = issue("test/repo#2", "Plain")
-    plain["milestone"] = None
-    plain["issueType"] = None
+    plain = issue(
+        "test/repo#2",
+        "Plain",
+        milestone=None,
+        issueType=None,
+    )
 
     _contexts, cells = build_rows(
         query_issue_list(workspace_snapshot(classified, plain)),
@@ -1334,12 +1366,12 @@ def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None
 
     assert "milestone" not in DEFAULT_COLUMNS
     assert "type" not in DEFAULT_COLUMNS
-    assert cells[row_key("issue", classified["id"])] == ("v1", "Feature")
-    assert cells[row_key("issue", plain["id"])] == ("-", "-")
+    assert cells[row_key("issue", classified.id)] == ("v1", "Feature")
+    assert cells[row_key("issue", plain.id)] == ("-", "-")
     ascending = sorted(
         [
-            cells[row_key("issue", plain["id"])][0],
-            cells[row_key("issue", classified["id"])][0],
+            cells[row_key("issue", plain.id)][0],
+            cells[row_key("issue", classified.id)][0],
         ],
         key=sort_key_for_terms((SortTerm("milestone"),)),
     )
@@ -1351,7 +1383,7 @@ def test_comments_column_shows_engagement_only_when_present() -> None:
     quiet = issue("test/repo#2", "Quiet")
     snapshot = workspace_snapshot(discussed, quiet)
     snapshot_of(snapshot.projects[0]).issue_activity = {
-        discussed["id"]: IssueActivity(
+        discussed.id: IssueActivity(
             comment_count=4,
             linked_pull_requests=[
                 LinkedPullRequest(12, "https://github.com/test/repo/pull/12", "open"),
@@ -1363,18 +1395,18 @@ def test_comments_column_shows_engagement_only_when_present() -> None:
     contexts, cells = build_rows(query_issue_list(snapshot), columns=("comments",))
 
     assert "comments" not in DEFAULT_COLUMNS
-    assert cells[row_key("issue", discussed["id"])] == ("4",)
-    assert cells[row_key("issue", quiet["id"])] == ("-",)
+    assert cells[row_key("issue", discussed.id)] == ("4",)
+    assert cells[row_key("issue", quiet.id)] == ("-",)
     ascending = sorted(
         [
-            cells[row_key("issue", discussed["id"])][0],
-            cells[row_key("issue", quiet["id"])][0],
+            cells[row_key("issue", discussed.id)][0],
+            cells[row_key("issue", quiet.id)][0],
         ],
         key=sort_key_for_terms((SortTerm("comments"),)),
     )
     assert [str(value) for value in ascending] == ["-", "4"]
 
-    detail = issue_metadata_text(contexts[row_key("issue", discussed["id"])])
+    detail = issue_metadata_text(contexts[row_key("issue", discussed.id)])
     assert "Comments: 4\n" in detail
     assert (
         "Pull requests:\n"
@@ -1383,7 +1415,7 @@ def test_comments_column_shows_engagement_only_when_present() -> None:
         "Relationships:"
     ) in detail
 
-    quiet_detail = issue_metadata_text(contexts[row_key("issue", quiet["id"])])
+    quiet_detail = issue_metadata_text(contexts[row_key("issue", quiet.id)])
     assert "Comments: 0\n" in quiet_detail
     assert "Pull requests:\n  -\n" in quiet_detail
 
@@ -1394,23 +1426,34 @@ def issue_metadata_text(context: IssueListRow) -> str:
 
 def test_issue_byline_frames_the_issue_as_opened_by_its_author() -> None:
     now = datetime(2026, 8, 29, 5, 33, 4, tzinfo=UTC)
-    selected_issue = issue("test/repo#12", "Byline")
-    selected_issue["createdAt"] = "2026-08-26T05:33:04Z"
+    selected_issue = issue(
+        "test/repo#12",
+        "Byline",
+        createdAt="2026-08-26T05:33:04Z",
+    )
 
     assert issue_byline(selected_issue, now=now) == "opened 3d ago by ned2"
 
-    selected_issue["author"] = None
-    selected_issue["createdAt"] = "2026-08-29T05:20:00Z"
+    anonymous_issue = issue(
+        "test/repo#12",
+        "Byline",
+        author=None,
+        createdAt="2026-08-29T05:20:00Z",
+    )
 
-    assert issue_byline(selected_issue, now=now) == "opened 13m ago"
+    assert issue_byline(anonymous_issue, now=now) == "opened 13m ago"
 
 
 def test_issue_location_is_the_url_or_the_local_file_line() -> None:
     hosted = issue("test/repo#12", "Hosted")
-    assert issue_location(hosted) == str(hosted["location"]["url"])
+    assert hosted.location.kind == "github"
+    assert issue_location(hosted) == hosted.location.url
 
-    local = issue("test/repo#13", "Local")
-    local["location"] = {"kind": "local", "path": "TASKS.md", "line": 7}
+    local = issue(
+        "test/repo#13",
+        "Local",
+        location={"kind": "markdown", "path": "TASKS.md", "line": 7},
+    )
     assert issue_location(local) == "TASKS.md:7"
 
 
@@ -1422,23 +1465,26 @@ def test_issue_number_column_uses_the_bare_project_local_number() -> None:
         columns=("number",),
     )
 
-    number = cells[row_key("issue", selected_issue["id"])][0]
+    number = cells[row_key("issue", selected_issue.id)][0]
     assert isinstance(number, IssueNumberCell)
     assert str(number) == "17"
     assert number.justify == "right"
 
 
 def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> None:
-    selected_issue = issue("test/repo#17", "Timestamp test")
-    selected_issue["createdAt"] = "2026-08-25T23:30:00Z"
-    selected_issue["updatedAt"] = "2026-08-27T01:15:00Z"
+    selected_issue = issue(
+        "test/repo#17",
+        "Timestamp test",
+        createdAt="2026-08-25T23:30:00Z",
+        updatedAt="2026-08-27T01:15:00Z",
+    )
 
     _contexts, cells = build_rows(
         query_issue_list(workspace_snapshot(selected_issue)),
         columns=("created", "last_action"),
     )
 
-    assert cells[row_key("issue", selected_issue["id"])] == (
+    assert cells[row_key("issue", selected_issue.id)] == (
         "2026-08-25",
         "2026-08-27",
     )
@@ -1465,10 +1511,16 @@ def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> Non
 
 
 def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> None:
-    labelled = issue("test/repo#1", "Labelled")
-    labelled["labels"] = ["bug", "enhancement", "zeta"]
-    bare = issue("test/repo#2", "Bare")
-    bare["labels"] = []
+    labelled = issue(
+        "test/repo#1",
+        "Labelled",
+        labels=["bug", "enhancement", "zeta"],
+    )
+    bare = issue(
+        "test/repo#2",
+        "Bare",
+        labels=[],
+    )
     snapshot = workspace_snapshot(labelled, bare)
     snapshot_of(snapshot.projects[0]).label_colors = {
         "bug": "d73a4a",
@@ -1477,7 +1529,7 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
 
     _contexts, cells = build_rows(query_issue_list(snapshot), columns=("labels",))
 
-    chips = cells[row_key("issue", labelled["id"])][0]
+    chips = cells[row_key("issue", labelled.id)][0]
     assert isinstance(chips, LabelsCell)
     assert chips.plain == " bug   enhancement   zeta "
     assert chips.sort_value == ("bug", "enhancement", "zeta")
@@ -1487,7 +1539,7 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
         "#000000 on #a2eeef",
         "#ffffff on #6e7781",
     ]
-    empty = cells[row_key("issue", bare["id"])][0]
+    empty = cells[row_key("issue", bare.id)][0]
     assert isinstance(empty, LabelsCell)
     assert empty.plain == "-"
     assert empty.sort_value is None
@@ -1503,11 +1555,15 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
 
 
 def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
-    urgent = issue("test/repo#1", "Urgent")
     # The most urgent recognized label sets the priority and lends its colour.
-    urgent["labels"] = ["bug", "priority/p3", "priority/P0"]
-    routine = issue("test/repo#2", "Routine")
-    routine["labels"] = ["low"]
+    urgent = issue(
+        "test/repo#1", "Urgent", labels=["bug", "priority/p3", "priority/P0"]
+    )
+    routine = issue(
+        "test/repo#2",
+        "Routine",
+        labels=["low"],
+    )
     snapshot = workspace_snapshot(urgent, routine)
     snapshot_of(snapshot.projects[0]).label_colors = {
         "bug": "d73a4a",
@@ -1521,7 +1577,7 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
     for dark in (True, False):
         _contexts, cells = build_rows(result, columns=("priority", "labels"), dark=dark)
 
-        priority, labels = cells[row_key("issue", urgent["id"])]
+        priority, labels = cells[row_key("issue", urgent.id)]
         assert isinstance(priority, PriorityCell)
         assert priority.plain == " P0 "
         assert priority.priority == "P0"
@@ -1531,7 +1587,7 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
         assert isinstance(labels, LabelsCell)
         assert labels.labels == ("bug",)
         assert labels.plain == " bug "
-        low, bare = cells[row_key("issue", routine["id"])]
+        low, bare = cells[row_key("issue", routine.id)]
         assert isinstance(low, PriorityCell)
         assert low.plain == " P3 "
         assert [str(span.style) for span in low.spans] == ["#ffffff on #6e7781"]
@@ -1541,8 +1597,11 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
 
 def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() -> None:
     prioritised = issue("test/repo#1", "Prioritised", "P1")
-    unlabelled = issue("test/repo#2", "Unlabelled")
-    unlabelled["labels"] = ["bug"]
+    unlabelled = issue(
+        "test/repo#2",
+        "Unlabelled",
+        labels=["bug"],
+    )
     without_priority = tuple(key for key in DEFAULT_COLUMNS if key != "priority")
 
     mixed = query_issue_list(workspace_snapshot(prioritised, unlabelled))
@@ -1555,14 +1614,14 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
         )
         # An Issue without a priority label shows nothing and sorts after
         # every priority in either direction: no default is invented.
-        absent = cells[row_key("issue", unlabelled["id"])][0]
+        absent = cells[row_key("issue", unlabelled.id)][0]
         assert isinstance(absent, PriorityCell)
         assert absent.plain == ""
         assert absent.priority is None
         assert absent.sort_value is None
         assert list(cells) == [
-            row_key("issue", prioritised["id"]),
-            row_key("issue", unlabelled["id"]),
+            row_key("issue", prioritised.id),
+            row_key("issue", unlabelled.id),
         ]
 
     plain = query_issue_list(workspace_snapshot(unlabelled))
@@ -1573,8 +1632,11 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
 
 @pytest.mark.asyncio
 async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() -> None:
-    unlabelled = issue("test/repo#1", "Alpha")
-    unlabelled["labels"] = ["bug"]
+    unlabelled = issue(
+        "test/repo#1",
+        "Alpha",
+        labels=["bug"],
+    )
     prioritised = issue("test/repo#2", "Zebra", "P0")
     first = workspace_snapshot(unlabelled)
     second = workspace_snapshot(unlabelled, prioritised)
@@ -1607,12 +1669,12 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
             "LAST ACTION ↓",
         ]
         assert table.row_count == 2
-        assert app.selected_row_key == row_key("issue", unlabelled["id"])
+        assert app.selected_row_key == row_key("issue", unlabelled.id)
         priority_cells = {
             key: table.get_row(key)[4]
             for key in (
-                row_key("issue", unlabelled["id"]),
-                row_key("issue", prioritised["id"]),
+                row_key("issue", unlabelled.id),
+                row_key("issue", prioritised.id),
             )
         }
         assert [cell.plain for cell in priority_cells.values()] == ["", " P0 "]
@@ -1753,8 +1815,11 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
-    selected_issue = issue("test/repo#1", "First")
-    selected_issue["assignees"] = ["ned2"]
+    selected_issue = issue(
+        "test/repo#1",
+        "First",
+        assignees=["ned2"],
+    )
     run = AgentRun(
         id="codex-session:42",
         harness="codex",
@@ -1763,15 +1828,15 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
         observation_target="/repo",
         observation_project_id="project:test-repo",
         branch="issue/1",
-        issue_id=selected_issue["id"],
-        issue_reference_hint=selected_issue["reference"],
+        issue_id=selected_issue.id,
+        issue_reference_hint=selected_issue.reference,
     )
     snapshot = workspace_snapshot(selected_issue, runs=[run])
-    snapshot.issue_runs[selected_issue["id"]] = [run.id]
+    snapshot.issue_runs[selected_issue.id] = [run.id]
 
     contexts, cells = build_rows(query_issue_list(snapshot))
 
-    selected_key = row_key("issue", selected_issue["id"])
+    selected_key = row_key("issue", selected_issue.id)
     assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
     number_cell = cells[selected_key][DEFAULT_COLUMNS.index("number")]
     assert str(number_cell) == "1"
@@ -1784,18 +1849,21 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
 
 
 def test_issue_metadata_excludes_labels_used_as_priority() -> None:
-    selected_issue = issue("test/repo#1", "First")
-    selected_issue["labels"] = [
-        "bug",
-        "priority/p0",
-        "priority/p1",
-        "priority/p2",
-        "priority/p3",
-        "critical",
-        "high",
-        "medium",
-        "low",
-    ]
+    selected_issue = issue(
+        "test/repo#1",
+        "First",
+        labels=[
+            "bug",
+            "priority/p0",
+            "priority/p1",
+            "priority/p2",
+            "priority/p3",
+            "critical",
+            "high",
+            "medium",
+            "low",
+        ],
+    )
     context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
 
     detail = issue_metadata_text(context)
@@ -1808,8 +1876,11 @@ def test_issue_metadata_excludes_labels_used_as_priority() -> None:
     assert "medium" not in detail
     assert "low" not in detail
     # Without a recognized label the priority is absent, never a default.
-    unprioritised = issue("test/repo#2", "Second")
-    unprioritised["labels"] = ["bug"]
+    unprioritised = issue(
+        "test/repo#2",
+        "Second",
+        labels=["bug"],
+    )
     context = query_issue_list(workspace_snapshot(unprioritised)).rows[0]
 
     assert "Priority: -" in issue_metadata_text(context)
@@ -1833,20 +1904,18 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
         observation_target="/repo",
         observation_project_id="project:test-repo",
         branch="issue/current",
-        issue_id=selected_issue["id"],
-        issue_reference_hint=selected_issue["reference"],
+        issue_id=selected_issue.id,
+        issue_reference_hint=selected_issue.reference,
     )
 
     async with app.run_test(size=(80, 24)) as pilot:
-        selected_key = row_key("issue", selected_issue["id"])
+        selected_key = row_key("issue", selected_issue.id)
         await wait_until(lambda: app.selected_row_key == selected_key)
         await pilot.pause()
         stale_row = app.rows_by_key[selected_key]
         assert stale_row.project_runs == ()
 
-        store.replace_agent_runs(
-            [observed_run], {selected_issue["id"]: [observed_run.id]}
-        )
+        store.replace_agent_runs([observed_run], {selected_issue.id: [observed_run.id]})
         app.open_issue(selected_key)
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
@@ -1872,8 +1941,8 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
     contexts, cells = build_rows(query_issue_list(snapshot))
 
     expected = {
-        row_key("issue", "project:test-repo", duplicated["id"]),
-        row_key("issue", "project:other-repo", duplicated["id"]),
+        row_key("issue", "project:test-repo", duplicated.id),
+        row_key("issue", "project:other-repo", duplicated.id),
     }
     assert set(cells) == expected
     assert set(contexts) == expected
@@ -1885,34 +1954,31 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
 
 def test_default_issue_filter_shows_only_open_issues() -> None:
     open_issue = issue("test/repo#1", "Open")
-    closed_issue = issue("test/repo#2", "Closed")
-    closed_issue.update(
-        {
-            "state": "closed",
-            "stateReason": "completed",
-            "closedAt": "2026-08-27T01:00:00Z",
-        }
+    closed_issue = issue(
+        "test/repo#2",
+        "Closed",
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T01:00:00Z",
     )
 
     contexts, cells = build_rows(
         query_issue_list(workspace_snapshot(open_issue, closed_issue))
     )
 
-    assert set(contexts) == set(cells) == {row_key("issue", open_issue["id"])}
+    assert set(contexts) == set(cells) == {row_key("issue", open_issue.id)}
     assert (
-        cells[row_key("issue", open_issue["id"])][DEFAULT_COLUMNS.index("title")]
-        == "Open"
+        cells[row_key("issue", open_issue.id)][DEFAULT_COLUMNS.index("title")] == "Open"
     )
 
 
 def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
-    closed_issue = issue("test/repo#2", "Closed")
-    closed_issue.update(
-        {
-            "state": "closed",
-            "stateReason": "completed",
-            "closedAt": "2026-08-27T01:00:00Z",
-        }
+    closed_issue = issue(
+        "test/repo#2",
+        "Closed",
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T01:00:00Z",
     )
 
     contexts, cells = build_rows(query_issue_list(workspace_snapshot(closed_issue)))
@@ -1931,10 +1997,13 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     second_snapshot = snapshot_of(second.projects[0])
     second_snapshot.project_id = "project:new-repository"
     second_snapshot.display_label = "New Repository"
-    second_snapshot.issues[0]["projectId"] = "project:new-repository"
-    second_snapshot.issues[0]["number"] = 70
-    second_snapshot.issues[0]["reference"] = "new/repository#70"
-    selected_key = row_key("issue", transferred["id"])
+    second_snapshot.issues[0] = issue(
+        "new/repository#70",
+        "Transfer me",
+        id=transferred.id,
+        projectId="project:new-repository",
+    )
+    selected_key = row_key("issue", transferred.id)
     app = DashpotApp(
         SequenceCollector(second),
         refresh_seconds=0,
@@ -2290,7 +2359,9 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
 # --- Full-screen Issue view (#27) -------------------------------------------
 
 
-def _issue_view_app(*issues: Issue, runs: list[AgentRun] | None = None) -> DashpotApp:
+def _issue_view_app(
+    *issues: IssueProfile, runs: list[AgentRun] | None = None
+) -> DashpotApp:
     snapshot = workspace_snapshot(*issues, runs=runs)
     return DashpotApp(
         SequenceCollector(snapshot),
@@ -2302,17 +2373,20 @@ def _issue_view_app(*issues: Issue, runs: list[AgentRun] | None = None) -> Dashp
 @pytest.mark.asyncio
 async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> None:
     first = issue("test/repo#1", "First")
-    second = issue("test/repo#2", "Second")
-    second["body"] = (
-        "# Heading\n\nSome *emphasis* and a [link](https://example.test).\n\n"
-        "- one\n- two\n"
+    second = issue(
+        "test/repo#2",
+        "Second",
+        body=(
+            "# Heading\n\nSome *emphasis* and a [link](https://example.test).\n\n"
+            "- one\n- two\n"
+        ),
     )
     app = _issue_view_app(first, second)
 
     async with app.run_test(size=(120, 36)) as pilot:
         table = app.query_one("#queue", DataTable)
         search = app.query_one("#issue-search", Input)
-        selected_key = row_key("issue", second["id"])
+        selected_key = row_key("issue", second.id)
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(lambda: app.selected_row_key == selected_key)
         search.value = "s"
@@ -2328,7 +2402,8 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         # was opened pushed right.
         location_widget = view.query_one("#issue-view-location", Static)
         subtitle_widget = view.query_one("#issue-view-subtitle", Static)
-        assert str(location_widget.render()) == str(second["location"]["url"])
+        assert second.location.kind == "github"
+        assert str(location_widget.render()) == second.location.url
         subtitle = str(subtitle_widget.render())
         assert subtitle.startswith("opened ")
         assert subtitle.endswith(" by ned2")
@@ -2379,12 +2454,15 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
 
 @pytest.mark.asyncio
 async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() -> None:
-    blank = issue("test/repo#1", "Blank")
-    blank["body"] = "   \n"
+    blank = issue(
+        "test/repo#1",
+        "Blank",
+        body="   \n",
+    )
     app = _issue_view_app(blank)
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.selected_row_key == row_key("issue", blank["id"]))
+        await wait_until(lambda: app.selected_row_key == row_key("issue", blank.id))
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -2462,17 +2540,20 @@ async def test_refresh_while_the_issue_view_is_open_still_reaches_the_dashboard(
 def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
     now = datetime(2026, 8, 29, 12, 0, tzinfo=UTC)
     parent = issue("test/repo#1", "Parent")
-    child = issue("test/repo#2", "Child")
-    child["relationships"] = {
-        "parent": parent["id"],
-        "subIssues": [],
-        "blockedBy": ["I_elsewhere"],
-        "blocking": [],
-    }
-    child["labels"] = ["priority/p1", "bug"]
-    child["assignees"] = ["ned2"]
-    child["createdAt"] = "2026-08-26T12:00:00Z"
-    child["updatedAt"] = "2026-08-29T11:30:00Z"
+    child = issue(
+        "test/repo#2",
+        "Child",
+        relationships={
+            "parent": parent.id,
+            "subIssues": [],
+            "blockedBy": ["I_elsewhere"],
+            "blocking": [],
+        },
+        labels=["priority/p1", "bug"],
+        assignees=["ned2"],
+        createdAt="2026-08-26T12:00:00Z",
+        updatedAt="2026-08-29T11:30:00Z",
+    )
     run = AgentRun(
         id="run-1",
         harness="codex",
@@ -2485,9 +2566,9 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
         issue_reference_hint=None,
     )
     snapshot = workspace_snapshot(parent, child, runs=[run])
-    snapshot.issue_runs[child["id"]] = [run.id]
+    snapshot.issue_runs[child.id] = [run.id]
     snapshot_of(snapshot.projects[0]).issue_activity = {
-        child["id"]: IssueActivity(
+        child.id: IssueActivity(
             comment_count=2,
             linked_pull_requests=[
                 LinkedPullRequest(9, "https://github.com/test/repo/pull/9", "merged")
@@ -2521,20 +2602,23 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
         ]
     )
 
-    bare = issue("test/repo#3", "Bare")
-    bare["author"] = None
-    bare["issueType"] = None
-    bare["milestone"] = None
-    bare["labels"] = []
-    bare["relationships"] = {
-        "parent": None,
-        "subIssues": [],
-        "blockedBy": [],
-        "blocking": [],
-    }
-    bare["state"] = "closed"
-    bare["stateReason"] = "not-planned"
-    bare["closedAt"] = "2026-08-29T11:00:00Z"
+    bare = issue(
+        "test/repo#3",
+        "Bare",
+        author=None,
+        issueType=None,
+        milestone=None,
+        labels=[],
+        relationships={
+            "parent": None,
+            "subIssues": [],
+            "blockedBy": [],
+            "blocking": [],
+        },
+        state="closed",
+        stateReason="not-planned",
+        closedAt="2026-08-29T11:00:00Z",
+    )
     bare_context = query_issue_list(
         workspace_snapshot(bare), IssueListQuery(states=frozenset({"closed"}))
     ).rows[0]
@@ -2553,8 +2637,11 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
 
 
 def test_issue_view_renders_labels_as_tracker_coloured_chips() -> None:
-    labelled = issue("test/repo#1", "Labelled")
-    labelled["labels"] = ["bug", "priority/p1"]
+    labelled = issue(
+        "test/repo#1",
+        "Labelled",
+        labels=["bug", "priority/p1"],
+    )
     snapshot = workspace_snapshot(labelled)
     snapshot_of(snapshot.projects[0]).label_colors = {"bug": "d73a4a"}
     context = query_issue_list(snapshot).rows[0]
@@ -3006,7 +3093,9 @@ def session_run(
     )
 
 
-def sessions_snapshot(*runs: AgentRun, issues: tuple[Issue, ...]) -> WorkspaceSnapshot:
+def sessions_snapshot(
+    *runs: AgentRun, issues: tuple[IssueProfile, ...]
+) -> WorkspaceSnapshot:
     snapshot = workspace_snapshot(*issues, runs=list(runs))
     for run in runs:
         if run.issue_id is not None:

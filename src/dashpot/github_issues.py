@@ -10,7 +10,7 @@ from typing import Any
 from typing_extensions import override
 
 from .commands import CommandRunner, run_command
-from .issue_profile import IssueProfileError, conform_issue
+from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
 
@@ -126,9 +126,9 @@ class GitHubIssuesSource(IssueSource):
         return "github-issues"
 
     @override
-    def _collect(self) -> list[dict[str, Any]]:
+    def _collect(self) -> list[IssueProfile]:
         records = self._collect_issue_nodes()
-        issues: list[dict[str, Any]] = []
+        issues: list[IssueProfile] = []
         label_colors: dict[str, str] = {}
         issue_activity: dict[str, IssueActivity] = {}
         seen_issue_ids: set[str] = set()
@@ -144,13 +144,13 @@ class GitHubIssuesSource(IssueSource):
                 )
             except GitHubIssueNormalizationError as exc:
                 raise IssueSourceRefreshError("github-profile", str(exc)) from exc
-            issue_id = issue["id"]
+            issue_id = issue.id
             if issue_id in seen_issue_ids:
                 raise IssueSourceRefreshError(
                     "github-pagination",
                     f"GitHub returned duplicate Issue identity {issue_id}",
                 )
-            issue_number = issue["number"]
+            issue_number = issue.number
             if issue_number in seen_issue_numbers:
                 raise IssueSourceRefreshError(
                     "github-pagination",
@@ -280,7 +280,7 @@ class GitHubIssuesSource(IssueSource):
 
 def normalize_github_issue(
     record: Mapping[str, Any], *, project_id: str, repository_id: str
-) -> dict[str, Any]:
+) -> IssueProfile:
     """Normalize one completely fetched GitHub GraphQL Issue node."""
 
     if not isinstance(record, Mapping):
