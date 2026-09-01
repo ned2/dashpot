@@ -137,8 +137,12 @@ The conventions the tooling enforces or the code assumes:
 
 - Full type annotations on everything in `src/` (Ruff `ANN`), and ty clean
   with no blanket `type: ignore` — an ignore names its rule and says why.
-- Domain values are frozen, slotted dataclasses
-  (`@dataclass(frozen=True, slots=True)`) and `Literal` unions; identity is
+- Values at validating seams — untrusted input, persisted state, published
+  wire shapes — are Pydantic models on the shared base in
+  `src/dashpot/models.py`
+  ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)); trusted
+  internal values stay frozen, slotted dataclasses
+  (`@dataclass(frozen=True, slots=True)`) and `Literal` unions. Identity is
   opaque and never derived from labels or paths.
 - Docstrings are one imperative line in the voice of the shared domain language
   (`"""Identify the supported Agent Session enclosing this command."""`);

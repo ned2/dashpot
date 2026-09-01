@@ -89,6 +89,11 @@ The raw Local Markdown input fixture lives at
 [`tests/fixtures/local-markdown/ISSUES.md`](../../tests/fixtures/local-markdown/ISSUES.md).
 
 Adapters conform when they produce these outputs from their corresponding raw
-source fixtures. Raw transport and Markdown parsing fixtures belong to the
+source fixtures. The schema stays hand-maintained and authoritative;
+`tests/test_issue_schema_agreement.py` runs a shared corpus of valid and
+invalid cases through both the schema and the `dashpot.issue_profile` model,
+so drift between the two authorities is a test failure, and records the rules
+the model enforces that JSON Schema cannot express (self-reference,
+calendar-valid dates, canonical collection order). Raw transport and Markdown parsing fixtures belong to the
 adapter slices; this profile does not make transport formats part of the shared
 seam.
