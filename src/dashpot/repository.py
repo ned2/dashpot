@@ -367,7 +367,9 @@ def observe_branches(
 
     Independent clones of one repository have their own refs, so the first
     Repository Anchor that answers is authoritative, as it is for Local
-    Issues; the others are only tried when it cannot be listed.
+    Issues; the others are only tried when it cannot be listed. An anchor
+    that failed before the authoritative one answered is still surfaced as
+    a warning Diagnostic (issue #77 owner decision).
     """
     # The default root is a placeholder: every command retargets to its anchor.
     adapter = git if git is not None else Git(Path.cwd(), timeout)
@@ -387,15 +389,16 @@ def observe_branches(
             if (branch := _parse_branch_record(record)) is not None
         ]
         integration_ref = _integration_ref(listed, branches)
-        anchor_diagnostics: list[Diagnostic] = []
         if integration_ref is not None:
             branches = _observe_integration(
-                branches, integration_ref, anchor, scoped, anchor_diagnostics
+                branches, integration_ref, anchor, scoped, diagnostics
             )
+        # ``diagnostics`` keeps the earlier anchors' failures: the answering
+        # anchor stays authoritative, but a broken one is worth a warning.
         return BranchObservation(
             branches,
             _fetched_at(anchor, scoped),
-            anchor_diagnostics,
+            diagnostics,
             integration_ref,
         )
     return BranchObservation([], None, diagnostics)

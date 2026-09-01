@@ -6,6 +6,7 @@ from typing import Any
 
 from typing_extensions import override
 
+from .errors import DashpotError
 from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 
@@ -27,7 +28,7 @@ _LOCAL_METADATA_KEYS = {
 }
 
 
-class LocalMarkdownIssueError(ValueError):
+class LocalMarkdownIssueError(DashpotError, ValueError):
     """A Local Issue document cannot produce a complete Issue profile."""
 
     def __init__(self, message: str, *, code: str = "markdown-malformed") -> None:

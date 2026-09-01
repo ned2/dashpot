@@ -173,8 +173,16 @@ class AgentAncestry:
 
 def observe_agent_ancestry(
     lookup: ProcessLookup = host_process_lookup,
+    harness: str | None = None,
 ) -> AgentAncestry:
-    """Walk this command's ancestry to the nearest supported harness process."""
+    """Walk this command's ancestry to the nearest supported harness process.
+
+    With ``harness`` the walk matches only that harness's host processes;
+    without it, any supported harness. Either way an unobservable ancestor
+    stops the walk with its reason, so "sandboxed, cannot see" is never read
+    as "no harness here".
+    """
+    hosts = HARNESS_HOSTS if harness is None else {harness: HARNESS_HOSTS[harness]}
     pid = os.getppid()
     seen: set[int] = set()
     for _ in range(12):
@@ -187,9 +195,9 @@ def observe_agent_ancestry(
         if not isinstance(observed, ProcessPresent):
             break
         info = observed.identity
-        for harness, matches in HARNESS_HOSTS.items():
+        for name, matches in hosts.items():
             if matches(info):
-                return AgentAncestry((harness, info))
+                return AgentAncestry((name, info))
         pid = info.parent_pid
     return AgentAncestry(None)
 
@@ -204,21 +212,9 @@ def nearest_agent_process(
 def nearest_harness_process(
     harness: str, lookup: ProcessLookup = host_process_lookup
 ) -> ProcessIdentity | None:
-    pid = os.getppid()
-    seen: set[int] = set()
-    matches = HARNESS_HOSTS[harness]
-    for _ in range(12):
-        if pid <= 0 or pid in seen:
-            break
-        seen.add(pid)
-        observed = lookup(pid)
-        if not isinstance(observed, ProcessPresent):
-            break
-        info = observed.identity
-        if matches(info):
-            return info
-        pid = info.parent_pid
-    return None
+    """Find the nearest enclosing process of one named harness, if any."""
+    located = observe_agent_ancestry(lookup, harness=harness).located
+    return None if located is None else located[1]
 
 
 # Sandbox helpers that run a command as PID 2 of a fresh PID namespace: the

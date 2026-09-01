@@ -18,7 +18,7 @@ from dashpot import worktrees
 from dashpot.commands import CommandResult, run_command
 from dashpot.git import Git
 from dashpot.hook_records import session_directory, write_hook_record
-from dashpot.model import to_jsonable
+from dashpot.model import Diagnostic, to_jsonable
 from dashpot.processes import ProcessIdentity
 from dashpot.settings import Settings
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
@@ -160,6 +160,7 @@ def test_json_shape_names_every_source(tmp_path: Path) -> None:
         "created",
         "refusals",
         "hints",
+        "warnings",
     }
     assert payload["issueId"] == "I_35"
     assert payload["created"] is True
@@ -440,7 +441,35 @@ def test_dry_run_reports_the_plan_and_refusals_without_creating(tmp_path: Path) 
     assert not (tmp_path / "p" / "sim.worktrees").exists()
     assert_main_unchanged(root, branches)
     assert describe_worktree_plan(plan)[0].startswith("would create Worktree ")
-    assert describe_worktree_plan(refused)[-1].startswith("refused: ")
+    # Refusals stay on the structured field for the CLI to render on stderr;
+    # the report lines carry everything else.
+    assert refused.refusals
+    assert not any(
+        line.startswith("refused: ") for line in describe_worktree_plan(refused)
+    )
+
+
+def test_settings_diagnostics_ride_the_plan_as_warnings(tmp_path: Path) -> None:
+    root = sim(tmp_path)
+    machine = Settings(
+        diagnostics=(
+            Diagnostic(
+                source="settings:/tmp/settings.json",
+                severity="warning",
+                message="Ignoring unknown Dashpot settings fields: bogus",
+                code="settings-unknown-field",
+            ),
+        )
+    )
+
+    plan = create_issue_worktree(root, "35", dry_run=True, environ={}, settings=machine)
+
+    assert plan.refusals == ()
+    assert plan.warnings == ("Ignoring unknown Dashpot settings fields: bogus",)
+    assert (
+        "warning: Ignoring unknown Dashpot settings fields: bogus"
+        in describe_worktree_plan(plan)
+    )
 
 
 # --- Concurrent creators and partial failure -----------------------------------

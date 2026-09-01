@@ -126,7 +126,11 @@ def test_first_answering_anchor_is_authoritative_and_failures_are_diagnosed(
     assert observation.fetched_at is None
     assert observation.integration_ref == "refs/heads/main"
     assert observation.branches[0].unintegrated_commits == 0
-    assert observation.diagnostics == []
+    # The answering anchor stays authoritative, but the broken one is still
+    # surfaced as a warning (issue #77 owner decision).
+    assert [
+        (item.source, item.code, item.severity) for item in observation.diagnostics
+    ] == [(f"anchor:{broken}", "branch-discovery", "warning")]
     assert [call[1] for call in runner.calls] == [
         broken,
         working,

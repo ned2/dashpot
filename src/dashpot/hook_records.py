@@ -20,7 +20,7 @@ from .processes import (
     ProcessKey,
     ProcessLookup,
     host_process_lookup,
-    nearest_harness_process,
+    observe_agent_ancestry,
     process_identity_of,
     process_key_of,
 )
@@ -75,6 +75,7 @@ def build_hook_record(
     environ: Mapping[str, str] | None = None,
     process: ProcessIdentity | None = None,
     harness: str = "codex",
+    process_unobservable: str | None = None,
 ) -> dict[str, Any]:
     session_id = require_string(event.get("session_id"), "session_id")
     if not SESSION_ID.fullmatch(session_id):
@@ -115,6 +116,9 @@ def build_hook_record(
         "model": event.get("model"),
         "lastActivityAt": now_iso(),
         "sessionProcess": process.as_record() if process else None,
+        # Why the host process is unknown, when it is: distinguishes a hook
+        # that ran where the harness is unobservable from one with no harness.
+        "sessionProcessUnobservable": None if process else process_unobservable,
     }
 
 
@@ -230,9 +234,18 @@ def publish_hook_event(
     process: ProcessIdentity | None = None,
     harness: str = "codex",
 ) -> Path:
-    identity = process if process is not None else nearest_harness_process(harness)
+    identity = process
+    process_unobservable: str | None = None
+    if identity is None:
+        ancestry = observe_agent_ancestry(harness=harness)
+        identity = None if ancestry.located is None else ancestry.located[1]
+        process_unobservable = ancestry.unobservable_reason
     record = build_hook_record(
-        event, environ=environ, process=identity, harness=harness
+        event,
+        environ=environ,
+        process=identity,
+        harness=harness,
+        process_unobservable=process_unobservable,
     )
     return write_hook_record(record, directory or route_record_directory(record))
 

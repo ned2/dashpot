@@ -60,7 +60,8 @@ class WorktreePlan:
     ``refusals`` lists every reason creation is refused; when it is empty and
     ``dry_run`` is false, ``created`` says the Worktree exists at ``path``.
     ``hints`` names existing Worktrees whose Branch looks like this Issue's;
-    they are Issue Hints, never an Issue Binding.
+    they are Issue Hints, never an Issue Binding. ``warnings`` carries
+    non-fatal observations, such as unknown machine settings fields.
     """
 
     issue_id: str
@@ -76,6 +77,7 @@ class WorktreePlan:
     created: bool = False
     refusals: tuple[str, ...] = ()
     hints: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +146,9 @@ def create_issue_worktree(
     issue = resolve_issue(anchor, hint, timeout)
     environment = environ if environ is not None else os.environ
     machine = settings if settings is not None else load_settings()
+    # Machine-settings diagnostics ride the plan so both the text and the
+    # JSON renderings surface them without a channel of their own.
+    warnings = tuple(diagnostic.message for diagnostic in machine.diagnostics)
     refusals: list[str] = []
     hints: list[str] = []
     records = git.worktree_records()
@@ -190,6 +195,7 @@ def create_issue_worktree(
         dry_run=dry_run,
         refusals=tuple(refusals),
         hints=tuple(hints),
+        warnings=warnings,
     )
     if dry_run or plan.refusals or resolution.commit is None:
         return plan
@@ -206,6 +212,7 @@ def create_issue_worktree(
         worktree_root_source=plan.worktree_root_source,
         dry_run=False,
         created=True,
+        warnings=plan.warnings,
     )
 
 
@@ -632,7 +639,9 @@ def describe_worktree_plan(plan: WorktreePlan) -> list[str]:
         f"worktree root: {plan.worktree_root} (from {plan.worktree_root_source})"
     )
     lines.extend(f"existing Worktree hint: {item}" for item in plan.hints)
-    lines.extend(f"refused: {item}" for item in plan.refusals)
+    lines.extend(f"warning: {item}" for item in plan.warnings)
+    # Refusals are the CLI's to render from the structured ``plan.refusals``:
+    # they are error-contract lines for stderr, not part of this report.
     return lines
 
 

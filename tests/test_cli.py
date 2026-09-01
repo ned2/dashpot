@@ -12,16 +12,21 @@ import pytest
 from rich.console import Console
 
 from dashpot import cli
+from dashpot.errors import DashpotError
+from dashpot.git import GitError
+from dashpot.github_issues import GitHubIssueNormalizationError
 from dashpot.hook import publish_from_stream
 from dashpot.integrate import INTEGRATIONS
-from dashpot.issue_profile import conform_issue
+from dashpot.issue_profile import IssueProfileError, conform_issue
+from dashpot.issue_sources import IssueSourceRefreshError
+from dashpot.local_markdown_issues import LocalMarkdownIssueError
 from dashpot.model import (
     RepositoryAnchor,
     ResolvedProject,
     Workspace,
     WorkspaceSnapshot,
 )
-from dashpot.processes import ProcessIdentity
+from dashpot.processes import AgentAncestry, ProcessIdentity
 from dashpot.workspace import WorkspaceResolution
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
 from factories import write_config_marker
@@ -242,6 +247,64 @@ def test_cli_reports_startup_error_without_traceback() -> None:
     assert stderr.getvalue() == "dashpot: bad config\n"
 
 
+@pytest.mark.parametrize(
+    ("argv", "seam", "error"),
+    [
+        (["--json"], "create_collector", RuntimeError("bad config")),
+        (["--json"], "create_collector", DashpotError("stated refusal")),
+        (
+            ["--json"],
+            "create_collector",
+            GitError(("rev-parse", "--show-toplevel"), Path("/r"), detail="no git"),
+        ),
+        (["issue", "show", "9"], "show_issue", IssueProfileError("Issue 9 incomplete")),
+        (
+            ["issue", "show", "9"],
+            "show_issue",
+            GitHubIssueNormalizationError("malformed Issue node"),
+        ),
+        (
+            ["issue", "show", "9"],
+            "show_issue",
+            LocalMarkdownIssueError("malformed Local Issue document"),
+        ),
+        (
+            ["issue", "show", "9"],
+            "show_issue",
+            IssueSourceRefreshError("gh-failed", "gh exited 1"),
+        ),
+        (
+            ["work", "start", "9"],
+            "start_issue_work",
+            DashpotError("no supported agent session encloses this command"),
+        ),
+        (
+            ["worktree", "check", "/nowhere"],
+            "check_worktree",
+            RuntimeError("/nowhere is not a Worktree"),
+        ),
+    ],
+)
+def test_every_error_family_is_one_line_and_exits_two(
+    argv: list[str],
+    seam: str,
+    error: Exception,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The contract stated by DashpotError and README: one ``dashpot:`` line
+    # on stderr, nothing on stdout, exit 2, no traceback — per error family.
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(cli, seam, side_effect=error):
+        assert cli.main(argv) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"dashpot: {error}\n"
+
+
 def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
     event = {
         "session_id": "session-7",
@@ -255,7 +318,8 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
             "dashpot.hook_records.state_directory", return_value=tmp_path / "state"
         ),
         mock.patch(
-            "dashpot.hook_records.nearest_harness_process", return_value=process
+            "dashpot.hook_records.observe_agent_ancestry",
+            return_value=AgentAncestry(("codex", process)),
         ),
     ):
         publish_from_stream(io.StringIO(json.dumps(event)))

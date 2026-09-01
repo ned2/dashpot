@@ -236,6 +236,29 @@ class ProcessLookupTests(unittest.TestCase):
 
 
 class AgentAncestryTests(unittest.TestCase):
+    def test_a_harness_filter_walks_past_other_harnesses(self) -> None:
+        shell = ProcessIdentity(10, 20, "bash", "Tue Aug 25 01:00:00 2026")
+        claude = ProcessIdentity(20, 30, "claude", "Tue Aug 25 00:59:00 2026")
+        codex = ProcessIdentity(30, 1, "codex", "Tue Aug 25 00:58:00 2026")
+        chain = {10: shell, 20: claude, 30: codex}
+
+        with mock.patch("dashpot.processes.os.getppid", return_value=10):
+            result = observe_agent_ancestry(table_lookup(chain), harness="codex")
+
+        self.assertEqual(("codex", codex), result.located)
+
+    def test_a_filtered_walk_keeps_the_unobservable_reason(self) -> None:
+        # One walk serves the filtered and unfiltered questions, so being
+        # sandboxed is never read as "no harness here" (issue #77 O-N1).
+        with mock.patch("dashpot.processes.os.getppid", return_value=10):
+            filtered = observe_agent_ancestry(
+                unobservable("isolated-namespace"), harness="codex"
+            )
+            wrapped = nearest_codex_process(lookup=unobservable("isolated-namespace"))
+
+        self.assertEqual(AgentAncestry(None, "isolated-namespace"), filtered)
+        self.assertIsNone(wrapped)
+
     def test_ancestry_reports_why_the_walk_stopped_short(self) -> None:
         with mock.patch("dashpot.processes.os.getppid", return_value=10):
             isolated = observe_agent_ancestry(unobservable("isolated-namespace"))

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
+from .errors import DashpotError
 from .issue_profile import IssueProfile
 from .model import IssueActivity
 from .models import FrozenDict
@@ -44,7 +45,9 @@ class IssueSourceObservation:
     issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
 
 
-class IssueSourceRefreshError(RuntimeError):
+class IssueSourceRefreshError(DashpotError, RuntimeError):
+    """A refresh the Issue Source itself diagnosed, with its diagnostic code."""
+
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .errors import DashpotError
 from .git import Git
 from .model import (
     Diagnostic,
@@ -42,7 +43,9 @@ class _ResolvedAnchor:
     config: ProjectConfig
 
 
-class _AnchorResolutionError(RuntimeError):
+class _AnchorResolutionError(DashpotError, RuntimeError):
+    """A Repository Anchor this Workspace cannot resolve, with its diagnostic code."""
+
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
@@ -215,7 +218,7 @@ def resolve_workspace_projects(
     return WorkspaceResolution(projects, diagnostics)
 
 
-class WorkspaceScopeError(RuntimeError):
+class WorkspaceScopeError(DashpotError, RuntimeError):
     """Refuse Repository Anchors that resolve to more than one Project."""
 
     def __init__(self, projects: Sequence[ResolvedProject]) -> None:

@@ -65,9 +65,10 @@ configured Project (the flag form of `DASHPOT_STATE_DIR`), and `--version`
 prints the installed version. `dashpot --help` describes every command and
 option, and each command has its own `--help`; an option belongs to the
 command it follows, so the timeout for `init` is given as `dashpot init
---timeout 5`, not before `init`. Invalid input fails with a one-line
-`dashpot: ...` diagnostic on stderr and exit code 2, the same as a startup
-error. Beside observation, the management commands `init`, `integrate`,
+--timeout 5`, not before `init`. Every command failure — invalid input, a
+startup error, or a refused operation — is a one-line `dashpot: ...`
+diagnostic on stderr and exit code 2, with no traceback. Beside observation,
+the management commands `init`, `integrate`,
 `work`, `issue show`, and `worktree create` / `check` are documented in
 [Project configuration](#project-configuration),
 [Agent session observation](#agent-session-observation),
@@ -747,7 +748,10 @@ moves anything. Its conventions are recorded in
 source, and every refusal, without creating anything. `--json` prints the
 same facts (`issueId`, `issueReference`, `path`, `branch`, `baseRef`,
 `baseSource`, `baseCommit`, `worktreeRoot`, `worktreeRootSource`, `dryRun`,
-`created`, `refusals`, `hints`); a refusal exits 2 in either mode.
+`created`, `refusals`, `hints`, `warnings`); a refusal exits 2 in either
+mode. `warnings` carries non-fatal observations, such as unknown fields in
+the machine-local settings file, which are ignored rather than fatal so a
+settings file written by a newer Dashpot never stops this one.
 
 `worktree check <path>` is read-only. It reports the Worktree removable, or
 each reason it is not with the command that acts on it: dirty state, a lock

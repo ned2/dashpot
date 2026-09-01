@@ -11,6 +11,7 @@ from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
 from .app import DashpotApp
 from .collect import ObservationCoordinator
+from .errors import DashpotError
 from .init import initialize_project
 from .integrate import (
     install_integration,
@@ -373,11 +374,11 @@ def worktree_create(
     if json_output:
         print(json.dumps(to_jsonable(plan), indent=2))
     else:
-        lines = describe_worktree_plan(plan)
-        _report(line for line in lines if not line.startswith("refused: "))
-        for line in lines:
-            if line.startswith("refused: "):
-                print(f"dashpot: {line}", file=sys.stderr)
+        _report(describe_worktree_plan(plan))
+        # Refusals go to stderr straight off the structured field, in the
+        # same one-line ``dashpot:`` voice as every other command failure.
+        for item in plan.refusals:
+            print(f"dashpot: refused: {item}", file=sys.stderr)
     return USAGE_EXIT_CODE if plan.refusals else 0
 
 
@@ -496,7 +497,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     except CycloptsError:
         return USAGE_EXIT_CODE
-    except RuntimeError as exc:
+    except (DashpotError, RuntimeError) as exc:
+        # The stated error contract: every command failure is one
+        # ``dashpot: <message>`` line on stderr and exit 2. The RuntimeError
+        # arm stays while bare ``raise RuntimeError`` sites migrate onto
+        # DashpotError.
         print(f"dashpot: {exc}", file=sys.stderr)
         return USAGE_EXIT_CODE
     return int(result)

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from .errors import DashpotError
 from .git import Git
 from .harnesses import (
     HARNESS_DISPLAY,
@@ -25,6 +26,7 @@ from .hook_records import (
 )
 from .issue_resolution import resolve_issue
 from .liveness import session_liveness
+from .model import Diagnostic
 from .processes import (
     ProcessIdentity,
     ProcessKey,
@@ -33,7 +35,7 @@ from .processes import (
     observe_agent_ancestry,
 )
 from .repository import repository_worktrees, worktree_root
-from .work_store import ActiveWork, SessionProcess, WorkStore
+from .work_store import SESSION_KEY, ActiveWork, SessionProcess, WorkStore
 
 IdentityRoute = Literal["process", "session"]
 
@@ -262,7 +264,15 @@ def start_issue_work(
             f"move the session), so nothing was written"
         )
     store = WorkStore(root)
-    previous = _session_work(store, session)
+    previous, store_diagnostics = _session_work(store, session)
+    unreadable = _own_record_diagnostic(store, session.session_key, store_diagnostics)
+    if unreadable is not None:
+        # Writing beside an unreadable record for this session's own key would
+        # leave two records for one session, so this is a refusal instead.
+        raise DashpotError(
+            f"{unreadable.message}; fix or remove the record before declaring "
+            f"Issue work, so this session keeps one record"
+        )
     if previous is not None and previous.session_key != session.session_key:
         # The same session was recorded under an earlier key, before its
         # Agent Session Identity was recorded or by the other route; one
@@ -289,7 +299,8 @@ def start_issue_work(
         # The hooks place the session here, so a run recorded at another
         # Worktree of the Repository is where it used to be, and nobody is
         # left behind there.
-        elsewhere = _stop_elsewhere(session, worktrees, root)
+        elsewhere, elsewhere_diagnostics = _stop_elsewhere(session, worktrees, root)
+        store_diagnostics.extend(elsewhere_diagnostics)
     if previous is None and elsewhere:
         (former_worktree, former), *rest = elsewhere
         messages = [
@@ -310,6 +321,9 @@ def start_issue_work(
         f"ended this session's earlier run on {work.issue_reference} at {worktree}"
         for worktree, work in elsewhere
     )
+    # Other sessions' unreadable records do not block this start, but they
+    # are surfaced rather than dropped, as `work show` already surfaces them.
+    messages.extend(diagnostic.message for diagnostic in store_diagnostics)
     return messages
 
 
@@ -341,16 +355,27 @@ def stop_issue_work(
             worktree=root,
             stores=reachable_hook_stores(worktrees),
         )
-        stopped = _stop_elsewhere(session, worktrees, None)
+        stopped, diagnostics = _stop_elsewhere(session, worktrees, None)
+        # Unreadable records are surfaced beside the outcome: this session's
+        # run may be among the records that could not be read.
+        warnings = [diagnostic.message for diagnostic in diagnostics]
         if not stopped:
-            return ["no active Issue work for this session"]
+            return ["no active Issue work for this session", *warnings]
         return [
             f"stopped work on {work.issue_reference}"
             + ("" if _same_worktree(worktree, root) else f" at {worktree}")
             for worktree, work in stopped
-        ]
-    previous = _session_work_by_key(store, session_key)
+        ] + warnings
+    previous, diagnostics = _session_work_by_key(store, session_key)
     if previous is None:
+        unreadable = _own_record_diagnostic(store, session_key, diagnostics)
+        if unreadable is not None:
+            # An unreadable record cannot answer whether its session is live,
+            # so ending it from outside is refused rather than guessed at.
+            raise DashpotError(
+                f"{unreadable.message}; remove the record by hand once the "
+                f"session is confirmed over"
+            )
         return [f"no active Issue work recorded for session {session_key}"]
     if _recorded_session_is_live(previous, root, lookup):
         raise RuntimeError(
@@ -440,17 +465,23 @@ def _session_location(
 
 def _stop_elsewhere(
     session: AgentSessionIdentity, worktrees: Sequence[Path], here: Path | None
-) -> list[tuple[Path, ActiveWork]]:
-    """End the session's active runs at every Worktree other than ``here``."""
+) -> tuple[list[tuple[Path, ActiveWork]], list[Diagnostic]]:
+    """End the session's active runs at every Worktree other than ``here``.
+
+    Each Worktree's unreadable Work Store records come back beside the runs:
+    a corrupt record could hide the very run this session is looking for.
+    """
     stopped: list[tuple[Path, ActiveWork]] = []
+    diagnostics: list[Diagnostic] = []
     for worktree in worktrees:
         if here is not None and _same_worktree(worktree, here):
             continue
         store = WorkStore(worktree)
-        work = _session_work(store, session)
+        work, store_diagnostics = _session_work(store, session)
+        diagnostics.extend(store_diagnostics)
         if work is not None and store.stop(work.session_key):
             stopped.append((worktree, work))
-    return stopped
+    return stopped, diagnostics
 
 
 def _same_worktree(candidate: Path, worktree: Path) -> bool:
@@ -460,25 +491,48 @@ def _same_worktree(candidate: Path, worktree: Path) -> bool:
         return False
 
 
-def _session_work_by_key(store: WorkStore, session_key: str) -> ActiveWork | None:
-    active, _ = store.active()
-    return next((work for work in active if work.session_key == session_key), None)
+def _session_work_by_key(
+    store: WorkStore, session_key: str
+) -> tuple[ActiveWork | None, list[Diagnostic]]:
+    """One session's recorded run by key, with the store's diagnostics."""
+    active, diagnostics = store.active()
+    found = next((work for work in active if work.session_key == session_key), None)
+    return found, diagnostics
 
 
-def _session_work(store: WorkStore, session: AgentSessionIdentity) -> ActiveWork | None:
-    """The session's active run, whichever identity it was recorded under."""
-    active, _ = store.active()
+def _own_record_diagnostic(
+    store: WorkStore, session_key: str, diagnostics: Sequence[Diagnostic]
+) -> Diagnostic | None:
+    """The diagnostic for exactly this session key's record, if it has one."""
+    if not SESSION_KEY.fullmatch(session_key):
+        return None
+    source = f"work:{store.record_path(session_key)}"
+    return next(
+        (diagnostic for diagnostic in diagnostics if diagnostic.source == source),
+        None,
+    )
+
+
+def _session_work(
+    store: WorkStore, session: AgentSessionIdentity
+) -> tuple[ActiveWork | None, list[Diagnostic]]:
+    """The session's active run, whichever identity it was recorded under.
+
+    The store's diagnostics ride along instead of being dropped: an
+    unreadable record is exactly where this session's run could be hiding.
+    """
+    active, diagnostics = store.active()
     for work in active:
         if work.session_key == session.session_key:
-            return work
+            return work, diagnostics
     for work in active:
         if work.harness != session.harness:
             continue
         if session.session_id is not None and work.session_id == session.session_id:
-            return work
+            return work, diagnostics
         if (
             session.session_process is not None
             and work.session_process == session.session_process
         ):
-            return work
-    return None
+            return work, diagnostics
+    return None, diagnostics

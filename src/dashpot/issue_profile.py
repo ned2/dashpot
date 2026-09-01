@@ -14,10 +14,13 @@ from pydantic import (
     model_validator,
 )
 
+from .errors import DashpotError
 from .models import PublishedModel, validate_rfc3339_timestamp
 
 
-class IssueProfileError(ValueError):
+# The ValueError base is what the adapters' ``except ValueError`` translation
+# sites match; the DashpotError base states the CLI contract if one escapes.
+class IssueProfileError(DashpotError, ValueError):
     """A source record cannot satisfy the complete Issue profile."""
 
 

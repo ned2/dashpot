@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from dashpot.agents import observe_agent_runs
+from dashpot.errors import DashpotError
 from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
 from dashpot.hook_records import session_directory, state_directory
 from dashpot.model import ObservationTarget
@@ -160,6 +161,56 @@ def test_show_lists_active_work_at_the_worktree(tmp_path: Path) -> None:
     assert len(messages) == 1
     assert "build-observer" in messages[0]
     assert "codex pid 4242" in messages[0]
+
+
+def test_start_refuses_when_this_sessions_own_record_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    # Writing beside an unreadable record for this session's key would leave
+    # two records for one session, so the start is a refusal (issue #77 O-A5).
+    root = repository(tmp_path / "repo")
+    start_issue_work(root, "build-observer", lookup=codex_lookup)
+    (record_path,) = WorkStore(root).directory.glob("*.json")
+    record_path.write_text("not json")
+
+    with pytest.raises(DashpotError, match="Cannot read Work Store record"):
+        start_issue_work(root, "fix-crash", lookup=codex_lookup)
+
+    assert sorted(WorkStore(root).directory.glob("*.json")) == [record_path]
+
+
+def test_start_surfaces_other_sessions_unreadable_records(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+    corrupt = WorkStore(root).directory / "other-session.json"
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_text("not json")
+
+    messages = start_issue_work(root, "build-observer", lookup=codex_lookup)
+
+    assert "started work on build-observer" in messages[0]
+    assert any("Cannot read Work Store record" in message for message in messages)
+
+
+def test_stop_surfaces_unreadable_records_beside_the_outcome(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+    corrupt = WorkStore(root).directory / "other-session.json"
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_text("not json")
+
+    messages = stop_issue_work(root, lookup=codex_lookup)
+
+    assert messages[0] == "no active Issue work for this session"
+    assert "Cannot read Work Store record" in messages[1]
+
+
+def test_stop_by_session_key_refuses_an_unreadable_record(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+    start_issue_work(root, "build-observer", lookup=codex_lookup)
+    (session_key,) = issue_ids(root)
+    WorkStore(root).record_path(session_key).write_text("not json")
+
+    with pytest.raises(DashpotError, match="Cannot read Work Store record"):
+        stop_issue_work(root, session_key=session_key, lookup=absent())
 
 
 def test_opt_in_requires_an_enclosing_supported_session(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from typing import Any
 from typing_extensions import override
 
 from .commands import CommandRunner, run_command
+from .errors import DashpotError
 from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import Clock, IssueSource, IssueSourceRefreshError
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
@@ -94,7 +95,7 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {
 """.strip()
 
 
-class GitHubIssueNormalizationError(ValueError):
+class GitHubIssueNormalizationError(DashpotError, ValueError):
     """A GraphQL Issue node is incomplete, malformed, or from another repository."""
 
 

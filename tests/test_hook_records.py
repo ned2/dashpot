@@ -19,7 +19,7 @@ from dashpot.hook_records import (
     write_hook_record,
 )
 from dashpot.model import ObservationTarget
-from dashpot.processes import ProcessIdentity
+from dashpot.processes import AgentAncestry, ProcessIdentity
 from factories import hook_record_document, observation_target, write_config_marker
 from helpers import present
 
@@ -246,6 +246,23 @@ class HookRecordStoreTests(unittest.TestCase):
 
         self.assertEqual([], runs)
         self.assertIn("does not match its filename", diagnostics[0].message)
+
+    def test_a_sandboxed_publication_records_why_the_host_is_unknown(self) -> None:
+        # A hook that cannot see its own harness process records the reason,
+        # so a sandboxed session is never mistaken for one with no harness.
+        with mock.patch(
+            "dashpot.hook_records.observe_agent_ancestry",
+            return_value=AgentAncestry(None, "isolated-namespace"),
+        ):
+            publish_hook_event(
+                {"session_id": "sandboxed", "cwd": "/repo", "hook_event_name": "Stop"},
+                self.state_dir,
+                environ={},
+            )
+
+        record = json.loads((self.state_dir / "sandboxed.json").read_text())
+        self.assertIsNone(record["sessionProcess"])
+        self.assertEqual("isolated-namespace", record["sessionProcessUnobservable"])
 
     def test_interrupt_event_publishes_a_waiting_record(self) -> None:
         publish_hook_event(

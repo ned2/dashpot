@@ -13,9 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .commands import CommandResult, CommandRunner, run_command
+from .errors import DashpotError
 
 
-class GitError(RuntimeError):
+# The RuntimeError base is transitional: it keeps the pre-adapter
+# ``except RuntimeError`` sites working while raise sites migrate to the
+# DashpotError contract.
+class GitError(DashpotError, RuntimeError):
     """A Git command that could not answer: non-zero exit, missing binary, or timeout."""
 
     def __init__(
