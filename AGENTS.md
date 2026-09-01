@@ -40,12 +40,23 @@ quoted for the shell), or a full Issue Reference such as `ned2/dashpot#35` or a
 Local Issue slug. `stop` takes no argument. Check what is recorded with
 `uv run dashpot work show`.
 
-- Run `start` as soon as you know which Issue the work belongs to, and `stop`
-  when the work is finished. A run still open when the session ends
-  gracefully is ended for you
+- Run `start` as soon as you know which Issue the work belongs to. Run
+  `stop` only when the **whole engagement** is finished: this session *and
+  every agent it delegated* are done with the Issue, the last push has
+  landed, and nothing you started is still running. Sub-agents share your
+  session's Agent Run, so your `stop` ends theirs too — never stop while a
+  background sub-agent or task of yours is still working.
+- One engagement, one run. A PR series on one Issue is a single engagement:
+  hold the binding across it rather than cycling `start`/`stop` per push.
+  The invariant this protects: any agent working on an Issue shows that
+  Issue's run in the pane, and a premature `stop` silently breaks it.
+- When in doubt, leave the run open. An open run costs nothing while your
+  session is alive, and a run still open when the session ends gracefully
+  is ended for you
   ([ADR 0015](docs/adr/0015-reconcile-the-agent-run-at-session-end.md));
   only a session killed outright leaves an Orphaned Agent Run behind for a
-  human to clean up.
+  human to clean up. So run `stop` when the engagement truly ends, not
+  defensively early.
 - Only Issue work gets a `start`. Work without an Issue is observed as an
   unbound session, which is correct.
 - Run the command **inside your own process tree** (from your shell tool, not
