@@ -414,6 +414,38 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual((), snapshot.observation_targets)
         self.assertEqual("target-discovery", snapshot.diagnostics[0].code)
 
+    def test_refresh_stamps_timestamps_from_the_injected_clock(self) -> None:
+        ticks = iter(["2026-09-02T00:00:01Z", "2026-09-02T00:00:02Z"])
+        collector = ProjectCollector(
+            resolved_project(),
+            FakeSource(),
+            target_observer=lambda _anchors: target_inventory(),
+            clock=lambda: next(ticks),
+        )
+
+        snapshot = collector.refresh()
+
+        self.assertEqual("2026-09-02T00:00:01Z", snapshot.target_attempted_at)
+        self.assertEqual("2026-09-02T00:00:01Z", snapshot.target_last_good_at)
+        self.assertEqual("2026-09-02T00:00:02Z", snapshot.collected_at)
+
+    def test_refresh_target_failure_leaves_no_last_good_timestamp(self) -> None:
+        collector = ProjectCollector(
+            resolved_project(),
+            FakeSource(),
+            target_observer=lambda _anchors: (_ for _ in ()).throw(
+                RuntimeError("target discovery crashed")
+            ),
+            clock=lambda: "2026-09-02T00:00:03Z",
+        )
+
+        snapshot = collector.refresh()
+
+        self.assertEqual("unavailable", snapshot.target_status)
+        self.assertEqual("2026-09-02T00:00:03Z", snapshot.target_attempted_at)
+        self.assertIsNone(snapshot.target_last_good_at)
+        self.assertEqual("2026-09-02T00:00:03Z", snapshot.collected_at)
+
 
 class HookObserverTests(unittest.TestCase):
     @override

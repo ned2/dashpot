@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import ValidationError
 
@@ -14,6 +14,7 @@ from .agent_bindings import bind_issue_runs
 from .agents import lock_holder_probe, observe_agent_runs
 from .git import Git
 from .github_issues import GitHubIssuesSource
+from .issue_profile import IssueProfile
 from .issue_sources import IssueSource, IssueSourceObservation, utc_now
 from .local_markdown_issues import LocalMarkdownIssuesSource
 from .model import (
@@ -133,12 +134,14 @@ class ProjectCollector:
         source: IssueSource,
         target_observer: ObservationTargetObserver = observe_observation_targets,
         branch_observer: BranchObserver = observe_branches,
+        clock: Callable[[], str] = utc_now,
     ) -> None:
         self.project = project
         self.root = Path(project.primary_anchor)
         self.source = source
         self.target_observer = target_observer
         self.branch_observer = branch_observer
+        self.clock = clock
 
     def observe_issues(self) -> IssueSourceObservation:
         return self.source.refresh()
@@ -158,40 +161,21 @@ class ProjectCollector:
 
     def refresh(self) -> ProjectSnapshot:
         """Observe both halves in one call (single-shot convenience)."""
-        issue_observation = self.observe_issues()
-        attempted_at = utc_now()
+        issues = _issue_half(self.observe_issues())
+        attempted_at = self.clock()
         try:
-            target_inventory = self.observe_targets()
-            target_status: SourceStatus = "fresh"
+            targets = _target_half(self.observe_targets(), attempted_at)
         except OBSERVATION_FAILURES as exc:
-            target_status = "unavailable"
-            target_inventory = ObservationTargetInventory(
-                targets=[],
-                diagnostics=[
-                    _target_discovery_diagnostic(self.project.project_id, exc)
-                ],
+            # Single-shot: there is no previous half to retain, so a failure
+            # is always "unavailable" with no last-good timestamp.
+            targets = _failed_half(
+                None,
+                attempted_at,
+                _target_discovery_diagnostic(self.project.project_id, exc),
+                project_failure=False,
             )
-        diagnostics = list(target_inventory.diagnostics)
-        diagnostics[0:0] = _issue_diagnostics(issue_observation)
-        return ProjectSnapshot(
-            project_id=self.project.project_id,
-            display_label=self.project.display_label,
-            repository_id=self.project.repository_id,
-            collected_at=utc_now(),
-            issue_source_status=issue_observation.status,
-            issue_source_attempted_at=issue_observation.attempted_at,
-            issue_source_last_good_at=issue_observation.last_good_at,
-            observation_targets=target_inventory.targets,
-            issues=issue_observation.issues,
-            diagnostics=diagnostics,
-            label_colors=issue_observation.label_colors,
-            issue_activity=issue_observation.issue_activity,
-            target_status=target_status,
-            target_attempted_at=attempted_at,
-            target_last_good_at=(attempted_at if target_status == "fresh" else None),
-            branches=target_inventory.branches,
-            fetched_at=target_inventory.fetched_at,
-            integration_ref=target_inventory.integration_ref,
+        return _project_snapshot(
+            self.project, collected_at=self.clock(), issues=issues, targets=targets
         )
 
 
@@ -252,10 +236,14 @@ class _SourceObservation:
     status: SourceStatus
     attempted_at: str
     last_good_at: str | None
-    data: tuple[Any, ...]
     diagnostics: tuple[Diagnostic, ...]
     project_diagnostics: tuple[Diagnostic, ...]
     elapsed_ms: int
+    # Exactly one payload is populated per half; keeping both typed lets the
+    # shared snapshot factory stay fully typed instead of tunnelling through
+    # an ``Any`` field.
+    issues: tuple[IssueProfile, ...] = ()
+    targets: tuple[ObservationTarget, ...] = ()
     label_colors: Mapping[str, str] = field(default_factory=dict)
     issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
     branches: tuple[Branch, ...] = ()
@@ -278,6 +266,96 @@ class _SourceObservation:
             project_diagnostics=(diagnostic,) if project_failure else (),
             elapsed_ms=0,
         )
+
+
+def _issue_half(observation: IssueSourceObservation) -> _SourceObservation:
+    """Shape one Issue Source refresh as the Issues half of a Project."""
+    return _SourceObservation(
+        status=observation.status,
+        attempted_at=observation.attempted_at,
+        last_good_at=observation.last_good_at,
+        diagnostics=tuple(_issue_diagnostics(observation)),
+        project_diagnostics=(),
+        elapsed_ms=0,
+        issues=observation.issues,
+        label_colors=observation.label_colors,
+        issue_activity=observation.issue_activity,
+    )
+
+
+def _target_half(
+    inventory: ObservationTargetInventory, attempted_at: str
+) -> _SourceObservation:
+    """Shape one fresh target inventory as the targets half of a Project."""
+    return _SourceObservation(
+        status="fresh",
+        attempted_at=attempted_at,
+        # A fresh inventory is its own last-good observation.
+        last_good_at=attempted_at,
+        diagnostics=tuple(inventory.diagnostics),
+        project_diagnostics=(),
+        elapsed_ms=0,
+        targets=tuple(inventory.targets),
+        branches=tuple(inventory.branches),
+        fetched_at=inventory.fetched_at,
+        integration_ref=inventory.integration_ref,
+    )
+
+
+def _failed_half(
+    previous: _SourceObservation | None,
+    attempted_at: str,
+    diagnostic: Diagnostic,
+    *,
+    project_failure: bool,
+) -> _SourceObservation:
+    """Degrade one half after a failure: retain last-good data when it exists."""
+    if previous is not None and previous.last_good_at is not None:
+        return previous.retained_after_failure(
+            attempted_at, diagnostic, project_failure=project_failure
+        )
+    return _SourceObservation(
+        status="unavailable",
+        attempted_at=attempted_at,
+        last_good_at=None,
+        diagnostics=() if project_failure else (diagnostic,),
+        project_diagnostics=(diagnostic,) if project_failure else (),
+        elapsed_ms=0,
+    )
+
+
+def _project_snapshot(
+    project: ResolvedProject,
+    *,
+    collected_at: str,
+    issues: _SourceObservation,
+    targets: _SourceObservation,
+) -> ProjectSnapshot:
+    """Assemble one Project Snapshot from its two observed halves.
+
+    Pure and cheap by design: the coordinator calls it while holding its
+    state lock, so the clock reading is passed in rather than taken here.
+    """
+    return ProjectSnapshot(
+        project_id=project.project_id,
+        display_label=project.display_label,
+        repository_id=project.repository_id,
+        collected_at=collected_at,
+        issue_source_status=issues.status,
+        issue_source_attempted_at=issues.attempted_at,
+        issue_source_last_good_at=issues.last_good_at,
+        observation_targets=targets.targets,
+        issues=issues.issues,
+        diagnostics=[*issues.diagnostics, *targets.diagnostics],
+        label_colors=issues.label_colors,
+        issue_activity=issues.issue_activity,
+        target_status=targets.status,
+        target_attempted_at=targets.attempted_at,
+        target_last_good_at=targets.last_good_at,
+        branches=targets.branches,
+        fetched_at=targets.fetched_at,
+        integration_ref=targets.integration_ref,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,7 +593,7 @@ class ObservationCoordinator:
         try:
             collector = self._collector(project)
         except OBSERVATION_FAILURES as exc:
-            return self._failed(
+            return _failed_half(
                 previous,
                 attempted_at,
                 Diagnostic(
@@ -530,7 +608,7 @@ class ObservationCoordinator:
             try:
                 issue_observation = collector.observe_issues()
             except OBSERVATION_FAILURES as exc:
-                return self._failed(
+                return _failed_half(
                     previous,
                     attempted_at,
                     Diagnostic(
@@ -541,60 +619,17 @@ class ObservationCoordinator:
                     ),
                     project_failure=False,
                 )
-            return _SourceObservation(
-                status=issue_observation.status,
-                attempted_at=issue_observation.attempted_at,
-                last_good_at=issue_observation.last_good_at,
-                data=issue_observation.issues,
-                diagnostics=tuple(_issue_diagnostics(issue_observation)),
-                project_diagnostics=(),
-                elapsed_ms=0,
-                label_colors=issue_observation.label_colors,
-                issue_activity=issue_observation.issue_activity,
-            )
+            return _issue_half(issue_observation)
         try:
             inventory = collector.observe_targets()
         except OBSERVATION_FAILURES as exc:
-            return self._failed(
+            return _failed_half(
                 previous,
                 attempted_at,
                 _target_discovery_diagnostic(project.project_id, exc),
                 project_failure=False,
             )
-        return _SourceObservation(
-            status="fresh",
-            attempted_at=attempted_at,
-            last_good_at=attempted_at,
-            data=tuple(inventory.targets),
-            diagnostics=tuple(inventory.diagnostics),
-            project_diagnostics=(),
-            elapsed_ms=0,
-            branches=tuple(inventory.branches),
-            fetched_at=inventory.fetched_at,
-            integration_ref=inventory.integration_ref,
-        )
-
-    def _failed(
-        self,
-        previous: _SourceObservation | None,
-        attempted_at: str,
-        diagnostic: Diagnostic,
-        *,
-        project_failure: bool,
-    ) -> _SourceObservation:
-        if previous is not None and previous.last_good_at is not None:
-            return previous.retained_after_failure(
-                attempted_at, diagnostic, project_failure=project_failure
-            )
-        return _SourceObservation(
-            status="unavailable",
-            attempted_at=attempted_at,
-            last_good_at=None,
-            data=(),
-            diagnostics=() if project_failure else (diagnostic,),
-            project_diagnostics=(diagnostic,) if project_failure else (),
-            elapsed_ms=0,
-        )
+        return _target_half(inventory, attempted_at)
 
     def _compose(self, project_id: str) -> ProjectObservation | None:
         """Compose a Project from its latest accepted halves, or None if pending."""
@@ -611,25 +646,11 @@ class ObservationCoordinator:
         if project_diagnostics and never_observed:
             snapshot = None
         else:
-            snapshot = ProjectSnapshot(
-                project_id=project.project_id,
-                display_label=project.display_label,
-                repository_id=project.repository_id,
+            snapshot = _project_snapshot(
+                project,
                 collected_at=self.clock(),
-                issue_source_status=issues.status,
-                issue_source_attempted_at=issues.attempted_at,
-                issue_source_last_good_at=issues.last_good_at,
-                observation_targets=targets.data,
-                issues=issues.data,
-                diagnostics=[*issues.diagnostics, *targets.diagnostics],
-                label_colors=issues.label_colors,
-                issue_activity=issues.issue_activity,
-                target_status=targets.status,
-                target_attempted_at=targets.attempted_at,
-                target_last_good_at=targets.last_good_at,
-                branches=targets.branches,
-                fetched_at=targets.fetched_at,
-                integration_ref=targets.integration_ref,
+                issues=issues,
+                targets=targets,
             )
         return ProjectObservation(
             project_id=project.project_id,
