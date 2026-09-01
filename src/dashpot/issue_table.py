@@ -657,7 +657,7 @@ def date_cell(timestamp: str | None) -> IssueTableCell:
     return IssueTableCell(instant.date().isoformat(), instant.timestamp())
 
 
-_CLOSED_STATE_KINDS: dict[str | None, IssueStateKind] = {
+_CLOSED_STATE_KINDS: dict[str, IssueStateKind] = {
     "not-planned": "not-planned",
     "duplicate": "duplicate",
 }
@@ -666,6 +666,8 @@ _CLOSED_STATE_KINDS: dict[str | None, IssueStateKind] = {
 def issue_state_kind(issue: IssueProfile) -> IssueStateKind:
     if issue.state == "open":
         return "open"
+    if issue.state_reason is None:
+        return "completed"
     return _CLOSED_STATE_KINDS.get(issue.state_reason, "completed")
 
 

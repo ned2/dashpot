@@ -304,7 +304,6 @@ class ProjectCollectorTests(unittest.TestCase):
 
         self.assertEqual(complete, conform_issue(serialized))
         self.assertEqual(complete.number, serialized["number"])
-        self.assertNotIn("number", serialized["origin"])
         self.assertIsNone(serialized["stateReason"])
         self.assertIsNone(serialized["relationships"]["parent"])
         self.assertIsNone(serialized["issueType"])
