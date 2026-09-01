@@ -15,7 +15,6 @@ from dashpot.issue_profile import (
     conform_issue,
     semantic_projection,
     semantically_equivalent,
-    validate_issue_profile,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -28,8 +27,8 @@ def fixture(name: str) -> dict[str, Any]:
 
 class IssueProfileTests(unittest.TestCase):
     def test_github_and_markdown_fixtures_are_semantically_equivalent(self) -> None:
-        github = fixture("github.json")
-        markdown = fixture("markdown.json")
+        github = conform_issue(fixture("github.json"))
+        markdown = conform_issue(fixture("markdown.json"))
 
         self.assertTrue(semantically_equivalent(github, markdown))
         self.assertEqual(fixture("semantic.json"), semantic_projection(github))
@@ -43,13 +42,9 @@ class IssueProfileTests(unittest.TestCase):
 
         issue = conform_issue(candidate)
 
-        self.assertEqual(
-            ["enhancement", "needs-triage", "priority/P1"], issue["labels"]
-        )
-        self.assertEqual(["ned2", "octocat"], issue["assignees"])
-        self.assertEqual(
-            ["I_blocker_1", "I_blocker_2"], issue["relationships"]["blockedBy"]
-        )
+        self.assertEqual(("enhancement", "needs-triage", "priority/P1"), issue.labels)
+        self.assertEqual(("ned2", "octocat"), issue.assignees)
+        self.assertEqual(("I_blocker_1", "I_blocker_2"), issue.relationships.blocked_by)
 
     def test_only_provenance_and_location_are_excluded_from_equivalence(self) -> None:
         issue = fixture("github.json")
@@ -61,14 +56,20 @@ class IssueProfileTests(unittest.TestCase):
             "line": 42,
         }
 
-        self.assertTrue(semantically_equivalent(issue, moved))
+        self.assertTrue(
+            semantically_equivalent(conform_issue(issue), conform_issue(moved))
+        )
 
         moved["reference"] = "issue-model-uplift"
-        self.assertFalse(semantically_equivalent(issue, moved))
+        self.assertFalse(
+            semantically_equivalent(conform_issue(issue), conform_issue(moved))
+        )
 
         moved = copy.deepcopy(issue)
         moved["number"] = 41
-        self.assertFalse(semantically_equivalent(issue, moved))
+        self.assertFalse(
+            semantically_equivalent(conform_issue(issue), conform_issue(moved))
+        )
 
     def test_issue_number_is_a_required_positive_integer(self) -> None:
         missing = fixture("github.json")
@@ -94,7 +95,9 @@ class IssueProfileTests(unittest.TestCase):
             "line": 42,
         }
 
-        self.assertTrue(semantically_equivalent(before, after))
+        self.assertTrue(
+            semantically_equivalent(conform_issue(before), conform_issue(after))
+        )
         self.assertEqual(before["updatedAt"], after["updatedAt"])
 
     def test_missing_or_not_fetched_data_cannot_masquerade_as_absence(self) -> None:
@@ -154,7 +157,7 @@ class IssueProfileTests(unittest.TestCase):
 
 class IssueProfileModelTests(unittest.TestCase):
     def test_aliases_expose_snake_case_fields_for_camel_case_keys(self) -> None:
-        profile = validate_issue_profile(fixture("github.json"))
+        profile = conform_issue(fixture("github.json"))
 
         self.assertEqual(
             "project:01947e42-3f67-7c38-a41c-218df18a169b", profile.project_id
@@ -167,7 +170,7 @@ class IssueProfileModelTests(unittest.TestCase):
         )
 
     def test_the_profile_is_frozen_after_validation(self) -> None:
-        profile = validate_issue_profile(fixture("github.json"))
+        profile = conform_issue(fixture("github.json"))
 
         with self.assertRaises(ValidationError):
             # The frozen refusal is the behavior under test.
@@ -197,15 +200,13 @@ class IssueProfileModelTests(unittest.TestCase):
             conform_issue(issue)
 
     def test_origin_and_location_discriminate_on_kind(self) -> None:
-        profile = validate_issue_profile(fixture("github.json"))
+        profile = conform_issue(fixture("github.json"))
         self.assertIsInstance(profile.origin, GitHubIssueOrigin)
 
         moved = fixture("github.json")
         moved["origin"] = {"kind": "markdown"}
         moved["location"] = {"kind": "markdown", "path": "ISSUES.md", "line": 3}
-        self.assertIsInstance(
-            validate_issue_profile(moved).location, MarkdownIssueLocation
-        )
+        self.assertIsInstance(conform_issue(moved).location, MarkdownIssueLocation)
 
         crossed = fixture("github.json")
         crossed["origin"] = {"kind": "markdown", "repositoryId": "R_kgDOUEerrg"}
@@ -253,7 +254,7 @@ class IssueProfileModelTests(unittest.TestCase):
         fractional = fixture("github.json")
         fractional["updatedAt"] = "2026-08-26T08:32:48.500Z"
         self.assertEqual(
-            "2026-08-26T08:32:48.500Z", conform_issue(fractional)["updatedAt"]
+            "2026-08-26T08:32:48.500Z", conform_issue(fractional).updated_at
         )
 
     def test_conform_issue_leaves_the_caller_input_unchanged(self) -> None:
@@ -265,7 +266,7 @@ class IssueProfileModelTests(unittest.TestCase):
 
         self.assertEqual(snapshot, issue)
         self.assertEqual(
-            ["enhancement", "needs-triage", "priority/P1"], conformed["labels"]
+            ("enhancement", "needs-triage", "priority/P1"), conformed.labels
         )
 
 

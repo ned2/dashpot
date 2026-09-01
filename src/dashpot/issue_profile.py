@@ -210,8 +210,8 @@ class IssueProfile(_ProfileModel):
         return self
 
 
-def validate_issue_profile(value: Mapping[str, Any]) -> IssueProfile:
-    """Validate one complete Issue snapshot into the Issue profile model."""
+def conform_issue(value: Mapping[str, Any]) -> IssueProfile:
+    """Validate and canonicalize one complete Issue snapshot."""
 
     if not isinstance(value, Mapping):
         raise IssueProfileError("issue must be an object")
@@ -221,22 +221,13 @@ def validate_issue_profile(value: Mapping[str, Any]) -> IssueProfile:
         raise IssueProfileError(_translate(exc)) from exc
 
 
-def conform_issue(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Validate and canonicalize one complete Issue snapshot."""
-
-    return validate_issue_profile(value).model_dump(mode="json", by_alias=True)
-
-
-def semantic_projection(value: Mapping[str, Any]) -> dict[str, Any]:
+def semantic_projection(issue: IssueProfile) -> dict[str, Any]:
     """Return the source-neutral facts used for semantic equivalence."""
 
-    issue = conform_issue(value)
-    del issue["origin"]
-    del issue["location"]
-    return issue
+    return issue.model_dump(mode="json", by_alias=True, exclude={"origin", "location"})
 
 
-def semantically_equivalent(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+def semantically_equivalent(left: IssueProfile, right: IssueProfile) -> bool:
     """Compare complete Issues after excluding provenance and location."""
 
     return semantic_projection(left) == semantic_projection(right)

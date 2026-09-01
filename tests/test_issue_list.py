@@ -12,30 +12,35 @@ from dashpot.issue_list import (
     next_issue_states,
     query_issue_list,
 )
+from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
-    Issue,
     ProjectObservation,
     ProjectSnapshot,
     WorkspaceSnapshot,
 )
-from helpers import issue_of
+from helpers import make_issue
 
 NOW = "2026-08-27T00:00:00Z"
 
 
-def issue(issue_id: str, state: str) -> Issue:
-    return {
+def issue(issue_id: str, state: str, **overrides: object) -> IssueProfile:
+    fields: dict[str, object] = {
         "id": issue_id,
         "number": 1,
         "state": state,
         "title": issue_id,
         "labels": [],
         "assignees": [],
+        "author": None,
+        "milestone": None,
+        "issueType": None,
     }
+    fields.update(overrides)
+    return make_issue(**fields)
 
 
-def workspace(*issues: Issue) -> WorkspaceSnapshot:
+def workspace(*issues: IssueProfile) -> WorkspaceSnapshot:
     snapshot = ProjectSnapshot(
         project_id="project:one",
         display_label="One",
@@ -64,7 +69,7 @@ def workspace(*issues: Issue) -> WorkspaceSnapshot:
         NOW,
         1,
         [project],
-        issue_runs={item["id"]: [] for item in issues},
+        issue_runs={item.id: [] for item in issues},
     )
 
 
@@ -75,9 +80,7 @@ def test_default_query_returns_open_issues_without_forgetting_observed_count() -
 
     assert result.observed_issue_count == 2
     assert result.matched_issue_count == 1
-    assert [(row.kind, issue_of(row)["id"]) for row in result.rows] == [
-        ("issue", "I_open")
-    ]
+    assert [(row.kind, row.issue.id) for row in result.rows] == [("issue", "I_open")]
 
 
 def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
@@ -125,43 +128,42 @@ def test_default_query_lists_no_rows_for_only_closed_issues() -> None:
 
 
 def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> None:
-    matching = issue("I_matching", "open")
-    matching["title"] = "Fix launch controls"
-    matching["assignees"] = ["navigation-owner"]
-    hidden = issue("I_hidden", "open")
-    hidden["body"] = "navigation-owner"
+    matching = issue(
+        "I_matching",
+        "open",
+        title="Fix launch controls",
+        assignees=["navigation-owner"],
+    )
+    hidden = issue("I_hidden", "open", body="navigation-owner")
     observed = workspace(matching, hidden)
 
     result = query_issue_list(observed, IssueListQuery(text="NAVIGATION-OWNER"))
 
     assert result.matched_issue_count == 1
     assert result.observed_issue_count == 2
-    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
+    assert [row.issue.id for row in result.rows] == ["I_matching"]
 
 
 def test_text_query_matches_labels_like_the_tracker_feed() -> None:
-    matching = issue("I_matching", "open")
-    matching["labels"] = ["good first issue", "priority/P3"]
+    matching = issue("I_matching", "open", labels=["good first issue", "priority/P3"])
     hidden = issue("I_hidden", "open")
 
     result = query_issue_list(
         workspace(matching, hidden), IssueListQuery(text='"good first"')
     )
 
-    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
+    assert [row.issue.id for row in result.rows] == ["I_matching"]
 
 
 def test_text_query_matches_the_author_without_requiring_one() -> None:
-    matching = issue("I_matching", "open")
-    matching["author"] = "octocat"
+    matching = issue("I_matching", "open", author="octocat")
     hidden = issue("I_hidden", "open")
-    hidden["author"] = None
 
     result = query_issue_list(
         workspace(matching, hidden), IssueListQuery(text="octocat")
     )
 
-    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
+    assert [row.issue.id for row in result.rows] == ["I_matching"]
 
 
 def test_inventory_text_ignores_the_query_and_result_text_singularizes() -> None:
@@ -235,62 +237,59 @@ def test_next_issue_states_cycles_open_closed_all() -> None:
 
 
 def test_text_query_matches_milestone_and_issue_type() -> None:
-    by_milestone = issue("I_milestone", "open")
-    by_milestone["milestone"] = "v1.0"
-    by_type = issue("I_type", "open")
-    by_type["issueType"] = "Bug"
+    by_milestone = issue("I_milestone", "open", milestone="v1.0")
+    by_type = issue("I_type", "open", issueType="Bug")
     hidden = issue("I_hidden", "open")
     observed = workspace(by_milestone, by_type, hidden)
 
     milestones = query_issue_list(observed, IssueListQuery(text="v1.0"))
     types = query_issue_list(observed, IssueListQuery(text="bug"))
 
-    assert [issue_of(row)["id"] for row in milestones.rows] == ["I_milestone"]
-    assert [issue_of(row)["id"] for row in types.rows] == ["I_type"]
+    assert [row.issue.id for row in milestones.rows] == ["I_milestone"]
+    assert [row.issue.id for row in types.rows] == ["I_type"]
 
 
 def test_text_query_matches_the_rendered_issue_number() -> None:
-    matching = issue("I_matching", "open")
-    matching["number"] = 17
-    hidden = issue("I_hidden", "open")
-    hidden["number"] = 18
+    matching = issue("I_matching", "open", number=17)
+    hidden = issue("I_hidden", "open", number=18)
 
     result = query_issue_list(workspace(matching, hidden), IssueListQuery(text="#17"))
 
-    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
+    assert [row.issue.id for row in result.rows] == ["I_matching"]
 
 
 def test_unquoted_search_terms_are_anded_without_requiring_a_phrase() -> None:
-    matching = issue("I_matching", "open")
-    matching["title"] = "Clipboard support for terminal failure"
-    wrong_order = issue("I_wrong_order", "open")
-    wrong_order["title"] = "Failure while copying to clipboard"
-    missing_term = issue("I_missing", "open")
-    missing_term["title"] = "Clipboard behavior"
+    matching = issue(
+        "I_matching", "open", title="Clipboard support for terminal failure"
+    )
+    wrong_order = issue(
+        "I_wrong_order", "open", title="Failure while copying to clipboard"
+    )
+    missing_term = issue("I_missing", "open", title="Clipboard behavior")
 
     result = query_issue_list(
         workspace(matching, wrong_order, missing_term),
         IssueListQuery(text="clipboard failure"),
     )
 
-    assert [issue_of(row)["id"] for row in result.rows] == [
+    assert [row.issue.id for row in result.rows] == [
         "I_matching",
         "I_wrong_order",
     ]
 
 
 def test_quoted_search_phrase_still_requires_contiguous_text() -> None:
-    matching = issue("I_matching", "open")
-    matching["title"] = "Clipboard failure in terminal"
-    separated = issue("I_separated", "open")
-    separated["title"] = "Clipboard support for terminal failure"
+    matching = issue("I_matching", "open", title="Clipboard failure in terminal")
+    separated = issue(
+        "I_separated", "open", title="Clipboard support for terminal failure"
+    )
 
     result = query_issue_list(
         workspace(matching, separated),
         IssueListQuery(text='"clipboard failure"'),
     )
 
-    assert [issue_of(row)["id"] for row in result.rows] == ["I_matching"]
+    assert [row.issue.id for row in result.rows] == ["I_matching"]
 
 
 def test_sort_qualifier_does_not_participate_in_lexical_matching() -> None:
@@ -298,7 +297,7 @@ def test_sort_qualifier_does_not_participate_in_lexical_matching() -> None:
 
     result = query_issue_list(observed, IssueListQuery(text="sort:created-asc"))
 
-    assert [issue_of(row)["id"] for row in result.rows] == ["I_open"]
+    assert [row.issue.id for row in result.rows] == ["I_open"]
 
 
 def test_query_rejects_duplicate_project_identities() -> None:

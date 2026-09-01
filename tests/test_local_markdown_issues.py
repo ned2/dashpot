@@ -6,7 +6,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from dashpot.issue_profile import semantically_equivalent
+from dashpot.issue_profile import (
+    IssueProfile,
+    conform_issue,
+    semantically_equivalent,
+)
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from issue_source_conformance import (
     assert_fresh_observation,
@@ -18,6 +22,12 @@ ROOT = Path(__file__).parents[1]
 RAW_FIXTURE = ROOT / "tests" / "fixtures" / "local-markdown" / "ISSUES.md"
 EXPECTED_FIXTURE = ROOT / "conformance" / "issue" / "fixtures" / "markdown.json"
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
+
+
+def location_path(issue: IssueProfile) -> str:
+    """The Repository-relative path of a Local Issue's location."""
+    assert issue.location.kind == "markdown"
+    return issue.location.path
 
 
 def local_document(
@@ -53,7 +63,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
 
         observation = source.refresh()
 
-        expected = json.loads(EXPECTED_FIXTURE.read_text())
+        expected = conform_issue(json.loads(EXPECTED_FIXTURE.read_text()))
         assert_fresh_observation(
             self,
             observation,
@@ -87,7 +97,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
 
         self.assertEqual(
             ["issues/a-b.md", "issues/a/b.md"],
-            [issue["location"]["path"] for issue in observation.issues],
+            [location_path(issue) for issue in observation.issues],
         )
 
     def test_directory_refresh_collects_markdown_files_in_path_order(self) -> None:
@@ -120,11 +130,11 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
 
         self.assertEqual("fresh", observation.status)
         self.assertEqual(
-            ["I_first", "I_last"], [issue["id"] for issue in observation.issues]
+            ["I_first", "I_last"], [issue.id for issue in observation.issues]
         )
         self.assertEqual(
             ["issues/a-first.md", "issues/z-last.md"],
-            [issue["location"]["path"] for issue in observation.issues],
+            [location_path(issue) for issue in observation.issues],
         )
 
     def test_version_genealogy_is_not_part_of_local_metadata(self) -> None:
@@ -342,8 +352,14 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
                 clock=lambda: next(times),
             )
             fresh = source.refresh()
-            expected = json.loads(json.dumps(fresh.issues))
-            fresh.issues[0]["title"] = "caller mutation"
+            expected = list(fresh.issues)
+            # The profile is frozen, so a caller can only swap a list element.
+            fresh.issues[0] = conform_issue(
+                dict(
+                    expected[0].model_dump(mode="json", by_alias=True),
+                    title="caller mutation",
+                )
+            )
             issue_path.write_text("not a Local Issue")
 
             stale = source.refresh()
@@ -457,7 +473,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             ).refresh()
 
         self.assertEqual("fresh", observation.status)
-        self.assertEqual(body, observation.issues[0]["body"])
+        self.assertEqual(body, observation.issues[0].body)
 
     def test_moving_a_document_changes_only_its_location(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -485,9 +501,9 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             after = source.refresh().issues[0]
 
         self.assertTrue(semantically_equivalent(before, after))
-        self.assertEqual(before["updatedAt"], after["updatedAt"])
-        self.assertEqual("issues/original.md", before["location"]["path"])
-        self.assertEqual("issues/nested/moved.md", after["location"]["path"])
+        self.assertEqual(before.updated_at, after.updated_at)
+        self.assertEqual("issues/original.md", location_path(before))
+        self.assertEqual("issues/nested/moved.md", location_path(after))
 
 
 if __name__ == "__main__":

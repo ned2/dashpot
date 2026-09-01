@@ -33,13 +33,12 @@ from dashpot.agents import (
 )
 from dashpot.collect import ObservationCoordinator, ProjectCollector
 from dashpot.commands import CommandResult
-from dashpot.issue_profile import conform_issue
+from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_sources import IssueSource, IssueSourceObservation
 from dashpot.model import (
     AgentRun,
     Branch,
     Diagnostic,
-    Issue,
     IssueActivity,
     LinkedPullRequest,
     ObservationTarget,
@@ -89,7 +88,7 @@ def resolved_project(
 
 
 def project_snapshot(
-    root: str = "/repo", issues: list[Issue] | None = None
+    root: str = "/repo", issues: list[IssueProfile] | None = None
 ) -> ProjectSnapshot:
     return ProjectSnapshot(
         project_id="project:example",
@@ -105,7 +104,7 @@ def project_snapshot(
     )
 
 
-def issue(reference: str = "example/project#7") -> Issue:
+def issue_payload(reference: str = "example/project#7") -> dict[str, Any]:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["reference"] = reference
     value["id"] = f"I_{reference}"
@@ -116,6 +115,10 @@ def issue(reference: str = "example/project#7") -> Issue:
     return value
 
 
+def issue(reference: str = "example/project#7") -> IssueProfile:
+    return conform_issue(issue_payload(reference))
+
+
 class FakeSource(IssueSource):
     @property
     @override
@@ -123,7 +126,7 @@ class FakeSource(IssueSource):
         return "fake"
 
     @override
-    def _collect(self) -> list[Issue]:
+    def _collect(self) -> list[IssueProfile]:
         return [issue()]
 
 
@@ -134,7 +137,7 @@ class EmptySource(IssueSource):
         return "empty"
 
     @override
-    def _collect(self) -> list[Issue]:
+    def _collect(self) -> list[IssueProfile]:
         return []
 
 
@@ -146,7 +149,7 @@ class PaletteSource(FakeSource):
     @override
     def _collect_issue_activity(self) -> dict[str, IssueActivity]:
         return {
-            issue()["id"]: IssueActivity(
+            issue().id: IssueActivity(
                 comment_count=2,
                 linked_pull_requests=[
                     LinkedPullRequest(41, "https://example.test/pull/41", "merged")
@@ -161,7 +164,7 @@ class CountingSource(FakeSource):
         self.collection_count = 0
 
     @override
-    def _collect(self) -> list[Issue]:
+    def _collect(self) -> list[IssueProfile]:
         self.collection_count += 1
         return super()._collect()
 
@@ -200,7 +203,7 @@ class ProjectCollectorTests(unittest.TestCase):
 
         snapshot = collector.refresh()
 
-        self.assertEqual("Build observer", snapshot.issues[0]["title"])
+        self.assertEqual("Build observer", snapshot.issues[0].title)
         self.assertEqual("project:example", snapshot.project_id)
         self.assertEqual("Example", snapshot.display_label)
         self.assertEqual("/repo", snapshot.observation_targets[0].path)
@@ -260,7 +263,7 @@ class ProjectCollectorTests(unittest.TestCase):
 
         self.assertEqual({"enhancement": "a2eeef"}, snapshot.label_colors)
         self.assertEqual({"enhancement": "a2eeef"}, jsonable(snapshot)["labelColors"])
-        activity = jsonable(snapshot)["issueActivity"][issue()["id"]]
+        activity = jsonable(snapshot)["issueActivity"][issue().id]
         self.assertEqual(2, activity["commentCount"])
         self.assertEqual(
             [{"number": 41, "url": "https://example.test/pull/41", "state": "merged"}],
@@ -283,8 +286,8 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual("repository:example", payload["repositoryId"])
 
     def test_headless_issue_json_preserves_required_null_fields(self) -> None:
-        complete = issue()
-        complete.update(
+        payload = issue_payload()
+        payload.update(
             {
                 "stateReason": None,
                 "author": None,
@@ -293,14 +296,14 @@ class ProjectCollectorTests(unittest.TestCase):
                 "closedAt": None,
             }
         )
-        complete["relationships"]["parent"] = None
+        payload["relationships"]["parent"] = None
+        complete = conform_issue(payload)
         snapshot = project_snapshot(issues=[complete])
 
         serialized = jsonable(snapshot)["issues"][0]
 
         self.assertEqual(complete, conform_issue(serialized))
-        self.assertEqual(complete["number"], serialized["number"])
-        self.assertNotIn("number", serialized["origin"])
+        self.assertEqual(complete.number, serialized["number"])
         self.assertIsNone(serialized["stateReason"])
         self.assertIsNone(serialized["relationships"]["parent"])
         self.assertIsNone(serialized["issueType"])
@@ -1435,9 +1438,10 @@ class ObservationCoordinatorTests(unittest.TestCase):
         project_b = resolved_project("/project-b", "project-b")
         snapshot_a = project_snapshot("/project-a", [])
         snapshot_a.project_id = "project-a"
-        transferred = issue("new/repository#70")
-        transferred["id"] = "I_stable"
-        transferred["projectId"] = "project-b"
+        transferred_payload = issue_payload("new/repository#70")
+        transferred_payload["id"] = "I_stable"
+        transferred_payload["projectId"] = "project-b"
+        transferred = conform_issue(transferred_payload)
         snapshot_b = project_snapshot("/project-b", [transferred])
         snapshot_b.project_id = "project-b"
         run = AgentRun(
@@ -1470,9 +1474,10 @@ class ObservationCoordinatorTests(unittest.TestCase):
 
     def test_unbound_hinted_run_stays_unbound_without_promotion(self) -> None:
         current_project = resolved_project("/project-a", "project-a")
-        current_issue = issue("owner/repository#15")
-        current_issue["id"] = "I_observed"
-        current_issue["projectId"] = "project-a"
+        current_payload = issue_payload("owner/repository#15")
+        current_payload["id"] = "I_observed"
+        current_payload["projectId"] = "project-a"
+        current_issue = conform_issue(current_payload)
         current_snapshot = project_snapshot("/project-a", [current_issue])
         current_snapshot.project_id = "project-a"
         hinted_run = AgentRun(

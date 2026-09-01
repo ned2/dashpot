@@ -272,8 +272,8 @@ def start_issue_work(
             harness=session.harness,
             session_label=session.session_label,
             session_process=session.session_process,
-            issue_id=issue["id"],
-            issue_reference=issue["reference"],
+            issue_id=issue.id,
+            issue_reference=issue.reference,
             binding_provenance="explicit-reference",
             started_at=now_iso(),
             working_directory=str(current),
@@ -291,17 +291,17 @@ def start_issue_work(
         (former_worktree, former), *rest = elsewhere
         messages = [
             f"switched from {former.issue_reference} at {former_worktree} to "
-            f"{issue['reference']} at {root} ({issue['id']})"
+            f"{issue.reference} at {root} ({issue.id})"
         ]
         elsewhere = rest
     elif previous is None:
-        messages = [f"started work on {issue['reference']} ({issue['id']})"]
-    elif previous.issue_id == issue["id"]:
-        messages = [f"already working on {issue['reference']}; run restarted"]
+        messages = [f"started work on {issue.reference} ({issue.id})"]
+    elif previous.issue_id == issue.id:
+        messages = [f"already working on {issue.reference}; run restarted"]
     else:
         messages = [
-            f"switched from {previous.issue_reference} to {issue['reference']} "
-            f"({issue['id']})"
+            f"switched from {previous.issue_reference} to {issue.reference} "
+            f"({issue.id})"
         ]
     messages.extend(
         f"ended this session's earlier run on {work.issue_reference} at {worktree}"

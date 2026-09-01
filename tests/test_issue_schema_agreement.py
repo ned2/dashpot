@@ -245,13 +245,18 @@ class SchemaAgreementTests(unittest.TestCase):
 
         self.assertTrue(VALIDATOR.is_valid(unsorted))
         issue = conform_issue(unsorted)
-        self.assertEqual(sorted(unsorted["labels"]), issue["labels"])
-        self.assertTrue(VALIDATOR.is_valid(issue))
+        self.assertEqual(tuple(sorted(unsorted["labels"])), issue.labels)
+        self.assertTrue(
+            VALIDATOR.is_valid(issue.model_dump(mode="json", by_alias=True))
+        )
 
     def test_valid_cases_stay_valid_after_canonicalization(self) -> None:
         for name, payload in VALID_CASES.items():
             with self.subTest(case=name):
-                self.assertTrue(VALIDATOR.is_valid(conform_issue(payload)), name)
+                canonical = conform_issue(payload).model_dump(
+                    mode="json", by_alias=True
+                )
+                self.assertTrue(VALIDATOR.is_valid(canonical), name)
 
     def test_schema_required_matches_the_model_field_set(self) -> None:
         model_fields = [field.alias for field in IssueProfile.model_fields.values()]

@@ -13,11 +13,11 @@ from .issue_list import (
     _query_indexed_issue_list,
     row_key,
 )
+from .issue_profile import IssueProfile
 from .model import (
     AgentRun,
     Branch,
     Diagnostic,
-    Issue,
     ObservationTarget,
     ProjectObservation,
     WorkspaceSnapshot,
@@ -44,7 +44,7 @@ class StoreChange:
 @dataclass(frozen=True, slots=True)
 class IssueContext:
     project: ProjectObservation
-    issue: Issue
+    issue: IssueProfile
     observed_runs: tuple[AgentRun, ...]
 
 
@@ -60,7 +60,7 @@ class _StoreState:
     collected_at: str
     elapsed_ms: int
     projects: dict[str, ProjectObservation]
-    issues: dict[tuple[str, str], Issue]
+    issues: dict[tuple[str, str], IssueProfile]
     observation_targets: dict[tuple[str, str], ObservationTarget]
     branches: dict[tuple[str, str], Branch]
     agent_runs: dict[str, AgentRun]
@@ -273,11 +273,7 @@ class WorkspaceObservationStore:
     def detail_for(self, row: IssueListRow) -> IssueListRow | None:
         """Resolve a queried row's identity against the current state."""
         state = self._state
-        context: IssueListRow | None
-        if row.kind == "issue" and row.issue is not None:
-            context = _issue_detail(state, row, row.issue)
-        else:
-            context = None
+        context = _issue_detail(state, row, row.issue) if row.kind == "issue" else None
         return deepcopy(context)
 
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
@@ -311,9 +307,7 @@ class WorkspaceObservationStore:
             or previous.snapshot is None
         ):
             return incoming, frozenset[str]()
-        retained_issue_ids = frozenset(
-            str(issue["id"]) for issue in previous.snapshot.issues
-        )
+        retained_issue_ids = frozenset(issue.id for issue in previous.snapshot.issues)
         if incoming.snapshot is None and incoming.status == "unavailable":
             return (
                 replace(incoming, snapshot=deepcopy(previous.snapshot)),
@@ -367,9 +361,9 @@ def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
 
 
 def _issue_detail(
-    state: _StoreState, row: IssueListRow, issue: Issue
+    state: _StoreState, row: IssueListRow, issue: IssueProfile
 ) -> IssueListRow | None:
-    issue_id = issue["id"]
+    issue_id = issue.id
     if row.key == row_key("issue", issue_id):
         matches = [
             (project_id, issue)
@@ -478,16 +472,16 @@ def _changed_keys(before: Mapping[Key, Value], after: Mapping[Key, Value]) -> se
 
 def _issues_by_project(
     projects: Mapping[str, ProjectObservation],
-) -> dict[tuple[str, str], Issue]:
-    indexed: dict[tuple[str, str], Issue] = {}
+) -> dict[tuple[str, str], IssueProfile]:
+    indexed: dict[tuple[str, str], IssueProfile] = {}
     for project in projects.values():
         if project.snapshot is None:
             continue
         for issue in project.snapshot.issues:
-            key = (project.project_id, issue["id"])
+            key = (project.project_id, issue.id)
             if key in indexed:
                 raise ValueError(
-                    f"Duplicate Issue Identity {issue['id']} in {project.project_id}"
+                    f"Duplicate Issue Identity {issue.id} in {project.project_id}"
                 )
             indexed[key] = issue
     return indexed
@@ -551,7 +545,7 @@ def _agent_runs_by_id(agent_runs: Sequence[AgentRun]) -> dict[str, AgentRun]:
 def _restore_retained_issue_runs(
     issue_runs: dict[str, list[str]],
     agent_runs: Mapping[str, AgentRun],
-    issues: Mapping[tuple[str, str], Issue],
+    issues: Mapping[tuple[str, str], IssueProfile],
     retained_issue_ids: set[str],
 ) -> None:
     project_counts: dict[str, int] = {}

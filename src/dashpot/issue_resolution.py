@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 from .github_issues import GitHubIssuesSource
+from .issue_profile import IssueProfile
 from .issue_sources import IssueSource
 from .local_markdown_issues import LocalMarkdownIssuesSource
 from .project_config import (
@@ -43,7 +43,7 @@ def configured_issue_source(root: Path, timeout: float = 10) -> IssueSource:
     raise RuntimeError("unsupported configured Issue Source")  # pragma: no cover
 
 
-def resolve_issue(root: Path, hint: str, timeout: float = 10) -> dict[str, Any]:
+def resolve_issue(root: Path, hint: str, timeout: float = 10) -> IssueProfile:
     """Resolve an Issue Hint to exactly one fresh Issue of this Project.
 
     A bare or ``#``-prefixed Issue Number matches by number; any other hint
@@ -65,9 +65,9 @@ def resolve_issue(root: Path, hint: str, timeout: float = 10) -> dict[str, Any]:
     number_match = ISSUE_NUMBER.fullmatch(hint)
     if number_match:
         number = int(number_match.group(1))
-        matches = [issue for issue in observation.issues if issue["number"] == number]
+        matches = [issue for issue in observation.issues if issue.number == number]
     else:
-        matches = [issue for issue in observation.issues if issue["reference"] == hint]
+        matches = [issue for issue in observation.issues if issue.reference == hint]
     if len(matches) == 1:
         return matches[0]
     if matches:
@@ -77,28 +77,28 @@ def resolve_issue(root: Path, hint: str, timeout: float = 10) -> dict[str, Any]:
     )
 
 
-def show_issue(current: Path, hint: str, *, timeout: float = 10) -> dict[str, Any]:
+def show_issue(current: Path, hint: str, *, timeout: float = 10) -> IssueProfile:
     """Resolve an Issue Hint from any directory of a configured Worktree."""
     return resolve_issue(worktree_root(current), hint, timeout)
 
 
-def describe_issue(issue: dict[str, Any]) -> list[str]:
+def describe_issue(issue: IssueProfile) -> list[str]:
     """Render the Issue facts a caller needs before acting on it."""
-    state = issue["state"]
-    if issue.get("stateReason"):
-        state = f"{state} ({issue['stateReason']})"
+    state: str = issue.state
+    if issue.state_reason:
+        state = f"{state} ({issue.state_reason})"
     return [
-        f"{issue['reference']}: {issue['title']}",
-        f"number: #{issue['number']}",
+        f"{issue.reference}: {issue.title}",
+        f"number: #{issue.number}",
         f"state: {state}",
         f"location: {issue_location(issue)}",
-        f"id: {issue['id']}",
+        f"id: {issue.id}",
     ]
 
 
-def issue_location(issue: dict[str, Any]) -> str:
+def issue_location(issue: IssueProfile) -> str:
     """The Issue Location as one actionable string."""
-    location = issue["location"]
-    if location["kind"] == "github":
-        return str(location["url"])
-    return f"{location['path']}:{location['line']}"
+    location = issue.location
+    if location.kind == "github":
+        return location.url
+    return f"{location.path}:{location.line}"

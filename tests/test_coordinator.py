@@ -15,10 +15,10 @@ from dashpot.collect import (
     ObservationKey,
     SnapshotScheduler,
 )
+from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_sources import IssueSource
 from dashpot.model import (
     AgentRun,
-    Issue,
     ObservationTarget,
     ObservationTargetInventory,
     ResolvedProject,
@@ -32,14 +32,14 @@ ISSUE_FIXTURE = json.loads(
 )
 
 
-def issue(reference: str, project_id: str) -> Issue:
+def issue(reference: str, project_id: str) -> IssueProfile:
     value = copy.deepcopy(ISSUE_FIXTURE)
     value["reference"] = reference
     value["id"] = f"I_{reference}"
     value["number"] = int(reference.rpartition("#")[2])
     value["projectId"] = project_id
     value["title"] = f"Issue {reference}"
-    return value
+    return conform_issue(value)
 
 
 def target(root: Path, head: str = "abc123") -> ObservationTarget:
@@ -54,7 +54,7 @@ class ScriptedSource(IssueSource):
     def __init__(self, project_id: str, *, clock=None) -> None:
         super().__init__(clock=clock)
         self.project_id = project_id
-        self.collections: list[list[Issue] | Exception] = []
+        self.collections: list[list[IssueProfile] | Exception] = []
         self.calls = 0
         self.started = threading.Event()
         self.release = threading.Event()
@@ -67,7 +67,7 @@ class ScriptedSource(IssueSource):
         return f"scripted:{self.project_id}"
 
     @override
-    def _collect(self) -> list[Issue]:
+    def _collect(self) -> list[IssueProfile]:
         with self.lock:
             self.calls += 1
         self.started.set()
@@ -209,7 +209,7 @@ def test_project_is_published_only_after_both_halves_are_observed(
     assert project is not None and project.snapshot is not None
     assert project.snapshot.issue_source_status == "fresh"
     assert project.snapshot.target_status == "fresh"
-    assert [item["id"] for item in project.snapshot.issues] == ["I_alpha#1"]
+    assert [item.id for item in project.snapshot.issues] == ["I_alpha#1"]
     assert coordinator.publish(store) == []
 
 
@@ -283,7 +283,7 @@ def test_superseded_ticket_cannot_overwrite_the_newer_result(workspace) -> None:
     coordinator.publish(store)
     project = store.project("alpha")
     assert project is not None and project.snapshot is not None
-    assert [item["id"] for item in project.snapshot.issues] == ["I_alpha#2"]
+    assert [item.id for item in project.snapshot.issues] == ["I_alpha#2"]
 
 
 def test_cancelled_ticket_is_skipped_without_touching_the_source(
@@ -356,7 +356,7 @@ def test_issue_failure_keeps_last_good_issues_and_fresh_targets(
     assert project.snapshot.issue_source_status == "stale"
     assert project.snapshot.target_status == "fresh"
     assert project.snapshot.observation_targets[0].head == "fresh00"
-    assert [item["id"] for item in project.snapshot.issues] == ["I_alpha#1"]
+    assert [item.id for item in project.snapshot.issues] == ["I_alpha#1"]
     assert project.snapshot.issue_source_last_good_at is not None
     assert project.snapshot.issue_source_last_good_at < (
         project.snapshot.issue_source_attempted_at

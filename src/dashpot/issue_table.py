@@ -14,7 +14,8 @@ from .issue_list import (
     IssueListRow,
     IssueSearchField,
 )
-from .model import Issue, IssueActivity, ProjectObservation, RunState
+from .issue_profile import IssueProfile
+from .model import IssueActivity, ProjectObservation, RunState
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
@@ -203,7 +204,7 @@ def issue_state_colors(*, dark: bool) -> dict[str, str]:
     }
 
 
-def issue_state_chip(issue: Issue, label: str, *, dark: bool) -> Text:
+def issue_state_chip(issue: IssueProfile, label: str, *, dark: bool) -> Text:
     """``label`` as a chip whose background is the Issue's state colour.
 
     The colour is the same one the ISSUE pane border and the state column
@@ -263,7 +264,7 @@ class ColumnSpec:
 
 
 def _has_priority(row: IssueListRow) -> bool:
-    return row.issue is not None and issue_priority(row.issue) is not None
+    return issue_priority(row.issue) is not None
 
 
 COLUMN_SPECS = (
@@ -560,46 +561,41 @@ def build_rows(
 
 
 def _row_tie_break(row: IssueListRow) -> tuple[str, int, str]:
-    number = int(row.issue["number"]) if row.issue is not None else 2**63 - 1
-    return row.project.project_id.casefold(), number, row.key
+    return row.project.project_id.casefold(), row.issue.number, row.key
 
 
 def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     project = row.project
-    if row.kind == "issue":
-        issue = row.issue
-        if issue is None:
-            raise RuntimeError("Issue-list Issue row is missing its Issue")
-        assignees = tuple(assignee.casefold() for assignee in issue["assignees"])
-        return {
-            "issue_state": issue_state_cell(issue, dark=dark),
-            "agent_state": agent_state_cell(row.session_states),
-            "number": IssueNumberCell(issue["number"]),
-            "title": text_cell(issue["title"]),
-            "labels": labels_cell(issue, project),
-            "project": text_cell(project.display_label),
-            "priority": priority_cell(issue, project),
-            "assignees": IssueTableCell(
-                ", ".join(issue["assignees"]) or "unassigned", assignees
-            ),
-            "author": optional_text_cell(issue["author"]),
-            "milestone": optional_text_cell(issue["milestone"]),
-            "type": optional_text_cell(issue["issueType"]),
-            "comments": comments_cell(issue_activity(issue, project)),
-            "created": date_cell(issue["createdAt"]),
-            "last_action": date_cell(issue["updatedAt"]),
-        }
-    raise RuntimeError(f"unsupported Issue-list row kind: {row.kind}")
+    issue = row.issue
+    assignees = tuple(assignee.casefold() for assignee in issue.assignees)
+    return {
+        "issue_state": issue_state_cell(issue, dark=dark),
+        "agent_state": agent_state_cell(row.session_states),
+        "number": IssueNumberCell(issue.number),
+        "title": text_cell(issue.title),
+        "labels": labels_cell(issue, project),
+        "project": text_cell(project.display_label),
+        "priority": priority_cell(issue, project),
+        "assignees": IssueTableCell(
+            ", ".join(issue.assignees) or "unassigned", assignees
+        ),
+        "author": optional_text_cell(issue.author),
+        "milestone": optional_text_cell(issue.milestone),
+        "type": optional_text_cell(issue.issue_type),
+        "comments": comments_cell(issue_activity(issue, project)),
+        "created": date_cell(issue.created_at),
+        "last_action": date_cell(issue.updated_at),
+    }
 
 
 def text_cell(value: str) -> IssueTableCell:
     return IssueTableCell(value, value.casefold())
 
 
-def issue_activity(issue: Issue, project: ProjectObservation) -> IssueActivity:
+def issue_activity(issue: IssueProfile, project: ProjectObservation) -> IssueActivity:
     if project.snapshot is None:
         return IssueActivity()
-    return project.snapshot.issue_activity.get(issue["id"], IssueActivity())
+    return project.snapshot.issue_activity.get(issue.id, IssueActivity())
 
 
 def comments_cell(activity: IssueActivity) -> IssueTableCell:
@@ -616,13 +612,13 @@ def label_colors(project: ProjectObservation) -> Mapping[str, str]:
     return project.snapshot.label_colors
 
 
-def labels_cell(issue: Issue, project: ProjectObservation) -> LabelsCell:
+def labels_cell(issue: IssueProfile, project: ProjectObservation) -> LabelsCell:
     """The Issue's ordinary labels; a recognized priority label is the PRIORITY cell."""
-    labels = tuple(label for label in issue["labels"] if not is_priority_label(label))
+    labels = tuple(label for label in issue.labels if not is_priority_label(label))
     return LabelsCell(labels, label_colors(project))
 
 
-def priority_cell(issue: Issue, project: ProjectObservation) -> PriorityCell:
+def priority_cell(issue: IssueProfile, project: ProjectObservation) -> PriorityCell:
     label = issue_priority_label(issue)
     priority = None if label is None else PRIORITY_BY_LABEL[label.casefold()]
     return PriorityCell(priority, label, label_colors(project))
@@ -667,13 +663,15 @@ _CLOSED_STATE_KINDS: dict[str, IssueStateKind] = {
 }
 
 
-def issue_state_kind(issue: Issue) -> IssueStateKind:
-    if issue["state"] == "open":
+def issue_state_kind(issue: IssueProfile) -> IssueStateKind:
+    if issue.state == "open":
         return "open"
-    return _CLOSED_STATE_KINDS.get(issue["stateReason"], "completed")
+    if issue.state_reason is None:
+        return "completed"
+    return _CLOSED_STATE_KINDS.get(issue.state_reason, "completed")
 
 
-def issue_state_cell(issue: Issue, *, dark: bool) -> IssueStateCell:
+def issue_state_cell(issue: IssueProfile, *, dark: bool) -> IssueStateCell:
     return IssueStateCell(issue_state_kind(issue), dark=dark)
 
 
@@ -701,15 +699,15 @@ def is_priority_label(label: str) -> bool:
     return label.casefold() in PRIORITY_BY_LABEL
 
 
-def issue_priority_label(issue: Issue) -> str | None:
+def issue_priority_label(issue: IssueProfile) -> str | None:
     """The recognized label that sets the Issue's priority: the most urgent one."""
-    labels = [label for label in issue["labels"] if is_priority_label(label)]
+    labels = [label for label in issue.labels if is_priority_label(label)]
     if not labels:
         return None
     return min(labels, key=lambda label: PRIORITY_BY_LABEL[label.casefold()])
 
 
-def issue_priority(issue: Issue) -> PriorityLevel | None:
+def issue_priority(issue: IssueProfile) -> PriorityLevel | None:
     """The Issue's compact priority, or nothing when no label declares one."""
     label = issue_priority_label(issue)
     return None if label is None else PRIORITY_BY_LABEL[label.casefold()]

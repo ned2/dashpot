@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 from typing_extensions import override
 
+from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_sources import IssueSource
 
 ROOT = Path(__file__).resolve().parents[1]
-ISSUE_FIXTURE = json.loads(
-    (ROOT / "conformance" / "issue" / "fixtures" / "github.json").read_text()
+FIXTURE_ISSUE = conform_issue(
+    json.loads(
+        (ROOT / "conformance" / "issue" / "fixtures" / "github.json").read_text()
+    )
 )
 
 
@@ -27,10 +29,10 @@ class FaultySource(IssueSource):
         return "faulty"
 
     @override
-    def _collect(self) -> list[dict[str, Any]]:
+    def _collect(self) -> list[IssueProfile]:
         if self.fault is not None:
             raise self.fault
-        return [dict(ISSUE_FIXTURE)]
+        return [FIXTURE_ISSUE]
 
 
 def test_an_unforeseen_adapter_fault_is_a_failed_refresh_not_a_raise() -> None:
@@ -43,7 +45,7 @@ def test_an_unforeseen_adapter_fault_is_a_failed_refresh_not_a_raise() -> None:
     # ADR 0002: a failed refresh yields a diagnostic and keeps the last good
     # collection; it never propagates into the observer.
     assert observation.status == "stale"
-    assert observation.issues == [ISSUE_FIXTURE]
+    assert observation.issues == [FIXTURE_ISSUE]
     (diagnostic,) = observation.diagnostics
     assert diagnostic.code == "faulty-internal"
     assert diagnostic.severity == "warning"

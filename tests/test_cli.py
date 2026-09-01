@@ -15,6 +15,7 @@ from dashpot import cli
 from dashpot.agents import ProcessIdentity
 from dashpot.hook import publish_from_stream
 from dashpot.integrate import INTEGRATIONS
+from dashpot.issue_profile import conform_issue
 from dashpot.model import (
     RepositoryAnchor,
     ResolvedProject,
@@ -23,6 +24,7 @@ from dashpot.model import (
 )
 from dashpot.workspace import WorkspaceResolution
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
+from helpers import issue_payload
 
 
 def write_config_marker(root: Path) -> None:
@@ -384,18 +386,19 @@ def test_issue_show_prints_lines_or_the_issue_profile_json(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    issue = {
-        "id": "I_35",
-        "number": 35,
-        "reference": "ned2/dashpot#35",
-        "title": "Worktree protocol",
-        "state": "open",
-        "stateReason": None,
-        "location": {
+    payload = issue_payload(
+        id="I_35",
+        number=35,
+        reference="ned2/dashpot#35",
+        title="Worktree protocol",
+        state="open",
+        stateReason=None,
+        location={
             "kind": "github",
             "url": "https://github.com/ned2/dashpot/issues/35",
         },
-    }
+    )
+    issue = conform_issue(payload)
 
     with mock.patch.object(cli, "show_issue", return_value=issue) as show:
         assert cli.main(["issue", "show", "35"]) == 0
@@ -406,7 +409,9 @@ def test_issue_show_prints_lines_or_the_issue_profile_json(
 
     with mock.patch.object(cli, "show_issue", return_value=issue):
         assert cli.main(["issue", "show", "#35", "--json", "--timeout", "2"]) == 0
-    assert json.loads(capsys.readouterr().out) == issue
+    # The wire payload pins the JSON contract independently of the model's
+    # own dump: camelCase keys and explicit nulls, exactly as the fixture.
+    assert json.loads(capsys.readouterr().out) == payload
 
     with mock.patch.object(
         cli, "show_issue", side_effect=RuntimeError("did not match an Issue")

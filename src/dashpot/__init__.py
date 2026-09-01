@@ -1,9 +1,9 @@
 """Useful damping for agent-driven projects."""
 
+from .issue_profile import IssueProfile
 from .model import (
     AgentRun,
     Diagnostic,
-    Issue,
     ObservationTarget,
     ProjectSnapshot,
     WorkspaceSnapshot,
@@ -12,7 +12,7 @@ from .model import (
 __all__ = [
     "AgentRun",
     "Diagnostic",
-    "Issue",
+    "IssueProfile",
     "ObservationTarget",
     "ProjectSnapshot",
     "WorkspaceSnapshot",

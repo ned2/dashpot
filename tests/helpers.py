@@ -7,7 +7,10 @@ dereferencing an ``Optional``.
 
 from __future__ import annotations
 
+import copy
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, TypeVar
 
 from dashpot.agents import (
@@ -18,11 +21,15 @@ from dashpot.agents import (
     ProcessPresent,
     ProcessUnobservable,
 )
-from dashpot.issue_list import IssueListRow
-from dashpot.model import Issue, ProjectObservation, ProjectSnapshot, to_jsonable
-from dashpot.observation_store import IssueContext
+from dashpot.issue_profile import IssueProfile, conform_issue
+from dashpot.model import ProjectObservation, ProjectSnapshot, to_jsonable
 
 T = TypeVar("T")
+
+_CONFORMANCE_FIXTURES = Path(__file__).parents[1] / "conformance" / "issue" / "fixtures"
+_GITHUB_FIXTURE: dict[str, Any] = json.loads(
+    (_CONFORMANCE_FIXTURES / "github.json").read_text()
+)
 
 
 def required(value: T | None) -> T:
@@ -36,9 +43,20 @@ def snapshot_of(project: ProjectObservation | None) -> ProjectSnapshot:
     return required(required(project).snapshot)
 
 
-def issue_of(row: IssueListRow | IssueContext | None) -> Issue:
-    """The Issue behind a row or context, which the test expects to exist."""
-    return required(required(row).issue)
+def issue_payload(**overrides: object) -> dict[str, Any]:
+    """Build a complete Issue wire payload from the conformance fixture."""
+    payload = copy.deepcopy(_GITHUB_FIXTURE)
+    payload.update(overrides)
+    return payload
+
+
+def make_issue(**overrides: object) -> IssueProfile:
+    """Build a complete Issue Profile from the conformance fixture with overrides.
+
+    Overrides use the wire's camelCase keys, exactly as a fixture document
+    would spell them; the result is validated like any adapter's output.
+    """
+    return conform_issue(issue_payload(**overrides))
 
 
 def jsonable(value: object) -> dict[str, Any]:
