@@ -5,7 +5,8 @@ The classification behind
 [#85](https://github.com/ned2/dashpot/issues/85). Every `@dataclass`,
 `dict[str, Any]`-shaped record, manual JSON validator, and serializer in
 `src/dashpot` is listed with the seam it sits at and the verdict the ADR
-records for its family. Line numbers are as of commit `f72c155`.
+records for its family; §8 additionally lists the retained values by
+category. Line numbers are as of commit `f72c155`.
 
 Seam vocabulary (from #85): **untrusted input** (subprocess output, hook
 payloads, files not owned by Dashpot), **persisted state** (files Dashpot
@@ -37,6 +38,18 @@ fourth.
 | `parse_local_markdown_issue` | local_markdown_issues.py:133 | JSON front matter → profile dict → `conform_issue` | untrusted input parser |
 | `conformance/issue/issue.schema.json` | conformance/issue/ | hand-maintained, executed by nothing; missing the sorted-string-set and self-reference rules | documentation drift risk |
 
+Two facts that shape the migration here. `semantic_projection` works by
+`del` on a mutable dict and `semantically_equivalent` by dict equality —
+on a frozen model this becomes a `model_dump` projection excluding
+`origin` and `location`, decided up front rather than mid-PR. And the
+schema stays the authority: generating it from the model would lose
+`uniqueItems`, the `if`/`then` state rules, the formats, and most of
+`required` (fields with defaults drop out), so agreement is proven by a
+shared valid/invalid fixture corpus run through both `jsonschema` and the
+model, and no profile field carries a default. The model also removes
+`conform_issue`'s per-issue `deepcopy` — the profile path gets cheaper,
+not dearer.
+
 Adjacent but source-shaped, staying beside (not inside) the profile:
 `IssueActivity` / `LinkedPullRequest` (model.py:26,33 — mutable today,
 deep-copied at issue_sources.py:79,103 and github_issues.py:173) join the
@@ -58,20 +71,43 @@ common.
   `SessionLocation` (agents.py:714) carries the **raw dict alongside it** and
   `validate_session_claim`, `record_to_session`, and
   `locate_observation_target` re-read raw keys ad hoc. Unknown fields are
-  silently retained today and `HookRecordStore.prune` (agents.py:513)
-  compare-and-deletes on whole-dict equality — the model must round-trip
-  unknown fields byte-stably or prune's optimistic-concurrency check changes
-  meaning. The primitive validators `require_string` / `optional_string` /
-  `validated_optional_issue_value` (agents.py:1348-1358) are the layer the
-  model replaces; note `optional_string` silently coerces wrong types to
-  `None` at ~15 sites.
+  silently retained today, and `HookRecordStore.prune` (agents.py:513)
+  compare-and-deletes on whole-dict equality — both sides of that compare
+  are already raw `json.loads` dicts, and they stay that way: `model_dump`
+  cannot tell an absent declared field from an explicit `null`, so prune
+  is defined on the on-disk dict and the raw dict is retained for that one
+  comparison. The model replaces the ad-hoc *field* reads, per field:
+  today `classify_hook_record` defaults a missing `harness` to codex,
+  `optional_string` (agents.py:1354) coerces wrong types to `None` at ~15
+  sites, and `process_identity_of` (agents.py:303) degrades a malformed
+  `sessionProcess` to liveness-unknown — leniencies that keep a session
+  visible-but-degraded rather than gone, which the model preserves as
+  per-field fallback with a Diagnostic (only `sessionId`, `version`,
+  `state`, `cwd` are record-fatal). `require_string` /
+  `validated_optional_issue_value` (agents.py:1348,1358) are the strict
+  half the model absorbs directly.
+- **`ProcessIdentity`** (agents.py:40) — the nested `sessionProcess`
+  sub-record, with its own hand-mirrored pair (`as_record`,
+  agents.py:47, and `process_identity_of`, agents.py:303) and a **third
+  null convention**: `arguments` is omitted when falsy rather than
+  written as `null`. It becomes the hook record's nested model.
+  `SessionProcess.as_record` (work_store.py:27) writes `{pid, startedAt}`
+  for the same concept the hook record writes as
+  `{pid, parentPid, command, startedAt, arguments?}` — two shapes for one
+  concept across the two stores, kept distinct (each store's model owns
+  its shape) rather than unified, which would change a persisted format.
 - **Work Store record** (`.dashpot/state/work/<key>.json`): the dict literal
   in `WorkStore.start` (work_store.py:65-79) and its mirror `_parse`
   (work_store.py:145). Already writes explicit nulls and already ignores
   unknown fields, but pins `version == 1` exactly, and
-  `isinstance(process.get("pid"), int)` accepts booleans. `SessionProcess`
-  and `ActiveWork` (work_store.py:23,32, frozen/slots) become the model
-  fields; `ActiveWork.run_id` stays a derived property.
+  `isinstance(process.get("pid"), int)` accepts booleans. The persisted
+  record is its own wire model, **not** `ActiveWork`: the record carries
+  `version` (no domain meaning) and omits `session_key`, which is the
+  filename stem supplied by the reader (work_store.py:151) — conflating
+  the two would invent a `sessionKey` key and change the persisted shape.
+  `SessionProcess` (work_store.py:23) becomes the record's nested model;
+  `ActiveWork` (work_store.py:32) is constructed from the validated
+  record and keeps `run_id` as a derived property.
 
 ## 3. Published observation values — Pydantic, frozen, with #68
 
@@ -89,6 +125,7 @@ first as the safety net either way.
 | `IssueSourceObservation`, `IssueSourceDiagnostic` | issue_sources.py:24,16 | mutable / frozen pair crossing the adapter boundary |
 | `_SourceObservation`, `_AgentObservation` | collect.py:235,270 | mutable by design (`elapsed_ms` assigned post hoc) — supply at construction instead |
 | `BranchObservation` | repository.py:374 | mutable command result |
+| `IssueBindingResult` | agent_bindings.py:9 | mutable `slots=True`; named directly in #68, whose note that its pass-through `agent_runs` field can be dropped once frozen applies here |
 
 Deepcopy pressure these mutabilities cause (deleted only behind aliasing
 tests, per #68): ~15 sites in `observation_store.py` (copy-in 101, 114, 152,
@@ -99,6 +136,16 @@ and follows the family. The frozen-shell-over-mutable-payload wrappers
 `HookSessionObservation` (agents.py:666), `IssueContext`
 (observation_store.py:45), and `WorkspaceResolution` (workspace.py:31) become
 honest once their payloads freeze.
+
+Two cautions for this family. A `frozen=True` model with a bare `dict`
+field is unhashable and its dict is still freely mutable in place — and
+the mapping fields here (`label_colors`, `issue_activity`, `issue_runs`)
+are exactly what `_checkpoint` deep-copies, so they take the shared
+frozen-mapping type, not `dict`. And Pydantic copies collections during
+validation, which makes #68's publish-then-mutate-the-caller's-input test
+pass almost for free — the aliasing tests must also mutate the
+*published* value's collections, or a bare `dict` field would pass the
+suite while reopening the hole.
 
 ## 4. Persisted configuration — Pydantic, after characterization
 
@@ -114,13 +161,26 @@ forward-compatibility behavior is characterized in tests (issue step 6).
   instead ignore them with a Diagnostic. The one config holding a real
   `Path`, resolved against the settings file's directory.
 - `load_workspaces` (workspace.py:50) — strictly closed key sets, aborts the
-  whole file on first error.
+  whole file on first error. Its output values `Workspace` and
+  `RepositoryAnchor` (model.py:154,149, already frozen/slots with tuples)
+  stay dataclasses constructed by the parser: the file gets the model, the
+  domain values stay values.
+
+Per the convention, these models declare `str` fields — strict mode
+rejects a JSON string for a `Path` field, and today's `.strip()`,
+`.expanduser()`, and resolve-against-the-config-file's-directory behavior
+(settings.py:56, workspace.py:83, project_config.py's stripping
+`_non_empty_string`) is resolution policy that runs after validation and
+must be preserved, stripping included.
 
 ## 5. Command results and the `--json` seam — Pydantic-serialized, contract pinned per #78
 
 `to_jsonable` (model.py:194) drops every `None` dataclass field while the
 embedded Issue dicts carry explicit nulls — two null conventions in one
-document — and `issue show --json` (cli.py:302) bypasses it entirely.
+document (three across the codebase: `ProcessIdentity.as_record` omits
+`arguments` when falsy) — and `issue show --json` (cli.py:302) bypasses it
+entirely. `to_jsonable` also has no `BaseModel` branch, so the first model
+reaching a `--json` surface needs the temporary shim ADR 0013 records.
 `camel_case` (model.py:208) is the only alias rule for dataclasses; the Work
 Store hand-writes its own; the profile is camelCase natively. Under #78 one
 `serialization.py` owns command output, pins key sets and explicit nulls per
@@ -179,10 +239,18 @@ exemptions:
 - **Validated-outcome values built by their own validator functions**:
   `HookRecordClassification`, `StaleSessionRecord`, `SessionRecordSummary`,
   `ObservedActivity`, `ValidatedSessionIdentity` (agents.py:641-854),
-  `AgentSessionIdentity` (work.py:38). The validation lives in
-  `classify_hook_record` / `validate_session_claim`; the value is its result,
-  never parsed from data. (`_session_identity`'s positional construction at
-  work.py:209 deserves keyword arguments regardless.)
+  `AgentSessionIdentity` (work.py:38), and the liveness/ancestry values
+  `ProcessPresent` / `ProcessAbsent` / `ProcessUnobservable`,
+  `LivenessObservation`, `AgentAncestry` (agents.py:60-224). The validation
+  lives in `classify_hook_record` / `validate_session_claim`; the value is
+  its result, never parsed from data. (`_session_identity`'s positional
+  construction at work.py:209 deserves keyword arguments regardless.)
+- **Subprocess and parse results**: `CommandResult` (commands.py:9) — the
+  raw subprocess seam §6's parsers consume — and `ParsedIssueSearch` /
+  `IssueSearchSort` (issue_search.py:10,16), parsed from the user's own
+  search box with diagnostics carried in the value.
+- **Harness adapter declarations**: `SessionIdentityClaim`,
+  `HarnessAdapter` (harnesses.py:32,47).
 - **Scheduling and coordination tokens**: `ObservationKey`,
   `ObservationTicket`, `ObservationOutcome` (collect.py:56-80),
   `StoreChange` (observation_store.py:34 — already fully immutable via

@@ -27,26 +27,54 @@ replacement.
 All Pydantic models derive from one shared base (or an equivalent shared
 `model_config`) in a new `src/dashpot/models.py`, with per-seam variants:
 
-- **Strict by default.** `strict=True`: no silent coercion of strings,
-  numbers, or booleans. The bool-is-int holes in today's hand validators
-  (`work_store._parse` accepting `pid=True`) close for free; where a hand
-  validator deliberately excludes bools, the model keeps that behavior.
+- **Strict by default, with two stated exceptions.** `strict=True` and
+  `validate_default=True` (strict mode alone leaves defaults unvalidated):
+  no silent coercion of strings, numbers, or booleans. The bool-is-int
+  holes in today's hand validators (`work_store._parse` accepting
+  `pid=True`) close for free; where a hand validator deliberately excludes
+  bools, the model keeps that behavior. The exceptions:
+  - *Sequences accept `list` input.* Strict Python-mode validation rejects
+    a `list` for a `tuple[...]` field, and every producer — both Issue
+    adapters, every snapshot builder, every test fixture — builds Python
+    lists. Published sequence fields are declared `tuple[...]` with
+    field-level lax sequence validation (a shared annotated type in
+    `models.py`), so a `list` converts and anything else still fails.
+  - *Hook-record leniency is per field, not per record.* See the
+    unknown-fields policy below.
 - **Frozen for published values.** Domain, observation, and command-result
-  models are `frozen=True`, and their collections are immutable at the type
-  level: `tuple[...]` for sequences, and mappings published only where
-  aliasing is proven harmless (see the #68 coordination below). Mutable
-  implementation state never becomes a model.
+  models are `frozen=True` with immutable collections: `tuple[...]` for
+  sequences, and for mappings a shared frozen-mapping type in `models.py`
+  (a `Mapping` field validated into an immutable view), because a bare
+  `dict` field on a frozen model is still freely mutable in place and
+  makes the model unhashable — exactly the fields (`label_colors`,
+  `issue_activity`, `issue_runs`) the checkpoint deep-copies today.
+  Mutable implementation state never becomes a model.
 - **Unknown fields are a per-seam policy, not a global default.**
   - *Forbid* (`extra="forbid"`) at validation seams whose contract is a
     closed key set: the Issue Profile and Project configuration.
   - *Ignore with a Diagnostic* where forward compatibility is required:
     machine-local settings ([#77](https://github.com/ned2/dashpot/issues/77))
     and the Workspace inventory.
-  - *Retain and round-trip* (`extra="allow"` plus stable re-serialization)
-    where Dashpot re-persists records a newer Dashpot may have written: the
-    hook record, whose `prune` compare-and-delete depends on reading back
-    exactly what was observed, and the Work Store record, which already
-    ignores unknown fields on read.
+  - *Retain* (`extra="allow"`) where Dashpot re-persists records a newer
+    Dashpot may have written: the hook record and the Work Store record
+    (which already ignores unknown fields on read). Two boundaries on the
+    hook-record model. First, `prune`'s compare-and-delete stays defined on
+    the record's **on-disk dict**, never on the model: `model_dump` cannot
+    distinguish an absent declared field from an explicit `null`, so a
+    model-level comparison would let a concurrent hook write compare equal
+    and delete a live record. The raw dict is retained for that one
+    comparison even after the model retires `SessionLocation.raw`'s field
+    reads. Second, the record degrades **per field**: only `sessionId`,
+    `version`, `state`, and `cwd` are record-fatal; a malformed optional
+    field (a wrong-typed `branch`, an unparsable `sessionProcess`) falls
+    back to `None` with a `Diagnostic`, because today's leniencies —
+    `harness` defaulting to codex, `optional_string` coercing to `None`,
+    a bad process identity degrading to liveness-unknown — are what keep a
+    session visible-but-degraded in the pane rather than silently gone,
+    and a strict whole-record rejection would turn degraded observation
+    into lost observation. `build_hook_record`'s write path keeps copying
+    unrecognized payload fields through unvalidated for the same reason: a
+    surprising harness payload must not make the hook itself fail.
   - *No model at all* for foreign files Dashpot edits in place (harness
     hooks documents): preserving structure Dashpot does not understand is
     the contract, so the existing targeted dict surgery stays.
@@ -56,9 +84,20 @@ All Pydantic models derive from one shared base (or an equivalent shared
   native camelCase keys as aliases; the Work Store and hook record keep the
   exact key sets they persist today.
 - **Timestamps stay `str`.** RFC-3339 `Z` strings order lexically and are
-  the wire format; models validate the format (today's
-  `_require_optional_timestamp` becomes a shared annotated type) and do not
-  parse into `datetime`.
+  the wire format; models validate the format and do not parse into
+  `datetime`. Today's `_require_optional_timestamp` becomes a shared
+  annotated type of pattern **plus** an `AfterValidator` that round-trips
+  through `fromisoformat` (the regex alone accepts month 13) and raises
+  today's message, "must be an RFC 3339 UTC timestamp ending in Z" —
+  Pydantic's raw should-match-pattern text is not the stable, actionable
+  message this convention promises.
+- **Config models parse strings; a resolution step owns paths.**
+  Configuration models declare `str` fields — strict mode rejects a JSON
+  string for a `Path` field, and today's parsers strip whitespace and
+  resolve `~` and relative paths against the config file's own directory,
+  policy that belongs beside `resolve_worktree_root`, not inside
+  validation. Whitespace-stripping is existing behavior to preserve
+  explicitly.
 - **Errors are translated at public seams.** A Pydantic `ValidationError`
   never reaches a user or a caller's `except` clause: adapters wrap it into
   the existing domain errors (`IssueProfileError`,
@@ -74,12 +113,25 @@ All Pydantic models derive from one shared base (or an equivalent shared
   key set, aliases, nullability (explicit `null`, not omission), and
   collection shapes, with tests per command. `to_jsonable` and its
   omit-`None` behavior are deleted only after every command output is
-  covered (the last step, not a side effect).
-- **Schema authority is declared.** `conformance/issue/issue.schema.json`
-  becomes generated from the Issue Profile model, or a conformance test
-  asserts exact semantic agreement; either way one authority is declared and
-  drift (today: the sorted-string-set and self-reference rules missing from
-  the schema) becomes a test failure.
+  covered (the last step, not a side effect) — but it cannot go untouched
+  until then: it has no `BaseModel` branch, so the first model reaching a
+  `--json` surface would hit the passthrough and make `json.dumps` raise.
+  The step that first puts a model on a `--json` path adds an explicitly
+  temporary `BaseModel` branch (dump by alias, preserving today's shapes)
+  that step 8 deletes with the rest.
+- **The checked-in schema is the authority; agreement is proven by
+  fixtures.** `conformance/issue/issue.schema.json` stays hand-maintained
+  and authoritative. Generating it from the model was considered and
+  rejected: `model_json_schema` preserves the discriminated unions but
+  loses `uniqueItems`, the `if`/`then` open-closed state rules, the
+  `date-time`/`uri` formats, and — decisively — shrinks `required` to the
+  fields without defaults, silently defeating #72's schema-agreement test.
+  Instead, one shared corpus of valid and invalid fixtures runs through
+  both the schema (via `jsonschema`, a dev dependency) and the model, so
+  divergence — including today's drift, the sorted-string-set and
+  self-reference rules missing from the schema — becomes a test failure.
+  Corollary: **no Issue Profile field carries a default**, so an absent
+  key is an error in both authorities rather than a silent fill-in.
 
 ## Classification
 
@@ -103,26 +155,54 @@ structurally unserializable), and mutable implementation state.
 
 ## Migration order
 
-A PR series, observable behavior preserved at each step, per #85:
+A PR series, observable behavior preserved at each step, per #85 — with
+one recorded exception class: leniencies the convention deliberately
+closes (bools accepted as ints, wrong-typed values silently coerced) are
+listed in the migrating PR and covered by tests.
 
 1. This ADR and the inventory.
-2. The Pydantic dependency and lockfile update, alone.
-3. The Issue Profile family — the representative model, resolving
-   [#72](https://github.com/ned2/dashpot/issues/72) and the schema-authority
-   decision. `conform_issue` becomes a thin adapter over the model so both
-   adapters keep one validation interface.
-4. The Work Store record, replacing the hand-mirrored writer/reader pair.
-5. The hook record, retiring the raw-dict re-reads beside
-   `HookRecordClassification` (the `SessionLocation.raw` pattern) behind
-   round-trip tests that pin `prune`'s equality semantics.
+2. The dependencies and lockfile update, alone: Pydantic v2 at runtime and
+   `jsonschema` in the dev group (the fixture corpus in step 3 needs it,
+   and a lockfile change is its own task, so it cannot ride along later).
+3. The Issue Profile family, resolving
+   [#72](https://github.com/ned2/dashpot/issues/72), in two changes:
+   - *3a* — the model with its nested relationships, origin, and location
+     unions, both adapters validating through it, `conform_issue` a thin
+     adapter still returning the profile dict, and the shared fixture
+     corpus proving schema agreement. No consumer changes; the wire is
+     untouched.
+   - *3b* — consumers move from the dict to the model: `Issue =
+     dict[str, Any]` retired, the dead `IssueListRow.issue: Issue | None`
+     optionality removed, fixtures rebuilt from the conformance fixture
+     with overrides, `semantic_projection` /`semantically_equivalent`
+     reworked as a model projection (`model_dump` excluding `origin` and
+     `location`) rather than dict surgery, and the temporary `BaseModel`
+     branch added to `to_jsonable` so both `--json` paths keep today's
+     output. #72's misspelt-key-is-a-type-error outcome lands here, not
+     in 3a.
+4. The Work Store record. The persisted record is its own wire model, not
+   `ActiveWork`: the record carries `version` (which `ActiveWork` does
+   not) and omits `session_key` (the filename stem, supplied by the
+   reader) — conflating them would invent a `sessionKey` key and change
+   the persisted shape. `ActiveWork` is constructed from the validated
+   record.
+5. The hook record, retiring the ad-hoc raw-dict field reads beside
+   `HookRecordClassification` (the `SessionLocation.raw` pattern), with
+   `ProcessIdentity` as the nested `sessionProcess` model, per-field
+   degradation as the convention states, and `prune` kept on the on-disk
+   dict.
 6. Configuration, settings, and the Workspace inventory, after their error
    and forward-compatibility behavior is characterized; delivers #77.
 7. The observation values, frozen, in coordination with
    [#68](https://github.com/ned2/dashpot/issues/68): aliasing tests land
-   first, and no `deepcopy` guard is deleted until a test proves the
-   published value is isolated from caller mutation.
-8. Command plans/reports and `serialization.py` per #78; `to_jsonable` is
-   deleted last.
+   first, and no `deepcopy` guard is deleted until the tests prove
+   isolation **in both directions** — mutating the caller's input after
+   publication, and mutating the published value's own collections.
+   Validation-time copying makes the first direction pass almost for
+   free; the second is what the frozen-mapping type exists for, and is
+   where a bare `dict` field would silently reopen the aliasing hole.
+8. Command plans/reports and `serialization.py` per #78; `to_jsonable`,
+   including the temporary `BaseModel` branch, is deleted last.
 
 ## Considered options
 
@@ -133,21 +213,28 @@ A PR series, observable behavior preserved at each step, per #85:
   re-persisting records written by a newer Dashpot.
 - **Migrate every dataclass to Pydantic** (for one idiom and uniform
   tooling): rejected, for four concrete reasons.
-  - *Hot-path construction cost.* A model validates every construction; the
-    retained read models are rebuilt wholesale on every refresh and every
-    search keystroke, and this codebase has already measured per-refresh
-    object costs as a defect (#68's six workspace copies per refresh).
+  - *Per-keystroke construction cost.* A model validates every
+    construction, and the retained read models are rebuilt wholesale on
+    every search keystroke (`query_issue_list` and `build_rows`), where
+    validating already-validated values buys nothing. This ground is
+    deliberately narrow: it does **not** claim the migration slows the
+    refresh path — step 7 puts validating models on that path and the
+    Issue path gets faster (the model replaces `conform_issue`'s
+    per-issue `deepcopy` plus hand validation) — it claims re-validation
+    of trusted, derived values on interactive paths is waste.
     `model_construct()` avoids the cost only by giving up the guarantee.
   - *Structural carve-outs exist anyway.* `ColumnSpec` holds callables, the
     table cells subclass `str` and Rich `Text`, message payloads carry
     Textual objects — values Pydantic can neither validate nor serialize.
     Uniformity is unreachable; the only choice is where the line is drawn,
     and a seam is a principle where `arbitrary_types_allowed` is an accident.
-  - *A constructor that cannot fail is a feature.* For trusted values a
-    shape error is a bug that Ruff `ANN` and ty catch at check time; making
-    every construction a potential `ValidationError` threads a new runtime
-    failure path through code bound by the one-line `dashpot:` error
-    contract (#73).
+  - *No parsing failure path.* A trusted value never fails on well-typed
+    input — a shape error is a bug that Ruff `ANN` and ty catch at check
+    time. (A retained value may still assert its own invariants and
+    raise, as `IssueTableViewState.__post_init__` does; the claim is
+    about parsing, not about invariants.) Making every construction a
+    potential `ValidationError` threads a new runtime failure path
+    through code bound by the one-line `dashpot:` error contract (#73).
   - *The split itself carries information.* `BaseModel` on a value signals
     that a trust or persistence seam is in play and its aliases and
     unknown-field policy matter; `@dataclass(frozen=True, slots=True)`
@@ -174,9 +261,13 @@ A PR series, observable behavior preserved at each step, per #85:
 
 ## Consequences
 
-- `src/dashpot/models.py` (shared base and annotated types) and, at step 8,
+- `src/dashpot/models.py` (shared base, the lax-sequence and
+  frozen-mapping types, the timestamp type) and, at step 8,
   `src/dashpot/serialization.py` exist; Pydantic v2 joins the runtime
-  dependencies (step 2, its own change).
+  dependencies and `jsonschema` the dev group (step 2, its own change).
+- The Issue path sheds `conform_issue`'s per-issue `deepcopy`; the
+  checkpoint's mapping deepcopies become deletable once the frozen-mapping
+  type carries them.
 - The Issue Profile becomes one typed, frozen, strictly validated model with
   one schema authority; `_ISSUE_KEYS`, the adapters' literal dicts, and the
   schema file stop being four independent statements of the same contract.
