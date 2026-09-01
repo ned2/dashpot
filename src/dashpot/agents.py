@@ -162,23 +162,42 @@ def host_process_lookup(pid: int) -> ProcessObservation:
         pass  # The process exists; it belongs to another user.
     except OSError:
         return ProcessUnobservable(pid, "kill-failed")
+    # ``comm`` is free-form — on macOS it is the executable's full path, which
+    # may contain spaces — so it comes last in its probe and the fixed-width
+    # fields are parsed from the left. ``args`` is free-form too, so it gets a
+    # probe of its own rather than sharing a line with ``comm``. A process that
+    # exits between the two probes reads as unobservable, never as exited, and
+    # ``arguments`` is only ever advisory beside the identity fields.
+    identity_output = _ps_column_output(pid, ("pid", "ppid", "lstart", "comm"))
+    if isinstance(identity_output, ProcessUnobservable):
+        return identity_output
+    fields = identity_output.strip().split(maxsplit=7)
+    if len(fields) < 8:
+        return ProcessUnobservable(pid, "ps-unparseable")
+    arguments_output = _ps_column_output(pid, ("args",))
+    if isinstance(arguments_output, ProcessUnobservable):
+        return arguments_output
+    try:
+        identity = ProcessIdentity(
+            int(fields[0]),
+            int(fields[1]),
+            fields[7],
+            " ".join(fields[2:7]),
+            arguments_output.strip() or None,
+        )
+    except ValueError:
+        return ProcessUnobservable(pid, "ps-unparseable")
+    return ProcessPresent(identity)
+
+
+def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobservable:
+    """Read the selected ``ps`` columns for one process, or why they cannot be."""
+    selectors: list[str] = []
+    for column in columns:
+        selectors.extend(("-o", f"{column}="))
     try:
         result = subprocess.run(
-            [
-                "ps",
-                "-p",
-                str(pid),
-                "-o",
-                "pid=",
-                "-o",
-                "ppid=",
-                "-o",
-                "comm=",
-                "-o",
-                "lstart=",
-                "-o",
-                "args=",
-            ],
+            ["ps", "-p", str(pid), *selectors],
             text=True,
             capture_output=True,
             timeout=2,
@@ -193,20 +212,7 @@ def host_process_lookup(pid: int) -> ProcessObservation:
         return ProcessUnobservable(pid, "ps-timeout")
     if result.returncode != 0:
         return ProcessUnobservable(pid, "ps-failed")
-    fields = result.stdout.strip().split(maxsplit=8)
-    if len(fields) < 8:
-        return ProcessUnobservable(pid, "ps-unparseable")
-    try:
-        identity = ProcessIdentity(
-            int(fields[0]),
-            int(fields[1]),
-            fields[2],
-            " ".join(fields[3:8]),
-            fields[8] if len(fields) == 9 else None,
-        )
-    except ValueError:
-        return ProcessUnobservable(pid, "ps-unparseable")
-    return ProcessPresent(identity)
+    return result.stdout
 
 
 def nearest_codex_process(

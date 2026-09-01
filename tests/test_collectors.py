@@ -967,20 +967,19 @@ class HookObserverTests(unittest.TestCase):
     def test_host_process_lookup_parses_portable_ps_fields_and_arguments(
         self,
     ) -> None:
-        completed = mock.Mock(
-            returncode=0,
-            stdout=(
-                "42 1 codex Tue Aug 25 01:00:00 2026 "
-                "/opt/codex exec --sandbox workspace-write\n"
+        probes = [
+            mock.Mock(returncode=0, stdout="42 1 Tue Aug 25 01:00:00 2026 codex\n"),
+            mock.Mock(
+                returncode=0, stdout="/opt/codex exec --sandbox workspace-write\n"
             ),
-        )
+        ]
 
         with (
             mock.patch(
                 "dashpot.agents.process_namespace_is_isolated", return_value=False
             ),
             mock.patch("dashpot.agents.os.kill") as kill,
-            mock.patch("dashpot.agents.subprocess.run", return_value=completed) as run,
+            mock.patch("dashpot.agents.subprocess.run", side_effect=probes) as run,
         ):
             result = host_process_lookup(42)
 
@@ -997,10 +996,43 @@ class HookObserverTests(unittest.TestCase):
             result,
         )
         kill.assert_called_once_with(42, 0)
-        arguments = run.call_args.args[0]
-        self.assertEqual(5, arguments.count("-o"))
-        self.assertEqual("C", run.call_args.kwargs["env"]["LC_ALL"])
-        self.assertEqual("UTC", run.call_args.kwargs["env"]["TZ"])
+        identity_probe, arguments_probe = run.call_args_list
+        self.assertEqual(
+            ["-o", "pid=", "-o", "ppid=", "-o", "lstart=", "-o", "comm="],
+            identity_probe.args[0][3:],
+        )
+        self.assertEqual(["-o", "args="], arguments_probe.args[0][3:])
+        self.assertEqual("C", identity_probe.kwargs["env"]["LC_ALL"])
+        self.assertEqual("UTC", identity_probe.kwargs["env"]["TZ"])
+
+    def test_host_process_lookup_reads_a_spaced_macos_comm_intact(self) -> None:
+        # macOS renders ``comm`` as the executable's full path, which may
+        # contain spaces; the start time must not shift when it does.
+        helper = (
+            "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/claude"
+        )
+        probes = [
+            mock.Mock(returncode=0, stdout=f"42 1 Tue Aug 25 01:00:00 2026 {helper}\n"),
+            mock.Mock(returncode=0, stdout=f"{helper} --continue\n"),
+        ]
+
+        with (
+            mock.patch(
+                "dashpot.agents.process_namespace_is_isolated", return_value=False
+            ),
+            mock.patch("dashpot.agents.os.kill"),
+            mock.patch("dashpot.agents.subprocess.run", side_effect=probes),
+        ):
+            result = host_process_lookup(42)
+
+        self.assertEqual(
+            ProcessPresent(
+                ProcessIdentity(
+                    42, 1, helper, "Tue Aug 25 01:00:00 2026", f"{helper} --continue"
+                )
+            ),
+            result,
+        )
 
     def test_host_process_lookup_reports_a_missing_pid_as_absent(self) -> None:
         with (
@@ -1018,16 +1050,17 @@ class HookObserverTests(unittest.TestCase):
     def test_host_process_lookup_treats_another_users_process_as_present(
         self,
     ) -> None:
-        completed = mock.Mock(
-            returncode=0, stdout="42 1 codex Tue Aug 25 01:00:00 2026\n"
-        )
+        probes = [
+            mock.Mock(returncode=0, stdout="42 1 Tue Aug 25 01:00:00 2026 codex\n"),
+            mock.Mock(returncode=0, stdout="\n"),
+        ]
 
         with (
             mock.patch(
                 "dashpot.agents.process_namespace_is_isolated", return_value=False
             ),
             mock.patch("dashpot.agents.os.kill", side_effect=PermissionError),
-            mock.patch("dashpot.agents.subprocess.run", return_value=completed),
+            mock.patch("dashpot.agents.subprocess.run", side_effect=probes),
         ):
             result = host_process_lookup(42)
 
@@ -1065,6 +1098,24 @@ class HookObserverTests(unittest.TestCase):
 
                 self.assertEqual(ProcessUnobservable(42, reason), result)
 
+    def test_host_process_lookup_reports_a_failing_arguments_probe(self) -> None:
+        probes = [
+            mock.Mock(returncode=0, stdout="42 1 Tue Aug 25 01:00:00 2026 codex\n"),
+            mock.Mock(returncode=1, stdout=""),
+        ]
+
+        with (
+            mock.patch(
+                "dashpot.agents.process_namespace_is_isolated", return_value=False
+            ),
+            mock.patch("dashpot.agents.os.kill"),
+            mock.patch("dashpot.agents.subprocess.run", side_effect=probes),
+        ):
+            result = host_process_lookup(42)
+
+        self.assertEqual(ProcessUnobservable(42, "ps-failed"), result)
+
+    def test_host_process_lookup_reports_a_kill_probe_failure(self) -> None:
         with (
             mock.patch(
                 "dashpot.agents.process_namespace_is_isolated", return_value=False
