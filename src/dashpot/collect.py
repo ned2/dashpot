@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from .agent_bindings import bind_issue_runs
 from .agents import lock_holder_probe, observe_agent_runs
+from .git import Git
 from .github_issues import GitHubIssuesSource
 from .issue_sources import IssueSource, IssueSourceObservation, utc_now
 from .local_markdown_issues import LocalMarkdownIssuesSource
@@ -198,9 +199,12 @@ def create_project_collector(
     project: ResolvedProject,
     timeout: float = 10,
     state_dir: Path | None = None,
+    git: Git | None = None,
 ) -> ProjectCollector:
     requested_root = Path(project.primary_anchor)
-    root = worktree_root(requested_root)
+    adapter = git if git is not None else Git(requested_root, timeout)
+    root = worktree_root(requested_root, adapter)
+    adapter = adapter.at(root)
     config = load_project_config(root)
     if (
         config.project_id != project.project_id
@@ -211,7 +215,7 @@ def create_project_collector(
             f"Project configuration changed after resolving Repository Anchor {root}"
         )
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        repository_reference = github_repo_from_remote(root)
+        repository_reference = github_repo_from_remote(root, adapter)
         if not repository_reference:
             raise RuntimeError(
                 "A GitHub Issue Source requires the Repository Anchor to have "
@@ -235,9 +239,9 @@ def create_project_collector(
         project,
         source,
         target_observer=lambda anchors: observe_observation_targets(
-            anchors, timeout=timeout, process_lookup=lock_holder_probe
+            anchors, git=adapter, process_lookup=lock_holder_probe
         ),
-        branch_observer=lambda anchors: observe_branches(anchors, timeout=timeout),
+        branch_observer=lambda anchors: observe_branches(anchors, git=adapter),
     )
 
 

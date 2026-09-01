@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from dashpot.agents import ProcessIdentity, session_directory, write_hook_record
+from dashpot.commands import CommandResult
+from dashpot.git import Git
 from dashpot.issue_profile import IssueProfile
 from dashpot.model import (
     AgentRun,
@@ -45,6 +47,36 @@ _DERIVED: Any = object()
 
 
 # --- Git repositories --------------------------------------------------------
+
+
+class SequenceRunner:
+    """A CommandRunner fake answering scripted results and recording each call."""
+
+    def __init__(self, *results: CommandResult | Exception) -> None:
+        self.results = iter(results)
+        self.calls: list[tuple[list[str], Path, float]] = []
+
+    def __call__(self, args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        self.calls.append((list(args), cwd, timeout))
+        result = next(self.results)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def completed(stdout: str = "", stderr: str = "", returncode: int = 0) -> CommandResult:
+    """Build the CommandResult of one finished command."""
+    return CommandResult([], returncode, stdout, stderr)
+
+
+def fake_git(*results: CommandResult | Exception, root: Path = Path("/anchor")) -> Git:
+    """A Git adapter over a SequenceRunner, for injecting at observation seams."""
+    return Git(root, runner=SequenceRunner(*results))
+
+
+def ref_stream(*records: Sequence[str]) -> str:
+    """Render for-each-ref stdout the way the adapter's records() reads it."""
+    return "".join("\0".join(record) + "\0\n" for record in records)
 
 
 def git(root: Path, *args: str) -> str:

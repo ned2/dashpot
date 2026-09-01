@@ -16,11 +16,12 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from .file_locks import locked_path, prune_lock_file
+from .git import Git, GitError
 from .harnesses import ADAPTERS, HARNESS_DISPLAY, SESSION_ID, SessionIdentityClaim
 from .harnesses import is_claude_code_host_process as is_claude_code_host_process
 from .harnesses import is_codex_host_process as is_codex_host_process
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
-from .repository import LockHolder, git_or_none, is_within, repository_worktrees
+from .repository import LockHolder, is_within, repository_worktrees
 from .work_store import WorkStore
 
 ISSUE_VALUE = re.compile(r"^\S+$")
@@ -441,9 +442,18 @@ def build_hook_record(
             "DASHPOT_ISSUE_REF must be a whitespace-free Issue Reference"
         )
     # Each answer stands alone: a detached HEAD has no symbolic ref but is
-    # still inside a Worktree whose root routes the record.
-    observed_target = git_or_none(cwd, "rev-parse", "--show-toplevel", timeout=2)
-    branch = git_or_none(cwd, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=2)
+    # still inside a Worktree whose root routes the record. A hook must never
+    # break its harness, so a Git that cannot answer at all — a vanished cwd,
+    # no git binary — is recorded as unobserved rather than raised.
+    git = Git(cwd, timeout=2)
+    try:
+        observed_target = git.maybe("rev-parse", "--show-toplevel")
+    except GitError:
+        observed_target = None
+    try:
+        branch = git.maybe("symbolic-ref", "--quiet", "--short", "HEAD")
+    except GitError:
+        branch = None
     return {
         "version": 2,
         "sessionId": session_id,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest import mock
 
 import pytest
 
@@ -15,7 +14,7 @@ from dashpot.project_config import (
     LocalMarkdownIssueSourceConfig,
     load_project_config,
 )
-from factories import write_project_config
+from factories import completed, fake_git, write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
@@ -79,9 +78,9 @@ def test_rejects_invalid_issue_source_configuration(
 
 def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
     write_config(tmp_path, {"kind": "markdown", "path": "issues"})
+    git = fake_git(completed(f"{tmp_path}\n"))
 
-    with mock.patch("dashpot.collect.worktree_root", return_value=tmp_path):
-        collector = create_project_collector(project(tmp_path))
+    collector = create_project_collector(project(tmp_path), git=git)
 
     assert isinstance(collector.source, LocalMarkdownIssuesSource)
     assert collector.source.project_id == PROJECT_ID
@@ -92,14 +91,12 @@ def test_project_collector_builds_github_source_for_github_anchor(
     tmp_path: Path,
 ) -> None:
     write_config(tmp_path, {"kind": "github"})
+    git = fake_git(
+        completed(f"{tmp_path}\n"),
+        completed("https://github.com/ned2/dashpot.git\n"),
+    )
 
-    with (
-        mock.patch("dashpot.collect.worktree_root", return_value=tmp_path),
-        mock.patch(
-            "dashpot.collect.github_repo_from_remote", return_value="ned2/dashpot"
-        ),
-    ):
-        collector = create_project_collector(project(tmp_path))
+    collector = create_project_collector(project(tmp_path), git=git)
 
     assert isinstance(collector.source, GitHubIssuesSource)
     assert collector.source.project_id == PROJECT_ID
@@ -108,10 +105,10 @@ def test_project_collector_builds_github_source_for_github_anchor(
 
 def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None:
     write_config(tmp_path, {"kind": "github"})
+    git = fake_git(
+        completed(f"{tmp_path}\n"),
+        completed(stderr="error: No such remote 'origin'", returncode=2),
+    )
 
-    with (
-        mock.patch("dashpot.collect.worktree_root", return_value=tmp_path),
-        mock.patch("dashpot.collect.github_repo_from_remote", return_value=None),
-        pytest.raises(RuntimeError, match="GitHub origin remote"),
-    ):
-        create_project_collector(project(tmp_path))
+    with pytest.raises(RuntimeError, match="GitHub origin remote"):
+        create_project_collector(project(tmp_path), git=git)

@@ -11,13 +11,13 @@ import json
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
 from dashpot import worktrees
 from dashpot.agents import ProcessIdentity, session_directory, write_hook_record
 from dashpot.commands import CommandResult, run_command
+from dashpot.git import Git
 from dashpot.model import to_jsonable
 from dashpot.settings import Settings
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
@@ -77,6 +77,7 @@ def create(
     branch: str | None = None,
     worktree_root_option: Path | None = None,
     dry_run: bool = False,
+    git_adapter: Git | None = None,
 ) -> worktrees.WorktreePlan:
     return create_issue_worktree(
         root,
@@ -87,6 +88,7 @@ def create(
         dry_run=dry_run,
         environ={},
         settings=Settings(),
+        git=git_adapter,
     )
 
 
@@ -486,11 +488,8 @@ def test_lost_race_rolls_back_only_the_branch_this_invocation_created(
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         return run_command(args, cwd, timeout)
 
-    with (
-        mock.patch.object(worktrees, "run_command", failing_add),
-        pytest.raises(RuntimeError) as failure,
-    ):
-        create(root)
+    with pytest.raises(RuntimeError) as failure:
+        create(root, git_adapter=Git(root, runner=failing_add))
 
     message = str(failure.value)
     assert "git worktree add failed: fatal: simulated failure" in message
@@ -510,11 +509,8 @@ def test_a_branch_left_pointing_elsewhere_is_never_deleted(tmp_path: Path) -> No
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         return run_command(args, cwd, timeout)
 
-    with (
-        mock.patch.object(worktrees, "run_command", failing_add),
-        pytest.raises(RuntimeError, match="not at the base commit"),
-    ):
-        create(root)
+    with pytest.raises(RuntimeError, match="not at the base commit"):
+        create(root, git_adapter=Git(root, runner=failing_add))
 
     assert "worktree-protocol" in local_branches(root)
 

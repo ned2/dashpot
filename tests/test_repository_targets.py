@@ -5,27 +5,15 @@ from pathlib import Path
 from typing import cast
 from unittest import mock
 
-from dashpot.commands import CommandResult
+from dashpot.git import Git
 from dashpot.model import Diagnostic
 from dashpot.repository import LockHolder, observe_observation_targets
-from factories import git
+from factories import SequenceRunner, completed, git
 
 
-class SequenceRunner:
-    def __init__(self, *results: CommandResult | Exception) -> None:
-        self.results = iter(results)
-        self.calls: list[tuple[list[str], Path, float]] = []
-
-    def __call__(self, args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
-        self.calls.append((list(args), cwd, timeout))
-        result = next(self.results)
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-
-def completed(stdout: str = "", stderr: str = "", returncode: int = 0) -> CommandResult:
-    return CommandResult([], returncode, stdout, stderr)
+def over(runner: SequenceRunner) -> Git:
+    """A Git adapter over ``runner``; the observer retargets it per anchor."""
+    return Git(Path("/unused"), runner=runner)
 
 
 def test_observes_main_and_linked_targets_from_nul_porcelain(
@@ -51,7 +39,7 @@ def test_observes_main_and_linked_targets_from_nul_porcelain(
     times = iter([1.0, 1.004, 2.0, 2.009])
 
     inventory = observe_observation_targets(
-        [main], runner=runner, clock=lambda: next(times)
+        [main], git=over(runner), clock=lambda: next(times)
     )
 
     assert inventory.diagnostics == ()
@@ -68,11 +56,15 @@ def test_observes_main_and_linked_targets_from_nul_porcelain(
     assert inventory.targets[1].detached is True
     assert inventory.targets[1].dirty is True
     assert inventory.targets[1].elapsed_ms == 9
-    assert [call[0] for call in runner.calls] == [
-        ["git", "worktree", "list", "--porcelain", "-z"],
-        ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
-        ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
+    # The adapter owns the exact argv; the seam asserts the verbs and where
+    # each one ran: one listing at the anchor, one status per target.
+    assert [(call[0][1], call[1]) for call in runner.calls] == [
+        ("worktree", main),
+        ("status", main),
+        ("status", linked),
     ]
+    # Untracked files count toward dirtiness, so that flag stays pinned.
+    assert all("--untracked-files=normal" in call[0] for call in runner.calls[1:])
 
 
 def test_a_lock_is_reported_only_once_its_holder_is_gone(tmp_path: Path) -> None:
@@ -88,7 +80,7 @@ def test_a_lock_is_reported_only_once_its_holder_is_gone(tmp_path: Path) -> None
         times = iter([1.0, 1.001])
         inventory = observe_observation_targets(
             [worktree],
-            runner=runner,
+            git=over(runner),
             clock=lambda: next(times),
             process_lookup=lambda pid: (
                 cast("LockHolder", holder) if pid == 1699806 else "gone"
@@ -121,7 +113,7 @@ def test_an_unattributed_lock_stays_an_observation(tmp_path: Path) -> None:
 
     inventory = observe_observation_targets(
         [worktree],
-        runner=SequenceRunner(completed(porcelain), completed()),
+        git=over(SequenceRunner(completed(porcelain), completed())),
         clock=lambda: next(times),
         process_lookup=lambda _pid: "gone",
     )
@@ -151,7 +143,7 @@ def test_preserves_locked_prunable_and_missing_targets_but_excludes_bare(
     times = iter([1.0, 1.001])
 
     inventory = observe_observation_targets(
-        [locked], runner=runner, clock=lambda: next(times)
+        [locked], git=over(runner), clock=lambda: next(times)
     )
 
     assert [target.path for target in inventory.targets] == [
@@ -206,7 +198,7 @@ def test_combines_all_anchors_deduplicates_paths_and_isolates_discovery_failure(
         completed(),
     )
 
-    inventory = observe_observation_targets([first, second, failed], runner=runner)
+    inventory = observe_observation_targets([first, second, failed], git=over(runner))
 
     assert [target.path for target in inventory.targets] == [
         str(first),
@@ -231,7 +223,7 @@ def test_malformed_records_remain_diagnostic_without_becoming_executable(
     porcelain = f"HEAD no-path\0detached\0\0worktree {malformed}\0HEAD abc123\0\0"
     runner = SequenceRunner(completed(porcelain))
 
-    inventory = observe_observation_targets([tmp_path], runner=runner)
+    inventory = observe_observation_targets([tmp_path], git=over(runner))
 
     assert [item.code for item in inventory.diagnostics] == ["target-malformed"]
     assert inventory.targets[0].availability == "unavailable"
@@ -273,7 +265,7 @@ def test_unstatable_target_is_inaccessible_not_missing(tmp_path: Path) -> None:
     runner = SequenceRunner(completed(porcelain))
 
     with mock.patch.object(Path, "stat", side_effect=PermissionError("denied")):
-        inventory = observe_observation_targets([tmp_path], runner=runner)
+        inventory = observe_observation_targets([tmp_path], git=over(runner))
 
     assert inventory.targets[0].availability == "unavailable"
     assert inventory.targets[0].diagnostics[0].code == "target-inaccessible"

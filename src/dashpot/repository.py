@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .commands import CommandRunner, run_command
+from .git import Git, GitError
 from .model import (
     Branch,
     Diagnostic,
@@ -19,8 +20,8 @@ from .model import (
     TargetRole,
 )
 
-# The fields `git for-each-ref` reports per ref, NUL-separated so a value can
-# never be mistaken for a separator; a record ends with a newline.
+# The fields `git for-each-ref` reports per ref; the Git adapter's records()
+# separates them with NUL so a value can never be mistaken for a separator.
 BRANCH_REF_FIELDS = (
     "%(refname)",
     "%(objectname)",
@@ -30,35 +31,21 @@ BRANCH_REF_FIELDS = (
     "%(worktreepath)",
     "%(symref)",
 )
-BRANCH_REF_FORMAT = "%00".join(BRANCH_REF_FIELDS)
 LOCAL_REF_PREFIX = "refs/heads/"
 REMOTE_REF_PREFIX = "refs/remotes/"
 ORIGIN_HEAD_REF = "refs/remotes/origin/HEAD"
 DEFAULT_BRANCHES = ("main", "master")
 
 
-def git(root: Path, *args: str, timeout: float = 5) -> str:
-    result = run_command(["git", *args], root, timeout)
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit {result.returncode}"
-        raise RuntimeError(f"git {' '.join(args)} failed: {detail}")
-    return result.stdout.strip()
-
-
-def git_or_none(root: Path, *args: str, timeout: float = 5) -> str | None:
-    """Run a git query whose failure is an ordinary answer, not an error."""
-    try:
-        return git(root, *args, timeout=timeout)
-    except RuntimeError:
-        return None
-
-
-def worktree_root(path: Path) -> Path:
+def worktree_root(path: Path, git: Git | None = None) -> Path:
     """Return the current Git Worktree root containing a path."""
-    return Path(git(path, "rev-parse", "--show-toplevel")).resolve()
+    adapter = git if git is not None else Git(path)
+    return Path(adapter.at(path).text("rev-parse", "--show-toplevel")).resolve()
 
 
-def repository_worktrees(root: Path, *, timeout: float = 5) -> list[Path]:
+def repository_worktrees(
+    root: Path, *, timeout: float = 5, git: Git | None = None
+) -> list[Path]:
     """List every Worktree of the Git Repository one Worktree belongs to.
 
     Git reports the main working tree first and every linked one after it;
@@ -67,21 +54,21 @@ def repository_worktrees(root: Path, *, timeout: float = 5) -> list[Path]:
     """
     return [
         Path(record["worktree"]).resolve()
-        for record in worktree_records(root, timeout=timeout)
+        for record in worktree_records(root, timeout=timeout, git=git)
         if record.get("worktree") and "bare" not in record
     ]
 
 
-def worktree_records(root: Path, *, timeout: float = 5) -> list[dict[str, str]]:
-    """Every record of ``git worktree list``, main working tree first.
+def worktree_records(
+    root: Path, *, timeout: float = 5, git: Git | None = None
+) -> list[dict[str, str]]:
+    """Every record of ``git worktree list`` at ``root``, main working tree first.
 
-    A record maps Git's porcelain keys to their values: ``worktree`` (the
-    path), ``HEAD``, ``branch`` (a full refname), and, when present, the
-    flag keys ``bare``, ``detached``, ``locked``, and ``prunable`` with their
-    reason or an empty string.
+    ``timeout`` applies only when no adapter is given; a supplied ``git``
+    keeps its own.
     """
-    raw = git(root, "worktree", "list", "--porcelain", "-z", timeout=timeout)
-    return _parse_worktree_records(raw)
+    adapter = git if git is not None else Git(root, timeout)
+    return adapter.at(root).worktree_records()
 
 
 # Whether the process holding a Worktree lock is still running. Dashpot asks
@@ -134,11 +121,13 @@ def observe_observation_targets(
     anchors: Sequence[Path],
     *,
     timeout: float = 5,
-    runner: CommandRunner = run_command,
+    git: Git | None = None,
     clock: Callable[[], float] = time.monotonic,
     process_lookup: LockHolderProbe | None = None,
 ) -> ObservationTargetInventory:
     """Discover and inspect executable Observation Targets for Repository Anchors."""
+    # The default root is a placeholder: every command retargets to its anchor.
+    adapter = git if git is not None else Git(Path.cwd(), timeout)
     records: list[dict[str, str]] = []
     diagnostics: list[Diagnostic] = []
     seen_paths: set[str] = set()
@@ -147,33 +136,18 @@ def observe_observation_targets(
     main_paths: set[str] = set()
     for anchor in anchors:
         try:
-            result = runner(
-                ["git", "worktree", "list", "--porcelain", "-z"],
-                anchor,
-                timeout,
-            )
-        except (OSError, RuntimeError) as exc:
+            anchor_records = adapter.at(anchor).worktree_records()
+        except GitError as exc:
             diagnostics.append(
                 Diagnostic(
                     source=f"anchor:{anchor}",
                     severity="warning",
-                    message=f"Cannot discover Observation Targets: {exc}",
+                    message=f"Cannot discover Observation Targets: {exc.detail}",
                     code="target-discovery",
                 )
             )
             continue
-        if result.returncode != 0:
-            detail = result.stderr.strip() or f"exit {result.returncode}"
-            diagnostics.append(
-                Diagnostic(
-                    source=f"anchor:{anchor}",
-                    severity="warning",
-                    message=f"Cannot discover Observation Targets: {detail}",
-                    code="target-discovery",
-                )
-            )
-            continue
-        for index, record in enumerate(_parse_worktree_records(result.stdout)):
+        for index, record in enumerate(anchor_records):
             path = record.get("worktree")
             if path and index == 0:
                 main_paths.add(path)
@@ -286,23 +260,16 @@ def observe_observation_targets(
             continue
         started = clock()
         try:
-            result = runner(
-                [
-                    "git",
-                    "status",
-                    "--porcelain=v1",
-                    "--untracked-files=normal",
-                ],
-                Path(path),
-                timeout,
+            result = adapter.at(Path(path)).run(
+                "status", "--porcelain=v1", "--untracked-files=normal"
             )
-        except (OSError, RuntimeError) as exc:
+        except GitError as exc:
             elapsed_ms = round((clock() - started) * 1000)
             target_diagnostics.append(
                 Diagnostic(
                     source=f"target:{path}",
                     severity="warning",
-                    message=f"Cannot inspect Observation Target: {exc}",
+                    message=f"Cannot inspect Observation Target: {exc.detail}",
                     code="target-inaccessible",
                 )
             )
@@ -384,7 +351,7 @@ def observe_branches(
     anchors: Sequence[Path],
     *,
     timeout: float = 5,
-    runner: CommandRunner = run_command,
+    git: Git | None = None,
 ) -> BranchObservation:
     """List every local and Remote-Tracking Branch without fetching.
 
@@ -392,46 +359,33 @@ def observe_branches(
     Repository Anchor that answers is authoritative, as it is for Local
     Issues; the others are only tried when it cannot be listed.
     """
+    # The default root is a placeholder: every command retargets to its anchor.
+    adapter = git if git is not None else Git(Path.cwd(), timeout)
     diagnostics: list[Diagnostic] = []
     for anchor in anchors:
+        scoped = adapter.at(anchor)
         try:
-            result = runner(
-                [
-                    "git",
-                    "for-each-ref",
-                    f"--format={BRANCH_REF_FORMAT}",
-                    "refs/heads",
-                    "refs/remotes",
-                ],
-                anchor,
-                timeout,
+            listed = scoped.records(
+                "refs/heads", "refs/remotes", fields=BRANCH_REF_FIELDS
             )
-        except (OSError, RuntimeError) as exc:
-            diagnostics.append(_branch_diagnostic(anchor, str(exc)))
+        except GitError as exc:
+            diagnostics.append(_branch_diagnostic(anchor, exc.detail))
             continue
-        if result.returncode != 0:
-            detail = result.stderr.strip() or f"exit {result.returncode}"
-            diagnostics.append(_branch_diagnostic(anchor, detail))
-            continue
-        lines = [line for line in result.stdout.splitlines() if line]
         branches = [
             branch
-            for line in lines
-            if (branch := _parse_branch_record(line)) is not None
+            for record in listed
+            if (branch := _parse_branch_record(record)) is not None
         ]
-        integration_ref = _integration_ref(lines, branches)
+        integration_ref = _integration_ref(listed, branches)
+        anchor_diagnostics: list[Diagnostic] = []
         if integration_ref is not None:
             branches = _observe_integration(
-                branches,
-                integration_ref,
-                anchor,
-                runner=runner,
-                timeout=timeout,
+                branches, integration_ref, anchor, scoped, anchor_diagnostics
             )
         return BranchObservation(
             branches,
-            _fetched_at(anchor, runner=runner, timeout=timeout),
-            [],
+            _fetched_at(anchor, scoped),
+            anchor_diagnostics,
             integration_ref,
         )
     return BranchObservation([], None, diagnostics)
@@ -446,12 +400,9 @@ def _branch_diagnostic(anchor: Path, detail: str) -> Diagnostic:
     )
 
 
-def _parse_branch_record(line: str) -> Branch | None:
+def _parse_branch_record(record: tuple[str, ...]) -> Branch | None:
     """One `for-each-ref` record, or None for a symbolic alias like origin/HEAD."""
-    fields = line.split("\0")
-    if len(fields) != len(BRANCH_REF_FIELDS):
-        return None
-    refname, head, upstream, track, committed_at, worktree_path, symref = fields
+    refname, head, upstream, track, committed_at, worktree_path, symref = record
     if symref:
         return None
     if refname.startswith(LOCAL_REF_PREFIX):
@@ -482,17 +433,17 @@ def _parse_branch_record(line: str) -> Branch | None:
     )
 
 
-def _integration_ref(lines: Sequence[str], branches: Sequence[Branch]) -> str | None:
+def _integration_ref(
+    records: Sequence[tuple[str, ...]], branches: Sequence[Branch]
+) -> str | None:
     """Choose origin/HEAD, else the unique local main or master Branch."""
     refnames = {branch.refname for branch in branches}
     origin_head: str | None = None
-    for line in lines:
-        fields = line.split("\0")
-        if len(fields) == len(BRANCH_REF_FIELDS):
-            refname, *_other, symref = fields
-            if refname == ORIGIN_HEAD_REF:
-                origin_head = symref or None
-                break
+    for record in records:
+        refname, *_other, symref = record
+        if refname == ORIGIN_HEAD_REF:
+            origin_head = symref or None
+            break
     return choose_integration_ref(origin_head, refnames)
 
 
@@ -515,28 +466,28 @@ def _observe_integration(
     branches: Sequence[Branch],
     integration_ref: str,
     anchor: Path,
-    *,
-    runner: CommandRunner,
-    timeout: float,
+    git: Git,
+    diagnostics: list[Diagnostic],
 ) -> list[Branch]:
-    """Count each local Branch's commits not reachable from the integration ref."""
+    """Count each local Branch's commits not reachable from the integration ref.
+
+    A Git failure here is diagnosed rather than swallowed: a Branch whose
+    ``unintegrated_commits`` stays None because Git could not answer must be
+    distinguishable from a repository with no Integration Branch at all.
+    """
     try:
-        merged = runner(
-            [
-                "git",
-                "for-each-ref",
-                "--format=%(refname)",
-                f"--merged={integration_ref}",
-                "refs/heads",
-            ],
-            anchor,
-            timeout,
+        merged = git.records(
+            f"--merged={integration_ref}", "refs/heads", fields=("%(refname)",)
         )
-    except (OSError, RuntimeError):
+    except GitError as exc:
+        diagnostics.append(
+            _integration_diagnostic(
+                anchor,
+                f"Cannot list Branches merged into {integration_ref}: {exc.detail}",
+            )
+        )
         return list(branches)
-    if merged.returncode != 0:
-        return list(branches)
-    integrated = set(merged.stdout.splitlines())
+    integrated = {record[0] for record in merged}
     observed: list[Branch] = []
     for branch in branches:
         if branch.remote is not None:
@@ -546,39 +497,38 @@ def _observe_integration(
             0
             if branch.refname in integrated
             else _unintegrated_commit_count(
-                anchor,
-                integration_ref,
-                branch.refname,
-                runner=runner,
-                timeout=timeout,
+                anchor, integration_ref, branch.refname, git, diagnostics
             )
         )
         observed.append(branch.model_copy(update={"unintegrated_commits": count}))
     return observed
 
 
+def _integration_diagnostic(anchor: Path, message: str) -> Diagnostic:
+    return Diagnostic(
+        source=f"anchor:{anchor}",
+        severity="warning",
+        message=message,
+        code="branch-integration",
+    )
+
+
 def _unintegrated_commit_count(
     anchor: Path,
     integration_ref: str,
     branch_ref: str,
-    *,
-    runner: CommandRunner,
-    timeout: float,
+    git: Git,
+    diagnostics: list[Diagnostic],
 ) -> int | None:
+    message = f"Cannot count commits of {branch_ref} not on {integration_ref}"
     try:
-        result = runner(
-            ["git", "rev-list", "--count", f"{integration_ref}..{branch_ref}"],
-            anchor,
-            timeout,
-        )
-    except (OSError, RuntimeError):
+        count = git.count("rev-list", "--count", f"{integration_ref}..{branch_ref}")
+    except GitError as exc:
+        diagnostics.append(_integration_diagnostic(anchor, f"{message}: {exc.detail}"))
         return None
-    if result.returncode != 0:
-        return None
-    try:
-        return int(result.stdout.strip())
-    except ValueError:
-        return None
+    if count is None:
+        diagnostics.append(_integration_diagnostic(anchor, message))
+    return count
 
 
 def _utc_timestamp(value: str) -> str:
@@ -605,15 +555,19 @@ def _parse_upstream_track(track: str) -> tuple[int | None, int | None, bool]:
     )
 
 
-def _fetched_at(anchor: Path, *, runner: CommandRunner, timeout: float) -> str | None:
-    """When the repository last fetched, from ``FETCH_HEAD``; None if never."""
+def _fetched_at(anchor: Path, git: Git) -> str | None:
+    """When the repository last fetched, from ``FETCH_HEAD``; None if never.
+
+    A repository that never fetched has no FETCH_HEAD; a failed lookup of
+    the common directory is deliberately the same honest answer.
+    """
     try:
-        result = runner(["git", "rev-parse", "--git-common-dir"], anchor, timeout)
-    except (OSError, RuntimeError):
+        raw = git.maybe("rev-parse", "--git-common-dir")
+    except GitError:
         return None
-    if result.returncode != 0 or not result.stdout.strip():
+    if not raw:
         return None
-    common_dir = Path(result.stdout.strip())
+    common_dir = Path(raw)
     if not common_dir.is_absolute():
         common_dir = anchor / common_dir
     try:
@@ -628,26 +582,11 @@ def _fetched_at(anchor: Path, *, runner: CommandRunner, timeout: float) -> str |
     )
 
 
-def _parse_worktree_records(raw: str) -> list[dict[str, str]]:
-    records: list[dict[str, str]] = []
-    current: dict[str, str] = {}
-    for field in raw.split("\0"):
-        if not field:
-            if current:
-                records.append(current)
-                current = {}
-            continue
-        key, separator, value = field.partition(" ")
-        current[key] = value if separator else ""
-    if current:
-        records.append(current)
-    return records
-
-
-def github_repo_from_remote(root: Path) -> str | None:
-    try:
-        remote = git(root, "remote", "get-url", "origin")
-    except RuntimeError:
+def github_repo_from_remote(root: Path, git: Git | None = None) -> str | None:
+    """The ``owner/name`` GitHub reference of ``origin``, or None without one."""
+    adapter = git if git is not None else Git(root)
+    remote = adapter.at(root).maybe("remote", "get-url", "origin")
+    if remote is None:
         return None
     match = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$", remote)
     return None if match is None else str(match.group(1))

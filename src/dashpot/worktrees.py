@@ -25,7 +25,7 @@ from .agents import (
     session_liveness,
     sessions_at_worktree,
 )
-from .commands import run_command
+from .git import Git, GitError
 from .harnesses import HARNESS_DISPLAY
 from .issue_profile import IssueProfile
 from .issue_resolution import resolve_issue
@@ -39,10 +39,8 @@ from .repository import (
     DEFAULT_BRANCHES,
     LockHolderProbe,
     choose_integration_ref,
-    git,
     is_within,
     lock_holder,
-    worktree_records,
     worktree_root,
 )
 from .settings import WORKTREE_ROOT_VARIABLE, Settings, load_settings
@@ -134,6 +132,7 @@ def create_issue_worktree(
     timeout: float = 10,
     environ: Mapping[str, str] | None = None,
     settings: Settings | None = None,
+    git: Git | None = None,
 ) -> WorktreePlan:
     """Create a linked Worktree for an Issue, or report why it is refused.
 
@@ -141,13 +140,14 @@ def create_issue_worktree(
     applied before Git mutates anything; a plan with refusals creates
     nothing. With ``dry_run`` the plan is reported and Git is not called.
     """
-    anchor = worktree_root(current)
+    anchor = worktree_root(current, git)
+    git = (git if git is not None else Git(anchor, timeout)).at(anchor)
     config = load_project_config(anchor)
     issue = resolve_issue(anchor, hint, timeout)
     environment = environ if environ is not None else os.environ
     machine = settings if settings is not None else load_settings()
     preparation = _Preparation()
-    records = worktree_records(anchor, timeout=timeout)
+    records = git.worktree_records()
     worktrees = [
         Path(record["worktree"]).resolve()
         for record in records
@@ -167,18 +167,16 @@ def create_issue_worktree(
             break
 
     branch_name = branch if branch is not None else default_branch_name(issue)
-    _validate_branch_name(anchor, branch_name, preparation, timeout)
+    _validate_branch_name(git, branch_name, preparation)
     path = root / branch_name.replace("/", "-")
 
-    base_ref, base_source, base_commit = _resolve_base(
-        anchor, base, preparation, timeout
-    )
+    base_ref, base_source, base_commit = _resolve_base(git, base, preparation)
     if base_commit is not None:
         _check_base_compatibility(
-            anchor, config, base_ref or base_commit, base_commit, preparation, timeout
+            git, config, base_ref or base_commit, base_commit, preparation
         )
 
-    _check_collisions(anchor, records, path, branch_name, preparation, timeout)
+    _check_collisions(git, records, path, branch_name, preparation)
     if branch is None:
         _existing_issue_worktrees(issue, branch_name, records, preparation)
 
@@ -198,7 +196,7 @@ def create_issue_worktree(
     )
     if dry_run or plan.refusals or base_commit is None:
         return plan
-    _add_worktree(anchor, plan, timeout)
+    _add_worktree(git, plan)
     return WorktreePlan(
         issue_id=plan.issue_id,
         issue_reference=plan.issue_reference,
@@ -258,16 +256,11 @@ def title_slug(title: str) -> str:
     return slug or (words[0][:SLUG_LIMIT] if words else "")
 
 
-def _validate_branch_name(
-    anchor: Path, branch: str, preparation: _Preparation, timeout: float
-) -> None:
-    result = run_command(
-        ["git", "check-ref-format", "--branch", branch], anchor, timeout
-    )
-    if result.returncode != 0:
+def _validate_branch_name(git: Git, branch: str, preparation: _Preparation) -> None:
+    if git.maybe("check-ref-format", "--branch", branch) is None:
         preparation.refusals.append(f"{branch!r} is not a valid Branch name")
         return
-    for existing in _local_branches(anchor, timeout):
+    for existing in _local_branches(git):
         if branch.startswith(f"{existing}/"):
             preparation.refusals.append(
                 f"Branch name {branch} extends the existing Branch {existing} "
@@ -281,60 +274,44 @@ def _validate_branch_name(
             )
 
 
-def _local_branches(anchor: Path, timeout: float) -> list[str]:
-    raw = git(
-        anchor,
-        "for-each-ref",
-        "--format=%(refname:short)",
-        "refs/heads",
-        timeout=timeout,
-    )
-    return [line for line in raw.splitlines() if line]
+def _local_branches(git: Git) -> list[str]:
+    records = git.records("refs/heads", fields=("%(refname:short)",))
+    return [record[0] for record in records if record[0]]
 
 
 def _resolve_base(
-    anchor: Path, option: str | None, preparation: _Preparation, timeout: float
+    git: Git, option: str | None, preparation: _Preparation
 ) -> tuple[str | None, BaseSource | None, str | None]:
     """The base ref, which rule chose it, and its exact commit; never fetched."""
     if option is not None:
-        commit = _commit_of(anchor, option, timeout)
+        commit = _commit_of(git, option)
         if commit is None:
             preparation.refusals.append(
                 f"--base {option} does not name a commit in this Repository"
             )
             return option, "--base", None
-        full = run_command(
-            ["git", "rev-parse", "--symbolic-full-name", option], anchor, timeout
-        )
-        ref = (
-            full.stdout.strip()
-            if full.returncode == 0 and full.stdout.strip()
-            else option
-        )
+        ref = git.maybe("rev-parse", "--symbolic-full-name", option) or option
         return ref, "--base", commit
-    head = run_command(
-        ["git", "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"], anchor, timeout
-    )
-    origin_head = (
-        head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else None
-    )
-    origin_commit = (
-        _commit_of(anchor, origin_head, timeout) if origin_head is not None else None
-    )
+    origin_head = git.maybe("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+    origin_head = origin_head or None
+    origin_commit = _commit_of(git, origin_head) if origin_head is not None else None
     origin_refs = (
         [origin_head] if origin_head is not None and origin_commit is not None else []
     )
     ref = choose_integration_ref(origin_head, origin_refs)
     if ref is not None:
         return ref, "origin/HEAD", origin_commit
-    candidates = [
-        f"refs/heads/{name}"
+    # Each candidate ref is resolved exactly once; the chosen ref's commit is
+    # reused rather than resolved again.
+    commits = {
+        f"refs/heads/{name}": commit
         for name in DEFAULT_BRANCHES
-        if _commit_of(anchor, f"refs/heads/{name}", timeout) is not None
-    ]
+        if (commit := _commit_of(git, f"refs/heads/{name}")) is not None
+    }
+    candidates = list(commits)
     ref = choose_integration_ref(None, candidates)
     if ref is not None:
-        return ref, "local-branch", _commit_of(anchor, ref, timeout)
+        return ref, "local-branch", commits[ref]
     local = [
         name.removeprefix("refs/heads/")
         for name in candidates
@@ -348,36 +325,22 @@ def _resolve_base(
     return None, None, None
 
 
-def _commit_of(anchor: Path, ref: str, timeout: float) -> str | None:
-    result = run_command(
-        [
-            "git",
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            f"{ref}^{{commit}}",
-        ],
-        anchor,
-        timeout,
+def _commit_of(git: Git, ref: str) -> str | None:
+    commit = git.maybe(
+        "rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"
     )
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip() or None
+    return commit or None
 
 
 def _check_base_compatibility(
-    anchor: Path,
+    git: Git,
     config: ProjectConfig,
     base_ref: str,
     base_commit: str,
     preparation: _Preparation,
-    timeout: float,
 ) -> None:
     """The base revision must carry the anchor's Project and Repository Identity."""
-    shown = run_command(
-        ["git", "show", f"{base_commit}:{PROJECT_CONFIG_NAME}"], anchor, timeout
-    )
+    shown = git.run("show", f"{base_commit}:{PROJECT_CONFIG_NAME}")
     if shown.returncode != 0:
         preparation.refusals.append(
             f"base {base_ref} ({base_commit[:12]}) has no {PROJECT_CONFIG_NAME}; "
@@ -409,12 +372,11 @@ def _check_base_compatibility(
 
 
 def _check_collisions(
-    anchor: Path,
+    git: Git,
     records: list[dict[str, str]],
     path: Path,
     branch: str,
     preparation: _Preparation,
-    timeout: float,
 ) -> None:
     registered = _registered_at(records, path)
     if registered is not None:
@@ -444,7 +406,7 @@ def _check_collisions(
                 f"{path} is an empty directory Dashpot did not create; remove it "
                 f"or choose another --branch"
             )
-    if _commit_of(anchor, f"refs/heads/{branch}", timeout) is not None:
+    if _commit_of(git, f"refs/heads/{branch}") is not None:
         checked_out = next(
             (
                 record["worktree"]
@@ -500,7 +462,7 @@ def _short_branch(record: Mapping[str, str]) -> str | None:
     return branch.removeprefix("refs/heads/")
 
 
-def _add_worktree(anchor: Path, plan: WorktreePlan, timeout: float) -> None:
+def _add_worktree(git: Git, plan: WorktreePlan) -> None:
     """Run the one mutation, verify it, and roll back only what it created."""
     path = Path(plan.path)
     if plan.base_commit is None:
@@ -508,19 +470,15 @@ def _add_worktree(anchor: Path, plan: WorktreePlan, timeout: float) -> None:
         # base is a programming error, and one -O must not silence.
         raise RuntimeError("worktree plan has no base commit to create from")
     created_directories = _make_directories(path.parent)
-    result = run_command(
-        ["git", "worktree", "add", "-b", plan.branch, str(path), plan.base_commit],
-        anchor,
-        timeout,
-    )
+    result = git.run("worktree", "add", "-b", plan.branch, str(path), plan.base_commit)
     if result.returncode != 0:
         detail = result.stderr.strip() or f"exit {result.returncode}"
-        leftovers = _roll_back(anchor, plan, created_directories, timeout)
+        leftovers = _roll_back(git, plan, created_directories)
         raise RuntimeError(
             f"git worktree add failed: {detail}"
             + "".join(f"; {item}" for item in leftovers)
         )
-    problems = _verify_worktree(anchor, plan, timeout)
+    problems = _verify_worktree(git, plan)
     if problems:
         raise RuntimeError(
             f"created {path} but it is not the Worktree that was planned: "
@@ -551,12 +509,12 @@ def _make_directories(directory: Path) -> list[Path]:
 
 
 def _roll_back(
-    anchor: Path, plan: WorktreePlan, created_directories: list[Path], timeout: float
+    git: Git, plan: WorktreePlan, created_directories: list[Path]
 ) -> list[str]:
     """Remove only this invocation's Branch and empty directories; report the rest."""
     path = Path(plan.path)
     messages: list[str] = []
-    records = worktree_records(anchor, timeout=timeout)
+    records = git.worktree_records()
     registered = _registered_at(records, path)
     if registered is not None:
         lock = registered.get("locked")
@@ -578,13 +536,13 @@ def _roll_back(
                 + " and was left alone"
             )
         return messages
-    branch_commit = _commit_of(anchor, f"refs/heads/{plan.branch}", timeout)
+    branch_commit = _commit_of(git, f"refs/heads/{plan.branch}")
     if branch_commit is not None:
         checked_out = any(
             record.get("branch") == f"refs/heads/{plan.branch}" for record in records
         )
         if branch_commit == plan.base_commit and not checked_out:
-            deleted = run_command(["git", "branch", "-D", plan.branch], anchor, timeout)
+            deleted = git.run("branch", "-D", plan.branch)
             if deleted.returncode == 0:
                 messages.append(
                     f"removed the Branch {plan.branch} this command created"
@@ -611,17 +569,16 @@ def _roll_back(
     return messages
 
 
-def _verify_worktree(anchor: Path, plan: WorktreePlan, timeout: float) -> list[str]:
+def _verify_worktree(git: Git, plan: WorktreePlan) -> list[str]:
     path = Path(plan.path)
+    scoped = git.at(path)
     problems: list[str] = []
     try:
-        top = Path(git(path, "rev-parse", "--show-toplevel", timeout=timeout)).resolve()
-        head = git(path, "rev-parse", "HEAD", timeout=timeout)
-        branch = git(
-            path, "symbolic-ref", "--quiet", "--short", "HEAD", timeout=timeout
-        )
-        status = git(path, "status", "--porcelain=v1", timeout=timeout)
-    except RuntimeError as exc:
+        top = Path(scoped.text("rev-parse", "--show-toplevel")).resolve()
+        head = scoped.text("rev-parse", "HEAD")
+        branch = scoped.text("symbolic-ref", "--quiet", "--short", "HEAD")
+        status = scoped.text("status", "--porcelain=v1")
+    except GitError as exc:
         return [str(exc)]
     if top != path:
         problems.append(f"its Worktree root is {top}")
@@ -631,7 +588,7 @@ def _verify_worktree(anchor: Path, plan: WorktreePlan, timeout: float) -> list[s
         problems.append(f"it is on Branch {branch}")
     if status:
         problems.append("it is not clean")
-    registered = _registered_at(worktree_records(anchor, timeout=timeout), path)
+    registered = _registered_at(git.worktree_records(), path)
     if registered is None:
         problems.append("Git does not list it as a Worktree")
     elif "locked" in registered:
@@ -680,7 +637,8 @@ def check_worktree(
         anchor = worktree_root(current)
     except RuntimeError:
         anchor = worktree_root(path)
-    records = worktree_records(anchor, timeout=timeout)
+    git = Git(anchor, timeout)
+    records = git.worktree_records()
     registered = _registered_at(records, path)
     if registered is None:
         raise RuntimeError(f"{path} is not a Worktree of the Repository at {anchor}")
@@ -710,10 +668,8 @@ def check_worktree(
             )
         )
     if path.is_dir():
-        status = run_command(
-            ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
-            path,
-            timeout,
+        status = git.at(path).run(
+            "status", "--porcelain=v1", "--untracked-files=normal"
         )
         if status.returncode != 0:
             obstacles.append(
@@ -774,7 +730,7 @@ def check_worktree(
             command = "dashpot work stop (inside that session)"
         obstacles.append(RemovalObstacle("agent-run", detail, command))
     if branch is not None:
-        obstacles.extend(_branch_obstacles(anchor, path, branch, timeout))
+        obstacles.extend(_branch_obstacles(git, path, branch))
     remove_commands: tuple[str, ...] = ()
     if role == "linked":
         remove_commands = (f"git worktree remove {path}",) + (
@@ -791,31 +747,17 @@ def check_worktree(
     )
 
 
-def _branch_obstacles(
-    anchor: Path, path: Path, branch: str, timeout: float
-) -> list[RemovalObstacle]:
+def _branch_obstacles(git: Git, path: Path, branch: str) -> list[RemovalObstacle]:
     obstacles: list[RemovalObstacle] = []
-    upstream = run_command(
-        [
-            "git",
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            f"{branch}@{{upstream}}",
-        ],
-        anchor,
-        timeout,
+    upstream = git.maybe(
+        "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}"
     )
     # The Integration Branch is chosen by the same rule as a new Worktree's
     # base; when none can be, integration is unknown rather than complete.
     base_resolution = _Preparation()
-    base_ref, _source, base_commit = _resolve_base(
-        anchor, None, base_resolution, timeout
-    )
+    base_ref, _source, base_commit = _resolve_base(git, None, base_resolution)
     unmerged = (
-        _count(anchor, f"{base_commit}..refs/heads/{branch}", timeout)
-        if base_commit
-        else None
+        _count(git, f"{base_commit}..refs/heads/{branch}") if base_commit else None
     )
     if unmerged is None:
         reason = (
@@ -830,15 +772,13 @@ def _branch_obstacles(
                 f"git log --oneline {branch}",
             )
         )
-    if upstream.returncode == 0 and upstream.stdout.strip():
-        ahead = _count(
-            anchor, f"{upstream.stdout.strip()}..refs/heads/{branch}", timeout
-        )
+    if upstream:
+        ahead = _count(git, f"{upstream}..refs/heads/{branch}")
         if ahead:
             obstacles.append(
                 RemovalObstacle(
                     "unpushed",
-                    f"{ahead} commit(s) not on {upstream.stdout.strip()}",
+                    f"{ahead} commit(s) not on {upstream}",
                     f"git -C {path} push",
                 )
             )
@@ -861,16 +801,8 @@ def _branch_obstacles(
     return obstacles
 
 
-def _count(anchor: Path, revision_range: str, timeout: float) -> int | None:
-    result = run_command(
-        ["git", "rev-list", "--count", revision_range], anchor, timeout
-    )
-    if result.returncode != 0:
-        return None
-    try:
-        return int(result.stdout.strip())
-    except ValueError:
-        return None
+def _count(git: Git, revision_range: str) -> int | None:
+    return git.count("rev-list", "--count", revision_range)
 
 
 def describe_removability(report: WorktreeRemovability) -> list[str]:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .git import Git
 from .model import (
     Diagnostic,
     RepositoryAnchor,
@@ -124,6 +125,7 @@ def resolve_workspace_projects(
     timeout: float = 10,
     root_observer: RootObserver = worktree_root,
     github_identity_observer: GitHubIdentityObserver = observe_github_repository_identity,
+    git: Git | None = None,
 ) -> WorkspaceResolution:
     """Validate every anchor, then group valid clones by Project Identity."""
     resolved: list[_ResolvedAnchor] = []
@@ -138,6 +140,7 @@ def resolve_workspace_projects(
                         timeout,
                         root_observer,
                         github_identity_observer,
+                        git,
                     )
                 )
             except (OSError, RuntimeError) as exc:
@@ -235,6 +238,7 @@ def _resolve_anchor(
     timeout: float,
     root_observer: RootObserver,
     github_identity_observer: GitHubIdentityObserver,
+    git: Git | None,
 ) -> _ResolvedAnchor:
     requested = Path(anchor.path)
     if not requested.is_dir():
@@ -245,7 +249,7 @@ def _resolve_anchor(
     root = root_observer(requested).resolve()
     config = load_project_config(root)
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        reference = github_repo_from_remote(root)
+        reference = github_repo_from_remote(root, git)
         if not reference:
             raise _AnchorResolutionError(
                 "github-origin",

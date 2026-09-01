@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 
 from .commands import CommandRunner, run_command
+from .git import Git, GitError
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import (
     github_repo_from_remote,
@@ -21,16 +22,23 @@ def initialize_project(
     markdown_path: str | None = None,
     timeout: float = 10,
     runner: CommandRunner = run_command,
+    git: Git | None = None,
 ) -> list[str]:
-    """Write a new Project configuration and return messages to display."""
+    """Write a new Project configuration and return messages to display.
+
+    ``git`` answers every Git question; ``runner`` runs only ``gh``, which
+    keeps its own seam.
+    """
+    adapter = git if git is not None else Git(current, timeout)
     try:
-        root = worktree_root(current)
-    except RuntimeError as exc:
+        root = worktree_root(current, adapter)
+    except GitError as exc:
         raise RuntimeError("dashpot init must run inside a Git repository") from exc
+    adapter = adapter.at(root)
     config_path = root / PROJECT_CONFIG_NAME
     if config_path.is_file():
         raise RuntimeError(f"already configured: {config_path}")
-    reference = github_repo_from_remote(root)
+    reference = github_repo_from_remote(root, adapter)
     if markdown_path is not None:
         parsed = PurePosixPath(markdown_path)
         if parsed.is_absolute() or ".." in parsed.parts:
@@ -58,7 +66,7 @@ def initialize_project(
     config_path.parent.mkdir(exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     messages = [f"created {config_path}"]
-    if not _ignores_state_directory(root, runner):
+    if not _ignores_state_directory(adapter):
         messages.append(
             f"add '{STATE_IGNORE_RULE}' to {root / '.gitignore'} so local "
             f"runtime state never dirties the worktree"
@@ -66,13 +74,9 @@ def initialize_project(
     return messages
 
 
-def _ignores_state_directory(root: Path, runner: CommandRunner) -> bool:
+def _ignores_state_directory(git: Git) -> bool:
     try:
-        result = runner(
-            ["git", "check-ignore", "-q", f"{STATE_IGNORE_RULE}probe"],
-            root,
-            5,
-        )
-    except (OSError, RuntimeError):
+        result = git.run("check-ignore", "-q", f"{STATE_IGNORE_RULE}probe")
+    except GitError:
         return False
     return result.returncode == 0

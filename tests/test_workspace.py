@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest import mock
 
 import pytest
 
@@ -13,7 +12,7 @@ from dashpot.workspace import (
     load_workspaces,
     resolve_workspace_projects,
 )
-from factories import write_project_config
+from factories import completed, fake_git, write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
@@ -199,17 +198,15 @@ def test_conflicting_issue_sources_never_form_a_project(tmp_path: Path) -> None:
         source={"kind": "markdown", "path": "issues"},
     )
 
-    with mock.patch(
-        "dashpot.workspace.github_repo_from_remote", return_value="ned2/dashpot"
-    ):
-        result = resolve_workspace_projects(
-            [workspace("personal", github_clone, markdown_clone)],
-            root_observer=root_observer,
-            github_identity_observer=lambda _root, _reference, _timeout: (
-                "R_dashpot",
-                "ned2/dashpot",
-            ),
-        )
+    result = resolve_workspace_projects(
+        [workspace("personal", github_clone, markdown_clone)],
+        root_observer=root_observer,
+        github_identity_observer=lambda _root, _reference, _timeout: (
+            "R_dashpot",
+            "ned2/dashpot",
+        ),
+        git=fake_git(completed("https://github.com/ned2/dashpot.git\n")),
+    )
 
     assert result.projects == []
     assert result.diagnostics[0].code == "project-source-conflict"
@@ -226,17 +223,15 @@ def test_github_fork_retaining_project_identity_is_diagnosed(
         source={"kind": "github"},
     )
 
-    with mock.patch(
-        "dashpot.workspace.github_repo_from_remote", return_value="someone/fork"
-    ):
-        result = resolve_workspace_projects(
-            [workspace("personal", fork)],
-            root_observer=root_observer,
-            github_identity_observer=lambda _root, _reference, _timeout: (
-                "R_fork",
-                "someone/fork",
-            ),
-        )
+    result = resolve_workspace_projects(
+        [workspace("personal", fork)],
+        root_observer=root_observer,
+        github_identity_observer=lambda _root, _reference, _timeout: (
+            "R_fork",
+            "someone/fork",
+        ),
+        git=fake_git(completed("https://github.com/someone/fork.git\n")),
+    )
 
     assert result.projects == []
     diagnostic = result.diagnostics[0]
