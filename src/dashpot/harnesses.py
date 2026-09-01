@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .agents import ProcessIdentity
+    from .processes import ProcessIdentity
 
 SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
 # Dashpot's own, documented way for a session to state its identity when the

@@ -251,8 +251,12 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
     process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
 
     with (
-        mock.patch("dashpot.agents.state_directory", return_value=tmp_path / "state"),
-        mock.patch("dashpot.agents.nearest_harness_process", return_value=process),
+        mock.patch(
+            "dashpot.hook_records.state_directory", return_value=tmp_path / "state"
+        ),
+        mock.patch(
+            "dashpot.hook_records.nearest_harness_process", return_value=process
+        ),
     ):
         publish_from_stream(io.StringIO(json.dumps(event)))
 
