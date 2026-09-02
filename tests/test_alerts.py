@@ -180,3 +180,15 @@ def test_stale_and_unavailable_worktree_observations_are_warnings() -> None:
         "Unavailable worktrees and branches: Beta",
         "Stale worktrees and branches: Alpha",
     ]
+
+
+def test_an_explicit_fetch_in_flight_is_informational_and_names_the_project() -> None:
+    alert = summarize_alerts(
+        store(project("alpha"), project("beta")),
+        fetching=["beta", "unknown"],
+        now=clock,
+    )
+
+    assert alert is not None
+    assert alert.severity == "info"
+    assert alert.text == "↻ fetching remotes Beta, unknown"

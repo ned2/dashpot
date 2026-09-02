@@ -10,9 +10,11 @@ Like its [mechanical namesake](https://en.wikipedia.org/wiki/Dashpot), Dashpot i
 intended to reduce oscillation without stopping progress. Observation never
 mutates: the view, every refresh, and `dashpot --json` never assign or edit
 Issues, change the Git Repository, or control agent sessions. Dashpot's named
-management commands — `init`, `integrate`, `work start` and `stop` — mutate
-only what their name says, on explicit invocation, and report what they
-changed ([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md)).
+management commands — `init`, `integrate`, `work start` and `stop`, and the
+`f` key that fetches Git remotes — mutate only what their name says, on
+explicit invocation, and report what they changed
+([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md),
+[ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)).
 
 > [!NOTE]
 > Dashpot is an early implementation extracted from a successful research spike.
@@ -80,6 +82,7 @@ the management commands `init`, `integrate`,
 | Key | Action |
 |---|---|
 | `r` | Refresh every observation in the Workspace |
+| `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state; the one key that mutates |
 | `Tab` / `Shift+Tab` | Cycle through the Issues, Sessions, Branches, and Worktrees lists |
 | `/` | Focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
@@ -261,9 +264,17 @@ remote is a fact about the branch, not a different kind of record.
 
 **Remote-Tracking Branch**:
 The Repository's local copy of a remote's branch (`refs/remotes/<remote>/*`),
-as of the last `git fetch`. Dashpot reads it and reports its age; it never
-fetches.
+as of the last `git fetch`. Observation reads it and reports its age; only a
+Remote Fetch brings it up to date.
 _Avoid_: remote branch for the local copy, which may be behind the remote
+
+**Remote Fetch**:
+The one mutation the dashboard performs, on the `f` key: `git fetch --prune`
+of every configured remote, one remote at a time, at the single Repository
+Anchor whose refs supplied the Branch observation. It is bounded by the Git
+timeout, non-interactive, reported remote by remote, and followed by a
+passive re-observation of that Project's Git state; a refresh never fetches.
+_Avoid_: refresh for a fetch, or fetch for a refresh
 
 **Integration Branch**:
 The Branch against which Dashpot observes whether every commit of a local
@@ -276,8 +287,9 @@ _Avoid_: upstream, which is a local Branch's configured synchronization target
 **Repository State**:
 The observed Git facts of one Project's Repository as one carrier: its
 Observation Targets and Branches, with when the Remote-Tracking facts were
-last fetched and which Integration Branch reachability compares against. It is
-observation, never configuration or identity.
+last fetched, which Integration Branch reachability compares against, and
+which Repository Anchor supplied the Branches. It is observation, never
+configuration or identity.
 
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
@@ -791,13 +803,21 @@ observation into a process-local `WorkspaceObservationStore` as soon as it
 lands, then re-queries source-neutral Issue-list read models carrying a store
 revision; a slow GitHub call therefore never delays branch or dirty state.
 `r` refreshes the observed Project and `R` fans out to every key in the
-Workspace; with one Project per run the two coincide. Exceptional state is summarized in a
+Workspace; with one Project per run the two coincide. Neither fetches: `f` is
+the one key that mutates, a Remote Fetch of the Repository Anchor whose refs
+supplied the Branch observation ([`fetch.py`](src/dashpot/fetch.py),
+[ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
+off the event loop, once per Project at a time, and once any remote has been
+fetched it schedules the passive Git observation of that Project, so the
+Branches pane, the Integration Branch facts, and the fetch age reflect the
+result without anything being inferred from the fetch itself. Exceptional state is summarized in a
 one-line alert above Diagnostics that takes no space while everything is
 healthy: refresh failures and unavailable Projects are errors, unavailable or
 stale worktrees and stale Issue Sources are warnings, and a refresh that has
-been running longer than a moment is shown as information. The alert is
+been running longer than a moment, or a Remote Fetch from the moment it
+starts, is shown as information. The alert is
 derived from current observations and clears itself on recovery; toasts are
-reserved for manual-refresh failures and their recovery, and Diagnostics keeps
+reserved for manual-refresh and Remote Fetch outcomes, and Diagnostics keeps
 the durable detail: the box takes no space while it is empty and is coloured
 by the most severe line it holds. Headless JSON runs a coordinated barrier
 over every key and serializes the store's `checkpoint()`, so it remains one
@@ -875,10 +895,12 @@ Branch checked out at every Worktree. Rows are sorted checked-out first, then
 most recent commit. Its seven columns are `BRANCH`, `LOCAL`, `REMOTE`,
 `UPSTREAM`, `INTEGRATED`, `SESSIONS`, and `LAST COMMIT`. The
 refs are read with `git for-each-ref` from the first answering Repository
-Anchor; Dashpot never runs `git fetch`, so the lower-right pane border carries
-the age of the last fetch (`remote last fetched 3h ago`, or
+Anchor; observation never runs `git fetch`, so the lower-right pane border
+carries the age of the last fetch (`remote last fetched 3h ago`, or
 `remote never fetched`) as the honest freshness of everything remote
-([ADR 0005](docs/adr/0005-observe-branches-without-fetching.md)).
+([ADR 0005](docs/adr/0005-observe-branches-without-fetching.md)), and `f`
+fetches and prunes that anchor's remotes on request
+([ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)).
 
 The panes trade words for Glyphs to stay narrow, and `?` opens the Legend
 that explains every one of them ([`legend.py`](src/dashpot/legend.py)). Its

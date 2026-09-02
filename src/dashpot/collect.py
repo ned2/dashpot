@@ -159,6 +159,7 @@ class ProjectCollector:
             branches=branches.branches,
             fetched_at=branches.fetched_at,
             integration_ref=branches.integration_ref,
+            branch_anchor=branches.anchor,
         )
 
     def refresh(self) -> ProjectSnapshot:
@@ -266,6 +267,7 @@ class _SourceObservation:
     branches: tuple[Branch, ...] = ()
     fetched_at: str | None = None
     integration_ref: str | None = None
+    branch_anchor: str | None = None
 
     def retained_after_failure(
         self,
@@ -316,6 +318,7 @@ def _target_half(
         branches=tuple(inventory.branches),
         fetched_at=inventory.fetched_at,
         integration_ref=inventory.integration_ref,
+        branch_anchor=inventory.branch_anchor,
     )
 
 
@@ -372,6 +375,7 @@ def _project_snapshot(
         branches=targets.branches,
         fetched_at=targets.fetched_at,
         integration_ref=targets.integration_ref,
+        branch_anchor=targets.branch_anchor,
     )
 
 

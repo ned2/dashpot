@@ -49,3 +49,8 @@ screen.
 - The headless JSON snapshot gains `branches` and `fetchedAt`.
 - Pull-request linkage per branch and Issue Hints derived from branch names
   are separate decisions; the pane shows what Git reports.
+- Amended by [ADR 0014](0014-fetch-remotes-on-explicit-key-press.md):
+  "Dashpot never fetches" is read as "observation never fetches". The `f`
+  key fetches and prunes, on explicit invocation, the one Repository Anchor
+  whose refs supplied the Branch observation, and the result is observed
+  the passive way described here.

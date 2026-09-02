@@ -84,3 +84,7 @@ Dashpot reports removability and never removes.
   ADR.
 - Future management commands are argued against this boundary, not against
   the slogan.
+- [ADR 0014](0014-fetch-remotes-on-explicit-key-press.md) admits one named
+  mutation invoked from the TUI under the same boundary: the `f` key fetches
+  and prunes the remotes of the Repository Anchor whose refs supplied the
+  Branch observation, and nothing else.

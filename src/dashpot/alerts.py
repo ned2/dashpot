@@ -77,13 +77,15 @@ def summarize_alerts(
     *,
     failures: Mapping[ObservationKey, str] | None = None,
     refreshing: Iterable[ObservationKey] = (),
+    fetching: Iterable[str] = (),
     now: Callable[[], datetime] | None = None,
 ) -> Alert | None:
     """Summarize the impact of exceptional state, most severe first.
 
     ``failures`` are refresh failures or UI-boundary exceptions per
     observation key; ``refreshing`` lists keys whose observation has been in
-    flight long enough to be worth showing.
+    flight long enough to be worth showing; ``fetching`` names the Projects
+    whose remotes an explicit fetch is fetching right now.
     """
     items: list[AlertItem] = []
     # Frozen observations make these reads cheap shared views, not copies.
@@ -179,6 +181,13 @@ def summarize_alerts(
             )
         )
 
+    # An explicit fetch is shown from the moment it starts: the person asked
+    # for it and is waiting on it, unlike a background observation.
+    fetching_labels = _unique(
+        labels.get(project_id, project_id) for project_id in fetching
+    )
+    if fetching_labels:
+        items.append(AlertItem("info", f"fetching remotes {_join(fetching_labels)}"))
     refreshing_scopes = _ordered_scopes(refreshing, labels)
     if refreshing_scopes:
         text = "refreshing" if items else f"refreshing {_join(refreshing_scopes)}"

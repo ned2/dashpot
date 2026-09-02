@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
+from pathlib import Path
 from typing import Any, ClassVar, Protocol, cast
 
 from textual import events
@@ -38,6 +39,7 @@ from .collect import (
     SnapshotScheduler,
 )
 from .column_editor import IssueColumnEditor
+from .fetch import FetchReport, RemoteFetcher
 from .issue_cells import TableCell, cells_match, issue_state_colors
 from .issue_list import (
     IssueListQuery,
@@ -82,6 +84,8 @@ from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
 # The Header's sub-title until an observed Project supplies its anchor.
 DEFAULT_SUB_TITLE = "passive workspace view"
+# Observation triggers a person asked for, whose outcome earns a toast.
+MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +202,21 @@ class ObservationFinished(Message):
         self.error = error
 
 
+class FetchFinished(Message):
+    """One Project's explicit remote fetch ran; ``error`` is a fetcher failure."""
+
+    def __init__(
+        self,
+        project_id: str,
+        report: FetchReport | None = None,
+        error: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.project_id = project_id
+        self.report = report
+        self.error = error
+
+
 class BodyResized(Message):
     """The dashboard body was laid out at a new size."""
 
@@ -218,6 +237,7 @@ class DashboardScreen(Screen[None]):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("enter", "open_issue", "Open Issue"),
+        ("f", "fetch", "Fetch remotes"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
@@ -309,6 +329,10 @@ class DashboardScreen(Screen[None]):
 
     def action_focus_search(self) -> None:
         self.query_one("#issue-search", Input).focus()
+
+    def action_fetch(self) -> None:
+        """Fetch the remotes behind the Branches pane: the one key that mutates."""
+        self.dashpot.request_fetch()
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus to the next list when a list has it; otherwise decline."""
@@ -676,6 +700,9 @@ class DashboardScreen(Screen[None]):
             ("error", message) for message in self.dashpot.observation_errors.values()
         ]
         entries.extend(
+            ("error", message) for message in self.dashpot.fetch_errors.values()
+        )
+        entries.extend(
             ("error", f"Search: {message}") for message in self.search_diagnostics
         )
         entries.extend(
@@ -716,6 +743,7 @@ class DashboardScreen(Screen[None]):
             app.store,
             failures=app.observation_errors,
             refreshing=tuple(app.in_flight) if app.refreshing_visible else (),
+            fetching=tuple(app.fetching),
         )
         widget = self.query_one("#alert", Static)
         widget.set_class(alert is not None, "-visible")
@@ -750,8 +778,16 @@ class DashpotApp(App[None]):
         observation_store: WorkspaceObservationStore | None = None,
         issue_view: IssueTableViewState = IssueTableViewState(),
         refresh_indicator_seconds: float = 0.75,
+        fetcher: RemoteFetcher | None = None,
     ) -> None:
         super().__init__()
+        # The explicit fetch seam (``f``); without one the key is refused,
+        # so no observation-only construction can ever fetch.
+        self.fetcher = fetcher
+        # Projects whose remotes are being fetched, by identity, and the last
+        # fetch failure per Project until a fetch there succeeds.
+        self.fetching: dict[str, str] = {}
+        self.fetch_errors: dict[str, str] = {}
         # Quick background observations should not flicker an indicator; the
         # refreshing alert appears only once work has been in flight this long.
         self.refresh_indicator_seconds = refresh_indicator_seconds
@@ -868,6 +904,105 @@ class DashpotApp(App[None]):
     def request_refresh(self, trigger: str) -> None:
         self.schedule_observations(self.scheduler.keys(), trigger)
 
+    def request_fetch(self) -> None:
+        """Fetch the remotes of every observed Project's authoritative anchor.
+
+        Only the Repository Anchor whose refs supplied the Branch observation
+        is fetched, so independent clones sharing a Project are left alone.
+        A Project already being fetched is refused rather than fetched twice.
+        """
+        if self.fetcher is None:
+            self.notify(
+                "Fetching is not available in this view",
+                severity="warning",
+                title="Dashpot fetch",
+            )
+            return
+        anchors = {
+            project.project_id: project.snapshot.branch_anchor
+            for project in self.store.projects()
+            if project.snapshot is not None
+            and project.snapshot.branch_anchor is not None
+        }
+        if not anchors:
+            self.notify(
+                "No Branch observation names a Repository Anchor to fetch yet",
+                severity="warning",
+                title="Dashpot fetch",
+            )
+            return
+        for project_id, anchor in anchors.items():
+            if project_id in self.fetching:
+                self.notify(
+                    f"Already fetching {self.project_display_label(project_id)}",
+                    severity="warning",
+                    title="Dashpot fetch",
+                )
+                continue
+            self.fetching[project_id] = anchor
+            self.run_worker(
+                partial(self.fetch, project_id, Path(anchor)),
+                name=f"fetch {project_id}",
+                group=f"fetch:{project_id}",
+                exit_on_error=False,
+            )
+        self.dashboard.update_alert()
+
+    async def fetch(self, project_id: str, anchor: Path) -> None:
+        fetcher = self.fetcher
+        if fetcher is None:  # pragma: no cover - request_fetch refuses first.
+            return
+        worker = get_current_worker()
+        try:
+            report = await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor, fetcher, anchor
+            )
+        except (
+            Exception
+        ) as exc:  # UI boundary: a fetcher failure must not exit the app.
+            if not worker.is_cancelled:
+                self.post_message(FetchFinished(project_id, error=str(exc)))
+            return
+        if not worker.is_cancelled:
+            self.post_message(FetchFinished(project_id, report=report))
+
+    def on_fetch_finished(self, message: FetchFinished) -> None:
+        if self._closing or self._closed or not self.screen_stack:
+            return
+        self.fetching.pop(message.project_id, None)
+        dashboard = self.dashboard
+        label = self.project_display_label(message.project_id)
+        report = message.report
+        if report is None or not report.succeeded:
+            detail = message.error if report is None else report.summary()
+            self.fetch_errors[message.project_id] = f"Fetch failed: {label}: {detail}"
+            self.notify(f"{label}: {detail}", severity="error", title="Dashpot fetch")
+        else:
+            self.fetch_errors.pop(message.project_id, None)
+            self.notify(
+                f"{label}: {report.summary()}",
+                severity="information",
+                title="Dashpot fetch",
+            )
+        dashboard.update_diagnostics()
+        # Whatever a remote changed is observed the passive way: the Git state
+        # is re-observed rather than inferred from the fetch, and a fetch
+        # that reached no remote leaves the last good observation as it is.
+        if report is not None and report.fetched:
+            self.schedule_observations(
+                [
+                    key
+                    for key in self.scheduler.keys(message.project_id)
+                    if key.kind in ("targets", "workspace")
+                ],
+                "fetch",
+            )
+        dashboard.update_alert()
+
+    def project_display_label(self, project_id: str) -> str:
+        project = self.store.project(project_id)
+        return project.display_label if project is not None else project_id
+
     def schedule_observations(
         self, keys: Sequence[ObservationKey], trigger: str
     ) -> None:
@@ -943,14 +1078,14 @@ class DashpotApp(App[None]):
             changed = self.observation_errors.get(key) != error
             self.observation_errors[key] = error
             dashboard.update_diagnostics()
-            if message.trigger == "manual" and changed:
+            if message.trigger in MANUAL_TRIGGERS and changed:
                 self.notify(error, severity="error", title="Dashpot refresh")
             return
         outcome = message.outcome
         if outcome is None or not outcome.accepted:
             return
         recovered = self.observation_errors.pop(key, None) is not None
-        if recovered and message.trigger == "manual":
+        if recovered and message.trigger in MANUAL_TRIGGERS:
             self.notify(
                 "Refresh succeeded", severity="information", title="Dashpot refresh"
             )

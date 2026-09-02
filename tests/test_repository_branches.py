@@ -53,6 +53,7 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     observation = observe_branches([anchor], git=over(runner))
 
     assert observation.diagnostics == []
+    assert observation.anchor == str(anchor)
     # The adapter owns the exact argv; the seam asserts the verbs and the
     # operands that carry the observation's meaning.
     assert [call[0][1] for call in runner.calls] == [
@@ -121,6 +122,8 @@ def test_first_answering_anchor_is_authoritative_and_failures_are_diagnosed(
     observation = observe_branches([broken, working], git=over(runner))
 
     assert [branch.refname for branch in observation.branches] == ["refs/heads/main"]
+    # The clone that answered is the one an explicit fetch may mutate.
+    assert observation.anchor == str(working)
     # A repository that never fetched has no FETCH_HEAD; a failed lookup of
     # the common directory is the same honest answer.
     assert observation.fetched_at is None
@@ -147,6 +150,7 @@ def test_every_anchor_failing_reports_each_one() -> None:
     assert observation.branches == []
     assert observation.fetched_at is None
     assert observation.integration_ref is None
+    assert observation.anchor is None
     assert [(item.source, item.code) for item in observation.diagnostics] == [
         ("anchor:/a", "branch-discovery"),
         ("anchor:/b", "branch-discovery"),

@@ -355,6 +355,9 @@ class BranchObservation:
     fetched_at: str | None
     diagnostics: list[Diagnostic]
     integration_ref: str | None = None
+    # The Repository Anchor whose refs answered: the one place an explicit
+    # fetch may mutate. None when no anchor could be listed.
+    anchor: str | None = None
 
 
 def observe_branches(
@@ -400,6 +403,7 @@ def observe_branches(
             _fetched_at(anchor, scoped),
             diagnostics,
             integration_ref,
+            anchor=str(anchor),
         )
     return BranchObservation([], None, diagnostics)
 

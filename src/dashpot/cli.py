@@ -11,6 +11,7 @@ from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 from .app import DashpotApp
 from .collect import ObservationCoordinator
 from .errors import DashpotError
+from .fetch import remote_fetcher
 from .init import initialize_project
 from .integrate import (
     install_integration,
@@ -171,7 +172,11 @@ def observe(
         # checkpoints, so headless output stays a single complete snapshot.
         print(render_json(snapshot_document(collector.refresh()), compact=compact_json))
     else:
-        DashpotApp(collector, refresh_seconds=refresh_seconds).run()
+        DashpotApp(
+            collector,
+            refresh_seconds=refresh_seconds,
+            fetcher=remote_fetcher(timeout),
+        ).run()
     return 0
 
 

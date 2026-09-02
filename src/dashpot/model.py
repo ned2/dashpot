@@ -92,11 +92,14 @@ class RepositoryStateInventory(ObservationModel):
     diagnostics: LaxSequence[Diagnostic]
     # Every observed Branch of the repository, and when its Remote-Tracking
     # Branches were last fetched (``None`` when the repository never fetched).
-    # Dashpot never fetches, so that age is the remote facts' freshness;
-    # ``integration_ref`` is the ref their reachability facts compare with.
+    # Observation never fetches, so that age is the remote facts' freshness;
+    # ``integration_ref`` is the ref their reachability facts compare with,
+    # and ``branch_anchor`` the Repository Anchor whose refs answered, which
+    # is the only one an explicit fetch may mutate.
     branches: LaxSequence[Branch] = ()
     fetched_at: str | None = None
     integration_ref: str | None = None
+    branch_anchor: str | None = None
 
 
 class AgentRun(ObservationModel):
@@ -141,11 +144,14 @@ class ProjectSnapshot(ObservationModel):
     issue_activity: FrozenMapping[str, IssueActivity] = Field(default_factory=dict)
     # Branches are observed with the worktree topology and share its
     # freshness; ``fetched_at`` is the last fetch of the Remote-Tracking
-    # Branches, which Dashpot reports rather than refreshes. ``integration_ref``
-    # is the Integration Branch their reachability facts compare with.
+    # Branches, which observation reports rather than refreshes.
+    # ``integration_ref`` is the Integration Branch their reachability facts
+    # compare with, and ``branch_anchor`` the Repository Anchor whose refs
+    # supplied them: the one an explicit fetch (``f``) mutates.
     branches: LaxSequence[Branch] = ()
     fetched_at: str | None = None
     integration_ref: str | None = None
+    branch_anchor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

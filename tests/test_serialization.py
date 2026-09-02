@@ -58,6 +58,7 @@ PROJECT_SNAPSHOT_KEYS = {
     "labelColors",
     "branches",
     "fetchedAt",
+    "branchAnchor",
     "integrationRef",
     "issueActivity",
 }
