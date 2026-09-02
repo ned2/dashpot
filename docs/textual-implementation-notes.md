@@ -307,12 +307,17 @@ needs a selection and a confirmation:
   of a multi-line prompt. Keep the list to label, availability, and location,
   and render each target's gate and consequences in a `Static` beneath it.
   Give each `Selection` an `id` when the app needs `get_option(identity)`.
-- Size the dialog `height: auto; max-height: 100%; width: 96; max-width: 100%`
-  and put the list, details, and acknowledgement in a `VerticalScroll` body
-  capped in `vh`, so the reason line and the buttons below it stay on screen in
-  a small terminal. Do not dock the buttons over the body: Textual orders
-  `Tab` by screen position, so a focusable widget scrolled under a docked
-  footer sorts after the buttons.
+- Make the dialog itself the `VerticalScroll` (`height: auto; max-height:
+  100%; width: 96; max-width: 100%`, `can_focus=False`) and dock a footer
+  holding the acknowledgement, the reason line, and the buttons at its
+  bottom, so they stay on screen in a small terminal while the preview
+  scrolls behind them. Two things do not work: a capped scroll body inside an
+  auto-height dialog (`height: auto; max-height: 35vh`) makes the dialog
+  reserve the body's uncapped content height and leaves that much blank
+  space under the buttons; and a focusable widget left in the scrolling part
+  sorts after the buttons in the `Tab` order, which Textual computes from
+  screen position, whenever it starts out scrolled under the docked footer.
+  Everything focusable except the list therefore lives in the footer.
 - Gate the destructive `Button` with `disabled` and a visible reason, recomputed
   on every `SelectionList.SelectedChanged` and `Checkbox.Changed`; deselect
   what must never stay selected in the same handler.

@@ -492,9 +492,10 @@ CleanupScreen, CleanupReportScreen {
     margin: 1 0 0 0;
 }
 
-#cleanup-body {
+#cleanup-footer {
+    dock: bottom;
     height: auto;
-    max-height: 35vh;
+    background: $surface;
 }
 
 #cleanup-problem {

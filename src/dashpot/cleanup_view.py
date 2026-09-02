@@ -101,42 +101,43 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     def compose(self) -> ComposeResult:
         preview = self.preview
         verb = "DELETE BRANCH" if preview.kind == "branch" else "REMOVE WORKTREE"
-        # The body scrolls when a preview outgrows the terminal, so the reason
-        # the selection cannot be confirmed and the buttons stay in view.
-        with Vertical(id="cleanup-dialog"):
+        # The preview scrolls when it outgrows the terminal; the acknowledgement,
+        # the reason the selection cannot be confirmed yet, and the buttons are
+        # docked below it so they are always in view and never scrolled under.
+        with VerticalScroll(id="cleanup-dialog", can_focus=False):
+            with Vertical(id="cleanup-footer"):
+                if preview.ignored:
+                    yield Checkbox(
+                        ignored_prompt(preview), value=False, id="cleanup-ignored"
+                    )
+                yield Static("", id="cleanup-problem")
+                with Horizontal(id="cleanup-actions"):
+                    yield Button("Cancel", id="cleanup-cancel")
+                    yield Button(
+                        "Delete selected",
+                        id="cleanup-confirm",
+                        variant="error",
+                        disabled=True,
+                    )
             yield Static(f"{verb}  {preview.subject}", id="cleanup-title")
             yield Static(
                 CHANGED_HELP if self.changed else SELECT_HELP, id="cleanup-help"
             )
             for refusal in preview.refusals:
                 yield Static(f"Refused: {refusal}", classes="cleanup-refusal")
-            with VerticalScroll(id="cleanup-body", can_focus=False):
-                yield SelectionList[str](
-                    *(
-                        Selection(
-                            target_line(target),
-                            target.identity,
-                            id=target.identity,
-                            disabled=not target.available,
-                        )
-                        for target in preview.targets
-                    ),
-                    id="cleanup-targets",
-                )
-                yield Static(target_details(preview), id="cleanup-details")
-                if preview.ignored:
-                    yield Checkbox(
-                        ignored_prompt(preview), value=False, id="cleanup-ignored"
+            yield SelectionList[str](
+                *(
+                    Selection(
+                        target_line(target),
+                        target.identity,
+                        id=target.identity,
+                        disabled=not target.available,
                     )
-            yield Static("", id="cleanup-problem")
-            with Horizontal(id="cleanup-actions"):
-                yield Button("Cancel", id="cleanup-cancel")
-                yield Button(
-                    "Delete selected",
-                    id="cleanup-confirm",
-                    variant="error",
-                    disabled=True,
-                )
+                    for target in preview.targets
+                ),
+                id="cleanup-targets",
+            )
+            yield Static(target_details(preview), id="cleanup-details")
 
     def on_mount(self) -> None:
         targets = self.targets()
