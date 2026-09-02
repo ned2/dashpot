@@ -907,8 +907,10 @@ inspected off the event loop, and a modal lists every concrete target
 unselected — the local Branch, the Branch at each remote, the Worktree — with
 its integration fact, blockers, and consequences beneath, disables the
 unavailable ones, asks for the Worktree's ignored content to be acknowledged,
-and keeps the destructive button disabled, saying why, until the selection is
-one the performer accepts; `Escape` cancels. Confirmation performs off the
+and answers a premature press of the destructive button by deleting nothing,
+saying why beneath the list and in a toast, and moving focus to what is
+missing; the button turns red once the selection is one the performer
+accepts, and `Escape` cancels. Confirmation performs off the
 event loop through the injected cleanup adapter (a construction without one
 refuses `x`, as one without a fetcher refuses `f`), one mutation per Project
 at a time: a Cleanup and a Remote Fetch of the same Project exclude each
