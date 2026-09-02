@@ -486,7 +486,7 @@ def _observe_integration(
     git: Git,
     diagnostics: list[Diagnostic],
 ) -> list[Branch]:
-    """Count each local Branch's commits not reachable from the integration ref.
+    """Count each Branch ref's commits not reachable from the integration ref.
 
     A Git failure here is diagnosed rather than swallowed: a Branch whose
     ``unintegrated_commits`` stays None because Git could not answer must be
@@ -494,7 +494,10 @@ def _observe_integration(
     """
     try:
         merged = git.records(
-            f"--merged={integration_ref}", "refs/heads", fields=("%(refname)",)
+            f"--merged={integration_ref}",
+            "refs/heads",
+            "refs/remotes",
+            fields=("%(refname)",),
         )
     except GitError as exc:
         diagnostics.append(
@@ -506,9 +509,18 @@ def _observe_integration(
         return list(branches)
     integrated = {record[0] for record in merged}
     observed: list[Branch] = []
+    facts_by_head: dict[str, tuple[int | None, bool | None]] = {}
     for branch in branches:
-        if branch.remote is not None:
-            observed.append(branch)
+        if branch.head in facts_by_head:
+            count, content = facts_by_head[branch.head]
+            observed.append(
+                branch.model_copy(
+                    update={
+                        "unintegrated_commits": count,
+                        "content_integrated": content,
+                    }
+                )
+            )
             continue
         count = (
             0
@@ -533,6 +545,7 @@ def _observe_integration(
                         f"{integration_ref}: {exc.detail}",
                     )
                 )
+        facts_by_head[branch.head] = (count, content)
         observed.append(
             branch.model_copy(
                 update={"unintegrated_commits": count, "content_integrated": content}

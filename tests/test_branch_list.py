@@ -57,6 +57,8 @@ def remote(
     remote: str = "origin",
     head: str = "fedcba7654321",
     committed_at: str = "2026-08-27T02:00:00Z",
+    unintegrated_commits: int | None = None,
+    content_integrated: bool | None = None,
 ) -> Branch:
     return Branch(
         refname=f"refs/remotes/{remote}/{name}",
@@ -64,6 +66,8 @@ def remote(
         remote=remote,
         head=head,
         committed_at=committed_at,
+        unintegrated_commits=unintegrated_commits,
+        content_integrated=content_integrated,
     )
 
 
@@ -176,7 +180,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
         ),
         local("gone", upstream="origin/gone", gone=True),
         local(long_name, unintegrated_commits=0),
-        remote("remote-only"),
+        remote("remote-only", unintegrated_commits=1, content_integrated=True),
         targets=[target("/home/ned/project:one", role="main", branch="main")],
     )
     on_main = session("codex:1", "project:one", "/home/ned/project:one").model_copy(
@@ -217,7 +221,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     assert no_upstream[4] == "⊆"
     assert str(no_upstream[5]) == "-"
     remote_only = branch_cells(by_name["remote-only"], dark=True, now=CLOCK)
-    assert plain(remote_only[:5]) == ["remote-only", "", "✓", "-", "-"]
+    assert plain(remote_only[:5]) == ["remote-only", "", "✓", "-", "≡"]
     assert plain(remote_only[5:]) == ["-", "1h ago"]
 
     rows = build_branch_rows(result, dark=True, now=CLOCK)
@@ -241,6 +245,36 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
         "center",
         None,
     ]
+
+
+def test_remote_only_integration_requires_remote_tracking_branches_to_agree() -> None:
+    observation = branchy_project(
+        "project:one",
+        remote("reachable", unintegrated_commits=0),
+        remote("squashed", unintegrated_commits=2, content_integrated=True),
+        remote("pending", unintegrated_commits=3, content_integrated=False),
+        remote("mirrored", head="same", unintegrated_commits=0),
+        remote("mirrored", remote="upstream", head="same", unintegrated_commits=0),
+        remote("diverged", head="origin", unintegrated_commits=0),
+        remote(
+            "diverged",
+            remote="upstream",
+            head="upstream",
+            unintegrated_commits=1,
+            content_integrated=False,
+        ),
+    )
+    rows = {row.name: row for row in query_branch_list(workspace(observation)).rows}
+
+    assert str(branch_cells(rows["reachable"], dark=True, now=CLOCK)[4]) == "⊆"
+    assert str(branch_cells(rows["squashed"], dark=True, now=CLOCK)[4]) == "≡"
+    pending = branch_cells(rows["pending"], dark=True, now=CLOCK)[4]
+    assert isinstance(pending, Text)
+    assert pending.plain == "↑3"
+    assert str(branch_cells(rows["mirrored"], dark=True, now=CLOCK)[4]) == "⊆"
+    diverged = branch_cells(rows["diverged"], dark=True, now=CLOCK)[4]
+    assert isinstance(diverged, Text)
+    assert diverged.plain == "⊘"
 
 
 def test_fetch_age_is_honest() -> None:

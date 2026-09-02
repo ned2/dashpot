@@ -41,9 +41,9 @@ NO_UPSTREAM_GLYPH = Glyph("∅", "no upstream is configured", DIRTY_COLORS)
 UPSTREAM_GONE_GLYPH = Glyph(
     "✗", "upstream gone: it was configured and no longer exists", UNAVAILABLE_COLORS
 )
-NO_LOCAL_REF_GLYPH = Glyph("-", "remote-only, so there is no local ref to compare")
+NO_LOCAL_REF_GLYPH = Glyph("-", "remote-only, so there is no local upstream")
 INTEGRATED_GLYPH = Glyph(
-    "⊆", "all local Branch commits are reachable from the Integration Branch"
+    "⊆", "all Branch commits are reachable from the Integration Branch"
 )
 UNINTEGRATED_GLYPH = Glyph(
     "↑2",
@@ -71,7 +71,6 @@ INTEGRATION_LEGEND = (
     CONTENT_INTEGRATED_GLYPH,
     UNINTEGRATED_GLYPH,
     NO_INTEGRATION_GLYPH,
-    NO_LOCAL_REF_GLYPH,
 )
 LEGEND = PRESENCE_LEGEND + UPSTREAM_LEGEND + INTEGRATION_LEGEND
 
@@ -254,7 +253,7 @@ def branch_cells(
         REF_PRESENT_GLYPH.symbol if row.local is not None else "",
         REF_PRESENT_GLYPH.symbol if row.remotes else "",
         sync_cell(row.local, dark=dark),
-        integration_cell(row.local, dark=dark),
+        integration_cell(integration_subject(row), dark=dark),
         sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
         relative_age(row.committed_at, now) or "-",
     )
@@ -283,11 +282,34 @@ def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
     return Text(" ".join(parts), style=AHEAD_BEHIND_GLYPH.style(dark=dark))
 
 
-def integration_cell(local: Branch | None, *, dark: bool) -> ListCell:
+def integration_subject(row: BranchListRow) -> Branch | None:
+    """Choose the one ref whose integration fact can represent the row."""
+    if row.local is not None:
+        return row.local
+    if not row.remotes:
+        return None
+    candidate = row.remotes[0]
+    fact = (
+        candidate.head,
+        candidate.unintegrated_commits,
+        candidate.content_integrated,
+    )
+    if any(
+        (remote.head, remote.unintegrated_commits, remote.content_integrated) != fact
+        for remote in row.remotes[1:]
+    ):
+        return None
+    return candidate
+
+
+def integration_cell(branch: Branch | None, *, dark: bool) -> ListCell:
     """Report whether the Integration Branch holds the Branch's commits or content."""
-    if local is None:
-        return NO_LOCAL_REF_GLYPH.symbol
-    count = local.unintegrated_commits
+    if branch is None:
+        return Text(
+            NO_INTEGRATION_GLYPH.symbol,
+            style=NO_INTEGRATION_GLYPH.style(dark=dark),
+        )
+    count = branch.unintegrated_commits
     if count is None:
         return Text(
             NO_INTEGRATION_GLYPH.symbol,
@@ -295,7 +317,7 @@ def integration_cell(local: Branch | None, *, dark: bool) -> ListCell:
         )
     if count == 0:
         return INTEGRATED_GLYPH.symbol
-    if local.content_integrated:
+    if branch.content_integrated:
         return CONTENT_INTEGRATED_GLYPH.symbol
     return Text(f"↑{count}", style=UNINTEGRATED_GLYPH.style(dark=dark))
 

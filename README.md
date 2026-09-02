@@ -277,13 +277,15 @@ passive re-observation of that Project's Git state; a refresh never fetches.
 _Avoid_: refresh for a fetch, or fetch for a refresh
 
 **Integration Branch**:
-The Branch against which Dashpot observes whether every commit of a local
-Branch is reachable: `origin/HEAD`, else the unique local `main` or `master`.
-It is selected from local Git facts and never fetched. Integration is exact
-commit reachability first; a Branch whose commits are not reachable is then
-integrated by content when merging it would leave the Integration Branch's
-tree unchanged or its squash commit is found there
-([ADR 0017](docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
+The Branch against which Dashpot observes whether every commit of an observed
+Branch ref is reachable: `origin/HEAD`, else the unique local `main` or
+`master`. It is selected from local Git facts and never fetched. Integration
+is exact commit reachability first; a Branch whose commits are not reachable
+is then integrated by content when merging it would leave the Integration
+Branch's tree unchanged or its squash commit is found there. A
+Remote-Tracking Branch's result is only as fresh as the last Remote Fetch
+([ADR 0017](docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md),
+[ADR 0018](docs/adr/0018-assess-remote-tracking-branch-integration.md)).
 Patch equivalence is not used, so a cherry-pick remains unintegrated until a
 person reviews it.
 _Avoid_: upstream, which is a local Branch's configured synchronization target
@@ -908,8 +910,10 @@ relation to its configured upstream (`=` in sync, `↑2 ↓1`, `∅` no upstream
 or `✗` upstream gone). `INTEGRATED` is whether the Integration Branch holds
 the Branch's work (`⊆` when every commit is reachable, `≡` when its content is
 there though its commits are not, as after a squash merge, `↑2` for two commits
-of work that never landed, or `⊘` when no comparison is available), followed
-by the active sessions on it and
+of work that never landed, or `⊘` when no comparison is available). It uses the
+local ref when present; a remote-only row uses its Remote-Tracking Branches
+when they agree on one head and result, and reports `⊘` when they diverge. The
+result is followed by the active sessions on the Branch and
 the age of its last commit. The pane subtitle names the Integration Branch
 and the age of the Remote-Tracking Branches. The Worktrees pane names the
 Branch checked out at every Worktree. Rows are sorted checked-out first, then

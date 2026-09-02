@@ -80,8 +80,9 @@ class Branch(ObservationModel):
     behind: int | None = None
     upstream_gone: bool = False
     checked_out_at: str | None = None
-    # Commits reachable from this local Branch but not the Integration Branch;
-    # ``None`` when no comparison was available or for a Remote-Tracking Branch.
+    # Commits reachable from this ref but not the Integration Branch; ``None``
+    # when no comparison was available. A Remote-Tracking Branch carries the
+    # result as of the Repository's last fetch.
     unintegrated_commits: int | None = None
     # Whether the Integration Branch already holds the content of those
     # unreachable commits, as after a squash merge; assessed only when there

@@ -44,7 +44,15 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     )
     runner = SequenceRunner(
         completed(listing),
-        completed(ref_stream(("refs/heads/main",), ("refs/heads/local-only",))),
+        completed(
+            ref_stream(
+                ("refs/heads/main",),
+                ("refs/heads/local-only",),
+                ("refs/remotes/origin/main",),
+                ("refs/remotes/origin/feature",),
+                ("refs/remotes/upstream/main",),
+            )
+        ),
         # feature: two retained commits whose merge leaves main's tree as is.
         completed("2\n"),
         completed("tree-main\n"),
@@ -85,6 +93,7 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
         "rev-parse",
     ]
     assert runner.calls[0][0][-2:] == ["refs/heads", "refs/remotes"]
+    assert runner.calls[1][0][-2:] == ["refs/heads", "refs/remotes"]
     assert "--merged=refs/remotes/origin/main" in runner.calls[1][0]
     assert "refs/remotes/origin/main..refs/heads/feature" in runner.calls[2][0]
     assert runner.calls[4][0][-2:] == ["refs/remotes/origin/main", "refs/heads/feature"]
@@ -129,7 +138,8 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     upstream_main = by_ref["refs/remotes/upstream/main"]
     assert (upstream_main.name, upstream_main.remote) == ("main", "upstream")
     assert upstream_main.upstream is None
-    assert upstream_main.unintegrated_commits is None
+    assert upstream_main.unintegrated_commits == 0
+    assert by_ref["refs/remotes/origin/feature"].unintegrated_commits == 0
     assert observation.integration_ref == "refs/remotes/origin/main"
     assert observation.fetched_at is not None
     assert observation.fetched_at.endswith("Z")
@@ -229,7 +239,7 @@ def test_a_failing_commit_count_is_a_diagnostic_not_an_absence() -> None:
     )
     runner = SequenceRunner(
         completed(listing),
-        completed(ref_stream(("refs/heads/main",))),
+        completed(ref_stream(("refs/heads/main",), ("refs/remotes/origin/main",))),
         completed("", stderr="fatal: bad revision", returncode=128),
         completed(".git\n"),
     )
@@ -329,6 +339,36 @@ def test_squash_merged_branches_are_integrated_by_content(tmp_path: Path) -> Non
     assert by_name["done"].unintegrated_commits == 2
     assert by_name["done"].content_integrated is True
     # Work that never landed is retained work.
+    assert by_name["kept"].unintegrated_commits == 1
+    assert by_name["kept"].content_integrated is False
+
+
+def test_remote_tracking_branches_are_assessed_for_integration(tmp_path: Path) -> None:
+    root = squash_repository(tmp_path)
+    for name in ("main", "done", "pending", "kept"):
+        git(root, "update-ref", f"refs/remotes/origin/{name}", f"refs/heads/{name}")
+    git(
+        root,
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/main",
+    )
+    git(root, "branch", "-D", "done", "pending", "kept")
+
+    observation = observe_branches([root])
+
+    assert observation.diagnostics == []
+    by_name = {
+        branch.name: branch
+        for branch in observation.branches
+        if branch.remote == "origin"
+    }
+    assert by_name["main"].unintegrated_commits == 0
+    assert by_name["main"].content_integrated is None
+    assert by_name["pending"].unintegrated_commits == 1
+    assert by_name["pending"].content_integrated is True
+    assert by_name["done"].unintegrated_commits == 2
+    assert by_name["done"].content_integrated is True
     assert by_name["kept"].unintegrated_commits == 1
     assert by_name["kept"].content_integrated is False
 
