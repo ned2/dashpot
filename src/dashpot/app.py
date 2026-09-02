@@ -237,7 +237,7 @@ class DashboardScreen(Screen[None]):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("enter", "open_issue", "Open Issue"),
-        ("f", "fetch", "Fetch remotes"),
+        ("f", "fetch", "Fetch & prune remotes"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),

@@ -390,13 +390,13 @@ async def test_f_is_listed_in_the_footer_and_the_legend() -> None:
 
         assert "f" in footer_keys(app)
         footer = app.query_one(Footer)
-        assert ("f", "Fetch remotes") in [
+        assert ("f", "Fetch & prune remotes") in [
             (key.key, key.description) for key in footer.query(FooterKey)
         ]
 
         await pilot.press("question_mark")
         await pilot.pause()
         assert isinstance(app.screen, LegendScreen)
-        assert "Fetch remotes" in str(
+        assert "Fetch & prune remotes" in str(
             app.screen.query_one("#legend-keys", Static).render()
         )
