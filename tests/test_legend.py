@@ -76,8 +76,8 @@ def test_legend_follows_the_screen_top_to_bottom() -> None:
     panes = [section.pane for section in legend.LEGEND]
     order = [
         "SESSIONS",
-        "BRANCHES",
         "WORKTREES",
+        "BRANCHES",
         "ISSUES",
         legend.DIAGNOSTICS_LABEL,
     ]

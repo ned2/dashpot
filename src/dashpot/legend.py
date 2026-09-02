@@ -60,6 +60,9 @@ WORKTREE_SESSIONS_NOTE = (
 LEGEND: tuple[LegendSection, ...] = (
     LegendSection(SESSIONS_PANE_LABEL, "STATE", session_list.LEGEND),
     LegendSection(
+        WORKTREES_PANE_LABEL, "SESSIONS", session_list.LEGEND, WORKTREE_SESSIONS_NOTE
+    ),
+    LegendSection(
         BRANCHES_PANE_LABEL, "LOCAL", branch_list.PRESENCE_LEGEND, LOCAL_PRESENCE_NOTE
     ),
     LegendSection(
@@ -77,9 +80,6 @@ LEGEND: tuple[LegendSection, ...] = (
     ),
     LegendSection(
         BRANCHES_PANE_LABEL, "SESSIONS", session_list.LEGEND, SESSIONS_COUNT_NOTE
-    ),
-    LegendSection(
-        WORKTREES_PANE_LABEL, "SESSIONS", session_list.LEGEND, WORKTREE_SESSIONS_NOTE
     ),
     LegendSection(
         ISSUE_PANE_LABEL,

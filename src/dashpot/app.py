@@ -174,14 +174,6 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         session_pane_rows,
     ),
     PaneSpec(
-        "branches-pane",
-        "branches",
-        BRANCHES_PANE_LABEL,
-        BRANCH_COLUMNS,
-        "no branches observed yet",
-        branch_pane_rows,
-    ),
-    PaneSpec(
         "worktrees-pane",
         "worktrees",
         WORKTREES_PANE_LABEL,
@@ -189,10 +181,19 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         "no worktrees observed yet",
         worktree_pane_rows,
     ),
+    PaneSpec(
+        "branches-pane",
+        "branches",
+        BRANCHES_PANE_LABEL,
+        BRANCH_COLUMNS,
+        "no branches observed yet",
+        branch_pane_rows,
+    ),
 )
-# Focus cycles through the four lists in reading order; the Header and
-# the Issue controls are not part of the cycle.
-LIST_TABLE_IDS = ("queue", *(spec.table_id for spec in LIST_PANE_SPECS))
+# Focus starts in the first list and cycles through the four in reading
+# order, the Issue table last; the Header and the Issue controls are not part
+# of the cycle.
+LIST_TABLE_IDS = (*(spec.table_id for spec in LIST_PANE_SPECS), "queue")
 
 
 class ObservationFinished(Message):
@@ -375,7 +376,7 @@ class DashboardScreen(Screen[None]):
         return tuple(self.list_pane(spec.pane_id) for spec in LIST_PANE_SPECS)
 
     def list_tables(self) -> tuple[DataTable[Any], ...]:
-        """The lists in focus-cycle order: Issues, Sessions, Branches, Worktrees."""
+        """The lists in focus-cycle order: Sessions, Worktrees, Branches, Issues."""
         return tuple(
             self.query_one(f"#{table_id}", DataTable) for table_id in LIST_TABLE_IDS
         )
@@ -415,7 +416,7 @@ class DashboardScreen(Screen[None]):
         self.query_one("#queue-pane").border_title = Content(ISSUE_PANE_LABEL)
         table = self.queue_table()
         self.show_table_columns(table, shown_columns(self.issue_view.columns, ()))
-        table.focus()
+        self.sessions_pane().table.focus()
         self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
 
     def on_theme_changed(self, _theme: Theme) -> None:

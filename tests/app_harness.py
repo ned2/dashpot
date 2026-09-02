@@ -140,10 +140,10 @@ def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
     queue_pane = app.query_one("#queue-pane")
 
     assert sessions.region.y == list_row.region.y
-    assert sessions.region.bottom <= branches.region.y
-    assert branches.region.bottom <= worktrees.region.y
-    assert worktrees.region.bottom <= list_row.region.bottom <= queue_pane.region.y
-    for pane in (sessions, branches, worktrees, queue_pane):
+    assert sessions.region.bottom <= worktrees.region.y
+    assert worktrees.region.bottom <= branches.region.y
+    assert branches.region.bottom <= list_row.region.bottom <= queue_pane.region.y
+    for pane in (sessions, worktrees, branches, queue_pane):
         assert pane.region.x == body.region.x
         assert pane.region.width == body.region.width
     assert queue_pane.region.height >= 6

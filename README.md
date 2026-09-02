@@ -90,7 +90,7 @@ the management commands `init`, `integrate`,
 | `r` | Refresh every observation in the Workspace |
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
 | `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
-| `Tab` / `Shift+Tab` | Cycle through the Issues, Sessions, Branches, and Worktrees lists |
+| `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, and Issues lists |
 | `/` | Focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
 | `s` / `S` | Sort by the next sortable column / reverse the current sort; clicking a column header sorts by it too |
@@ -942,7 +942,7 @@ reconciled by stable row keys.
 
 The main screen is a single pane of glass: the Header sub-titles `Dashpot`
 with the observed Project's Repository Anchor path, and below it
-the full-width `SESSIONS`, `BRANCHES` and `WORKTREES` panes stack above the
+the full-width `SESSIONS`, `WORKTREES` and `BRANCHES` panes stack above the
 full-width `ISSUES` table. Nothing is switched to: every active Agent
 Session, every observed Worktree and every Branch is listed in its pane, with
 the count in the pane title and an honest one-line empty state. The panes are
@@ -950,10 +950,10 @@ sized to their content rather than sharing the flex height: each asks for the
 rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
 granted first so an empty pane costs three lines, and the caps shrink before
 the Issue table would drop below its minimum height, so the panes only ever
-cost the Issue table what they actually use. `Tab` and `Shift+Tab` cycle focus
-Issues → Sessions → Branches → Worktrees, `1`, `2`, `3` and `4` jump to a
-list and `/` to the Issue search. The row cursor in the Sessions, Branches
-and Worktrees panes is for scrolling, copying and refresh scope (`r`); only
+cost the Issue table what they actually use. The Sessions list starts with
+focus, `Tab` and `Shift+Tab` cycle focus Sessions → Worktrees → Branches →
+Issues, and `/` moves it to the Issue search. The row cursor in the Sessions,
+Worktrees and Branches panes is for scrolling, copying and refresh scope (`r`); only
 the Issue table drives the Issue selection, `Enter`
 on an Issue opens it in the full-screen Issue view (its location on the left
 of the heading line, `opened 3d ago by ned2` on the right, and both panes'

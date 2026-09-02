@@ -146,8 +146,8 @@ async def test_dashboard_stacks_the_panes_above_the_issues() -> None:
         queue_pane = app.query_one("#queue-pane")
         assert_panes_stack_above_full_width_queue(app)
         # One blank line separates back-to-back panes.
-        assert sessions.region.bottom + 1 == branches.region.y
-        assert branches.region.bottom + 1 == worktrees.region.y
+        assert sessions.region.bottom + 1 == worktrees.region.y
+        assert worktrees.region.bottom + 1 == branches.region.y
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         # Remote freshness sits apart from the label and count, aligned to the
@@ -170,7 +170,7 @@ async def test_dashboard_stacks_the_panes_above_the_issues() -> None:
         ]
         assert empty_messages == ["no active sessions", "no branches observed yet"]
         assert not app.query_one("#worktrees-pane .list-pane-empty").display
-        assert app.query_one("#queue", DataTable).has_focus
+        assert app.query_one("#sessions", DataTable).has_focus
         assert queue_pane.region.height >= 6
         assert "tab" in footer_keys(app)
         assert {"1", "2", "3", "4", "shift+r"}.isdisjoint(footer_keys(app))

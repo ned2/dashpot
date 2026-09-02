@@ -44,8 +44,8 @@ async def test_only_focused_dashboard_table_shows_its_row_cursor() -> None:
 
         assert {
             table_id for table_id, table in tables.items() if table.show_cursor
-        } == {"queue"}
-        for table_id in ("sessions", "branches", "worktrees"):
+        } == {"sessions"}
+        for table_id in ("worktrees", "branches", "queue"):
             await pilot.press("tab")
             assert {
                 current_id for current_id, table in tables.items() if table.show_cursor
@@ -524,25 +524,28 @@ async def test_tab_cycles_focus_through_the_four_lists() -> None:
         sessions = app.query_one("#sessions", DataTable)
         worktrees = app.query_one("#worktrees", DataTable)
         branches = app.query_one("#branches", DataTable)
-        assert queue.has_focus
-
-        await pilot.press("tab")
+        # The Sessions list, first on screen, starts with focus.
         assert sessions.has_focus
         assert app.query_one("#sessions-pane").has_pseudo_class("focus-within")
         assert not app.query_one("#queue-pane").has_pseudo_class("focus-within")
+
+        await pilot.press("tab")
+        assert worktrees.has_focus
+        assert app.query_one("#worktrees-pane").has_pseudo_class("focus-within")
         await pilot.press("tab")
         assert branches.has_focus
         assert app.query_one("#branches-pane").has_pseudo_class("focus-within")
         await pilot.press("tab")
-        assert worktrees.has_focus
-        await pilot.press("tab")
         assert queue.has_focus
+        assert app.query_one("#queue-pane").has_pseudo_class("focus-within")
+        await pilot.press("tab")
+        assert sessions.has_focus
         await pilot.press("shift+tab")
-        assert worktrees.has_focus
+        assert queue.has_focus
         await pilot.press("shift+tab")
         assert branches.has_focus
         await pilot.press("shift+tab")
-        assert sessions.has_focus
+        assert worktrees.has_focus
 
         # The Issue controls stay reachable from the keyboard.
         await pilot.press("slash")

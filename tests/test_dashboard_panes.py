@@ -57,7 +57,6 @@ async def test_pane_cursor_leaves_the_issue_selection_alone_and_enter_finds_it()
         )
         await pilot.pause()
 
-        await pilot.press("tab")
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == ("unbound", 1)
@@ -272,7 +271,6 @@ async def test_enter_on_a_bound_session_highlights_its_issue_and_unbound_is_safe
         await pilot.pause()
         assert selected_title(app) == "#1: First"
 
-        await pilot.press("tab")
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
@@ -315,7 +313,6 @@ async def test_session_selection_survives_refresh_by_identity_or_moves_on() -> N
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         pane = app.dashboard.sessions_pane()
-        await pilot.press("tab")
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == (row_key("session", "b"), 1)
@@ -387,7 +384,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         await wait_until(lambda: app.store.revision == 2)
         await pilot.pause()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 2"
-        await pilot.press("tab", "tab", "tab")
+        await pilot.press("tab")
         await pilot.press("down")
         await pilot.pause()
         assert pane.highlighted() == (

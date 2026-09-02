@@ -90,6 +90,7 @@ async def test_issue_view_tracks_github_issue_state_colors(
         assert state_cell.plain == "■"
         assert str(state_cell.style).casefold() == dark_color
 
+        app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         view = app.screen
@@ -468,6 +469,7 @@ async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() ->
         await wait_until(
             lambda: app.dashboard.selected_row_key == row_key("issue", blank.id)
         )
+        app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -486,6 +488,7 @@ async def test_issue_view_does_nothing_without_an_issue_row() -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await pilot.pause()
         assert app.dashboard.selected_row_key is None
+        app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await pilot.pause()
         await app.run_action("screen.open_issue")
@@ -499,6 +502,7 @@ async def test_issue_view_stacks_metadata_under_the_body_in_compact_terminals() 
 
     async with app.run_test(size=(70, 30)) as pilot:
         await wait_until(lambda: app.dashboard.selected_row_key is not None)
+        app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         view = app.screen
@@ -528,6 +532,7 @@ async def test_refresh_while_the_issue_view_is_open_still_reaches_the_dashboard(
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: app.dashboard.selected_row_key is not None)
+        app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -721,7 +726,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         await wait_until(lambda: isinstance(app.screen, LegendScreen))
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, LegendScreen))
-        assert app.query_one("#queue", DataTable).has_focus
+        assert app.query_one("#sessions", DataTable).has_focus
 
 
 @pytest.mark.asyncio
@@ -740,6 +745,7 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         await pilot.pause()
         sort = app.dashboard.issue_view.sort
         states = app.dashboard.issue_view.query.states
+        app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -768,6 +774,7 @@ async def test_legend_is_reachable_from_the_issue_view() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
+        app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
