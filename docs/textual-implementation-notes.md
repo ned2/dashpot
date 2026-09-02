@@ -295,6 +295,28 @@ failure. Normal GitHub, Local Issue Markdown, or process-observation failures ar
 source diagnostics and should not terminate the TUI. [`panic()` and
 `exit()`](https://textual.textualize.io/api/app/#textual.app.App.panic)
 
+## Confirmed mutations behind a modal
+
+The Cleanup modal (`cleanup_view.py`) is the pattern for a mutation that
+needs a selection and a confirmation:
+
+- `ModalScreen[Result | None]` with `push_screen(screen, callback)`: the
+  screen `dismiss`es with the value the app acts on, or `None` on `Escape`,
+  so the app never reads widget state across the screen boundary.
+- `SelectionList` prompts are one line: `Selection` keeps only the first line
+  of a multi-line prompt. Keep the list to label, availability, and location,
+  and render each target's gate and consequences in a `Static` beneath it.
+  Give each `Selection` an `id` when the app needs `get_option(identity)`.
+- Gate the destructive `Button` with `disabled` and a visible reason, recomputed
+  on every `SelectionList.SelectedChanged` and `Checkbox.Changed`; deselect
+  what must never stay selected in the same handler.
+- Inspect and perform in `run_worker(partial(...), group=..., exit_on_error=False)`
+  over the app's executor, post a message with the result, and let the message
+  handler push the next screen; the modal never blocks the event loop.
+- One mutation per Project at a time: the app records the Project as
+  cleaning or fetching and refuses the other key with a toast naming what is
+  in flight, releasing the Project only when the report or failure arrives.
+
 ## Test plan
 
 Keep collector/read-model tests synchronous and framework-free. Give app tests a

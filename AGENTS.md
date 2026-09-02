@@ -6,10 +6,11 @@ Guidance for AI coding agents working in this repository.
 
 Dashpot is a passive terminal view of declared Issues, repository state, and
 active coding-agent runs. Observation never mutates; the named management
-commands (`init`, `integrate`, `work start` / `stop`) and the dashboard's
-mutating keys (`f`, a Remote Fetch) mutate only what they name, on explicit
-invocation, and a Cleanup — deleting a Branch or removing a Worktree — only
-what a person selected from a preview and confirmed
+commands (`init`, `integrate`, `work start` / `stop`, `branch delete`,
+`worktree remove`) and the dashboard's mutating keys (`f`, a Remote Fetch;
+`x`, a Cleanup) mutate only what they name, on explicit invocation, and a
+Cleanup — deleting a Branch or removing a Worktree — only what a person
+selected from a preview and confirmed
 ([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md),
 [ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md),
 [ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).

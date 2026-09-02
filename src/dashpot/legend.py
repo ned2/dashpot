@@ -44,6 +44,18 @@ REMOTE_PRESENCE_NOTE = (
     "Branch at the remote until pruned; the pane border carries the fetch age "
     "and f fetches and prunes"
 )
+# The gate x applies is the column's own vocabulary: the Legend says which
+# states let a Branch be deleted from the preview and which never do.
+INTEGRATION_NOTE = (
+    "the gate for x: a Branch the Integration Branch holds by commits or by "
+    "content can be deleted from the preview x opens; one with unreachable "
+    "commits or no comparison cannot"
+)
+WORKTREE_SESSIONS_NOTE = (
+    f"{SESSIONS_COUNT_NOTE}; x removes a linked Worktree only when it is clean, "
+    "unlocked, and no Agent Session or Agent Run is here, and retains its Branch "
+    "unless that is selected too"
+)
 
 LEGEND: tuple[LegendSection, ...] = (
     LegendSection(SESSIONS_PANE_LABEL, "STATE", session_list.LEGEND),
@@ -57,12 +69,17 @@ LEGEND: tuple[LegendSection, ...] = (
         REMOTE_PRESENCE_NOTE,
     ),
     LegendSection(BRANCHES_PANE_LABEL, "UPSTREAM", branch_list.UPSTREAM_LEGEND),
-    LegendSection(BRANCHES_PANE_LABEL, "INTEGRATED", branch_list.INTEGRATION_LEGEND),
+    LegendSection(
+        BRANCHES_PANE_LABEL,
+        "INTEGRATED",
+        branch_list.INTEGRATION_LEGEND,
+        INTEGRATION_NOTE,
+    ),
     LegendSection(
         BRANCHES_PANE_LABEL, "SESSIONS", session_list.LEGEND, SESSIONS_COUNT_NOTE
     ),
     LegendSection(
-        WORKTREES_PANE_LABEL, "SESSIONS", session_list.LEGEND, SESSIONS_COUNT_NOTE
+        WORKTREES_PANE_LABEL, "SESSIONS", session_list.LEGEND, WORKTREE_SESSIONS_NOTE
     ),
     LegendSection(
         ISSUE_PANE_LABEL,

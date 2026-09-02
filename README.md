@@ -10,13 +10,15 @@ Like its [mechanical namesake](https://en.wikipedia.org/wiki/Dashpot), Dashpot i
 intended to reduce oscillation without stopping progress. Observation never
 mutates: the view, every refresh, and `dashpot --json` never assign or edit
 Issues, change the Git Repository, or control agent sessions. Dashpot's named
-management commands — `init`, `integrate`, `work start` and `stop`, and the
-`f` key that fetches Git remotes — mutate only what their name says, on
-explicit invocation, and report what they changed
+management commands — `init`, `integrate`, `work start` and `stop`, `branch
+delete` and `worktree remove` — and its two mutating keys — `f`, which fetches
+Git remotes, and `x`, which deletes a Branch or removes a Worktree — mutate
+only what their name says, on explicit invocation, and report what they
+changed
 ([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md),
-[ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). The same
-boundary admits Cleanup: deleting a Branch or removing a Worktree a person
-selected from a preview and confirmed
+[ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). A Cleanup
+goes one step further: it deletes only the targets a person selected from a
+read-only preview and confirmed
 ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
 
 > [!NOTE]
@@ -87,7 +89,7 @@ the management commands `init`, `integrate`,
 |---|---|
 | `r` | Refresh every observation in the Workspace |
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
-| `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree; nothing is deleted until a target is selected and Delete selected is pressed ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
+| `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Issues, Sessions, Branches, and Worktrees lists |
 | `/` | Focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
@@ -298,6 +300,8 @@ makes a Branch target eligible; the selection is the authority. Confirmation
 re-inspects and performs nothing when the preview has changed; a successful
 mutation is never rolled back, and the Project is re-observed afterwards
 ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
+Invoked from the dashboard's `x` key on a Branches or Worktrees row and from
+the `branch delete` and `worktree remove` commands.
 _Avoid_: prune for a Cleanup, which is the Remote Fetch's removal of gone
 Remote-Tracking Branches; cleanup for anything observation does
 
@@ -830,10 +834,10 @@ the base Branch. `check` removes nothing.
 
 `worktree remove PATH` and `branch delete NAME` are the Cleanup commands of
 [ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).
-Each takes the same read-only preview the dashboard will show — every target
-with its integration state, blockers, and consequences — then re-inspects and
-performs only the targets its flags name, only if nothing observed has changed
-in between. `worktree remove` removes one linked Worktree with an unforced
+Each takes the same read-only preview the dashboard's `x` opens — every
+target with its integration state, blockers, and consequences — then
+re-inspects and performs only the targets its flags name, only if nothing
+observed has changed in between. `worktree remove` removes one linked Worktree with an unforced
 `git worktree remove`, so a dirty or locked Worktree is refused, and with
 `--delete-branch` deletes its local Branch afterwards; `--delete-ignored`
 acknowledges that the Worktree's ignored content (`.venv`, `.dashpot/state/`,
@@ -891,14 +895,43 @@ supplied the Branch observation ([`fetch.py`](src/dashpot/fetch.py),
 off the event loop, once per Project at a time, and once any remote has been
 fetched it schedules the passive Git observation of that Project, so the
 Branches pane, the Integration Branch facts, and the fetch age reflect the
-result without anything being inferred from the fetch itself. Exceptional state is summarized in a
+result without anything being inferred from the fetch itself.
+
+`x` is the other mutating key, a Cleanup
+([`cleanup.py`](src/dashpot/cleanup.py),
+[`cleanup_view.py`](src/dashpot/cleanup_view.py),
+[ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
+The highlighted Branches or Worktrees row is resolved through the observation
+store into a request against its Repository Anchor, the read-only preview is
+inspected off the event loop, and a modal lists every concrete target
+unselected — the local Branch, the Branch at each remote, the Worktree — with
+its integration fact, blockers, and consequences beneath, disables the
+unavailable ones, asks for the Worktree's ignored content to be acknowledged,
+and keeps the destructive button disabled, saying why, until the selection is
+one the performer accepts; `Escape` cancels. Confirmation performs off the
+event loop through the injected cleanup adapter (a construction without one
+refuses `x`, as one without a fetcher refuses `f`), one mutation per Project
+at a time: a Cleanup and a Remote Fetch of the same Project exclude each
+other, each refusal naming the other. A preview that changed in between
+performs nothing and reopens the revised preview for another confirmation;
+otherwise the per-target outcomes and recovery commands are shown, the
+Project's Worktrees and Git state are re-observed the passive way, and the
+row cursor settles on the deleted row's neighbour. The same adapter is
+exercised by the acceptance scenarios in
+[`tests/test_cleanup_scenarios.py`](tests/test_cleanup_scenarios.py), each a
+disposable Repository in a shape a real Issue Worktree takes: a finished Issue
+whose Branch the forge deleted after a squash merge, a merged Branch still at
+`origin`, pushed but unintegrated work, a second approach with commits of its
+own, and a dirty Worktree on a Branch named unlike its directory.
+
+Exceptional state is summarized in a
 one-line alert above Diagnostics that takes no space while everything is
 healthy: refresh failures and unavailable Projects are errors, unavailable or
 stale worktrees and stale Issue Sources are warnings, and a refresh that has
 been running longer than a moment, or a Remote Fetch from the moment it
 starts, is shown as information. The alert is
 derived from current observations and clears itself on recovery; toasts are
-reserved for manual-refresh and Remote Fetch outcomes, and Diagnostics keeps
+reserved for manual-refresh, Remote Fetch, and Cleanup outcomes, and Diagnostics keeps
 the durable detail: the box takes no space while it is empty and is coloured
 by the most severe line it holds. Headless JSON runs a coordinated barrier
 over every key and serializes the store's `checkpoint()`, so it remains one
@@ -1010,7 +1043,9 @@ symbol carries two meanings
 ([ADR 0010](docs/adr/0010-derive-the-legend-from-rendered-glyphs.md)). Its
 mouse complement is a tooltip on the Issues table's `◉` and `◈` headers that
 reads the same `Glyph.meaning` the Legend shows, so the two cannot drift. The
-Legend also lists the key bindings. See
+Legend also lists the key bindings, and the notes under the Branches
+`INTEGRATED` and Worktrees `SESSIONS` sections state the gate `x` applies,
+where the person deciding what to delete reads it. See
 [`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md) for
 the framework research behind the current implementation.
 
