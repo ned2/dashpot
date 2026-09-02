@@ -733,6 +733,7 @@ dashpot worktree create 35            # a linked Worktree on Branch 35-<title-sl
 dashpot worktree create 35 --dry-run  # the same report, creating nothing
 dashpot worktree create 35 --branch 35-alternate --base main --worktree-root ~/w
 dashpot worktree check ~/w/35-alternate   # read-only: removable, or why not
+dashpot worktree check                    # the same for every linked Worktree
 ```
 
 `issue show` accepts the Issue Hints `work start` accepts — a bare Issue
@@ -786,7 +787,9 @@ mode. `warnings` carries non-fatal observations, such as unknown fields in
 the machine-local settings file, which are ignored rather than fatal so a
 settings file written by a newer Dashpot never stops this one.
 
-`worktree check <path>` is read-only. It reports the Worktree removable, or
+`worktree check [path]` is read-only. With no path it reports every linked
+Worktree of the Repository, one after another (`--json` gives a list). It
+reports the Worktree removable, or
 each reason it is not with the command that acts on it: dirty state, a lock
 with its reason and whether the holding process is alive (`initializing`
 names the forced removal), Agent Sessions whose hooks place them there,

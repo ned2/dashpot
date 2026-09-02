@@ -41,6 +41,7 @@ from .worktrees import (
     create_issue_worktree,
     describe_removability,
     describe_worktree_plan,
+    linked_worktrees,
 )
 
 Harness = Literal["codex", "claude-code"]
@@ -390,18 +391,41 @@ def worktree_create(
 
 @worktree.command(name="check")
 def worktree_check(
-    path: Annotated[Path, Parameter(help="PATH: the Worktree to report on")],
+    path: Annotated[
+        Path | None,
+        Parameter(
+            help="PATH: the Worktree to report on; every linked Worktree of the "
+            "Repository when omitted",
+            show_default=False,
+        ),
+    ] = None,
     /,
     *,
     timeout: _Timeout = 10.0,
     json_output: _JsonOutput = False,
 ) -> int:
     """Report whether a Worktree is removable, and each reason it is not."""
-    report = check_worktree(Path.cwd().resolve(), path, timeout=timeout)
+    current = Path.cwd().resolve()
+    if path is not None:
+        report = check_worktree(current, path, timeout=timeout)
+        if json_output:
+            print(render_json(removability_document(report)))
+        else:
+            _report(describe_removability(report))
+        return 0
+    reports = [
+        check_worktree(current, worktree, timeout=timeout)
+        for worktree in linked_worktrees(current, timeout=timeout)
+    ]
     if json_output:
-        print(render_json(removability_document(report)))
+        print(render_json([removability_document(report) for report in reports]))
+    elif not reports:
+        print("no linked Worktrees in this Repository")
     else:
-        _report(describe_removability(report))
+        for index, report in enumerate(reports):
+            if index:
+                print()
+            _report(describe_removability(report))
     return 0
 
 

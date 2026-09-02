@@ -633,6 +633,21 @@ def describe_worktree_plan(plan: WorktreePlan) -> list[str]:
     return lines
 
 
+def linked_worktrees(current: Path, *, timeout: float = 10) -> list[Path]:
+    """List the linked Worktrees of the Repository ``current`` belongs to.
+
+    The main Worktree is never removable, so a check of every Worktree is a
+    check of the linked ones; a bare entry is not a Worktree.
+    """
+    anchor = worktree_root(current)
+    records = Git(anchor, timeout).worktree_records()
+    return sorted(
+        Path(record["worktree"]).resolve()
+        for record in records[1:]
+        if record.get("worktree") and "bare" not in record
+    )
+
+
 def check_worktree(
     current: Path,
     target: Path,

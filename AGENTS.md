@@ -110,7 +110,7 @@ uv run dashpot work start 35                 # 4. inside that session, at that W
   session. Run `uv sync --locked --group dev` in the new Worktree first.
 - Finished work leaves the Worktree in place. `uv run dashpot worktree check
   <path>` reports whether it could be removed and the Git command for each
-  reason it cannot; Dashpot never removes it.
+  reason it cannot (no path: every linked Worktree); Dashpot never removes it.
 
 ## Vocabulary
 

@@ -609,6 +609,56 @@ def test_worktree_check_dispatches_and_prints_the_report(
     assert payload["obstacles"][0]["kind"] == "dirty"
 
 
+def test_worktree_check_without_a_path_reports_every_linked_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def report(path: str, removable: bool) -> WorktreeRemovability:
+        return WorktreeRemovability(
+            path=path,
+            branch="b",
+            head="e319d3c",
+            role="linked",
+            removable=removable,
+            obstacles=()
+            if removable
+            else (RemovalObstacle(kind="dirty", detail="1 changed path"),),
+            remove_commands=(f"git worktree remove {path}",),
+        )
+
+    reports = {Path("/w/a"): report("/w/a", True), Path("/w/b"): report("/w/b", False)}
+    with (
+        mock.patch.object(
+            cli, "linked_worktrees", return_value=list(reports)
+        ) as listed,
+        mock.patch.object(
+            cli, "check_worktree", side_effect=lambda _c, p, timeout: reports[p]
+        ),
+    ):
+        assert cli.main(["worktree", "check"]) == 0
+    listed.assert_called_once_with(Path.cwd().resolve(), timeout=10.0)
+    out = capsys.readouterr().out
+    assert "/w/a (Branch b) is removable" in out
+    assert "/w/b (Branch b) is not removable:" in out
+
+    with (
+        mock.patch.object(cli, "linked_worktrees", return_value=list(reports)),
+        mock.patch.object(
+            cli, "check_worktree", side_effect=lambda _c, p, timeout: reports[p]
+        ),
+    ):
+        assert cli.main(["worktree", "check", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [item["removable"] for item in payload] == [True, False]
+
+    with mock.patch.object(cli, "linked_worktrees", return_value=[]):
+        assert cli.main(["worktree", "check"]) == 0
+    assert capsys.readouterr().out.strip() == "no linked Worktrees in this Repository"
+
+
 def test_integrate_codex_dispatches_install_remove_and_status(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -776,7 +826,6 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
         (["work", "bogus"], 'Unknown command "bogus"'),
         (["issue", "show"], "REFERENCE requires an argument"),
         (["worktree", "create"], "REFERENCE requires an argument"),
-        (["worktree", "check"], "PATH requires an argument"),
         (["worktree", "create", "35", "--no-dry-run"], "Unknown option: --no-dry-run"),
         (["init", "--timeout", "0"], "Must be > 0."),
         (["integrate"], "HARNESS requires an argument"),

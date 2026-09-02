@@ -44,6 +44,8 @@ def removability_document(report: WorktreeRemovability) -> dict[str, Any]:
     return _document(report)
 
 
-def render_json(document: dict[str, Any], *, compact: bool = False) -> str:
-    """Render a command document as JSON text, indented unless ``compact``."""
+def render_json(
+    document: dict[str, Any] | list[dict[str, Any]], *, compact: bool = False
+) -> str:
+    """Render a command document, or a list of them, as JSON text."""
     return json.dumps(document, indent=None if compact else 2)

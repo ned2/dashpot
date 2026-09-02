@@ -816,3 +816,16 @@ def test_squash_merged_worktree_is_removable_with_a_forced_branch_delete(
         f"git worktree remove {plan.path}",
         f"git branch -D {plan.branch}",
     )
+
+
+def test_linked_worktrees_lists_every_linked_worktree_but_the_main(
+    tmp_path: Path,
+) -> None:
+    root = sim(tmp_path)
+    assert worktrees.linked_worktrees(root) == []
+
+    first = create(root)
+    second = create(root, "36")
+
+    listed = worktrees.linked_worktrees(Path(second.path))
+    assert listed == sorted([Path(first.path).resolve(), Path(second.path).resolve()])
