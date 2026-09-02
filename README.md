@@ -74,7 +74,8 @@ command it follows, so the timeout for `init` is given as `dashpot init
 startup error, or a refused operation — is a one-line `dashpot: ...`
 diagnostic on stderr and exit code 2, with no traceback. Beside observation,
 the management commands `init`, `integrate`,
-`work`, `issue show`, and `worktree create` / `check` are documented in
+`work`, `issue show`, `worktree create` / `check` / `remove`, and
+`branch delete` are documented in
 [Project configuration](#project-configuration),
 [Agent session observation](#agent-session-observation),
 [Issue work opt-in](#issue-work-opt-in), and
@@ -161,7 +162,8 @@ paths for identity.
 
 The headless JSON key set is a stable contract, for `dashpot --json` and for
 every management command's `--json` (`issue show`, `worktree create`,
-`worktree check`): keys are camelCase, every documented field is present, and
+`worktree check`, `worktree remove`, `branch delete`): keys are camelCase,
+every documented field is present, and
 an unknown value is an explicit `null` rather than an omitted key, so a
 consumer can tell "unknown" from "not emitted by this version". A shape change
 is a compatibility change. `src/dashpot/serialization.py` owns the documents
@@ -758,6 +760,9 @@ dashpot worktree create 35 --dry-run  # the same report, creating nothing
 dashpot worktree create 35 --branch 35-alternate --base main --worktree-root ~/w
 dashpot worktree check ~/w/35-alternate   # read-only: removable, or why not
 dashpot worktree check                    # the same for every linked Worktree
+dashpot worktree remove ~/w/35-alternate --delete-ignored   # unforced, after that check
+dashpot worktree remove ~/w/35-alternate --delete-branch --delete-ignored --dry-run
+dashpot branch delete 35-alternate --local   # the local Branch, once integrated
 ```
 
 `issue show` accepts the Issue Hints `work start` accepts — a bare Issue
@@ -819,7 +824,33 @@ with its reason and whether the holding process is alive (`initializing`
 names the forced removal), Agent Sessions whose hooks place them there,
 Agent Runs recorded there (an Orphaned Agent Run names its
 `dashpot work stop --session` command), and commits not on the upstream or
-the base Branch. Dashpot removes nothing.
+the base Branch. `check` removes nothing.
+
+`worktree remove PATH` and `branch delete NAME` are the Cleanup commands of
+[ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).
+Each takes the same read-only preview the dashboard will show — every target
+with its integration state, blockers, and consequences — then re-inspects and
+performs only the targets its flags name, only if nothing observed has changed
+in between. `worktree remove` removes one linked Worktree with an unforced
+`git worktree remove`, so a dirty or locked Worktree is refused, and with
+`--delete-branch` deletes its local Branch afterwards; `--delete-ignored`
+acknowledges that the Worktree's ignored content (`.venv`, `.dashpot/state/`,
+hook records, and the Work Store there) goes with it, and the command is
+refused without it when such content exists. `branch delete --local` deletes
+the local Branch with `git update-ref -d` guarded by the previewed commit, so a
+Branch that moved is refused rather than deleted, and drops its `branch.NAME.*`
+configuration. Neither deletes the Integration Branch, a checked-out Branch, a
+Branch with commits the Integration Branch does not reach, or a Worktree that
+is the main one, dirty, locked, occupied by an Agent Session or Agent Run, or
+the checkout the command runs from. Every target reports its own outcome —
+`deleted`, `already-absent`, `refused`, or `unknown` when Git did not answer —
+with the command that recreates a deleted one, and after a refused or unknown
+outcome the remaining targets are not attempted. `--dry-run` validates the
+selection and lists what would be attempted, in order; `--json` prints the
+report (`kind`, `subject`, `anchor`, `dryRun`, `performed`, `changed`,
+`refusals`, `planned`, `results`, `succeeded`, and the `preview`). The exit
+code is 0 only when every selected target was deleted or already absent.
+Deleting a Branch at a remote is not available yet.
 
 The created Worktree carries no harness. Launch whichever harness should
 work there with its working directory set — `codex -C <path>` or

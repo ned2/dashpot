@@ -1,4 +1,4 @@
-"""Acceptance tests for the read-only Cleanup preview.
+"""Acceptance tests for the Cleanup preview and its performance.
 
 Every test runs against a disposable repository on ``main`` whose ``origin``
 is a path that is never fetched; Remote-Tracking Branches and ``origin/HEAD``
@@ -13,19 +13,27 @@ from pathlib import Path
 import pytest
 
 from dashpot.cleanup import (
+    CHANGED_SINCE_PREVIEW,
     BranchCleanupRequest,
+    CleanupConfirmation,
     CleanupPreview,
+    CleanupRequest,
     CleanupTarget,
     WorktreeCleanupRequest,
     describe_cleanup_preview,
+    describe_cleanup_report,
     inspect_cleanup,
+    perform_cleanup,
 )
-from dashpot.commands import CommandResult
+from dashpot.commands import CommandResult, run_command
 from dashpot.git import Git, GitError
 from dashpot.hook_records import session_directory, write_hook_record
 from dashpot.processes import ProcessIdentity, ProcessLookup, host_process_lookup
 from dashpot.repository import LockHolderProbe
-from dashpot.serialization import cleanup_preview_document
+from dashpot.serialization import (
+    cleanup_preview_document,
+    cleanup_report_document,
+)
 from dashpot.worktrees import check_worktree
 from factories import git
 from helpers import table_lookup
@@ -529,8 +537,8 @@ def test_describe_renders_each_target_with_its_gate(tmp_path: Path) -> None:
     lines = describe_cleanup_preview(preview_branch(root, "feat"))
     tip = git(root, "rev-parse", "feat")
 
-    assert lines[0] == "Delete Branch  feat"
-    assert lines[1] == f"Repository     {root.resolve()}"
+    assert lines[0] == "Delete Branch   feat"
+    assert lines[1] == f"Repository      {root.resolve()}"
     assert lines[2] == "Targets"
     assert lines[3] == f"  [ ] Local Branch refs/heads/feat @ {tip[:7]} — unavailable"
     assert lines[4] == "      ↑ commits are not reachable from the Integration Branch"
@@ -553,3 +561,332 @@ def test_a_runner_failure_is_never_read_as_absence(tmp_path: Path) -> None:
 
     with pytest.raises(GitError, match="git is missing"):
         inspect_cleanup(BranchCleanupRequest(root, "feat"), git=Git(root, 5, failing))
+
+
+# --- Performing -----------------------------------------------------------
+
+
+def confirm(
+    request: CleanupRequest,
+    preview: CleanupPreview,
+    *identities: str,
+    delete_ignored: bool = False,
+) -> CleanupConfirmation:
+    return CleanupConfirmation(
+        request, preview.fingerprint, identities, delete_ignored=delete_ignored
+    )
+
+
+def linked(tmp_path: Path, root: Path, name: str) -> Path:
+    """A clean linked Worktree on ``name`` with one ignored path inside."""
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), name)
+    (worktree / ".venv").mkdir()
+    (worktree / ".venv" / "bin").write_text("")
+    return worktree
+
+
+def test_deleting_a_local_branch_removes_its_ref_and_configuration(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    track(root, "feat", tip)
+    git(root, "config", "branch.feat.remote", "origin")
+    git(root, "config", "branch.feat.merge", "refs/heads/feat")
+    request = BranchCleanupRequest(root, "feat")
+    preview = inspect_cleanup(request)
+
+    report = perform_cleanup(confirm(request, preview, "local:refs/heads/feat"))
+
+    assert report.performed is True
+    assert report.succeeded is True
+    assert report.changed is False
+    (result,) = report.results
+    assert result.outcome == "deleted"
+    assert result.detail == f"deleted refs/heads/feat at {tip[:7]}"
+    assert result.recovery == f"git branch feat {tip}"
+    assert git(root, "for-each-ref", "refs/heads/feat") == ""
+    assert "branch.feat" not in git(root, "config", "--list")
+    # The Remote-Tracking Branch is the remote target's business, not this one's.
+    assert git(root, "rev-parse", "refs/remotes/origin/feat") == tip
+    assert git(root, "rev-parse", "main") == tip
+
+
+def test_a_changed_preview_performs_nothing_and_returns_the_fresh_one(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    request = BranchCleanupRequest(root, "feat")
+    stale = inspect_cleanup(request)
+    git(root, "checkout", "-q", "feat")
+    commit(root, "late", path="late.txt")
+    git(root, "checkout", "-q", "main")
+
+    report = perform_cleanup(confirm(request, stale, "local:refs/heads/feat"))
+
+    assert report.performed is False
+    assert report.changed is True
+    assert report.succeeded is False
+    assert report.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert report.preview.fingerprint != stale.fingerprint
+    assert report.preview.target("local:refs/heads/feat") is not None
+    assert git(root, "rev-parse", "--verify", "refs/heads/feat")
+
+
+def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    branch(root, "done")
+    integrate(root, "done")
+    worktree = linked(tmp_path, root, "done")
+
+    request = BranchCleanupRequest(root, "feat")
+    preview = inspect_cleanup(request)
+    report = perform_cleanup(confirm(request, preview, "local:refs/heads/feat"))
+    assert report.performed is False
+    assert report.refusals == (
+        "Local Branch is unavailable: 1 commit(s) not reachable from "
+        "refs/remotes/origin/main",
+    )
+    assert git(root, "rev-parse", "refs/heads/feat") == tip
+
+    assert perform_cleanup(confirm(request, preview)).refusals == (
+        "no target is selected",
+    )
+    assert perform_cleanup(
+        confirm(request, preview, "local:refs/heads/x")
+    ).refusals == ("local:refs/heads/x is not a target of this preview",)
+
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    tree, local = preview.targets
+    assert perform_cleanup(confirm(request, preview, local.identity)).refusals == (
+        f"Local Branch can only be deleted together with {tree.identity}",
+    )
+    assert perform_cleanup(confirm(request, preview, tree.identity)).refusals == (
+        "removing the Worktree deletes 1 ignored path(s) inside it, which must be "
+        "acknowledged",
+    )
+    assert worktree.exists()
+    assert git(root, "rev-parse", "--verify", "refs/heads/done")
+
+
+def test_a_remote_target_is_refused_and_halts_the_rest(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    track(root, "feat", tip)
+    request = BranchCleanupRequest(root, "feat")
+    preview = inspect_cleanup(request)
+
+    report = perform_cleanup(
+        confirm(
+            request, preview, "local:refs/heads/feat", "remote:origin:refs/heads/feat"
+        )
+    )
+
+    assert report.performed is True
+    assert report.succeeded is False
+    remote, local = report.results
+    assert remote.kind == "remote-branch"
+    assert remote.outcome == "refused"
+    assert remote.detail == "deleting a Branch at a remote is not available yet"
+    assert local.outcome == "refused"
+    assert local.detail == "not attempted: Branch at origin was refused"
+    assert git(root, "rev-parse", "refs/heads/feat") == tip
+
+
+def test_removing_a_worktree_then_its_branch(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    tree, local = preview.targets
+
+    report = perform_cleanup(
+        confirm(request, preview, local.identity, tree.identity, delete_ignored=True)
+    )
+
+    assert report.succeeded is True
+    first, second = report.results
+    assert (first.kind, first.outcome) == ("worktree", "deleted")
+    assert first.detail == f"removed {worktree.resolve()}"
+    assert first.recovery == f"git worktree add {worktree.resolve()} feat"
+    assert (second.kind, second.outcome) == ("local-branch", "deleted")
+    assert second.recovery == f"git branch feat {tip}"
+    assert not worktree.exists()
+    assert git(root, "for-each-ref", "refs/heads/feat") == ""
+    assert len(git(root, "worktree", "list", "--porcelain").split("\n\n")) == 1
+
+
+def test_a_refused_removal_leaves_the_branch_unattempted(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+
+    def refusing(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if list(args[1:3]) == ["worktree", "remove"]:
+            return CommandResult(list(args), 128, "", "fatal: validation failed\n")
+        return run_command(args, cwd, timeout)
+
+    git_ = Git(root, 5, refusing)
+    preview = inspect_cleanup(request, git=git_)
+    tree, local = preview.targets
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, local.identity, delete_ignored=True),
+        git=git_,
+    )
+
+    assert report.succeeded is False
+    first, second = report.results
+    assert first.outcome == "refused"
+    assert first.detail == "fatal: validation failed"
+    assert second.outcome == "refused"
+    assert second.detail == "not attempted: Worktree was refused"
+    assert worktree.exists()
+    assert git(root, "rev-parse", "--verify", "refs/heads/feat")
+
+
+def test_a_runner_failure_while_performing_is_unknown(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+
+    def hanging(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if list(args[1:3]) == ["worktree", "remove"]:
+            raise RuntimeError("timed out after 5.0s")
+        return run_command(args, cwd, timeout)
+
+    git_ = Git(root, 5, hanging)
+    preview = inspect_cleanup(request, git=git_)
+    tree, local = preview.targets
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, local.identity, delete_ignored=True),
+        git=git_,
+    )
+
+    first, second = report.results
+    assert first.outcome == "unknown"
+    assert first.detail == (
+        "git worktree remove did not complete: timed out after 5.0s; check with: "
+        "git worktree list"
+    )
+    assert second.detail == "not attempted: Worktree was unknown"
+    assert report.succeeded is False
+
+
+def test_a_target_gone_by_the_time_git_answers_is_already_absent(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    request = BranchCleanupRequest(root, "feat")
+
+    def racing(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        result = run_command(args, cwd, timeout)
+        if list(args[1:3]) == ["update-ref", "-d"]:
+            # The deletion landed, yet Git's answer was lost: only the ref
+            # itself can say whether the target is still there.
+            return CommandResult(list(args), 1, "", "error: lost\n")
+        return result
+
+    preview = inspect_cleanup(request)
+    report = perform_cleanup(
+        confirm(request, preview, "local:refs/heads/feat"), git=Git(root, 5, racing)
+    )
+
+    (result,) = report.results
+    assert result.outcome == "already-absent"
+    assert result.detail == "refs/heads/feat was already gone"
+    assert report.succeeded is True
+
+
+def test_a_dry_run_plans_in_order_and_changes_nothing(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    tree, local = preview.targets
+    refs = git(root, "for-each-ref")
+
+    report = perform_cleanup(
+        confirm(request, preview, local.identity, tree.identity, delete_ignored=True),
+        dry_run=True,
+    )
+
+    assert report.dry_run is True
+    assert report.performed is False
+    assert report.succeeded is False
+    assert report.refusals == ()
+    assert report.planned == (tree.identity, local.identity)
+    assert report.results == ()
+    assert worktree.exists()
+    assert git(root, "for-each-ref") == refs
+
+    lines = describe_cleanup_report(report)
+    assert lines[0] == f"Remove Worktree {worktree.resolve()}"
+    assert lines[2] == "Dry run         would attempt, in order"
+    assert lines[3] == f"  1. Worktree {worktree.resolve()}"
+    assert lines[4] == "  2. Local Branch refs/heads/feat"
+
+
+def test_report_json_key_sets_and_description_are_stable(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    request = BranchCleanupRequest(root, "feat")
+    preview = inspect_cleanup(request)
+
+    report = perform_cleanup(confirm(request, preview, "local:refs/heads/feat"))
+
+    document = cleanup_report_document(report)
+    assert set(document) == {
+        "kind",
+        "subject",
+        "anchor",
+        "dryRun",
+        "performed",
+        "preview",
+        "changed",
+        "refusals",
+        "planned",
+        "results",
+        "succeeded",
+    }
+    (result,) = document["results"]
+    assert set(result) == {
+        "identity",
+        "kind",
+        "label",
+        "expected",
+        "outcome",
+        "detail",
+        "recovery",
+    }
+    assert set(document["preview"]) == set(cleanup_preview_document(preview))
+
+    lines = describe_cleanup_report(report)
+    assert lines[0] == "Delete Branch   feat"
+    assert lines[1] == f"Repository      {root.resolve()}"
+    assert lines[2] == "Results"
+    assert lines[3] == f"  deleted        Local Branch refs/heads/feat @ {tip[:7]}"
+    assert lines[4] == f"      deleted refs/heads/feat at {tip[:7]}"
+    assert lines[5] == f"      recover: git branch feat {tip}"
+
+    changed = perform_cleanup(confirm(request, preview, "local:refs/heads/feat"))
+    lines = describe_cleanup_report(changed)
+    assert lines[2] == f"Changed         {CHANGED_SINCE_PREVIEW}"
+    assert lines[3].startswith("Refused         no Branch named feat at ")
