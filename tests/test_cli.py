@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import runpy
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -873,3 +874,14 @@ def test_help_and_version_print_to_stdout_and_exit_zero(
 
 def test_harness_choices_track_the_supported_integrations() -> None:
     assert set(get_args(cli.Harness)) == set(INTEGRATIONS)
+
+
+def test_python_dash_m_dashpot_exits_with_the_cli_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("dashpot.cli.main", lambda: 3)
+
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("dashpot", run_name="__main__")
+
+    assert excinfo.value.code == 3

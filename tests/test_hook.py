@@ -60,6 +60,39 @@ def test_a_publish_failure_is_a_non_blocking_hook_exit(
     assert captured.out == ""
 
 
+def test_a_non_object_hook_input_is_a_non_blocking_hook_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO('["not", "an", "object"]'))
+
+    assert hook.main() == 1
+    assert "hook input must be a JSON object" in capsys.readouterr().err
+
+
+def test_a_published_event_is_a_clean_hook_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    published: list[tuple[dict[str, object], str]] = []
+
+    def publish(event: dict[str, object], harness: str = "codex") -> Path:
+        published.append((event, harness))
+        return tmp_path
+
+    monkeypatch.setattr(hook, "publish_hook_event", publish)
+    event = {"session_id": "s1", "hook_event_name": "Stop", "cwd": str(tmp_path)}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+
+    assert hook.claude_code_main() == 0
+
+    assert published == [(event, "claude-code")]
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == ""
+
+
 def test_an_unsupported_event_is_a_non_blocking_hook_exit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

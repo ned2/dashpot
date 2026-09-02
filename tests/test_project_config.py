@@ -11,9 +11,11 @@ from dashpot.issue_resolution import configured_issue_source
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from dashpot.model import ResolvedProject
 from dashpot.project_config import (
+    PROJECT_CONFIG_NAME,
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
     load_project_config,
+    parse_project_config,
 )
 from factories import completed, fake_git, init_repository, write_project_config
 
@@ -75,6 +77,62 @@ def test_rejects_invalid_issue_source_configuration(
 
     with pytest.raises(RuntimeError, match=message):
         load_project_config(tmp_path)
+
+
+def test_a_missing_project_configuration_names_its_path(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="Project configuration not found"):
+        load_project_config(tmp_path)
+
+
+def test_an_unreadable_project_configuration_names_its_path(tmp_path: Path) -> None:
+    # A directory where the file belongs raises OSError on read, not absence.
+    (tmp_path / PROJECT_CONFIG_NAME).mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match="cannot read Project configuration"):
+        load_project_config(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("{not json", "cannot read Project configuration"),
+        ('["not", "an", "object"]', "must contain a JSON object"),
+        ('{"projectId": "p"}', "is missing fields"),
+        (
+            '{"projectId": " ", "displayLabel": "d", "repositoryId": "r",'
+            ' "issueSource": {"kind": "github"}}',
+            "projectId must be a non-empty string",
+        ),
+        (
+            '{"projectId": "p", "displayLabel": "d", "repositoryId": "r",'
+            ' "issueSource": "github"}',
+            "issueSource must be an object",
+        ),
+    ],
+)
+def test_rejects_malformed_project_configuration_text(
+    tmp_path: Path, text: str, message: str
+) -> None:
+    with pytest.raises(RuntimeError, match=message):
+        parse_project_config(text, tmp_path / PROJECT_CONFIG_NAME)
+
+
+def test_project_collector_rejects_changed_configuration(tmp_path: Path) -> None:
+    # Configuration edited between Project resolution and collector creation
+    # must be re-resolved, not silently mixed with the stale resolution.
+    write_config(tmp_path, {"kind": "markdown", "path": "issues"})
+    git = fake_git(completed(f"{tmp_path}\n"))
+    renamed = ResolvedProject(
+        PROJECT_ID,
+        "Renamed",
+        "R_dashpot",
+        ("test",),
+        (str(tmp_path),),
+        str(tmp_path),
+    )
+
+    with pytest.raises(RuntimeError, match="configuration changed after resolving"):
+        create_project_collector(renamed, git=git)
 
 
 def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:

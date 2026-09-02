@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import sysconfig
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +15,11 @@ from dashpot.integrate import (
     codex_integration_status,
     install_codex_integration,
     install_integration,
+    integration,
     integration_status,
     remove_codex_integration,
     remove_integration,
+    resolve_hook_command,
 )
 from factories import CODEX, git, hook_record_document, write_config_marker
 from helpers import absent, present, unobservable
@@ -647,3 +651,36 @@ def test_codex_subscribes_no_matched_events(tmp_path: Path) -> None:
     install_codex_integration(home, command_path=publisher(tmp_path))
 
     assert "PostToolUse" not in read_hooks(home)
+
+
+def test_resolve_hook_command_prefers_the_environment_scripts_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = integration("codex")
+    installed = tmp_path / spec.command_name
+    installed.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(sysconfig, "get_path", lambda name: str(tmp_path))
+
+    assert resolve_hook_command(spec) == installed
+
+
+def test_resolve_hook_command_falls_back_to_the_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = integration("claude-code")
+    on_path = tmp_path / "bin" / spec.command_name
+    monkeypatch.setattr(sysconfig, "get_path", lambda name: str(tmp_path / "absent"))
+    monkeypatch.setattr(shutil, "which", lambda name: str(on_path))
+
+    assert resolve_hook_command(spec) == on_path
+
+
+def test_resolve_hook_command_reports_a_missing_publisher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec = integration("codex")
+    monkeypatch.setattr(sysconfig, "get_path", lambda name: str(tmp_path / "absent"))
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    with pytest.raises(RuntimeError, match="reinstall Dashpot"):
+        resolve_hook_command(spec)

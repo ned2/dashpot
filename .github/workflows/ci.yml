@@ -64,8 +64,18 @@ jobs:
       - name: Install locked environment
         run: uv sync --locked --group dev
 
+      # One leg measures coverage so the report shows up in the log and job
+      # summary; there is deliberately no threshold — the report finds gaps,
+      # it does not gate (issue #81).
       - name: Run tests
+        if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.11'
         run: uv run pytest -q
+
+      - name: Run tests with a coverage report
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: |
+          uv run pytest -q --cov --cov-report=term-missing
+          uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: build distributions

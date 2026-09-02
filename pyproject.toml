@@ -137,3 +137,14 @@ filterwarnings = ["error"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 xfail_strict = true
+
+[tool.coverage.run]
+# Coverage is opt-in (`uv run pytest --cov`): the default `pytest -q` loop
+# stays uninstrumented, and CI reports coverage on one leg without gating.
+source = ["dashpot"]
+
+[tool.coverage.report]
+# Only lines the suite genuinely cannot execute are excluded: typing-only
+# imports and script entry guards. Anything else earns an inline
+# `pragma: no cover` naming its reason.
+exclude_also = ["if TYPE_CHECKING:", "if __name__ == .__main__.:"]
