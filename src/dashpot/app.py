@@ -13,7 +13,6 @@ from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, Horizontal, Vertical
 from textual.content import Content
-from textual.css.query import NoMatches
 from textual.geometry import Size
 from textual.message import Message
 from textual.screen import Screen
@@ -129,21 +128,10 @@ class DashboardBody(Container):
         self.post_message(BodyResized(event.size))
 
 
-class DashpotApp(App[None]):
-    TITLE = "Dashpot"
-    SUB_TITLE = DEFAULT_SUB_TITLE
-    CSS_PATH = "dashpot.tcss"
-    # Textual declares this as an instance attribute, so ClassVar is not an
-    # option; the list is never mutated.
-    HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]  # ruff: ignore[mutable-class-default]
-    # Keep rendered detail and diagnostic text selectable. Interactive widgets
-    # such as DataTable opt out independently so mouse gestures remain theirs.
-    ALLOW_SELECT = True
+class DashboardScreen(Screen[None]):
+    """Own the dashboard: composition, the panes, view state and their keys."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        ("q", "quit", "Quit"),
-        ("question_mark", "legend", "Legend"),
-        ("r", "refresh", "Refresh"),
         ("enter", "open_issue", "Open Issue"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
@@ -154,60 +142,24 @@ class DashpotApp(App[None]):
 
     def __init__(
         self,
-        collector: SnapshotCollector | ObservationScheduler,
-        refresh_seconds: float = 15,
-        observation_store: WorkspaceObservationStore | None = None,
-        issue_view: IssueTableViewState = IssueTableViewState(),
-        refresh_indicator_seconds: float = 0.75,
+        issue_view: IssueTableViewState,
+        search_diagnostics: tuple[str, ...],
     ) -> None:
         super().__init__()
-        # Quick background observations should not flicker an indicator; the
-        # refreshing alert appears only once work has been in flight this long.
-        self.refresh_indicator_seconds = refresh_indicator_seconds
-        self.refresh_indicator_timer: Timer | None = None
-        self.refreshing_visible = False
-        self.in_flight: dict[ObservationKey, int] = {}
-        self.scheduler: ObservationScheduler = (
-            collector
-            if isinstance(collector, ObservationScheduler)
-            else SnapshotScheduler(collector)
-        )
-        self.refresh_seconds = refresh_seconds
-        self.store = observation_store or WorkspaceObservationStore()
-        parsed_search = parse_issue_search(issue_view.query.text)
-        explicit_sort = issue_search_sort_terms(parsed_search.sort)
-        self.issue_view = (
-            replace(issue_view, sort=explicit_sort)
-            if explicit_sort is not None
-            else issue_view
-        )
-        self.refresh_timer: Timer | None = None
+        self.issue_view = issue_view
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
         self.rendered_cells: dict[str, tuple[TableCell, ...]] = {}
-        self.observation_errors: dict[ObservationKey, str] = {}
-        self.search_diagnostics = parsed_search.diagnostics
-        # Superseded observations keep their thread until the source returns,
-        # so size the pool for every key rather than one refresh at a time.
-        self.refresh_executor = ThreadPoolExecutor(
-            max_workers=max(2, min(8, len(self.scheduler.keys()))),
-            thread_name_prefix="dashpot-refresh",
-        )
+        self.search_diagnostics = search_diagnostics
 
     @property
-    def ui_error(self) -> str | None:
-        """The current observation failures, newest last, or None."""
-        if not self.observation_errors:
-            return None
-        return "\n".join(self.observation_errors.values())
+    def dashpot(self) -> DashpotApp:
+        """Narrow `self.app` once: the store and observation state live there.
 
-    @override
-    def get_css_variables(self) -> dict[str, str]:
-        """Add the Issue state colours for the current theme's brightness."""
-        return {
-            **super().get_css_variables(),
-            **issue_state_colors(dark=self.current_theme.dark),
-        }
+        Use `dashpot` for Dashpot-owned state (store, observation errors,
+        in-flight tickets) and plain `app` for the Textual API.
+        """
+        return cast("DashpotApp", self.app)
 
     @override
     def compose(self) -> ComposeResult:
@@ -258,18 +210,16 @@ class DashpotApp(App[None]):
 
     def queue_table(self) -> SpreadTable[TableCell]:
         """The Issue table; `query_one` cannot name the cell type itself."""
-        return cast(
-            "SpreadTable[TableCell]", self.main_screen.query_one("#queue", SpreadTable)
-        )
+        return cast("SpreadTable[TableCell]", self.query_one("#queue", SpreadTable))
 
     def sessions_pane(self) -> ListPane:
-        return self.main_screen.query_one("#sessions-pane", ListPane)
+        return self.query_one("#sessions-pane", ListPane)
 
     def branches_pane(self) -> ListPane:
-        return self.main_screen.query_one("#branches-pane", ListPane)
+        return self.query_one("#branches-pane", ListPane)
 
     def worktrees_pane(self) -> ListPane:
-        return self.main_screen.query_one("#worktrees-pane", ListPane)
+        return self.query_one("#worktrees-pane", ListPane)
 
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
@@ -278,66 +228,32 @@ class DashpotApp(App[None]):
     def list_tables(self) -> tuple[DataTable[Any], ...]:
         """The lists in focus-cycle order: Issues, Sessions, Branches, Worktrees."""
         return tuple(
-            self.main_screen.query_one(f"#{table_id}", DataTable)
-            for table_id in LIST_TABLE_IDS
+            self.query_one(f"#{table_id}", DataTable) for table_id in LIST_TABLE_IDS
         )
 
-    @property
-    def dashboard_active(self) -> bool:
-        """Whether the dashboard is the screen the user is looking at.
-
-        Dashboard bindings are App-level so they survive focus moving between
-        panes, which also means they fire under the Issue view, the Legend and
-        the column editor; each declines unless the dashboard is on top.
-        """
-        return self.screen is self.main_screen
-
     def action_focus_search(self) -> None:
-        if not self.dashboard_active:
-            return
-        self.main_screen.query_one("#issue-search", Input).focus()
-
-    @override
-    def action_focus_next(self) -> None:
-        if not self.cycle_list_focus(1):
-            super().action_focus_next()
-
-    @override
-    def action_focus_previous(self) -> None:
-        if not self.cycle_list_focus(-1):
-            super().action_focus_previous()
+        self.query_one("#issue-search", Input).focus()
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus to the next list when a list has it; otherwise decline."""
-        if not self.dashboard_active:
-            return False
         tables = self.list_tables()
-        focused = self.main_screen.focused
+        focused = self.focused
         if focused not in tables:
             return False
         tables[(tables.index(focused) + step) % len(tables)].focus()
         return True
 
     def on_mount(self) -> None:
-        self.main_screen.query_one("#queue-pane").border_title = Content(
-            ISSUE_PANE_LABEL
-        )
+        self.query_one("#queue-pane").border_title = Content(ISSUE_PANE_LABEL)
         table = self.queue_table()
         self.show_table_columns(table, shown_columns(self.issue_view.columns, ()))
         table.focus()
-        self.theme_changed_signal.subscribe(self, self.on_theme_changed)
-
-    def on_text_selected(self, event: events.TextSelected) -> None:
-        """Copy arbitrary rendered-text selections when the drag finishes."""
-
-        selected_text = self.screen.get_selected_text()
-        if selected_text:
-            self.copy_to_clipboard(selected_text)
+        self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
 
     def on_theme_changed(self, _theme: Theme) -> None:
         """Re-render semantic table colors for the new theme brightness."""
 
-        if self.store.has_observations:
+        if self.dashpot.store.has_observations:
             self.reconcile_rows()
             # The list panes render their glyphs in explicit colours chosen
             # for the theme's brightness, so they repaint with the table.
@@ -364,25 +280,17 @@ class DashpotApp(App[None]):
             )
 
     def action_columns(self) -> None:
-        if not self.dashboard_active:
-            return
-        self.push_screen(
+        self.app.push_screen(
             IssueColumnEditor(self.issue_view.columns),
             self.apply_issue_columns,
         )
-
-    def action_legend(self) -> None:
-        """Explain every Glyph on screen; a second ``?`` is absorbed by the Legend."""
-        if isinstance(self.screen, LegendScreen):
-            return
-        self.push_screen(LegendScreen())
 
     def apply_issue_columns(self, columns: tuple[ColumnKey, ...] | None) -> None:
         if columns is None or columns == self.issue_view.columns:
             return
         self.issue_view = self.issue_view.with_columns(columns)
         table = self.queue_table()
-        if self.store.has_observations:
+        if self.dashpot.store.has_observations:
             self.reconcile_rows()
             return
         self.show_table_columns(table, shown_columns(columns, ()))
@@ -397,16 +305,12 @@ class DashpotApp(App[None]):
         self.apply_issue_sort(issue_view, event.data_table)
 
     def action_sort_next(self) -> None:
-        if not self.dashboard_active:
-            return
         table = self.queue_table()
         self.apply_issue_sort(
             self.issue_view.cycle_sort(self.table_columns(table)), table
         )
 
     def action_reverse_sort(self) -> None:
-        if not self.dashboard_active:
-            return
         table = self.queue_table()
         self.apply_issue_sort(
             self.issue_view.reverse_sort(self.table_columns(table)), table
@@ -455,13 +359,9 @@ class DashpotApp(App[None]):
         )
 
     def action_cycle_issue_state(self) -> None:
-        if not self.dashboard_active:
-            return
         states = next_issue_states(self.issue_view.query.states)
         # Drive the control so the header, the query, and the Select agree.
-        self.main_screen.query_one(
-            "#issue-state", Select
-        ).value = issue_state_filter_value(
+        self.query_one("#issue-state", Select).value = issue_state_filter_value(
             replace(self.issue_view.query, states=states)
         )
 
@@ -491,7 +391,7 @@ class DashpotApp(App[None]):
         self.issue_view = replace(self.issue_view, query=query, sort=next_sort)
         if sort_changed:
             self.update_sort_headers(self.queue_table())
-        if self.store.has_observations:
+        if self.dashpot.store.has_observations:
             self.reconcile_rows()
 
     def update_sort_headers(self, table: DataTable[TableCell]) -> None:
@@ -516,164 +416,29 @@ class DashpotApp(App[None]):
             reverse=terms[0].descending,
         )
 
-    def on_ready(self) -> None:
-        table = self.queue_table()
-        if not self.store.has_observations:
-            table.loading = True
-            self.request_refresh("initial")
-        else:
-            self.update_issue_inventory(self.reconcile_rows())
-            self.reconcile_list_panes()
-            self.update_diagnostics()
-        if self.refresh_seconds > 0:
-            self.refresh_timer = self.set_interval(
-                self.refresh_seconds,
-                self.action_refresh,
-                name="workspace refresh",
-            )
-
-    def on_unmount(self) -> None:
-        self.refresh_executor.shutdown(wait=False, cancel_futures=True)
-
-    def action_refresh(self) -> None:
-        """Refresh every observation in the Workspace."""
-        if self.refresh_timer is not None:
-            self.refresh_timer.reset()
-        self.request_refresh("manual")
-
-    def request_refresh(self, trigger: str) -> None:
-        self.schedule_observations(self.scheduler.keys(), trigger)
-
-    def schedule_observations(
-        self, keys: Sequence[ObservationKey], trigger: str
-    ) -> None:
-        for ticket in self.scheduler.request(keys):
-            self.in_flight[ticket.key] = ticket.generation
-            # A partial rather than a coroutine object: an exclusive worker
-            # cancelled before it starts would otherwise leave the coroutine
-            # created but never awaited.
-            self.run_worker(
-                partial(self.observe, ticket, trigger),
-                name=f"observe {ticket.key.group}",
-                group=ticket.key.group,
-                exclusive=True,
-                exit_on_error=False,
-            )
-        if self.refresh_indicator_timer is None and self.in_flight:
-            self.refresh_indicator_timer = self.set_timer(
-                self.refresh_indicator_seconds,
-                self.show_refreshing,
-                name="refresh indicator",
-            )
-
-    def show_refreshing(self) -> None:
-        self.refresh_indicator_timer = None
-        if self.in_flight:
-            self.refreshing_visible = True
-            self.update_alert()
-
-    def _finish_in_flight(self, ticket: ObservationTicket) -> None:
-        if self.in_flight.get(ticket.key) == ticket.generation:
-            del self.in_flight[ticket.key]
-        if not self.in_flight:
-            if self.refresh_indicator_timer is not None:
-                self.refresh_indicator_timer.stop()
-                self.refresh_indicator_timer = None
-            self.refreshing_visible = False
-
-    async def observe(self, ticket: ObservationTicket, trigger: str) -> None:
-        worker = get_current_worker()
-        try:
-            outcome = await asyncio.get_running_loop().run_in_executor(
-                self.refresh_executor, self.scheduler.observe, ticket
-            )
-        except Exception as exc:  # UI boundary: source failures must not exit the app.
-            if not worker.is_cancelled:
-                self.post_message(ObservationFinished(ticket, trigger, error=str(exc)))
-            return
-        if not worker.is_cancelled:
-            self.post_message(ObservationFinished(ticket, trigger, outcome=outcome))
-
-    def on_observation_finished(self, message: ObservationFinished) -> None:
-        # A late completion can be dispatched during shutdown while widgets
-        # are being unmounted one by one; any missing widget means the result
-        # has nowhere to go and is dropped.
-        if self._closing or self._closed or not self.screen_stack:
-            return
-        try:
-            self._finish_in_flight(message.ticket)
-            try:
-                self._accept_observation(message)
-            finally:
-                self.update_alert()
-        except NoMatches:
-            return
-
-    def _accept_observation(self, message: ObservationFinished) -> None:
-        key = message.ticket.key
-        if message.error is not None:
-            if not self.scheduler.is_current(message.ticket):
-                return
-            self.queue_table().loading = False
-            error = f"Refresh failed: {message.error}"
-            # The persistent alert already carries a repeated failure; only a
-            # new or changed failure earns a toast.
-            changed = self.observation_errors.get(key) != error
-            self.observation_errors[key] = error
-            self.update_diagnostics()
-            if message.trigger == "manual" and changed:
-                self.notify(error, severity="error", title="Dashpot refresh")
-            return
-        outcome = message.outcome
-        if outcome is None or not outcome.accepted:
-            return
-        recovered = self.observation_errors.pop(key, None) is not None
-        if recovered and message.trigger == "manual":
-            self.notify(
-                "Refresh succeeded", severity="information", title="Dashpot refresh"
-            )
-        # Publishing happens here, on the UI thread, so the store is never
-        # mutated while a read model is being rendered from it.
-        changes = self.scheduler.publish(self.store)
-        # An accepted observation ends the cold load even when an earlier
-        # publish already carried its change; the spinner must not outlive it.
-        self.queue_table().loading = False
-        if not changes:
-            self.update_diagnostics()
-            return
-        self.update_issue_inventory(self.reconcile_rows())
-        self.reconcile_list_panes()
-        self.update_diagnostics()
-        # Follow-ups are derived from what was published, not from this
-        # ticket's key: another key's handler may already have published
-        # this one's pending composition.
-        follow_ups = self.scheduler.follow_ups(changes)
-        if follow_ups:
-            self.schedule_observations(follow_ups, message.trigger)
-
     def update_issue_inventory(self, result: IssueListResult) -> None:
         """Title the Issue pane with the complete lifecycle inventory.
 
         Only publish paths call this: filtering the table never changes the
         inventory, so the title stays put while the result count moves.
         """
-        self.main_screen.query_one("#queue-pane").border_title = Content(
+        self.query_one("#queue-pane").border_title = Content(
             f"{ISSUE_PANE_LABEL} · {issue_inventory_text(result)}"
         )
 
     def on_body_resized(self, message: BodyResized) -> None:
-        # The last layout of a closing app can report after the screen stack
-        # has been torn down; the panes it would fit are already gone.
-        if self._closing or self._closed or not self.screen_stack:
+        # The last layout of a closing app can report after the screen has
+        # been torn down; the panes it would fit are already gone.
+        if not self.is_mounted:
             return
         self.fit_list_panes(message.size)
 
     def on_list_pane_rows_changed(self, _message: ListPane.RowsChanged) -> None:
         # A pane's share depends on what every pane wants, so any change of
         # records refits them all.
-        if self._closing or self._closed or not self.screen_stack:
+        if not self.is_mounted:
             return
-        self.fit_list_panes(self.main_screen.query_one("#body").size)
+        self.fit_list_panes(self.query_one("#body").size)
 
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
@@ -685,7 +450,7 @@ class DashpotApp(App[None]):
         over-constrained column (every `fr` row at its minimum), so the cap
         shrinks first, to a frame with a count when nothing else fits.
         """
-        minimum = self.main_screen.query_one("#queue-pane").styles.min_height
+        minimum = self.query_one("#queue-pane").styles.min_height
         remaining = body.height - (int(minimum.value) if minimum is not None else 0)
         # Hand out height smallest wish first, so a pane that wants less than
         # an even share never holds back one that wants more.
@@ -698,22 +463,22 @@ class DashpotApp(App[None]):
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed session, worktree and branch from the store."""
-        sessions = self.store.query_sessions()
+        sessions = self.dashpot.store.query_sessions()
         self.sessions_pane().show_rows(
-            build_session_rows(sessions, dark=self.current_theme.dark),
+            build_session_rows(sessions, dark=self.app.current_theme.dark),
             columns=session_columns(sessions),
         )
-        branches = self.store.query_branches()
+        branches = self.dashpot.store.query_branches()
         now = datetime.now(UTC)
         self.branches_pane().show_rows(
-            build_branch_rows(branches, dark=self.current_theme.dark, now=now),
+            build_branch_rows(branches, dark=self.app.current_theme.dark, now=now),
             note=branch_note(branches.integration_refs, branches.fetched_at, now),
         )
         self.worktrees_pane().show_rows(self.worktree_rows())
 
     def worktree_rows(self) -> tuple[ListRow, ...]:
         return build_worktree_rows(
-            self.store.query_worktrees(), dark=self.current_theme.dark
+            self.dashpot.store.query_worktrees(), dark=self.app.current_theme.dark
         )
 
     def reconcile_rows(self) -> IssueListResult:
@@ -724,8 +489,8 @@ class DashpotApp(App[None]):
             self.issue_view.query,
             search_fields=searchable_columns(),
         )
-        result = self.store.query_issues(query)
-        self.main_screen.query_one("#issue-count", Static).update(
+        result = self.dashpot.store.query_issues(query)
+        self.query_one("#issue-count", Static).update(
             issue_result_count_text(result.matched_issue_count)
         )
         shown = shown_columns(self.issue_view.columns, result.rows)
@@ -734,13 +499,13 @@ class DashpotApp(App[None]):
             result,
             columns=shown,
             sort=self.issue_view.sort,
-            dark=self.current_theme.dark,
+            dark=self.app.current_theme.dark,
         )
         old_keys = set(self.rendered_cells)
         new_keys = set(desired_cells)
         hidden_sort = any(term.column not in shown for term in self.issue_view.sort)
 
-        with self.batch_update():
+        with self.app.batch_update():
             if hidden_sort:
                 table.clear()
                 for key, cells in desired_cells.items():
@@ -792,11 +557,6 @@ class DashpotApp(App[None]):
         key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
         return key, table.cursor_row
 
-    @property
-    def main_screen(self) -> Screen[Any]:
-        """The dashboard screen, whatever is stacked above it."""
-        return self.screen_stack[0] if self.screen_stack else self.screen
-
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id == "queue":
             self.open_issue(str(event.row_key.value))
@@ -823,18 +583,16 @@ class DashpotApp(App[None]):
 
     def open_issue(self, key: str) -> None:
         """Read the Issue full-screen; nothing happens without an Issue row."""
-        if not self.dashboard_active:
-            return
         row = self.rows_by_key.get(key)
-        context = self.store.detail_for(row) if row is not None else None
+        context = self.dashpot.store.detail_for(row) if row is not None else None
         if context is None or context.issue is None:
             return
-        self.push_screen(IssueScreen(context))
+        self.app.push_screen(IssueScreen(context))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         # A queued highlight can be dispatched during app shutdown, after the
         # screen and its panes have been unmounted.
-        if self._closing or self._closed or not self.screen_stack:
+        if not self.is_mounted:
             return
         # Only the Issue table drives the Issue selection; a session or worktree
         # cursor is for scrolling, copying and refresh scope alone.
@@ -844,7 +602,7 @@ class DashpotApp(App[None]):
 
     def show_row(self, key: str) -> None:
         row = self.rows_by_key.get(key)
-        context = self.store.detail_for(row) if row is not None else None
+        context = self.dashpot.store.detail_for(row) if row is not None else None
         # A row the store can no longer detail selects nothing; keeping the
         # previous selection would open the wrong Issue.
         self.selected_row_key = key if context is not None else None
@@ -856,15 +614,15 @@ class DashpotApp(App[None]):
         Without a selected row the Header names every observed Project's
         anchor, so an empty Issue table still says what is being observed.
         """
-        projects = (project,) if project is not None else self.store.projects()
+        projects = (project,) if project is not None else self.dashpot.store.projects()
         anchors = " · ".join(candidate.primary_anchor for candidate in projects)
-        self.sub_title = anchors or DEFAULT_SUB_TITLE
+        self.app.sub_title = anchors or DEFAULT_SUB_TITLE
 
     def update_diagnostics(self) -> None:
         # A refresh failure and a search error are the app's own errors; a
         # Project's diagnostics carry the severity they were observed with.
         entries: list[tuple[AlertSeverity, str]] = [
-            ("error", message) for message in self.observation_errors.values()
+            ("error", message) for message in self.dashpot.observation_errors.values()
         ]
         entries.extend(
             ("error", f"Search: {message}") for message in self.search_diagnostics
@@ -877,12 +635,12 @@ class DashpotApp(App[None]):
                 if entry.project_label is not None
                 else f"{entry.diagnostic.source}: {entry.diagnostic.message}",
             )
-            for entry in self.store.diagnostics()
+            for entry in self.dashpot.store.diagnostics()
         )
         # The Diagnostics box takes no space at all while there is nothing to
         # report; `-has-messages` displays it, and the box is coloured by the
         # most severe line in it rather than by having any line at all.
-        diagnostics = self.main_screen.query_one("#diagnostics", Static)
+        diagnostics = self.query_one("#diagnostics", Static)
         diagnostics.set_class(bool(entries), "-has-messages")
         severity = min(
             (item for item, _message in entries),
@@ -902,18 +660,267 @@ class DashpotApp(App[None]):
 
     def update_alert(self) -> None:
         """Render the exceptional-state readout, or hide it entirely."""
+        app = self.dashpot
         alert = summarize_alerts(
-            self.store,
-            failures=self.observation_errors,
-            refreshing=tuple(self.in_flight) if self.refreshing_visible else (),
+            app.store,
+            failures=app.observation_errors,
+            refreshing=tuple(app.in_flight) if app.refreshing_visible else (),
         )
-        widget = self.main_screen.query_one("#alert", Static)
+        widget = self.query_one("#alert", Static)
         widget.set_class(alert is not None, "-visible")
         for severity in ("error", "warning", "info"):
             widget.set_class(
                 alert is not None and alert.severity == severity, f"-{severity}"
             )
         widget.update(alert.text if alert is not None else "")
+
+
+class DashpotApp(App[None]):
+    TITLE = "Dashpot"
+    SUB_TITLE = DEFAULT_SUB_TITLE
+    CSS_PATH = "dashpot.tcss"
+    # Textual declares this as an instance attribute, so ClassVar is not an
+    # option; the list is never mutated.
+    HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]  # ruff: ignore[mutable-class-default]
+    # Keep rendered detail and diagnostic text selectable. Interactive widgets
+    # such as DataTable opt out independently so mouse gestures remain theirs.
+    ALLOW_SELECT = True
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("q", "quit", "Quit"),
+        ("question_mark", "legend", "Legend"),
+        ("r", "refresh", "Refresh"),
+    ]
+
+    def __init__(
+        self,
+        collector: SnapshotCollector | ObservationScheduler,
+        refresh_seconds: float = 15,
+        observation_store: WorkspaceObservationStore | None = None,
+        issue_view: IssueTableViewState = IssueTableViewState(),
+        refresh_indicator_seconds: float = 0.75,
+    ) -> None:
+        super().__init__()
+        # Quick background observations should not flicker an indicator; the
+        # refreshing alert appears only once work has been in flight this long.
+        self.refresh_indicator_seconds = refresh_indicator_seconds
+        self.refresh_indicator_timer: Timer | None = None
+        self.refreshing_visible = False
+        self.in_flight: dict[ObservationKey, int] = {}
+        self.scheduler: ObservationScheduler = (
+            collector
+            if isinstance(collector, ObservationScheduler)
+            else SnapshotScheduler(collector)
+        )
+        self.refresh_seconds = refresh_seconds
+        self.store = observation_store or WorkspaceObservationStore()
+        # The view state lives on the DashboardScreen once it exists; the app
+        # only resolves the injected search's sort and hands both over.
+        parsed_search = parse_issue_search(issue_view.query.text)
+        explicit_sort = issue_search_sort_terms(parsed_search.sort)
+        self.initial_issue_view = (
+            replace(issue_view, sort=explicit_sort)
+            if explicit_sort is not None
+            else issue_view
+        )
+        self.initial_search_diagnostics = parsed_search.diagnostics
+        self.refresh_timer: Timer | None = None
+        self.observation_errors: dict[ObservationKey, str] = {}
+        # Superseded observations keep their thread until the source returns,
+        # so size the pool for every key rather than one refresh at a time.
+        self.refresh_executor = ThreadPoolExecutor(
+            max_workers=max(2, min(8, len(self.scheduler.keys()))),
+            thread_name_prefix="dashpot-refresh",
+        )
+
+    @override
+    def get_default_screen(self) -> DashboardScreen:
+        """Root the app on the dashboard, its one long-lived screen."""
+        return DashboardScreen(self.initial_issue_view, self.initial_search_diagnostics)
+
+    @property
+    def dashboard(self) -> DashboardScreen:
+        """The dashboard screen, whatever is stacked above it."""
+        return cast("DashboardScreen", self.screen_stack[0])
+
+    @property
+    def ui_error(self) -> str | None:
+        """The current observation failures, newest last, or None."""
+        if not self.observation_errors:
+            return None
+        return "\n".join(self.observation_errors.values())
+
+    @override
+    def get_css_variables(self) -> dict[str, str]:
+        """Add the Issue state colours for the current theme's brightness."""
+        return {
+            **super().get_css_variables(),
+            **issue_state_colors(dark=self.current_theme.dark),
+        }
+
+    @override
+    def action_focus_next(self) -> None:
+        # Textual's tab binding names `app.focus_next`, so list-focus cycling
+        # is forwarded to the dashboard whenever it is the visible screen.
+        if self.screen is self.dashboard and self.dashboard.cycle_list_focus(1):
+            return
+        super().action_focus_next()
+
+    @override
+    def action_focus_previous(self) -> None:
+        if self.screen is self.dashboard and self.dashboard.cycle_list_focus(-1):
+            return
+        super().action_focus_previous()
+
+    def on_text_selected(self, event: events.TextSelected) -> None:
+        """Copy arbitrary rendered-text selections when the drag finishes."""
+
+        selected_text = self.screen.get_selected_text()
+        if selected_text:
+            self.copy_to_clipboard(selected_text)
+
+    def action_legend(self) -> None:
+        """Explain every Glyph on screen; a second ``?`` is absorbed by the Legend."""
+        if isinstance(self.screen, LegendScreen):
+            return
+        # The Legend lists the dashboard's keys alongside the app's, wherever
+        # it was opened from.
+        self.push_screen(
+            LegendScreen(bindings=[*self.BINDINGS, *DashboardScreen.BINDINGS])
+        )
+
+    def on_ready(self) -> None:
+        dashboard = self.dashboard
+        if not self.store.has_observations:
+            dashboard.queue_table().loading = True
+            self.request_refresh("initial")
+        else:
+            dashboard.update_issue_inventory(dashboard.reconcile_rows())
+            dashboard.reconcile_list_panes()
+            dashboard.update_diagnostics()
+        if self.refresh_seconds > 0:
+            self.refresh_timer = self.set_interval(
+                self.refresh_seconds,
+                self.action_refresh,
+                name="workspace refresh",
+            )
+
+    def on_unmount(self) -> None:
+        self.refresh_executor.shutdown(wait=False, cancel_futures=True)
+
+    def action_refresh(self) -> None:
+        """Refresh every observation in the Workspace."""
+        if self.refresh_timer is not None:
+            self.refresh_timer.reset()
+        self.request_refresh("manual")
+
+    def request_refresh(self, trigger: str) -> None:
+        self.schedule_observations(self.scheduler.keys(), trigger)
+
+    def schedule_observations(
+        self, keys: Sequence[ObservationKey], trigger: str
+    ) -> None:
+        for ticket in self.scheduler.request(keys):
+            self.in_flight[ticket.key] = ticket.generation
+            # A partial rather than a coroutine object: an exclusive worker
+            # cancelled before it starts would otherwise leave the coroutine
+            # created but never awaited.
+            self.run_worker(
+                partial(self.observe, ticket, trigger),
+                name=f"observe {ticket.key.group}",
+                group=ticket.key.group,
+                exclusive=True,
+                exit_on_error=False,
+            )
+        if self.refresh_indicator_timer is None and self.in_flight:
+            self.refresh_indicator_timer = self.set_timer(
+                self.refresh_indicator_seconds,
+                self.show_refreshing,
+                name="refresh indicator",
+            )
+
+    def show_refreshing(self) -> None:
+        self.refresh_indicator_timer = None
+        if self.in_flight:
+            self.refreshing_visible = True
+            self.dashboard.update_alert()
+
+    def _finish_in_flight(self, ticket: ObservationTicket) -> None:
+        if self.in_flight.get(ticket.key) == ticket.generation:
+            del self.in_flight[ticket.key]
+        if not self.in_flight:
+            if self.refresh_indicator_timer is not None:
+                self.refresh_indicator_timer.stop()
+                self.refresh_indicator_timer = None
+            self.refreshing_visible = False
+
+    async def observe(self, ticket: ObservationTicket, trigger: str) -> None:
+        worker = get_current_worker()
+        try:
+            outcome = await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor, self.scheduler.observe, ticket
+            )
+        except Exception as exc:  # UI boundary: source failures must not exit the app.
+            if not worker.is_cancelled:
+                self.post_message(ObservationFinished(ticket, trigger, error=str(exc)))
+            return
+        if not worker.is_cancelled:
+            self.post_message(ObservationFinished(ticket, trigger, outcome=outcome))
+
+    def on_observation_finished(self, message: ObservationFinished) -> None:
+        # A late completion can be dispatched during shutdown while widgets
+        # are being unmounted one by one; any missing widget means the result
+        # has nowhere to go and is dropped.
+        if self._closing or self._closed or not self.screen_stack:
+            return
+        self._finish_in_flight(message.ticket)
+        try:
+            self._accept_observation(message)
+        finally:
+            self.dashboard.update_alert()
+
+    def _accept_observation(self, message: ObservationFinished) -> None:
+        dashboard = self.dashboard
+        key = message.ticket.key
+        if message.error is not None:
+            if not self.scheduler.is_current(message.ticket):
+                return
+            dashboard.queue_table().loading = False
+            error = f"Refresh failed: {message.error}"
+            # The persistent alert already carries a repeated failure; only a
+            # new or changed failure earns a toast.
+            changed = self.observation_errors.get(key) != error
+            self.observation_errors[key] = error
+            dashboard.update_diagnostics()
+            if message.trigger == "manual" and changed:
+                self.notify(error, severity="error", title="Dashpot refresh")
+            return
+        outcome = message.outcome
+        if outcome is None or not outcome.accepted:
+            return
+        recovered = self.observation_errors.pop(key, None) is not None
+        if recovered and message.trigger == "manual":
+            self.notify(
+                "Refresh succeeded", severity="information", title="Dashpot refresh"
+            )
+        # Publishing happens here, on the UI thread, so the store is never
+        # mutated while a read model is being rendered from it.
+        changes = self.scheduler.publish(self.store)
+        # An accepted observation ends the cold load even when an earlier
+        # publish already carried its change; the spinner must not outlive it.
+        dashboard.queue_table().loading = False
+        if not changes:
+            dashboard.update_diagnostics()
+            return
+        dashboard.update_issue_inventory(dashboard.reconcile_rows())
+        dashboard.reconcile_list_panes()
+        dashboard.update_diagnostics()
+        # Follow-ups are derived from what was published, not from this
+        # ticket's key: another key's handler may already have published
+        # this one's pending composition.
+        follow_ups = self.scheduler.follow_ups(changes)
+        if follow_ups:
+            self.schedule_observations(follow_ups, message.trigger)
 
 
 def pane_wish(pane: ListPane) -> int:

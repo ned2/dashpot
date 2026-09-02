@@ -222,8 +222,8 @@ def detail_plain(root: DOMNode, selector: str) -> str:
 
 def selected_title(app: DashpotApp) -> str:
     """The compact label of the Issue the table cursor is on."""
-    assert app.selected_row_key is not None
-    return selection_title(app.rows_by_key[app.selected_row_key])
+    assert app.dashboard.selected_row_key is not None
+    return selection_title(app.dashboard.rows_by_key[app.dashboard.selected_row_key])
 
 
 def pane_title(app: DashpotApp, selector: str) -> str:
@@ -300,7 +300,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         number_header = table.columns[number_key].label
         assert isinstance(number_header, Text)
         assert number_header.justify == "right"
-        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert selected_title(app) == "#1: First"
         # The Header names the observed Project by its Repository Anchor,
         # never by a label or an Issue Source that could be mistaken for it.
@@ -351,7 +351,7 @@ async def test_app_renders_the_injected_issue_list_query() -> None:
         await wait_until(lambda: app.store.revision == 1)
 
         assert app.query_one("#queue", DataTable).row_count == 1
-        assert app.selected_row_key == row_key("issue", closed_issue.id)
+        assert app.dashboard.selected_row_key == row_key("issue", closed_issue.id)
         assert selected_title(app) == "#2: Closed"
 
 
@@ -533,7 +533,7 @@ async def test_issue_view_color_follows_the_opened_issue() -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
 
-        app.open_issue(row_key("issue", open_issue.id))
+        app.dashboard.open_issue(row_key("issue", open_issue.id))
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
         view = app.screen.query_one("#issue-view")
@@ -542,7 +542,7 @@ async def test_issue_view_color_follows_the_opened_issue() -> None:
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        app.open_issue(row_key("issue", completed_issue.id))
+        app.dashboard.open_issue(row_key("issue", completed_issue.id))
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
         view = app.screen.query_one("#issue-view")
@@ -567,7 +567,7 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
         table = app.query_one("#queue", DataTable)
         selected_key = row_key("issue", "I_test/repo#1")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.selected_row_key == selected_key)
+        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
         title_key = next(key for key in table.columns if key.value == "title")
 
         for name, label in (
@@ -585,7 +585,7 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
                 )
             )
             await pilot.pause()
-            assert app.issue_view.sort == DEFAULT_SORT
+            assert app.dashboard.issue_view.sort == DEFAULT_SORT
             assert str(table.columns[fixed_key].label) == label
 
         number_key = next(key for key in table.columns if key.value == "number")
@@ -601,7 +601,7 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
             await pilot.pause()
 
         assert table.get_row_at(0)[table.get_column_index(title_key)] == "Alpha"
-        assert app.selected_row_key == selected_key
+        assert app.dashboard.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
         assert str(table.columns[number_key].label) == "# ↓"
@@ -628,13 +628,13 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
         title_key = next(key for key in table.columns if key.value == "title")
 
         await pilot.press("s")
-        assert app.issue_view.sort == (SortTerm("priority"),)
+        assert app.dashboard.issue_view.sort == (SortTerm("priority"),)
         assert table.get_row_at(0)[table.get_column_index(title_key)] == (
             "Higher priority"
         )
 
         await pilot.press("shift+s")
-        assert app.issue_view.sort == (SortTerm("priority", descending=True),)
+        assert app.dashboard.issue_view.sort == (SortTerm("priority", descending=True),)
         assert table.get_row_at(0)[table.get_column_index(title_key)] == (
             "Lower priority"
         )
@@ -706,20 +706,22 @@ async def test_search_sort_qualifier_can_use_hidden_created_and_clear_to_default
 
         search.value = "sort:created-desc"
         await wait_until(
-            lambda: app.issue_view.sort == (SortTerm("created", descending=True),)
+            lambda: (
+                app.dashboard.issue_view.sort == (SortTerm("created", descending=True),)
+            )
         )
         await pilot.pause()
 
-        assert "created" not in app.issue_view.columns
+        assert "created" not in app.dashboard.issue_view.columns
         assert table.get_row_at(0)[title_column] == "Newly created"
-        assert app.selected_row_key == row_key("issue", recently_active.id)
+        assert app.dashboard.selected_row_key == row_key("issue", recently_active.id)
 
         search.value = ""
-        await wait_until(lambda: app.issue_view.sort == DEFAULT_SORT)
+        await wait_until(lambda: app.dashboard.issue_view.sort == DEFAULT_SORT)
         await pilot.pause()
 
         assert table.get_row_at(0)[title_column] == "Recently active"
-        assert app.selected_row_key == row_key("issue", recently_active.id)
+        assert app.dashboard.selected_row_key == row_key("issue", recently_active.id)
 
 
 @pytest.mark.asyncio
@@ -736,19 +738,21 @@ async def test_a_chosen_sort_survives_search_keystrokes() -> None:
     async with app.run_test(size=(100, 24)) as pilot:
         search = app.query_one("#issue-search", Input)
         await pilot.press("s")
-        chosen = app.issue_view.sort
+        chosen = app.dashboard.issue_view.sort
         assert chosen != DEFAULT_SORT
 
         search.value = "s"
-        await wait_until(lambda: app.issue_view.query.text == "s")
-        assert app.issue_view.sort == chosen
+        await wait_until(lambda: app.dashboard.issue_view.query.text == "s")
+        assert app.dashboard.issue_view.sort == chosen
 
         # A sort qualifier takes over while it is present, and removing it
         # restores the default rather than the earlier choice.
         search.value = "s sort:created-asc"
-        await wait_until(lambda: app.issue_view.sort == (SortTerm("created"),))
+        await wait_until(
+            lambda: app.dashboard.issue_view.sort == (SortTerm("created"),)
+        )
         search.value = "s"
-        await wait_until(lambda: app.issue_view.sort == DEFAULT_SORT)
+        await wait_until(lambda: app.dashboard.issue_view.sort == DEFAULT_SORT)
 
 
 @pytest.mark.asyncio
@@ -768,7 +772,7 @@ async def test_unsupported_search_sort_is_reported_without_filtering_rows() -> N
         await wait_until(lambda: "Unsupported sort" in str(diagnostics.render()))
 
         assert app.query_one("#queue", DataTable).row_count == 1
-        assert app.issue_view.sort == DEFAULT_SORT
+        assert app.dashboard.issue_view.sort == DEFAULT_SORT
 
 
 @pytest.mark.asyncio
@@ -807,7 +811,7 @@ async def test_visible_filters_update_result_count_but_not_inventory() -> None:
 
         state.value = "closed"
         await wait_until(
-            lambda: app.selected_row_key == row_key("issue", closed_issue.id)
+            lambda: app.dashboard.selected_row_key == row_key("issue", closed_issue.id)
         )
         assert str(count.render()) == "1 issue"
         assert pane_title(app, "#queue-pane") == inventory
@@ -840,9 +844,9 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         await pilot.press("o")
         await wait_until(lambda: state.value == "closed")
         await wait_until(
-            lambda: app.selected_row_key == row_key("issue", closed_issue.id)
+            lambda: app.dashboard.selected_row_key == row_key("issue", closed_issue.id)
         )
-        assert app.issue_view.query.states == frozenset({"closed"})
+        assert app.dashboard.issue_view.query.states == frozenset({"closed"})
         assert str(count.render()) == "1 issue"
         assert pane_title(app, "#queue-pane") == inventory
 
@@ -913,11 +917,11 @@ async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
 
         await pilot.press("s")
         await pilot.press("S")
-        app.apply_issue_columns(("title", "number"))
+        app.dashboard.apply_issue_columns(("title", "number"))
         await pilot.pause()
 
-        assert app.issue_view.sort != DEFAULT_SORT
-        assert app.issue_view.columns == ("title", "number")
+        assert app.dashboard.issue_view.sort != DEFAULT_SORT
+        assert app.dashboard.issue_view.columns == ("title", "number")
         assert table.row_count == 2
         assert str(count.render()) == "2 issues"
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
@@ -975,7 +979,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         table = app.query_one("#queue", DataTable)
         selected_key = row_key("issue", "I_test/repo#2")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.selected_row_key == selected_key)
+        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
 
         await pilot.press("c")
         editor = app.screen
@@ -995,7 +999,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         assert await pilot.click("#column-apply")
         await pilot.pause()
 
-        assert app.issue_view.columns == (
+        assert app.dashboard.issue_view.columns == (
             "issue_state",
             "agent_state",
             "number",
@@ -1005,8 +1009,10 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "labels",
             "project",
         )
-        assert [key.value for key in table.columns] == list(app.issue_view.columns)
-        assert app.selected_row_key == selected_key
+        assert [key.value for key in table.columns] == list(
+            app.dashboard.issue_view.columns
+        )
+        assert app.dashboard.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
 
@@ -1032,14 +1038,14 @@ async def test_refresh_preserves_selection_by_stable_row_key() -> None:
         table = app.query_one("#queue", DataTable)
         selected_key = row_key("issue", "I_test/repo#2")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.selected_row_key == selected_key)
+        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
 
         await app.run_action("refresh")
         await wait_until(lambda: app.store.revision == 2)
 
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
-        assert app.selected_row_key == selected_key
+        assert app.dashboard.selected_row_key == selected_key
         assert table.row_count == 3
 
 
@@ -1291,7 +1297,7 @@ async def test_unbound_agent_is_counted_on_the_project_not_listed_as_work() -> N
 
         table = app.query_one("#queue", DataTable)
         assert table.row_count == 1
-        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert selected_title(app) == "#1: First"
 
 
@@ -1695,7 +1701,7 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
         def headers() -> list[str]:
             return [str(column.label) for column in table.columns.values()]
 
-        assert app.issue_view.columns == DEFAULT_COLUMNS
+        assert app.dashboard.issue_view.columns == DEFAULT_COLUMNS
         assert headers() == ["◉", "◈", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
 
         await app.run_action("refresh")
@@ -1711,7 +1717,7 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
             "LAST ACTION ↓",
         ]
         assert table.row_count == 2
-        assert app.selected_row_key == row_key("issue", unlabelled.id)
+        assert app.dashboard.selected_row_key == row_key("issue", unlabelled.id)
         priority_cells = {
             key: table.get_row(key)[4]
             for key in (
@@ -1727,21 +1733,21 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
         assert headers() == ["◉", "◈", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
         # Cycling the sort passes over the column the table does not show.
         await pilot.press("s")
-        assert app.issue_view.sort == (SortTerm("number"),)
+        assert app.dashboard.issue_view.sort == (SortTerm("number"),)
         assert headers()[2] == "# ↑"
 
         # A search change keeps the chosen sort; the column returns and takes
         # its turn in the cycle.
         search.value = ""
         await wait_until(lambda: table.row_count == 2)
-        assert app.issue_view.sort == (SortTerm("number"),)
+        assert app.dashboard.issue_view.sort == (SortTerm("number"),)
         assert headers()[2:5] == ["# ↑", "TITLE", "PRIORITY ↕"]
         await pilot.press("s")
-        assert app.issue_view.sort == (SortTerm("priority"),)
+        assert app.dashboard.issue_view.sort == (SortTerm("priority"),)
         assert headers()[4] == "PRIORITY ↑"
         assert table.get_row_at(0)[3] == "Zebra"
         await pilot.press("shift+s")
-        assert app.issue_view.sort == (SortTerm("priority", descending=True),)
+        assert app.dashboard.issue_view.sort == (SortTerm("priority", descending=True),)
         assert table.get_row_at(0)[3] == "Zebra"
 
 
@@ -1954,13 +1960,13 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
 
     async with app.run_test(size=(80, 24)) as pilot:
         selected_key = row_key("issue", selected_issue.id)
-        await wait_until(lambda: app.selected_row_key == selected_key)
+        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
         await pilot.pause()
-        stale_row = app.rows_by_key[selected_key]
+        stale_row = app.dashboard.rows_by_key[selected_key]
         assert stale_row.project_runs == ()
 
         store.replace_agent_runs([observed_run], {selected_issue.id: [observed_run.id]})
-        app.open_issue(selected_key)
+        app.dashboard.open_issue(selected_key)
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
 
@@ -2068,12 +2074,12 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     )
 
     async with app.run_test(size=(80, 24)):
-        assert app.selected_row_key == selected_key
+        assert app.dashboard.selected_row_key == selected_key
 
         await app.run_action("refresh")
         await wait_until(lambda: app.store.revision == 2)
 
-        assert app.selected_row_key == selected_key
+        assert app.dashboard.selected_row_key == selected_key
         assert selected_title(app) == "#70: Transfer me"
 
 
@@ -2166,13 +2172,13 @@ async def test_first_published_project_renders_before_a_slow_one(
             await wait_until(lambda: table.row_count == 1)
 
             assert not table.loading
-            assert row_key("issue", "I_alpha#1") in app.rows_by_key
+            assert row_key("issue", "I_alpha#1") in app.dashboard.rows_by_key
             assert [p.project_id for p in app.store.checkpoint().projects] == ["alpha"]
 
             collectors["beta"].source.release.set()
             await wait_until(lambda: table.row_count == 2)
 
-            assert row_key("issue", "I_beta#1") in app.rows_by_key
+            assert row_key("issue", "I_beta#1") in app.dashboard.rows_by_key
             await wait_until(
                 lambda: (
                     app.store.checkpoint().issue_runs
@@ -2195,7 +2201,7 @@ async def test_refresh_fans_out_to_every_project(
         await wait_until(lambda: table.row_count == 2)
         beta_key = row_key("issue", "I_beta#1")
         table.move_cursor(row=table.get_row_index(beta_key), animate=False)
-        await wait_until(lambda: app.selected_row_key == beta_key)
+        await wait_until(lambda: app.dashboard.selected_row_key == beta_key)
         calls = {name: c.source.calls for name, c in collectors.items()}
 
         await app.run_action("refresh")
@@ -2205,7 +2211,7 @@ async def test_refresh_fans_out_to_every_project(
 
         assert collectors["alpha"].target_calls == 2
         assert collectors["beta"].target_calls == 2
-        assert app.selected_row_key == beta_key
+        assert app.dashboard.selected_row_key == beta_key
 
 
 @pytest.mark.asyncio
@@ -2424,7 +2430,7 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
         assert_panes_stack_above_full_width_queue(app)
 
         app.store.replace(workspace_snapshot(issue("test/repo#1", "First")))
-        app.update_diagnostics()
+        app.dashboard.update_diagnostics()
         await wait_until(lambda: not alert(app).display)
         await wait_until(lambda: alert(app).region.height == 0)
 
@@ -2461,7 +2467,7 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         search = app.query_one("#issue-search", Input)
         selected_key = row_key("issue", second.id)
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.selected_row_key == selected_key)
+        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
         search.value = "s"
         await pilot.pause()
         table.focus()
@@ -2505,7 +2511,7 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         assert (
             body.styles.border_title_color
             == metadata.styles.border_title_color
-            == app.main_screen.query_one("#queue-pane").styles.border_title_color
+            == app.dashboard.query_one("#queue-pane").styles.border_title_color
         )
         assert body.styles.border_top[0] == metadata.styles.border_top[0] == "round"
         assert body.styles.border_top[1] != metadata.styles.border_top[1]
@@ -2518,9 +2524,9 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        assert app.selected_row_key == selected_key
+        assert app.dashboard.selected_row_key == selected_key
         assert app.query_one("#issue-search", Input).value == "s"
-        assert app.issue_view.query.text == "s"
+        assert app.dashboard.issue_view.query.text == "s"
         assert table.cursor_row == table.get_row_index(selected_key)
         assert table.has_focus
 
@@ -2535,7 +2541,9 @@ async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() ->
     app = _issue_view_app(blank)
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.selected_row_key == row_key("issue", blank.id))
+        await wait_until(
+            lambda: app.dashboard.selected_row_key == row_key("issue", blank.id)
+        )
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -2553,10 +2561,10 @@ async def test_issue_view_does_nothing_without_an_issue_row() -> None:
 
     async with app.run_test(size=(120, 36)) as pilot:
         await pilot.pause()
-        assert app.selected_row_key is None
+        assert app.dashboard.selected_row_key is None
         await pilot.press("enter")
         await pilot.pause()
-        await app.run_action("open_issue")
+        await app.run_action("screen.open_issue")
         await pilot.pause()
         assert not isinstance(app.screen, IssueScreen)
 
@@ -2566,7 +2574,7 @@ async def test_issue_view_stacks_metadata_under_the_body_in_compact_terminals() 
     app = _issue_view_app(issue("test/repo#1", "Compact"))
 
     async with app.run_test(size=(70, 30)) as pilot:
-        await wait_until(lambda: app.selected_row_key is not None)
+        await wait_until(lambda: app.dashboard.selected_row_key is not None)
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         view = app.screen
@@ -2595,13 +2603,13 @@ async def test_refresh_while_the_issue_view_is_open_still_reaches_the_dashboard(
     )
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.selected_row_key is not None)
+        await wait_until(lambda: app.dashboard.selected_row_key is not None)
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
         await app.run_action("refresh")
         await wait_until(
-            lambda: app.main_screen.query_one("#queue", DataTable).row_count == 2
+            lambda: app.dashboard.query_one("#queue", DataTable).row_count == 2
         )
         assert isinstance(app.screen, IssueScreen)
 
@@ -2765,7 +2773,7 @@ async def test_list_columns_align_their_headers_and_values() -> None:
 
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
-        pane = app.sessions_pane()
+        pane = app.dashboard.sessions_pane()
         pane.declare_columns((ListColumn("value", "VALUE", justify="center"),))
         pane.show_rows((ListRow("row", (Text("styled", style="red"),)),))
         await pilot.pause()
@@ -2929,12 +2937,14 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
 
         def other_panes_height() -> int:
             return sum(
-                other.region.height for other in app.list_panes() if other is not pane
+                other.region.height
+                for other in app.dashboard.list_panes()
+                if other is not pane
             )
 
         def stack_margins() -> int:
             """Each pane carries the blank line below it, inside `#list-row`."""
-            return PANE_MARGIN * len(app.list_panes())
+            return PANE_MARGIN * len(app.dashboard.list_panes())
 
         list_row = app.query_one("#list-row")
         initial_flex_height = flex_height()
@@ -3105,13 +3115,13 @@ async def test_pane_cursor_leaves_the_issue_selection_alone_and_enter_finds_it()
 
         await pilot.press("enter")
         await pilot.pause()
-        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert not isinstance(app.screen, IssueScreen)
 
         await pilot.press("up")
         await pilot.press("enter")
         await pilot.pause()
-        assert app.selected_row_key == row_key("issue", "I_test/repo#2")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#2")
         assert selected_title(app) == "#2: Second"
         assert app.query_one("#queue", DataTable).cursor_row == 1
         assert not isinstance(app.screen, IssueScreen)
@@ -3185,7 +3195,7 @@ def sessions_snapshot(
 
 
 def session_pane_keys(app: DashpotApp) -> list[str]:
-    table = app.sessions_pane().table
+    table = app.dashboard.sessions_pane().table
     return [
         str(table.coordinate_to_cell_key(Coordinate(index, 0)).row_key.value)
         for index in range(table.row_count)
@@ -3213,7 +3223,7 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
             row_key("session", "work:codex:bound"),
             row_key("session", "codex-session:lost"),
         ]
-        table = app.sessions_pane().table
+        table = app.dashboard.sessions_pane().table
         labels = [str(column.label) for column in table.columns.values()]
         # Every session is in the one Worktree, so TARGET says nothing.
         assert labels == [
@@ -3252,7 +3262,7 @@ async def test_sessions_target_column_follows_the_worktrees_in_view() -> None:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
 
-        table = app.sessions_pane().table
+        table = app.dashboard.sessions_pane().table
         assert "TARGET" in [str(column.label) for column in table.columns.values()]
         assert {
             str(table.get_row_at(index)[2]) for index in range(table.row_count)
@@ -3264,7 +3274,7 @@ async def test_sessions_target_column_follows_the_worktrees_in_view() -> None:
         await wait_until(lambda: app.store.revision == 2)
         await pilot.pause()
 
-        table = app.sessions_pane().table
+        table = app.dashboard.sessions_pane().table
         assert "TARGET" not in [str(column.label) for column in table.columns.values()]
         assert table.row_count == 1
         assert [str(cell) for cell in table.get_row_at(0)][2] == "main"
@@ -3281,7 +3291,7 @@ async def test_a_theme_change_repaints_the_list_panes() -> None:
     running = session_list.STATE_GLYPHS["running"]
 
     def state_color() -> str:
-        cell = app.sessions_pane().table.get_row_at(0)[0]
+        cell = app.dashboard.sessions_pane().table.get_row_at(0)[0]
         assert isinstance(cell, Text)
         return str(cell.style).casefold()
 
@@ -3316,16 +3326,16 @@ async def test_enter_on_a_bound_session_highlights_its_issue_and_unbound_is_safe
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
-        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert selected_title(app) == "#1: First"
 
         await pilot.press("up")
         await pilot.press("enter")
         await pilot.pause()
-        assert app.selected_row_key == row_key("issue", "I_test/repo#2")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#2")
         assert selected_title(app) == "#2: Second"
         assert not isinstance(app.screen, IssueScreen)
-        assert app.sessions_pane().table.has_focus
+        assert app.dashboard.sessions_pane().table.has_focus
 
 
 @pytest.mark.asyncio
@@ -3354,7 +3364,7 @@ async def test_session_selection_survives_refresh_by_identity_or_moves_on() -> N
     async with app.run_test(size=(160, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
-        pane = app.sessions_pane()
+        pane = app.dashboard.sessions_pane()
         await pilot.press("tab")
         await pilot.press("down")
         await pilot.pause()
@@ -3403,7 +3413,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
     async with app.run_test(size=(160, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
-        pane = app.worktrees_pane()
+        pane = app.dashboard.worktrees_pane()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         columns = list(pane.table.columns.values())
         labels = [str(column.label) for column in columns]
@@ -3446,7 +3456,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert selected_title(app) == "#1: First"
         await pilot.press("enter")
         await pilot.pause()
-        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert not isinstance(app.screen, IssueScreen)
 
         # A retained topology names stale explicitly without restoring STATE.
@@ -3608,6 +3618,10 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         keys = rendered.splitlines()
         assert any(line.startswith("?") and line.endswith("Legend") for line in keys)
         assert any(line.startswith("q") and line.endswith("Quit") for line in keys)
+        # A dashboard key proves the screen's bindings reach the Legend too.
+        assert any(
+            line.startswith("s") and line.endswith("Sort column") for line in keys
+        )
         # A colour-bearing Glyph shows the swatch the cell would.
         running = session_list.STATE_GLYPHS["running"]
         sessions = screen.query_one("#legend-section-0", Static)
@@ -3630,7 +3644,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dashboard_bindings_decline_under_the_issue_view() -> None:
+async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None:
     app = DashpotApp(
         SequenceCollector(
             workspace_snapshot(
@@ -3643,8 +3657,8 @@ async def test_dashboard_bindings_decline_under_the_issue_view() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
-        sort = app.issue_view.sort
-        states = app.issue_view.query.states
+        sort = app.dashboard.issue_view.sort
+        states = app.dashboard.issue_view.query.states
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -3652,12 +3666,14 @@ async def test_dashboard_bindings_decline_under_the_issue_view() -> None:
             await pilot.press(key)
             await pilot.pause()
 
-        # The hidden dashboard is untouched: no editor stacked over the Issue
-        # view, its search not focused, its sort and state filter unchanged.
+        # The dashboard keys live on the DashboardScreen, which is below the
+        # Issue view in the screen stack, so they are never dispatched here:
+        # no editor stacked over the Issue view, the dashboard's search not
+        # focused, its sort and state filter unchanged.
         assert isinstance(app.screen, IssueScreen)
-        assert not app.main_screen.query_one("#issue-search", Input).has_focus
-        assert app.issue_view.sort == sort
-        assert app.issue_view.query.states == states
+        assert not app.dashboard.query_one("#issue-search", Input).has_focus
+        assert app.dashboard.issue_view.sort == sort
+        assert app.dashboard.issue_view.query.states == states
         assert len(app.screen_stack) == 2
 
 
@@ -3671,16 +3687,16 @@ async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
-        assert app.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert app.sub_title != DEFAULT_SUB_TITLE
 
-        app.show_row(row_key("issue", "I_gone"))
+        app.dashboard.show_row(row_key("issue", "I_gone"))
 
         # Nothing is selected, so the Open Issue binding opens nothing rather
         # than the previously selected Issue.
-        assert app.selected_row_key is None
+        assert app.dashboard.selected_row_key is None
         assert app.sub_title != DEFAULT_SUB_TITLE
-        app.action_open_issue()
+        app.dashboard.action_open_issue()
         await pilot.pause()
         assert not isinstance(app.screen, IssueScreen)
 

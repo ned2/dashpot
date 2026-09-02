@@ -6,19 +6,23 @@ passive observer slice, not a claim that Textual is permanently locked in.
 
 ## Recommended shape
 
-Build one `App` with one long-lived default screen:
+Build one `App` whose one long-lived default screen is the `DashboardScreen`
+(returned by `DashpotApp.get_default_screen`, so it sits at `screen_stack[0]`
+from startup): the screen owns composition, the panes and the dashboard key
+bindings, while the app keeps the scheduler, the store and screen navigation.
 
 ```text
 DashpotApp
-├── Header
-├── source-status
-├── body
-│   ├── queue-pane
-│   │   └── DataTable
-│   └── detail-pane
-│       └── Markdown (or Static)
-├── diagnostics
-└── Footer
+└── DashboardScreen
+    ├── Header
+    ├── source-status
+    ├── body
+    │   ├── queue-pane
+    │   │   └── DataTable
+    │   └── detail-pane
+    │       └── Markdown (or Static)
+    ├── diagnostics
+    └── Footer
 ```
 
 Keep the headless `ObservationCoordinator` and its snapshots independent of

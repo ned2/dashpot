@@ -8,7 +8,7 @@ question is always about the cell in front of them.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import ClassVar
 
 from rich.text import Text
@@ -124,6 +124,12 @@ class LegendScreen(ModalScreen[None]):
         ("question_mark", "close", "Close"),
     ]
 
+    def __init__(self, bindings: Sequence[BindingType]) -> None:
+        # The caller supplies the bindings to list: the dashboard's keys live
+        # on the DashboardScreen, which this module must not import.
+        super().__init__()
+        self.legend_bindings = tuple(bindings)
+
     @override
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="legend-dialog"):
@@ -147,8 +153,8 @@ class LegendScreen(ModalScreen[None]):
             yield Static(self.keys_text(), classes="legend-section", id="legend-keys")
 
     def keys_text(self) -> Text:
-        """The App's bindings as the Footer would show them, one per line."""
-        bindings = list(Binding.make_bindings(self.app.BINDINGS))
+        """The supplied bindings as the Footer would show them, one per line."""
+        bindings = list(Binding.make_bindings(self.legend_bindings))
         width = max(len(self.app.get_key_display(binding)) for binding in bindings)
         text = Text()
         for index, binding in enumerate(bindings):
