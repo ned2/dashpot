@@ -91,7 +91,6 @@ the management commands `init`, `integrate`,
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, and Issues lists |
 | `/` | Focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
-| `s` / `S` | Sort by the next sortable column / reverse the current sort; clicking a column header sorts by it too |
 | `c` | Open the column editor: toggle the visible Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move the row cursor in the focused list |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, highlight that Issue in the table |
@@ -107,7 +106,8 @@ beside the search box (`6 issues`) is the number of Issues matching every
 active filter, never an `M of N` total. The Issue table's columns are `◉`
 (Issue state) and `◈` (agent state), which are unsortable, then `#`, `TITLE`,
 `PRIORITY`, `LABELS`, `PROJECT`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
-`COMMENTS`, `CREATED`, and `LAST ACTION`. `TITLE` keeps the first 70
+`COMMENTS`, `CREATED`, and `LAST ACTION`. Clicking a sortable column's
+header sorts by it, and clicking it again reverses the sort. `TITLE` keeps the first 70
 characters of a title and clips the rest with an ellipsis, so the default
 columns fit at a glance; the Issue view shows the whole title. `PRIORITY` is read from a
 recognized priority label (`priority/p0` … `priority/p3`, or `critical`,

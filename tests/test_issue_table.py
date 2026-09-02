@@ -410,16 +410,7 @@ def test_icon_and_title_columns_are_not_sortable() -> None:
     assert view.toggle_sort("issue_state") is view
     assert view.toggle_sort("agent_state") is view
     assert view.toggle_sort("title") is view
-    # From an unsortable current column, cycling continues from its catalogue
-    # position: priority follows title, then wraps back to number.
-    assert view.cycle_sort().sort == (SortTerm("priority"),)
-    assert view.cycle_sort().cycle_sort().sort == (SortTerm("number"),)
-    icon_only = IssueTableViewState(
-        columns=("issue_state", "agent_state", "title"),
-        sort=(),
-    )
-    assert icon_only.cycle_sort() is icon_only
-    assert icon_only.reverse_sort() is icon_only
+    assert view.toggle_sort("priority").sort == (SortTerm("priority"),)
 
 
 def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:

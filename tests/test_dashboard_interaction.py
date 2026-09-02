@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from textual.pilot import Pilot
 from textual.widgets import DataTable, Input, Select, Static, Tooltip
 
 from app_harness import (
@@ -28,6 +29,18 @@ from dashpot.issue_table import (
 from dashpot.issue_view import IssueScreen
 from dashpot.observation_store import WorkspaceObservationStore
 from helpers import wait_until
+
+
+async def select_header(app: DashpotApp, pilot: Pilot[None], column: str) -> None:
+    """Click the Issue table's header for ``column``, as the mouse would."""
+    table = app.query_one("#queue", DataTable)
+    key = next(key for key in table.columns if key.value == column)
+    table.post_message(
+        DataTable.HeaderSelected(
+            table, key, table.get_column_index(key), table.columns[key].label
+        )
+    )
+    await pilot.pause()
 
 
 @pytest.mark.asyncio
@@ -118,7 +131,7 @@ async def test_header_selection_toggles_sort_and_preserves_selected_issue() -> N
 
 
 @pytest.mark.asyncio
-async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
+async def test_a_header_click_sorts_by_its_column_and_a_second_reverses_it() -> None:
     snapshot = workspace_snapshot(
         issue("test/repo#1", "Lower priority", "P2"),
         issue("test/repo#2", "Higher priority", "P0"),
@@ -137,13 +150,13 @@ async def test_keyboard_cycles_sort_column_and_reverses_direction() -> None:
         table = app.query_one("#queue", DataTable)
         title_key = next(key for key in table.columns if key.value == "title")
 
-        await pilot.press("s")
+        await select_header(app, pilot, "priority")
         assert app.dashboard.issue_view.sort == (SortTerm("priority"),)
         assert table.get_row_at(0)[table.get_column_index(title_key)] == (
             "Higher priority"
         )
 
-        await pilot.press("shift+s")
+        await select_header(app, pilot, "priority")
         assert app.dashboard.issue_view.sort == (SortTerm("priority", descending=True),)
         assert table.get_row_at(0)[table.get_column_index(title_key)] == (
             "Lower priority"
@@ -247,7 +260,7 @@ async def test_a_chosen_sort_survives_search_keystrokes() -> None:
 
     async with app.run_test(size=(100, 24)) as pilot:
         search = app.query_one("#issue-search", Input)
-        await pilot.press("s")
+        await select_header(app, pilot, "number")
         chosen = app.dashboard.issue_view.sort
         assert chosen != DEFAULT_SORT
 
@@ -425,8 +438,7 @@ async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
         assert str(count.render()) == "2 issues"
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
 
-        await pilot.press("s")
-        await pilot.press("S")
+        await select_header(app, pilot, "number")
         app.dashboard.apply_issue_columns(("title", "number"))
         await pilot.pause()
 
@@ -490,22 +502,21 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
         search.value = "alpha"
         await wait_until(lambda: table.row_count == 1)
         assert headers() == ["◉", "◈", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
-        # Cycling the sort passes over the column the table does not show.
-        await pilot.press("s")
+        await select_header(app, pilot, "number")
         assert app.dashboard.issue_view.sort == (SortTerm("number"),)
         assert headers()[2] == "# ↑"
 
-        # A search change keeps the chosen sort; the column returns and takes
-        # its turn in the cycle.
+        # A search change keeps the chosen sort; the column returns and can
+        # be sorted by again.
         search.value = ""
         await wait_until(lambda: table.row_count == 2)
         assert app.dashboard.issue_view.sort == (SortTerm("number"),)
         assert headers()[2:5] == ["# ↑", "TITLE", "PRIORITY ↕"]
-        await pilot.press("s")
+        await select_header(app, pilot, "priority")
         assert app.dashboard.issue_view.sort == (SortTerm("priority"),)
         assert headers()[4] == "PRIORITY ↑"
         assert table.get_row_at(0)[3] == "Zebra"
-        await pilot.press("shift+s")
+        await select_header(app, pilot, "priority")
         assert app.dashboard.issue_view.sort == (SortTerm("priority", descending=True),)
         assert table.get_row_at(0)[3] == "Zebra"
 

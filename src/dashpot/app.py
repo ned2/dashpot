@@ -293,8 +293,6 @@ class DashboardScreen(Screen[None]):
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
-        ("s", "sort_next", "Sort column"),
-        ("shift+s", "reverse_sort", "Reverse sort"),
     ]
 
     def __init__(
@@ -469,18 +467,6 @@ class DashboardScreen(Screen[None]):
         if issue_view == self.issue_view:
             return
         self.apply_issue_sort(issue_view, event.data_table)
-
-    def action_sort_next(self) -> None:
-        table = self.queue_table()
-        self.apply_issue_sort(
-            self.issue_view.cycle_sort(self.table_columns(table)), table
-        )
-
-    def action_reverse_sort(self) -> None:
-        table = self.queue_table()
-        self.apply_issue_sort(
-            self.issue_view.reverse_sort(self.table_columns(table)), table
-        )
 
     def apply_issue_sort(
         self,

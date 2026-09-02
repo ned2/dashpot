@@ -706,7 +706,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         assert any(line.startswith("q") and line.endswith("Quit") for line in keys)
         # A dashboard key proves the screen's bindings reach the Legend too.
         assert any(
-            line.startswith("s") and line.endswith("Sort column") for line in keys
+            line.startswith("o") and line.endswith("Open/Closed/All") for line in keys
         )
         # A colour-bearing Glyph shows the swatch the cell would.
         running = session_list.STATE_GLYPHS["running"]
@@ -749,7 +749,7 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
-        for key in ("c", "slash", "o", "s", "shift+s", "enter"):
+        for key in ("c", "slash", "o", "enter"):
             await pilot.press(key)
             await pilot.pause()
 

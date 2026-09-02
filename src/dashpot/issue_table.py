@@ -211,51 +211,6 @@ class IssueTableViewState:
             term = SortTerm(column)
         return replace(self, sort=(term,))
 
-    def cycle_sort(
-        self, among: tuple[ColumnKey, ...] | None = None
-    ) -> IssueTableViewState:
-        """Sort by the next sortable column: of ``among`` when the table shows fewer."""
-        sortable_columns = tuple(
-            column
-            for column in (self.columns if among is None else among)
-            if COLUMNS_BY_KEY[column].sortable
-        )
-        if not sortable_columns:
-            return self
-        current = self.sort[0].column if self.sort else None
-        if current in sortable_columns:
-            current_index = sortable_columns.index(current)
-            next_column = sortable_columns[(current_index + 1) % len(sortable_columns)]
-        elif current in COLUMN_KEYS:
-            current_index = COLUMN_KEYS.index(current)
-            following_columns = (
-                COLUMN_KEYS[current_index + 1 :] + COLUMN_KEYS[: current_index + 1]
-            )
-            next_column = next(
-                column for column in following_columns if column in sortable_columns
-            )
-        else:
-            next_column = sortable_columns[0]
-        return replace(self, sort=(SortTerm(next_column),))
-
-    def reverse_sort(
-        self, among: tuple[ColumnKey, ...] | None = None
-    ) -> IssueTableViewState:
-        sortable_columns = tuple(
-            column
-            for column in (self.columns if among is None else among)
-            if COLUMNS_BY_KEY[column].sortable
-        )
-        if not sortable_columns:
-            return self
-        current = self.sort[0] if self.sort else None
-        if current is None or current.column not in sortable_columns:
-            current = SortTerm(sortable_columns[0])
-        return replace(
-            self,
-            sort=(replace(current, descending=not current.descending),),
-        )
-
     def with_columns(self, columns: tuple[ColumnKey, ...]) -> IssueTableViewState:
         return replace(self, columns=columns)
 
