@@ -93,6 +93,7 @@ class RemovalObstacle(PublishedModel):
         "work-store",
         "unpushed",
         "unmerged",
+        "detached",
     ]
     detail: str
     command: str | None = None
@@ -663,22 +664,99 @@ def check_worktree(
     there, and commits its Branch has that no upstream or base Branch has.
     Dashpot removes nothing; each obstacle names the command that acts on it.
     """
+    located = locate_worktree(current, target, timeout=timeout)
+    git, path = located.git, located.path
+    branch = located.branch
+    obstacles = assess_worktree_safety(located, lock_probe)
+    obstacles.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
+    content_integrated = False
+    if branch is not None:
+        branch_obstacles, content_integrated = assess_branch_preservation(
+            git, path, branch
+        )
+        obstacles.extend(branch_obstacles)
+    elif located.detached:
+        obstacles.extend(assess_detached_head_preservation(git, located.head))
+    remove_commands: tuple[str, ...] = ()
+    if located.role == "linked":
+        # ``branch -d`` refuses a squash-merged Branch, whose commits are not
+        # reachable; the forced form is the command that acts on it.
+        delete = "-D" if content_integrated else "-d"
+        remove_commands = (f"git worktree remove {path}",) + (
+            (f"git branch {delete} {branch}",) if branch else ()
+        )
+    return WorktreeRemovability(
+        path=str(path),
+        branch=branch,
+        head=located.head,
+        role=located.role,
+        removable=not obstacles,
+        obstacles=tuple(obstacles),
+        remove_commands=remove_commands,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class LocatedWorktree:
+    """One registered Worktree, as Git lists it, with the adapter at its anchor."""
+
+    git: Git
+    anchor: Path
+    path: Path
+    record: Mapping[str, str]
+    role: Literal["main", "linked"]
+    # Every Worktree of the Repository, resolved; bare entries are not Worktrees.
+    worktrees: tuple[Path, ...]
+
+    @property
+    def branch(self) -> str | None:
+        return _short_branch(self.record)
+
+    @property
+    def head(self) -> str:
+        return self.record.get("HEAD", "")
+
+    @property
+    def detached(self) -> bool:
+        return "detached" in self.record
+
+
+def locate_worktree(
+    current: Path, target: Path, *, timeout: float = 10, git: Git | None = None
+) -> LocatedWorktree:
+    """Find ``target`` among the Worktrees of the Repository ``current`` is in.
+
+    A path Git does not list is a ``RuntimeError``: every assessment is about
+    a registered Worktree, never about a directory that merely looks like one.
+    """
     path = target.expanduser().resolve()
     try:
-        anchor = worktree_root(current)
+        anchor = worktree_root(current, git)
     except RuntimeError:
-        anchor = worktree_root(path)
-    git = Git(anchor, timeout)
-    records = git.worktree_records()
+        anchor = worktree_root(path, git)
+    scoped = (git if git is not None else Git(anchor, timeout)).at(anchor)
+    records = scoped.worktree_records()
     registered = _registered_at(records, path)
     if registered is None:
         raise RuntimeError(f"{path} is not a Worktree of the Repository at {anchor}")
     role: Literal["main", "linked"] = (
         "main" if records and records[0] is registered else "linked"
     )
-    branch = _short_branch(registered)
+    worktrees = tuple(
+        Path(record["worktree"]).resolve()
+        for record in records
+        if record.get("worktree") and "bare" not in record
+    )
+    return LocatedWorktree(scoped, anchor, path, registered, role, worktrees)
+
+
+def assess_worktree_safety(
+    located: LocatedWorktree, lock_probe: LockHolderProbe | None = None
+) -> list[RemovalObstacle]:
+    """The obstacles Git itself raises: the main Worktree, a lock, a dirty tree."""
+    path, registered = located.path, located.record
     obstacles: list[RemovalObstacle] = []
-    if role == "main":
+    if located.role == "main":
         obstacles.append(
             RemovalObstacle(
                 kind="main-worktree",
@@ -701,7 +779,7 @@ def check_worktree(
             )
         )
     if path.is_dir():
-        status = git.at(path).run(
+        status = located.git.at(path).run(
             "status", "--porcelain=v1", "--untracked-files=normal"
         )
         if status.returncode != 0:
@@ -723,11 +801,16 @@ def check_worktree(
                     command=f"git worktree remove --force {path}",
                 )
             )
-    worktrees = [
-        Path(record["worktree"]).resolve()
-        for record in records
-        if record.get("worktree") and "bare" not in record
-    ]
+    return obstacles
+
+
+def assess_worktree_occupancy(
+    path: Path,
+    worktrees: Sequence[Path],
+    lookup: ProcessLookup = host_process_lookup,
+) -> list[RemovalObstacle]:
+    """The Agent Sessions, Agent Runs, and unreadable Work Store records at a Worktree."""
+    obstacles: list[RemovalObstacle] = []
     stores = reachable_hook_stores(worktrees)
     for location in sessions_at_worktree(path, stores, lookup):
         record = location.record
@@ -766,30 +849,10 @@ def check_worktree(
         obstacles.append(
             RemovalObstacle(kind="agent-run", detail=detail, command=command)
         )
-    content_integrated = False
-    if branch is not None:
-        branch_obstacles, content_integrated = _branch_obstacles(git, path, branch)
-        obstacles.extend(branch_obstacles)
-    remove_commands: tuple[str, ...] = ()
-    if role == "linked":
-        # ``branch -d`` refuses a squash-merged Branch, whose commits are not
-        # reachable; the forced form is the command that acts on it.
-        delete = "-D" if content_integrated else "-d"
-        remove_commands = (f"git worktree remove {path}",) + (
-            (f"git branch {delete} {branch}",) if branch else ()
-        )
-    return WorktreeRemovability(
-        path=str(path),
-        branch=branch,
-        head=registered.get("HEAD", ""),
-        role=role,
-        removable=not obstacles,
-        obstacles=tuple(obstacles),
-        remove_commands=remove_commands,
-    )
+    return obstacles
 
 
-def _branch_obstacles(
+def assess_branch_preservation(
     git: Git, path: Path, branch: str
 ) -> tuple[list[RemovalObstacle], bool]:
     """The Branch's obstacles, and whether its content is already integrated.
@@ -865,6 +928,73 @@ def _branch_obstacles(
             )
         )
     return obstacles, content_integrated
+
+
+def durable_refs_containing(git: Git, commit: str) -> list[str]:
+    """Local, Remote-Tracking, and tag refs from which ``commit`` is reachable."""
+    records = git.records(
+        "--contains",
+        commit,
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
+        fields=("%(refname)",),
+    )
+    return [record[0] for record in records if record[0]]
+
+
+def assess_detached_head_preservation(git: Git, head: str) -> list[RemovalObstacle]:
+    """A detached HEAD no durable ref reaches is lost with the Worktree."""
+    if not head:
+        return []
+    try:
+        if durable_refs_containing(git, head):
+            return []
+    except GitError as exc:
+        detail = f"cannot tell whether commit {head[:7]} is reachable: {exc.detail}"
+    else:
+        detail = (
+            f"detached at {head[:7]}, which no local Branch, Remote-Tracking "
+            f"Branch, or tag reaches"
+        )
+    return [
+        RemovalObstacle(
+            kind="detached",
+            detail=detail,
+            command=f"git branch rescue/{head[:7]} {head}",
+        )
+    ]
+
+
+def ignored_content(git: Git, path: Path) -> list[str]:
+    """The ignored paths in a Worktree, which unforced removal deletes too.
+
+    Directories whose every entry is ignored are reported as one path with a
+    trailing slash, as ``git status --ignored`` collapses them.
+    """
+    if not path.is_dir():
+        return []
+    listing = git.at(path).maybe(
+        "status", "--porcelain=v1", "--ignored=traditional", "-z"
+    )
+    if listing is None:
+        return []
+    ignored: list[str] = []
+    skip = False
+    for entry in listing.split("\0"):
+        if skip:
+            # A rename or copy entry is followed by its source path as a
+            # field of its own.
+            skip = False
+            continue
+        if len(entry) < 4:
+            continue
+        code, name = entry[:2], entry[3:]
+        if code[0] in "RC":
+            skip = True
+        if code == "!!":
+            ignored.append(name)
+    return ignored
 
 
 def _count(git: Git, revision_range: str) -> int | None:
