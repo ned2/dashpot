@@ -64,3 +64,8 @@ scrolling exposes it.
   Remote-Tracking Branch records remain in the model and JSON.
 - Worktree removability and the Branches pane share one Integration Branch
   selection policy and the same reachability meaning.
+- [ADR 0017](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)
+  adds a content answer for the retained commits reachability reports: a
+  squash-merged Branch whose content the Integration Branch holds is shown
+  as integrated by content, `↑N` stays for work that never landed, and this
+  decision's conservative reachability count is kept beside it.

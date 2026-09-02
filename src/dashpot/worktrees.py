@@ -35,6 +35,7 @@ from .project_config import (
 from .repository import (
     DEFAULT_BRANCHES,
     LockHolderProbe,
+    assess_content_integration,
     choose_integration_ref,
     is_within,
     lock_holder,
@@ -750,12 +751,17 @@ def check_worktree(
         obstacles.append(
             RemovalObstacle(kind="agent-run", detail=detail, command=command)
         )
+    content_integrated = False
     if branch is not None:
-        obstacles.extend(_branch_obstacles(git, path, branch))
+        branch_obstacles, content_integrated = _branch_obstacles(git, path, branch)
+        obstacles.extend(branch_obstacles)
     remove_commands: tuple[str, ...] = ()
     if role == "linked":
+        # ``branch -d`` refuses a squash-merged Branch, whose commits are not
+        # reachable; the forced form is the command that acts on it.
+        delete = "-D" if content_integrated else "-d"
         remove_commands = (f"git worktree remove {path}",) + (
-            (f"git branch -d {branch}",) if branch else ()
+            (f"git branch {delete} {branch}",) if branch else ()
         )
     return WorktreeRemovability(
         path=str(path),
@@ -768,7 +774,15 @@ def check_worktree(
     )
 
 
-def _branch_obstacles(git: Git, path: Path, branch: str) -> list[RemovalObstacle]:
+def _branch_obstacles(
+    git: Git, path: Path, branch: str
+) -> tuple[list[RemovalObstacle], bool]:
+    """The Branch's obstacles, and whether its content is already integrated.
+
+    Retained commits whose content the Integration Branch already holds — a
+    squash merge — obstruct nothing: neither unmerged nor unpushed, since the
+    work is where it was meant to land ([ADR 0017](../../docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
+    """
     obstacles: list[RemovalObstacle] = []
     upstream = git.maybe(
         "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}"
@@ -780,6 +794,21 @@ def _branch_obstacles(git: Git, path: Path, branch: str) -> list[RemovalObstacle
     unmerged = (
         _count(git, f"{base_commit}..refs/heads/{branch}") if base_commit else None
     )
+    content_integrated = False
+    if unmerged and base_ref is not None:
+        try:
+            content_integrated = bool(
+                assess_content_integration(
+                    git,
+                    base_ref,
+                    f"refs/heads/{branch}",
+                    git.maybe("log", "-1", "--format=%cI", f"refs/heads/{branch}"),
+                )
+            )
+        except GitError:
+            content_integrated = False
+        if content_integrated:
+            unmerged = 0
     if unmerged is None:
         reason = (
             "; ".join(resolution.refusals)
@@ -820,7 +849,7 @@ def _branch_obstacles(git: Git, path: Path, branch: str) -> list[RemovalObstacle
                 command=f"git log --oneline {base_ref}..{branch}",
             )
         )
-    return obstacles
+    return obstacles, content_integrated
 
 
 def _count(git: Git, revision_range: str) -> int | None:

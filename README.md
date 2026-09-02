@@ -280,8 +280,12 @@ _Avoid_: refresh for a fetch, or fetch for a refresh
 The Branch against which Dashpot observes whether every commit of a local
 Branch is reachable: `origin/HEAD`, else the unique local `main` or `master`.
 It is selected from local Git facts and never fetched. Integration is exact
-commit reachability, not patch equivalence, so a squash or cherry-pick remains
-unintegrated until a person reviews it.
+commit reachability first; a Branch whose commits are not reachable is then
+integrated by content when merging it would leave the Integration Branch's
+tree unchanged or its squash commit is found there
+([ADR 0017](docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
+Patch equivalence is not used, so a cherry-pick remains unintegrated until a
+person reviews it.
 _Avoid_: upstream, which is a local Branch's configured synchronization target
 
 **Repository State**:
@@ -894,9 +898,11 @@ Remote-Tracking Branches of one branch name into one row, so a branch is
 never listed twice and never needs a second pane. `LOCAL` and `REMOTE` show
 `✓` when a ref exists in that namespace. `UPSTREAM` is the local ref's
 relation to its configured upstream (`=` in sync, `↑2 ↓1`, `∅` no upstream,
-or `✗` upstream gone). `INTEGRATED` is exact reachability from the Integration
-Branch (`⊆` when every commit is reachable, `↑2` for two that are not, or `⊘`
-when no comparison is available), followed by the active sessions on it and
+or `✗` upstream gone). `INTEGRATED` is whether the Integration Branch holds
+the Branch's work (`⊆` when every commit is reachable, `≡` when its content is
+there though its commits are not, as after a squash merge, `↑2` for two commits
+of work that never landed, or `⊘` when no comparison is available), followed
+by the active sessions on it and
 the age of its last commit. The pane subtitle names the Integration Branch
 and the age of the Remote-Tracking Branches. The Worktrees pane names the
 Branch checked out at every Worktree. Rows are sorted checked-out first, then

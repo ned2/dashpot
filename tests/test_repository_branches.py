@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dashpot.git import Git
 from dashpot.repository import observe_branches
-from factories import SequenceRunner, completed, ref_stream
+from factories import SequenceRunner, completed, git, ref_stream
 
 
 def over(runner: SequenceRunner) -> Git:
@@ -45,8 +45,20 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     runner = SequenceRunner(
         completed(listing),
         completed(ref_stream(("refs/heads/main",), ("refs/heads/local-only",))),
+        # feature: two retained commits whose merge leaves main's tree as is.
         completed("2\n"),
+        completed("tree-main\n"),
+        completed("tree-main\n"),
+        completed("base\n"),
+        completed("src/feature.py\0"),
+        # orphan: one retained commit, a conflicting merge, and no squash
+        # commit on main touching what it changed.
         completed("1\n"),
+        completed("tree-main\n"),
+        completed("tree-conflict\n", returncode=1),
+        completed("base\n"),
+        completed("src/orphan.py\0"),
+        completed("c" * 40 + "\n\nsrc/other.py\n"),
         completed(".git\n"),
     )
 
@@ -60,14 +72,26 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
         "for-each-ref",
         "for-each-ref",
         "rev-list",
+        "rev-parse",
+        "merge-tree",
+        "merge-base",
+        "diff",
         "rev-list",
+        "rev-parse",
+        "merge-tree",
+        "merge-base",
+        "diff",
+        "log",
         "rev-parse",
     ]
     assert runner.calls[0][0][-2:] == ["refs/heads", "refs/remotes"]
     assert "--merged=refs/remotes/origin/main" in runner.calls[1][0]
     assert "refs/remotes/origin/main..refs/heads/feature" in runner.calls[2][0]
-    assert "refs/remotes/origin/main..refs/heads/orphan" in runner.calls[3][0]
-    assert "--git-common-dir" in runner.calls[4][0]
+    assert runner.calls[4][0][-2:] == ["refs/remotes/origin/main", "refs/heads/feature"]
+    assert "refs/remotes/origin/main..refs/heads/orphan" in runner.calls[7][0]
+    assert runner.calls[12][0][1:3] == ["log", "--first-parent"]
+    assert "base..refs/remotes/origin/main" in runner.calls[12][0]
+    assert "--git-common-dir" in runner.calls[13][0]
     # Every git call that is made is a listing: nothing fetches.
     assert not any("fetch" in call[0] for call in runner.calls)
     by_ref = {branch.refname: branch for branch in observation.branches}
@@ -89,6 +113,7 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     feature = by_ref["refs/heads/feature"]
     assert (feature.ahead, feature.behind, feature.upstream_gone) == (2, 1, False)
     assert feature.unintegrated_commits == 2
+    assert feature.content_integrated is True
     local_only = by_ref["refs/heads/local-only"]
     assert (local_only.upstream, local_only.ahead, local_only.behind) == (
         None,
@@ -98,6 +123,9 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     assert local_only.unintegrated_commits == 0
     assert by_ref["refs/heads/orphan"].upstream_gone is True
     assert by_ref["refs/heads/orphan"].unintegrated_commits == 1
+    assert by_ref["refs/heads/orphan"].content_integrated is False
+    assert main.content_integrated is None
+    assert local_only.content_integrated is None
     upstream_main = by_ref["refs/remotes/upstream/main"]
     assert (upstream_main.name, upstream_main.remote) == ("main", "upstream")
     assert upstream_main.upstream is None
@@ -213,3 +241,104 @@ def test_a_failing_commit_count_is_a_diagnostic_not_an_absence() -> None:
     assert by_ref["refs/heads/feature"].unintegrated_commits is None
     assert [item.code for item in observation.diagnostics] == ["branch-integration"]
     assert "refs/heads/feature" in observation.diagnostics[0].message
+
+
+# --- Content integration against real Git (ADR 0017) -------------------------
+
+
+def _commit(root: Path, path: str, text: str, message: str) -> None:
+    (root / path).write_text(text)
+    git(root, "add", path)
+    git(
+        root,
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "user.name=Test",
+        "commit",
+        "-q",
+        "-m",
+        message,
+    )
+
+
+def squash_repository(tmp_path: Path) -> Path:
+    """``main`` with a squash-merged ``done``, a live ``pending``, and a ``kept``.
+
+    ``done`` is squash-merged and its file is then edited again on ``main``, so
+    merging its tip conflicts and only the squash scan can recognise it.
+    ``pending`` is squash-merged with nothing on ``main`` since, so merging
+    its tip changes nothing. ``kept`` holds work that never landed.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    _commit(root, "app.py", "one\n", "seed")
+    git(root, "branch", "done")
+    git(root, "branch", "kept")
+    git(root, "checkout", "-q", "done")
+    _commit(root, "app.py", "one\ntwo\n", "add two")
+    _commit(root, "app.py", "one\ntwo\nthree\n", "add three")
+    git(root, "checkout", "-q", "kept")
+    _commit(root, "kept.py", "kept\n", "kept work")
+    git(root, "checkout", "-q", "main")
+    git(root, "merge", "--squash", "-q", "done")
+    git(
+        root,
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "user.name=Test",
+        "commit",
+        "-q",
+        "-m",
+        "add two and three (#1)",
+    )
+    _commit(root, "app.py", "one\ntwo\nthree\nfour\n", "add four")
+    git(root, "checkout", "-q", "-b", "pending")
+    _commit(root, "app.py", "one\ntwo\nthree\nfour\nfive\n", "add five")
+    git(root, "checkout", "-q", "main")
+    git(root, "merge", "--squash", "-q", "pending")
+    git(
+        root,
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "user.name=Test",
+        "commit",
+        "-q",
+        "-m",
+        "add five (#2)",
+    )
+    return root
+
+
+def test_squash_merged_branches_are_integrated_by_content(tmp_path: Path) -> None:
+    root = squash_repository(tmp_path)
+
+    observation = observe_branches([root])
+
+    assert observation.diagnostics == []
+    by_name = {branch.name: branch for branch in observation.branches}
+    assert by_name["main"].unintegrated_commits == 0
+    assert by_name["main"].content_integrated is None
+    # Merging the tip changes nothing: recognised at the first step.
+    assert by_name["pending"].unintegrated_commits == 1
+    assert by_name["pending"].content_integrated is True
+    # Merging the tip conflicts; the squash commit is found on main.
+    assert by_name["done"].unintegrated_commits == 2
+    assert by_name["done"].content_integrated is True
+    # Work that never landed is retained work.
+    assert by_name["kept"].unintegrated_commits == 1
+    assert by_name["kept"].content_integrated is False
+
+
+def test_content_integration_never_fetches_or_mutates(tmp_path: Path) -> None:
+    root = squash_repository(tmp_path)
+    before = git(root, "for-each-ref")
+    status = git(root, "status", "--porcelain")
+
+    observe_branches([root])
+
+    assert git(root, "for-each-ref") == before
+    assert git(root, "status", "--porcelain") == status

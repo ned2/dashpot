@@ -50,6 +50,11 @@ UNINTEGRATED_GLYPH = Glyph(
     "commits not reachable from the Integration Branch",
     DIRTY_COLORS,
 )
+CONTENT_INTEGRATED_GLYPH = Glyph(
+    "≡",
+    "the Integration Branch holds the Branch's content, though its commits "
+    "are not reachable (squash-merged)",
+)
 NO_INTEGRATION_GLYPH = Glyph(
     "⊘", "no Integration Branch comparison is available", UNAVAILABLE_COLORS
 )
@@ -63,6 +68,7 @@ UPSTREAM_LEGEND = (
 )
 INTEGRATION_LEGEND = (
     INTEGRATED_GLYPH,
+    CONTENT_INTEGRATED_GLYPH,
     UNINTEGRATED_GLYPH,
     NO_INTEGRATION_GLYPH,
     NO_LOCAL_REF_GLYPH,
@@ -278,7 +284,7 @@ def sync_cell(local: Branch | None, *, dark: bool) -> ListCell:
 
 
 def integration_cell(local: Branch | None, *, dark: bool) -> ListCell:
-    """Report whether every commit is reachable from the Integration Branch."""
+    """Report whether the Integration Branch holds the Branch's commits or content."""
     if local is None:
         return NO_LOCAL_REF_GLYPH.symbol
     count = local.unintegrated_commits
@@ -289,6 +295,8 @@ def integration_cell(local: Branch | None, *, dark: bool) -> ListCell:
         )
     if count == 0:
         return INTEGRATED_GLYPH.symbol
+    if local.content_integrated:
+        return CONTENT_INTEGRATED_GLYPH.symbol
     return Text(f"↑{count}", style=UNINTEGRATED_GLYPH.style(dark=dark))
 
 
