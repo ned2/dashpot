@@ -787,6 +787,41 @@ def test_branch_delete_previews_confirms_and_reports(
     assert payload["results"][0]["outcome"] == "deleted"
 
 
+def test_branch_delete_names_each_remote_it_is_given(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    preview = cleanup_preview("branch", cleanup_target("local-branch"))
+    report = cleanup_report(preview, performed=False, refusals=("nothing",))
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=object()),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
+        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+    ):
+        assert (
+            cli.main(
+                [
+                    "branch",
+                    "delete",
+                    "feat",
+                    "--remote",
+                    "origin",
+                    "--remote",
+                    "upstream",
+                    "--local",
+                ]
+            )
+            == 2
+        )
+    assert perform.call_args.args[0].selected == (
+        "local:refs/heads/feat",
+        "remote:origin:refs/heads/feat",
+        "remote:upstream:refs/heads/feat",
+    )
+
+
 def test_branch_delete_without_a_target_flag_is_a_usage_refusal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -799,7 +834,9 @@ def test_branch_delete_without_a_target_flag_is_a_usage_refusal(
     inspect.assert_not_called()
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == "dashpot: name at least one target to delete: --local\n"
+    assert captured.err == (
+        "dashpot: name at least one target to delete: --local, --remote REMOTE\n"
+    )
 
 
 def test_branch_delete_refusal_exits_2_and_names_each_reason(
@@ -1151,7 +1188,7 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
         assert option in remove
     delete = help_text(["branch", "delete", "--help"])
     assert "Usage: dashpot branch delete [OPTIONS] NAME" in delete
-    for option in ("--local", "--dry-run", "--json"):
+    for option in ("--local", "--remote", "--dry-run", "--json"):
         assert option in delete
     assert "Usage: dashpot issue show [OPTIONS] REFERENCE" in help_text(
         ["issue", "show", "--help"]

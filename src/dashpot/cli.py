@@ -496,8 +496,9 @@ branch = App(
     name="branch",
     help=(
         "Delete Branches after a read-only preview.\n\n"
-        "delete mutates: only the refs named by its flags, each only at the "
-        "commit the preview observed, never the Integration Branch or a "
+        "delete mutates: only the refs named by its flags — the local Branch, "
+        "the Branch at each named remote — each only at the commit the preview "
+        "observed, the remote first, never the Integration Branch or a "
         "checked-out Branch (ADR 0019)."
     ),
 )
@@ -516,24 +517,33 @@ def branch_delete(
             help="delete the local Branch refs/heads/NAME, if it is integrated",
         ),
     ] = False,
+    remote: Annotated[
+        list[str] | None,
+        Parameter(
+            help=(
+                "REMOTE: delete the Branch at this remote (repeatable), leased on "
+                "its Remote-Tracking Branch as of the last fetch"
+            ),
+            show_default=False,
+        ),
+    ] = None,
     dry_run: _DryRun = False,
     timeout: _Timeout = 10.0,
     json_output: _JsonOutput = False,
 ) -> int:
     """Delete the selected refs of a Branch, each at its previewed commit."""
-    if not local:
-        raise CleanupError("name at least one target to delete: --local")
+    if not local and not remote:
+        raise CleanupError(
+            "name at least one target to delete: --local, --remote REMOTE"
+        )
     current = Path.cwd().resolve()
+    # The identities are spelled out rather than picked from the preview so
+    # a ref that is not there is refused by name.
+    selected = [f"local:refs/heads/{name}"] if local else []
+    selected.extend(f"remote:{each}:refs/heads/{name}" for each in remote or ())
     return _cleanup(
         BranchCleanupRequest(current, name),
-        select=lambda preview: (
-            tuple(
-                target.identity
-                for target in preview.targets
-                if target.kind == "local-branch"
-            )
-            or (f"local:refs/heads/{name}",)
-        ),
+        select=lambda _preview: tuple(selected),
         dry_run=dry_run,
         timeout=timeout,
         json_output=json_output,

@@ -115,7 +115,8 @@ uv run dashpot work start 35                 # 4. inside that session, at that W
   removal. `uv run dashpot worktree check <path>` reports whether it could be
   removed and the Git command for each reason it cannot (no path: every
   linked Worktree). `uv run dashpot worktree remove <path> --delete-ignored
-  [--delete-branch]` and `uv run dashpot branch delete NAME --local` remove
+  [--delete-branch]` and `uv run dashpot branch delete NAME --local
+  [--remote REMOTE]` remove
   only what their flags name, unforced and only when integrated, and never
   the checkout they run from ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md));
   run them only when the user asks, and never on a Worktree with a live

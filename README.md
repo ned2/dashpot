@@ -763,6 +763,7 @@ dashpot worktree check                    # the same for every linked Worktree
 dashpot worktree remove ~/w/35-alternate --delete-ignored   # unforced, after that check
 dashpot worktree remove ~/w/35-alternate --delete-branch --delete-ignored --dry-run
 dashpot branch delete 35-alternate --local   # the local Branch, once integrated
+dashpot branch delete 35-alternate --local --remote origin   # and at origin, leased
 ```
 
 `issue show` accepts the Issue Hints `work start` accepts — a bare Issue
@@ -839,7 +840,17 @@ hook records, and the Work Store there) goes with it, and the command is
 refused without it when such content exists. `branch delete --local` deletes
 the local Branch with `git update-ref -d` guarded by the previewed commit, so a
 Branch that moved is refused rather than deleted, and drops its `branch.NAME.*`
-configuration. Neither deletes the Integration Branch, a checked-out Branch, a
+configuration. `branch delete --remote REMOTE` (repeatable) deletes the Branch
+at that remote with `git push --force-with-lease=refs/heads/NAME:<oid> REMOTE
+:refs/heads/NAME`, the lease being the Remote-Tracking Branch's tip as of the
+last fetch, before any local deletion; it needs the canonical fetch mapping
+and exactly one push URL, honours the pre-push hook, and never fetches. Git
+rejects the push with `stale info` when the remote moved and when the Branch
+is already gone there, so that rejection is followed by one read-only
+`git ls-remote` to report `refused` (fetch and confirm again) or
+`already-absent` (the Remote-Tracking Branch is stale until the next fetch
+prunes it); a successful delete push drops the Remote-Tracking Branch itself.
+Neither command deletes the Integration Branch, a checked-out Branch, a
 Branch with commits the Integration Branch does not reach, or a Worktree that
 is the main one, dirty, locked, occupied by an Agent Session or Agent Run, or
 the checkout the command runs from. Every target reports its own outcome —
@@ -850,7 +861,6 @@ selection and lists what would be attempted, in order; `--json` prints the
 report (`kind`, `subject`, `anchor`, `dryRun`, `performed`, `changed`,
 `refusals`, `planned`, `results`, `succeeded`, and the `preview`). The exit
 code is 0 only when every selected target was deleted or already absent.
-Deleting a Branch at a remote is not available yet.
 
 The created Worktree carries no harness. Launch whichever harness should
 work there with its working directory set — `codex -C <path>` or
