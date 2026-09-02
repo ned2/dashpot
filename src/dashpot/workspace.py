@@ -1,11 +1,16 @@
+"""Load the Workspace inventory and resolve its Repository Anchors to Projects."""
+
 from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import AfterValidator, ConfigDict, ValidationError
 
 from .errors import DashpotError
 from .git import Git
@@ -14,6 +19,12 @@ from .model import (
     RepositoryAnchor,
     ResolvedProject,
     Workspace,
+)
+from .models import (
+    LaxSequence,
+    NonBlankString,
+    PublishedModel,
+    translate_validation_error,
 )
 from .project_config import (
     GitHubIssueSourceConfig,
@@ -28,6 +39,38 @@ from .repository import (
 
 RootObserver = Callable[[Path], Path]
 GitHubIdentityObserver = Callable[[Path, str, float], tuple[str, str]]
+
+
+def _non_empty(value: Sequence[str]) -> Sequence[str]:
+    if not value:
+        raise ValueError("must not be empty")
+    return value
+
+
+class _InventoryModel(PublishedModel):
+    # A field written by a newer Dashpot is retained and diagnosed, never fatal.
+    model_config = ConfigDict(extra="allow")
+
+
+class WorkspaceEntryConfig(_InventoryModel):
+    """One named Workspace and the Repository Anchors it lists."""
+
+    name: NonBlankString
+    anchors: Annotated[LaxSequence[NonBlankString], AfterValidator(_non_empty)]
+
+
+class WorkspaceInventoryConfig(_InventoryModel):
+    """The Workspace inventory file: an explicit list of Workspaces."""
+
+    workspaces: LaxSequence[WorkspaceEntryConfig]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceInventory:
+    """The Workspaces an inventory file declares, with what it could not use."""
+
+    workspaces: tuple[Workspace, ...]
+    diagnostics: tuple[Diagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,57 +94,66 @@ class _AnchorResolutionError(DashpotError, RuntimeError):
         self.code = code
 
 
-def load_workspaces(path: Path) -> list[Workspace]:
-    """Load named Workspaces whose membership is an explicit anchor list."""
+def _describe_inventory_path(segments: Sequence[str]) -> str:
+    # ``workspaces.0.anchors.1`` reads as ``workspace entry 0 anchor 1``.
+    text = ".".join(segments)
+    text = re.sub(r"^workspaces\.(\d+)", r"workspace entry \1", text)
+    text = re.sub(r"\.anchors\.(\d+)$", r" anchor \1", text)
+    return text.replace(".", " ")
+
+
+def load_workspaces(path: Path) -> WorkspaceInventory:
+    """Load named Workspaces whose membership is an explicit anchor list.
+
+    A field this Dashpot does not know, at the top level or in an entry, is
+    ignored with a Diagnostic rather than refusing the whole inventory.
+    """
     try:
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise RuntimeError(f"workspace config not found: {path}") from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"cannot read workspace config {path}: {exc}") from exc
-    if not isinstance(raw, dict) or set(raw) != {"workspaces"}:
-        raise RuntimeError(
-            f"workspace config {path} must contain only a workspaces array"
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"workspace config {path} must contain a JSON object")
+    try:
+        inventory = WorkspaceInventoryConfig.model_validate(raw)
+    except ValidationError as exc:
+        message = translate_validation_error(
+            exc,
+            root=f"workspace config {path}",
+            describe_path=_describe_inventory_path,
         )
-    items = raw["workspaces"]
-    if not isinstance(items, list):
-        raise RuntimeError(f"workspace config {path} must contain a workspaces array")
+        raise RuntimeError(message) from exc
+    unknown = [f"{field}" for field in sorted(inventory.model_extra or {})]
     workspaces: list[Workspace] = []
-    for index, item in enumerate(items):
-        if not isinstance(item, dict):
-            raise RuntimeError(f"workspace entry {index} must be an object")
-        missing = {"name", "anchors"} - set(item)
-        unexpected = set(item) - {"name", "anchors"}
-        if missing:
-            raise RuntimeError(
-                f"workspace entry {index} is missing fields: {', '.join(sorted(missing))}"
-            )
-        if unexpected:
-            raise RuntimeError(
-                f"workspace entry {index} has unexpected fields: "
-                f"{', '.join(sorted(unexpected))}"
-            )
-        name = item["name"]
-        anchors = item["anchors"]
-        if not isinstance(name, str) or not name.strip():
-            raise RuntimeError(f"workspace entry {index} needs a non-empty name")
-        if not isinstance(anchors, list) or not anchors:
-            raise RuntimeError(
-                f"workspace entry {index} needs a non-empty anchors array"
-            )
+    for index, entry in enumerate(inventory.workspaces):
+        unknown.extend(
+            f"workspaces[{index}].{field}" for field in sorted(entry.model_extra or {})
+        )
         resolved: list[RepositoryAnchor] = []
-        for anchor_index, raw_anchor in enumerate(anchors):
-            if not isinstance(raw_anchor, str) or not raw_anchor.strip():
-                raise RuntimeError(
-                    f"workspace entry {index} anchor {anchor_index} "
-                    "must be a non-empty path"
-                )
+        for raw_anchor in entry.anchors:
+            # Path resolution is policy, not validation: ``~`` expands, and a
+            # relative anchor is taken from the inventory file's directory.
             anchor_path = Path(raw_anchor).expanduser()
             if not anchor_path.is_absolute():
                 anchor_path = path.parent / anchor_path
             resolved.append(RepositoryAnchor(str(anchor_path.resolve())))
-        workspaces.append(Workspace(name.strip(), tuple(resolved)))
-    return workspaces
+        workspaces.append(Workspace(entry.name, tuple(resolved)))
+    diagnostics = (
+        (
+            Diagnostic(
+                source=f"workspaces:{path}",
+                severity="warning",
+                message=f"Ignoring unknown fields in workspace config {path}: "
+                + ", ".join(unknown),
+                code="workspace-config-unknown-field",
+            ),
+        )
+        if unknown
+        else ()
+    )
+    return WorkspaceInventory(tuple(workspaces), diagnostics)
 
 
 def default_workspace_config() -> Path:

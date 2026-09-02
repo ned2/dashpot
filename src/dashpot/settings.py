@@ -8,13 +8,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import ConfigDict, ValidationError
+
 from .model import Diagnostic
+from .models import NonBlankString, PublishedModel, translate_validation_error
 
 SETTINGS_FILE_NAME = "settings.json"
-WORKTREE_ROOT_SETTING = "worktreeRoot"
 WORKTREE_ROOT_VARIABLE = "DASHPOT_WORKTREE_ROOT"
-# Every field this Dashpot understands; an unknown one is diagnosed, not fatal.
-KNOWN_SETTINGS = frozenset({WORKTREE_ROOT_SETTING})
+
+
+class SettingsFile(PublishedModel):
+    """The settings file as written; a field this Dashpot does not know is kept.
+
+    A field written by a newer Dashpot must not stop this one starting: a
+    downgrade, or two versions sharing a home directory, keeps working, so
+    unknown fields are retained here and diagnosed by the loader.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    worktree_root: NonBlankString | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,9 +58,12 @@ def load_settings(path: Path | None = None) -> Settings:
         ) from exc
     if not isinstance(raw, dict):
         raise RuntimeError(f"{settings_path} must contain a JSON object")
-    # A field written by a newer Dashpot must not stop this one starting: a
-    # downgrade, or two versions sharing a home directory, keeps working.
-    unexpected = sorted(set(raw) - KNOWN_SETTINGS)
+    try:
+        file = SettingsFile.model_validate(raw)
+    except ValidationError as exc:
+        message = translate_validation_error(exc, root="")
+        raise RuntimeError(f"{settings_path} {message.lstrip()}") from exc
+    unexpected = sorted(file.model_extra or {})
     diagnostics = (
         (
             Diagnostic(
@@ -62,14 +78,11 @@ def load_settings(path: Path | None = None) -> Settings:
         if unexpected
         else ()
     )
-    worktree_root = raw.get(WORKTREE_ROOT_SETTING)
-    if worktree_root is None:
+    if file.worktree_root is None:
         return Settings(diagnostics=diagnostics)
-    if not isinstance(worktree_root, str) or not worktree_root.strip():
-        raise RuntimeError(
-            f"{settings_path} {WORKTREE_ROOT_SETTING} must be a non-empty string"
-        )
-    root = Path(worktree_root.strip()).expanduser()
+    # Path resolution is policy, not validation: ``~`` expands, and a relative
+    # root is anchored at the settings file's own directory.
+    root = Path(file.worktree_root).expanduser()
     if not root.is_absolute():
         root = settings_path.parent / root
     return Settings(worktree_root=root, diagnostics=diagnostics)

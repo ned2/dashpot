@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Annotated, NoReturn, TypeVar
 
@@ -42,15 +42,108 @@ class PersistedRecord(PublishedModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ConfigModel(PublishedModel):
+    """Validate a configuration file whose key set is a closed contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 # A required wire string is never empty: the hand validators these models
 # replace all read "non-empty" as part of the field's contract.
 NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
+
+
+def _strip_non_blank(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("must be a non-empty string")
+    return stripped
+
+
+# Configuration strings are stripped, and blank is absent: the behavior of
+# the hand parsers this type replaces, preserved explicitly (ADR 0013).
+NonBlankString = Annotated[str, AfterValidator(_strip_non_blank)]
 
 
 def describe_validation_error(error: ValidationError) -> str:
     """Summarize every failure by its wire path, for a Diagnostic or domain error."""
 
     return "; ".join(_describe_detail(detail) for detail in error.errors())
+
+
+def translate_validation_error(
+    error: ValidationError,
+    *,
+    root: str,
+    field_order: Sequence[str] = (),
+    union_tags: frozenset[str] = frozenset(),
+    union_message: str = "",
+    describe_path: Callable[[Sequence[str]], str] = ".".join,
+) -> str:
+    """State one failure in the wording the hand validators used at this seam.
+
+    The hand validators raised at their first failed check; a
+    ``ValidationError`` carries every failure, so the details are ranked by
+    ``field_order`` (the old check order) to keep the reported message stable
+    for callers pinning error text. Missing and unexpected fields are grouped
+    by their parent — ``root`` names the top level — and a discriminated
+    union's tag segments (``union_tags``) are dropped from the wire path, with
+    ``union_message`` naming the discriminator's accepted values.
+    """
+
+    def rank(segments: Sequence[str]) -> int:
+        if not segments:
+            return len(field_order) + 1
+        try:
+            return field_order.index(segments[0])
+        except ValueError:
+            return len(field_order)
+
+    missing: dict[str, list[str]] = {}
+    unexpected: dict[str, list[str]] = {}
+    candidates: list[tuple[tuple[int, int], str]] = []
+    for detail in error.errors():
+        segments = [
+            str(segment) for segment in detail["loc"] if str(segment) not in union_tags
+        ]
+        kind = detail["type"]
+        if kind in {"missing", "extra_forbidden"}:
+            grouped = missing if kind == "missing" else unexpected
+            parent = describe_path(segments[:-1]) or root
+            grouped.setdefault(parent, []).append(segments[-1])
+            continue
+        path = describe_path(segments)
+        if kind in {"model_type", "model_attributes_type", "dict_type"}:
+            message = f"{path} must be an object"
+        elif kind in {"union_tag_invalid", "union_tag_not_found"}:
+            if isinstance(detail.get("input"), Mapping):
+                message = f"{path}{'.' if path else ''}{union_message}"
+            else:
+                message = f"{path} must be an object"
+        elif kind == "string_type":
+            message = f"{path} must be a string"
+        elif kind in {"list_type", "tuple_type"} or (
+            kind == "is_instance_of" and "Sequence" in detail["msg"]
+        ):
+            message = f"{path} must be an array"
+        else:
+            tail = detail["msg"].removeprefix("Value error, ")
+            message = f"{path} {tail}" if path else tail
+        candidates.append(((rank(segments), 2), message))
+    for grouped, position, verb in (
+        (missing, 0, "is missing fields"),
+        (unexpected, 1, "has unexpected fields"),
+    ):
+        for parent, fields in grouped.items():
+            parent_rank = -1 if parent == root else rank(parent.split("."))
+            candidates.append(
+                (
+                    (parent_rank, position),
+                    f"{parent} {verb}: {', '.join(sorted(fields))}",
+                )
+            )
+    candidates.sort(key=lambda candidate: candidate[0])
+    return candidates[0][1]
 
 
 def _describe_detail(detail: Mapping[str, object]) -> str:

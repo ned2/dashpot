@@ -19,7 +19,7 @@ from .integrate import (
     remove_integration,
 )
 from .issue_resolution import describe_issue, show_issue
-from .model import RepositoryAnchor, Workspace, to_jsonable
+from .model import Diagnostic, RepositoryAnchor, Workspace, to_jsonable
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
 from .work import show_issue_work, start_issue_work, stop_issue_work
@@ -447,10 +447,13 @@ def _report(messages: Iterable[str]) -> None:
 
 def create_collector(options: ObservationOptions) -> ObservationCoordinator:
     """Resolve the Workspaces one run observes into its coordinator."""
+    inventory_diagnostics: Sequence[Diagnostic] = ()
     if options.workspaces:
         workspaces = merge_workspaces(list(options.workspaces))
     elif options.config is not None:
-        workspaces = load_workspaces(options.config.expanduser())
+        inventory = load_workspaces(options.config.expanduser())
+        workspaces = list(inventory.workspaces)
+        inventory_diagnostics = inventory.diagnostics
     else:
         current = Path.cwd().resolve()
         try:
@@ -474,13 +477,15 @@ def create_collector(options: ObservationOptions) -> ObservationCoordinator:
                     f"'dashpot init' to configure it, or define Workspaces "
                     f"in {inventory}"
                 )
-            workspaces = load_workspaces(inventory)
+            loaded = load_workspaces(inventory)
+            workspaces = list(loaded.workspaces)
+            inventory_diagnostics = loaded.diagnostics
     resolution = resolve_workspace_projects(workspaces, timeout=options.timeout)
     return ObservationCoordinator(
         resolution.projects,
         timeout=options.timeout,
         state_dir=options.state_dir.expanduser() if options.state_dir else None,
-        diagnostics=resolution.diagnostics,
+        diagnostics=[*inventory_diagnostics, *resolution.diagnostics],
     )
 
 

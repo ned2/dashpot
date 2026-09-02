@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from dashpot.collect import build_issue_source, create_project_collector
 from dashpot.github_issues import GitHubIssuesSource
@@ -51,7 +53,7 @@ def test_loads_github_project_configuration(tmp_path: Path) -> None:
     assert config.project_id == PROJECT_ID
     assert config.display_label == "Dashpot"
     assert config.repository_id == "R_dashpot"
-    assert config.issue_source == GitHubIssueSourceConfig("github")
+    assert config.issue_source == GitHubIssueSourceConfig(kind="github")
 
 
 def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
@@ -59,7 +61,9 @@ def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
 
     config = load_project_config(tmp_path)
 
-    assert config.issue_source == LocalMarkdownIssueSourceConfig("markdown", "issues")
+    assert config.issue_source == LocalMarkdownIssueSourceConfig(
+        kind="markdown", path="issues"
+    )
 
 
 @pytest.mark.parametrize(
@@ -68,6 +72,9 @@ def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
         ({"kind": "markdown", "path": "../outside"}, "repository-relative"),
         ({"kind": "github", "repositoryId": "nested"}, "unexpected fields"),
         ({"kind": "unknown"}, "must be 'github' or 'markdown'"),
+        ({"kind": "markdown"}, "issueSource is missing fields: path"),
+        ({"kind": "markdown", "path": 3}, "issueSource.path must be a string"),
+        ({"kind": "markdown", "path": " "}, "issueSource.path must be a non-empty"),
     ],
 )
 def test_rejects_invalid_issue_source_configuration(
@@ -115,6 +122,48 @@ def test_rejects_malformed_project_configuration_text(
 ) -> None:
     with pytest.raises(RuntimeError, match=message):
         parse_project_config(text, tmp_path / PROJECT_CONFIG_NAME)
+
+
+def test_configuration_strings_are_stripped_and_the_model_is_frozen(
+    tmp_path: Path,
+) -> None:
+    write_project_config(
+        tmp_path,
+        project_id=f" {PROJECT_ID} ",
+        display_label=" Dashpot ",
+        repository_id="R_dashpot",
+        issue_source={"kind": "markdown", "path": " issues "},
+    )
+
+    config = load_project_config(tmp_path)
+
+    assert config.project_id == PROJECT_ID
+    assert config.display_label == "Dashpot"
+    assert config.issue_source == LocalMarkdownIssueSourceConfig(
+        kind="markdown", path="issues"
+    )
+    with pytest.raises(ValidationError):
+        config.display_label = "Renamed"  # ty: ignore[invalid-assignment]
+
+
+def test_project_configuration_forbids_coercion_and_unknown_fields(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / PROJECT_CONFIG_NAME
+    document = {
+        "projectId": PROJECT_ID,
+        "displayLabel": 1,
+        "repositoryId": "R_dashpot",
+        "issueSource": {"kind": "github"},
+    }
+
+    with pytest.raises(RuntimeError, match="displayLabel must be a string"):
+        parse_project_config(json.dumps(document), path)
+
+    document["displayLabel"] = "Dashpot"
+    document["extra"] = True
+    with pytest.raises(RuntimeError, match="has unexpected fields: extra"):
+        parse_project_config(json.dumps(document), path)
 
 
 def test_project_collector_rejects_changed_configuration(tmp_path: Path) -> None:

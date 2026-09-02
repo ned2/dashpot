@@ -27,7 +27,7 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from dashpot.processes import AgentAncestry, ProcessIdentity
-from dashpot.workspace import WorkspaceResolution
+from dashpot.workspace import WorkspaceInventory, WorkspaceResolution
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
 from factories import write_config_marker
 from helpers import issue_payload
@@ -139,9 +139,9 @@ def test_explicit_config_takes_precedence_over_current_project(
         mock.patch.object(
             cli,
             "load_workspaces",
-            return_value=[
-                Workspace("configured", (RepositoryAnchor(str(configured)),))
-            ],
+            return_value=WorkspaceInventory(
+                (Workspace("configured", (RepositoryAnchor(str(configured)),)),)
+            ),
         ) as load_workspaces,
         mock.patch.object(
             cli,
@@ -195,9 +195,9 @@ def test_no_argument_cli_falls_back_to_standard_workspace_config(
         mock.patch.object(
             cli,
             "load_workspaces",
-            return_value=[
-                Workspace("configured", (RepositoryAnchor(str(configured)),))
-            ],
+            return_value=WorkspaceInventory(
+                (Workspace("configured", (RepositoryAnchor(str(configured)),)),)
+            ),
         ) as load_workspaces,
         mock.patch.object(
             cli,

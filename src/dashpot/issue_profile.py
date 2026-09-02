@@ -15,7 +15,11 @@ from pydantic import (
 )
 
 from .errors import DashpotError
-from .models import PublishedModel, validate_rfc3339_timestamp
+from .models import (
+    PublishedModel,
+    translate_validation_error,
+    validate_rfc3339_timestamp,
+)
 
 
 # The ValueError base is what the adapters' ``except ValueError`` translation
@@ -245,9 +249,8 @@ def semantically_equivalent(left: IssueProfile, right: IssueProfile) -> bool:
     return semantic_projection(left) == semantic_projection(right)
 
 
-# Today's hand validator raised at the first failed check; a ValidationError
-# carries every failure, so translation ranks details by the old check order
-# to keep the reported message stable for callers pinning error text.
+# The old hand validator's check order, which keeps the reported message
+# stable for callers pinning error text.
 _FIELD_ORDER = (
     "id",
     "projectId",
@@ -271,64 +274,11 @@ _FIELD_ORDER = (
 )
 
 
-def _wire_segments(loc: tuple[int | str, ...]) -> list[str]:
-    segments: list[str] = []
-    for segment in loc:
-        text = str(segment)
-        # A discriminated-union detail includes the matched tag as a segment;
-        # the wire path does not.
-        if text in {"github", "markdown"} and segments[-1:] in (
-            ["origin"],
-            ["location"],
-        ):
-            continue
-        segments.append(text)
-    return segments
-
-
-def _rank(segments: list[str]) -> int:
-    if not segments:
-        return len(_FIELD_ORDER) + 1
-    try:
-        return _FIELD_ORDER.index(segments[0])
-    except ValueError:
-        return len(_FIELD_ORDER)
-
-
 def _translate(error: ValidationError) -> str:
-    missing: dict[str, list[str]] = {}
-    unexpected: dict[str, list[str]] = {}
-    candidates: list[tuple[tuple[int, int], str]] = []
-    for detail in error.errors():
-        segments = _wire_segments(detail["loc"])
-        kind = detail["type"]
-        if kind in {"missing", "extra_forbidden"}:
-            grouped = missing if kind == "missing" else unexpected
-            parent = ".".join(segments[:-1]) or "issue"
-            grouped.setdefault(parent, []).append(segments[-1])
-            continue
-        path = ".".join(segments)
-        if kind in {"model_type", "model_attributes_type", "dict_type"}:
-            message = f"{path} must be an object"
-        elif kind in {"union_tag_invalid", "union_tag_not_found"}:
-            if isinstance(detail.get("input"), Mapping):
-                message = f"{path}.kind must be 'github' or 'markdown'"
-            else:
-                message = f"{path} must be an object"
-        elif kind == "string_type":
-            message = f"{path} must be a string"
-        else:
-            tail = detail["msg"].removeprefix("Value error, ")
-            message = f"{path} {tail}" if path else tail
-        candidates.append(((_rank(segments), 2), message))
-    for grouped, position, verb in (
-        (missing, 0, "is missing fields"),
-        (unexpected, 1, "has unexpected fields"),
-    ):
-        for parent, fields in grouped.items():
-            rank = -1 if parent == "issue" else _rank(parent.split("."))
-            candidates.append(
-                ((rank, position), f"{parent} {verb}: {', '.join(sorted(fields))}")
-            )
-    candidates.sort(key=lambda candidate: candidate[0])
-    return candidates[0][1]
+    return translate_validation_error(
+        error,
+        root="issue",
+        field_order=_FIELD_ORDER,
+        union_tags=frozenset({"github", "markdown"}),
+        union_message="kind must be 'github' or 'markdown'",
+    )

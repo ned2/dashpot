@@ -1,33 +1,54 @@
+"""Read the Project configuration tracked at a Worktree's root."""
+
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal
+
+from pydantic import AfterValidator, Field, ValidationError
+
+from .models import ConfigModel, NonBlankString, translate_validation_error
 
 PROJECT_CONFIG_NAME = ".dashpot/config.json"
 
 
-@dataclass(frozen=True, slots=True)
-class GitHubIssueSourceConfig:
+def _repository_relative(value: str) -> str:
+    parsed = PurePosixPath(value)
+    if parsed.is_absolute() or ".." in parsed.parts:
+        raise ValueError("must be repository-relative")
+    return value
+
+
+class GitHubIssueSourceConfig(ConfigModel):
+    """Issues come from the GitHub repository at the Worktree's origin."""
+
     kind: Literal["github"]
 
 
-@dataclass(frozen=True, slots=True)
-class LocalMarkdownIssueSourceConfig:
+class LocalMarkdownIssueSourceConfig(ConfigModel):
+    """Issues come from Markdown files under a repository-relative path."""
+
     kind: Literal["markdown"]
-    path: str
+    path: Annotated[NonBlankString, AfterValidator(_repository_relative)]
 
 
-IssueSourceConfig: TypeAlias = GitHubIssueSourceConfig | LocalMarkdownIssueSourceConfig
+IssueSourceConfig = Annotated[
+    GitHubIssueSourceConfig | LocalMarkdownIssueSourceConfig,
+    Field(discriminator="kind"),
+]
 
 
-@dataclass(frozen=True, slots=True)
-class ProjectConfig:
-    project_id: str
-    display_label: str
-    repository_id: str
+class ProjectConfig(ConfigModel):
+    """What ``.dashpot/config.json`` declares about one Project."""
+
+    project_id: NonBlankString
+    display_label: NonBlankString
+    repository_id: NonBlankString
     issue_source: IssueSourceConfig
+
+
+_FIELD_ORDER = ("projectId", "displayLabel", "repositoryId", "issueSource")
 
 
 def load_project_config(root: Path) -> ProjectConfig:
@@ -50,53 +71,14 @@ def parse_project_config(text: str, path: Path) -> ProjectConfig:
         raise RuntimeError(f"cannot read Project configuration {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise RuntimeError(f"{path} must contain a JSON object")
-    _require_keys(
-        raw,
-        {"projectId", "displayLabel", "repositoryId", "issueSource"},
-        path,
-    )
-    project_id = _non_empty_string(raw["projectId"], f"{path} projectId")
-    display_label = _non_empty_string(raw["displayLabel"], f"{path} displayLabel")
-    repository_id = _non_empty_string(raw["repositoryId"], f"{path} repositoryId")
-    issue_source = raw["issueSource"]
-    if not isinstance(issue_source, dict):
-        raise RuntimeError(f"{path} issueSource must be an object")
-    kind = issue_source.get("kind")
-    if kind == "github":
-        _require_keys(issue_source, {"kind"}, path)
-        return ProjectConfig(
-            project_id,
-            display_label,
-            repository_id,
-            GitHubIssueSourceConfig("github"),
+    try:
+        return ProjectConfig.model_validate(raw)
+    except ValidationError as exc:
+        message = translate_validation_error(
+            exc,
+            root="",
+            field_order=_FIELD_ORDER,
+            union_tags=frozenset({"github", "markdown"}),
+            union_message="kind must be 'github' or 'markdown'",
         )
-    if kind == "markdown":
-        _require_keys(issue_source, {"kind", "path"}, path)
-        issues_path = _non_empty_string(
-            issue_source["path"], f"{path} issueSource.path"
-        )
-        parsed_path = PurePosixPath(issues_path)
-        if parsed_path.is_absolute() or ".." in parsed_path.parts:
-            raise RuntimeError(f"{path} issueSource.path must be repository-relative")
-        return ProjectConfig(
-            project_id,
-            display_label,
-            repository_id,
-            LocalMarkdownIssueSourceConfig("markdown", issues_path),
-        )
-    raise RuntimeError(f"{path} issueSource.kind must be 'github' or 'markdown'")
-
-
-def _require_keys(value: dict[str, Any], expected: set[str], path: Path) -> None:
-    missing = sorted(expected - set(value))
-    unexpected = sorted(set(value) - expected)
-    if missing:
-        raise RuntimeError(f"{path} is missing fields: {', '.join(missing)}")
-    if unexpected:
-        raise RuntimeError(f"{path} has unexpected fields: {', '.join(unexpected)}")
-
-
-def _non_empty_string(value: object, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise RuntimeError(f"{field} must be a non-empty string")
-    return value.strip()
+        raise RuntimeError(f"{path} {message.lstrip()}") from exc

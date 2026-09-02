@@ -28,7 +28,9 @@ def test_worktree_root_is_read_and_relative_paths_anchor_at_the_file(
     ("text", "message"),
     [
         ("[]", "must contain a JSON object"),
-        ('{"worktreeRoot": ""}', "non-empty string"),
+        ('{"worktreeRoot": ""}', "worktreeRoot must be a non-empty string"),
+        ('{"worktreeRoot": 3}', "worktreeRoot must be a string"),
+        ('{"worktreeRoot": true}', "worktreeRoot must be a string"),
         ("{", "cannot read Dashpot settings"),
     ],
 )
@@ -54,6 +56,15 @@ def test_unknown_fields_are_ignored_with_a_diagnostic(tmp_path: Path) -> None:
     assert diagnostic.code == "settings-unknown-field"
     assert diagnostic.severity == "warning"
     assert "bogus" in diagnostic.message
+
+
+def test_the_worktree_root_setting_is_stripped_before_resolution(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"worktreeRoot": "  worktrees "}))
+
+    assert load_settings(path).worktree_root == tmp_path / "worktrees"
 
 
 def test_default_settings_path_follows_xdg_config_home(

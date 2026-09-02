@@ -8,6 +8,7 @@ import pytest
 
 from dashpot.model import RepositoryAnchor, Workspace
 from dashpot.workspace import (
+    WorkspaceInventory,
     WorkspaceScopeError,
     load_workspaces,
     resolve_workspace_projects,
@@ -62,15 +63,17 @@ def test_workspace_config_explicitly_lists_repository_anchors(tmp_path: Path) ->
 
     result = load_workspaces(config)
 
-    assert result == [
-        Workspace(
-            "personal",
-            (
-                RepositoryAnchor(str((tmp_path / "../one").resolve())),
-                RepositoryAnchor("/absolute/two"),
+    assert result == WorkspaceInventory(
+        (
+            Workspace(
+                "personal",
+                (
+                    RepositoryAnchor(str((tmp_path / "../one").resolve())),
+                    RepositoryAnchor("/absolute/two"),
+                ),
             ),
         )
-    ]
+    )
 
 
 def test_workspace_config_rejects_legacy_discovery_root(tmp_path: Path) -> None:
@@ -79,8 +82,65 @@ def test_workspace_config_rejects_legacy_discovery_root(tmp_path: Path) -> None:
         json.dumps({"workspaces": [{"name": "old", "root": "/projects"}]})
     )
 
-    with pytest.raises(RuntimeError, match="missing fields: anchors"):
+    with pytest.raises(
+        RuntimeError, match="workspace entry 0 is missing fields: anchors"
+    ):
         load_workspaces(config)
+
+
+@pytest.mark.parametrize(
+    ("document", "message"),
+    [
+        ("[]", "must contain a JSON object"),
+        ('{"workspaces": {}}', "workspaces must be"),
+        ('{"workspaces": ["x"]}', "workspace entry 0 must be an object"),
+        (
+            '{"workspaces": [{"name": " ", "anchors": ["a"]}]}',
+            "name must be a non-empty",
+        ),
+        ('{"workspaces": [{"name": "n", "anchors": []}]}', "anchors must not be empty"),
+        (
+            '{"workspaces": [{"name": "n", "anchors": ["a", 3]}]}',
+            "workspace entry 0 anchor 1 must be a string",
+        ),
+        (
+            '{"workspaces": [{"name": "n", "anchors": ["a", " "]}]}',
+            "workspace entry 0 anchor 1 must be a non-empty string",
+        ),
+    ],
+)
+def test_malformed_workspace_config_is_refused_by_entry(
+    tmp_path: Path, document: str, message: str
+) -> None:
+    config = tmp_path / "workspaces.json"
+    config.write_text(document)
+
+    with pytest.raises(RuntimeError, match=message):
+        load_workspaces(config)
+
+
+def test_unknown_workspace_config_fields_are_ignored_with_a_diagnostic(
+    tmp_path: Path,
+) -> None:
+    # A field written by a newer Dashpot must not stop this one starting.
+    config = tmp_path / "workspaces.json"
+    config.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "workspaces": [{"name": " personal ", "anchors": ["one"], "color": 1}],
+            }
+        )
+    )
+
+    result = load_workspaces(config)
+
+    assert result.workspaces == (
+        Workspace("personal", (RepositoryAnchor(str((tmp_path / "one").resolve())),)),
+    )
+    (diagnostic,) = result.diagnostics
+    assert diagnostic.code == "workspace-config-unknown-field"
+    assert "version, workspaces[0].color" in diagnostic.message
 
 
 def test_independent_clones_resolve_to_one_project_with_one_primary_anchor(
