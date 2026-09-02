@@ -654,3 +654,56 @@ async def test_x_is_listed_in_the_footer_and_the_legend() -> None:
         assert "Delete Branch/Worktree" in str(
             app.screen.query_one("#legend-keys", Static).render()
         )
+
+
+@pytest.mark.asyncio
+async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
+    """At 80x24 the reason and the buttons stay in view, and Tab reaches Delete."""
+    cleaner = FakeCleaner(
+        WORKTREE_PREVIEW,
+        reports=[report(WORKTREE_PREVIEW, deleted(TREE), deleted(ATTACHED))],
+    )
+    app = DashpotApp(
+        SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await pilot.pause()
+
+        # The list has focus, and the reason and the buttons are on screen
+        # however much the preview above them scrolls.
+        assert app.focused is not None
+        assert app.focused.id == "cleanup-targets"
+        for selector in ("#cleanup-problem", "#cleanup-cancel", "#cleanup-confirm"):
+            region = app.screen.query_one(selector).region
+            assert region.right <= 80 and region.bottom <= 24, selector
+        assert problem_text(app) == "Select at least one target."
+
+        await pilot.press("space", "down", "space")  # the Worktree, then its Branch
+        await pilot.pause()
+        assert problem_text(app) == (
+            "Acknowledge that the 2 ignored path(s) are deleted with the Worktree."
+        )
+        await pilot.press("tab")
+        assert app.focused.id == "cleanup-ignored"
+        await pilot.press("space")
+        await pilot.pause()
+        assert confirm_button(app).disabled is False
+        assert problem_text(app) == ""
+
+        await pilot.press("tab", "tab")  # Cancel, then Delete selected
+        assert app.focused.id == "cleanup-confirm"
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
+        assert cleaner.confirmations == [
+            CleanupConfirmation(
+                WORKTREE_REQUEST,
+                "0123456789abcdef",
+                (TREE.identity, ATTACHED.identity),
+                delete_ignored=True,
+            )
+        ]

@@ -439,8 +439,9 @@ CleanupScreen, CleanupReportScreen {
 
 #cleanup-dialog, #cleanup-report-dialog {
     width: 96;
+    max-width: 100%;
     height: auto;
-    max-height: 90%;
+    max-height: 100%;
     padding: 1 2;
     border: round $error;
     background: $surface;
@@ -489,6 +490,11 @@ CleanupScreen, CleanupReportScreen {
 #cleanup-ignored {
     height: auto;
     margin: 1 0 0 0;
+}
+
+#cleanup-body {
+    height: auto;
+    max-height: 35vh;
 }
 
 #cleanup-problem {
