@@ -596,7 +596,17 @@ def test_clean_idle_worktree_is_removable(tmp_path: Path) -> None:
         f"git worktree remove {plan.path}",
         "git branch -d worktree-protocol",
     )
-    assert describe_removability(report)[0].endswith("is removable")
+    lines = describe_removability(report)
+    assert lines[:3] == [
+        f"Worktree   {plan.path}",
+        "Branch     worktree-protocol",
+        "Removable  yes",
+    ]
+    assert lines[3:] == [
+        "Remove with",
+        f"  $ git worktree remove {plan.path}",
+        "  $ git branch -d worktree-protocol",
+    ]
     payload = removability_document(report)
     assert payload["removable"] is True
     assert payload["obstacles"] == []
@@ -674,8 +684,12 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
     assert git(root, "worktree", "list", "--porcelain") == before
     assert (path / "scratch.txt").exists()
     lines = describe_removability(report)
-    assert lines[0].endswith("is not removable:")
-    assert len(lines) == 1 + len(report.obstacles)
+    assert lines[2] == "Removable  no"
+    assert lines[3] == "Obstacles"
+    assert [line for line in lines[4:] if line.startswith("  - ")] == [
+        f"  - {obstacle.kind}: {obstacle.detail}" for obstacle in report.obstacles
+    ]
+    assert "Remove with" not in lines
 
 
 def test_orphaned_run_names_the_stop_command(tmp_path: Path) -> None:

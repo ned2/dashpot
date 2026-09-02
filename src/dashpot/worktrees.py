@@ -872,16 +872,24 @@ def _count(git: Git, revision_range: str) -> int | None:
 
 
 def describe_removability(report: WorktreeRemovability) -> list[str]:
-    """Render a removability report as lines for a person."""
-    label = f"{report.path}" + (f" (Branch {report.branch})" if report.branch else "")
-    if report.removable:
-        lines = [f"{label} is removable"]
-        lines.extend(f"remove with: {command}" for command in report.remove_commands)
-        return lines
-    lines = [f"{label} is not removable:"]
-    for obstacle in report.obstacles:
-        line = f"- {obstacle.kind}: {obstacle.detail}"
-        if obstacle.command:
-            line += f" -> {obstacle.command}"
-        lines.append(line)
+    """Render a removability report as lines for a person.
+
+    Field/value lines name the Worktree, its Branch, and the verdict; the
+    obstacles and the commands to run are indented beneath them so a block
+    scans as one Worktree and the commands stand apart from the facts.
+    """
+    lines = [
+        f"Worktree   {report.path}",
+        f"Branch     {report.branch or '(detached)'}",
+        f"Removable  {'yes' if report.removable else 'no'}",
+    ]
+    if report.obstacles:
+        lines.append("Obstacles")
+        for obstacle in report.obstacles:
+            lines.append(f"  - {obstacle.kind}: {obstacle.detail}")
+            if obstacle.command:
+                lines.append(f"      run: {obstacle.command}")
+    if report.removable and report.remove_commands:
+        lines.append("Remove with")
+        lines.extend(f"  $ {command}" for command in report.remove_commands)
     return lines

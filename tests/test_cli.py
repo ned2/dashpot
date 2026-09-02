@@ -599,8 +599,10 @@ def test_worktree_check_dispatches_and_prints_the_report(
         assert cli.main(["worktree", "check", "/w/x"]) == 0
     check.assert_called_once_with(Path.cwd().resolve(), Path("/w/x"), timeout=10.0)
     out = capsys.readouterr().out
-    assert "is not removable:" in out
-    assert "- dirty: 1 changed path -> git worktree remove --force /w/x" in out
+    assert "Removable  no" in out
+    assert (
+        "  - dirty: 1 changed path\n      run: git worktree remove --force /w/x" in out
+    )
 
     with mock.patch.object(cli, "check_worktree", return_value=report):
         assert cli.main(["worktree", "check", "/w/x", "--json"]) == 0
@@ -641,8 +643,8 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
         assert cli.main(["worktree", "check"]) == 0
     listed.assert_called_once_with(Path.cwd().resolve(), timeout=10.0)
     out = capsys.readouterr().out
-    assert "/w/a (Branch b) is removable" in out
-    assert "/w/b (Branch b) is not removable:" in out
+    assert "Worktree   /w/a\nBranch     b\nRemovable  yes\n" in out
+    assert "\n\nWorktree   /w/b\nBranch     b\nRemovable  no\n" in out
 
     with (
         mock.patch.object(cli, "linked_worktrees", return_value=list(reports)),
