@@ -430,3 +430,86 @@ LegendScreen {
 #issue-view-markdown > MarkdownBlock:first-of-type {
     margin-top: 0;
 }
+
+/* The Cleanup modals: a preview to select from, then the outcomes. */
+CleanupScreen, CleanupReportScreen {
+    align: center middle;
+    background: $background 70%;
+}
+
+#cleanup-dialog, #cleanup-report-dialog {
+    width: 96;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    border: round $error;
+    background: $surface;
+}
+
+#cleanup-report-dialog {
+    border: round $primary;
+}
+
+#cleanup-title, #cleanup-report-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+#cleanup-help {
+    height: auto;
+    margin: 1 0;
+    color: $text-muted;
+}
+
+.cleanup-refusal {
+    height: auto;
+    color: $error;
+}
+
+#cleanup-targets {
+    height: auto;
+    max-height: 24;
+}
+
+#cleanup-targets > .selection-list--button,
+#cleanup-targets > .selection-list--button-selected,
+#cleanup-targets > .selection-list--button-highlighted,
+#cleanup-targets > .selection-list--button-selected-highlighted {
+    color: $text;
+}
+
+#cleanup-details {
+    height: auto;
+    max-height: 16;
+    margin: 1 0 0 0;
+    color: $text-muted;
+}
+
+#cleanup-ignored {
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+#cleanup-problem {
+    height: auto;
+    min-height: 1;
+    margin: 1 0 0 0;
+    color: $warning;
+}
+
+#cleanup-report {
+    height: auto;
+    margin: 1 0;
+}
+
+#cleanup-actions, #cleanup-report-actions {
+    height: 3;
+    align-horizontal: right;
+}
+
+#cleanup-actions Button, #cleanup-report-actions Button {
+    width: auto;
+    min-width: 8;
+    margin-left: 1;
+}

@@ -15,6 +15,7 @@ from .cleanup import (
     CleanupError,
     CleanupPreview,
     CleanupRequest,
+    GitCleanupAdapter,
     WorktreeCleanupRequest,
     cleanup_git,
     describe_cleanup_report,
@@ -190,6 +191,7 @@ def observe(
             collector,
             refresh_seconds=refresh_seconds,
             fetcher=remote_fetcher(timeout),
+            cleaner=GitCleanupAdapter(timeout),
         ).run()
     return 0
 
