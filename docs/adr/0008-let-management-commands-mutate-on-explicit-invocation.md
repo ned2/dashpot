@@ -43,9 +43,11 @@ management command mutate, on explicit invocation, exactly what its name says:
   commit, and refusals without calling Git — and its result is available as
   JSON.
 
-Removing Worktrees or Branches and launching harnesses are not covered by
-this decision. Each is a separate product decision; until one is taken,
-Dashpot reports removability and never removes.
+Launching harnesses is not covered by this decision. Removing Worktrees and
+Branches was left out of it as well, until
+[ADR 0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md)
+admitted it under the same boundary as a previewed, explicitly confirmed
+mutation of the targets a person selects.
 
 ## Considered options
 
@@ -80,8 +82,8 @@ Dashpot reports removability and never removes.
   `initializing` lock, a populated path — is reported with the exact recovery
   commands and left in place.
 - `dashpot worktree check` is read-only and answers a different question
-  (removability); a future `worktree remove` or Branch deletion needs its own
-  ADR.
+  (removability); `worktree remove` and Branch deletion are admitted by
+  [ADR 0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md).
 - Future management commands are argued against this boundary, not against
   the slogan.
 - [ADR 0014](0014-fetch-remotes-on-explicit-key-press.md) admits one named

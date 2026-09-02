@@ -14,7 +14,10 @@ management commands — `init`, `integrate`, `work start` and `stop`, and the
 `f` key that fetches Git remotes — mutate only what their name says, on
 explicit invocation, and report what they changed
 ([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md),
-[ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)).
+[ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). The same
+boundary admits Cleanup: deleting a Branch or removing a Worktree a person
+selected from a preview and confirmed
+([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
 
 > [!NOTE]
 > Dashpot is an early implementation extracted from a successful research spike.
@@ -268,13 +271,32 @@ as of the last `git fetch`. Observation reads it and reports its age; only a
 Remote Fetch brings it up to date.
 _Avoid_: remote branch for the local copy, which may be behind the remote
 
+**Remote Branch**:
+A branch as it exists at a remote. Observation never sees it directly: its
+Remote-Tracking Branch is the last-fetched copy, and only a Remote Fetch or
+the outcome of a leased push says anything about its current state. A
+Cleanup target is a Branch at one named remote, never the Remote-Tracking
+Branch that stands for it.
+_Avoid_: Remote-Tracking Branch for the branch at the remote
+
 **Remote Fetch**:
-The one mutation the dashboard performs, on the `f` key: `git fetch --prune`
+A named mutation the dashboard performs, on the `f` key: `git fetch --prune`
 of every configured remote, one remote at a time, at the single Repository
 Anchor whose refs supplied the Branch observation. It is bounded by the Git
 timeout, non-interactive, reported remote by remote, and followed by a
 passive re-observation of that Project's Git state; a refresh never fetches.
 _Avoid_: refresh for a fetch, or fetch for a refresh
+
+**Cleanup**:
+The explicitly confirmed removal of concrete targets a person selected from
+a read-only preview: a local Branch, a Branch at one remote, or a linked
+Worktree, each with its own gate, outcome, and recovery facts. Integration
+makes a Branch target eligible; the selection is the authority. Confirmation
+re-inspects and performs nothing when the preview has changed; a successful
+mutation is never rolled back, and the Project is re-observed afterwards
+([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
+_Avoid_: prune for a Cleanup, which is the Remote Fetch's removal of gone
+Remote-Tracking Branches; cleanup for anything observation does
 
 **Integration Branch**:
 The Branch against which Dashpot observes whether every commit of an observed
@@ -820,8 +842,8 @@ observation into a process-local `WorkspaceObservationStore` as soon as it
 lands, then re-queries source-neutral Issue-list read models carrying a store
 revision; a slow GitHub call therefore never delays branch or dirty state.
 `r` refreshes the observed Project and `R` fans out to every key in the
-Workspace; with one Project per run the two coincide. Neither fetches: `f` is
-the one key that mutates, a Remote Fetch of the Repository Anchor whose refs
+Workspace; with one Project per run the two coincide. Neither fetches: `f`
+mutates, a Remote Fetch of the Repository Anchor whose refs
 supplied the Branch observation ([`fetch.py`](src/dashpot/fetch.py),
 [ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
 off the event loop, once per Project at a time, and once any remote has been
