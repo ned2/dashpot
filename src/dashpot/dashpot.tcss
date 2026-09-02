@@ -239,10 +239,16 @@ IssueColumnEditor {
     height: 12;
 }
 
+/* MarkedSelectionList draws the X only when selected, so every button state
+   shares one colour and the mark alone carries the state. */
 #column-editor-list > .selection-list--button,
 #column-editor-list > .selection-list--button-selected,
 #column-editor-list > .selection-list--button-highlighted,
-#column-editor-list > .selection-list--button-selected-highlighted {
+#column-editor-list > .selection-list--button-selected-highlighted,
+#cleanup-targets > .selection-list--button,
+#cleanup-targets > .selection-list--button-selected,
+#cleanup-targets > .selection-list--button-highlighted,
+#cleanup-targets > .selection-list--button-selected-highlighted {
     color: $text;
 }
 
@@ -471,13 +477,6 @@ CleanupScreen, CleanupReportScreen {
 #cleanup-targets {
     height: auto;
     max-height: 24;
-}
-
-#cleanup-targets > .selection-list--button,
-#cleanup-targets > .selection-list--button-selected,
-#cleanup-targets > .selection-list--button-highlighted,
-#cleanup-targets > .selection-list--button-selected-highlighted {
-    color: $text;
 }
 
 #cleanup-details {

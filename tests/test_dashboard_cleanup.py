@@ -276,6 +276,13 @@ def confirm_button(app: DashpotApp) -> Button:
     return cleanup_screen(app).query_one("#cleanup-confirm", Button)
 
 
+def marks(targets: SelectionList[str]) -> list[str]:
+    """Read the selection mark rendered in front of each target."""
+    return [
+        targets.render_line(index).text[:3] for index in range(targets.option_count)
+    ]
+
+
 def problem_text(app: DashpotApp) -> str:
     return str(cleanup_screen(app).query_one("#cleanup-problem", Static).render())
 
@@ -315,6 +322,9 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_reports() -> None
         assert "unavailable" in str(targets.get_option(REMOTE.identity).prompt)
         assert confirm_button(app).variant == "default"
         assert problem_text(app) == "Select at least one target."
+        # Every target starts unselected, and the mark alone says so: no X
+        # until space selects, as in the column editor.
+        assert marks(targets) == ["▐ ▌", "▐ ▌"]
 
         # The highlighted option is the available one; space selects it.
         await pilot.press("space")
@@ -322,6 +332,7 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_reports() -> None
         assert screen.selected() == (LOCAL.identity,)
         assert confirm_button(app).variant == "error"
         assert problem_text(app) == ""
+        assert marks(targets) == ["▐X▌", "▐ ▌"]
 
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))

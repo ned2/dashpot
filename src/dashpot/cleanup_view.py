@@ -33,6 +33,7 @@ from .cleanup import (
     CleanupTarget,
     describe_cleanup_report,
 )
+from .marked_selection_list import MarkedSelectionList
 
 SELECT_HELP = (
     "Select the targets to delete. Nothing is deleted until Delete selected is "
@@ -120,7 +121,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             )
             for refusal in preview.refusals:
                 yield Static(f"Refused: {refusal}", classes="cleanup-refusal")
-            yield SelectionList[str](
+            yield MarkedSelectionList[str](
                 *(
                     Selection(
                         target_line(target),

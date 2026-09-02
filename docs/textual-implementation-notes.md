@@ -307,6 +307,11 @@ needs a selection and a confirmation:
   of a multi-line prompt. Keep the list to label, availability, and location,
   and render each target's gate and consequences in a `Static` beneath it.
   Give each `Selection` an `id` when the app needs `get_option(identity)`.
+- Stock `SelectionList` always draws the `X` and tells selection apart by
+  colour only; `MarkedSelectionList` (`marked_selection_list.py`) blanks the
+  mark of an unselected option in `render_line`, and the stylesheet gives all
+  four button states one colour, so presence of the `X` is the state. Use it
+  for every boolean selection.
 - Make the dialog itself the `VerticalScroll` (`height: auto; max-height:
   100%; width: 96; max-width: 100%`, `can_focus=False`) and dock a footer
   holding the acknowledgement, the reason line, and the buttons at its
