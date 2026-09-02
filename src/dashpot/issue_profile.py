@@ -224,6 +224,15 @@ def conform_issue(value: Mapping[str, Any]) -> IssueProfile:
         raise IssueProfileError(_translate(exc)) from exc
 
 
+def issue_location(issue: IssueProfile) -> str:
+    """The Issue Location as one actionable string: URL, or ``path:line``."""
+
+    location = issue.location
+    if location.kind == "github":
+        return location.url
+    return f"{location.path}:{location.line}"
+
+
 def semantic_projection(issue: IssueProfile) -> dict[str, Any]:
     """Return the source-neutral facts used for semantic equivalence."""
 

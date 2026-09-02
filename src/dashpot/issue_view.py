@@ -23,7 +23,7 @@ from typing_extensions import override
 
 from .detail_fields import DetailFields, DetailItem
 from .issue_list import IssueListRow
-from .issue_profile import IssueProfile
+from .issue_profile import IssueProfile, issue_location
 from .issue_table import (
     is_priority_label,
     issue_activity,
@@ -144,14 +144,6 @@ def selection_title(context: IssueListRow) -> str:
 def issue_state_class(issue: IssueProfile) -> str:
     """The stylesheet class that colours the view by the Issue's state."""
     return f"-issue-{issue_state_kind(issue)}"
-
-
-def issue_location(issue: IssueProfile) -> str:
-    """Where the Issue lives: its GitHub URL, or ``path:line`` for a Local Issue."""
-    location = issue.location
-    if location.kind == "github":
-        return location.url
-    return f"{location.path}:{location.line}"
 
 
 def issue_state_label(issue: IssueProfile) -> str:

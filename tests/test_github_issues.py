@@ -13,8 +13,8 @@ from dashpot.github_issues import (
     GitHubIssuesSource,
     normalize_github_issue,
 )
-from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.issue_sources import IssueSourceRefreshError
+from dashpot.issue_profile import IssueProfile, conform_issue, issue_location
+from dashpot.issue_sources import IssueSourceRefreshError, parse_issue_hint
 from issue_source_conformance import (
     assert_duplicate_identity_is_refused,
     assert_duplicate_number_is_refused,
@@ -98,6 +98,25 @@ def nested_page(
                             "endCursor": end_cursor,
                         },
                     }
+                }
+            }
+        }
+    )
+
+
+def issue_response(
+    node: dict[str, Any] | None,
+    *,
+    repository_id: str = REPOSITORY_ID,
+    repository_reference: str = "ned2/dashpot",
+) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "node": {
+                    "id": repository_id,
+                    "nameWithOwner": repository_reference,
+                    "issue": node,
                 }
             }
         }
@@ -706,6 +725,73 @@ class GitHubIssuesSourceTests(unittest.TestCase):
 
         self.assertEqual("fresh", observation.status)
         self.assertEqual((), observation.issues)
+
+
+class GitHubIssuesFindTests(unittest.TestCase):
+    def test_find_by_number_issues_exactly_one_command(self) -> None:
+        runner = SequenceRunner([completed(issue_response(raw_fixture()))])
+
+        issue = source(runner).find(parse_issue_hint("9"))
+
+        self.assertEqual(expected_fixture(), issue)
+        self.assertEqual(1, len(runner.calls))
+        query = runner.calls[0][0][4]
+        self.assertIn("issue(number: $number)", query)
+        self.assertIn("-F", runner.calls[0][0])
+        self.assertIn("number=9", runner.calls[0][0])
+
+    def test_find_round_trips_the_printed_issue_url(self) -> None:
+        runner = SequenceRunner([completed(issue_response(raw_fixture()))])
+        url = issue_location(expected_fixture())
+
+        issue = source(runner).find(parse_issue_hint(url))
+
+        self.assertEqual(expected_fixture(), issue)
+        self.assertEqual(1, len(runner.calls))
+
+    def test_find_with_another_repositorys_reference_misses(self) -> None:
+        runner = SequenceRunner([completed(issue_response(raw_fixture()))])
+
+        issue = source(runner).find(parse_issue_hint("ned2/sim#9"))
+
+        self.assertIsNone(issue)
+        self.assertEqual(1, len(runner.calls))
+
+    def test_find_slug_hint_misses_without_a_request(self) -> None:
+        runner = SequenceRunner([])
+
+        issue = source(runner).find(parse_issue_hint("worktree-protocol"))
+
+        self.assertIsNone(issue)
+        self.assertEqual(0, len(runner.calls))
+
+    def test_find_unresolved_issue_number_is_a_miss_not_an_outage(self) -> None:
+        runner = SequenceRunner(
+            [
+                completed(
+                    stderr=(
+                        "GraphQL: Could not resolve to an Issue or PullRequest "
+                        "with the number of 99. (repository.issue)"
+                    ),
+                    returncode=1,
+                )
+            ]
+        )
+
+        self.assertIsNone(source(runner).find(parse_issue_hint("99")))
+
+    def test_find_null_issue_is_a_miss(self) -> None:
+        runner = SequenceRunner([completed(issue_response(None))])
+
+        self.assertIsNone(source(runner).find(parse_issue_hint("99")))
+
+    def test_find_raises_the_sources_diagnosis_on_an_outage(self) -> None:
+        runner = SequenceRunner([OSError("network is unreachable")])
+
+        with self.assertRaises(IssueSourceRefreshError) as caught:
+            source(runner).find(parse_issue_hint("9"))
+
+        self.assertEqual("github-network", caught.exception.code)
 
 
 if __name__ == "__main__":

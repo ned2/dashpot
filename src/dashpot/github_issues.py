@@ -14,6 +14,7 @@ from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import (
     Clock,
     CollectedIssues,
+    IssueHint,
     IssueSource,
     IssueSourceRefreshError,
 )
@@ -38,19 +39,9 @@ _CONNECTION_FIELDS = {
 _CONNECTION_EXTRA_FIELDS = {"labels": ("color",)}
 _LABEL_COLOR = re.compile(r"[0-9a-fA-F]{6}")
 
-_ISSUES_QUERY = """
-query DashpotIssues($repositoryId: ID!, $cursor: String) {
-  node(id: $repositoryId) {
-    ... on Repository {
-      id
-      nameWithOwner
-      issues(
-        first: 100
-        after: $cursor
-        states: [OPEN, CLOSED]
-        orderBy: {field: CREATED_AT, direction: ASC}
-      ) {
-        nodes {
+# The complete Issue node both queries fetch, so a single-Issue lookup
+# normalizes through exactly the same profile pipeline as a full collection.
+_ISSUE_NODE_FIELDS = """
           id
           number
           url
@@ -90,12 +81,42 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {
           updatedAt
           closedAt
           repository { id nameWithOwner }
-        }
-        pageInfo { hasNextPage endCursor }
-      }
-    }
-  }
-}
+""".strip("\n")
+
+_ISSUES_QUERY = f"""
+query DashpotIssues($repositoryId: ID!, $cursor: String) {{
+  node(id: $repositoryId) {{
+    ... on Repository {{
+      id
+      nameWithOwner
+      issues(
+        first: 100
+        after: $cursor
+        states: [OPEN, CLOSED]
+        orderBy: {{field: CREATED_AT, direction: ASC}}
+      ) {{
+        nodes {{
+{_ISSUE_NODE_FIELDS}
+        }}
+        pageInfo {{ hasNextPage endCursor }}
+      }}
+    }}
+  }}
+}}
+""".strip()
+
+_ISSUE_QUERY = f"""
+query DashpotIssue($repositoryId: ID!, $number: Int!) {{
+  node(id: $repositoryId) {{
+    ... on Repository {{
+      id
+      nameWithOwner
+      issue(number: $number) {{
+{_ISSUE_NODE_FIELDS}
+      }}
+    }}
+  }}
+}}
 """.strip()
 
 
@@ -158,12 +179,64 @@ class GitHubIssuesSource(IssueSource):
             issue_activity=issue_activity,
         )
 
+    @override
+    def find(self, hint: IssueHint) -> IssueProfile | None:
+        """Resolve a numbered Issue Hint with one GraphQL Issue lookup.
+
+        A GitHub Issue Reference is always ``owner/repo#number``, so a hint
+        without a number (a Local Issue slug) misses without a request. A
+        repository-qualified hint must round-trip: the resolved Issue's
+        Reference has to equal it, so another repository's reference misses.
+        """
+        if hint.number is None:
+            return None
+        try:
+            data = self._graphql(
+                _ISSUE_QUERY,
+                {"repositoryId": self.repository_id, "number": hint.number},
+            )
+        except IssueSourceRefreshError as exc:
+            # GitHub reports a missing Issue number as a GraphQL NOT_FOUND
+            # error rather than a null field; that is a miss, not an outage.
+            if "could not resolve to an issue" in str(exc).casefold():
+                return None
+            raise
+        if data.get("node") is None:
+            raise IssueSourceRefreshError(
+                "github-repository",
+                "Configured GitHub repository was not found or is inaccessible",
+            )
+        repository = _object(data, "node", "data", _RESPONSE_CODE)
+        observed_repository_id = _fetched_string(
+            repository, "id", "data.repository", _RESPONSE_CODE
+        )
+        if observed_repository_id != self.repository_id:
+            raise IssueSourceRefreshError(
+                "github-repository-identity",
+                "GitHub repository identity does not match Project configuration",
+            )
+        record = _fetched(repository, "issue", "data.repository", _RESPONSE_CODE)
+        if record is None:
+            return None
+        if not isinstance(record, dict):
+            raise IssueSourceRefreshError(
+                _RESPONSE_CODE, "data.repository.issue must be an object or null"
+            )
+        issue = normalize_github_issue(
+            self._complete_nested_connections(record),
+            project_id=self.project_id,
+            repository_id=self.repository_id,
+        )
+        if hint.reference is not None and issue.reference != hint.reference:
+            return None
+        return issue
+
     def _collect_issue_nodes(self) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
         cursor: str | None = None
         seen_cursors: set[str] = set()
         while True:
-            variables = {"repositoryId": self.repository_id}
+            variables: dict[str, str | int] = {"repositoryId": self.repository_id}
             if cursor is not None:
                 variables["cursor"] = cursor
             data = self._graphql(_ISSUES_QUERY, variables)
@@ -222,10 +295,15 @@ class GitHubIssuesSource(IssueSource):
             connection["pageInfo"] = {"hasNextPage": False, "endCursor": end_cursor}
         return complete
 
-    def _graphql(self, query: str, variables: Mapping[str, str]) -> Mapping[str, Any]:
+    def _graphql(
+        self, query: str, variables: Mapping[str, str | int]
+    ) -> Mapping[str, Any]:
         args = ["gh", "api", "graphql", "-f", f"query={query}"]
         for key, value in variables.items():
-            args.extend(["-f", f"{key}={value}"])
+            # -F sends an integer as a typed GraphQL Int variable; -f would
+            # send it as a String and fail the query's variable declaration.
+            flag = "-F" if isinstance(value, int) else "-f"
+            args.extend([flag, f"{key}={value}"])
         try:
             result = self.runner(args, self.root, self.timeout)
         except (OSError, RuntimeError) as exc:

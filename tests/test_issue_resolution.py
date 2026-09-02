@@ -16,8 +16,8 @@ def repository(root: Path, *, issues_path: str = "issues") -> Path:
     )
 
 
-@pytest.mark.parametrize("hint", ["35", "#35", "worktree-protocol"])
-def test_number_prefixed_number_and_slug_resolve_to_one_issue(
+@pytest.mark.parametrize("hint", ["35", "#35", "worktree-protocol", " 35 ", "\t#35\n"])
+def test_number_prefixed_number_slug_and_whitespace_resolve_to_one_issue(
     tmp_path: Path, hint: str
 ) -> None:
     root = repository(tmp_path / "repo")
@@ -35,6 +35,30 @@ def test_full_github_reference_matches_nothing_in_a_markdown_project(
 
     with pytest.raises(RuntimeError, match="did not match an Issue"):
         resolve_issue(root, "ned2/sim#35")
+
+
+def test_a_pasted_github_url_matches_nothing_in_a_markdown_project(
+    tmp_path: Path,
+) -> None:
+    # The URL parses to the repository-qualified Reference it names, so it
+    # cannot fall back to matching a Local Issue by bare number.
+    root = repository(tmp_path / "repo")
+
+    with pytest.raises(RuntimeError, match="did not match an Issue"):
+        resolve_issue(root, "https://github.com/ned2/dashpot/issues/35")
+
+
+def test_a_slug_resolves_cheaply_past_a_broken_sibling_document(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    (root / "issues" / "broken.md").write_text("not a Local Issue document\n")
+
+    issue = resolve_issue(root, "worktree-protocol")
+
+    assert issue.id == "I_35"
+    with pytest.raises(RuntimeError, match="Issue Source is unavailable"):
+        resolve_issue(root, "35")
 
 
 def test_a_miss_is_an_actionable_error(tmp_path: Path) -> None:

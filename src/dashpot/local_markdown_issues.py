@@ -11,6 +11,7 @@ from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import (
     Clock,
     CollectedIssues,
+    IssueHint,
     IssueSource,
     IssueSourceRefreshError,
 )
@@ -66,6 +67,42 @@ class LocalMarkdownIssuesSource(IssueSource):
     @override
     def code_prefix(self) -> str:
         return "markdown"
+
+    @override
+    def find(self, hint: IssueHint) -> IssueProfile | None:
+        """Resolve a slug hint by reading its one conventional document.
+
+        Documents are named by slug, so only a Reference hint has a
+        conventional path — a Number hint still scans the whole collection,
+        an asymmetry a numbered file convention would remove. A document
+        found elsewhere than its conventional path falls back to the scan;
+        when two documents share one slug, the conventional path wins here
+        where only the full scan can see the ambiguity and refuse it.
+        """
+        if hint.reference is None:
+            return super().find(hint)
+        root = self.root.resolve()
+        directory = (root / self.issues_path).resolve()
+        if not directory.is_dir() or not directory.is_relative_to(root):
+            return super().find(hint)
+        candidate = directory / f"{hint.reference}.md"
+        try:
+            resolved = candidate.resolve()
+            if not resolved.is_relative_to(directory) or not candidate.is_file():
+                return super().find(hint)
+            relative_path = resolved.relative_to(root).as_posix()
+            text = candidate.read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            return super().find(hint)
+        try:
+            issue = parse_local_markdown_issue(
+                text, project_id=self.project_id, path=relative_path
+            )
+        except LocalMarkdownIssueError as exc:
+            raise IssueSourceRefreshError(exc.code, f"{relative_path}: {exc}") from exc
+        if issue.reference != hint.reference:
+            return super().find(hint)
+        return issue
 
     @override
     def _collect(self) -> CollectedIssues:

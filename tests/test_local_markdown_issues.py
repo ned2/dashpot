@@ -11,6 +11,7 @@ from dashpot.issue_profile import (
     conform_issue,
     semantically_equivalent,
 )
+from dashpot.issue_sources import IssueSourceRefreshError, parse_issue_hint
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from factories import local_issue_document
 from issue_source_conformance import (
@@ -508,6 +509,71 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
         self.assertEqual(before.updated_at, after.updated_at)
         self.assertEqual("issues/original.md", location_path(before))
         self.assertEqual("issues/nested/moved.md", location_path(after))
+
+
+class LocalMarkdownIssuesFindTests(unittest.TestCase):
+    def broken_sibling_source(self, root: Path) -> LocalMarkdownIssuesSource:
+        """A directory whose one broken document fails every full refresh."""
+        issues = root / "issues"
+        issues.mkdir(parents=True)
+        (issues / "flat.md").write_text(
+            local_document(issue_id="I_flat", number=1, reference="flat", title="Flat")
+        )
+        (issues / "broken.md").write_text("not a Local Issue document\n")
+        return LocalMarkdownIssuesSource(
+            root, issues_path=Path("issues"), project_id=PROJECT_ID
+        )
+
+    def test_find_reads_only_the_slugs_conventional_document(self) -> None:
+        # The broken sibling proves cheapness: a full refresh fails on it,
+        # so a resolved slug hint can only have read its one document.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = self.broken_sibling_source(Path(temporary_directory))
+
+            self.assertNotEqual("fresh", source.refresh().status)
+            issue = source.find(parse_issue_hint("flat"))
+
+        assert issue is not None
+        self.assertEqual("flat", issue.reference)
+        self.assertEqual("issues/flat.md", location_path(issue))
+
+    def test_find_by_number_still_scans_the_whole_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = self.broken_sibling_source(Path(temporary_directory))
+
+            with self.assertRaises(IssueSourceRefreshError):
+                source.find(parse_issue_hint("1"))
+
+    def test_find_refuses_a_malformed_conventional_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = self.broken_sibling_source(Path(temporary_directory))
+
+            with self.assertRaises(IssueSourceRefreshError) as caught:
+                source.find(parse_issue_hint("broken"))
+
+        self.assertEqual("markdown-malformed", caught.exception.code)
+        self.assertIn("issues/broken.md", str(caught.exception))
+
+    def test_find_falls_back_to_the_scan_when_the_slug_names_no_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            issues = root / "issues"
+            issues.mkdir(parents=True)
+            # The document lives away from its conventional path, so only
+            # the full scan can resolve it.
+            (issues / "renamed.md").write_text(
+                local_document(
+                    issue_id="I_moved", number=2, reference="moved", title="Moved"
+                )
+            )
+            source = LocalMarkdownIssuesSource(
+                root, issues_path=Path("issues"), project_id=PROJECT_ID
+            )
+
+            issue = source.find(parse_issue_hint("moved"))
+
+        assert issue is not None
+        self.assertEqual("issues/renamed.md", location_path(issue))
 
 
 if __name__ == "__main__":

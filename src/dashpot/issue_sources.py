@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -7,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from .errors import DashpotError
-from .issue_profile import IssueProfile
+from .issue_profile import IssueProfile, issue_location
 from .model import IssueActivity
 from .models import FrozenDict
 
@@ -60,6 +61,59 @@ class CollectedIssues:
     issues: tuple[IssueProfile, ...]
     label_colors: Mapping[str, str] = field(default_factory=dict)
     issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
+
+
+_NUMBER_HINT = re.compile(r"#?([1-9][0-9]*)")
+_GITHUB_ISSUE_URL = re.compile(
+    r"https://github\.com/(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+)"
+    r"/issues/(?P<number>[1-9][0-9]*)/?(?:\?\S*)?(?:#\S*)?"
+)
+_QUALIFIED_REFERENCE = re.compile(
+    r"(?P<owner>[^/\s#]+)/(?P<repo>[^/\s#]+)#(?P<number>[1-9][0-9]*)"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class IssueHint:
+    """One parsed Issue Hint: an Issue Reference when present, else a Number."""
+
+    raw: str
+    number: int | None
+    reference: str | None
+
+    def matches(self, issue: IssueProfile) -> bool:
+        """Name the Issue exactly: by Reference when present, else by Number."""
+        if self.reference is not None:
+            return issue.reference == self.reference
+        return self.number is not None and issue.number == self.number
+
+
+def parse_issue_hint(hint: str) -> IssueHint:
+    """Parse one Issue Hint: a Number, a Reference, or a pasted GitHub URL.
+
+    The hint is stripped; matching stays exact and case-sensitive. A pasted
+    GitHub Issue URL — the form ``issue_location`` prints — parses to the
+    repository-qualified Reference it names, so it resolves only in the
+    Project whose repository it belongs to.
+    """
+    text = hint.strip()
+    number_match = _NUMBER_HINT.fullmatch(text)
+    if number_match:
+        return IssueHint(raw=text, number=int(number_match.group(1)), reference=None)
+    url_match = _GITHUB_ISSUE_URL.fullmatch(text)
+    if url_match:
+        number = int(url_match["number"])
+        return IssueHint(
+            raw=text,
+            number=number,
+            reference=f"{url_match['owner']}/{url_match['repo']}#{number}",
+        )
+    qualified_match = _QUALIFIED_REFERENCE.fullmatch(text)
+    if qualified_match:
+        return IssueHint(
+            raw=text, number=int(qualified_match["number"]), reference=text
+        )
+    return IssueHint(raw=text, number=None, reference=text or None)
 
 
 class IssueSourceRefreshError(DashpotError, RuntimeError):
@@ -122,6 +176,38 @@ class IssueSource(ABC):
             issue_activity=FrozenDict(collected.issue_activity),
         )
 
+    def find(self, hint: IssueHint) -> IssueProfile | None:
+        """Resolve one Issue Hint to at most one Issue of a fresh collection.
+
+        The default refreshes the complete collection and filters; an adapter
+        overrides it when one Issue can be observed more cheaply. A miss is
+        ``None``; a source that cannot answer freshly, or a detectable
+        ambiguity, raises ``IssueSourceRefreshError``. ``refresh`` stays the
+        only writer of the retained last-good state.
+        """
+        observation = self.refresh()
+        if observation.status != "fresh":
+            details = "; ".join(
+                diagnostic.message for diagnostic in observation.diagnostics
+            )
+            code = (
+                observation.diagnostics[0].code
+                if observation.diagnostics
+                else f"{self.code_prefix}-unavailable"
+            )
+            raise IssueSourceRefreshError(
+                code,
+                f"cannot resolve an Issue Hint while the Issue Source is "
+                f"{observation.status}: {details or 'no diagnostics'}",
+            )
+        matches = [issue for issue in observation.issues if hint.matches(issue)]
+        if len(matches) > 1:
+            raise IssueSourceRefreshError(
+                f"{self.code_prefix}-ambiguous-hint",
+                f"Issue Reference {hint.raw!r} is ambiguous",
+            )
+        return matches[0] if matches else None
+
     def _check_collection_invariants(self, collected: CollectedIssues) -> None:
         """Refuse a collection that repeats an Issue identity or Issue Number.
 
@@ -136,14 +222,14 @@ class IssueSource(ABC):
                 raise IssueSourceRefreshError(
                     f"{self.code_prefix}-duplicate-identity",
                     f"{self.name} collected duplicate Issue identity {issue.id}, "
-                    f"seen at {_seen_at(previous)} and {_seen_at(issue)}",
+                    f"seen at {issue_location(previous)} and {issue_location(issue)}",
                 )
             previous = issues_by_number.get(issue.number)
             if previous is not None:
                 raise IssueSourceRefreshError(
                     f"{self.code_prefix}-duplicate-number",
                     f"{self.name} collected duplicate Issue Number #{issue.number}, "
-                    f"seen at {_seen_at(previous)} and {_seen_at(issue)}",
+                    f"seen at {issue_location(previous)} and {issue_location(issue)}",
                 )
             issues_by_id[issue.id] = issue
             issues_by_number[issue.number] = issue
@@ -177,18 +263,6 @@ class IssueSource(ABC):
         ``IssueSourceRefreshError``; sources without a palette or activity
         (Local Markdown) leave those mappings empty.
         """
-
-
-def _seen_at(issue: IssueProfile) -> str:
-    """The Issue Location as one actionable string.
-
-    A local twin of ``issue_resolution.issue_location``: importing it here
-    would cycle through the adapters this module is the base of.
-    """
-    location = issue.location
-    if location.kind == "github":
-        return location.url
-    return f"{location.path}:{location.line}"
 
 
 def utc_now() -> str:

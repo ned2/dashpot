@@ -4,13 +4,17 @@ import json
 import threading
 from pathlib import Path
 
+import pytest
 from typing_extensions import override
 
 from dashpot.issue_profile import conform_issue
 from dashpot.issue_sources import (
     CollectedIssues,
+    IssueHint,
     IssueSource,
     IssueSourceObservation,
+    IssueSourceRefreshError,
+    parse_issue_hint,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -137,6 +141,85 @@ def test_a_failed_cycle_never_leaks_its_palette_into_the_next_observation() -> N
     assert observation.status == "stale"
     assert dict(observation.label_colors) == {"enhancement": "a2eeef"}
     assert dict(observation.issue_activity) == {}
+
+
+@pytest.mark.parametrize(
+    ("hint", "expected"),
+    [
+        ("35", IssueHint(raw="35", number=35, reference=None)),
+        ("#35", IssueHint(raw="#35", number=35, reference=None)),
+        (" 35 ", IssueHint(raw="35", number=35, reference=None)),
+        (
+            "worktree-protocol",
+            IssueHint(
+                raw="worktree-protocol", number=None, reference="worktree-protocol"
+            ),
+        ),
+        (
+            "ned2/dashpot#35",
+            IssueHint(raw="ned2/dashpot#35", number=35, reference="ned2/dashpot#35"),
+        ),
+        (
+            "https://github.com/ned2/dashpot/issues/35",
+            IssueHint(
+                raw="https://github.com/ned2/dashpot/issues/35",
+                number=35,
+                reference="ned2/dashpot#35",
+            ),
+        ),
+        (
+            "https://github.com/ned2/dashpot/issues/35/",
+            IssueHint(
+                raw="https://github.com/ned2/dashpot/issues/35/",
+                number=35,
+                reference="ned2/dashpot#35",
+            ),
+        ),
+        (
+            "https://github.com/ned2/dashpot/issues/35#issuecomment-1",
+            IssueHint(
+                raw="https://github.com/ned2/dashpot/issues/35#issuecomment-1",
+                number=35,
+                reference="ned2/dashpot#35",
+            ),
+        ),
+        (
+            "https://github.com/ned2/dashpot/issues/35?notification_referrer_id=x",
+            IssueHint(
+                raw="https://github.com/ned2/dashpot/issues/35?notification_referrer_id=x",
+                number=35,
+                reference="ned2/dashpot#35",
+            ),
+        ),
+    ],
+)
+def test_parse_issue_hint_normalizes_numbers_references_and_urls(
+    hint: str, expected: IssueHint
+) -> None:
+    assert parse_issue_hint(hint) == expected
+
+
+def test_default_find_matches_misses_and_refuses_ambiguity() -> None:
+    twin = FIXTURE_ISSUE.model_copy(
+        update={"id": "I_twin", "number": FIXTURE_ISSUE.number + 1}
+    )
+    source = ScriptedSource([CollectedIssues((FIXTURE_ISSUE, twin))] * 3)
+
+    assert source.find(parse_issue_hint(str(FIXTURE_ISSUE.number))) == FIXTURE_ISSUE
+    assert source.find(parse_issue_hint("999")) is None
+    # Both Issues share one Reference; only the complete collection can see it.
+    with pytest.raises(IssueSourceRefreshError, match="is ambiguous") as caught:
+        source.find(parse_issue_hint(FIXTURE_ISSUE.reference))
+    assert caught.value.code == "scripted-ambiguous-hint"
+
+
+def test_default_find_raises_the_diagnosis_when_the_source_cannot_answer() -> None:
+    source = ScriptedSource([IssueSourceRefreshError("scripted-down", "no answer")])
+
+    with pytest.raises(IssueSourceRefreshError, match="unavailable") as caught:
+        source.find(parse_issue_hint("9"))
+
+    assert caught.value.code == "scripted-down"
 
 
 def test_concurrent_refreshes_do_not_cross_contaminate() -> None:
