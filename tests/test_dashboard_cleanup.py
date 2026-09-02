@@ -483,6 +483,7 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         assert str(acknowledgement.label) == (
             "Delete the 2 ignored path(s) inside it too: .venv/, .dashpot/state/"
         )
+        assert acknowledgement.render().plain.startswith("▐ ▌")
 
         # The Branch alone: it stays checked out until the Worktree goes.
         targets.select(ATTACHED.identity)
@@ -502,6 +503,7 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         acknowledgement.value = True
         await pilot.pause()
         assert confirm_button(app).variant == "error"
+        assert acknowledgement.render().plain.startswith("▐X▌")
 
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))

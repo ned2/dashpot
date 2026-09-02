@@ -170,6 +170,11 @@ The conventions the tooling enforces or the code assumes:
   internal values stay frozen, slotted dataclasses
   (`@dataclass(frozen=True, slots=True)`) and `Literal` unions. Identity is
   opaque and never derived from labels or paths.
+- A boolean toggle in the dashboard shows its state by the presence of its
+  `X`, never by its colour: build it from `MarkedSelectionList` or
+  `MarkedCheckbox` in `src/dashpot/marked_widgets.py`, not from Textual's
+  stock `SelectionList` or `Checkbox`, whose `X` is always drawn and only
+  recoloured, and give its button states one colour in `dashpot.tcss`.
 - Docstrings are one imperative line in the voice of the shared domain language
   (`"""Identify the supported Agent Session enclosing this command."""`);
   comments explain why, not what.

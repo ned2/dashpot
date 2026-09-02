@@ -33,7 +33,7 @@ from .cleanup import (
     CleanupTarget,
     describe_cleanup_report,
 )
-from .marked_selection_list import MarkedSelectionList
+from .marked_widgets import MarkedCheckbox, MarkedSelectionList
 
 SELECT_HELP = (
     "Select the targets to delete. Nothing is deleted until Delete selected is "
@@ -108,7 +108,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         with VerticalScroll(id="cleanup-dialog", can_focus=False):
             with Vertical(id="cleanup-footer"):
                 if preview.ignored:
-                    yield Checkbox(
+                    yield MarkedCheckbox(
                         ignored_prompt(preview), value=False, id="cleanup-ignored"
                     )
                 yield Static("", id="cleanup-problem")

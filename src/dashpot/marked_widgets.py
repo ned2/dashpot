@@ -1,12 +1,13 @@
-"""A SelectionList whose X is present only for a selected option."""
+"""Toggles whose X is present only when they are on."""
 
 from __future__ import annotations
 
 from typing import TypeVar
 
 from rich.segment import Segment
+from textual.content import Content
 from textual.strip import Strip
-from textual.widgets import SelectionList
+from textual.widgets import Checkbox, SelectionList
 from typing_extensions import override
 
 SelectionType = TypeVar("SelectionType")
@@ -31,3 +32,14 @@ class MarkedSelectionList(SelectionList[SelectionType]):
         inner = segments[1]
         segments[1] = Segment(" ", inner.style, inner.control)
         return Strip(segments, line.cell_length)
+
+
+class MarkedCheckbox(Checkbox):
+    """Show an X only when checked."""
+
+    @override
+    def render(self) -> Content:
+        # ToggleButton reads BUTTON_INNER on the instance at render time, so
+        # the mark follows the value without touching its private button.
+        self.BUTTON_INNER = "X" if self.value else " "
+        return super().render()

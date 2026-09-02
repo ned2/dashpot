@@ -239,8 +239,8 @@ IssueColumnEditor {
     height: 12;
 }
 
-/* MarkedSelectionList draws the X only when selected, so every button state
-   shares one colour and the mark alone carries the state. */
+/* The marked toggles draw the X only when on, so every button state shares
+   one colour and the mark alone carries the state. */
 #column-editor-list > .selection-list--button,
 #column-editor-list > .selection-list--button-selected,
 #column-editor-list > .selection-list--button-highlighted,
@@ -248,7 +248,9 @@ IssueColumnEditor {
 #cleanup-targets > .selection-list--button,
 #cleanup-targets > .selection-list--button-selected,
 #cleanup-targets > .selection-list--button-highlighted,
-#cleanup-targets > .selection-list--button-selected-highlighted {
+#cleanup-targets > .selection-list--button-selected-highlighted,
+#cleanup-ignored > .toggle--button,
+#cleanup-ignored.-on > .toggle--button {
     color: $text;
 }
 
