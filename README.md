@@ -107,7 +107,9 @@ beside the search box (`6 issues`) is the number of Issues matching every
 active filter, never an `M of N` total. The Issue table's columns are `◉`
 (Issue state) and `◈` (agent state), which are unsortable, then `#`, `TITLE`,
 `PRIORITY`, `LABELS`, `PROJECT`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
-`COMMENTS`, `CREATED`, and `LAST ACTION`. `PRIORITY` is read from a
+`COMMENTS`, `CREATED`, and `LAST ACTION`. `TITLE` keeps the first 70
+characters of a title and clips the rest with an ellipsis, so the default
+columns fit at a glance; the Issue view shows the whole title. `PRIORITY` is read from a
 recognized priority label (`priority/p0` … `priority/p3`, or `critical`,
 `high`, `medium`, `low`) and shown as a `P0`–`P3` chip in that label's colour;
 the label leaves `LABELS` so it is not rendered twice. The column is

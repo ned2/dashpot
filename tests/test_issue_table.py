@@ -28,6 +28,7 @@ from dashpot.issue_list import query_issue_list, row_key
 from dashpot.issue_table import (
     COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
+    TITLE_LIMIT,
     ColumnKey,
     IssueTableViewState,
     SortTerm,
@@ -67,6 +68,23 @@ def test_row_projection_respects_visible_column_order() -> None:
     selected_key = row_key("issue", selected_issue.id)
     assert set(contexts) == {selected_key}
     assert cells[selected_key] == ("First", "ned2", "Test Repository")
+
+
+def test_a_long_title_is_clipped_with_an_ellipsis_at_the_limit() -> None:
+    long_title = "A title " + "x" * TITLE_LIMIT
+    exact = issue("test/repo#1", "y" * TITLE_LIMIT)
+    overlong = issue("test/repo#2", long_title)
+
+    contexts, cells = build_rows(
+        query_issue_list(workspace_snapshot(exact, overlong)), columns=("title",)
+    )
+
+    assert cells[row_key("issue", exact.id)] == ("y" * TITLE_LIMIT,)
+    (clipped,) = cells[row_key("issue", overlong.id)]
+    assert len(clipped) == TITLE_LIMIT
+    assert clipped == long_title[: TITLE_LIMIT - 1] + "…"
+    # The row still carries the whole title for the Issue view and search.
+    assert contexts[row_key("issue", overlong.id)].issue.title == long_title
 
 
 def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> None:

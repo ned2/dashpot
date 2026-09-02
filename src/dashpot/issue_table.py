@@ -39,6 +39,7 @@ from .issue_list import (
     IssueListRow,
     IssueSearchField,
 )
+from .list_pane import truncate_end
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
@@ -80,6 +81,12 @@ class ColumnSpec:
     # A conditional column is shown only while some row satisfies this; a
     # column without one is shown whenever it is chosen.
     shown_when: Callable[[IssueListRow], bool] | None = None
+
+
+# The TITLE cell keeps this many characters of an Issue's title, so the
+# default columns fit a terminal at a glance instead of scrolling sideways
+# behind one long title; the Issue view shows the whole title.
+TITLE_LIMIT = 70
 
 
 def _has_priority(row: IssueListRow) -> bool:
@@ -373,7 +380,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         "issue_state": issue_state_cell(issue, dark=dark),
         "agent_state": agent_state_cell(row.session_states),
         "number": IssueNumberCell(issue.number),
-        "title": text_cell(issue.title),
+        "title": text_cell(truncate_end(issue.title, TITLE_LIMIT)),
         "labels": labels_cell(issue, project),
         "project": text_cell(project.display_label),
         "priority": priority_cell(issue, project),
