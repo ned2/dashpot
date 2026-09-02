@@ -41,8 +41,11 @@ Local Issue slug. `stop` takes no argument. Check what is recorded with
 `uv run dashpot work show`.
 
 - Run `start` as soon as you know which Issue the work belongs to, and `stop`
-  after the final push, before reporting done. Ending a session with a run
-  still open leaves an Orphaned Agent Run behind for a human to clean up.
+  when the work is finished. A run still open when the session ends
+  gracefully is ended for you
+  ([ADR 0015](docs/adr/0015-reconcile-the-agent-run-at-session-end.md));
+  only a session killed outright leaves an Orphaned Agent Run behind for a
+  human to clean up.
 - Only Issue work gets a `start`. Work without an Issue is observed as an
   unbound session, which is correct.
 - Run the command **inside your own process tree** (from your shell tool, not

@@ -33,6 +33,7 @@ from .processes import (
 )
 from .record_store import LockedRecordStore
 from .repository import repository_worktrees
+from .work_store import ActiveWork, end_session_runs
 
 EVENT_STATES: dict[str, str] = {
     "SessionStart": "running",
@@ -330,7 +331,36 @@ def publish_hook_event(
         harness=harness,
         process_unobservable=process_unobservable,
     )
-    return write_hook_record(record, directory or route_record_directory(record))
+    destination = write_hook_record(record, directory or route_record_directory(record))
+    if record.get("state") == "ended":
+        end_session_work(record, identity)
+    return destination
+
+
+def end_session_work(
+    record: Mapping[str, Any], process: ProcessIdentity | None
+) -> list[tuple[Path, ActiveWork]]:
+    """End the Agent Run of a session whose graceful SessionEnd was published.
+
+    The run is the session's own state, so ending it is the same housekeeping
+    as removing the hook record ([ADR 0015](../../docs/adr/0015-reconcile-the-agent-run-at-session-end.md)).
+    It is looked for at every Worktree of the Repository the session ended
+    in, since a session holds one run across them (ADR 0009); a session that
+    ends outside any Repository has no Work Store to reconcile.
+    """
+    root = optional_string(record.get("repositoryRoot"))
+    if root is None:
+        return []
+    try:
+        worktrees = repository_worktrees(Path(root), timeout=2)
+    except GitError:
+        return []
+    return end_session_runs(
+        worktrees,
+        require_string(record.get("harness"), "harness"),
+        require_string(record.get("sessionId"), "sessionId"),
+        process.key if process else None,
+    )
 
 
 # A hook record's outcome is its Session Liveness, plus the one fact liveness
