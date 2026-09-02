@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, Protocol, cast
+from typing import Any, ClassVar, Literal, Protocol, cast
 
 from textual import events
 from textual.app import App, ComposeResult
@@ -30,6 +30,16 @@ from .alerts import (
     summarize_alerts,
 )
 from .branch_list import BRANCH_COLUMNS, branch_note, build_branch_rows
+from .cleanup import (
+    BranchCleanupRequest,
+    CleanupAdapter,
+    CleanupConfirmation,
+    CleanupPreview,
+    CleanupReport,
+    CleanupRequest,
+    WorktreeCleanupRequest,
+)
+from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .collect import (
     ObservationKey,
     ObservationOutcome,
@@ -202,6 +212,40 @@ class ObservationFinished(Message):
         self.error = error
 
 
+class CleanupInspected(Message):
+    """One Cleanup's preview was taken off the event loop, or failed."""
+
+    def __init__(
+        self,
+        project_id: str,
+        request: CleanupRequest,
+        preview: CleanupPreview | None = None,
+        error: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.project_id = project_id
+        self.request = request
+        self.preview = preview
+        self.error = error
+
+
+class CleanupFinished(Message):
+    """One confirmed Cleanup was performed, or the adapter failed."""
+
+    def __init__(
+        self,
+        project_id: str,
+        confirmation: CleanupConfirmation,
+        report: CleanupReport | None = None,
+        error: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.project_id = project_id
+        self.confirmation = confirmation
+        self.report = report
+        self.error = error
+
+
 class FetchFinished(Message):
     """One Project's explicit remote fetch ran; ``error`` is a fetcher failure."""
 
@@ -232,12 +276,21 @@ class DashboardBody(Container):
         self.post_message(BodyResized(event.size))
 
 
+@dataclass(frozen=True, slots=True)
+class CleanupSelection:
+    """The pane row a person pressed ``x`` on: which list, and its row key."""
+
+    kind: Literal["branch", "worktree"]
+    key: str
+
+
 class DashboardScreen(Screen[None]):
     """Own the dashboard: composition, the panes, view state and their keys."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("enter", "open_issue", "Open Issue"),
         ("f", "fetch", "Fetch & prune remotes"),
+        ("x", "cleanup", "Delete Branch/Worktree"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
@@ -331,8 +384,23 @@ class DashboardScreen(Screen[None]):
         self.query_one("#issue-search", Input).focus()
 
     def action_fetch(self) -> None:
-        """Fetch the remotes behind the Branches pane: the one key that mutates."""
+        """Fetch the remotes behind the Branches pane, on this explicit key."""
         self.dashpot.request_fetch()
+
+    def action_cleanup(self) -> None:
+        """Preview deleting the highlighted Branch or Worktree; never delete here."""
+        self.dashpot.request_cleanup(self.cleanup_selection())
+
+    def cleanup_selection(self) -> CleanupSelection | None:
+        """The highlighted row of the Branches or Worktrees pane, when one has focus."""
+        for kind, pane in (
+            ("branch", self.branches_pane()),
+            ("worktree", self.worktrees_pane()),
+        ):
+            if self.focused is pane.table:
+                key, _index = pane.highlighted()
+                return None if key is None else CleanupSelection(kind, key)
+        return None
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus to the next list when a list has it; otherwise decline."""
@@ -754,6 +822,20 @@ class DashboardScreen(Screen[None]):
         widget.update(alert.text if alert is not None else "")
 
 
+def cleanup_subject(request: CleanupRequest) -> str:
+    """What a Cleanup in progress is about, for the refusals that name it."""
+    if isinstance(request, BranchCleanupRequest):
+        return request.name
+    return str(request.path)
+
+
+def cleanup_summary(report: CleanupReport) -> str:
+    """One line for the toast: each target's outcome, or why nothing ran."""
+    if report.refusals:
+        return "; ".join(report.refusals)
+    return "; ".join(f"{result.outcome} {result.label}" for result in report.results)
+
+
 class DashpotApp(App[None]):
     TITLE = "Dashpot"
     SUB_TITLE = DEFAULT_SUB_TITLE
@@ -779,8 +861,16 @@ class DashpotApp(App[None]):
         issue_view: IssueTableViewState = IssueTableViewState(),
         refresh_indicator_seconds: float = 0.75,
         fetcher: RemoteFetcher | None = None,
+        cleaner: CleanupAdapter | None = None,
     ) -> None:
         super().__init__()
+        # The explicit Cleanup seam (``x``): without one the key is refused,
+        # so no observation-only construction can ever delete.
+        self.cleaner = cleaner
+        # Projects with a Cleanup in progress, from the preview being taken
+        # until the modal is dismissed or the report is in; a fetch there
+        # is refused meanwhile, and a Cleanup while a fetch is in flight.
+        self.cleaning: dict[str, str] = {}
         # The explicit fetch seam (``f``); without one the key is refused,
         # so no observation-only construction can ever fetch.
         self.fetcher = fetcher
@@ -932,6 +1022,14 @@ class DashpotApp(App[None]):
             )
             return
         for project_id, anchor in anchors.items():
+            if project_id in self.cleaning:
+                self.notify(
+                    f"Cleaning up {self.project_display_label(project_id)}; "
+                    f"fetch after it finishes",
+                    severity="warning",
+                    title="Dashpot fetch",
+                )
+                continue
             if project_id in self.fetching:
                 self.notify(
                     f"Already fetching {self.project_display_label(project_id)}",
@@ -998,6 +1096,208 @@ class DashpotApp(App[None]):
                 "fetch",
             )
         dashboard.update_alert()
+
+    def request_cleanup(self, selection: CleanupSelection | None) -> None:
+        """Preview a Cleanup of the highlighted row, off the event loop.
+
+        The row is resolved through the observation store to a Cleanup
+        request at the Project's Branch anchor (a Branch) or the Repository
+        the path belongs to (a Worktree). A Project being fetched, or already
+        in a Cleanup, is refused rather than mutated twice.
+        """
+        if self.cleaner is None:
+            self.notify(
+                "Deleting is not available in this view",
+                severity="warning",
+                title="Dashpot cleanup",
+            )
+            return
+        if selection is None:
+            self.notify(
+                "Highlight a Branch or a Worktree to delete",
+                severity="warning",
+                title="Dashpot cleanup",
+            )
+            return
+        resolved = self.resolve_cleanup_request(selection)
+        if resolved is None:
+            self.notify(
+                "The highlighted row is no longer observed",
+                severity="warning",
+                title="Dashpot cleanup",
+            )
+            return
+        project_id, request = resolved
+        label = self.project_display_label(project_id)
+        if project_id in self.fetching:
+            self.notify(
+                f"Fetching {label}; delete after it finishes",
+                severity="warning",
+                title="Dashpot cleanup",
+            )
+            return
+        if project_id in self.cleaning:
+            self.notify(
+                f"Already cleaning up {label}",
+                severity="warning",
+                title="Dashpot cleanup",
+            )
+            return
+        self.cleaning[project_id] = cleanup_subject(request)
+        self.run_worker(
+            partial(self.inspect_cleanup, project_id, request),
+            name=f"inspect cleanup {project_id}",
+            group=f"cleanup:{project_id}",
+            exit_on_error=False,
+        )
+
+    def resolve_cleanup_request(
+        self, selection: CleanupSelection
+    ) -> tuple[str, CleanupRequest] | None:
+        if selection.kind == "branch":
+            for branch_row in self.store.query_branches().rows:
+                if branch_row.key != selection.key:
+                    continue
+                snapshot = branch_row.project.snapshot
+                anchor = snapshot.branch_anchor if snapshot is not None else None
+                if anchor is None:
+                    return None
+                return branch_row.project.project_id, BranchCleanupRequest(
+                    Path(anchor), branch_row.name
+                )
+            return None
+        for worktree_row in self.store.query_worktrees().rows:
+            if worktree_row.key == selection.key:
+                return worktree_row.project.project_id, WorktreeCleanupRequest(
+                    Path(worktree_row.project.primary_anchor),
+                    Path(worktree_row.target.path),
+                )
+        return None
+
+    def cleanup_protection(self, project_id: str) -> tuple[Path, ...]:
+        """The checkouts a Cleanup never removes: Dashpot's own and the anchors."""
+        project = self.store.project(project_id)
+        anchors = tuple(Path(anchor) for anchor in project.anchors) if project else ()
+        return (Path.cwd().resolve(), *anchors)
+
+    async def inspect_cleanup(self, project_id: str, request: CleanupRequest) -> None:
+        cleaner = self.cleaner
+        if cleaner is None:  # pragma: no cover - request_cleanup refuses first.
+            return
+        worker = get_current_worker()
+        protected = self.cleanup_protection(project_id)
+        try:
+            preview = await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor,
+                partial(cleaner.inspect, request, protected=protected),
+            )
+        except Exception as exc:  # UI boundary: an adapter failure must not exit.
+            if not worker.is_cancelled:
+                self.post_message(CleanupInspected(project_id, request, error=str(exc)))
+            return
+        if not worker.is_cancelled:
+            self.post_message(CleanupInspected(project_id, request, preview=preview))
+
+    def on_cleanup_inspected(self, message: CleanupInspected) -> None:
+        if self._closing or self._closed or not self.screen_stack:
+            return
+        if message.preview is None:
+            self.cleaning.pop(message.project_id, None)
+            self.notify(
+                f"{self.project_display_label(message.project_id)}: {message.error}",
+                severity="error",
+                title="Dashpot cleanup",
+            )
+            return
+        self.push_screen(
+            CleanupScreen(message.request, message.preview),
+            partial(self.confirm_cleanup, message.project_id),
+        )
+
+    def confirm_cleanup(
+        self, project_id: str, confirmation: CleanupConfirmation | None
+    ) -> None:
+        """Perform what the modal confirmed, or release the Project on cancel."""
+        if confirmation is None:
+            self.cleaning.pop(project_id, None)
+            return
+        self.run_worker(
+            partial(self.perform_cleanup, project_id, confirmation),
+            name=f"perform cleanup {project_id}",
+            group=f"cleanup:{project_id}",
+            exit_on_error=False,
+        )
+
+    async def perform_cleanup(
+        self, project_id: str, confirmation: CleanupConfirmation
+    ) -> None:
+        cleaner = self.cleaner
+        if cleaner is None:  # pragma: no cover - request_cleanup refuses first.
+            return
+        worker = get_current_worker()
+        protected = self.cleanup_protection(project_id)
+        try:
+            report = await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor,
+                partial(cleaner.perform, confirmation, protected=protected),
+            )
+        except Exception as exc:  # UI boundary: an adapter failure must not exit.
+            if not worker.is_cancelled:
+                self.post_message(
+                    CleanupFinished(project_id, confirmation, error=str(exc))
+                )
+            return
+        if not worker.is_cancelled:
+            self.post_message(CleanupFinished(project_id, confirmation, report=report))
+
+    def on_cleanup_finished(self, message: CleanupFinished) -> None:
+        if self._closing or self._closed or not self.screen_stack:
+            return
+        label = self.project_display_label(message.project_id)
+        report = message.report
+        if report is None:
+            self.cleaning.pop(message.project_id, None)
+            self.notify(
+                f"{label}: {message.error}", severity="error", title="Dashpot cleanup"
+            )
+            # The adapter may have mutated before failing: re-observe anyway.
+            self.reobserve_after_cleanup(message.project_id)
+            return
+        if report.changed:
+            # The Project stays held: the revised preview needs another
+            # explicit confirmation, and nothing was performed.
+            self.notify(
+                f"{label}: {report.refusals[0]}",
+                severity="warning",
+                title="Dashpot cleanup",
+            )
+            self.push_screen(
+                CleanupScreen(
+                    message.confirmation.request, report.preview, changed=True
+                ),
+                partial(self.confirm_cleanup, message.project_id),
+            )
+            return
+        self.cleaning.pop(message.project_id, None)
+        self.notify(
+            f"{label}: {cleanup_summary(report)}",
+            severity="information" if report.succeeded else "error",
+            title="Dashpot cleanup",
+        )
+        self.push_screen(CleanupReportScreen(report))
+        if report.performed:
+            self.reobserve_after_cleanup(message.project_id)
+
+    def reobserve_after_cleanup(self, project_id: str) -> None:
+        """Observe what a Cleanup changed the passive way, never inferring it."""
+        self.schedule_observations(
+            [
+                key
+                for key in self.scheduler.keys(project_id)
+                if key.kind in ("targets", "workspace")
+            ],
+            "cleanup",
+        )
 
     def project_display_label(self, project_id: str) -> str:
         project = self.store.project(project_id)

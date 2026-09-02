@@ -86,7 +86,8 @@ the management commands `init`, `integrate`,
 | Key | Action |
 |---|---|
 | `r` | Refresh every observation in the Workspace |
-| `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state; the one key that mutates |
+| `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
+| `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree; nothing is deleted until a target is selected and Delete selected is pressed ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Issues, Sessions, Branches, and Worktrees lists |
 | `/` | Focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
