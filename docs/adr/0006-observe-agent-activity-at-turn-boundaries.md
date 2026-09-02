@@ -60,3 +60,8 @@ which age it is showing rather than implying a precision it does not have.
   import, which a minimal heartbeat entry point would avoid.
 - Hook records are stamped at fixed width and ordered by instant, so the
   freshest record for a session wins regardless of a stamp's precision.
+- [ADR 0016](0016-hold-a-session-running-while-its-sub-agents-work.md) adds
+  Claude Code's `SubagentStart` and `SubagentStop` to the subscribed boundaries:
+  one invocation per sub-agent, not per tool call, so the cost measured here
+  does not arise, and a session stays running while a sub-agent it delegated
+  to is alive.
