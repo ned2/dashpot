@@ -62,9 +62,7 @@ that resolve to more than one Project are refused with a message naming them
 (see [ADR 0004](docs/adr/0004-observe-one-project-per-run.md)). Use `--config`
 to select a different Workspace inventory.
 
-The Header's title is `Dashpot` and its sub-title is the observed Project's
-Repository Anchor path, or `passive workspace view` until the first
-observation lands. The default 15-second polling period refreshes the
+The default 15-second polling period refreshes the
 observed Project and can be changed with `--refresh-seconds`; zero disables
 polling. `--timeout` bounds every external `git` and `gh` command (default 10
 seconds), `--state-dir` overrides where session records land outside a
@@ -940,8 +938,8 @@ over every key and serializes the store's `checkpoint()`, so it remains one
 complete snapshot. Collection happens off the UI thread, and the table is
 reconciled by stable row keys.
 
-The main screen is a single pane of glass: the Header sub-titles `Dashpot`
-with the observed Project's Repository Anchor path, and below it
+The main screen is a single pane of glass with no Header, so every row
+belongs to a list: from the top,
 the full-width `SESSIONS`, `WORKTREES` and `BRANCHES` panes stack above the
 full-width `ISSUES` table. Nothing is switched to: every active Agent
 Session, every observed Worktree and every Branch is listed in its pane, with

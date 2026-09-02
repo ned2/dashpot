@@ -23,7 +23,7 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.app import DEFAULT_SUB_TITLE, DashpotApp, project_label
+from dashpot.app import DashpotApp, project_label
 from dashpot.issue_list import IssueListQuery, row_key
 from dashpot.issue_table import (
     COLUMN_KEYS,
@@ -48,10 +48,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 
     async with app.run_test(size=(80, 24)) as pilot:
         # Before the first observation the pane carries only its label, never
-        # a fabricated ``Open 0 · Closed 0`` inventory, and the Header has no
-        # anchor to name yet.
+        # a fabricated ``Open 0 · Closed 0`` inventory.
         assert pane_title(app, "#queue-pane") == "ISSUES"
-        assert app.sub_title == DEFAULT_SUB_TITLE
         release.set()
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
@@ -101,15 +99,10 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert number_header.justify == "right"
         assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert selected_title(app) == "#1: First"
-        # The Header names the observed Project by its Repository Anchor,
-        # never by a label or an Issue Source that could be mistaken for it.
+        # No Header: the panes start on the first row of the screen.
         assert app.title == "Dashpot"
-        assert app.sub_title == "/repo"
-        assert "test/repo" not in app.sub_title
-        assert "Test Repository" not in app.sub_title
-        header = str(app.query_one("HeaderTitle", Static).render())
-        assert header.startswith("Dashpot")
-        assert header.endswith("/repo")
+        assert not app.query("Header")
+        assert app.query_one("#sessions-pane").region.y == 0
         assert app.ALLOW_SELECT
         assert not table.allow_select
 
@@ -270,7 +263,6 @@ async def test_unavailable_project_observation_keeps_last_good_issue_rows() -> N
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert selected_title(app) == "#1: Last good"
-        assert app.sub_title == "/repo"
         assert "repository is unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -444,7 +436,6 @@ async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
 
         assert app.query_one("#queue", DataTable).row_count == 1
         assert "prunable" in str(app.query_one("#diagnostics", Static).render())
-        assert app.sub_title == "/repo"
 
 
 @pytest.mark.asyncio

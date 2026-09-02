@@ -19,7 +19,7 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.timer import Timer
-from textual.widgets import DataTable, Footer, Header, Input, Select, Static
+from textual.widgets import DataTable, Footer, Input, Select, Static
 from textual.worker import get_current_worker
 from typing_extensions import override
 
@@ -92,8 +92,6 @@ from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
-# The Header's sub-title until an observed Project supplies its anchor.
-DEFAULT_SUB_TITLE = "passive workspace view"
 # Observation triggers a person asked for, whose outcome earns a toast.
 MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
 
@@ -191,7 +189,7 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
     ),
 )
 # Focus starts in the first list and cycles through the four in reading
-# order, the Issue table last; the Header and the Issue controls are not part
+# order, the Issue table last; the Issue controls are not part
 # of the cycle.
 LIST_TABLE_IDS = (*(spec.table_id for spec in LIST_PANE_SPECS), "queue")
 
@@ -322,7 +320,6 @@ class DashboardScreen(Screen[None]):
 
     @override
     def compose(self) -> ComposeResult:
-        yield Header()
         with DashboardBody(id="body"):
             with Container(id="list-row"):
                 for spec in LIST_PANE_SPECS:
@@ -692,7 +689,6 @@ class DashboardScreen(Screen[None]):
         )
         if selected_key is None:
             self.selected_row_key = None
-            self.update_header()
             return result
         self.show_row(selected_key)
         return result
@@ -750,17 +746,6 @@ class DashboardScreen(Screen[None]):
         # A row the store can no longer detail selects nothing; keeping the
         # previous selection would open the wrong Issue.
         self.selected_row_key = key if context is not None else None
-        self.update_header(context.project if context is not None else None)
-
-    def update_header(self, project: ProjectObservation | None = None) -> None:
-        """Sub-title the Header with the selected Project's Repository Anchor.
-
-        Without a selected row the Header names every observed Project's
-        anchor, so an empty Issue table still says what is being observed.
-        """
-        projects = (project,) if project is not None else self.dashpot.store.projects()
-        anchors = " · ".join(candidate.primary_anchor for candidate in projects)
-        self.app.sub_title = anchors or DEFAULT_SUB_TITLE
 
     def update_diagnostics(self) -> None:
         # A refresh failure and a search error are the app's own errors; a
@@ -839,7 +824,6 @@ def cleanup_summary(report: CleanupReport) -> str:
 
 class DashpotApp(App[None]):
     TITLE = "Dashpot"
-    SUB_TITLE = DEFAULT_SUB_TITLE
     CSS_PATH = "dashpot.tcss"
     # Textual declares this as an instance attribute, so ClassVar is not an
     # option; the list is never mutated.

@@ -14,7 +14,6 @@ bindings, while the app keeps the scheduler, the store and screen navigation.
 ```text
 DashpotApp
 └── DashboardScreen
-    ├── Header
     ├── source-status
     ├── body
     │   ├── queue-pane

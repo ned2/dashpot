@@ -12,7 +12,7 @@ from app_harness import (
     pane_title,
     workspace_snapshot,
 )
-from dashpot.app import DEFAULT_SUB_TITLE, DashpotApp
+from dashpot.app import DashpotApp
 from dashpot.issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
@@ -611,14 +611,12 @@ async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
-        assert app.sub_title != DEFAULT_SUB_TITLE
 
         app.dashboard.show_row(row_key("issue", "I_gone"))
 
         # Nothing is selected, so the Open Issue binding opens nothing rather
         # than the previously selected Issue.
         assert app.dashboard.selected_row_key is None
-        assert app.sub_title != DEFAULT_SUB_TITLE
         app.dashboard.action_open_issue()
         await pilot.pause()
         assert not isinstance(app.screen, IssueScreen)

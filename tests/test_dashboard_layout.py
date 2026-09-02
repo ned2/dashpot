@@ -294,10 +294,10 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         refresh_seconds=0,
     )
 
-    # 22 rows: Header, Footer and the Issue table's minimum of 6 leave 14;
+    # 21 rows: the Footer and the Issue table's minimum of 6 leave 14;
     # the empty Branches pane takes the 4 it wants, frame, line and margin,
     # and the two full panes split the rest into a record each.
-    async with app.run_test(size=(80, 22)) as pilot:
+    async with app.run_test(size=(80, 21)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         sessions = prepare_pane(app, "sessions-pane")
@@ -323,7 +323,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
             app.query_one("#list-row").region.height + queue_pane.region.height
         )
 
-        await pilot.resize_terminal(80, 28)
+        await pilot.resize_terminal(80, 27)
         await wait_until(
             lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 4
         )
@@ -333,7 +333,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
 
         # Too short even for a record each: the full panes collapse to their
         # counts while the empty one keeps its honest line.
-        await pilot.resize_terminal(80, 20)
+        await pilot.resize_terminal(80, 19)
         await wait_until(lambda: sessions.region.height == worktrees.region.height == 2)
         assert sessions.region.height == worktrees.region.height == 2
         assert app.query_one("#branches-pane").region.height == 3
