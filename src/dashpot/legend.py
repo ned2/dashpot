@@ -35,11 +35,27 @@ SESSIONS_COUNT_NOTE = (
     "followed by how many Agent Sessions are located here, led by the liveliest state"
 )
 AGENT_STATE_NOTE = "blank when no Agent Run is on the Issue"
+LOCAL_PRESENCE_NOTE = "a local ref under refs/heads"
+# The check is the Repository's copy, not the remote itself: a
+# Remote-Tracking Branch can outlive the Branch at the remote until a fetch
+# prunes it, so the Legend says what the check means and where its age is.
+REMOTE_PRESENCE_NOTE = (
+    "a Remote-Tracking Branch as of the last fetch, which can outlive the "
+    "Branch at the remote until pruned; the pane border carries the fetch age "
+    "and f fetches and prunes"
+)
 
 LEGEND: tuple[LegendSection, ...] = (
     LegendSection(SESSIONS_PANE_LABEL, "STATE", session_list.LEGEND),
-    LegendSection(BRANCHES_PANE_LABEL, "LOCAL", branch_list.PRESENCE_LEGEND),
-    LegendSection(BRANCHES_PANE_LABEL, "REMOTE", branch_list.PRESENCE_LEGEND),
+    LegendSection(
+        BRANCHES_PANE_LABEL, "LOCAL", branch_list.PRESENCE_LEGEND, LOCAL_PRESENCE_NOTE
+    ),
+    LegendSection(
+        BRANCHES_PANE_LABEL,
+        "REMOTE",
+        branch_list.PRESENCE_LEGEND,
+        REMOTE_PRESENCE_NOTE,
+    ),
     LegendSection(BRANCHES_PANE_LABEL, "UPSTREAM", branch_list.UPSTREAM_LEGEND),
     LegendSection(BRANCHES_PANE_LABEL, "INTEGRATED", branch_list.INTEGRATION_LEGEND),
     LegendSection(

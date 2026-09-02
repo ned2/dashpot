@@ -126,6 +126,24 @@ def test_every_glyph_in_the_source_is_explained() -> None:
     assert unexplained == {}
 
 
+def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
+    """A REMOTE check is the Remote-Tracking Branch, never live remote presence."""
+    by_column = {
+        section.column: section
+        for section in legend.LEGEND
+        if section.pane == "BRANCHES"
+    }
+    local, remote = by_column["LOCAL"], by_column["REMOTE"]
+
+    assert local.glyphs == remote.glyphs == branch_list.PRESENCE_LEGEND
+    assert local.note == legend.LOCAL_PRESENCE_NOTE
+    assert remote.note == legend.REMOTE_PRESENCE_NOTE
+    rendered = legend.section_text(remote, dark=False).plain
+    assert "Remote-Tracking Branch" in rendered
+    assert "last fetch" in rendered
+    assert "f fetches and prunes" in rendered
+
+
 def test_section_text_renders_symbols_in_their_colour() -> None:
     section = legend.LEGEND[0]
     text = legend.section_text(section, dark=True)

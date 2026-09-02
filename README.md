@@ -899,7 +899,11 @@ Branches pane ([`branch_list.py`](src/dashpot/branch_list.py),
 `WorkspaceObservationStore.query_branches`) joins the local ref and the
 Remote-Tracking Branches of one branch name into one row, so a branch is
 never listed twice and never needs a second pane. `LOCAL` and `REMOTE` show
-`✓` when a ref exists in that namespace. `UPSTREAM` is the local ref's
+`✓` when a ref exists in that namespace: `LOCAL` is a ref under `refs/heads`,
+and `REMOTE` is a Remote-Tracking Branch as of the last fetch, which can
+outlive the Branch at the remote until a fetch prunes it, so the Legend
+qualifies the check with the fetch age the border carries and the `f` key
+that prunes. `UPSTREAM` is the local ref's
 relation to its configured upstream (`=` in sync, `↑2 ↓1`, `∅` no upstream,
 or `✗` upstream gone). `INTEGRATED` is whether the Integration Branch holds
 the Branch's work (`⊆` when every commit is reachable, `≡` when its content is
