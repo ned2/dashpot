@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, ValidationError
+from pydantic import AfterValidator, Field, ValidationError
 
 from .git import Git, GitError
 from .harnesses import HARNESS_DISPLAY, SESSION_ID, SessionIdentityClaim
@@ -43,7 +43,12 @@ EVENT_STATES: dict[str, str] = {
     "Stop": "waiting",
     "Interrupt": "waiting",
     "SessionEnd": "ended",
+    # A sub-agent's boundaries are the session's too: the store reconciles
+    # these base states against the sub-agents it knows to be alive.
+    "SubagentStart": "running",
+    "SubagentStop": "waiting",
 }
+SUBAGENT_EVENTS = frozenset({"SubagentStart", "SubagentStop"})
 
 
 def now_iso() -> str:
@@ -131,12 +136,16 @@ class HookRecord(PersistedRecord):
     source: Any = None
     turn_id: Any = None
     model: Any = None
+    agent_id: Any = None
     last_activity_at: OptionalText = None
     session_process: SessionProcessRecord | None = None
     # Why the host process is unknown, when it is: distinguishes a hook that
     # ran where the harness is unobservable from one with no harness.
     session_process_unobservable: OptionalText = None
     turn_started_at: OptionalText = None
+    # The session's sub-agents observed started and not yet stopped; a
+    # session whose main turn has ended is still running while any is alive.
+    live_subagents: list[str] = Field(default_factory=list)
 
     @property
     def has_global_binding(self) -> bool:
@@ -198,12 +207,16 @@ def build_hook_record(
         source=event.get("source"),
         turn_id=event.get("turn_id"),
         model=event.get("model"),
+        agent_id=event.get("agent_id"),
         last_activity_at=now_iso(),
         session_process=SessionProcessRecord.of(process) if process else None,
         session_process_unobservable=None if process else process_unobservable,
     )
-    # ``turnStartedAt`` is the store's to derive against the previous record.
-    return record.model_dump(by_alias=True, exclude={"turn_started_at"})
+    # ``turnStartedAt`` and ``liveSubagents`` are the store's to derive
+    # against the previous record.
+    return record.model_dump(
+        by_alias=True, exclude={"turn_started_at", "live_subagents"}
+    )
 
 
 def turn_started_at(
@@ -214,6 +227,11 @@ def turn_started_at(
     A turn's age and a session's idle time are different questions, so the
     record keeps the turn's start rather than overloading its last activity.
     """
+    if current.get("event") in SUBAGENT_EVENTS:
+        # A sub-agent's boundary is not the main turn's: its clock carries.
+        if previous is None:
+            return None
+        return optional_string(previous.get("turnStartedAt"))
     if current.get("state") != "running":
         return None
     if previous is not None and previous.get("state") == "running":
@@ -221,6 +239,50 @@ def turn_started_at(
         if carried is not None:
             return carried
     return optional_string(current.get("lastActivityAt"))
+
+
+def live_subagents(
+    current: Mapping[str, Any], previous: Mapping[str, Any] | None
+) -> list[str]:
+    """Which sub-agents of the session are alive after this event.
+
+    ``SubagentStart`` adds the agent, ``SubagentStop`` removes it, a new
+    session starts with none, and every other event carries the set. An
+    event that names no agent changes nothing rather than guessing.
+    """
+    event = current.get("event")
+    if event == "SessionStart" or previous is None:
+        alive: list[str] = []
+    else:
+        recorded: Any = previous.get("liveSubagents")
+        alive = (
+            [str(item) for item in recorded if isinstance(item, str)]
+            if isinstance(recorded, list)
+            else []
+        )
+    agent = current.get("agentId")
+    if not isinstance(agent, str) or not agent:
+        return alive
+    if event == "SubagentStart":
+        return sorted({*alive, agent})
+    if event == "SubagentStop":
+        return [item for item in alive if item != agent]
+    return alive
+
+
+def observed_state(current: Mapping[str, Any]) -> str:
+    """The session's state once its live sub-agents are accounted for.
+
+    A main turn that stops while a sub-agent it delegated to is still working
+    leaves the session running; a sub-agent stopping while the main turn is
+    still in flight leaves it running too.
+    """
+    state = str(current.get("state"))
+    if state == "waiting" and current.get("liveSubagents"):
+        return "running"
+    if current.get("event") == "SubagentStop" and current.get("turnStartedAt"):
+        return "running"
+    return state
 
 
 def write_hook_record(record: dict[str, Any], directory: Path) -> Path:
@@ -252,7 +314,9 @@ class HookRecordStore(LockedRecordStore):
         current = dict(record)
         with self.locked(session_id):
             previous = self._read(destination)
+            current["liveSubagents"] = live_subagents(current, previous)
             current["turnStartedAt"] = turn_started_at(current, previous)
+            current["state"] = observed_state(current)
             self.replace(session_id, current)
         return destination
 

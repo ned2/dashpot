@@ -571,11 +571,14 @@ manual Codex configuration.
 The hooks report session lifecycle only: which agent sessions are alive at a
 worktree and whether they are running or waiting. Codex registers
 `SessionStart`, `UserPromptSubmit`, `Stop`, `Interrupt`, and `SessionEnd`;
-Claude Code the same set without `Interrupt`, plus `PostToolUse` matched to
-its `EnterWorktree` tool alone, so a session that moves to another Worktree
-is placed there as soon as it arrives — one hook invocation per relocation,
-never per tool call
+Claude Code the same set without `Interrupt`, plus `SubagentStart` and
+`SubagentStop`, and `PostToolUse` matched to its `EnterWorktree` tool alone,
+so a session that moves to another Worktree is placed there as soon as it
+arrives — one hook invocation per relocation, never per tool call
 ([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
+A session whose main turn has stopped stays running while a sub-agent it
+delegated to is still working, since sub-agents share the session's Agent Run
+([ADR 0016](docs/adr/0016-hold-a-session-running-while-its-sub-agents-work.md)).
 A session that has not
 declared an Issue is not listed as Work; it is listed in the Sessions pane
 with `no active Issue work` until it opts in with `dashpot work start`. Codex and Claude

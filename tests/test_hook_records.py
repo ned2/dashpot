@@ -485,3 +485,145 @@ class HookRoutingTests(unittest.TestCase):
         self.assertEqual(1, len(runs))
         self.assertEqual("waiting", runs[0].state)
         self.assertEqual("2026-08-24T15:00:00Z", runs[0].last_activity_at)
+
+
+class SubagentBoundaryTests(unittest.TestCase):
+    """A session stays running while a sub-agent it delegated to is alive."""
+
+    @override
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temporary.name)
+        self.process = ProcessIdentity(42, 1, "claude", "Tue Aug 25 01:00:00 2026")
+
+    @override
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def publish(self, event_name: str, agent_id: str | None = None) -> None:
+        event: dict[str, Any] = {
+            "session_id": "delegating",
+            "cwd": "/repo",
+            "hook_event_name": event_name,
+        }
+        if agent_id is not None:
+            event["agent_id"] = agent_id
+        publish_hook_event(
+            event,
+            self.state_dir,
+            environ={},
+            process=self.process,
+            harness="claude-code",
+        )
+
+    def stored(self) -> dict[str, Any]:
+        path = self.state_dir / "delegating.json"
+        return cast("dict[str, Any]", json.loads(path.read_text()))
+
+    def test_a_stop_with_a_background_subagent_alive_keeps_the_session_running(
+        self,
+    ) -> None:
+        self.publish("UserPromptSubmit")
+        turn_started = self.stored()["turnStartedAt"]
+        self.publish("SubagentStart", "agent-1")
+        self.assertEqual("running", self.stored()["state"])
+        self.assertEqual(["agent-1"], self.stored()["liveSubagents"])
+        # A sub-agent's boundary is not the main turn's.
+        self.assertEqual(turn_started, self.stored()["turnStartedAt"])
+
+        self.publish("Stop")
+
+        record = self.stored()
+        self.assertEqual("running", record["state"])
+        self.assertEqual("Stop", record["event"])
+        self.assertIsNone(record["turnStartedAt"])
+
+        self.publish("SubagentStop", "agent-1")
+
+        record = self.stored()
+        self.assertEqual("waiting", record["state"])
+        self.assertEqual([], record["liveSubagents"])
+
+        # The next main turn starts its own clock.
+        self.publish("UserPromptSubmit")
+        record = self.stored()
+        self.assertEqual("running", record["state"])
+        self.assertEqual(record["lastActivityAt"], record["turnStartedAt"])
+
+    def test_a_foreground_subagent_stopping_leaves_the_main_turn_running(
+        self,
+    ) -> None:
+        self.publish("UserPromptSubmit")
+        turn_started = self.stored()["turnStartedAt"]
+        self.publish("SubagentStart", "agent-1")
+        self.publish("SubagentStop", "agent-1")
+
+        record = self.stored()
+        self.assertEqual("running", record["state"])
+        self.assertEqual(turn_started, record["turnStartedAt"])
+        self.assertEqual([], record["liveSubagents"])
+
+    def test_the_last_live_subagent_ends_the_delegated_work(self) -> None:
+        self.publish("UserPromptSubmit")
+        self.publish("SubagentStart", "agent-1")
+        self.publish("SubagentStart", "agent-2")
+        self.publish("Stop")
+        self.publish("SubagentStop", "agent-1")
+
+        self.assertEqual("running", self.stored()["state"])
+        self.assertEqual(["agent-2"], self.stored()["liveSubagents"])
+
+        self.publish("SubagentStop", "agent-2")
+
+        self.assertEqual("waiting", self.stored()["state"])
+
+    def test_a_new_session_starts_with_no_live_subagents(self) -> None:
+        self.publish("UserPromptSubmit")
+        self.publish("SubagentStart", "agent-1")
+
+        self.publish("SessionStart")
+
+        self.assertEqual([], self.stored()["liveSubagents"])
+        self.publish("Stop")
+        self.assertEqual("waiting", self.stored()["state"])
+
+    def test_a_subagent_event_naming_no_agent_changes_nothing(self) -> None:
+        self.publish("UserPromptSubmit")
+        self.publish("SubagentStart")
+        self.assertEqual([], self.stored()["liveSubagents"])
+
+        self.publish("Stop")
+
+        self.assertEqual("waiting", self.stored()["state"])
+
+    def test_the_observed_run_is_running_while_a_subagent_works(self) -> None:
+        self.publish("UserPromptSubmit")
+        self.publish("SubagentStart", "agent-1")
+        self.publish("Stop")
+
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual("running", runs[0].state)
+
+    def test_malformed_live_subagents_degrade_to_none(self) -> None:
+        record = hook_record_document(
+            "/repo", "delegating", "claude-code", self.process, state="waiting"
+        )
+        record["liveSubagents"] = "agent-1"
+        (self.state_dir / "delegating.json").write_text(json.dumps(record))
+
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+        self.assertEqual("waiting", runs[0].state)
+        self.assertEqual(
+            ["agent-session-record-degraded"], [d.code for d in diagnostics]
+        )

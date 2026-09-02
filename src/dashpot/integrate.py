@@ -90,7 +90,16 @@ CLAUDE_CODE = HarnessIntegration(
     home_name=".claude",
     hooks_file="settings.json",
     command_name="dashpot-claude-code-hook",
-    events=("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"),
+    # A sub-agent's boundaries keep the session running while it works after
+    # the main turn has stopped (ADR 0016).
+    events=(
+        "SessionStart",
+        "UserPromptSubmit",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop",
+        "SessionEnd",
+    ),
     checks_config_toml=False,
     # ``EnterWorktree`` moves a running session to another Worktree without
     # firing any lifecycle event, so its completion is observed on its own:
