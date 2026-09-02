@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -9,6 +9,18 @@ from typing import Annotated, Literal
 from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
 from .app import DashpotApp
+from .cleanup import (
+    BranchCleanupRequest,
+    CleanupConfirmation,
+    CleanupError,
+    CleanupPreview,
+    CleanupRequest,
+    WorktreeCleanupRequest,
+    cleanup_git,
+    describe_cleanup_report,
+    inspect_cleanup,
+    perform_cleanup,
+)
 from .collect import ObservationCoordinator
 from .errors import DashpotError
 from .fetch import remote_fetcher
@@ -23,6 +35,7 @@ from .model import Diagnostic, RepositoryAnchor, Workspace
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
 from .serialization import (
+    cleanup_report_document,
     issue_document,
     removability_document,
     render_json,
@@ -316,10 +329,12 @@ def issue_show(
 worktree = App(
     name="worktree",
     help=(
-        "Prepare and inspect linked Worktrees for Issue work.\n\n"
-        "create is the one command here that mutates: one linked Worktree at "
-        "one path outside every Worktree of the Project, on one new Branch, "
-        "never fetching (ADR 0008). check is read-only and removes nothing."
+        "Prepare, inspect, and remove linked Worktrees for Issue work.\n\n"
+        "create mutates: one linked Worktree at one path outside every "
+        "Worktree of the Project, on one new Branch, never fetching (ADR "
+        "0008). remove mutates: one linked Worktree, unforced, after a "
+        "read-only preview, and its Branch only when asked (ADR 0019). check "
+        "is read-only and removes nothing."
     ),
 )
 app.command(worktree)
@@ -427,6 +442,153 @@ def worktree_check(
                 print()
             _report(describe_removability(report))
     return 0
+
+
+_DryRun = Annotated[
+    bool,
+    Parameter(
+        show_default=False,
+        help="report what would be attempted, in order, without changing anything",
+    ),
+]
+
+
+def _cleanup(
+    request: CleanupRequest,
+    *,
+    select: Callable[[CleanupPreview], tuple[str, ...]],
+    delete_ignored: bool = False,
+    dry_run: bool,
+    timeout: float,
+    json_output: bool,
+) -> int:
+    """Preview, select, perform, and report one Cleanup from this checkout."""
+    protected = [Path.cwd().resolve()]
+    git = cleanup_git(timeout)
+    preview = inspect_cleanup(request, protected=protected, timeout=timeout, git=git)
+    # A preview with nothing to select has already said why; ``perform``
+    # repeats the refusal so the report carries it in every output shape.
+    confirmation = CleanupConfirmation(
+        request,
+        preview.fingerprint,
+        select(preview),
+        delete_ignored=delete_ignored,
+    )
+    report = perform_cleanup(
+        confirmation,
+        protected=protected,
+        timeout=timeout,
+        git=git,
+        dry_run=dry_run,
+    )
+    if json_output:
+        print(render_json(cleanup_report_document(report)))
+    else:
+        _report(describe_cleanup_report(report))
+        for item in report.refusals:
+            print(f"dashpot: refused: {item}", file=sys.stderr)
+    if report.dry_run:
+        return USAGE_EXIT_CODE if report.refusals else 0
+    return 0 if report.succeeded else USAGE_EXIT_CODE
+
+
+branch = App(
+    name="branch",
+    help=(
+        "Delete Branches after a read-only preview.\n\n"
+        "delete mutates: only the refs named by its flags, each only at the "
+        "commit the preview observed, never the Integration Branch or a "
+        "checked-out Branch (ADR 0019)."
+    ),
+)
+app.command(branch)
+
+
+@branch.command(name="delete")
+def branch_delete(
+    name: Annotated[str, Parameter(help="NAME: the Branch, as git branch lists it")],
+    /,
+    *,
+    local: Annotated[
+        bool,
+        Parameter(
+            show_default=False,
+            help="delete the local Branch refs/heads/NAME, if it is integrated",
+        ),
+    ] = False,
+    dry_run: _DryRun = False,
+    timeout: _Timeout = 10.0,
+    json_output: _JsonOutput = False,
+) -> int:
+    """Delete the selected refs of a Branch, each at its previewed commit."""
+    if not local:
+        raise CleanupError("name at least one target to delete: --local")
+    current = Path.cwd().resolve()
+    return _cleanup(
+        BranchCleanupRequest(current, name),
+        select=lambda preview: (
+            tuple(
+                target.identity
+                for target in preview.targets
+                if target.kind == "local-branch"
+            )
+            or (f"local:refs/heads/{name}",)
+        ),
+        dry_run=dry_run,
+        timeout=timeout,
+        json_output=json_output,
+    )
+
+
+@worktree.command(name="remove")
+def worktree_remove(
+    path: Annotated[Path, Parameter(help="PATH: the linked Worktree to remove")],
+    /,
+    *,
+    delete_branch: Annotated[
+        bool,
+        Parameter(
+            show_default=False,
+            help=(
+                "also delete the Worktree's local Branch, once the Worktree is "
+                "gone and only if it is integrated"
+            ),
+        ),
+    ] = False,
+    delete_ignored: Annotated[
+        bool,
+        Parameter(
+            show_default=False,
+            help=(
+                "acknowledge that the Worktree's ignored content (.venv, "
+                ".dashpot/state, and the like) is deleted with it"
+            ),
+        ),
+    ] = False,
+    dry_run: _DryRun = False,
+    timeout: _Timeout = 10.0,
+    json_output: _JsonOutput = False,
+) -> int:
+    """Remove a linked Worktree without force, after a read-only preview."""
+    current = Path.cwd().resolve()
+
+    def select(preview: CleanupPreview) -> tuple[str, ...]:
+        kinds = {"worktree"} | ({"local-branch"} if delete_branch else set())
+        chosen = tuple(
+            target.identity for target in preview.targets if target.kind in kinds
+        )
+        if delete_branch and len(chosen) < 2:
+            raise CleanupError(f"{path} has no Branch checked out to delete")
+        return chosen
+
+    return _cleanup(
+        WorktreeCleanupRequest(current, path),
+        select=select,
+        delete_ignored=delete_ignored,
+        dry_run=dry_run,
+        timeout=timeout,
+        json_output=json_output,
+    )
 
 
 _integrate_action = Group("Action", validator=validators.MutuallyExclusive())

@@ -5,13 +5,22 @@ import json
 import runpy
 import subprocess
 from pathlib import Path
-from typing import get_args
+from typing import Literal, get_args
 from unittest import mock
 
 import pytest
 from rich.console import Console
 
 from dashpot import cli
+from dashpot.cleanup import (
+    BranchCleanupRequest,
+    CleanupConfirmation,
+    CleanupPreview,
+    CleanupReport,
+    CleanupTarget,
+    TargetResult,
+    WorktreeCleanupRequest,
+)
 from dashpot.errors import DashpotError
 from dashpot.git import GitError
 from dashpot.hook import publish_from_stream
@@ -661,6 +670,251 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
     assert capsys.readouterr().out.strip() == "no linked Worktrees in this Repository"
 
 
+def cleanup_target(
+    kind: Literal["local-branch", "worktree"], *, requires: str | None = None
+) -> CleanupTarget:
+    identity = {
+        "local-branch": "local:refs/heads/feat",
+        "worktree": "worktree:/w/x",
+    }[kind]
+    return CleanupTarget(
+        identity=identity,
+        kind=kind,
+        label="Local Branch" if kind == "local-branch" else "Worktree",
+        expected="e319d3c0000000000000000000000000000000ab",
+        ref="refs/heads/feat",
+        remote=None,
+        path="/w/x" if kind == "worktree" else None,
+        integration=None,
+        observed_at=None,
+        requires=requires,
+        blockers=(),
+        consequences=(),
+    )
+
+
+def cleanup_preview(
+    kind: Literal["branch", "worktree"], *targets: CleanupTarget
+) -> CleanupPreview:
+    return CleanupPreview(
+        kind=kind,
+        subject="feat" if kind == "branch" else "/w/x",
+        anchor="/w/repo",
+        targets=targets,
+        ignored=(),
+        refusals=(),
+        fingerprint="0123456789abcdef",
+    )
+
+
+def cleanup_report(
+    preview: CleanupPreview,
+    *,
+    dry_run: bool = False,
+    performed: bool = True,
+    refusals: tuple[str, ...] = (),
+    planned: tuple[str, ...] = (),
+    results: tuple[TargetResult, ...] = (),
+) -> CleanupReport:
+    return CleanupReport(
+        kind=preview.kind,
+        subject=preview.subject,
+        anchor=preview.anchor,
+        dry_run=dry_run,
+        performed=performed,
+        preview=preview,
+        refusals=refusals,
+        planned=planned,
+        results=results,
+    )
+
+
+def test_branch_delete_previews_confirms_and_reports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    local = cleanup_target("local-branch")
+    preview = cleanup_preview("branch", local)
+    report = cleanup_report(
+        preview,
+        results=(
+            TargetResult(
+                identity=local.identity,
+                kind="local-branch",
+                label="Local Branch",
+                expected=local.expected,
+                outcome="deleted",
+                detail="deleted refs/heads/feat at e319d3c",
+                recovery=f"git branch feat {local.expected}",
+            ),
+        ),
+    )
+    adapter = object()
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=adapter),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview) as inspect,
+        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+    ):
+        assert cli.main(["branch", "delete", "feat", "--local"]) == 0
+    request = BranchCleanupRequest(tmp_path.resolve(), "feat")
+    protected = [tmp_path.resolve()]
+    inspect.assert_called_once_with(
+        request, protected=protected, timeout=10.0, git=adapter
+    )
+    perform.assert_called_once_with(
+        CleanupConfirmation(request, "0123456789abcdef", (local.identity,)),
+        protected=protected,
+        timeout=10.0,
+        git=adapter,
+        dry_run=False,
+    )
+    out = capsys.readouterr().out
+    assert "Delete Branch   feat" in out
+    assert "  deleted        Local Branch refs/heads/feat @ e319d3c" in out
+    assert f"      recover: git branch feat {local.expected}" in out
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=adapter),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
+        mock.patch.object(cli, "perform_cleanup", return_value=report),
+    ):
+        assert cli.main(["branch", "delete", "feat", "--local", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["succeeded"] is True
+    assert payload["results"][0]["outcome"] == "deleted"
+
+
+def test_branch_delete_without_a_target_flag_is_a_usage_refusal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(cli, "inspect_cleanup") as inspect:
+        assert cli.main(["branch", "delete", "feat"]) == 2
+    inspect.assert_not_called()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "dashpot: name at least one target to delete: --local\n"
+
+
+def test_branch_delete_refusal_exits_2_and_names_each_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    preview = cleanup_preview("branch")
+    report = cleanup_report(
+        preview, performed=False, refusals=("no Branch named feat",)
+    )
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=object()),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
+        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+    ):
+        assert cli.main(["branch", "delete", "feat", "--local"]) == 2
+    # With no local target to select, the command still names the one it
+    # meant so the refusal is about that ref.
+    assert perform.call_args.args[0].selected == ("local:refs/heads/feat",)
+    captured = capsys.readouterr()
+    assert "Refused         no Branch named feat" in captured.out
+    assert captured.err == "dashpot: refused: no Branch named feat\n"
+
+
+def test_worktree_remove_selects_its_targets_from_the_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    tree = cleanup_target("worktree")
+    local = cleanup_target("local-branch", requires=tree.identity)
+    preview = cleanup_preview("worktree", tree, local)
+    report = cleanup_report(
+        preview,
+        dry_run=True,
+        performed=False,
+        planned=(tree.identity, local.identity),
+    )
+    adapter = object()
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=adapter),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
+        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+    ):
+        assert (
+            cli.main(
+                [
+                    "worktree",
+                    "remove",
+                    "/w/x",
+                    "--delete-branch",
+                    "--delete-ignored",
+                    "--dry-run",
+                    "--timeout",
+                    "3",
+                ]
+            )
+            == 0
+        )
+    perform.assert_called_once_with(
+        CleanupConfirmation(
+            WorktreeCleanupRequest(tmp_path.resolve(), Path("/w/x")),
+            "0123456789abcdef",
+            (tree.identity, local.identity),
+            delete_ignored=True,
+        ),
+        protected=[tmp_path.resolve()],
+        timeout=3.0,
+        git=adapter,
+        dry_run=True,
+    )
+    out = capsys.readouterr().out
+    assert "Dry run         would attempt, in order" in out
+    assert "  1. Worktree /w/x" in out
+    assert "  2. Local Branch refs/heads/feat" in out
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=adapter),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
+        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+    ):
+        assert cli.main(["worktree", "remove", "/w/x", "--json"]) == 0
+    assert perform.call_args.args[0].selected == (tree.identity,)
+    assert perform.call_args.args[0].delete_ignored is False
+    assert json.loads(capsys.readouterr().out)["planned"] == [
+        tree.identity,
+        local.identity,
+    ]
+
+
+def test_worktree_remove_with_delete_branch_needs_a_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    preview = cleanup_preview("worktree", cleanup_target("worktree"))
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=object()),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
+        mock.patch.object(cli, "perform_cleanup") as perform,
+    ):
+        assert cli.main(["worktree", "remove", "/w/x", "--delete-branch"]) == 2
+    perform.assert_not_called()
+    assert capsys.readouterr().err == (
+        "dashpot: /w/x has no Branch checked out to delete\n"
+    )
+
+
 def test_integrate_codex_dispatches_install_remove_and_status(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -859,7 +1113,7 @@ def test_root_help_describes_the_command_hierarchy_and_options() -> None:
 
     assert "Usage: dashpot COMMAND [OPTIONS]" in text
     assert "Passively observe Issues, repositories, and agent runs." in text
-    for command in ("init", "integrate", "issue", "work", "worktree"):
+    for command in ("branch", "init", "integrate", "issue", "work", "worktree"):
         assert f" {command} " in text
     for option in (
         "--workspace",
@@ -891,6 +1145,14 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
     assert "Usage: dashpot worktree create [OPTIONS] REFERENCE" in create
     for option in ("--base", "--branch", "--worktree-root", "--dry-run", "--json"):
         assert option in create
+    remove = help_text(["worktree", "remove", "--help"])
+    assert "Usage: dashpot worktree remove [OPTIONS] PATH" in remove
+    for option in ("--delete-branch", "--delete-ignored", "--dry-run", "--json"):
+        assert option in remove
+    delete = help_text(["branch", "delete", "--help"])
+    assert "Usage: dashpot branch delete [OPTIONS] NAME" in delete
+    for option in ("--local", "--dry-run", "--json"):
+        assert option in delete
     assert "Usage: dashpot issue show [OPTIONS] REFERENCE" in help_text(
         ["issue", "show", "--help"]
     )
