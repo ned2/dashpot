@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, Protocol, cast
 
 from textual import events
 from textual.app import App, ComposeResult
@@ -38,6 +38,7 @@ from .collect import (
     SnapshotScheduler,
 )
 from .column_editor import IssueColumnEditor
+from .issue_cells import TableCell, cells_match, issue_state_colors
 from .issue_list import (
     IssueListQuery,
     IssueListResult,
@@ -53,47 +54,131 @@ from .issue_table import (
     ColumnKey,
     IssueTableViewState,
     SortTerm,
-    TableCell,
     build_rows,
-    cells_match,
     column_header,
     column_specs,
-    issue_state_colors,
     searchable_columns,
     shown_columns,
     sort_key_for_terms,
 )
 from .issue_view import IssueScreen
+from .keyed_table import capture_selection, restore_selection
 from .legend import LegendScreen
 from .list_pane import (
     BRANCHES_PANE_LABEL,
-    DEFAULT_ROW_CAP,
     ISSUE_PANE_LABEL,
     SESSIONS_PANE_LABEL,
     WORKTREES_PANE_LABEL,
+    ListColumn,
     ListPane,
     ListRow,
 )
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
+from .pane_layout import fit_panes, pane_wish
 from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
-# Focus cycles through the four lists in reading order; the Header and
-# the Issue controls are not part of the cycle.
-LIST_TABLE_IDS = ("queue", "sessions", "branches", "worktrees")
-# A list pane's blank line below it, its frame and its header, all of which
-# come out of the height that pane's records get. The last pane's margin is
-# the gap before the Issue table. An empty pane is its frame and one message
-# line.
-PANE_MARGIN = 1
-PANE_FRAME = 2
-PANE_HEADER = 1
-PANE_CHROME = PANE_MARGIN + PANE_FRAME + PANE_HEADER
-EMPTY_PANE_HEIGHT = PANE_MARGIN + PANE_FRAME + 1
 # The Header's sub-title until an observed Project supplies its anchor.
 DEFAULT_SUB_TITLE = "passive workspace view"
+
+
+@dataclass(frozen=True, slots=True)
+class PaneRows:
+    """What one refresh hands a list pane: records and the per-refresh extras.
+
+    ``columns`` re-declares the pane's columns when the read model varies
+    them; ``note`` is a pane-level fact for the frame's subtitle.
+    """
+
+    rows: tuple[ListRow, ...]
+    columns: tuple[ListColumn, ...] | None = None
+    note: str | None = None
+
+
+class PaneRowsSource(Protocol):
+    """Derive one pane's records from the store for the current theme and time."""
+
+    def __call__(
+        self, store: WorkspaceObservationStore, *, dark: bool, now: datetime
+    ) -> PaneRows: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PaneSpec:
+    """Everything one list pane varies by, declared once.
+
+    The one tuple of these drives composition, the accessors, the focus
+    cycle and the store reconcile, so adding a pane is adding a spec.
+    """
+
+    pane_id: str
+    table_id: str
+    label: str
+    columns: tuple[ListColumn, ...]
+    empty_message: str
+    rows: PaneRowsSource
+
+
+def session_pane_rows(
+    store: WorkspaceObservationStore, *, dark: bool, now: datetime
+) -> PaneRows:
+    """List every active Agent Session, with the columns its result shows."""
+    sessions = store.query_sessions()
+    return PaneRows(
+        build_session_rows(sessions, dark=dark), columns=session_columns(sessions)
+    )
+
+
+def branch_pane_rows(
+    store: WorkspaceObservationStore, *, dark: bool, now: datetime
+) -> PaneRows:
+    """List every observed Branch, noting when the remotes were last fetched."""
+    branches = store.query_branches()
+    return PaneRows(
+        build_branch_rows(branches, dark=dark, now=now),
+        note=branch_note(branches.integration_refs, branches.fetched_at, now),
+    )
+
+
+def worktree_pane_rows(
+    store: WorkspaceObservationStore, *, dark: bool, now: datetime
+) -> PaneRows:
+    """List every observed Worktree in the Repository's topology order."""
+    return PaneRows(build_worktree_rows(store.query_worktrees(), dark=dark))
+
+
+# The list panes in reading order, each declared once.
+LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
+    PaneSpec(
+        "sessions-pane",
+        "sessions",
+        SESSIONS_PANE_LABEL,
+        SESSION_COLUMNS,
+        "no active sessions",
+        session_pane_rows,
+    ),
+    PaneSpec(
+        "branches-pane",
+        "branches",
+        BRANCHES_PANE_LABEL,
+        BRANCH_COLUMNS,
+        "no branches observed yet",
+        branch_pane_rows,
+    ),
+    PaneSpec(
+        "worktrees-pane",
+        "worktrees",
+        WORKTREES_PANE_LABEL,
+        WORKTREE_COLUMNS,
+        "no worktrees observed yet",
+        worktree_pane_rows,
+    ),
+)
+# Focus cycles through the four lists in reading order; the Header and
+# the Issue controls are not part of the cycle.
+LIST_TABLE_IDS = ("queue", *(spec.table_id for spec in LIST_PANE_SPECS))
 
 
 class ObservationFinished(Message):
@@ -166,27 +251,14 @@ class DashboardScreen(Screen[None]):
         yield Header()
         with DashboardBody(id="body"):
             with Container(id="list-row"):
-                yield ListPane(
-                    SESSIONS_PANE_LABEL,
-                    columns=SESSION_COLUMNS,
-                    empty_message="no active sessions",
-                    id="sessions-pane",
-                    table_id="sessions",
-                )
-                yield ListPane(
-                    BRANCHES_PANE_LABEL,
-                    columns=BRANCH_COLUMNS,
-                    empty_message="no branches observed yet",
-                    id="branches-pane",
-                    table_id="branches",
-                )
-                yield ListPane(
-                    WORKTREES_PANE_LABEL,
-                    columns=WORKTREE_COLUMNS,
-                    empty_message="no worktrees observed yet",
-                    id="worktrees-pane",
-                    table_id="worktrees",
-                )
+                for spec in LIST_PANE_SPECS:
+                    yield ListPane(
+                        spec.label,
+                        columns=spec.columns,
+                        empty_message=spec.empty_message,
+                        id=spec.pane_id,
+                        table_id=spec.table_id,
+                    )
             with Vertical(id="queue-pane"):
                 with Horizontal(id="queue-controls"):
                     yield Select(
@@ -212,18 +284,22 @@ class DashboardScreen(Screen[None]):
         """The Issue table; `query_one` cannot name the cell type itself."""
         return cast("SpreadTable[TableCell]", self.query_one("#queue", SpreadTable))
 
+    def list_pane(self, pane_id: str) -> ListPane:
+        """One list pane by its spec's id."""
+        return self.query_one(f"#{pane_id}", ListPane)
+
     def sessions_pane(self) -> ListPane:
-        return self.query_one("#sessions-pane", ListPane)
+        return self.list_pane("sessions-pane")
 
     def branches_pane(self) -> ListPane:
-        return self.query_one("#branches-pane", ListPane)
+        return self.list_pane("branches-pane")
 
     def worktrees_pane(self) -> ListPane:
-        return self.query_one("#worktrees-pane", ListPane)
+        return self.list_pane("worktrees-pane")
 
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
-        return (self.sessions_pane(), self.branches_pane(), self.worktrees_pane())
+        return tuple(self.list_pane(spec.pane_id) for spec in LIST_PANE_SPECS)
 
     def list_tables(self) -> tuple[DataTable[Any], ...]:
         """The lists in focus-cycle order: Issues, Sessions, Branches, Worktrees."""
@@ -327,17 +403,11 @@ class DashboardScreen(Screen[None]):
         self.issue_view = issue_view
         self.update_sort_headers(table)
         self.sort_rows(table)
-        if not table.row_count:
-            return
-        if prior_key is not None and prior_key in self.rows_by_key:
-            selected_index = table.get_row_index(prior_key)
-        else:
-            selected_index = min(prior_index, table.row_count - 1)
-        table.move_cursor(row=selected_index, column=0, animate=False)
-        selected_key = str(
-            table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        selected_key = restore_selection(
+            table, prior_key, prior_index, self.rows_by_key
         )
-        self.show_row(selected_key)
+        if selected_key is not None:
+            self.show_row(selected_key)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "issue-search":
@@ -443,43 +513,31 @@ class DashboardScreen(Screen[None]):
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
 
-        The Issue table keeps its stylesheet minimum; whatever remains is
-        shared between the stacked panes, and a pane that wants less than
-        its share (an empty one, or one with few records) leaves the rest
-        to the panes that want more. Textual cannot resolve an
-        over-constrained column (every `fr` row at its minimum), so the cap
-        shrinks first, to a frame with a count when nothing else fits.
+        The Issue table keeps its stylesheet minimum; Textual cannot resolve
+        an over-constrained column (every `fr` row at its minimum), so the
+        cap shrinks first, to a frame with a count when nothing else fits.
+        The arithmetic itself is `pane_layout.fit_panes`; this method only
+        gathers the widget facts and applies the caps.
         """
         minimum = self.query_one("#queue-pane").styles.min_height
-        remaining = body.height - (int(minimum.value) if minimum is not None else 0)
-        # Hand out height smallest wish first, so a pane that wants less than
-        # an even share never holds back one that wants more.
-        wishes = sorted(self.list_panes(), key=pane_wish)
-        for index, pane in enumerate(wishes):
-            granted = min(pane_wish(pane), remaining // (len(wishes) - index))
-            remaining -= granted
-            row_cap = granted - PANE_CHROME
-            pane.fit_rows(row_cap if row_cap >= 1 else 0)
+        panes = self.list_panes()
+        caps = fit_panes(
+            body.height,
+            int(minimum.value) if minimum is not None else 0,
+            tuple(pane_wish(pane.count) for pane in panes),
+        )
+        for pane, row_cap in zip(panes, caps, strict=True):
+            pane.fit_rows(row_cap)
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed session, worktree and branch from the store."""
-        sessions = self.dashpot.store.query_sessions()
-        self.sessions_pane().show_rows(
-            build_session_rows(sessions, dark=self.app.current_theme.dark),
-            columns=session_columns(sessions),
-        )
-        branches = self.dashpot.store.query_branches()
+        dark = self.app.current_theme.dark
         now = datetime.now(UTC)
-        self.branches_pane().show_rows(
-            build_branch_rows(branches, dark=self.app.current_theme.dark, now=now),
-            note=branch_note(branches.integration_refs, branches.fetched_at, now),
-        )
-        self.worktrees_pane().show_rows(self.worktree_rows())
-
-    def worktree_rows(self) -> tuple[ListRow, ...]:
-        return build_worktree_rows(
-            self.dashpot.store.query_worktrees(), dark=self.app.current_theme.dark
-        )
+        for spec in LIST_PANE_SPECS:
+            view = spec.rows(self.dashpot.store, dark=dark, now=now)
+            self.list_pane(spec.pane_id).show_rows(
+                view.rows, columns=view.columns, note=view.note
+            )
 
     def reconcile_rows(self) -> IssueListResult:
         """Rebuild the table from the store and return the query result."""
@@ -536,26 +594,19 @@ class DashboardScreen(Screen[None]):
 
         self.rows_by_key = desired_contexts
         self.rendered_cells = desired_cells
-        if not table.row_count:
+        selected_key = restore_selection(
+            table, prior_key, prior_index, desired_contexts
+        )
+        if selected_key is None:
             self.selected_row_key = None
             self.update_header()
             return result
-        if prior_key is not None and prior_key in desired_contexts:
-            selected_index = table.get_row_index(prior_key)
-        else:
-            selected_index = min(prior_index, table.row_count - 1)
-        table.move_cursor(row=selected_index, column=0, animate=False)
-        selected_key = str(
-            table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
-        )
         self.show_row(selected_key)
         return result
 
     def current_selection(self, table: DataTable[TableCell]) -> tuple[str | None, int]:
-        if not table.row_count:
-            return self.selected_row_key, 0
-        key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
-        return key, table.cursor_row
+        """The cursor's identity, falling back to the last selected key."""
+        return capture_selection(table, self.selected_row_key)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if event.data_table.id == "queue":
@@ -921,18 +972,6 @@ class DashpotApp(App[None]):
         follow_ups = self.scheduler.follow_ups(changes)
         if follow_ups:
             self.schedule_observations(follow_ups, message.trigger)
-
-
-def pane_wish(pane: ListPane) -> int:
-    """The height a pane would take unconstrained: frame, header and records.
-
-    A pane with records is granted one spare row for a horizontal scrollbar:
-    its table is content-sized under the cap, so the row is only ever taken
-    when wide records need it.
-    """
-    if not pane.count:
-        return EMPTY_PANE_HEIGHT
-    return PANE_CHROME + min(pane.count, DEFAULT_ROW_CAP) + 1
 
 
 def issue_search_sort_terms(

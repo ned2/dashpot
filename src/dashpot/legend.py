@@ -20,7 +20,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 from typing_extensions import override
 
-from . import alerts, branch_list, issue_table, session_list
+from . import alerts, branch_list, issue_cells, session_list
 from .glyphs import Glyph, LegendSection
 from .list_pane import (
     BRANCHES_PANE_LABEL,
@@ -50,16 +50,16 @@ LEGEND: tuple[LegendSection, ...] = (
     ),
     LegendSection(
         ISSUE_PANE_LABEL,
-        issue_table.ISSUE_STATE_COLUMN_GLYPH.symbol,
-        issue_table.LEGEND_ISSUE_STATE,
+        issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol,
+        issue_cells.LEGEND_ISSUE_STATE,
     ),
     LegendSection(
         ISSUE_PANE_LABEL,
-        issue_table.AGENT_STATE_COLUMN_GLYPH.symbol,
-        issue_table.LEGEND_AGENT_STATE,
+        issue_cells.AGENT_STATE_COLUMN_GLYPH.symbol,
+        issue_cells.LEGEND_AGENT_STATE,
         AGENT_STATE_NOTE,
     ),
-    LegendSection(ISSUE_PANE_LABEL, "column headers", issue_table.LEGEND_SORT),
+    LegendSection(ISSUE_PANE_LABEL, "column headers", issue_cells.LEGEND_SORT),
     LegendSection(DIAGNOSTICS_LABEL, "severity", alerts.LEGEND),
 )
 

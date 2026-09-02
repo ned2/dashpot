@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import get_args
 
 import dashpot
-from dashpot import alerts, branch_list, issue_table, legend, session_list
+from dashpot import alerts, branch_list, issue_cells, legend, session_list
 from dashpot.alerts import AlertSeverity
 from dashpot.glyphs import Glyph, LegendSection
-from dashpot.issue_table import IssueStateKind
+from dashpot.issue_cells import IssueStateKind
 from dashpot.model import RunState
 
 SOURCE_DIR = Path(dashpot.__file__).parent
@@ -38,20 +38,20 @@ def test_every_rendered_glyph_map_is_in_the_legend() -> None:
     symbols = legend_symbols()
 
     assert set(session_list.STATE_GLYPHS) == set(get_args(RunState))
-    assert set(issue_table.AGENT_STATE_GLYPHS) == set(get_args(RunState))
-    assert set(issue_table.ISSUE_STATE_GLYPHS) == set(get_args(IssueStateKind))
+    assert set(issue_cells.AGENT_STATE_GLYPHS) == set(get_args(RunState))
+    assert set(issue_cells.ISSUE_STATE_GLYPHS) == set(get_args(IssueStateKind))
     assert set(alerts.SEVERITY_GLYPH) == set(get_args(AlertSeverity))
     for mapping in (
         session_list.STATE_GLYPHS,
-        issue_table.AGENT_STATE_GLYPHS,
-        issue_table.ISSUE_STATE_GLYPHS,
-        issue_table.SORT_GLYPHS,
+        issue_cells.AGENT_STATE_GLYPHS,
+        issue_cells.ISSUE_STATE_GLYPHS,
+        issue_cells.SORT_GLYPHS,
         alerts.SEVERITY_GLYPH,
     ):
         assert {glyph.symbol for glyph in mapping.values()} <= symbols
     assert {glyph.symbol for glyph in branch_list.LEGEND} <= symbols
-    assert issue_table.ISSUE_STATE_COLUMN_GLYPH.symbol in symbols
-    assert issue_table.AGENT_STATE_COLUMN_GLYPH.symbol in symbols
+    assert issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol in symbols
+    assert issue_cells.AGENT_STATE_COLUMN_GLYPH.symbol in symbols
 
 
 def test_a_symbol_carries_one_meaning() -> None:
@@ -64,7 +64,7 @@ def test_a_symbol_carries_one_meaning() -> None:
     collisions = {
         symbol: found
         for symbol, found in meanings.items()
-        if len(found) > 1 and symbol != issue_table.ISSUE_STATE_GLYPHS["open"].symbol
+        if len(found) > 1 and symbol != issue_cells.ISSUE_STATE_GLYPHS["open"].symbol
     }
     assert collisions == {}
     assert session_list.STATE_GLYPHS["unknown"].symbol != (

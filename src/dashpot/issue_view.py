@@ -22,9 +22,7 @@ from textual.widgets import Footer, Markdown, Static
 from typing_extensions import override
 
 from .detail_fields import DetailFields, DetailItem
-from .issue_list import IssueListRow
-from .issue_profile import IssueProfile, issue_location
-from .issue_table import (
+from .issue_cells import (
     is_priority_label,
     issue_activity,
     issue_priority,
@@ -34,6 +32,8 @@ from .issue_table import (
     label_colors,
     relative_age,
 )
+from .issue_list import IssueListRow
+from .issue_profile import IssueProfile, issue_location
 from .model import ProjectObservation
 
 EMPTY_BODY_MESSAGE = "This Issue has no description."

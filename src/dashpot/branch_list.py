@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 from rich.text import Text
 
 from .glyphs import Glyph
+from .issue_cells import relative_age
 from .issue_list import row_key
-from .issue_table import relative_age
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end
 from .model import (
     AgentRun,

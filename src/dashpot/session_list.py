@@ -17,9 +17,9 @@ from pathlib import Path
 from rich.text import Text
 
 from .glyphs import Glyph
+from .issue_cells import relative_age
 from .issue_list import row_key
 from .issue_profile import IssueProfile
-from .issue_table import relative_age
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end, truncate_start
 from .model import AgentRun, ProjectObservation, RunState, WorkspaceSnapshot
 

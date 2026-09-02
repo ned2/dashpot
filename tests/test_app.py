@@ -38,26 +38,28 @@ from textual.widgets import (
 )
 
 from dashpot import session_list
-from dashpot.app import DEFAULT_SUB_TITLE, PANE_MARGIN, DashpotApp, project_label
+from dashpot.app import DEFAULT_SUB_TITLE, DashpotApp, project_label
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
+from dashpot.issue_cells import (
+    AGENT_STATE_COLUMN_GLYPH,
+    ISSUE_STATE_COLUMN_GLYPH,
+    IssueNumberCell,
+    IssueStateCell,
+    LabelsCell,
+    PriorityCell,
+    agent_state_cell,
+    date_cell,
+)
 from dashpot.issue_list import IssueListQuery, IssueListRow, query_issue_list, row_key
 from dashpot.issue_table import (
-    AGENT_STATE_COLUMN_GLYPH,
     COLUMN_KEYS,
     COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
     DEFAULT_SORT,
-    ISSUE_STATE_COLUMN_GLYPH,
-    IssueNumberCell,
-    IssueStateCell,
     IssueTableViewState,
-    LabelsCell,
-    PriorityCell,
     SortTerm,
-    agent_state_cell,
     build_rows,
-    date_cell,
     searchable_columns,
     shown_columns,
     sort_key_for_terms,
@@ -84,6 +86,7 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from dashpot.observation_store import WorkspaceObservationStore
+from dashpot.pane_layout import PANE_MARGIN
 
 NOW = "2026-08-25T01:00:00Z"
 ROOT = Path(__file__).resolve().parents[1]

@@ -14,7 +14,7 @@ from typing import Literal
 
 from .collect import ObservationKey
 from .glyphs import Glyph
-from .issue_table import relative_age
+from .issue_cells import relative_age
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 

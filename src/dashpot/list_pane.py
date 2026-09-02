@@ -22,6 +22,8 @@ from textual.widgets import DataTable, Static
 from typing_extensions import override
 
 from .focus_table import FocusCursorTable
+from .keyed_table import capture_selection, restore_selection
+from .pane_layout import DEFAULT_ROW_CAP
 
 ListCell = str | Text
 
@@ -29,8 +31,6 @@ ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
 BRANCHES_PANE_LABEL = "BRANCHES"
 WORKTREES_PANE_LABEL = "WORKTREES"
-# Header plus eight records; a longer list scrolls inside the pane.
-DEFAULT_ROW_CAP = 8
 ELLIPSIS = "…"
 
 
@@ -170,13 +170,7 @@ class ListPane(Vertical):
         self.query_one(".list-pane-empty", Static).display = not rows
         self.apply_row_cap()
         self.post_message(self.RowsChanged(self))
-        if not rows:
-            return
-        if prior_key is not None and prior_key in desired:
-            selected_index = table.get_row_index(prior_key)
-        else:
-            selected_index = min(prior_index, table.row_count - 1)
-        table.move_cursor(row=selected_index, column=0, animate=False)
+        restore_selection(table, prior_key, prior_index, desired)
 
     @staticmethod
     def _justify_cell(
@@ -210,11 +204,7 @@ class ListPane(Vertical):
 
     def highlighted(self) -> tuple[str | None, int]:
         """The highlighted row's key and index, or nothing when the pane is empty."""
-        table = self.table
-        if not table.row_count:
-            return None, 0
-        key = str(table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value)
-        return key, table.cursor_row
+        return capture_selection(self.table)
 
     def highlighted_row(self) -> ListRow | None:
         key, _index = self.highlighted()

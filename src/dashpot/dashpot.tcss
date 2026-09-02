@@ -19,9 +19,7 @@ Screen {
     layout: vertical;
 }
 
-#sessions-pane,
-#worktrees-pane,
-#branches-pane {
+ListPane {
     width: 1fr;
     height: auto;
     margin-bottom: 1;
@@ -40,11 +38,9 @@ Screen {
 }
 
 /* Each table's cap is set by the dashboard from the height left over after
-   the detail row and the Issue table keep their minimums (see
-   `DashboardScreen.fit_list_panes`); the stylesheet only supplies the canvas. */
-#sessions,
-#worktrees,
-#branches {
+   the detail row and the Issue table keep their minimums (the arithmetic is
+   `pane_layout.fit_panes`); the stylesheet only supplies the canvas. */
+ListPane > FocusCursorTable {
     height: auto;
     background: $background;
 }
@@ -68,9 +64,7 @@ Screen {
 
 /* The focused list is cued by its border colour, like the Issue view panes. */
 #queue-pane:focus-within,
-#sessions-pane:focus-within,
-#worktrees-pane:focus-within,
-#branches-pane:focus-within {
+ListPane:focus-within {
     border: round $primary;
 }
 
