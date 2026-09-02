@@ -50,12 +50,47 @@ NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
 def describe_validation_error(error: ValidationError) -> str:
     """Summarize every failure by its wire path, for a Diagnostic or domain error."""
 
-    parts: list[str] = []
-    for detail in error.errors():
-        path = ".".join(str(segment) for segment in detail["loc"])
-        message = detail["msg"].removeprefix("Value error, ")
-        parts.append(f"{path} {message}" if path else message)
-    return "; ".join(parts)
+    return "; ".join(_describe_detail(detail) for detail in error.errors())
+
+
+def _describe_detail(detail: Mapping[str, object]) -> str:
+    loc = detail["loc"]
+    assert isinstance(loc, tuple)
+    path = ".".join(str(segment) for segment in loc)
+    message = str(detail["msg"]).removeprefix("Value error, ")
+    return f"{path} {message}" if path else message
+
+
+_M = TypeVar("_M", bound=BaseModel)
+
+
+def validate_degrading(
+    model: type[_M], raw: Mapping[str, object], *, fatal: frozenset[str]
+) -> tuple[_M, tuple[str, ...]]:
+    """Validate a record, dropping malformed non-fatal fields to their defaults.
+
+    A record that keeps observing something is worth more than one that is
+    lost: only a failure in a ``fatal`` wire field (or one with no default to
+    fall back to) raises. Every other failing field is removed from the input
+    so its default applies, and is described in the returned messages.
+    """
+
+    data = dict(raw)
+    degraded: list[str] = []
+    while True:
+        try:
+            return model.model_validate(data), tuple(degraded)
+        except ValidationError as exc:
+            details = exc.errors()
+            fields = [
+                str(detail["loc"][0]) if detail["loc"] else "" for detail in details
+            ]
+            if any(field in fatal or field not in data for field in fields):
+                raise
+            for field, detail in zip(fields, details, strict=True):
+                if field in data:
+                    degraded.append(_describe_detail(detail))
+                    del data[field]
 
 
 def _tuple_from_list(value: object) -> object:

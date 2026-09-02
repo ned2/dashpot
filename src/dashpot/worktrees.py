@@ -741,7 +741,7 @@ def check_worktree(
     )
     for work in active:
         liveness = (
-            session_liveness(work.session_process.as_record(), lookup).liveness
+            session_liveness(work.session_process.key, lookup).liveness
             if work.session_process is not None
             else "unknown"
         )

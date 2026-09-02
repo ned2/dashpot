@@ -6,7 +6,7 @@ import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 from .hook_records import (
     HookRecordClassification,
@@ -165,7 +165,7 @@ def observe_work_runs(
         for work in active:
             process_key = work_process_key(work)
             if work.session_process is not None:
-                liveness = probe.observe(work.session_process.as_record())
+                liveness = probe.observe(work.session_process.key)
                 if liveness.liveness == "gone":
                     diagnostics.append(orphaned_run_diagnostic(work, target))
                     continue
@@ -324,9 +324,17 @@ def observe_hook_sessions(
                 with contextlib.suppress(OSError):
                     store.prune(record.session_id, scanned.raw)
                 continue
-            session, record_diagnostics = record_to_session(
-                record, scanned.raw, targets_by_project
+            diagnostics.extend(
+                Diagnostic(
+                    source=SESSION_DIAGNOSTIC_SOURCE,
+                    severity="warning",
+                    message=f"Reading the hook record for {record.display} session "
+                    f"{record.session_id} without its malformed field: {detail}",
+                    code="agent-session-record-degraded",
+                )
+                for detail in record.degraded
             )
+            session, record_diagnostics = record_to_session(record, targets_by_project)
             diagnostics.extend(record_diagnostics)
             if session is None:
                 continue
@@ -362,14 +370,13 @@ def observe_hook_sessions(
 
 def record_to_session(
     record: HookRecordClassification,
-    raw: Mapping[str, Any],
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
 ) -> tuple[HookSessionObservation | None, list[Diagnostic]]:
     """Place a live or unknown Agent Session at its Observation Target."""
     diagnostics: list[Diagnostic] = []
     # The Work Store is the sole Issue-association authority; a global hook
     # record carrying a binding is rejected rather than silently combined.
-    if raw.get("issueId") is not None or raw.get("issueReferenceHint") is not None:
+    if record.has_global_binding:
         diagnostics.append(
             Diagnostic(
                 source=record.run_id,

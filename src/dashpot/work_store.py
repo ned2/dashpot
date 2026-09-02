@@ -18,6 +18,7 @@ from .models import (
     PublishedModel,
     describe_validation_error,
 )
+from .processes import ProcessKey
 from .record_store import LockedRecordStore
 
 WORK_STORE_VERSION = 1
@@ -41,8 +42,9 @@ class SessionProcess(PublishedModel):
     pid: int
     started_at: str
 
-    def as_record(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True)
+    @property
+    def key(self) -> ProcessKey:
+        return self.pid, self.started_at
 
 
 class WorkStoreRecord(PersistedRecord):

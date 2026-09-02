@@ -11,7 +11,6 @@ from .processes import (
     ProcessLookup,
     ProcessUnobservable,
     host_process_lookup,
-    process_key_of,
 )
 
 SessionLiveness = Literal["live", "gone", "unknown"]
@@ -30,14 +29,13 @@ class LivenessObservation:
 
 
 def session_liveness(
-    expected: object, lookup: ProcessLookup = host_process_lookup
+    key: ProcessKey | None, lookup: ProcessLookup = host_process_lookup
 ) -> LivenessObservation:
-    """Derive Session Liveness from a recorded process identity.
+    """Derive Session Liveness from a recorded process key (PID and start time).
 
     A PID that is absent or reused by a process with a different start time is
     gone; an unobservable process is unknown, with the adapter's reason.
     """
-    key = process_key_of(expected)
     if key is None:
         return LivenessObservation("unknown", "no recorded process identity")
     pid, started_at = key
@@ -62,12 +60,11 @@ class LivenessProbe:
         self._lookup = lookup
         self._observed: dict[ProcessKey, LivenessObservation] = {}
 
-    def observe(self, expected: object) -> LivenessObservation:
-        key = process_key_of(expected)
+    def observe(self, key: ProcessKey | None) -> LivenessObservation:
         if key is None:
-            return session_liveness(expected, self._lookup)
+            return session_liveness(key, self._lookup)
         observation = self._observed.get(key)
         if observation is None:
-            observation = session_liveness(expected, self._lookup)
+            observation = session_liveness(key, self._lookup)
             self._observed[key] = observation
         return observation

@@ -188,9 +188,14 @@ listed in the migrating PR and covered by tests.
    record.
 5. The hook record, retiring the ad-hoc raw-dict field reads beside
    `HookRecordClassification` (the `SessionLocation.raw` pattern), with
-   `ProcessIdentity` as the nested `sessionProcess` model, per-field
-   degradation as the convention states, and `prune` kept on the on-disk
-   dict.
+   the nested `sessionProcess` model, per-field degradation as the
+   convention states, and `prune` kept on the on-disk dict. As landed,
+   the nested model is `SessionProcessRecord`, the wire form beside
+   `ProcessIdentity` rather than `ProcessIdentity` itself: the identity
+   is a value the `ps` probe constructs (a retained category), and one
+   record model converting to and from it mirrors the Work Store's
+   record-versus-`ActiveWork` split. Liveness is probed by process key,
+   not by raw dict, so `process_key_of` / `process_identity_of` are gone.
 6. Configuration, settings, and the Workspace inventory, after their error
    and forward-compatibility behavior is characterized; delivers #77.
 7. The observation values, frozen, in coordination with

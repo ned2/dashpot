@@ -19,9 +19,109 @@ from dashpot.hook_records import (
     write_hook_record,
 )
 from dashpot.model import ObservationTarget
-from dashpot.processes import AgentAncestry, ProcessIdentity
+from dashpot.processes import AgentAncestry, ProcessIdentity, SessionProcessRecord
 from factories import hook_record_document, observation_target, write_config_marker
 from helpers import present
+
+
+class HookRecordDegradationTests(unittest.TestCase):
+    """Only fatal fields lose a record; the rest degrade with a diagnostic."""
+
+    @override
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temporary.name)
+        self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+
+    @override
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def observe(self, **changes: object) -> tuple[list[Any], list[Any]]:
+        record = hook_record_document(
+            "/repo", "degraded", "codex", self.process, at="2026-08-24T15:00:00Z"
+        )
+        record.update(changes)
+        (self.state_dir / "degraded.json").write_text(json.dumps(record))
+        return observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+    def test_a_wrong_typed_optional_field_degrades_to_absent(self) -> None:
+        runs, diagnostics = self.observe(branch=3, lastActivityAt=["not", "text"])
+
+        self.assertEqual(1, len(runs))
+        # The Observation Target's branch stands in for the unreadable one.
+        self.assertEqual("main", runs[0].branch)
+        self.assertIsNone(runs[0].last_activity_at)
+        codes = [diagnostic.code for diagnostic in diagnostics]
+        self.assertEqual(["agent-session-record-degraded"] * 2, codes)
+        self.assertIn("branch", diagnostics[0].message)
+        self.assertIn("lastActivityAt", diagnostics[1].message)
+
+    def test_a_malformed_process_degrades_to_unknown_liveness(self) -> None:
+        runs, diagnostics = self.observe(sessionProcess={"pid": "42"})
+
+        self.assertEqual(1, len(runs))
+        self.assertEqual("unknown", runs[0].state)
+        self.assertIn(
+            "agent-session-record-degraded",
+            [diagnostic.code for diagnostic in diagnostics],
+        )
+        self.assertIn(
+            "no recorded process identity",
+            " ".join(diagnostic.message for diagnostic in diagnostics),
+        )
+
+    def test_a_fatal_field_loses_the_record(self) -> None:
+        for changes, expected in (
+            ({"cwd": ""}, "cwd"),
+            ({"state": "sleeping"}, "unsupported active state"),
+            ({"sessionId": "bad/id"}, "unsupported characters"),
+            ({"harness": 3}, "harness"),
+        ):
+            with self.subTest(changes=changes):
+                runs, diagnostics = self.observe(**changes)
+
+                self.assertEqual([], runs)
+                self.assertEqual(1, len(diagnostics))
+                self.assertIn(expected, diagnostics[0].message)
+
+    def test_a_missing_harness_is_read_as_codex(self) -> None:
+        record = hook_record_document("/repo", "legacy", "codex", self.process)
+        del record["harness"]
+        (self.state_dir / "legacy.json").write_text(json.dumps(record))
+
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual("codex", runs[0].harness)
+
+    def test_a_retired_global_binding_is_detected_among_the_extras(self) -> None:
+        runs, diagnostics = self.observe(issueId="I_legacy")
+
+        self.assertEqual(1, len(runs))
+        self.assertIsNone(runs[0].issue_id)
+        self.assertEqual(
+            ["agent-global-binding-rejected"],
+            [diagnostic.code for diagnostic in diagnostics],
+        )
+
+    def test_the_process_record_omits_absent_arguments(self) -> None:
+        bare = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+        full = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026", "codex -q")
+
+        self.assertNotIn("arguments", bare.as_record())
+        self.assertEqual("codex -q", full.as_record()["arguments"])
+        self.assertEqual(
+            full, SessionProcessRecord.model_validate(full.as_record()).identity
+        )
 
 
 class HookRecordStoreTests(unittest.TestCase):

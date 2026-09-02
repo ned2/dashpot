@@ -9,20 +9,27 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+
+from pydantic import AfterValidator, ValidationError
 
 from .git import Git, GitError
 from .harnesses import HARNESS_DISPLAY, SESSION_ID, SessionIdentityClaim
 from .json_records import optional_string, require_string
 from .liveness import LivenessObservation, LivenessProbe, SessionLiveness
+from .models import (
+    NonEmptyString,
+    PersistedRecord,
+    describe_validation_error,
+    validate_degrading,
+)
 from .processes import (
     ProcessIdentity,
     ProcessKey,
     ProcessLookup,
+    SessionProcessRecord,
     host_process_lookup,
     observe_agent_ancestry,
-    process_identity_of,
-    process_key_of,
 )
 from .record_store import LockedRecordStore
 from .repository import repository_worktrees
@@ -70,6 +77,82 @@ def state_directory() -> Path:
     return Path.home() / ".local" / "state" / "dashpot" / "runs"
 
 
+HOOK_RECORD_VERSION = 2
+
+
+def _session_identity(value: str) -> str:
+    if not SESSION_ID.fullmatch(value):
+        raise ValueError("contains unsupported characters")
+    return value
+
+
+def _supported_harness(value: str) -> str:
+    if value not in HARNESS_DISPLAY:
+        raise ValueError(f"unsupported harness: {value!r}")
+    return value
+
+
+def _active_state(value: str) -> str:
+    if value not in {"running", "waiting", "ended"}:
+        raise ValueError(f"unsupported active state: {value!r}")
+    return value
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    # The hand reader these fields replace read "" as absent; keep that.
+    return value or None
+
+
+HookSessionIdentity = Annotated[str, AfterValidator(_session_identity)]
+Harness = Annotated[str, AfterValidator(_supported_harness)]
+ActiveState = Annotated[str, AfterValidator(_active_state)]
+OptionalText = Annotated[str | None, AfterValidator(_blank_to_none)]
+
+
+class HookRecord(PersistedRecord):
+    """One version-2 hook Agent Session record, as its harness's hook published it.
+
+    Only the fields in ``HOOK_RECORD_FATAL`` fail the record; every other
+    field degrades to its default with a message, so a session whose record
+    is partly malformed stays visible-but-degraded rather than lost.
+    ``source``, ``turnId``, and ``model`` are harness payload copied through
+    unvalidated: a surprising payload must never make the hook itself fail.
+    """
+
+    version: Literal[2]
+    session_id: HookSessionIdentity
+    harness: Harness = "codex"
+    state: ActiveState
+    cwd: NonEmptyString
+    repository_root: OptionalText = None
+    branch: OptionalText = None
+    event: OptionalText = None
+    source: Any = None
+    turn_id: Any = None
+    model: Any = None
+    last_activity_at: OptionalText = None
+    session_process: SessionProcessRecord | None = None
+    # Why the host process is unknown, when it is: distinguishes a hook that
+    # ran where the harness is unobservable from one with no harness.
+    session_process_unobservable: OptionalText = None
+    turn_started_at: OptionalText = None
+
+    @property
+    def has_global_binding(self) -> bool:
+        # Retired records bound an Issue in the hook record itself; the Work
+        # Store is the sole authority now, so the fields are only detected.
+        extra = self.model_extra or {}
+        return (
+            extra.get("issueId") is not None
+            or extra.get("issueReferenceHint") is not None
+        )
+
+
+# A harness that is present but unsupported is fatal too: defaulting it to
+# codex would report another harness's session as a Codex one.
+HOOK_RECORD_FATAL = frozenset({"version", "sessionId", "harness", "state", "cwd"})
+
+
 def build_hook_record(
     event: dict[str, Any],
     environ: Mapping[str, str] | None = None,
@@ -102,24 +185,24 @@ def build_hook_record(
         branch = git.maybe("symbolic-ref", "--quiet", "--short", "HEAD")
     except GitError:
         branch = None
-    return {
-        "version": 2,
-        "sessionId": session_id,
-        "harness": harness,
-        "state": state,
-        "cwd": str(cwd),
-        "repositoryRoot": observed_target,
-        "branch": branch,
-        "event": event_name,
-        "source": event.get("source"),
-        "turnId": event.get("turn_id"),
-        "model": event.get("model"),
-        "lastActivityAt": now_iso(),
-        "sessionProcess": process.as_record() if process else None,
-        # Why the host process is unknown, when it is: distinguishes a hook
-        # that ran where the harness is unobservable from one with no harness.
-        "sessionProcessUnobservable": None if process else process_unobservable,
-    }
+    record = HookRecord(
+        version=HOOK_RECORD_VERSION,
+        session_id=session_id,
+        harness=harness,
+        state=state,
+        cwd=str(cwd),
+        repository_root=observed_target,
+        branch=branch,
+        event=event_name,
+        source=event.get("source"),
+        turn_id=event.get("turn_id"),
+        model=event.get("model"),
+        last_activity_at=now_iso(),
+        session_process=SessionProcessRecord.of(process) if process else None,
+        session_process_unobservable=None if process else process_unobservable,
+    )
+    # ``turnStartedAt`` is the store's to derive against the previous record.
+    return record.model_dump(by_alias=True, exclude={"turn_started_at"})
 
 
 def turn_started_at(
@@ -268,9 +351,16 @@ class HookRecordClassification:
     event: str | None
     last_activity_at: str | None
     turn_started_at: str | None
-    process_key: ProcessKey | None
+    process: ProcessIdentity | None
     outcome: HookRecordOutcome
     reason: str | None = None
+    # Malformed non-fatal fields the record was read without, by wire path.
+    degraded: tuple[str, ...] = ()
+    has_global_binding: bool = False
+
+    @property
+    def process_key(self) -> ProcessKey | None:
+        return self.process.key if self.process else None
 
     @property
     def display(self) -> str:
@@ -319,7 +409,6 @@ class SessionLocation:
     """
 
     record: HookRecordClassification
-    raw: dict[str, Any]
     store: Path
 
     @property
@@ -328,7 +417,7 @@ class SessionLocation:
 
     @property
     def process(self) -> ProcessIdentity | None:
-        return process_identity_of(self.raw.get("sessionProcess"))
+        return self.record.process
 
 
 def reachable_hook_stores(
@@ -355,7 +444,7 @@ def reachable_hook_stores(
 def read_hook_record(path: Path) -> dict[str, Any]:
     """Load one version-2 hook record, raising ``ValueError`` otherwise."""
     raw: Any = json.loads(path.read_text())
-    if not isinstance(raw, dict) or raw.get("version") != 2:
+    if not isinstance(raw, dict) or raw.get("version") != HOOK_RECORD_VERSION:
         raise ValueError("unsupported record shape or version")
     return raw
 
@@ -369,41 +458,37 @@ def classify_hook_record(
 
     Independent of Observation Targets, so integration status can classify a
     store's records without an observation scope. Raises ``ValueError`` for
-    records Dashpot cannot interpret.
+    records Dashpot cannot interpret: a fatal field is malformed, or the
+    record is not the session its filename names.
     """
-    session_id = optional_string(raw.get("sessionId"))
-    event_state = optional_string(raw.get("state"))
-    cwd = optional_string(raw.get("cwd"))
-    if not session_id or not cwd:
-        raise ValueError("record needs sessionId and cwd")
-    if not SESSION_ID.fullmatch(session_id):
-        raise ValueError("record sessionId contains unsupported characters")
-    if expected_session_id is not None and session_id != expected_session_id:
+    try:
+        record, degraded = validate_degrading(HookRecord, raw, fatal=HOOK_RECORD_FATAL)
+    except ValidationError as exc:
+        raise ValueError(describe_validation_error(exc)) from exc
+    if expected_session_id is not None and record.session_id != expected_session_id:
         raise ValueError("record sessionId does not match its filename")
-    harness = optional_string(raw.get("harness")) or "codex"
-    if harness not in HARNESS_DISPLAY:
-        raise ValueError(f"unsupported harness: {harness!r}")
-    if event_state == "ended":
+    process = record.session_process.identity if record.session_process else None
+    if record.state == "ended":
         liveness = LivenessObservation("unknown")
         outcome: HookRecordOutcome = "ended"
-    elif event_state in {"running", "waiting"}:
-        liveness = probe.observe(raw.get("sessionProcess"))
-        outcome = liveness.liveness
     else:
-        raise ValueError(f"unsupported active state: {event_state!r}")
+        liveness = probe.observe(process.key if process else None)
+        outcome = liveness.liveness
     return HookRecordClassification(
-        session_id=session_id,
-        harness=harness,
-        state=event_state,
-        cwd=cwd,
-        repository_root=optional_string(raw.get("repositoryRoot")),
-        branch=optional_string(raw.get("branch")),
-        event=optional_string(raw.get("event")),
-        last_activity_at=optional_string(raw.get("lastActivityAt")),
-        turn_started_at=optional_string(raw.get("turnStartedAt")),
-        process_key=process_key_of(raw.get("sessionProcess")),
+        session_id=record.session_id,
+        harness=record.harness,
+        state=record.state,
+        cwd=record.cwd,
+        repository_root=record.repository_root,
+        branch=record.branch,
+        event=record.event,
+        last_activity_at=record.last_activity_at,
+        turn_started_at=record.turn_started_at,
+        process=process,
         outcome=outcome,
         reason=liveness.reason,
+        degraded=degraded,
+        has_global_binding=record.has_global_binding,
     )
 
 
@@ -486,7 +571,7 @@ def locate_agent_session(
         if freshest is None or observed_instant(
             scanned.record.last_activity_at
         ) > observed_instant(freshest.record.last_activity_at):
-            freshest = SessionLocation(scanned.record, scanned.raw, scanned.store)
+            freshest = SessionLocation(scanned.record, scanned.store)
     return freshest
 
 
@@ -509,7 +594,7 @@ def sessions_at_worktree(
             scanned.record.last_activity_at
         ) > observed_instant(previous.record.last_activity_at):
             freshest[scanned.record.session_id] = SessionLocation(
-                scanned.record, scanned.raw, scanned.store
+                scanned.record, scanned.store
             )
     return [
         location

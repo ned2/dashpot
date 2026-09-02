@@ -10,28 +10,67 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from pydantic import SerializerFunctionWrapHandler, model_serializer
+
 from .harnesses import ADAPTERS
+from .models import PublishedModel
 from .repository import LockHolder
+
+ProcessKey = tuple[int, str]
 
 
 @dataclass(frozen=True, slots=True)
 class ProcessIdentity:
+    """One host process as the ``ps`` probe observed it."""
+
     pid: int
     parent_pid: int
     command: str
     started_at: str
     arguments: str | None = None
 
+    @property
+    def key(self) -> ProcessKey:
+        return self.pid, self.started_at
+
     def as_record(self) -> dict[str, Any]:
-        record = {
-            "pid": self.pid,
-            "parentPid": self.parent_pid,
-            "command": self.command,
-            "startedAt": self.started_at,
-        }
-        if self.arguments:
-            record["arguments"] = self.arguments
+        return SessionProcessRecord.of(self).model_dump(by_alias=True)
+
+
+class SessionProcessRecord(PublishedModel):
+    """A hook record's ``sessionProcess``: the identity the hook published."""
+
+    pid: int
+    parent_pid: int
+    command: str
+    started_at: str
+    arguments: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_arguments(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        # The persisted shape omits ``arguments`` rather than writing null.
+        record: dict[str, Any] = handler(self)
+        if not self.arguments:
+            record.pop("arguments", None)
         return record
+
+    @classmethod
+    def of(cls, identity: ProcessIdentity) -> SessionProcessRecord:
+        return cls(
+            pid=identity.pid,
+            parent_pid=identity.parent_pid,
+            command=identity.command,
+            started_at=identity.started_at,
+            arguments=identity.arguments or None,
+        )
+
+    @property
+    def identity(self) -> ProcessIdentity:
+        return ProcessIdentity(
+            self.pid, self.parent_pid, self.command, self.started_at, self.arguments
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +101,6 @@ class ProcessUnobservable:
 
 ProcessObservation = ProcessPresent | ProcessAbsent | ProcessUnobservable
 ProcessLookup = Callable[[int], ProcessObservation]
-ProcessKey = tuple[int, str]
 
 
 def lock_holder_probe(pid: int) -> LockHolder:
@@ -262,39 +300,3 @@ def namespace_is_isolated(root: Path) -> bool:
     except OSError:
         return False
     return any(token in cgroup for token in CONTAINER_CGROUP_TOKENS)
-
-
-def process_identity_of(expected: object) -> ProcessIdentity | None:
-    """The full process identity a hook record carries, if it is well-formed."""
-    if not isinstance(expected, dict):
-        return None
-    pid = expected.get("pid")
-    parent_pid = expected.get("parentPid")
-    command = expected.get("command")
-    started_at = expected.get("startedAt")
-    if (
-        not isinstance(pid, int)
-        or not isinstance(parent_pid, int)
-        or not isinstance(command, str)
-        or not isinstance(started_at, str)
-    ):
-        return None
-    arguments = expected.get("arguments")
-    return ProcessIdentity(
-        pid,
-        parent_pid,
-        command,
-        started_at,
-        arguments if isinstance(arguments, str) and arguments else None,
-    )
-
-
-def process_key_of(expected: object) -> ProcessKey | None:
-    """The recorded PID and start time of a session process record, if any."""
-    if not isinstance(expected, dict):
-        return None
-    pid = expected.get("pid")
-    started_at = expected.get("startedAt")
-    if not isinstance(pid, int) or not isinstance(started_at, str):
-        return None
-    return pid, started_at

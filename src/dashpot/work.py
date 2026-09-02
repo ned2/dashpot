@@ -401,10 +401,7 @@ def _recorded_session_is_live(
     not evidence that it is over.
     """
     if work.session_process is not None:
-        return (
-            session_liveness(work.session_process.as_record(), lookup).liveness
-            == "live"
-        )
+        return session_liveness(work.session_process.key, lookup).liveness == "live"
     if work.session_id is None:
         return False
     try:
