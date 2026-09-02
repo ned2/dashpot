@@ -5,42 +5,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .github_issues import GitHubIssuesSource
+from .collect import build_issue_source
 from .issue_profile import IssueProfile
 from .issue_sources import IssueSource
-from .local_markdown_issues import LocalMarkdownIssuesSource
-from .project_config import (
-    GitHubIssueSourceConfig,
-    LocalMarkdownIssueSourceConfig,
-    load_project_config,
-)
-from .repository import github_repo_from_remote, worktree_root
+from .project_config import load_project_config
+from .repository import worktree_root
 
 ISSUE_NUMBER = re.compile(r"^#?([1-9][0-9]*)$")
 
 
 def configured_issue_source(root: Path, timeout: float = 10) -> IssueSource:
     """The Issue Source the Project at this Worktree declares."""
-    config = load_project_config(root)
-    if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        if not github_repo_from_remote(root):
-            raise RuntimeError(
-                "a GitHub Issue Source requires this Worktree to have a "
-                "GitHub origin remote"
-            )
-        return GitHubIssuesSource(
-            root,
-            project_id=config.project_id,
-            repository_id=config.repository_id,
-            timeout=timeout,
-        )
-    if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
-        return LocalMarkdownIssuesSource(
-            root,
-            project_id=config.project_id,
-            issues_path=Path(config.issue_source.path),
-        )
-    raise RuntimeError("unsupported configured Issue Source")  # pragma: no cover
+    return build_issue_source(root, load_project_config(root), timeout=timeout)
 
 
 def resolve_issue(root: Path, hint: str, timeout: float = 10) -> IssueProfile:

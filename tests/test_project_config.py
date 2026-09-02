@@ -5,8 +5,9 @@ from typing import Any
 
 import pytest
 
-from dashpot.collect import create_project_collector
+from dashpot.collect import build_issue_source, create_project_collector
 from dashpot.github_issues import GitHubIssuesSource
+from dashpot.issue_resolution import configured_issue_source
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from dashpot.model import ResolvedProject
 from dashpot.project_config import (
@@ -14,7 +15,7 @@ from dashpot.project_config import (
     LocalMarkdownIssueSourceConfig,
     load_project_config,
 )
-from factories import completed, fake_git, write_project_config
+from factories import completed, fake_git, init_repository, write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 
@@ -112,3 +113,44 @@ def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None
 
     with pytest.raises(RuntimeError, match="GitHub origin remote"):
         create_project_collector(project(tmp_path), git=git)
+
+
+def test_build_issue_source_builds_the_configured_github_source(
+    tmp_path: Path,
+) -> None:
+    write_config(tmp_path, {"kind": "github"})
+    git = fake_git(completed("https://github.com/ned2/dashpot.git\n"))
+
+    source = build_issue_source(
+        tmp_path, load_project_config(tmp_path), timeout=7, git=git
+    )
+
+    assert isinstance(source, GitHubIssuesSource)
+    assert source.project_id == PROJECT_ID
+    assert source.repository_id == "R_dashpot"
+    assert source.timeout == 7
+
+
+def test_build_issue_source_requires_github_repository_anchor(tmp_path: Path) -> None:
+    write_config(tmp_path, {"kind": "github"})
+    git = fake_git(completed(stderr="error: No such remote 'origin'", returncode=2))
+
+    with pytest.raises(RuntimeError, match="GitHub origin remote"):
+        build_issue_source(tmp_path, load_project_config(tmp_path), timeout=7, git=git)
+
+
+def test_every_entry_point_builds_the_same_issue_source(tmp_path: Path) -> None:
+    root = init_repository(
+        tmp_path / "repo", origin="https://github.com/ned2/dashpot.git"
+    )
+    write_config(root, {"kind": "github"})
+
+    direct = build_issue_source(root, load_project_config(root), timeout=10)
+    resolved = configured_issue_source(root)
+    collector = create_project_collector(project(root))
+
+    for source in (direct, resolved, collector.source):
+        assert isinstance(source, GitHubIssuesSource)
+        assert source.project_id == PROJECT_ID
+        assert source.repository_id == "R_dashpot"
+        assert source.timeout == 10

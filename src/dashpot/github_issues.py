@@ -10,7 +10,6 @@ from typing import Any
 from typing_extensions import override
 
 from .commands import CommandRunner, run_command
-from .errors import DashpotError
 from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import (
     Clock,
@@ -100,8 +99,11 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {
 """.strip()
 
 
-class GitHubIssueNormalizationError(DashpotError, ValueError):
-    """A GraphQL Issue node is incomplete, malformed, or from another repository."""
+# The two ways a collection cycle goes wrong, told apart by diagnostic code:
+# GitHub answered well-formed data but an Issue does not conform to the Issue
+# profile, versus a response whose shape is not the GraphQL contract at all.
+_PROFILE_CODE = "github-profile"
+_RESPONSE_CODE = "github-malformed-response"
 
 
 class GitHubIssuesSource(IssueSource):
@@ -113,7 +115,7 @@ class GitHubIssuesSource(IssueSource):
         *,
         project_id: str,
         repository_id: str,
-        timeout: float = 20,
+        timeout: float = 10,
         runner: CommandRunner = run_command,
         clock: Clock | None = None,
     ) -> None:
@@ -143,14 +145,11 @@ class GitHubIssuesSource(IssueSource):
         for record in records:
             complete_record = self._complete_nested_connections(record)
             label_colors.update(_label_colors(complete_record))
-            try:
-                issue = normalize_github_issue(
-                    complete_record,
-                    project_id=self.project_id,
-                    repository_id=self.repository_id,
-                )
-            except GitHubIssueNormalizationError as exc:
-                raise IssueSourceRefreshError("github-profile", str(exc)) from exc
+            issue = normalize_github_issue(
+                complete_record,
+                project_id=self.project_id,
+                repository_id=self.repository_id,
+            )
             issues.append(issue)
             issue_activity[issue.id] = _issue_activity(complete_record)
         return CollectedIssues(
@@ -173,19 +172,21 @@ class GitHubIssuesSource(IssueSource):
                     "github-repository",
                     "Configured GitHub repository was not found or is inaccessible",
                 )
-            repository = _response_object(data, "node", "data")
-            observed_repository_id = _response_string(
-                repository, "id", "data.repository"
+            repository = _object(data, "node", "data", _RESPONSE_CODE)
+            observed_repository_id = _fetched_string(
+                repository, "id", "data.repository", _RESPONSE_CODE
             )
             if observed_repository_id != self.repository_id:
                 raise IssueSourceRefreshError(
                     "github-repository-identity",
                     "GitHub repository identity does not match Project configuration",
                 )
-            _response_string(repository, "nameWithOwner", "data.repository")
-            issues = _response_object(repository, "issues", "data.repository")
+            _fetched_string(
+                repository, "nameWithOwner", "data.repository", _RESPONSE_CODE
+            )
+            issues = _object(repository, "issues", "data.repository", _RESPONSE_CODE)
             page_nodes, has_next, end_cursor = _connection_page(
-                issues, "data.repository.issues"
+                issues, "data.repository.issues", _RESPONSE_CODE
             )
             nodes.extend(page_nodes)
             if not has_next:
@@ -194,11 +195,11 @@ class GitHubIssuesSource(IssueSource):
 
     def _complete_nested_connections(self, record: Mapping[str, Any]) -> dict[str, Any]:
         complete = copy.deepcopy(dict(record))
-        issue_id = _response_string(complete, "id", "issue")
+        issue_id = _fetched_string(complete, "id", "issue", _RESPONSE_CODE)
         for connection_name, item_field in _CONNECTION_FIELDS.items():
-            connection = _response_object(complete, connection_name, "issue")
+            connection = _object(complete, connection_name, "issue", _RESPONSE_CODE)
             nodes, has_next, end_cursor = _connection_page(
-                connection, f"issue.{connection_name}"
+                connection, f"issue.{connection_name}", _RESPONSE_CODE
             )
             seen_cursors: set[str] = set()
             while has_next:
@@ -209,10 +210,12 @@ class GitHubIssuesSource(IssueSource):
                     _nested_connection_query(connection_name, item_field),
                     {"id": issue_id, "cursor": cursor},
                 )
-                node = _response_object(data, "node", "data")
-                next_connection = _response_object(node, "connection", "data.node")
+                node = _object(data, "node", "data", _RESPONSE_CODE)
+                next_connection = _object(
+                    node, "connection", "data.node", _RESPONSE_CODE
+                )
                 next_nodes, has_next, end_cursor = _connection_page(
-                    next_connection, f"issue.{connection_name}"
+                    next_connection, f"issue.{connection_name}", _RESPONSE_CODE
                 )
                 nodes.extend(next_nodes)
             connection["nodes"] = nodes
@@ -241,17 +244,17 @@ class GitHubIssuesSource(IssueSource):
             payload = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
             raise IssueSourceRefreshError(
-                "github-malformed-response",
+                _RESPONSE_CODE,
                 f"GitHub returned malformed JSON: {exc.msg}",
             ) from exc
         if not isinstance(payload, dict):
             raise IssueSourceRefreshError(
-                "github-malformed-response", "GitHub response is not an object"
+                _RESPONSE_CODE, "GitHub response is not an object"
             )
         errors = payload.get("errors")
         if errors is not None and not isinstance(errors, list):
             raise IssueSourceRefreshError(
-                "github-malformed-response",
+                _RESPONSE_CODE,
                 "GitHub response has a malformed GraphQL errors value",
             )
         if errors:
@@ -260,7 +263,7 @@ class GitHubIssuesSource(IssueSource):
         data = payload.get("data")
         if not isinstance(data, Mapping):
             raise IssueSourceRefreshError(
-                "github-malformed-response", "GitHub response has no data object"
+                _RESPONSE_CODE, "GitHub response has no data object"
             )
         return data
 
@@ -268,57 +271,63 @@ class GitHubIssuesSource(IssueSource):
 def normalize_github_issue(
     record: Mapping[str, Any], *, project_id: str, repository_id: str
 ) -> IssueProfile:
-    """Normalize one completely fetched GitHub GraphQL Issue node."""
+    """Normalize one completely fetched GitHub GraphQL Issue node.
+
+    Every refusal is an ``IssueSourceRefreshError`` with the ``github-profile``
+    code: GitHub answered well, but this Issue does not conform.
+    """
 
     if not isinstance(record, Mapping):
-        raise GitHubIssueNormalizationError("GitHub Issue must be an object")
-    _required_string(project_id, "project_id")
-    _required_string(repository_id, "repository_id")
+        raise IssueSourceRefreshError(_PROFILE_CODE, "GitHub Issue must be an object")
+    _string(project_id, "project_id", _PROFILE_CODE)
+    _string(repository_id, "repository_id", _PROFILE_CODE)
 
-    repository = _required_object(record, "repository", "issue")
-    observed_repository_id = _required_string(
-        _required(repository, "id", "issue.repository"), "issue.repository.id"
+    repository = _object(record, "repository", "issue", _PROFILE_CODE)
+    observed_repository_id = _fetched_string(
+        repository, "id", "issue.repository", _PROFILE_CODE
     )
     if observed_repository_id != repository_id:
-        raise GitHubIssueNormalizationError(
-            "issue.repository.id does not match the configured GitHub repository"
+        raise IssueSourceRefreshError(
+            _PROFILE_CODE,
+            "issue.repository.id does not match the configured GitHub repository",
         )
-    repository_reference = _required_string(
-        _required(repository, "nameWithOwner", "issue.repository"),
-        "issue.repository.nameWithOwner",
+    repository_reference = _fetched_string(
+        repository, "nameWithOwner", "issue.repository", _PROFILE_CODE
     )
 
-    number = _required(record, "number", "issue")
-    state = _required_string(_required(record, "state", "issue"), "issue.state")
+    number = _fetched(record, "number", "issue", _PROFILE_CODE)
+    state = _fetched_string(record, "state", "issue", _PROFILE_CODE)
     if state not in {"OPEN", "CLOSED"}:
-        raise GitHubIssueNormalizationError("issue.state must be OPEN or CLOSED")
+        raise IssueSourceRefreshError(
+            _PROFILE_CODE, "issue.state must be OPEN or CLOSED"
+        )
 
-    state_reason = _required(record, "stateReason", "issue")
+    state_reason = _fetched(record, "stateReason", "issue", _PROFILE_CODE)
     if state_reason is not None:
         if not isinstance(state_reason, str) or state_reason not in _STATE_REASONS:
-            raise GitHubIssueNormalizationError(
-                "issue.stateReason is not supported by the Issue profile"
+            raise IssueSourceRefreshError(
+                _PROFILE_CODE, "issue.stateReason is not supported by the Issue profile"
             )
         state_reason = _STATE_REASONS[state_reason]
 
-    parent = _required(record, "parent", "issue")
+    parent = _fetched(record, "parent", "issue", _PROFILE_CODE)
     if parent is not None:
         if not isinstance(parent, Mapping):
-            raise GitHubIssueNormalizationError(
-                "issue.parent must be an object or null"
+            raise IssueSourceRefreshError(
+                _PROFILE_CODE, "issue.parent must be an object or null"
             )
-        parent = _required_string(
-            _required(parent, "id", "issue.parent"), "issue.parent.id"
-        )
+        parent = _fetched_string(parent, "id", "issue.parent", _PROFILE_CODE)
 
     profile = {
-        "id": _required_string(_required(record, "id", "issue"), "issue.id"),
+        "id": _fetched_string(record, "id", "issue", _PROFILE_CODE),
         "projectId": project_id,
         "number": number,
         "reference": f"{repository_reference}#{number}",
-        "title": _required_string(_required(record, "title", "issue"), "issue.title"),
-        "body": _required_string_allow_empty(
-            _required(record, "body", "issue"), "issue.body"
+        "title": _fetched_string(record, "title", "issue", _PROFILE_CODE),
+        "body": _string_allow_empty(
+            _fetched(record, "body", "issue", _PROFILE_CODE),
+            "issue.body",
+            _PROFILE_CODE,
         ),
         "state": state.lower(),
         "stateReason": state_reason,
@@ -333,12 +342,8 @@ def normalize_github_issue(
         },
         "issueType": _optional_object_string(record, "issueType", "name"),
         "milestone": _optional_object_string(record, "milestone", "title"),
-        "createdAt": _required_string(
-            _required(record, "createdAt", "issue"), "issue.createdAt"
-        ),
-        "updatedAt": _required_string(
-            _required(record, "updatedAt", "issue"), "issue.updatedAt"
-        ),
+        "createdAt": _fetched_string(record, "createdAt", "issue", _PROFILE_CODE),
+        "updatedAt": _fetched_string(record, "updatedAt", "issue", _PROFILE_CODE),
         "closedAt": _optional_string_field(record, "closedAt"),
         "origin": {
             "kind": "github",
@@ -346,14 +351,15 @@ def normalize_github_issue(
         },
         "location": {
             "kind": "github",
-            "url": _required_string(_required(record, "url", "issue"), "issue.url"),
+            "url": _fetched_string(record, "url", "issue", _PROFILE_CODE),
         },
     }
     try:
         return conform_issue(profile)
     except IssueProfileError as exc:
-        raise GitHubIssueNormalizationError(
-            f"GitHub Issue does not conform to the Issue profile: {exc}"
+        raise IssueSourceRefreshError(
+            _PROFILE_CODE,
+            f"GitHub Issue does not conform to the Issue profile: {exc}",
         ) from exc
 
 
@@ -361,31 +367,18 @@ def _connection_strings(
     record: Mapping[str, Any], connection_name: str, item_field: str
 ) -> list[str]:
     path = f"issue.{connection_name}"
-    connection = _required_object(record, connection_name, "issue")
-    page_info = _required_object(connection, "pageInfo", path)
-    has_next_page = _required(page_info, "hasNextPage", f"{path}.pageInfo")
-    if not isinstance(has_next_page, bool):
-        raise GitHubIssueNormalizationError(
-            f"{path}.pageInfo.hasNextPage must be a Boolean"
-        )
+    connection = _object(record, connection_name, "issue", _PROFILE_CODE)
+    nodes, has_next_page, _end_cursor = _connection_page(
+        connection, path, _PROFILE_CODE
+    )
     if has_next_page:
-        raise GitHubIssueNormalizationError(
-            f"{path} is not completely fetched; pagination remains"
+        raise IssueSourceRefreshError(
+            _PROFILE_CODE, f"{path} is not completely fetched; pagination remains"
         )
-
-    nodes = _required(connection, "nodes", path)
-    if not isinstance(nodes, list):
-        raise GitHubIssueNormalizationError(f"{path}.nodes must be an array")
     values: list[str] = []
     for index, node in enumerate(nodes):
         node_path = f"{path}.nodes[{index}]"
-        if not isinstance(node, Mapping):
-            raise GitHubIssueNormalizationError(f"{node_path} must be an object")
-        values.append(
-            _required_string(
-                _required(node, item_field, node_path), f"{node_path}.{item_field}"
-            )
-        )
+        values.append(_fetched_string(node, item_field, node_path, _PROFILE_CODE))
     return values
 
 
@@ -469,114 +462,76 @@ def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
 def _optional_object_string(
     record: Mapping[str, Any], object_name: str, item_field: str
 ) -> str | None:
-    value = _required(record, object_name, "issue")
+    value = _fetched(record, object_name, "issue", _PROFILE_CODE)
     if value is None:
         return None
     if not isinstance(value, Mapping):
-        raise GitHubIssueNormalizationError(
-            f"issue.{object_name} must be an object or null"
+        raise IssueSourceRefreshError(
+            _PROFILE_CODE, f"issue.{object_name} must be an object or null"
         )
-    return _required_string(
-        _required(value, item_field, f"issue.{object_name}"),
-        f"issue.{object_name}.{item_field}",
-    )
+    return _fetched_string(value, item_field, f"issue.{object_name}", _PROFILE_CODE)
 
 
 def _optional_string_field(record: Mapping[str, Any], field: str) -> str | None:
-    value = _required(record, field, "issue")
+    value = _fetched(record, field, "issue", _PROFILE_CODE)
     if value is None:
         return None
-    return _required_string(value, f"issue.{field}")
+    return _string(value, f"issue.{field}", _PROFILE_CODE)
 
 
-def _required_object(
-    record: Mapping[str, Any], field: str, path: str
-) -> Mapping[str, Any]:
-    value = _required(record, field, path)
-    if not isinstance(value, Mapping):
-        raise GitHubIssueNormalizationError(f"{path}.{field} must be an object")
-    return value
-
-
-# Raw GitHub JSON: every caller narrows the value it needs through a typed
-# `_required_*` validator.
-def _required(record: Mapping[str, Any], field: str, path: str) -> Any:  # ruff: ignore[any-type]
+# The one validator family over raw GitHub JSON: each validator narrows one
+# value and refuses with the caller's diagnostic code — ``github-profile``
+# when a well-formed response carries an Issue that does not conform,
+# ``github-malformed-response`` when the response shape itself is wrong.
+def _fetched(record: Mapping[str, Any], field: str, path: str, code: str) -> Any:  # ruff: ignore[any-type]
     if field not in record:
-        raise GitHubIssueNormalizationError(
-            f"{path}.{field} was not fetched from GitHub"
+        raise IssueSourceRefreshError(
+            code, f"{path}.{field} was not fetched from GitHub"
         )
     return record[field]
 
 
-def _required_string(value: object, path: str) -> str:
+def _object(
+    record: Mapping[str, Any], field: str, path: str, code: str
+) -> dict[str, Any]:
+    value = _fetched(record, field, path, code)
+    if not isinstance(value, dict):
+        raise IssueSourceRefreshError(code, f"{path}.{field} must be an object")
+    return value
+
+
+def _string(value: object, path: str, code: str) -> str:
     if not isinstance(value, str) or not value:
-        raise GitHubIssueNormalizationError(f"{path} must be a non-empty string")
+        raise IssueSourceRefreshError(code, f"{path} must be a non-empty string")
     return value
 
 
-def _required_string_allow_empty(value: object, path: str) -> str:
+def _string_allow_empty(value: object, path: str, code: str) -> str:
     if not isinstance(value, str):
-        raise GitHubIssueNormalizationError(f"{path} must be a string")
+        raise IssueSourceRefreshError(code, f"{path} must be a string")
     return value
 
 
-def _response_object(value: Mapping[str, Any], field: str, path: str) -> dict[str, Any]:
-    if field not in value:
-        raise IssueSourceRefreshError(
-            "github-malformed-response", f"GitHub response has no {path}.{field}"
-        )
-    item = value[field]
-    if item is None and field == "repository":
-        raise IssueSourceRefreshError(
-            "github-repository", "GitHub repository was not found or is inaccessible"
-        )
-    if not isinstance(item, dict):
-        raise IssueSourceRefreshError(
-            "github-malformed-response", f"GitHub {path}.{field} is not an object"
-        )
-    return item
-
-
-def _response_string(value: Mapping[str, Any], field: str, path: str) -> str:
-    if field not in value:
-        raise IssueSourceRefreshError(
-            "github-malformed-response", f"GitHub response has no {path}.{field}"
-        )
-    item = value[field]
-    if not isinstance(item, str) or not item:
-        raise IssueSourceRefreshError(
-            "github-malformed-response",
-            f"GitHub {path}.{field} is not a non-empty string",
-        )
-    return item
+def _fetched_string(record: Mapping[str, Any], field: str, path: str, code: str) -> str:
+    return _string(_fetched(record, field, path, code), f"{path}.{field}", code)
 
 
 def _connection_page(
-    connection: Mapping[str, Any], path: str
+    connection: Mapping[str, Any], path: str, code: str
 ) -> tuple[list[dict[str, Any]], bool, object]:
-    nodes = connection.get("nodes")
+    nodes = _fetched(connection, "nodes", path, code)
     if not isinstance(nodes, list):
-        raise IssueSourceRefreshError(
-            "github-malformed-response", f"GitHub {path}.nodes is not an object array"
-        )
+        raise IssueSourceRefreshError(code, f"{path}.nodes must be an object array")
     records: list[dict[str, Any]] = []
     for node in nodes:
         if not isinstance(node, dict):
-            raise IssueSourceRefreshError(
-                "github-malformed-response",
-                f"GitHub {path}.nodes is not an object array",
-            )
+            raise IssueSourceRefreshError(code, f"{path}.nodes must be an object array")
         records.append(node)
-    page_info = connection.get("pageInfo")
-    if not isinstance(page_info, Mapping):
-        raise IssueSourceRefreshError(
-            "github-malformed-response", f"GitHub {path}.pageInfo is not an object"
-        )
-    has_next = page_info.get("hasNextPage")
+    page_info = _object(connection, "pageInfo", path, code)
+    has_next = _fetched(page_info, "hasNextPage", f"{path}.pageInfo", code)
     if not isinstance(has_next, bool):
         raise IssueSourceRefreshError(
-            "github-malformed-response",
-            f"GitHub {path}.pageInfo.hasNextPage is not a Boolean",
+            code, f"{path}.pageInfo.hasNextPage must be a Boolean"
         )
     return records, has_next, page_info.get("endCursor")
 

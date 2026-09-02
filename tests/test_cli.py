@@ -14,7 +14,6 @@ from rich.console import Console
 from dashpot import cli
 from dashpot.errors import DashpotError
 from dashpot.git import GitError
-from dashpot.github_issues import GitHubIssueNormalizationError
 from dashpot.hook import publish_from_stream
 from dashpot.integrate import INTEGRATIONS
 from dashpot.issue_profile import IssueProfileError, conform_issue
@@ -261,7 +260,7 @@ def test_cli_reports_startup_error_without_traceback() -> None:
         (
             ["issue", "show", "9"],
             "show_issue",
-            GitHubIssueNormalizationError("malformed Issue node"),
+            IssueSourceRefreshError("github-profile", "malformed Issue node"),
         ),
         (
             ["issue", "show", "9"],

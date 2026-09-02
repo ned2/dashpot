@@ -35,6 +35,7 @@ from .processes import lock_holder_probe
 from .project_config import (
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
+    ProjectConfig,
     load_project_config,
 )
 from .repository import (
@@ -199,34 +200,49 @@ def create_project_collector(
         raise RuntimeError(
             f"Project configuration changed after resolving Repository Anchor {root}"
         )
+    return ProjectCollector(
+        project,
+        build_issue_source(root, config, timeout=timeout, git=adapter),
+        target_observer=lambda anchors: observe_observation_targets(
+            anchors, git=adapter, process_lookup=lock_holder_probe
+        ),
+        branch_observer=lambda anchors: observe_branches(anchors, git=adapter),
+    )
+
+
+def build_issue_source(
+    root: Path,
+    config: ProjectConfig,
+    *,
+    timeout: float,
+    git: Git | None = None,
+) -> IssueSource:
+    """Build the Issue Source the Project's configuration declares.
+
+    The one factory every source consumer goes through, so a configured kind
+    is interpreted the same way at every seam. ``git`` reuses a caller's
+    adapter for the origin-remote check instead of probing again.
+    """
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        repository_reference = github_repo_from_remote(root, adapter)
-        if not repository_reference:
+        if not github_repo_from_remote(root, git):
             raise RuntimeError(
                 "A GitHub Issue Source requires the Repository Anchor to have "
                 "a GitHub origin remote"
             )
-        source: IssueSource = GitHubIssuesSource(
+        return GitHubIssuesSource(
             root,
             project_id=config.project_id,
             repository_id=config.repository_id,
             timeout=timeout,
         )
-    elif isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
-        source = LocalMarkdownIssuesSource(
+    if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
+        return LocalMarkdownIssuesSource(
             root,
             project_id=config.project_id,
             issues_path=Path(config.issue_source.path),
         )
-    else:  # pragma: no cover - exhaustive guard for future source kinds.
-        raise RuntimeError("unsupported configured Issue Source")
-    return ProjectCollector(
-        project,
-        source,
-        target_observer=lambda anchors: observe_observation_targets(
-            anchors, git=adapter, process_lookup=lock_holder_probe
-        ),
-        branch_observer=lambda anchors: observe_branches(anchors, git=adapter),
+    raise RuntimeError(  # pragma: no cover - exhaustive guard for future kinds.
+        "unsupported configured Issue Source"
     )
 
 

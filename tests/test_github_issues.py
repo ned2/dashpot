@@ -10,11 +10,11 @@ import pydantic
 
 from dashpot.commands import CommandResult
 from dashpot.github_issues import (
-    GitHubIssueNormalizationError,
     GitHubIssuesSource,
     normalize_github_issue,
 )
 from dashpot.issue_profile import IssueProfile, conform_issue
+from dashpot.issue_sources import IssueSourceRefreshError
 from issue_source_conformance import (
     assert_duplicate_identity_is_refused,
     assert_duplicate_number_is_refused,
@@ -191,14 +191,14 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
                 record = raw_fixture()
                 record["number"] = invalid
                 with self.assertRaisesRegex(
-                    GitHubIssueNormalizationError,
+                    IssueSourceRefreshError,
                     "number must be a positive integer",
                 ):
                     normalize(record)
 
     def test_conflicting_configured_repository_identity_is_rejected(self) -> None:
         with self.assertRaisesRegex(
-            GitHubIssueNormalizationError, "does not match the configured"
+            IssueSourceRefreshError, "does not match the configured"
         ):
             normalize(raw_fixture(), repository_id="R_another_repository")
 
@@ -208,7 +208,7 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
                 record = raw_fixture()
                 record[field]["pageInfo"]["hasNextPage"] = True
                 with self.assertRaisesRegex(
-                    GitHubIssueNormalizationError, "pagination remains"
+                    IssueSourceRefreshError, "pagination remains"
                 ):
                     normalize(record)
 
@@ -217,7 +217,7 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
         del record["author"]
 
         with self.assertRaisesRegex(
-            GitHubIssueNormalizationError, "issue.author was not fetched"
+            IssueSourceRefreshError, "issue.author was not fetched"
         ):
             normalize(record)
 
@@ -226,7 +226,7 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
         record["createdAt"] = None
 
         with self.assertRaisesRegex(
-            GitHubIssueNormalizationError, "issue.createdAt must be a non-empty string"
+            IssueSourceRefreshError, "issue.createdAt must be a non-empty string"
         ):
             normalize(record)
 
@@ -273,7 +273,7 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
         record["stateReason"] = "FUTURE_REASON"
 
         with self.assertRaisesRegex(
-            GitHubIssueNormalizationError, "not supported by the Issue profile"
+            IssueSourceRefreshError, "not supported by the Issue profile"
         ):
             normalize(record)
 
