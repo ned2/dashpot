@@ -108,7 +108,7 @@ Anything not marked *measured* or *read from* code or documentation is marked
   had no trust entry without prompting in `exec` mode; interactive trust
   behavior for a new path is unverified.
 - **No JSON on management commands yet.** `dashpot --json` prints a complete
-  observation snapshot (`to_jsonable`), which is the only stable
+  observation snapshot (`serialization.py`), which is the only stable
   machine-readable contract today; `work start/show/stop` print lines.
 - **Skills.** Both harnesses read a user-level skills directory
   (`~/.claude/skills/`, `~/.codex/skills/` exist on the reviewed machine); no

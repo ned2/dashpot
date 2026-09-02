@@ -18,8 +18,12 @@ from dashpot import worktrees
 from dashpot.commands import CommandResult, run_command
 from dashpot.git import Git
 from dashpot.hook_records import session_directory, write_hook_record
-from dashpot.model import Diagnostic, to_jsonable
+from dashpot.model import Diagnostic
 from dashpot.processes import ProcessIdentity
+from dashpot.serialization import (
+    removability_document,
+    worktree_plan_document,
+)
 from dashpot.settings import Settings
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.worktrees import (
@@ -143,9 +147,8 @@ def test_default_creates_the_sibling_worktree_on_the_issue_branch(
 def test_json_shape_names_every_source(tmp_path: Path) -> None:
     root = sim(tmp_path)
 
-    payload = to_jsonable(create(root))
+    payload = worktree_plan_document(create(root))
 
-    assert isinstance(payload, dict)
     assert set(payload) == {
         "issueId",
         "issueReference",
@@ -594,8 +597,7 @@ def test_clean_idle_worktree_is_removable(tmp_path: Path) -> None:
         "git branch -d worktree-protocol",
     )
     assert describe_removability(report)[0].endswith("is removable")
-    payload = to_jsonable(report)
-    assert isinstance(payload, dict)
+    payload = removability_document(report)
     assert payload["removable"] is True
     assert payload["obstacles"] == []
 

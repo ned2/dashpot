@@ -24,6 +24,7 @@ from .hook_records import reachable_hook_stores, sessions_at_worktree
 from .issue_profile import IssueProfile
 from .issue_resolution import resolve_issue
 from .liveness import session_liveness
+from .models import LaxSequence, PublishedModel
 from .processes import ProcessLookup, host_process_lookup
 from .project_config import (
     PROJECT_CONFIG_NAME,
@@ -53,8 +54,7 @@ SLUG_LIMIT = 48
 INITIALIZING_LOCK = "initializing"
 
 
-@dataclass(frozen=True, slots=True)
-class WorktreePlan:
+class WorktreePlan(PublishedModel):
     """What ``dashpot worktree create`` would do, or did, for one Issue.
 
     ``refusals`` lists every reason creation is refused; when it is empty and
@@ -75,13 +75,12 @@ class WorktreePlan:
     worktree_root_source: WorktreeRootSource
     dry_run: bool
     created: bool = False
-    refusals: tuple[str, ...] = ()
-    hints: tuple[str, ...] = ()
-    warnings: tuple[str, ...] = ()
+    refusals: LaxSequence[str] = ()
+    hints: LaxSequence[str] = ()
+    warnings: LaxSequence[str] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class RemovalObstacle:
+class RemovalObstacle(PublishedModel):
     """One reason a Worktree is not removable, with the command that acts on it."""
 
     kind: Literal[
@@ -98,8 +97,7 @@ class RemovalObstacle:
     command: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class WorktreeRemovability:
+class WorktreeRemovability(PublishedModel):
     """A read-only report of whether a Worktree can be removed, and why not."""
 
     path: str
@@ -107,8 +105,8 @@ class WorktreeRemovability:
     head: str
     role: Literal["main", "linked"]
     removable: bool
-    obstacles: tuple[RemovalObstacle, ...] = ()
-    remove_commands: tuple[str, ...] = ()
+    obstacles: LaxSequence[RemovalObstacle] = ()
+    remove_commands: LaxSequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,20 +198,9 @@ def create_issue_worktree(
     if dry_run or plan.refusals or resolution.commit is None:
         return plan
     _add_worktree(git, plan)
-    return WorktreePlan(
-        issue_id=plan.issue_id,
-        issue_reference=plan.issue_reference,
-        path=plan.path,
-        branch=plan.branch,
-        base_ref=plan.base_ref,
-        base_source=plan.base_source,
-        base_commit=plan.base_commit,
-        worktree_root=plan.worktree_root,
-        worktree_root_source=plan.worktree_root_source,
-        dry_run=False,
-        created=True,
-        warnings=plan.warnings,
-    )
+    # Hints named other Worktrees that looked like this Issue's; once this one
+    # exists they have served their purpose and are not restated.
+    return plan.model_copy(update={"dry_run": False, "created": True, "hints": ()})
 
 
 def resolve_worktree_root(
@@ -678,8 +665,8 @@ def check_worktree(
     if role == "main":
         obstacles.append(
             RemovalObstacle(
-                "main-worktree",
-                "the main Worktree cannot be removed with git worktree remove",
+                kind="main-worktree",
+                detail="the main Worktree cannot be removed with git worktree remove",
             )
         )
     lock = registered.get("locked")
@@ -692,7 +679,9 @@ def check_worktree(
             command = f"git worktree unlock {path}"
         obstacles.append(
             RemovalObstacle(
-                "locked", f"locked: {reason} (holding process {holder})", command
+                kind="locked",
+                detail=f"locked: {reason} (holding process {holder})",
+                command=command,
             )
         )
     if path.is_dir():
@@ -702,19 +691,20 @@ def check_worktree(
         if status.returncode != 0:
             obstacles.append(
                 RemovalObstacle(
-                    "dirty",
-                    f"cannot inspect: {status.stderr.strip() or 'git status failed'}",
-                    f"git -C {path} status",
+                    kind="dirty",
+                    detail=f"cannot inspect: "
+                    f"{status.stderr.strip() or 'git status failed'}",
+                    command=f"git -C {path} status",
                 )
             )
         elif status.stdout:
             count = len(status.stdout.splitlines())
             obstacles.append(
                 RemovalObstacle(
-                    "dirty",
-                    f"{count} changed or untracked path(s); inspect with "
+                    kind="dirty",
+                    detail=f"{count} changed or untracked path(s); inspect with "
                     f"'git -C {path} status'",
-                    f"git worktree remove --force {path}",
+                    command=f"git worktree remove --force {path}",
                 )
             )
     worktrees = [
@@ -727,16 +717,17 @@ def check_worktree(
         record = location.record
         obstacles.append(
             RemovalObstacle(
-                "agent-session",
-                f"{HARNESS_DISPLAY[record.harness]} session {record.session_id} is "
-                f"{record.outcome} here (last activity {record.last_activity_at})",
+                kind="agent-session",
+                detail=f"{HARNESS_DISPLAY[record.harness]} session "
+                f"{record.session_id} is {record.outcome} here "
+                f"(last activity {record.last_activity_at})",
             )
         )
     active, work_diagnostics = WorkStore(path).active()
     # A record that cannot be read may still be a live Agent Run; removable
     # is never claimed on evidence that could not be examined.
     obstacles.extend(
-        RemovalObstacle("work-store", diagnostic.message)
+        RemovalObstacle(kind="work-store", detail=diagnostic.message)
         for diagnostic in work_diagnostics
     )
     for work in active:
@@ -756,7 +747,9 @@ def check_worktree(
                 f"(session {liveness})"
             )
             command = "dashpot work stop (inside that session)"
-        obstacles.append(RemovalObstacle("agent-run", detail, command))
+        obstacles.append(
+            RemovalObstacle(kind="agent-run", detail=detail, command=command)
+        )
     if branch is not None:
         obstacles.extend(_branch_obstacles(git, path, branch))
     remove_commands: tuple[str, ...] = ()
@@ -795,9 +788,9 @@ def _branch_obstacles(git: Git, path: Path, branch: str) -> list[RemovalObstacle
         )
         obstacles.append(
             RemovalObstacle(
-                "unmerged",
-                f"cannot tell whether Branch {branch} is integrated: {reason}",
-                f"git log --oneline {branch}",
+                kind="unmerged",
+                detail=f"cannot tell whether Branch {branch} is integrated: {reason}",
+                command=f"git log --oneline {branch}",
             )
         )
     if upstream:
@@ -805,25 +798,26 @@ def _branch_obstacles(git: Git, path: Path, branch: str) -> list[RemovalObstacle
         if ahead:
             obstacles.append(
                 RemovalObstacle(
-                    "unpushed",
-                    f"{ahead} commit(s) not on {upstream}",
-                    f"git -C {path} push",
+                    kind="unpushed",
+                    detail=f"{ahead} commit(s) not on {upstream}",
+                    command=f"git -C {path} push",
                 )
             )
     elif unmerged:
         obstacles.append(
             RemovalObstacle(
-                "unpushed",
-                f"Branch {branch} has no upstream and {unmerged} commit(s) of its own",
-                f"git -C {path} push -u origin {branch}",
+                kind="unpushed",
+                detail=f"Branch {branch} has no upstream and {unmerged} commit(s) "
+                f"of its own",
+                command=f"git -C {path} push -u origin {branch}",
             )
         )
     if unmerged:
         obstacles.append(
             RemovalObstacle(
-                "unmerged",
-                f"{unmerged} commit(s) not reachable from {base_ref}",
-                f"git log --oneline {base_ref}..{branch}",
+                kind="unmerged",
+                detail=f"{unmerged} commit(s) not reachable from {base_ref}",
+                command=f"git log --oneline {base_ref}..{branch}",
             )
         )
     return obstacles

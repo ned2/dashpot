@@ -4,7 +4,6 @@ import io
 import json
 import runpy
 import subprocess
-from dataclasses import replace
 from pathlib import Path
 from typing import get_args
 from unittest import mock
@@ -551,8 +550,11 @@ def test_worktree_create_refusal_exits_2_in_both_output_modes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    refused = replace(
-        PLAN, created=False, refusals=("Branch 35-worktree-protocol already exists",)
+    refused = PLAN.model_copy(
+        update={
+            "created": False,
+            "refusals": ("Branch 35-worktree-protocol already exists",),
+        }
     )
 
     with mock.patch.object(cli, "create_issue_worktree", return_value=refused):
@@ -585,7 +587,9 @@ def test_worktree_check_dispatches_and_prints_the_report(
         removable=False,
         obstacles=(
             RemovalObstacle(
-                "dirty", "1 changed path", "git worktree remove --force /w/x"
+                kind="dirty",
+                detail="1 changed path",
+                command="git worktree remove --force /w/x",
             ),
         ),
         remove_commands=("git worktree remove /w/x",),

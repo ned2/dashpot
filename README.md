@@ -153,6 +153,15 @@ include its durable `projectId` and `repositoryId`, along with Workspace names
 and Repository Anchors, so automation and diagnostics do not depend on labels or
 paths for identity.
 
+The headless JSON key set is a stable contract, for `dashpot --json` and for
+every management command's `--json` (`issue show`, `worktree create`,
+`worktree check`): keys are camelCase, every documented field is present, and
+an unknown value is an explicit `null` rather than an omitted key, so a
+consumer can tell "unknown" from "not emitted by this version". A shape change
+is a compatibility change. `src/dashpot/serialization.py` owns the documents
+and `tests/test_serialization.py` pins each command's key set.
+`--compact-json` prints the same document without indentation.
+
 ## Domain language
 
 Dashpot uses the following terms consistently across its interface, code, and

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from .issue_profile import IssueProfile
 from .models import FrozenMapping, LaxSequence, PublishedModel
@@ -189,36 +189,3 @@ class WorkspaceSnapshot(ObservationModel):
     agent_runs: LaxSequence[AgentRun] = ()
     issue_runs: FrozenMapping[str, LaxSequence[str]] = Field(default_factory=dict)
     diagnostics: LaxSequence[Diagnostic] = ()
-
-
-def to_jsonable(value: object) -> object:
-    # The observation models keep the dataclass wire shape they migrated from
-    # (camelCase keys, absent rather than null None fields), so the `--json`
-    # seam is byte-identical across the ADR 0013 step 7 freeze.
-    if isinstance(value, ObservationModel):
-        return {
-            camel_case(name): to_jsonable(getattr(value, name))
-            for name in type(value).model_fields
-            if getattr(value, name) is not None
-        }
-    # TEMPORARY (ADR 0013 step 3b): dump a model with today's wire shape —
-    # camelCase keys and explicit nulls, never the dataclass omit-None rule.
-    # Deleted with the rest of to_jsonable at step 8.
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json", by_alias=True)
-    if is_dataclass(value):
-        return {
-            camel_case(item.name): to_jsonable(getattr(value, item.name))
-            for item in fields(value)
-            if getattr(value, item.name) is not None
-        }
-    if isinstance(value, dict):
-        return {key: to_jsonable(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [to_jsonable(item) for item in value]
-    return value
-
-
-def camel_case(name: str) -> str:
-    head, *tail = name.split("_")
-    return head + "".join(part.capitalize() for part in tail)

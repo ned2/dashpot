@@ -14,8 +14,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
 
+from pydantic import BaseModel
+
 from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.model import ProjectObservation, ProjectSnapshot, to_jsonable
+from dashpot.model import ProjectObservation, ProjectSnapshot
 from dashpot.processes import (
     ProcessAbsent,
     ProcessIdentity,
@@ -69,11 +71,9 @@ def make_issue(**overrides: object) -> IssueProfile:
     return conform_issue(issue_payload(**overrides))
 
 
-def jsonable(value: object) -> dict[str, Any]:
-    """The JSON object form of a dataclass snapshot."""
-    payload = to_jsonable(value)
-    assert isinstance(payload, dict)
-    return payload
+def jsonable(value: BaseModel) -> dict[str, Any]:
+    """The wire document of a published model, exactly as ``--json`` prints it."""
+    return value.model_dump(mode="json", by_alias=True)
 
 
 def present(identity: ProcessIdentity) -> ProcessLookup:

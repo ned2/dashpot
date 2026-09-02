@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -19,9 +18,16 @@ from .integrate import (
     remove_integration,
 )
 from .issue_resolution import describe_issue, show_issue
-from .model import Diagnostic, RepositoryAnchor, Workspace, to_jsonable
+from .model import Diagnostic, RepositoryAnchor, Workspace
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
+from .serialization import (
+    issue_document,
+    removability_document,
+    render_json,
+    snapshot_document,
+    worktree_plan_document,
+)
 from .work import show_issue_work, start_issue_work, stop_issue_work
 from .workspace import (
     default_workspace_config,
@@ -163,12 +169,7 @@ def observe(
     if json_output or compact_json:
         # The coordinated barrier publishes every observation and then
         # checkpoints, so headless output stays a single complete snapshot.
-        print(
-            json.dumps(
-                to_jsonable(collector.refresh()),
-                indent=None if compact_json else 2,
-            )
-        )
+        print(render_json(snapshot_document(collector.refresh()), compact=compact_json))
     else:
         DashpotApp(collector, refresh_seconds=refresh_seconds).run()
     return 0
@@ -300,7 +301,7 @@ def issue_show(
     """Resolve one Issue Hint and print the Issue Profile."""
     found = show_issue(Path.cwd().resolve(), reference, timeout=timeout)
     if json_output:
-        print(json.dumps(found.model_dump(mode="json", by_alias=True), indent=2))
+        print(render_json(issue_document(found)))
     else:
         _report(describe_issue(found))
     return 0
@@ -372,7 +373,7 @@ def worktree_create(
         timeout=timeout,
     )
     if json_output:
-        print(json.dumps(to_jsonable(plan), indent=2))
+        print(render_json(worktree_plan_document(plan)))
     else:
         _report(describe_worktree_plan(plan))
         # Refusals go to stderr straight off the structured field, in the
@@ -393,7 +394,7 @@ def worktree_check(
     """Report whether a Worktree is removable, and each reason it is not."""
     report = check_worktree(Path.cwd().resolve(), path, timeout=timeout)
     if json_output:
-        print(json.dumps(to_jsonable(report), indent=2))
+        print(render_json(removability_document(report)))
     else:
         _report(describe_removability(report))
     return 0

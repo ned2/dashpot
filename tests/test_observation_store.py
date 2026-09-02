@@ -15,9 +15,9 @@ from dashpot.model import (
     ObservationTarget,
     ProjectObservation,
     SourceStatus,
-    to_jsonable,
 )
 from dashpot.observation_store import WorkspaceObservationStore
+from dashpot.serialization import snapshot_document
 from factories import NOW, workspace
 from helpers import make_issue, required, snapshot_of
 
@@ -66,7 +66,7 @@ def test_seed_round_trips_checkpoint_and_isolates_owned_state() -> None:
     assert store.revision == 1
     assert store.has_observations
     assert store.checkpoint() == expected
-    assert to_jsonable(store.checkpoint()) == to_jsonable(expected)
+    assert snapshot_document(store.checkpoint()) == snapshot_document(expected)
 
 
 def test_replace_updates_indexes_revision_query_and_stable_lookups() -> None:
