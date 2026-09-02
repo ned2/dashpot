@@ -9,7 +9,9 @@ the selection is the authority.
 
 Performing a Cleanup re-inspects first and performs nothing when the preview
 changed. A local Branch is deleted with the atomic ``update-ref -d`` old-value
-check; a Worktree with an unforced ``git worktree remove``; the targets run in
+check; a Branch at a remote with a delete push leased on the Remote-Tracking
+Branch's tip, which Git refuses when the remote moved; a Worktree with an
+unforced ``git worktree remove``. The targets run in
 the order remote, Worktree, local Branch, and after a refused or unknown
 outcome nothing further is attempted. Every target reports its own outcome and
 a deleted one names the command that recreates it.
@@ -888,9 +890,7 @@ def _perform(git: Git, target: CleanupTarget) -> TargetResult:
         return _delete_local_branch(git, target)
     if target.kind == "worktree":
         return _remove_worktree(git, target)
-    return _result(
-        target, "refused", "deleting a Branch at a remote is not available yet"
-    )
+    return _delete_remote_branch(git, target)
 
 
 def _delete_local_branch(git: Git, target: CleanupTarget) -> TargetResult:
@@ -921,6 +921,92 @@ def _delete_local_branch(git: Git, target: CleanupTarget) -> TargetResult:
     return _result(
         target, "deleted", f"deleted {refname} at {target.expected[:7]}", recovery
     )
+
+
+def _delete_remote_branch(git: Git, target: CleanupTarget) -> TargetResult:
+    """Delete at the remote only if it still holds the previewed commit.
+
+    The lease is the Remote-Tracking Branch's tip as of the last fetch. Git
+    rejects the push with ``stale info`` both when the remote advanced and
+    when the Branch is already gone there, so that rejection is followed by
+    one read-only ``ls-remote`` to tell the two apart; nothing is fetched,
+    and a stale Remote-Tracking Branch is left for the next Remote Fetch to
+    prune. A successful delete push drops the Remote-Tracking Branch itself
+    under the canonical mapping the preview required.
+    """
+    remote = target.remote or ""
+    tracking = target.ref or ""
+    name = tracking.removeprefix(f"{REMOTE_REF_PREFIX}{remote}/")
+    refname = f"{LOCAL_REF_PREFIX}{name}"
+    recovery = f"git push {remote} {target.expected}:{refname}"
+    try:
+        result = git.run(
+            "push",
+            f"--force-with-lease={refname}:{target.expected}",
+            remote,
+            f":{refname}",
+        )
+    except GitError as exc:
+        return _result(
+            target,
+            "unknown",
+            f"git push did not complete: {exc.detail}; check with: "
+            f"git ls-remote --heads {remote} {refname}; a surviving {tracking} "
+            f"is pruned by the next fetch",
+            recovery,
+        )
+    if result.returncode == 0:
+        return _result(
+            target,
+            "deleted",
+            f"deleted {name} at {remote}, which was at {target.expected[:7]}; "
+            f"Git dropped {tracking}",
+            recovery,
+        )
+    reason = _push_reason(result.stderr)
+    if "stale info" not in result.stderr:
+        return _result(target, "refused", reason)
+    presence = _remote_ref_presence(git, remote, refname)
+    if presence == "absent":
+        return _result(
+            target,
+            "already-absent",
+            f"{name} at {remote} was already gone; {tracking} is stale until the "
+            f"next fetch prunes it",
+        )
+    if presence == "present":
+        return _result(
+            target,
+            "refused",
+            f"{remote} no longer has {name} at the leased {target.expected[:7]}: "
+            f"it moved since the last fetch; fetch and confirm against the "
+            f"revised preview",
+        )
+    return _result(target, "refused", reason)
+
+
+def _push_reason(stderr: str) -> str:
+    """Git's first rejection or fatal line: a push failure ends in advice."""
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    reasons = [line for line in lines if line.startswith(("! [", "error:", "fatal:"))]
+    if reasons:
+        return reasons[0]
+    return lines[-1] if lines else "git push refused"
+
+
+def _remote_ref_presence(
+    git: Git, remote: str, refname: str
+) -> Literal["present", "absent", "unknown"]:
+    """Ask the remote, read-only, whether it still has ``refname``."""
+    try:
+        result = git.run("ls-remote", "--exit-code", "--heads", remote, refname)
+    except GitError:
+        return "unknown"
+    if result.returncode == 0:
+        return "present"
+    # ``--exit-code`` makes 2 the answer "no matching ref"; anything else is
+    # the remote not answering, which must not be read as absence.
+    return "absent" if result.returncode == 2 else "unknown"
 
 
 def _remove_worktree(git: Git, target: CleanupTarget) -> TargetResult:

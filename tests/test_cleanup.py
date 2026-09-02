@@ -675,7 +675,110 @@ def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> No
     assert git(root, "rev-parse", "--verify", "refs/heads/done")
 
 
-def test_a_remote_target_is_refused_and_halts_the_rest(tmp_path: Path) -> None:
+def serve(tmp_path: Path, root: Path, *names: str) -> Path:
+    """Turn ``origin`` into a bare repository on disk holding ``main`` and ``names``."""
+    bare = tmp_path / "origin.git"
+    bare.mkdir()
+    git(bare, "init", "-q", "--bare")
+    git(root, "remote", "set-url", "origin", str(bare))
+    git(root, "push", "-q", "origin", "main", *names)
+    return bare
+
+
+def served_feature(tmp_path: Path) -> tuple[Path, Path, str]:
+    """A repository whose integrated ``feat`` is also at a served ``origin``."""
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    bare = serve(tmp_path, root, "feat")
+    return root, bare, tip
+
+
+def test_deleting_at_the_remote_is_leased_and_drops_the_tracking_ref(
+    tmp_path: Path,
+) -> None:
+    root, bare, tip = served_feature(tmp_path)
+    request = BranchCleanupRequest(root, "feat")
+    preview = inspect_cleanup(request)
+    assert preview.target("remote:origin:refs/heads/feat") is not None
+
+    report = perform_cleanup(
+        confirm(
+            request, preview, "local:refs/heads/feat", "remote:origin:refs/heads/feat"
+        )
+    )
+
+    assert report.succeeded is True
+    remote, local = report.results
+    assert (remote.kind, remote.outcome) == ("remote-branch", "deleted")
+    assert remote.detail == (
+        f"deleted feat at origin, which was at {tip[:7]}; Git dropped "
+        f"refs/remotes/origin/feat"
+    )
+    assert remote.recovery == f"git push origin {tip}:refs/heads/feat"
+    assert (local.kind, local.outcome) == ("local-branch", "deleted")
+    assert git(bare, "for-each-ref", "refs/heads/feat") == ""
+    assert git(bare, "rev-parse", "main") == tip
+    assert git(root, "for-each-ref", "refs/remotes/origin/feat") == ""
+    assert git(root, "for-each-ref", "refs/heads/feat") == ""
+
+
+def test_a_remote_that_moved_refuses_the_lease_and_halts_the_local(
+    tmp_path: Path,
+) -> None:
+    root, bare, tip = served_feature(tmp_path)
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "-q", str(bare), str(other))
+    git(other, "config", "user.email", "sim@example.invalid")
+    git(other, "config", "user.name", "Sim")
+    git(other, "checkout", "-q", "feat")
+    commit(other, "elsewhere", path="elsewhere.txt")
+    git(other, "push", "-q", "origin", "feat")
+    request = BranchCleanupRequest(root, "feat")
+    preview = inspect_cleanup(request)
+
+    report = perform_cleanup(
+        confirm(
+            request, preview, "local:refs/heads/feat", "remote:origin:refs/heads/feat"
+        )
+    )
+
+    assert report.succeeded is False
+    remote, local = report.results
+    assert remote.outcome == "refused"
+    assert remote.detail == (
+        f"origin no longer has feat at the leased {tip[:7]}: it moved since the "
+        f"last fetch; fetch and confirm against the revised preview"
+    )
+    assert local.outcome == "refused"
+    assert local.detail == "not attempted: Branch at origin was refused"
+    assert git(bare, "rev-parse", "feat") != tip
+    assert git(root, "rev-parse", "refs/heads/feat") == tip
+    assert git(root, "rev-parse", "refs/remotes/origin/feat") == tip
+
+
+def test_a_branch_already_gone_at_the_remote_is_already_absent(
+    tmp_path: Path,
+) -> None:
+    root, bare, tip = served_feature(tmp_path)
+    git(bare, "update-ref", "-d", "refs/heads/feat")
+    request = BranchCleanupRequest(root, "feat")
+    preview = inspect_cleanup(request)
+
+    report = perform_cleanup(confirm(request, preview, "remote:origin:refs/heads/feat"))
+
+    (remote,) = report.results
+    assert remote.outcome == "already-absent"
+    assert remote.detail == (
+        "feat at origin was already gone; refs/remotes/origin/feat is stale until "
+        "the next fetch prunes it"
+    )
+    assert report.succeeded is True
+    # Nothing was fetched: the stale Remote-Tracking Branch is for ``f``.
+    assert git(root, "rev-parse", "refs/remotes/origin/feat") == tip
+
+
+def test_an_unreachable_remote_is_refused_with_gits_reason(tmp_path: Path) -> None:
     root = repo(tmp_path)
     tip = branch(root, "feat")
     integrate(root, "feat")
@@ -689,15 +792,65 @@ def test_a_remote_target_is_refused_and_halts_the_rest(tmp_path: Path) -> None:
         )
     )
 
-    assert report.performed is True
-    assert report.succeeded is False
     remote, local = report.results
-    assert remote.kind == "remote-branch"
     assert remote.outcome == "refused"
-    assert remote.detail == "deleting a Branch at a remote is not available yet"
-    assert local.outcome == "refused"
+    assert remote.detail.startswith("fatal: ")
     assert local.detail == "not attempted: Branch at origin was refused"
     assert git(root, "rev-parse", "refs/heads/feat") == tip
+
+
+def test_a_push_that_does_not_answer_is_unknown(tmp_path: Path) -> None:
+    root, _bare, tip = served_feature(tmp_path)
+    request = BranchCleanupRequest(root, "feat")
+
+    def hanging(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if args[1] == "push":
+            raise RuntimeError("timed out after 5.0s")
+        return run_command(args, cwd, timeout)
+
+    git_ = Git(root, 5, hanging)
+    preview = inspect_cleanup(request, git=git_)
+    report = perform_cleanup(
+        confirm(
+            request, preview, "remote:origin:refs/heads/feat", "local:refs/heads/feat"
+        ),
+        git=git_,
+    )
+
+    remote, local = report.results
+    assert remote.outcome == "unknown"
+    assert remote.detail == (
+        "git push did not complete: timed out after 5.0s; check with: "
+        "git ls-remote --heads origin refs/heads/feat; a surviving "
+        "refs/remotes/origin/feat is pruned by the next fetch"
+    )
+    assert remote.recovery == f"git push origin {tip}:refs/heads/feat"
+    assert local.detail == "not attempted: Branch at origin was unknown"
+    assert git(root, "rev-parse", "refs/heads/feat") == tip
+
+
+def test_a_stale_lease_whose_remote_does_not_answer_stays_refused(
+    tmp_path: Path,
+) -> None:
+    root, bare, _tip = served_feature(tmp_path)
+    git(bare, "update-ref", "-d", "refs/heads/feat")
+    request = BranchCleanupRequest(root, "feat")
+
+    def deaf(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if args[1] == "ls-remote":
+            raise OSError("no route")
+        return run_command(args, cwd, timeout)
+
+    git_ = Git(root, 5, deaf)
+    preview = inspect_cleanup(request, git=git_)
+    report = perform_cleanup(
+        confirm(request, preview, "remote:origin:refs/heads/feat"), git=git_
+    )
+
+    (remote,) = report.results
+    assert remote.outcome == "refused"
+    assert remote.detail.startswith("! [rejected]")
+    assert remote.detail.endswith("(delete) -> feat (stale info)")
 
 
 def test_removing_a_worktree_then_its_branch(tmp_path: Path) -> None:
