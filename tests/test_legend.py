@@ -144,6 +144,33 @@ def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
     assert "f fetches and prunes" in rendered
 
 
+def test_the_cleanup_gate_is_stated_where_x_reads_it() -> None:
+    """The INTEGRATED and Worktree SESSIONS notes say what x can and cannot delete."""
+    sections = {(section.pane, section.column): section for section in legend.LEGEND}
+    integrated = sections["BRANCHES", "INTEGRATED"]
+    worktrees = sections["WORKTREES", "SESSIONS"]
+
+    assert integrated.glyphs == branch_list.INTEGRATION_LEGEND
+    assert integrated.note == legend.INTEGRATION_NOTE
+    assert worktrees.note == legend.WORKTREE_SESSIONS_NOTE
+    assert worktrees.note.startswith(legend.SESSIONS_COUNT_NOTE)
+    for section, words in (
+        (integrated, ("the gate for x", "by commits or by content", "cannot")),
+        (
+            worktrees,
+            (
+                "x removes",
+                "clean",
+                "no Agent Session or Agent Run",
+                "retains its Branch",
+            ),
+        ),
+    ):
+        rendered = legend.section_text(section, dark=False).plain
+        for word in words:
+            assert word in rendered
+
+
 def test_section_text_renders_symbols_in_their_colour() -> None:
     section = legend.LEGEND[0]
     text = legend.section_text(section, dark=True)

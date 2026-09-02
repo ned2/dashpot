@@ -343,6 +343,9 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_reports() -> None
         await pilot.pause()
         assert not isinstance(app.screen, CleanupReportScreen)
         assert sorted(row.name for row in app.store.query_branches().rows) == ["main"]
+        # The deleted row's neighbour holds the cursor, so the next x is one press away.
+        pane = app.query_one("#branches-pane", ListPane)
+        assert pane.highlighted() == (row_key("branch", PROJECT, "main"), 0)
 
 
 @pytest.mark.asyncio
