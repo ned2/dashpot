@@ -613,7 +613,7 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
             session_key="codex-4242-deadbeef",
             harness="codex",
             session_label="codex pid 4242",
-            session_process=SessionProcess(gone.pid, gone.started_at),
+            session_process=SessionProcess(pid=gone.pid, started_at=gone.started_at),
             issue_id="I_35",
             issue_reference="worktree-protocol",
             binding_provenance="explicit-reference",
@@ -685,7 +685,9 @@ def test_orphaned_run_names_the_stop_command(tmp_path: Path) -> None:
             session_key="codex-4242-deadbeef",
             harness="codex",
             session_label="codex pid 4242",
-            session_process=SessionProcess(4242, "Tue Aug 25 01:00:00 2026"),
+            session_process=SessionProcess(
+                pid=4242, started_at="Tue Aug 25 01:00:00 2026"
+            ),
             issue_id="I_35",
             issue_reference="worktree-protocol",
             binding_provenance="explicit-reference",

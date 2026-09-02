@@ -195,7 +195,9 @@ def test_correlated_hook_and_work_records_are_one_session_row() -> None:
                 session_key="codex-42-abcd1234",
                 harness="codex",
                 session_label="codex pid 42",
-                session_process=SessionProcess(process.pid, process.started_at),
+                session_process=SessionProcess(
+                    pid=process.pid, started_at=process.started_at
+                ),
                 issue_id="I_alpha#7",
                 issue_reference="alpha#7",
                 binding_provenance="explicit-reference",

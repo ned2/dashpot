@@ -62,7 +62,7 @@ class AgentSessionIdentity:
     def session_process(self) -> SessionProcess | None:
         if self.process is None:
             return None
-        return SessionProcess(self.process.pid, self.process.started_at)
+        return SessionProcess(pid=self.process.pid, started_at=self.process.started_at)
 
     @property
     def process_key(self) -> ProcessKey | None:

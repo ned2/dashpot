@@ -325,7 +325,9 @@ def test_codex_session_opts_in_from_its_sandbox_by_hook_identity(
     assert work.session_id == CODEX_SESSION
     # The hook published the harness's host process; the record keys and
     # labels the session exactly as the process route would have.
-    assert work.session_process == SessionProcess(CODEX.pid, CODEX.started_at)
+    assert work.session_process == SessionProcess(
+        pid=CODEX.pid, started_at=CODEX.started_at
+    )
     assert work.session_key.startswith("codex-4242-")
     assert work.session_label == "codex pid 4242"
     assert "started work on build-observer" in messages[0]
@@ -375,7 +377,9 @@ def test_visible_ancestry_ignores_a_claim_that_does_not_corroborate(
     )
 
     active, _ = WorkStore(root).active()
-    assert active[0].session_process == SessionProcess(CLAUDE.pid, CLAUDE.started_at)
+    assert active[0].session_process == SessionProcess(
+        pid=CLAUDE.pid, started_at=CLAUDE.started_at
+    )
     assert active[0].session_id is None
 
 

@@ -331,7 +331,9 @@ class WorkObserverTests(unittest.TestCase):
             session_key=session_key,
             harness="codex",
             session_label=f"codex pid {process.pid}",
-            session_process=SessionProcess(process.pid, process.started_at),
+            session_process=SessionProcess(
+                pid=process.pid, started_at=process.started_at
+            ),
             issue_id="I_example/project#7",
             issue_reference="example/project#7",
             binding_provenance="explicit-reference",
@@ -564,7 +566,9 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
             harness=harness,
             session_label=f"{harness} session {session_id}",
             session_process=(
-                SessionProcess(process.pid, process.started_at) if process else None
+                SessionProcess(pid=process.pid, started_at=process.started_at)
+                if process
+                else None
             ),
             issue_id="I_example/project#7",
             issue_reference="example/project#7",

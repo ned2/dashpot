@@ -1,14 +1,23 @@
+"""Persist and read each Agent Session's active Issue work at one Worktree."""
+
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+
+from pydantic import AfterValidator, ValidationError
 
 from .harnesses import SESSION_ID
-from .json_records import require_field
 from .model import Diagnostic
+from .models import (
+    NonEmptyString,
+    PersistedRecord,
+    PublishedModel,
+    describe_validation_error,
+)
 from .record_store import LockedRecordStore
 
 WORK_STORE_VERSION = 1
@@ -17,13 +26,73 @@ SESSION_KEY = re.compile(r"^[A-Za-z0-9._-]+$")
 BindingProvenance = Literal["explicit-reference", "explicit-identity"]
 
 
-@dataclass(frozen=True, slots=True)
-class SessionProcess:
+def _hook_session_identity(value: str) -> str:
+    if not SESSION_ID.fullmatch(value):
+        raise ValueError("must be a hook session identity or null")
+    return value
+
+
+HookSessionIdentity = Annotated[str, AfterValidator(_hook_session_identity)]
+
+
+class SessionProcess(PublishedModel):
+    """The host process a Work Store record attributes its Agent Session to."""
+
     pid: int
     started_at: str
 
     def as_record(self) -> dict[str, Any]:
-        return {"pid": self.pid, "startedAt": self.started_at}
+        return self.model_dump(by_alias=True)
+
+
+class WorkStoreRecord(PersistedRecord):
+    """One Work Store record as persisted; the session key is its filename."""
+
+    version: Literal[1]
+    harness: NonEmptyString
+    session_label: NonEmptyString
+    session_process: SessionProcess | None
+    issue_id: NonEmptyString
+    issue_reference: NonEmptyString
+    binding_provenance: BindingProvenance
+    started_at: NonEmptyString
+    working_directory: NonEmptyString
+    branch: str | None
+    # The harness's own Agent Session Identity, as its lifecycle hooks publish
+    # it, when opt-in could confirm one; records written before it was
+    # recorded, or without a hook record to confirm it, carry ``None``.
+    session_id: HookSessionIdentity | None = None
+
+    @classmethod
+    def of(cls, work: ActiveWork) -> WorkStoreRecord:
+        return cls(
+            version=WORK_STORE_VERSION,
+            harness=work.harness,
+            session_label=work.session_label,
+            session_process=work.session_process,
+            issue_id=work.issue_id,
+            issue_reference=work.issue_reference,
+            binding_provenance=work.binding_provenance,
+            started_at=work.started_at,
+            working_directory=work.working_directory,
+            branch=work.branch,
+            session_id=work.session_id,
+        )
+
+    def active_work(self, session_key: str) -> ActiveWork:
+        return ActiveWork(
+            session_key=session_key,
+            harness=self.harness,
+            session_label=self.session_label,
+            session_process=self.session_process,
+            issue_id=self.issue_id,
+            issue_reference=self.issue_reference,
+            binding_provenance=self.binding_provenance,
+            started_at=self.started_at,
+            working_directory=self.working_directory,
+            branch=self.branch,
+            session_id=self.session_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,9 +109,6 @@ class ActiveWork:
     started_at: str
     working_directory: str
     branch: str | None
-    # The harness's own Agent Session Identity, as its lifecycle hooks publish
-    # it, when opt-in could confirm one; records written before it was
-    # recorded, or without a hook record to confirm it, carry ``None``.
     session_id: str | None = None
 
     @property
@@ -63,21 +129,7 @@ class WorkStore(LockedRecordStore):
     def start(self, work: ActiveWork) -> Path:
         """Start or switch Issue work for one Agent Session."""
         destination = self.record_path(work.session_key)
-        record = {
-            "version": WORK_STORE_VERSION,
-            "harness": work.harness,
-            "sessionLabel": work.session_label,
-            "sessionProcess": (
-                work.session_process.as_record() if work.session_process else None
-            ),
-            "issueId": work.issue_id,
-            "issueReference": work.issue_reference,
-            "bindingProvenance": work.binding_provenance,
-            "startedAt": work.started_at,
-            "workingDirectory": work.working_directory,
-            "branch": work.branch,
-            "sessionId": work.session_id,
-        }
+        record = WorkStoreRecord.of(work).model_dump(by_alias=True)
         with self.locked(work.session_key):
             self.replace(work.session_key, record)
         return destination
@@ -123,48 +175,15 @@ class WorkStore(LockedRecordStore):
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("record is not an object")
+        # A future version is a distinct, actionable condition, not a
+        # malformed field, so it is reported before validation.
         if raw.get("version") != WORK_STORE_VERSION:
             raise ValueError(f"unsupported Work Store version: {raw.get('version')!r}")
         session_key = path.stem
         if not SESSION_KEY.fullmatch(session_key):
             raise ValueError("record filename is not a valid session key")
-        harness = require_field(raw, "harness")
-        issue_id = require_field(raw, "issueId")
-        issue_reference = require_field(raw, "issueReference")
-        provenance = raw.get("bindingProvenance")
-        if provenance not in ("explicit-reference", "explicit-identity"):
-            raise ValueError(f"unsupported binding provenance: {provenance!r}")
-        started_at = require_field(raw, "startedAt")
-        working_directory = require_field(raw, "workingDirectory")
-        session_label = require_field(raw, "sessionLabel")
-        branch = raw.get("branch")
-        if branch is not None and not isinstance(branch, str):
-            raise ValueError("branch must be a string or null")
-        process = raw.get("sessionProcess")
-        session_process = None
-        if process is not None:
-            if (
-                not isinstance(process, dict)
-                or not isinstance(process.get("pid"), int)
-                or not isinstance(process.get("startedAt"), str)
-            ):
-                raise ValueError("sessionProcess needs pid and startedAt")
-            session_process = SessionProcess(process["pid"], process["startedAt"])
-        session_id = raw.get("sessionId")
-        if session_id is not None and (
-            not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id)
-        ):
-            raise ValueError("sessionId must be a hook session identity or null")
-        return ActiveWork(
-            session_key=session_key,
-            harness=harness,
-            session_label=session_label,
-            session_process=session_process,
-            issue_id=issue_id,
-            issue_reference=issue_reference,
-            binding_provenance=provenance,
-            started_at=started_at,
-            working_directory=working_directory,
-            branch=branch,
-            session_id=session_id,
-        )
+        try:
+            record = WorkStoreRecord.model_validate(raw)
+        except ValidationError as exc:
+            raise ValueError(describe_validation_error(exc)) from exc
+        return record.active_work(session_key)

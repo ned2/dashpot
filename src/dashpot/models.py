@@ -7,7 +7,14 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated, NoReturn, TypeVar
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    StringConstraints,
+    ValidationError,
+)
 from pydantic.alias_generators import to_camel
 from typing_extensions import TypeAliasType
 
@@ -27,6 +34,28 @@ class PublishedModel(DashpotModel):
     """Freeze a validated value published across module boundaries."""
 
     model_config = ConfigDict(frozen=True)
+
+
+class PersistedRecord(PublishedModel):
+    """Read a record Dashpot persists, retaining fields a newer Dashpot wrote."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+# A required wire string is never empty: the hand validators these models
+# replace all read "non-empty" as part of the field's contract.
+NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
+
+
+def describe_validation_error(error: ValidationError) -> str:
+    """Summarize every failure by its wire path, for a Diagnostic or domain error."""
+
+    parts: list[str] = []
+    for detail in error.errors():
+        path = ".".join(str(segment) for segment in detail["loc"])
+        message = detail["msg"].removeprefix("Value error, ")
+        parts.append(f"{path} {message}" if path else message)
+    return "; ".join(parts)
 
 
 def _tuple_from_list(value: object) -> object:

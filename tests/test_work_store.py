@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 
@@ -18,7 +19,7 @@ def work(
         session_key=session_key,
         harness="codex",
         session_label="codex pid 42",
-        session_process=SessionProcess(42, "Tue Aug 25 01:00:00 2026"),
+        session_process=SessionProcess(pid=42, started_at="Tue Aug 25 01:00:00 2026"),
         issue_id=issue_id,
         issue_reference="example/project#7",
         binding_provenance="explicit-reference",
@@ -207,3 +208,83 @@ def test_malformed_session_identity_is_diagnosed(tmp_path: Path) -> None:
 
     assert active == []
     assert [diagnostic.code for diagnostic in diagnostics] == ["work-store-malformed"]
+
+
+def test_the_persisted_record_keeps_its_wire_key_set(tmp_path: Path) -> None:
+    store = WorkStore(tmp_path)
+    store.start(work(session_key="codex-42-abcd1234"))
+
+    document = json.loads((store.directory / "codex-42-abcd1234.json").read_text())
+
+    # The record's keys are the persisted contract: camelCase, explicit nulls,
+    # no session key (that is the filename), in the order they were written.
+    assert list(document) == [
+        "version",
+        "harness",
+        "sessionLabel",
+        "sessionProcess",
+        "issueId",
+        "issueReference",
+        "bindingProvenance",
+        "startedAt",
+        "workingDirectory",
+        "branch",
+        "sessionId",
+    ]
+    assert document["sessionProcess"] == {
+        "pid": 42,
+        "startedAt": "Tue Aug 25 01:00:00 2026",
+    }
+    assert document["sessionId"] is None
+
+
+def _rewrite(store: WorkStore, **changes: object) -> None:
+    path = store.directory / "codex-42-abcd1234.json"
+    document = json.loads(path.read_text())
+    document.update(changes)
+    path.write_text(json.dumps(document))
+
+
+def test_unknown_record_fields_are_retained_on_read(tmp_path: Path) -> None:
+    # A newer Dashpot may persist more; this one reads what it knows.
+    store = WorkStore(tmp_path)
+    store.start(work())
+    _rewrite(store, futureField={"nested": True})
+
+    active, diagnostics = store.active()
+
+    assert diagnostics == []
+    assert active == [work()]
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"sessionProcess": {"pid": True, "startedAt": "x"}}, "sessionProcess.pid"),
+        ({"sessionProcess": {"pid": "42", "startedAt": "x"}}, "sessionProcess.pid"),
+        ({"branch": 3}, "branch"),
+        ({"issueId": ""}, "issueId"),
+        ({"bindingProvenance": "inferred"}, "bindingProvenance"),
+        ({"sessionId": "not valid!"}, "sessionId must be a hook session identity"),
+    ],
+)
+def test_coerced_or_wrong_typed_fields_are_diagnosed_by_wire_path(
+    tmp_path: Path, changes: dict[str, object], message: str
+) -> None:
+    store = WorkStore(tmp_path)
+    store.start(work())
+    _rewrite(store, **changes)
+
+    active, diagnostics = store.active()
+
+    assert active == []
+    (diagnostic,) = diagnostics
+    assert diagnostic.code == "work-store-malformed"
+    assert message in diagnostic.message
+
+
+def test_a_session_process_is_frozen() -> None:
+    process = SessionProcess(pid=42, started_at="Tue Aug 25 01:00:00 2026")
+
+    with pytest.raises(ValidationError):
+        process.pid = 43  # ty: ignore[invalid-assignment]
