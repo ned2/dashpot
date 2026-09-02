@@ -318,9 +318,13 @@ needs a selection and a confirmation:
   sorts after the buttons in the `Tab` order, which Textual computes from
   screen position, whenever it starts out scrolled under the docked footer.
   Everything focusable except the list therefore lives in the footer.
-- Gate the destructive `Button` with `disabled` and a visible reason, recomputed
-  on every `SelectionList.SelectedChanged` and `Checkbox.Changed`; deselect
-  what must never stay selected in the same handler.
+- Never gate the destructive `Button` with `disabled`: a disabled button
+  still lights up under the mouse and swallows the click without a word, and
+  `Tab` skips it, which reads as a broken button. Keep it pressable, recompute
+  the reason on every `SelectionList.SelectedChanged` and `Checkbox.Changed`,
+  show it beneath the list, switch the variant to `error` only once a press
+  would delete, and answer a premature press with a toast and focus on what is
+  missing; deselect what must never stay selected in the same handler.
 - Inspect and perform in `run_worker(partial(...), group=..., exit_on_error=False)`
   over the app's executor, post a message with the result, and let the message
   handler push the next screen; the modal never blocks the event loop.

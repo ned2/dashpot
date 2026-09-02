@@ -503,6 +503,7 @@ CleanupScreen, CleanupReportScreen {
     min-height: 1;
     margin: 1 0 0 0;
     color: $warning;
+    text-style: bold;
 }
 
 #cleanup-report {

@@ -113,12 +113,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 yield Static("", id="cleanup-problem")
                 with Horizontal(id="cleanup-actions"):
                     yield Button("Cancel", id="cleanup-cancel")
-                    yield Button(
-                        "Delete selected",
-                        id="cleanup-confirm",
-                        variant="error",
-                        disabled=True,
-                    )
+                    yield Button("Delete selected", id="cleanup-confirm")
             yield Static(f"{verb}  {preview.subject}", id="cleanup-title")
             yield Static(
                 CHANGED_HELP if self.changed else SELECT_HELP, id="cleanup-help"
@@ -163,6 +158,16 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             return False
         return self.query_one("#cleanup-ignored", Checkbox).value
 
+    def acknowledgement_missing(self) -> bool:
+        """Whether a selected Worktree's ignored content still awaits its checkbox."""
+        if not self.preview.ignored or self.ignored_acknowledged():
+            return False
+        return any(
+            target.kind == "worktree"
+            for identity in self.selected()
+            if (target := self.preview.target(identity)) is not None
+        )
+
     def selection_problem(self) -> str | None:
         """Why the selection cannot be confirmed yet, or None when it can."""
         selected = self.selected()
@@ -178,17 +183,11 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 required = self.preview.target(target.requires)
                 name = required.label if required is not None else target.requires
                 return f"{target.label} can only be deleted together with {name}."
-        if self.preview.ignored and not self.ignored_acknowledged():
-            selected_kinds = {
-                target.kind
-                for identity in selected
-                if (target := self.preview.target(identity)) is not None
-            }
-            if "worktree" in selected_kinds:
-                return (
-                    f"Acknowledge that the {len(self.preview.ignored)} ignored "
-                    f"path(s) are deleted with the Worktree."
-                )
+        if self.acknowledgement_missing():
+            return (
+                f"Acknowledge that the {len(self.preview.ignored)} ignored "
+                f"path(s) are deleted with the Worktree."
+            )
         return None
 
     def refresh_state(self) -> None:
@@ -200,7 +199,12 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 targets.deselect(identity)
         problem = self.selection_problem()
         self.query_one("#cleanup-problem", Static).update(problem or "")
-        self.query_one("#cleanup-confirm", Button).disabled = problem is not None
+        # The button always answers a press; it turns red once a press would
+        # delete. A disabled button would still light up under the mouse and
+        # swallow the click without a word.
+        self.query_one("#cleanup-confirm", Button).variant = (
+            "error" if problem is None else "default"
+        )
 
     def on_selection_list_selected_changed(
         self, _event: SelectionList.SelectedChanged[str]
@@ -214,7 +218,14 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         self.dismiss(None)
 
     def action_confirm(self) -> None:
-        if self.selection_problem() is not None:
+        problem = self.selection_problem()
+        if problem is not None:
+            # A premature press deletes nothing and points at what is missing.
+            self.notify(problem, title="Nothing deleted", severity="warning")
+            if self.acknowledgement_missing():
+                self.query_one("#cleanup-ignored", Checkbox).focus()
+            else:
+                self.targets().focus()
             return
         self.dismiss(
             CleanupConfirmation(
