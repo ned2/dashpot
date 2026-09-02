@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .cleanup import CleanupPreview
 from .issue_profile import IssueProfile
 from .model import WorkspaceSnapshot
 from .worktrees import WorktreePlan, WorktreeRemovability
@@ -49,3 +50,8 @@ def render_json(
 ) -> str:
     """Render a command document, or a list of them, as JSON text."""
     return json.dumps(document, indent=None if compact else 2)
+
+
+def cleanup_preview_document(preview: CleanupPreview) -> dict[str, Any]:
+    """The ``--dry-run --json`` document of a Cleanup command: its preview."""
+    return _document(preview)

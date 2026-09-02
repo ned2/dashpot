@@ -400,7 +400,7 @@ def observe_branches(
         # anchor stays authoritative, but a broken one is worth a warning.
         return BranchObservation(
             branches,
-            _fetched_at(anchor, scoped),
+            last_fetched_at(anchor, scoped),
             diagnostics,
             integration_ref,
             anchor=str(anchor),
@@ -718,7 +718,7 @@ def _parse_upstream_track(track: str) -> tuple[int | None, int | None, bool]:
     )
 
 
-def _fetched_at(anchor: Path, git: Git) -> str | None:
+def last_fetched_at(anchor: Path, git: Git) -> str | None:
     """When the repository last fetched, from ``FETCH_HEAD``; None if never.
 
     A repository that never fetched has no FETCH_HEAD; a failed lookup of
