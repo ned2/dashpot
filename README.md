@@ -588,7 +588,10 @@ Dashpot-configured checkout fall back to the platform's normal
 application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
 
 Each refresh checks that a session's recorded process is still the one that
-published the record. A graceful `SessionEnd` removes the session's record. A
+published the record. A graceful `SessionEnd` removes the session's record and
+ends the session's Agent Run in the Work Store, wherever in the Repository's
+worktrees it is recorded
+([ADR 0015](docs/adr/0015-reconcile-the-agent-run-at-session-end.md)). A
 session that was killed, or whose `SessionEnd` hook never ran, is dropped
 quietly and its stale record and lock file are cleaned up; it only becomes a Diagnostics
 warning when it leaves an orphaned Agent Run behind (see below). When the
@@ -704,8 +707,10 @@ a diagnostic pointing at `dashpot work start`, never silently combined. When a
 session is gone but its Work Store record remains, that record is an orphaned
 Agent Run: it is excluded from the listed runs and reported once as an
 actionable `work-session-orphaned` diagnostic naming the Issue and the
-`dashpot work stop --session <key>` command that ends it. Dashpot never stops
-or reassigns Issue work on its own.
+`dashpot work stop --session <key>` command that ends it. Dashpot never
+reassigns Issue work, and ends a run on its own only when the harness delivers
+the session's graceful `SessionEnd`; a session that is killed still leaves an
+orphaned Agent Run for a person to end.
 
 ## Issue Worktrees
 

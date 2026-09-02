@@ -10,7 +10,11 @@ import pytest
 from dashpot.agents import observe_agent_runs
 from dashpot.errors import DashpotError
 from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
-from dashpot.hook_records import session_directory, state_directory
+from dashpot.hook_records import (
+    publish_hook_event,
+    session_directory,
+    state_directory,
+)
 from dashpot.model import ObservationTarget
 from dashpot.processes import ProcessIdentity, ProcessLookup, ProcessPresent
 from dashpot.work import (
@@ -756,3 +760,84 @@ def test_a_relocated_session_is_observed_once_without_conflict(
         (str(b), "I_observer")
     ]
     assert "work-session-conflict" not in {item.code for item in diagnostics}
+
+
+# --- A graceful SessionEnd ends the session's Agent Run (ADR 0015) -----------
+
+
+def session_end(
+    root: Path, session_id: str, harness: str, process: ProcessIdentity
+) -> None:
+    """Publish the session's SessionEnd from ``root`` as its harness would."""
+    publish_hook_event(
+        {"session_id": session_id, "cwd": str(root), "hook_event_name": "SessionEnd"},
+        environ={},
+        process=process,
+        harness=harness,
+    )
+
+
+def test_session_end_ends_the_sessions_run(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(root, "build-observer", lookup=codex_lookup, environ={})
+
+    session_end(root, CODEX_SESSION, "codex", CODEX)
+
+    assert WorkStore(root).active() == ([], [])
+    assert session_directory(root).joinpath(f"{CODEX_SESSION}.json").exists() is False
+    runs, diagnostics = observe_agent_runs(
+        {"project:example": [target(root)]}, tmp_path / "global-state", lookup=absent()
+    )
+    assert runs == []
+    assert [d.code for d in diagnostics] == []
+
+
+def test_session_end_ends_the_run_wherever_in_the_repository_it_is(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+
+    session_end(b, CODEX_SESSION, "codex", CODEX)
+
+    assert WorkStore(a).active()[0] == []
+    assert WorkStore(b).active()[0] == []
+
+
+def test_session_end_leaves_other_sessions_runs_alone(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    start_issue_work(root, "build-observer", lookup=codex_lookup, environ={})
+    start_issue_work(root, "fix-crash", lookup=present(CLAUDE), environ={})
+
+    session_end(root, CODEX_SESSION, "codex", CODEX)
+
+    assert list(issue_ids(root).values()) == ["I_crash"]
+
+
+def test_session_end_ends_a_run_opted_in_by_agent_session_identity(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON)
+    (work,) = WorkStore(root).active()[0]
+    assert work.session_id == CODEX_SESSION
+
+    # The hook runs on the host, so it sees the process the sandbox could not.
+    session_end(root, CODEX_SESSION, "codex", CODEX)
+
+    assert WorkStore(root).active() == ([], [])
+
+
+def test_session_end_outside_any_repository_reconciles_nothing(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    start_issue_work(root, "build-observer", lookup=codex_lookup, environ={})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    session_end(elsewhere, CODEX_SESSION, "codex", CODEX)
+
+    assert list(issue_ids(root).values()) == ["I_observer"]

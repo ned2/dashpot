@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -189,3 +190,38 @@ class WorkStore(LockedRecordStore):
         except ValidationError as exc:
             raise ValueError(describe_validation_error(exc)) from exc
         return record.active_work(session_key)
+
+
+def end_session_runs(
+    worktrees: Iterable[Path],
+    harness: str,
+    session_id: str,
+    process_key: ProcessKey | None,
+) -> list[tuple[Path, ActiveWork]]:
+    """End an ended Agent Session's runs wherever in its Repository they are.
+
+    The session is matched the way observation joins it: by the Agent Session
+    Identity its hooks published, or by the host process the hook observed.
+    A Worktree whose Work Store cannot be read is skipped rather than raised:
+    the caller is the SessionEnd hook, which must never break its harness,
+    and an unreadable record stays for observation to diagnose.
+    """
+    ended: list[tuple[Path, ActiveWork]] = []
+    for worktree in worktrees:
+        store = WorkStore(worktree)
+        try:
+            active, _diagnostics = store.active()
+        except OSError:
+            continue
+        for work in active:
+            if work.harness != harness:
+                continue
+            by_identity = work.session_id == session_id
+            by_process = (
+                process_key is not None
+                and work.session_process is not None
+                and work.session_process.key == process_key
+            )
+            if (by_identity or by_process) and store.stop(work.session_key):
+                ended.append((worktree, work))
+    return ended

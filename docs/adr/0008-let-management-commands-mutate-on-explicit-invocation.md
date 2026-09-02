@@ -88,3 +88,7 @@ Dashpot reports removability and never removes.
   mutation invoked from the TUI under the same boundary: the `f` key fetches
   and prunes the remotes of the Repository Anchor whose refs supplied the
   Branch observation, and nothing else.
+- [ADR 0015](0015-reconcile-the-agent-run-at-session-end.md) classes ending
+  the session's own Agent Run at its graceful `SessionEnd` with the hook's
+  removal of its own record: housekeeping of Dashpot's state by the hook the
+  harness invokes for that session, not a mutation of anyone else's work.
