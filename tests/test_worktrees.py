@@ -792,3 +792,27 @@ def test_check_refuses_a_path_that_is_not_a_worktree(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="is not a Worktree of the Repository"):
         check_worktree(root, tmp_path / "nowhere")
+
+
+def test_squash_merged_worktree_is_removable_with_a_forced_branch_delete(
+    tmp_path: Path,
+) -> None:
+    root = sim(tmp_path)
+    plan = create(root)
+    worktree = Path(plan.path)
+    (worktree / "feature.py").write_text("feature\n")
+    git(worktree, "add", "feature.py")
+    git(worktree, "commit", "-q", "-m", "feature work")
+    git(root, "merge", "--squash", "-q", plan.branch)
+    git(root, "commit", "-q", "-m", "feature work (#35)")
+    # The squash landed on the remote default Branch and was fetched.
+    git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+    report = check_worktree(root, worktree)
+
+    assert report.obstacles == ()
+    assert report.removable is True
+    assert report.remove_commands == (
+        f"git worktree remove {plan.path}",
+        f"git branch -D {plan.branch}",
+    )

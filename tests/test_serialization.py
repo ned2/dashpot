@@ -85,6 +85,7 @@ BRANCH_KEYS = {
     "upstreamGone",
     "checkedOutAt",
     "unintegratedCommits",
+    "contentIntegrated",
 }
 AGENT_RUN_KEYS = {
     "id",

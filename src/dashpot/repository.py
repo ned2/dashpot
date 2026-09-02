@@ -6,7 +6,7 @@ import stat
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -517,8 +517,141 @@ def _observe_integration(
                 anchor, integration_ref, branch.refname, git, diagnostics
             )
         )
-        observed.append(branch.model_copy(update={"unintegrated_commits": count}))
+        # Reachability answers the common case exactly; only retained commits
+        # raise the content question ([ADR 0017](../../docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
+        content: bool | None = None
+        if count:
+            try:
+                content = assess_content_integration(
+                    git, integration_ref, branch.refname, branch.committed_at
+                )
+            except GitError as exc:
+                diagnostics.append(
+                    _integration_diagnostic(
+                        anchor,
+                        f"Cannot compare the content of {branch.refname} with "
+                        f"{integration_ref}: {exc.detail}",
+                    )
+                )
+        observed.append(
+            branch.model_copy(
+                update={"unintegrated_commits": count, "content_integrated": content}
+            )
+        )
     return observed
+
+
+# A squash commit is committed after the Branch's last commit; the slack
+# absorbs clock skew between the committing hosts.
+SQUASH_SCAN_SLACK = timedelta(days=1)
+
+
+def assess_content_integration(
+    git: Git, integration_ref: str, branch_ref: str, committed_at: str | None
+) -> bool | None:
+    """Tell whether the Integration Branch already holds the Branch's content.
+
+    Two exact Git facts answer it without a fetch. First, merging the Branch
+    into the Integration Branch's tip would leave its tree unchanged: the
+    Branch contributes nothing, as after a recent squash merge. When that
+    merge conflicts — the Integration Branch has since changed the same
+    lines — the second looks for the squash commit itself: a first-parent
+    commit of the Integration Branch, committed after the Branch's last
+    commit and touching every path the Branch changed, whose tree is exactly
+    what merging the Branch onto its parent produces. A Branch that changes
+    nothing against its merge base has no content to find and is ``False``,
+    as is content these facts cannot find; neither means it is absent from
+    history. ``None`` means Git could not answer.
+    """
+    integration_tree = git.maybe("rev-parse", f"{integration_ref}^{{tree}}")
+    if integration_tree is None:
+        return None
+    merged_tree = _merge_tree(git, integration_ref, branch_ref)
+    if merged_tree is not None and merged_tree != integration_tree:
+        return False
+    base = git.maybe("merge-base", integration_ref, branch_ref)
+    if base is None:
+        return None
+    changed = git.maybe("diff", "--name-only", "-z", base, branch_ref)
+    if changed is None:
+        return None
+    paths = {path for path in changed.split("\0") if path}
+    if not paths:
+        return False
+    if merged_tree is not None:
+        return True
+    return _squash_commit_exists(
+        git, integration_ref, branch_ref, base, paths, committed_at
+    )
+
+
+def _merge_tree(git: Git, onto: str, branch_ref: str) -> str | None:
+    """The tree merging ``branch_ref`` onto ``onto`` yields; None on conflict.
+
+    ``merge-tree`` answers a conflict with exit 1, which is Git answering;
+    any other non-zero exit is Git failing to answer and raises.
+    """
+    args = ("merge-tree", "--write-tree", "--no-messages", onto, branch_ref)
+    result = git.run(*args)
+    if result.returncode == 0:
+        return result.stdout.split("\n", 1)[0].strip()
+    if result.returncode == 1:
+        return None
+    raise GitError(args, git.root, detail=result.stderr.strip() or "merge-tree failed")
+
+
+def _squash_commit_exists(
+    git: Git,
+    integration_ref: str,
+    branch_ref: str,
+    base: str,
+    paths: set[str],
+    committed_at: str | None,
+) -> bool | None:
+    since = _since_argument(committed_at)
+    listing = git.maybe(
+        "log",
+        "--first-parent",
+        "--format=%H",
+        "--name-only",
+        *since,
+        f"{base}..{integration_ref}",
+    )
+    if listing is None:
+        return None
+    for commit, touched in _commits_with_paths(listing):
+        if not paths <= touched:
+            continue
+        squashed = _merge_tree(git, f"{commit}^", branch_ref)
+        if squashed is None:
+            continue
+        if squashed == git.maybe("rev-parse", f"{commit}^{{tree}}"):
+            return True
+    return False
+
+
+def _since_argument(committed_at: str | None) -> tuple[str, ...]:
+    if not committed_at:
+        return ()
+    try:
+        moment = datetime.fromisoformat(committed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return ()
+    return (f"--since={(moment - SQUASH_SCAN_SLACK).isoformat()}",)
+
+
+def _commits_with_paths(listing: str) -> list[tuple[str, set[str]]]:
+    """Parse ``log --format=%H --name-only`` into (commit, touched paths)."""
+    commits: list[tuple[str, set[str]]] = []
+    for line in listing.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if len(text) == 40 and all(c in "0123456789abcdef" for c in text):
+            commits.append((text, set()))
+        elif commits:
+            commits[-1][1].add(text)
+    return commits
 
 
 def _integration_diagnostic(anchor: Path, message: str) -> Diagnostic:
