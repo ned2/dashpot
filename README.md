@@ -334,7 +334,8 @@ carry a warning (a rate limit running low). Codes are prefixed by the source
 family — a GitHub Issue Source reports `github-authentication`,
 `github-permission`, `github-not-found`, `github-repository`,
 `github-rate-limit`, `github-rate-limit-low`, `github-refresh-budget`,
-`github-reconciliation-overdue`, `github-timeout`, `github-network`,
+`github-reconciliation-overdue`, `github-issue-count`, `github-timeout`,
+`github-network`,
 `github-pagination`, `github-malformed-response` and `github-profile` — and
 are read from the tracker's structured signals before its prose
 ([ADR 0021](docs/adr/0021-bound-each-github-refresh-by-a-budget.md)).
@@ -365,11 +366,15 @@ no clock of Dashpot's ever enters the boundary.
 **Reconciliation**:
 An observation of every GitHub Issue afresh, which alone can see a deletion,
 a transfer, or a change GitHub does not date — a linked pull request, the
-blocker's side of a dependency. It runs on a period (five minutes), on `r`,
+blocker's side of a dependency, a label's colour, an update in the same
+second as the High-Water Mark. It runs on a period (five minutes), on `r`,
 and whenever the Issue count no longer adds up; an observation whose
 Reconciliation is more than two periods overdue carries a
-`github-reconciliation-overdue` warning
+`github-reconciliation-overdue` warning, and one whose count still disagrees
+after a Reconciliation failed carries `github-issue-count`
 ([ADR 0022](docs/adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)).
+_Avoid_: reconciling for the dashboard's own reuse of table rows and pane
+entries, which is a widget concern, not an observation.
 
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working

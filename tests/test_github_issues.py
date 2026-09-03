@@ -1084,6 +1084,161 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         self.assertEqual(changed.issues, unchanged.issues)
         self.assertEqual(4, len(runner.calls))
 
+    def test_an_issue_updated_while_the_delta_paged_keeps_its_later_observation(
+        self,
+    ) -> None:
+        latest = "2026-08-26T09:45:00Z"
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(3, self.LATER)),
+                completed(
+                    issue_page(
+                        [
+                            unrelated(issue_record(2, updated_at=self.MARK, title="A")),
+                            unrelated(issue_record(3, updated_at=self.LATER)),
+                        ],
+                        has_next_page=True,
+                        end_cursor="d1",
+                    )
+                ),
+                # Issue 2 moved past the cursor by being updated again.
+                completed(
+                    issue_page(
+                        [unrelated(issue_record(2, updated_at=latest, title="B"))]
+                    )
+                ),
+                completed(probe_response(3, latest)),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+        unchanged = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(
+            ["I_issue_1", "I_issue_2", "I_issue_3"],
+            [issue.id for issue in observation.issues],
+        )
+        self.assertEqual("B", observation.issues[1].title)
+        self.assertIn("cursor=d1", runner.calls[3][0])
+        self.assertEqual(observation.issues, unchanged.issues)
+        self.assertEqual(5, len(runner.calls))
+
+    def test_a_probe_newer_than_the_mark_with_an_empty_delta_keeps_the_mark(
+        self,
+    ) -> None:
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(2, self.LATER)),
+                completed(issue_page([])),
+                completed(probe_response(2, self.LATER)),
+                completed(issue_page([])),
+            ]
+        )
+        github = source(runner)
+
+        first = github.refresh()
+        second = github.refresh()
+        third = github.refresh()
+
+        self.assertEqual(first.issues, second.issues)
+        self.assertEqual(first.issues, third.issues)
+        self.assertEqual("fresh", third.status)
+        # Both deltas asked since the unchanged mark; neither reconciled.
+        self.assertIn(f"since={self.MARK}", runner.calls[2][0])
+        self.assertIn(f"since={self.MARK}", runner.calls[4][0])
+        self.assertEqual(5, len(runner.calls))
+
+    def test_an_other_end_that_is_not_an_issue_of_the_repository_is_not_kept(
+        self,
+    ) -> None:
+        elsewhere = related(
+            unrelated(issue_record(1, updated_at=self.LATER)),
+            "blocking",
+            "PR_1",
+            "I_far",
+        )
+        foreign = by_id(unrelated(issue_record(7, updated_at=self.MARK)))
+        foreign["id"] = "I_far"
+        foreign["repository"] = {"id": "R_other", "nameWithOwner": "other/repo"}
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(2, self.LATER)),
+                completed(issue_page([elsewhere])),
+                nodes_response([foreign, {"__typename": "PullRequest"}]),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(
+            ["I_issue_1", "I_issue_2"], [issue.id for issue in observation.issues]
+        )
+        self.assertEqual(
+            ("I_far", "PR_1"), tuple(observation.issues[0].relationships.blocking)
+        )
+        self.assertEqual(
+            ["-f", "ids[]=I_far", "-f", "ids[]=PR_1"], runner.calls[3][0][-4:]
+        )
+
+    def test_a_count_disagreement_is_reported_once_a_reconciliation_failed(
+        self,
+    ) -> None:
+        # One reading when a refresh starts and one before each page.
+        clock = iter([*[0.0] * 2, *[15.0] * 5, *[30.0] * 3, *[330.0] * 2])
+        mark_issue = completed(
+            issue_page([unrelated(issue_record(2, updated_at=self.MARK))])
+        )
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                # Issue 1 deleted: the count fell; the sweep it triggers is
+                # abandoned by the budget.
+                completed(probe_response(1, self.MARK)),
+                mark_issue,
+                completed(
+                    issue_page([issue_record(1)], has_next_page=True, end_cursor="p1")
+                ),
+                # Next tick: no second sweep, the disagreement is reported.
+                completed(probe_response(1, self.MARK)),
+                mark_issue,
+                # A period later the Reconciliation is due and succeeds.
+                mark_issue,
+            ]
+        )
+        github = source(
+            runner,
+            budget=RefreshBudget(seconds=60, pages=3),
+            monotonic=lambda: next(clock),
+            reconcile_seconds=300,
+        )
+
+        github.refresh()
+        abandoned = github.refresh()
+        reported = github.refresh()
+        settled = github.refresh()
+
+        self.assertEqual("stale", abandoned.status)
+        self.assertEqual("github-refresh-budget", abandoned.diagnostics[0].code)
+        self.assertEqual("fresh", reported.status)
+        self.assertEqual(2, len(reported.issues))
+        self.assertEqual(["github-issue-count"], [d.code for d in reported.diagnostics])
+        self.assertIn(
+            "reports 1 Issues but 2 are known", reported.diagnostics[0].message
+        )
+        self.assertEqual("fresh", settled.status)
+        self.assertEqual(["I_issue_2"], [issue.id for issue in settled.issues])
+        self.assertEqual((), settled.diagnostics)
+        self.assertEqual(7, len(runner.calls))
+
     def test_a_changed_relationship_observes_its_other_end(self) -> None:
         blocked = related(
             unrelated(issue_record(1, updated_at=self.LATER)), "blockedBy", "I_issue_2"

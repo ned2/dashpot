@@ -48,8 +48,9 @@ snapshot by Issue identity and assembles each fresh observation from it:
   attempted, when a person presses `r`, and whenever the merged count
   disagrees with the probe's, which is the only trace a deletion or transfer
   leaves. An Issue leaves the snapshot only on such positive evidence: a
-  Reconciliation that no longer lists it, or an identity answered `null` or
-  as another repository's Issue. Absence from a delta never removes anything,
+  Reconciliation that no longer lists it, or an identity answered `null`, as
+  a node that is not an Issue, or as another repository's Issue. Absence
+  from a delta never removes anything,
   which keeps [ADR 0002](0002-require-complete-issue-profile-snapshots.md)'s
   guarantee that nothing partially fetched masquerades as a deletion.
 - **The request rides the ticket.** `r` requests its observations with a
@@ -84,18 +85,25 @@ snapshot by Issue identity and assembles each fresh observation from it:
 - An unchanged repository costs one point and under a second a tick, whatever
   its size; a tick with a handful of changes costs a probe, a delta page and
   at most a batch of counterparts. A repository of two thousand Issues spends
-  about thirteen hundred points an hour at the default periods instead of
-  exhausting the limit.
-- A linked pull request change, a blocker-side dependency change, and a
-  deletion offset by a creation in the same window are visible only at the
-  next Reconciliation, up to five minutes late; `r` closes the gap on
-  demand. The Pull Requests pane
+  about seventeen hundred points an hour at the default periods — twelve
+  sweeps of a hundred and twenty points and two hundred and forty probes —
+  instead of exhausting the limit.
+- The blind spots are enumerated, and each is closed by the next
+  Reconciliation, up to five minutes late, or by `r` on demand: a linked
+  pull request change; a blocker-side dependency change; a deletion offset
+  by a creation in the same window; an update in the same second as the
+  High-Water Mark that GitHub's one-second `updatedAt` cannot order after
+  it; and a fact GitHub does not date on the Issue — a label's colour, a
+  milestone or Issue type renamed — on an Issue that was not itself
+  updated. The Pull Requests pane
   ([#83](https://github.com/ned2/dashpot/issues/83)) will need a probe of
   its own, which is exactly the signal that closes the linked-pull-request
   blind spot.
 - A Reconciliation the budget abandons is retried a period later while the
   ticks between keep refreshing incrementally, so a large repository is
   stale for one tick in five minutes rather than on every tick; the overdue
-  warning says when that has gone on too long.
+  warning says when that has gone on too long. A count disagreement found
+  after such a failure is reported beside the fresh snapshot as a
+  `github-issue-count` warning rather than sweeping again on every tick.
 - Issue Profiles are published ordered by Issue Number rather than by the
   sweep's creation order, since a merged snapshot has no page order.

@@ -55,6 +55,7 @@ _BATCH_SIZE = 24
 # observed afresh to close what a delta cannot see (ADR 0022).
 DEFAULT_RECONCILE_SECONDS = 300.0
 _RECONCILIATION_OVERDUE = "github-reconciliation-overdue"
+_ISSUE_COUNT = "github-issue-count"
 _CONNECTION_FIELDS = {
     "labels": "name",
     "assignees": "login",
@@ -148,7 +149,7 @@ query DashpotIssue($repositoryId: ID!, $number: Int!) {{
 }}
 """.strip()
 
-# The Issues updated at or after the snapshot's high-water mark, oldest
+# The Issues updated at or after the snapshot's High-Water Mark, oldest
 # change first so the mark advances monotonically through the pages. The
 # boundary is inclusive, so the Issue at the mark is observed again: that
 # overlap is what makes the boundary safe without any clock arithmetic.
@@ -190,7 +191,7 @@ query DashpotIssueProbe($repositoryId: ID!) {{
         orderBy: {{field: UPDATED_AT, direction: DESC}}
       ) {{
         totalCount
-        nodes {{ id updatedAt }}
+        nodes {{ updatedAt }}
       }}
     }}
   }}
@@ -232,14 +233,17 @@ class _ObservedIssue:
 class _Snapshot:
     """The complete collection as last observed, by Issue identity.
 
-    ``high_water`` is the newest ``updatedAt`` GitHub has reported, the
-    inclusive start of the next delta; ``reconciled_at`` is the monotonic
-    moment every Issue was last observed afresh.
+    ``high_water`` is the High-Water Mark, the newest ``updatedAt`` GitHub
+    has reported and the inclusive start of the next delta; ``reconciled_at``
+    is the monotonic moment every Issue was last observed afresh;
+    ``reported_count`` is the Issue count GitHub reported when it disagreed
+    with the snapshot and a Reconciliation could not yet settle it.
     """
 
     issues: Mapping[str, _ObservedIssue]
     high_water: str | None
     reconciled_at: float
+    reported_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,7 +259,7 @@ class GitHubIssuesSource(IssueSource):
 
     The first refresh observes every Issue; later ones refresh the snapshot
     incrementally — a one-point probe, then only the Issues changed since the
-    high-water mark and the other ends of any relationship they changed — and
+    High-Water Mark and the other ends of any relationship they changed — and
     observe everything afresh again once a Reconciliation period has passed,
     when a person asks, or when the Issue count no longer adds up
     (ADR 0022). An Issue leaves the snapshot only on positive evidence.
@@ -316,8 +320,12 @@ class GitHubIssuesSource(IssueSource):
             snapshot = self._reconcile(meter, now)
         else:
             snapshot = self._refresh_incrementally(snapshot, meter, now)
+        collected = self._collected(snapshot, now)
+        # The merge is the one place two listings meet, so the snapshot is
+        # kept only once the collection it makes has passed the invariants.
+        self._check_collection_invariants(collected)
         self._snapshot = snapshot
-        return self._collected(snapshot, now)
+        return collected
 
     def _start_meter(self) -> RefreshMeter:
         return self.budget.start(self._monotonic)
@@ -325,6 +333,16 @@ class GitHubIssuesSource(IssueSource):
     def _reconciliation_due(self, now: float) -> bool:
         attempted_at = self._reconcile_attempted_at
         return attempted_at is None or now - attempted_at >= self.reconcile_seconds
+
+    def _reconciliation_failed_this_period(
+        self, snapshot: _Snapshot, now: float
+    ) -> bool:
+        attempted_at = self._reconcile_attempted_at
+        return (
+            attempted_at is not None
+            and attempted_at > snapshot.reconciled_at
+            and now - attempted_at < self.reconcile_seconds
+        )
 
     def _reconcile(self, meter: RefreshMeter, now: float) -> _Snapshot:
         """Observe every Issue afresh: the one observation that sees a deletion."""
@@ -361,16 +379,15 @@ class GitHubIssuesSource(IssueSource):
             return snapshot
         changed: dict[str, _ObservedIssue] = {}
         high_water = snapshot.high_water
-        for entry in self._observe_records(
-            self._collect_issue_pages(
-                _ISSUES_SINCE_QUERY,
-                {"since": snapshot.high_water},
-                meter,
-                "Issue delta",
-            ),
-            meter,
+        for record in self._collect_issue_pages(
+            _ISSUES_SINCE_QUERY, {"since": snapshot.high_water}, meter, "Issue delta"
         ):
-            changed[entry.issue.id] = entry
+            entry = self._observe_record(record, meter)
+            # An Issue updated again while the delta paged moves past the
+            # cursor and is listed once more; the later observation wins.
+            previous = changed.get(entry.issue.id)
+            if previous is None or not _is_later(previous.updated_at, entry.updated_at):
+                changed[entry.issue.id] = entry
             high_water = _later(high_water, entry.updated_at)
         observed = dict(snapshot.issues)
         observed.update(changed)
@@ -383,18 +400,28 @@ class GitHubIssuesSource(IssueSource):
                 observed.pop(issue_id, None)
             else:
                 observed[issue_id] = entry
+        reported_count: int | None = None
         if len(observed) != probe.total_count:
             # Something left without a trace a delta can see — a deletion, a
             # transfer — and only observing everything afresh can say what.
-            return self._reconcile(meter, now)
+            # But a Reconciliation the budget already abandoned this period
+            # would fail the same way on every tick, so the disagreement is
+            # reported beside what is known until the next attempt is due.
+            if not self._reconciliation_failed_this_period(snapshot, now):
+                return self._reconcile(meter, now)
+            reported_count = probe.total_count
         return _Snapshot(
-            issues=observed, high_water=high_water, reconciled_at=snapshot.reconciled_at
+            issues=observed,
+            high_water=high_water,
+            reconciled_at=snapshot.reconciled_at,
+            reported_count=reported_count,
         )
 
     def _collected(self, snapshot: _Snapshot, now: float) -> CollectedIssues:
         entries = sorted(snapshot.issues.values(), key=lambda entry: entry.issue.number)
         label_colors: dict[str, str] = {}
-        for entry in entries:
+        # The most recently updated Issue carries the latest colour of a label.
+        for entry in sorted(entries, key=lambda entry: _timestamp(entry.updated_at)):
             label_colors.update(entry.label_colors)
         return CollectedIssues(
             issues=tuple(entry.issue for entry in entries),
@@ -427,24 +454,39 @@ class GitHubIssuesSource(IssueSource):
     def _reconciliation_diagnostics(
         self, snapshot: _Snapshot, now: float
     ) -> tuple[IssueSourceDiagnostic, ...]:
-        """Warn once a Reconciliation is more than a period overdue."""
+        """Warn while a Reconciliation is overdue or the Issue count disagrees."""
+        diagnostics: list[IssueSourceDiagnostic] = []
+        if snapshot.reported_count is not None:
+            diagnostics.append(
+                IssueSourceDiagnostic(
+                    source=self.name,
+                    code=_ISSUE_COUNT,
+                    severity="warning",
+                    message=(
+                        f"GitHub reports {snapshot.reported_count} Issues but "
+                        f"{len(snapshot.issues)} are known; a deleted or "
+                        "transferred Issue may be shown until a Reconciliation "
+                        "succeeds"
+                    ),
+                )
+            )
         age = now - snapshot.reconciled_at
         period = self.reconcile_seconds
-        if age <= 2 * period:
-            return ()
-        return (
-            IssueSourceDiagnostic(
-                source=self.name,
-                code=_RECONCILIATION_OVERDUE,
-                severity="warning",
-                message=(
-                    f"GitHub Issues were last observed in full {age:.0f}s ago "
-                    f"against a Reconciliation period of {period:g}s; a linked "
-                    "pull request, a blocker's dependency or a deleted Issue may "
-                    "be out of date until one succeeds"
-                ),
-            ),
-        )
+        if age > 2 * period:
+            diagnostics.append(
+                IssueSourceDiagnostic(
+                    source=self.name,
+                    code=_RECONCILIATION_OVERDUE,
+                    severity="warning",
+                    message=(
+                        f"GitHub Issues were last observed in full {age:.0f}s ago "
+                        f"against a Reconciliation period of {period:g}s; a "
+                        "linked pull request, a blocker's dependency or a deleted "
+                        "Issue may be out of date until one succeeds"
+                    ),
+                )
+            )
+        return tuple(diagnostics)
 
     @override
     def find(self, hint: IssueHint) -> IssueProfile | None:
