@@ -54,3 +54,15 @@ screen.
   key fetches and prunes, on explicit invocation, the one Repository Anchor
   whose refs supplied the Branch observation, and the result is observed
   the passive way described here.
+- Reaffirmed on 2026-09-03 under
+  [#100](https://github.com/ned2/dashpot/issues/100): observation does not
+  query live Remote Branches either (`git ls-remote`). The Remote-Tracking
+  Branch, qualified by the fetch age and assessed for integration
+  ([ADR 0018](0018-assess-remote-tracking-branch-integration.md)), is the
+  developer's view; `f` answers the live question on demand with bounded
+  timeouts, non-interactive credentials, and per-remote reporting; and a
+  live fact would need its own freshness and last-good state beside the
+  fetch age. The one `ls-remote` Dashpot runs follows a rejected delete push
+  ([ADR 0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md))
+  and is not observation. The validation matrix for live facts stays with
+  the Issue for whoever reopens it.
