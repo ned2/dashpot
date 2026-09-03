@@ -596,10 +596,10 @@ def test_status_of_the_other_harness_does_not_borrow_a_claim(tmp_path: Path) -> 
     assert any("none for Claude Code" in message for message in messages)
 
 
-# --- Claude Code: PostToolUse matched to EnterWorktree alone (ADR 0009) ------
+# --- Claude Code: PostToolUse matched to the relocation tools alone (ADR 0009)
 
 
-def test_claude_code_subscribes_post_tool_use_to_enter_worktree_alone(
+def test_claude_code_subscribes_post_tool_use_to_the_relocation_tools_alone(
     tmp_path: Path,
 ) -> None:
     home = claude_home(tmp_path)
@@ -608,11 +608,10 @@ def test_claude_code_subscribes_post_tool_use_to_enter_worktree_alone(
     install_integration("claude-code", home, command_path=command)
 
     document = json.loads((home / "settings.json").read_text())
+    handler = {"type": "command", "command": str(command), "timeout": 3}
     assert document["hooks"]["PostToolUse"] == [
-        {
-            "matcher": "EnterWorktree",
-            "hooks": [{"type": "command", "command": str(command), "timeout": 3}],
-        }
+        {"matcher": "EnterWorktree", "hooks": [handler]},
+        {"matcher": "ExitWorktree", "hooks": [handler]},
     ]
     before = (home / "settings.json").read_text()
     messages = install_integration("claude-code", home, command_path=command)
@@ -621,7 +620,10 @@ def test_claude_code_subscribes_post_tool_use_to_enter_worktree_alone(
     status = integration_status(
         "claude-code", home, state_dir=tmp_path / "no-state", current=tmp_path
     )
-    assert any("PostToolUse(EnterWorktree)" in message for message in status)
+    assert any(
+        "PostToolUse(EnterWorktree), PostToolUse(ExitWorktree)" in message
+        for message in status
+    )
     assert not any("missing hook events" in message for message in status)
 
     remove_integration("claude-code", home)
@@ -643,6 +645,38 @@ def test_claude_code_status_flags_a_missing_matched_hook(tmp_path: Path) -> None
 
     missing = [message for message in messages if "missing hook events" in message]
     assert missing and "PostToolUse(EnterWorktree)" in missing[0]
+    assert "PostToolUse(ExitWorktree)" in missing[0]
+
+
+def test_an_install_that_predates_exit_worktree_is_flagged_and_upgraded(
+    tmp_path: Path,
+) -> None:
+    """A user-wide install from before the return trip was observed."""
+    home = claude_home(tmp_path)
+    command = claude_publisher(tmp_path)
+    install_integration("claude-code", home, command_path=command)
+    document = json.loads((home / "settings.json").read_text())
+    document["hooks"]["PostToolUse"] = [
+        group
+        for group in document["hooks"]["PostToolUse"]
+        if group["matcher"] == "EnterWorktree"
+    ]
+    (home / "settings.json").write_text(json.dumps(document))
+
+    messages = integration_status(
+        "claude-code", home, state_dir=tmp_path / "no-state", current=tmp_path
+    )
+    missing = [message for message in messages if "missing hook events" in message]
+    assert missing and "PostToolUse(ExitWorktree)" in missing[0]
+    assert "PostToolUse(EnterWorktree)" not in missing[0]
+
+    install_integration("claude-code", home, command_path=command)
+
+    document = json.loads((home / "settings.json").read_text())
+    assert [group["matcher"] for group in document["hooks"]["PostToolUse"]] == [
+        "EnterWorktree",
+        "ExitWorktree",
+    ]
 
 
 def test_codex_subscribes_no_matched_events(tmp_path: Path) -> None:

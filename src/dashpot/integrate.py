@@ -101,10 +101,14 @@ CLAUDE_CODE = HarnessIntegration(
         "SessionEnd",
     ),
     checks_config_toml=False,
-    # ``EnterWorktree`` moves a running session to another Worktree without
-    # firing any lifecycle event, so its completion is observed on its own:
-    # one invocation per relocation, not per tool call (ADR 0009).
-    matched_events=(("PostToolUse", "EnterWorktree"),),
+    # ``EnterWorktree`` moves a running session to another Worktree, and
+    # ``ExitWorktree`` moves it back, without firing any lifecycle event, so
+    # each completion is observed on its own: one invocation per relocation,
+    # not per tool call (ADR 0009).
+    matched_events=(
+        ("PostToolUse", "EnterWorktree"),
+        ("PostToolUse", "ExitWorktree"),
+    ),
 )
 
 INTEGRATIONS = {spec.harness: spec for spec in (CODEX, CLAUDE_CODE)}
@@ -164,19 +168,24 @@ def install_integration(
         "command": str(command),
         "timeout": HOOK_TIMEOUT,
     }
-    subscriptions: list[tuple[str, str | None]] = [
-        *((event, None) for event in spec.events),
-        *spec.matched_events,
-    ]
-    for event, matcher in subscriptions:
+    # One event may carry several subscriptions (a matcher per relocation
+    # tool), so its existing Dashpot handlers are cleared once and every
+    # group re-added, rather than each subscription clearing the last.
+    matchers_by_event: dict[str, list[str | None]] = {}
+    for event in spec.events:
+        matchers_by_event.setdefault(event, []).append(None)
+    for event, matcher in spec.matched_events:
+        matchers_by_event.setdefault(event, []).append(matcher)
+    for event, matchers in matchers_by_event.items():
         groups = hooks.get(event)
         if not isinstance(groups, list):
             groups = []
         kept, _ours = _split_dashpot_handlers(groups)
-        group: dict[str, Any] = {"hooks": [dict(handler)]}
-        if matcher is not None:
-            group = {"matcher": matcher, **group}
-        kept.append(group)
+        for matcher in matchers:
+            group: dict[str, Any] = {"hooks": [dict(handler)]}
+            if matcher is not None:
+                group = {"matcher": matcher, **group}
+            kept.append(group)
         hooks[event] = kept
     messages: list[str] = []
     if json.dumps(document, sort_keys=True) != original:

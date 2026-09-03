@@ -607,9 +607,10 @@ The hooks report session lifecycle only: which agent sessions are alive at a
 worktree and whether they are running or waiting. Codex registers
 `SessionStart`, `UserPromptSubmit`, `Stop`, `Interrupt`, and `SessionEnd`;
 Claude Code the same set without `Interrupt`, plus `SubagentStart` and
-`SubagentStop`, and `PostToolUse` matched to its `EnterWorktree` tool alone,
-so a session that moves to another Worktree is placed there as soon as it
-arrives — one hook invocation per relocation, never per tool call
+`SubagentStop`, and `PostToolUse` matched to its `EnterWorktree` and
+`ExitWorktree` tools alone, so a session that moves to another Worktree, or
+back, is placed there as soon as it arrives — one hook invocation per
+relocation, never per tool call
 ([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
 A session whose main turn has stopped stays running while a sub-agent it
 delegated to is still working, since sub-agents share the session's Agent Run
@@ -677,7 +678,8 @@ and its own hooks say where it is: the freshest hook record for the session
 across the stores of every Worktree `git worktree list` reports, plus the
 global store. When that record places the session at the Worktree where
 `start` runs, a run it still holds at another Worktree is a relocation (a
-Claude Code `EnterWorktree`): `start` ends it and reports
+Claude Code `EnterWorktree`, or the `ExitWorktree` that brings the session
+back): `start` ends it and reports
 `switched from <ref> at <old Worktree> to <ref> at <new Worktree>`. When it
 places the session elsewhere, the command is running where the session is
 not — a tool call that changed directory, or a sub-agent's shell — and
