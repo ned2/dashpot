@@ -94,6 +94,11 @@ from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 
 # Observation triggers a person asked for, whose outcome earns a toast.
 MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
+# Triggers that coalesce onto an observation already in flight without
+# queueing a rerun: the next tick is the rerun. Every other trigger (a key
+# press, a Remote Fetch or Cleanup that changed the Repository, a follow-up
+# of a publish) still observes once more after the running one lands.
+COALESCED_TRIGGERS = frozenset({"timer"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -855,6 +860,9 @@ class DashpotApp(App[None]):
         self.refresh_indicator_timer: Timer | None = None
         self.refreshing_visible = False
         self.in_flight: dict[ObservationKey, int] = {}
+        # A key requested while its observation is in flight is observed once
+        # more when that observation lands, under the latest trigger.
+        self.pending_rerun: dict[ObservationKey, str] = {}
         self.scheduler: ObservationScheduler = (
             collector
             if isinstance(collector, ObservationScheduler)
@@ -874,8 +882,9 @@ class DashpotApp(App[None]):
         self.initial_search_diagnostics = parsed_search.diagnostics
         self.refresh_timer: Timer | None = None
         self.observation_errors: dict[ObservationKey, str] = {}
-        # Superseded observations keep their thread until the source returns,
-        # so size the pool for every key rather than one refresh at a time.
+        # A key is observed at most once at a time, so a pool sized to the
+        # keys lets every key run concurrently and a slow Issue Source never
+        # holds a thread the Git or Agent Run observation needs.
         self.refresh_executor = ThreadPoolExecutor(
             max_workers=max(2, min(8, len(self.scheduler.keys()))),
             thread_name_prefix="dashpot-refresh",
@@ -949,7 +958,7 @@ class DashpotApp(App[None]):
         if self.refresh_seconds > 0:
             self.refresh_timer = self.set_interval(
                 self.refresh_seconds,
-                self.action_refresh,
+                self.timer_refresh,
                 name="workspace refresh",
             )
 
@@ -961,6 +970,10 @@ class DashpotApp(App[None]):
         if self.refresh_timer is not None:
             self.refresh_timer.reset()
         self.request_refresh("manual")
+
+    def timer_refresh(self) -> None:
+        """One automatic tick: coalesce onto whatever is still in flight."""
+        self.request_refresh("timer")
 
     def request_refresh(self, trigger: str) -> None:
         self.schedule_observations(self.scheduler.keys(), trigger)
@@ -1275,20 +1288,50 @@ class DashpotApp(App[None]):
         return project.display_label if project is not None else project_id
 
     def schedule_observations(
-        self, keys: Sequence[ObservationKey], trigger: str
+        self,
+        keys: Sequence[ObservationKey],
+        trigger: str,
+        *,
+        rerun_in_flight: bool | None = None,
     ) -> None:
-        for ticket in self.scheduler.request(keys):
+        """Observe ``keys``, coalescing onto any observation already in flight.
+
+        Observations of one key are serialised by the scheduler, so a second
+        ticket could never land sooner than the running one; requesting it
+        would only discard the running work when it lands. A key in flight
+        is therefore left to finish and, unless the trigger coalesces
+        (``rerun_in_flight`` decides; by default only a timer tick does), is
+        observed once more afterwards under the latest trigger.
+        """
+        if rerun_in_flight is None:
+            rerun_in_flight = trigger not in COALESCED_TRIGGERS
+        wanted: list[ObservationKey] = []
+        coalesced = False
+        for key in keys:
+            if key not in self.in_flight:
+                wanted.append(key)
+            elif rerun_in_flight:
+                self.pending_rerun[key] = trigger
+                coalesced = True
+        for ticket in self.scheduler.request(wanted) if wanted else ():
             self.in_flight[ticket.key] = ticket.generation
-            # A partial rather than a coroutine object: an exclusive worker
-            # cancelled before it starts would otherwise leave the coroutine
-            # created but never awaited.
+            # A partial rather than a coroutine object, so a worker cancelled
+            # at shutdown before it starts leaves no coroutine never awaited.
+            # Not exclusive: a worker is never cancelled by a later request,
+            # so every started observation ends by posting its outcome and
+            # the in-flight gate always reopens.
             self.run_worker(
                 partial(self.observe, ticket, trigger),
                 name=f"observe {ticket.key.group}",
                 group=ticket.key.group,
-                exclusive=True,
                 exit_on_error=False,
             )
+        if coalesced and not self.refreshing_visible:
+            # The press did something; say so at once rather than after the
+            # indicator threshold, which the running observation may have
+            # already passed.
+            self.refreshing_visible = True
+            self.dashboard.update_alert()
         if self.refresh_indicator_timer is None and self.in_flight:
             self.refresh_indicator_timer = self.set_timer(
                 self.refresh_indicator_seconds,
@@ -1305,11 +1348,18 @@ class DashpotApp(App[None]):
     def _finish_in_flight(self, ticket: ObservationTicket) -> None:
         if self.in_flight.get(ticket.key) == ticket.generation:
             del self.in_flight[ticket.key]
-        if not self.in_flight:
+        # A queued rerun keeps the key refreshing; the indicator stays put
+        # until it is scheduled rather than blinking off in between.
+        if not self.in_flight and not self.pending_rerun:
             if self.refresh_indicator_timer is not None:
                 self.refresh_indicator_timer.stop()
                 self.refresh_indicator_timer = None
             self.refreshing_visible = False
+
+    def _schedule_pending_rerun(self, key: ObservationKey) -> None:
+        trigger = self.pending_rerun.pop(key, None)
+        if trigger is not None and not (self._closing or self._closed):
+            self.schedule_observations([key], trigger)
 
     async def observe(self, ticket: ObservationTicket, trigger: str) -> None:
         worker = get_current_worker()
@@ -1334,6 +1384,9 @@ class DashpotApp(App[None]):
         try:
             self._accept_observation(message)
         finally:
+            # After acceptance, so the finished ticket is still the current
+            # generation while its outcome is judged.
+            self._schedule_pending_rerun(message.ticket.key)
             self.dashboard.update_alert()
 
     def _accept_observation(self, message: ObservationFinished) -> None:
@@ -1377,7 +1430,11 @@ class DashpotApp(App[None]):
         # this one's pending composition.
         follow_ups = self.scheduler.follow_ups(changes)
         if follow_ups:
-            self.schedule_observations(follow_ups, message.trigger)
+            # A follow-up already in flight started before this publish, so
+            # it is observed again whatever the trigger.
+            self.schedule_observations(
+                follow_ups, message.trigger, rerun_in_flight=True
+            )
 
 
 def issue_search_sort_terms(

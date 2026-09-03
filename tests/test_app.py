@@ -24,6 +24,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.app import DashpotApp, project_label
+from dashpot.collect import ObservationKey
 from dashpot.issue_list import IssueListQuery, row_key
 from dashpot.issue_table import (
     COLUMN_KEYS,
@@ -541,7 +542,7 @@ class RacingCollector:
 
 
 @pytest.mark.asyncio
-async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
+async def test_refresh_while_in_flight_coalesces_and_reruns_once() -> None:
     initial = workspace_snapshot(issue("test/repo#1", "Initial"))
     old = workspace_snapshot(issue("test/repo#1", "Old result"))
     new = workspace_snapshot(issue("test/repo#1", "New result"))
@@ -556,21 +557,110 @@ async def test_superseded_refresh_cannot_overwrite_newer_result() -> None:
         async with app.run_test(size=(80, 24)) as pilot:
             app.request_refresh("manual")
             await wait_until(collector.started.is_set)
+            # Two more presses while the observation runs: neither discards
+            # the running work, and together they queue exactly one rerun.
             app.request_refresh("manual")
-            await wait_until(lambda: app.store.checkpoint() == new)
+            app.request_refresh("manual")
+            await pilot.pause()
+            assert collector.calls == 1
+            assert list(app.pending_rerun.values()) == ["manual"]
 
             collector.release.set()
-            # A deterministic drain rather than a wall-clock sleep: shutdown
-            # returns only after the superseded observation's thread has run
-            # to completion, and once the workers and message queue are idle
-            # any acceptance of its stale result would already have landed.
-            app.refresh_executor.shutdown(wait=True)
-            await app.workers.wait_for_complete()
-            await pilot.pause()
-            assert app.store.checkpoint() == new
+            # The held observation lands first, then the rerun observes anew.
+            await wait_until(lambda: app.store.checkpoint() == new)
+            await wait_until(lambda: not app.in_flight)
+            assert collector.calls == 2
+            assert not app.pending_rerun
             assert selected_title(app) == "#1: New result"
     finally:
         collector.release.set()
+
+
+@pytest.mark.asyncio
+async def test_timer_ticks_coalesce_onto_a_slow_observation(tmp_path: Path) -> None:
+    coordinator, collectors = coordinated_workspace(tmp_path)
+    collectors["beta"].source.release.clear()
+    app = DashpotApp(coordinator, refresh_seconds=0.05)
+
+    try:
+        async with app.run_test(size=(80, 24)):
+            table = app.query_one("#queue", DataTable)
+            await wait_until(lambda: table.row_count == 1)
+            # Ticks keep observing the Project that answers while the held
+            # one is left to finish: its source is asked exactly once.
+            await wait_until(lambda: collectors["alpha"].source.calls >= 3)
+            assert collectors["beta"].source.calls == 1
+            assert not app.pending_rerun
+
+            collectors["beta"].source.release.set()
+            await wait_until(lambda: table.row_count == 2)
+            assert row_key("issue", "I_beta#1") in app.dashboard.rows_by_key
+    finally:
+        collectors["beta"].source.release.set()
+
+
+@pytest.mark.asyncio
+async def test_only_a_timer_tick_coalesces_without_a_rerun(tmp_path: Path) -> None:
+    coordinator, collectors = coordinated_workspace(tmp_path)
+    app = DashpotApp(coordinator, refresh_seconds=0, refresh_indicator_seconds=10)
+    beta_issues = ObservationKey("issues", "beta")
+
+    try:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await wait_until(lambda: not app.in_flight)
+            collectors["beta"].source.release.clear()
+            app.schedule_observations([beta_issues], "manual")
+            await wait_until(collectors["beta"].source.started.is_set)
+            assert not app.refreshing_visible
+
+            app.schedule_observations([beta_issues], "timer")
+            await pilot.pause()
+            assert not app.pending_rerun
+            assert not app.refreshing_visible
+
+            # A Cleanup that changed the Repository while it was being
+            # observed must be observed again; the latest trigger wins.
+            app.schedule_observations([beta_issues], "cleanup")
+            app.schedule_observations([beta_issues], "manual")
+            await pilot.pause()
+            assert app.pending_rerun == {beta_issues: "manual"}
+            # The press is acknowledged at once, ahead of the indicator delay.
+            assert app.refreshing_visible
+            assert "refreshing Beta" in alert_text(app)
+
+            collectors["beta"].source.release.set()
+            await wait_until(lambda: not app.in_flight and not app.pending_rerun)
+            assert collectors["beta"].source.calls == 3
+            assert not app.refreshing_visible
+    finally:
+        collectors["beta"].source.release.set()
+
+
+@pytest.mark.asyncio
+async def test_a_timer_tick_failure_never_toasts() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    collector = SequenceCollector(
+        RuntimeError("GitHub is unavailable"),
+        RuntimeError("GitHub is forbidden"),
+    )
+    app = DashpotApp(
+        collector,
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(80, 24)):
+        app.request_refresh("timer")
+        await wait_until(lambda: alert(app).display)
+        assert alert(app).has_class("-error")
+        assert len(app._notifications) == 0
+        # The failed key is schedulable again: a person's refresh runs and,
+        # having changed the failure, earns the toast the tick did not.
+        await wait_until(lambda: not app.in_flight)
+        await app.run_action("refresh")
+        await wait_until(lambda: collector.calls == 2 and not app.in_flight)
+        assert len(app._notifications) == 1
+        assert "forbidden" in (app.ui_error or "")
 
 
 def coordinated_workspace(tmp_path: Path):
@@ -806,7 +896,7 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
 
         # A repeated identical failure keeps the alert without another toast.
         # Wait for the observation to actually run and settle: requesting the
-        # next refresh too early would supersede it before it started.
+        # next refresh too early would coalesce onto it and rerun once.
         await app.run_action("refresh")
         await wait_until(lambda: collector.calls == 2 and not app.in_flight)
         assert len(app._notifications) == 1
