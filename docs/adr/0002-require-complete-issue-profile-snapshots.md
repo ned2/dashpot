@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-08-26
 ---
 
 # Require complete Issue profile snapshots

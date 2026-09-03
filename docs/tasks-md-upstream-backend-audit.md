@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-26
+---
+
 # Upstream tasks.md backend audit
 
 ## Scope and source pin
@@ -550,7 +555,7 @@ The seam is nevertheless too implicit for issue #9:
 - the external `tasks` executable and its JSON contract are not version-pinned
   in Dashpot's package dependencies
   ([package manifest](../pyproject.toml),
-  [documented runtime](../README.md#L62-L76)).
+  [documented runtime](../README.md#usage)).
 
 The five focused adapter tests pass, but they test extraction rather than
 substitutability. There are no cross-adapter contract cases for durable

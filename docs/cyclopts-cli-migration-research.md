@@ -1,4 +1,17 @@
+---
+status: superseded
+date: 2026-08-30
+superseded-by: docs/adr/0020-build-the-command-line-on-cyclopts.md
+---
+
 # Cyclopts for the Dashpot CLI
+
+> **Superseded.** The migration this note prepared is done: `src/dashpot/cli.py`
+> is a Cyclopts app, and the decisions it raised are recorded in
+> [ADR 0020](adr/0020-build-the-command-line-on-cyclopts.md). Read this
+> document as the version-pinned evidence behind that ADR — every finding below
+> describes Cyclopts 4.23.3 as of 2026-08-30 and the argparse CLI as it stood
+> then, not the CLI as it is now.
 
 Research date: 2026-08-30.
 

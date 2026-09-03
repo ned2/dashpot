@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-09-02
 ---
 
 # Reconcile the session's Agent Run at SessionEnd

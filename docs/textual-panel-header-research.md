@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-27
+---
+
 # Panel headers and accent bars in Textual
 
 Research date: 2026-08-27. This note targets Dashpot's pinned

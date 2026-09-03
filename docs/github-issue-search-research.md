@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-28
+---
+
 # GitHub Issue search, filtering, and sorting semantics
 
 Research date: 2026-08-28.

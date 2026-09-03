@@ -1,5 +1,7 @@
 ---
-status: accepted
+status: amended
+date: 2026-08-29
+amended-by: 0008, 0014
 ---
 
 # Observe Branches without fetching

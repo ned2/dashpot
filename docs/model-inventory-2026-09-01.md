@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-09-01
+---
+
 # Structured-value inventory for the Pydantic adoption (2026-09-01)
 
 The classification behind

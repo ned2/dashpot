@@ -89,6 +89,7 @@ def run_quality_gates(*, include_tests: bool = True) -> None:
     run_gate("Ruff lint", uv_run("ruff", "check", "."))
     run_gate("Ruff format", uv_run("ruff", "format", "--check", "."))
     run_gate("Type checking", uv_run("ty", "check"))
+    run_gate("Documents", uv_run("python", "scripts/check_docs.py"))
     if include_tests:
         run_gate("Tests", uv_run("pytest", "-q"))
 

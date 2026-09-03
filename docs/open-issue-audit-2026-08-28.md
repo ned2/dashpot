@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-28
+---
+
 # Open GitHub issue audit
 
 Audit date: 2026-08-28

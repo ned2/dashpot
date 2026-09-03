@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-08-30
 ---
 
 # Derive the Legend from the Glyphs the panes render

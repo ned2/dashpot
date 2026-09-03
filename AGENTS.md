@@ -184,6 +184,13 @@ The conventions the tooling enforces or the code assumes:
   Textual screens through `App.run_test` / `pilot` and the `wait_until`
   helper in `tests/helpers.py`. Fakes stand in for GitHub; nothing in the
   suite talks to the network.
+- Every document under `docs/` declares `status` and `date` in frontmatter,
+  and every in-repo Markdown link resolves — path and heading anchor.
+  `scripts/check_docs.py` fails the gate on either. When you move or rename a
+  section, fix the pointers in the same change; when you finish work an ADR or
+  a research note described as future, update that document's `status` rather
+  than leaving a reader to discover it is stale. The vocabulary is in the
+  README's [documentation map](README.md#documentation-map).
 - A lockfile change is its own task. Install with `uv sync --locked --group
   dev`; never relock or upgrade a dependency as a side effect of other work.
 

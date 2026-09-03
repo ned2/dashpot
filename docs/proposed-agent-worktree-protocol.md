@@ -1,8 +1,21 @@
 ---
-status: proposal
+status: superseded
+date: 2026-08-30
+superseded-by: docs/adr/0011-prepare-issue-worktrees-by-convention.md
 ---
 
 # Propose an Issue worktree protocol for agent handoff
+
+> **Superseded.** The review this document drove was accepted on 2026-08-30 and
+> its outcomes are recorded in
+> [ADR 0011](adr/0011-prepare-issue-worktrees-by-convention.md), amended by
+> [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).
+> `dashpot issue show`, `worktree create`, `worktree check`, `worktree remove`,
+> and `branch delete` ship; the README's
+> [Issue Worktrees](../README.md#issue-worktrees) section documents them as
+> built. Read this document as the evidence and the walked decisions behind
+> those ADRs, not as a description of the commands. Where it disagrees with an
+> ADR, the ADR wins.
 
 This document proposes a workflow for preparing a Git-linked Worktree, launching
 any supported agent harness there, and explicitly starting and stopping Issue

@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-28
+---
+
 # Evidence for multi-repository Workspaces
 
 Research date: 2026-08-28

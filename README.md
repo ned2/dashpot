@@ -513,11 +513,15 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   keys, large files), then [Ruff](https://docs.astral.sh/ruff/) lint with safe
   fixes, then `ruff-format`, then [ty](https://docs.astral.sh/ty/) static type
   checking. Ruff's rule selection and ty's rule levels live in
-  [`pyproject.toml`](pyproject.toml).
+  [`pyproject.toml`](pyproject.toml). Then
+  [`scripts/check_docs.py`](scripts/check_docs.py) resolves every in-repo
+  Markdown link and requires the frontmatter described in the
+  [documentation map](#documentation-map); it always reads the whole document
+  set, because a link resolves against files the commit need not touch.
 - **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
-  lockfile, Ruff lint and formatting, ty, and the distribution build for the
-  exact revision being pushed, in a temporary detached worktree. The test suite
+  lockfile, Ruff lint and formatting, ty, the documents, and the distribution
+  build for the exact revision being pushed, in a temporary detached worktree. The test suite
   runs in CI across every supported operating-system and Python-version pair.
 
 Run the commit hooks across every tracked file:
@@ -534,8 +538,9 @@ uv run pytest -q
 ```
 
 The pushed-revision gate can also be run directly against the working tree; it
-covers the lockfile, Ruff, ty and the distribution build, but not the hygiene
-hooks or the test suite, so it does not replace the two commands above:
+covers the lockfile, Ruff, ty, the documents and the distribution build, but
+not the hygiene hooks or the test suite, so it does not replace the two
+commands above:
 
 ```bash
 uv run python scripts/check_quality.py
@@ -1181,13 +1186,26 @@ expectations on agents themselves are in [`AGENTS.md`](AGENTS.md).
 The [domain language](#domain-language) defines the terms used in the interface,
 code, and documentation, including phrasings to avoid.
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
-decision. The other files in [`docs/`](docs/) are research, audits, and active
-proposals that inform decisions and implementation. The proposed agent worktree
-protocol is under review in
-[`docs/proposed-agent-worktree-protocol.md`](docs/proposed-agent-worktree-protocol.md);
-[`docs/textual-implementation-notes.md`](docs/textual-implementation-notes.md)
-records the framework research behind the current interface.
+decision. The other files in [`docs/`](docs/) are research, audits, and
+proposals that informed decisions and implementation.
 [`conformance/`](conformance/) documents owned file grammars.
+
+Every document under `docs/` declares in its frontmatter how it should be read,
+so its standing is visible without reading it:
+
+| `status` | Meaning |
+| --- | --- |
+| `living` | Maintained alongside the code; expected to be current. |
+| `research` | A dated investigation. True as of its `date:`, never updated. |
+| `proposal` | A direction under review; nothing has been accepted yet. |
+| `superseded` | Kept as evidence. A `superseded-by:` field names what replaced it. |
+
+An ADR's `status` is `proposed`, `accepted`, `amended`, or `superseded`
+instead; an `amended` ADR still holds, with a later ADR named in
+`amended-by:` and in its own Consequences. The `date:` is the decision or
+research date, not the last edit. `uv run python scripts/check_docs.py`
+enforces both the frontmatter and every in-repo Markdown link, and runs as
+part of the [quality gates](#quality-gates).
 
 ## License
 

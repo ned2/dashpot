@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-09-02
 ---
 
 # Fetch remotes on an explicit key press

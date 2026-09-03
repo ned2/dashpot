@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-08-30
 ---
 
 # Identify sandboxed Agent Sessions by Agent Session Identity

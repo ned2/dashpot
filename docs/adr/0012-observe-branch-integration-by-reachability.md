@@ -1,5 +1,7 @@
 ---
-status: accepted
+status: amended
+date: 2026-08-31
+amended-by: 0017, 0018
 ---
 
 # Observe Branch integration by commit reachability

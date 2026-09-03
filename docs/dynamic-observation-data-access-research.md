@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-27
+---
+
 # Dynamic observation and data access in Dashpot
 
 Research date: 2026-08-27

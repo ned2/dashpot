@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-27
+---
+
 # Field-value displays in Textual detail panes
 
 Research date: 2026-08-27.

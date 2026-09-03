@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-08-30
 ---
 
 # Hold one active Agent Run per Agent Session across a Repository's Worktrees

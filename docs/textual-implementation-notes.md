@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-25
+---
+
 # Textual implementation notes for Dashpot
 
 Research date: 2026-08-25. These notes target Textual 8.2.8, the version already

@@ -1,5 +1,7 @@
 ---
-status: accepted
+status: amended
+date: 2026-09-02
+amended-by: 0018
 ---
 
 # Observe Branch integration by content when commits are unreachable

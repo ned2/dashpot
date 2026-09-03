@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-27
+---
+
 # Custom sortable and filterable tables in Textual
 
 Research date: 2026-08-27.

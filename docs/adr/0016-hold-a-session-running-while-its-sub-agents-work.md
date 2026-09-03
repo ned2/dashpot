@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-09-02
 ---
 
 # Hold a session running while its sub-agents work

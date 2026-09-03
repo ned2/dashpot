@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-09-01
 ---
 
 # Adopt Pydantic models at validating seams, keep dataclasses for trusted values

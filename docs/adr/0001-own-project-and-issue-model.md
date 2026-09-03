@@ -1,5 +1,7 @@
 ---
-status: accepted
+status: amended
+date: 2026-08-26
+amended-by: 0003
 ---
 
 # Own the Project and Issue model

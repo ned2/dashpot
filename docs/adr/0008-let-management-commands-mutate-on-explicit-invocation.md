@@ -1,5 +1,7 @@
 ---
-status: accepted
+status: amended
+date: 2026-08-30
+amended-by: 0014, 0019
 ---
 
 # Let named management commands mutate on explicit invocation

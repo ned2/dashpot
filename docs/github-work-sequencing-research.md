@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-28
+---
+
 # GitHub and Dashpot work-sequencing capabilities
 
 Research date: 2026-08-28

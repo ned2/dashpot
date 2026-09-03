@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-29
+---
+
 # GitHub Issue priority support and established conventions
 
 Research date: 2026-08-29

@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-09-02
 ---
 
 # Remove Branches and Worktrees on explicit confirmation

@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-08-27
+---
+
 # GitHub CLI feature delta relevant to Dashpot
 
 Date: 2026-08-27

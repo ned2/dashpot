@@ -1,5 +1,7 @@
 ---
-status: accepted
+status: amended
+date: 2026-08-30
+amended-by: 0019
 ---
 
 # Prepare Issue Worktrees by convention, and only report their removability
@@ -98,3 +100,10 @@ conventions the command owns, so that no agent skill re-derives them.
 - The default Worktree root is a sibling of the Repository Anchor, so a
   command run from a linked Worktree that itself lives inside the main
   Worktree (Claude Code's `.claude/worktrees/`) must name a root explicitly.
+- Amended by [ADR 0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md):
+  the Cleanup convention above — "Dashpot removes nothing", and `worktree
+  remove` as "not planned" — held only while the report was the whole
+  answer. `dashpot worktree remove` and `dashpot branch delete` now exist,
+  and the dashboard's `x` key invokes them; they remove only what their
+  flags name, unforced, only when integrated, and only from a preview a
+  person confirmed. `worktree check` is unchanged and still read-only.
