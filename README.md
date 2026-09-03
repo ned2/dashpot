@@ -891,8 +891,16 @@ latest accepted halves. The Textual interface publishes every accepted
 observation into a process-local `WorkspaceObservationStore` as soon as it
 lands, then re-queries source-neutral Issue-list read models carrying a store
 revision; a slow GitHub call therefore never delays branch or dirty state.
-`r` refreshes the observed Project and `R` fans out to every key in the
-Workspace; with one Project per run the two coincide. Neither fetches: `f`
+A key is observed at most once at a time: a request for a key whose
+observation is still in flight coalesces onto it rather than superseding it,
+so a slow Issue Source that outlasts the polling period still publishes when
+it lands instead of being discarded by every tick
+([ADR 0020](docs/adr/0020-coalesce-requests-onto-the-observation-in-flight.md)).
+An automatic tick queues nothing further, the next tick being its rerun; a
+key press, a Remote Fetch or Cleanup that changed the Repository, and a
+follow-up of a publish each queue one more observation of the key for when
+the running one lands. `r` refreshes every key in the Workspace, which with
+one Project per run is the observed Project. It never fetches: `f`
 mutates, a Remote Fetch of the Repository Anchor whose refs
 supplied the Branch observation ([`fetch.py`](src/dashpot/fetch.py),
 [ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
@@ -941,7 +949,8 @@ stale worktrees and stale Issue Sources are warnings, and a refresh that has
 been running longer than a moment, or a Remote Fetch from the moment it
 starts, is shown as information. The alert is
 derived from current observations and clears itself on recovery; toasts are
-reserved for manual-refresh, Remote Fetch, and Cleanup outcomes, and Diagnostics keeps
+reserved for manual-refresh, Remote Fetch, and Cleanup outcomes (an automatic
+tick's failure or recovery changes the alert and Diagnostics only), and Diagnostics keeps
 the durable detail: the box takes no space while it is empty and is coloured
 by the most severe line it holds. Headless JSON runs a coordinated barrier
 over every key and serializes the store's `checkpoint()`, so it remains one

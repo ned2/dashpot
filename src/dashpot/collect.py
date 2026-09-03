@@ -746,6 +746,9 @@ class SnapshotScheduler:
         return []
 
     def request(self, keys: Sequence[ObservationKey]) -> list[ObservationTicket]:
+        # Any key means the one Workspace key; no key means no ticket.
+        if not keys:
+            return []
         with self._lock:
             self._generation += 1
             return [ObservationTicket(WORKSPACE_KEY, self._generation)]
