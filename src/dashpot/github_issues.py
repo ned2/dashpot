@@ -318,7 +318,7 @@ class GitHubIssuesSource(IssueSource):
             or self.reconcile_requested
             or self._reconciliation_due(now)
         ):
-            snapshot = self._reconcile(meter, now)
+            snapshot = self._reconcile(snapshot, meter, now)
         else:
             snapshot = self._refresh_incrementally(snapshot, meter, now)
         collected = self._collected(snapshot, now)
@@ -346,21 +346,25 @@ class GitHubIssuesSource(IssueSource):
         )
 
     def _reconcile(
-        self, meter: RefreshMeter, now: float, probe: _Probe | None = None
+        self,
+        snapshot: _Snapshot | None,
+        meter: RefreshMeter,
+        now: float,
+        probe: _Probe | None = None,
     ) -> _Snapshot:
         """Observe every Issue afresh: the one observation that sees a deletion.
 
         Every Issue of the snapshot is observed by identity in batches, the
         Issues created or updated since the High-Water Mark by a delta, and
-        the count is checked against the probe's; a count that still
-        disagrees, or a collection with no mark yet, is observed by the
-        cursor sweep. ``probe`` is the one already taken this refresh.
+        the count is checked against the probe's, once more against a fresh
+        probe when it moved; a count that still disagrees, or a collection
+        with no mark yet, is observed by the cursor sweep. ``probe`` is the
+        one already taken this refresh.
         """
         # Attempted rather than completed: a Reconciliation the budget
         # abandons is retried after a period, while the ticks in between
         # keep refreshing incrementally instead of failing the same way.
         self._reconcile_attempted_at = now
-        snapshot = self._snapshot
         if snapshot is None or snapshot.high_water is None:
             return self._sweep(meter, now)
         if probe is None:
@@ -382,8 +386,13 @@ class GitHubIssuesSource(IssueSource):
         observed.update(changed)
         self._observe_counterparts(observed, changed, previous, meter)
         if len(observed) != probe.total_count:
-            # An Issue transferred in, or created between the probe and the
-            # delta: only the sweep lists what is there now.
+            # An Issue created or deleted while the identities were in flight
+            # moved the count after the probe: one more probe says whether
+            # the collection now agrees with GitHub.
+            probe = self._probe(meter)
+        if len(observed) != probe.total_count:
+            # An Issue transferred in carries its old updatedAt and no known
+            # identity: only the sweep lists it.
             return self._sweep(meter, now)
         return _Snapshot(issues=observed, high_water=high_water, reconciled_at=now)
 
@@ -408,7 +417,7 @@ class GitHubIssuesSource(IssueSource):
         """Bring the snapshot up to date with what changed since its mark."""
         if snapshot.high_water is None:
             # An empty collection has no mark to observe since.
-            return self._reconcile(meter, now)
+            return self._reconcile(snapshot, meter, now)
         probe = self._probe(meter)
         if (
             probe.newest_updated_at is not None
@@ -430,7 +439,7 @@ class GitHubIssuesSource(IssueSource):
             # would fail the same way on every tick, so the disagreement is
             # reported beside what is known until the next attempt is due.
             if not self._reconciliation_failed_this_period(snapshot, now):
-                return self._reconcile(meter, now, probe)
+                return self._reconcile(snapshot, meter, now, probe)
             reported_count = probe.total_count
         return _Snapshot(
             issues=observed,
@@ -442,7 +451,7 @@ class GitHubIssuesSource(IssueSource):
     def _changes_since(
         self, since: str, high_water: str, meter: RefreshMeter
     ) -> tuple[dict[str, _ObservedIssue], str]:
-        """The Issues updated at or after ``since``, and the mark they advance."""
+        """List the Issues updated at or after ``since`` and advance the mark."""
         changed: dict[str, _ObservedIssue] = {}
         for record in self._collect_issue_pages(
             _ISSUES_SINCE_QUERY, {"since": since}, meter, "Issue delta"
@@ -671,7 +680,7 @@ class GitHubIssuesSource(IssueSource):
         records: dict[str, dict[str, Any] | None] = {}
         for wave_start in range(0, len(batches), MAX_IN_FLIGHT):
             wave = batches[wave_start : wave_start + MAX_IN_FLIGHT]
-            for _batch in wave:
+            for _ in wave:
                 meter.next_request(f"{len(records)} of {len(ids)} {subject}")
             answers = self.gateway.graphql_many(
                 _ISSUES_BY_ID_QUERY,

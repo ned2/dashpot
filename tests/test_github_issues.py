@@ -927,7 +927,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         )
         self.assertEqual((), source(runner).refresh().diagnostics)
 
-    def test_a_refresh_over_its_page_budget_is_abandoned_as_stale(self) -> None:
+    def test_a_refresh_over_its_request_budget_is_abandoned_as_stale(self) -> None:
         pages: list[CommandResult | Exception] = [
             completed(
                 issue_page([issue_record(1)], has_next_page=True, end_cursor="p1")
@@ -987,7 +987,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             expected_issues=[normalize(issue_record(1))],
         )
 
-    def test_a_refresh_over_its_time_budget_is_abandoned_between_pages(self) -> None:
+    def test_a_refresh_over_its_time_budget_is_abandoned_between_requests(self) -> None:
         clock = iter([0.0, 0.5, 61.0])
         runner = SequenceRunner(
             [
@@ -1491,11 +1491,103 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         self.assertEqual("fresh", observation.status)
         self.assertEqual(100, len(observation.issues))
         self.assertEqual([24, 24, 24, 24, 4], [len(ids) for ids in runner.lookups()])
+        # Batches arrive in whatever order the pool runs them.
         self.assertEqual(
             sorted(record["id"] for record in records),
-            [issue_id for ids in runner.lookups() for issue_id in ids],
+            sorted(issue_id for ids in runner.lookups() for issue_id in ids),
         )
         self.assertEqual(4, runner.max_active)
+
+    def test_a_wave_the_budget_refuses_is_not_sent(self) -> None:
+        records = [
+            unrelated(issue_record(number, updated_at=self.MARK))
+            for number in range(1, 51)
+        ]
+        runner = RoutedRunner(
+            [completed(issue_page(records)), completed(probe_response(50, self.MARK))],
+            {record["id"]: by_id(record) for record in records},
+        )
+        github = source(
+            runner,
+            ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"],
+            budget=RefreshBudget(seconds=60, requests=3),
+        )
+
+        first = github.refresh()
+        abandoned = github.refresh(reconcile=True)
+
+        # Three batches of identities do not fit beside the probe, and a wave
+        # is spent whole before it is sent, so none of them went.
+        assert_stale_observation(
+            self,
+            abandoned,
+            attempted_at="2026-08-26T10:01:00Z",
+            last_good_at="2026-08-26T10:00:00Z",
+            source_name="github-issues",
+            diagnostic_code="github-refresh-budget",
+            expected_issues=list(first.issues),
+        )
+        self.assertIn("with 0 of 50 Issues", abandoned.diagnostics[0].message)
+        self.assertEqual([], runner.lookups())
+
+    def test_a_reconciliation_advances_the_mark_from_its_identities(self) -> None:
+        # An identity answers an update newer than the mark: the delta still
+        # asks since the old mark, so an Issue created meanwhile would be
+        # listed, and the mark advances for the next tick's probe.
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(2, self.LATER)),
+                nodes_response(
+                    [
+                        by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
+                        by_id(unrelated(issue_record(2, updated_at=self.LATER))),
+                    ]
+                ),
+                completed(
+                    issue_page([unrelated(issue_record(2, updated_at=self.LATER))])
+                ),
+                completed(probe_response(2, self.LATER)),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        reconciled = github.refresh(reconcile=True)
+        unchanged = github.refresh()
+
+        self.assertEqual("fresh", reconciled.status)
+        self.assertIn(f"since={self.MARK}", runner.calls[3][0])
+        self.assertEqual("fresh", unchanged.status)
+        self.assertEqual(reconciled.issues, unchanged.issues)
+        self.assertEqual(5, len(runner.calls))
+
+    def test_a_reconciliation_drops_an_issue_no_longer_of_the_repository(
+        self,
+    ) -> None:
+        transferred = by_id(unrelated(issue_record(2, updated_at=self.MARK)))
+        transferred["repository"] = {"id": "R_other", "nameWithOwner": "other/repo"}
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(1, self.MARK)),
+                nodes_response(
+                    [
+                        by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
+                        transferred,
+                    ]
+                ),
+                completed(issue_page([])),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh(reconcile=True)
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(["I_issue_1"], [issue.id for issue in observation.issues])
+        self.assertEqual(4, len(runner.calls))
 
     def test_a_count_still_unexplained_after_identities_falls_back_to_the_sweep(
         self,
@@ -1514,6 +1606,8 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
                     ]
                 ),
                 completed(issue_page([])),
+                # One more probe: the count did not move, so the sweep runs.
+                completed(probe_response(3, self.MARK)),
                 completed(
                     issue_page(
                         [
@@ -1535,8 +1629,40 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
             ["I_issue_1", "I_issue_2", "I_issue_3"],
             [issue.id for issue in observation.issues],
         )
+        self.assertEqual(6, len(runner.calls))
+        self.assertIn("CREATED_AT", query_of(runner.calls[5]))
+
+    def test_a_count_moved_by_a_creation_in_flight_is_settled_by_one_more_probe(
+        self,
+    ) -> None:
+        created = unrelated(issue_record(3, updated_at=self.LATER))
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(2, self.MARK)),
+                nodes_response(
+                    [
+                        by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
+                        by_id(unrelated(issue_record(2, updated_at=self.MARK))),
+                    ]
+                ),
+                # Created after the probe: the delta lists it and the count
+                # is one more than the probe said.
+                completed(issue_page([created])),
+                completed(probe_response(3, self.LATER)),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh(reconcile=True)
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(3, len(observation.issues))
         self.assertEqual(5, len(runner.calls))
-        self.assertIn("CREATED_AT", query_of(runner.calls[4]))
+        self.assertFalse(
+            any("CREATED_AT" in query_of(call) for call in runner.calls[1:])
+        )
 
     def test_a_failed_identity_batch_leaves_the_snapshot_untouched(self) -> None:
         runner = SequenceRunner(

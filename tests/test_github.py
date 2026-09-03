@@ -360,7 +360,7 @@ class RefreshBudgetTests(unittest.TestCase):
             str(caught.exception),
         )
 
-    def test_time_is_checked_before_each_page(self) -> None:
+    def test_time_is_checked_before_each_request(self) -> None:
         clock = iter([0.0, 1.0, 61.5])
         meter = RefreshBudget(seconds=60, requests=25).start(lambda: next(clock))
 

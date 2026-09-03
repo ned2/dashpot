@@ -43,7 +43,10 @@ snapshot by Issue identity and assembles each fresh observation from it:
   at both ends and a change may bump only one, so the counterparts a delta
   added or removed are observed by identity in the same refresh, and both
   ends land together.
-- **A Reconciliation** — every Issue observed afresh by the cursor sweep —
+- **A Reconciliation** — every Issue observed afresh by the cursor sweep
+  (by identity since
+  [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md),
+  which keeps the sweep as the fallback and the first observation) —
   runs when a period (five minutes) has passed since the last one was
   attempted, when a person presses `r`, and whenever the merged count
   disagrees with the probe's, which is the only trace a deletion or transfer

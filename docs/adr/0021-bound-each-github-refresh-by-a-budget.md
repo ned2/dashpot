@@ -36,10 +36,11 @@ repository identity check use and the Pull Requests pane
 - **Every refresh runs under a Refresh Budget** of pages and seconds, each
   checked before the next page, so a refresh overruns by at most one page
   plus the command timeout. The default is twenty-five pages or sixty
-  seconds, set at the source rather than by a flag. (The budget counts
-  requests, a hundred and twenty of them, since
+  seconds, set at the source rather than by a flag. (Since
   [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)
-  sends batches in flight.) Nested pagination of an
+  sends batches in flight, the budget counts requests, a hundred and twenty
+  of them, checked before each is sent, and a refresh overruns by at most
+  the requests in flight; the Diagnostic names the requests.) Nested pagination of an
   Issue's labels, assignees and relationships spends the same budget as the
   Issue pages, and a `find` runs under its own. An overrun is a failed
   refresh with one `github-refresh-budget` Diagnostic naming the pages, the

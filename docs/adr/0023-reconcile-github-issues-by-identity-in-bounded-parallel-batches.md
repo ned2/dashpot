@@ -39,11 +39,14 @@ knows, by identity, plus what its delta and count reveal:
   High-Water Mark are fetched as on any tick, so an Issue created since the
   last observation joins the snapshot, and the other end of every changed
   relationship with it. The probe's count is then checked against the
-  merged collection: an Issue transferred in carries its old `updatedAt`
-  and no known identity, so it appears in neither, and only when the count
-  still disagrees does the Reconciliation fall back to the cursor sweep. The
-  first observation of a run, and any Reconciliation without a High-Water
-  Mark to delta from, is that sweep.
+  merged collection, and once more against a fresh probe when it disagrees,
+  since an Issue created or deleted while the identities were in flight
+  moves the count after the probe. An Issue transferred in carries its old
+  `updatedAt` and no known identity, so it appears in neither the
+  identities nor the delta, and only when the count still disagrees does
+  the Reconciliation fall back to the cursor sweep. The first observation of
+  a run, and any Reconciliation without a High-Water Mark to delta from, is
+  that sweep.
 - **Four in flight, never more.** The gateway sends a batch of requests
   through a pool of four threads and returns the answers in the order asked;
   the first failure fails the batch and the refresh, and nothing partial is
@@ -83,14 +86,20 @@ knows, by identity, plus what its delta and count reveal:
 
 ## Consequences
 
-- A Reconciliation of two thousand Issues costs about eighty-five points
+- A Reconciliation of two thousand Issues costs about eighty-six points
   and completes in a budget; the hour's cost for such a repository falls
-  from about seventeen hundred points to about eleven hundred, and for a
+  from about seventeen hundred points to about thirteen hundred, and for a
   repository of a few hundred Issues to a few hundred points.
 - A Reconciliation can now remove an Issue only through what its identities
   and the sweep say, and it still cannot see an Issue transferred in without
-  a bump except by count; when the count disagrees for that reason the
-  fallback sweep runs and costs what it always did.
+  a bump except by count. When the count disagrees for that reason the
+  fallback sweep runs after the identities and the delta, so that
+  Reconciliation costs both; in a repository large enough that the two
+  together outrun the sixty seconds it is abandoned and retried a period
+  later, and the transferred Issue is seen once it is next updated, or by
+  a Reconciliation that fits. A count disagreement found on an ordinary
+  tick reconciles at once and fetches its delta a second time, a page
+  spent for keeping the Reconciliation one shape.
 - Requests in flight share one `gh` credential and one command runner; the
   runner is invoked from a pool of threads, so a runner passed to the
   gateway must be safe to call concurrently. The test fakes route identity

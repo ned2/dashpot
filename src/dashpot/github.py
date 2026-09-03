@@ -205,9 +205,8 @@ class GitHubGateway:
     ) -> list[Mapping[str, Any]]:
         """Run one query for each set of variables, at most MAX_IN_FLIGHT at once.
 
-        Answers come back in the order asked. The first failure is raised
-        once the requests already running have finished, and the ones not
-        yet started are never sent.
+        Answers come back in the order asked; the first failure is raised
+        once the requests already running have finished.
         """
         if len(variables) <= 1:
             return [
