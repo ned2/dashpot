@@ -14,8 +14,9 @@ Project. Observation lists both runs with a `work-session-conflict` warning;
 neither is an Orphaned Agent Run, because the session is alive.
 
 Two things make that state reachable. Claude Code's `EnterWorktree` tool moves
-a running session to another Worktree, after which its hooks publish from the
-new working directory; a session that opted in at Worktree A and then opts in
+a running session to another Worktree (and `ExitWorktree` moves it back),
+after which its hooks publish from the new working directory; a session that
+opted in at Worktree A and then opts in
 at B leaves A's record active. And a tool call that merely runs
 `cd B && dashpot work start` while the harness stays at A records the run at
 B, where no hook ever describes the session, so the run is listed with
@@ -78,6 +79,24 @@ The same run showed that the session's graceful `SessionEnd` at B removed only
 B's record; the record left behind at A is stale observation state, pruned
 once its process is gone, and is never the freshest.
 
+`ExitWorktree` is the return trip and fires no lifecycle event either, so the
+integration subscribes `PostToolUse` matched to `ExitWorktree` as well.
+Measured on 2026-09-03 with Claude Code 2.1.259, in a disposable repository
+with a project-level `PostToolUse` hook matched to each tool and recording
+its input: a headless session that called `EnterWorktree` and then
+`ExitWorktree` with `action: keep` fired each hook exactly once; the
+`ExitWorktree` input carried `tool_name: ExitWorktree` and `cwd` already back
+at the original checkout, which `tool_response.originalCwd` also named, so
+the record the publisher writes from it places the session where it
+returned, fresher than the `EnterWorktree` record at the Worktree it left.
+Before this subscription a returning session stayed placed at the Worktree
+it had left until its next turn boundary, and a `start` at the checkout it
+returned to was refused for the rest of that turn
+([#110](https://github.com/ned2/dashpot/issues/110)). An install that
+predates the subscription is reported by `dashpot integrate claude-code
+--status` as missing `PostToolUse(ExitWorktree)` and repaired by running
+`dashpot integrate claude-code` again.
+
 ## Considered options
 
 - **A skill obligation only (`work stop` before relocating):** rejected as
@@ -94,6 +113,11 @@ once its process is gone, and is never the freshest.
 - **An explicit `work start --here` or `--move` override:** rejected because
   it lets the agent assert a relocation without evidence, which is the
   inference the Work Store exists to refuse.
+- **Claude Code's `CwdChanged` hook in place of the matched `PostToolUse`
+  hooks:** left for a separate decision. It fires on every directory change,
+  a `cd` inside a tool call included, so adopting it would reopen the
+  question this decision answered — whether such a `cd` moves the session —
+  and the per-change cost ADR 0006 measures for turn boundaries.
 - **Extending the invariant to independent clones:** rejected; `git worktree
   list` does not reach another clone, and ADR 0003 keeps each clone's state
   distinct, so records in two clones keep the `work-session-conflict`
@@ -108,7 +132,8 @@ once its process is gone, and is never the freshest.
 - `work start` and `stop` enumerate Worktrees through `git worktree list`
   from the Worktree they run in, read every reachable hook store, and choose
   the freshest record; `validate_session_claim` uses the same rule.
-- `dashpot integrate claude-code` installs the matched `PostToolUse` hook and
-  `--status` reports it; Codex needs nothing.
+- `dashpot integrate claude-code` installs the matched `PostToolUse` hooks
+  for `EnterWorktree` and `ExitWorktree`, and `--status` reports them and
+  names a missing one; Codex needs nothing.
 - The `work-session-conflict` diagnostic remains for records written before
   this decision, by an older Dashpot, or across independent clones.

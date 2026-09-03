@@ -676,6 +676,28 @@ def test_start_after_a_verified_relocation_moves_the_run(
     assert len(show_issue_work(b)) == 1
 
 
+@pytest.mark.parametrize(("lookup", "environ"), ROUTES)
+def test_start_after_returning_from_a_worktree_moves_the_run_back(
+    tmp_path: Path, lookup: ProcessLookup, environ: dict[str, str]
+) -> None:
+    """The return trip is a relocation too: ``ExitWorktree`` publishes from A."""
+    a, b = two_worktrees(tmp_path)
+    returned = "2026-08-30T03:41:00.000000Z"
+    hook_record(a, CODEX_SESSION, "codex", CODEX, at=EARLIER)
+    start_issue_work(a, "build-observer", lookup=lookup, environ=environ)
+    hook_record(b, CODEX_SESSION, "codex", CODEX, at=LATER)
+    start_issue_work(b, "fix-crash", lookup=lookup, environ=environ)
+    hook_record(a, CODEX_SESSION, "codex", CODEX, at=returned)
+
+    messages = start_issue_work(a, "build-observer", lookup=lookup, environ=environ)
+
+    assert messages == [
+        f"switched from fix-crash at {b} to build-observer at {a} (I_observer)"
+    ]
+    assert WorkStore(b).active()[0] == []
+    assert list(issue_ids(a).values()) == ["I_observer"]
+
+
 def test_start_where_the_session_is_not_is_refused(tmp_path: Path) -> None:
     a, b = two_worktrees(tmp_path)
     hook_record(a, CODEX_SESSION, "codex", CODEX)
