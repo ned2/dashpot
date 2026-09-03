@@ -85,7 +85,7 @@ the management commands `init`, `integrate`,
 
 | Key | Action |
 |---|---|
-| `r` | Refresh every observation in the Workspace |
+| `r` | Refresh every observation in the Workspace, observing every GitHub Issue afresh rather than only what changed |
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
 | `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, and Issues lists |
@@ -334,9 +334,9 @@ carry a warning (a rate limit running low). Codes are prefixed by the source
 family — a GitHub Issue Source reports `github-authentication`,
 `github-permission`, `github-not-found`, `github-repository`,
 `github-rate-limit`, `github-rate-limit-low`, `github-refresh-budget`,
-`github-timeout`, `github-network`, `github-pagination`,
-`github-malformed-response` and `github-profile` — and are read from the
-tracker's structured signals before its prose
+`github-reconciliation-overdue`, `github-timeout`, `github-network`,
+`github-pagination`, `github-malformed-response` and `github-profile` — and
+are read from the tracker's structured signals before its prose
 ([ADR 0021](docs/adr/0021-bound-each-github-refresh-by-a-budget.md)).
 
 **Refresh Budget**:
@@ -347,6 +347,29 @@ the next page. An abandoned refresh is a failed refresh, reported by one
 collection retained; nothing partial is ever published
 ([ADR 0002](docs/adr/0002-require-complete-issue-profile-snapshots.md),
 [ADR 0021](docs/adr/0021-bound-each-github-refresh-by-a-budget.md)).
+
+**Incremental Refresh**:
+How a GitHub Issue Source refreshes after its first complete observation: a
+one-point change probe, then only the Issues updated since its High-Water
+Mark and the other ends of any relationship they changed, merged by Issue
+identity into the collection it last observed. A fresh observation may be
+assembled this way; an Issue leaves the collection only on positive evidence,
+never for being absent from a delta
+([ADR 0022](docs/adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)).
+
+**High-Water Mark**:
+The newest `updatedAt` the GitHub Issue Source has observed, the inclusive
+start of its next delta. It advances only through what a refresh fetched, so
+no clock of Dashpot's ever enters the boundary.
+
+**Reconciliation**:
+An observation of every GitHub Issue afresh, which alone can see a deletion,
+a transfer, or a change GitHub does not date — a linked pull request, the
+blocker's side of a dependency. It runs on a period (five minutes), on `r`,
+and whenever the Issue count no longer adds up; an observation whose
+Reconciliation is more than two periods overdue carries a
+`github-reconciliation-overdue` warning
+([ADR 0022](docs/adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)).
 
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
@@ -922,7 +945,8 @@ An automatic tick queues nothing further, the next tick being its rerun; a
 key press, a Remote Fetch or Cleanup that changed the Repository, and a
 follow-up of a publish each queue one more observation of the key for when
 the running one lands. `r` refreshes every key in the Workspace, which with
-one Project per run is the observed Project. It never fetches: `f`
+one Project per run is the observed Project, and asks the GitHub Issue
+Source for a Reconciliation. It never fetches: `f`
 mutates, a Remote Fetch of the Repository Anchor whose refs
 supplied the Branch observation ([`fetch.py`](src/dashpot/fetch.py),
 [ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
@@ -963,6 +987,24 @@ disposable Repository in a shape a real Issue Worktree takes: a finished Issue
 whose Branch the forge deleted after a squash merge, a merged Branch still at
 `origin`, pushed but unintegrated work, a second approach with commits of its
 own, and a dirty Worktree on a Branch named unlike its directory.
+
+The GitHub Issue Source observes every Issue once, then refreshes
+incrementally ([`github_issues.py`](src/dashpot/github_issues.py),
+[ADR 0022](docs/adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)):
+each tick asks GitHub one one-point question — the newest update and the
+Issue count — and an unchanged repository is answered by that alone, whatever
+its size. When something changed, only the Issues updated since the
+High-Water Mark are fetched, in pages of twenty-four, together with the other
+end of every relationship they added or removed, and merged by identity. A
+Reconciliation — the full sweep — runs every five minutes, on `r`, and
+whenever the count no longer adds up, because a deletion, a transfer, a
+linked pull request and the blocker's side of a dependency leave no trace a
+delta can see; an Issue is removed only on that positive evidence. A
+Reconciliation the Refresh Budget abandons is retried a period later while
+the ticks between keep refreshing incrementally, and one more than two
+periods overdue is reported as a warning. The research behind the shape of
+every query is in
+[`docs/github-api-batching-research.md`](docs/github-api-batching-research.md).
 
 Exceptional state is summarized in a
 one-line alert above Diagnostics that takes no space while everything is

@@ -64,6 +64,7 @@ class ScriptedSource(IssueSource):
         self.project_id = project_id
         self.collections: list[list[IssueProfile] | Exception] = []
         self.calls = 0
+        self.reconcile_requests: list[bool] = []
         self.started = threading.Event()
         self.release = threading.Event()
         self.release.set()
@@ -78,6 +79,7 @@ class ScriptedSource(IssueSource):
     def _collect(self) -> CollectedIssues:
         with self.lock:
             self.calls += 1
+            self.reconcile_requests.append(self.reconcile_requested)
         self.started.set()
         self.release.wait(timeout=2)
         if not self.collections:
@@ -98,8 +100,8 @@ class ScriptedCollector:
         self.targets_release.set()
         self.head = "abc123"
 
-    def observe_issues(self):
-        return self.source.refresh()
+    def observe_issues(self, *, reconcile: bool = False):
+        return self.source.refresh(reconcile=reconcile)
 
     def observe_targets(self) -> RepositoryStateInventory:
         self.target_calls += 1
@@ -193,6 +195,23 @@ def test_keys_select_one_project_or_the_whole_workspace(workspace) -> None:
     )
     assert coordinator.follow_ups([runs_changed, projects_changed]) == [AGENT_RUNS_KEY]
     assert coordinator.follow_ups([runs_changed]) == []
+
+
+def test_a_reconciliation_request_rides_the_ticket_to_the_source(workspace) -> None:
+    coordinator, collectors, _runs, _targets = workspace
+    alpha_issues = ObservationKey("issues", "alpha")
+
+    (plain,) = coordinator.request([alpha_issues])
+    (reconciling,) = coordinator.request([alpha_issues], reconcile=True)
+    # The plain ticket was superseded before it ran; only the request a
+    # person made reaches the source, and it reaches it as a Reconciliation.
+    coordinator.observe(plain)
+    coordinator.observe(reconciling)
+    coordinator.observe(coordinator.request([alpha_issues])[0])
+
+    assert not plain.reconcile
+    assert reconciling.reconcile
+    assert collectors["alpha"].source.reconcile_requests == [True, False]
 
 
 def test_project_is_published_only_after_both_halves_are_observed(

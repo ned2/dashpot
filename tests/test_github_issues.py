@@ -47,12 +47,82 @@ def normalize(record: dict[str, Any], **overrides: str) -> IssueProfile:
     )
 
 
-def issue_record(number: int) -> dict[str, Any]:
+def issue_record(
+    number: int, *, updated_at: str | None = None, title: str | None = None
+) -> dict[str, Any]:
     record = raw_fixture()
     record["id"] = f"I_issue_{number}"
     record["number"] = number
     record["url"] = f"https://github.com/ned2/dashpot/issues/{number}"
+    if updated_at is not None:
+        record["updatedAt"] = updated_at
+    if title is not None:
+        record["title"] = title
     return record
+
+
+def related(record: dict[str, Any], connection: str, *ids: str) -> dict[str, Any]:
+    record[connection] = {
+        "nodes": [{"id": issue_id} for issue_id in ids],
+        "pageInfo": {"hasNextPage": False, "endCursor": None},
+    }
+    return record
+
+
+def unrelated(record: dict[str, Any]) -> dict[str, Any]:
+    record["parent"] = None
+    for connection in ("subIssues", "blockedBy", "blocking"):
+        related(record, connection)
+    return record
+
+
+def probe_response(
+    total_count: int,
+    newest_updated_at: str | None,
+    *,
+    repository_id: str = REPOSITORY_ID,
+) -> str:
+    nodes = (
+        []
+        if newest_updated_at is None
+        else [{"id": "I_newest", "updatedAt": newest_updated_at}]
+    )
+    return json.dumps(
+        {
+            "data": {
+                "node": {
+                    "id": repository_id,
+                    "nameWithOwner": "ned2/dashpot",
+                    "issues": {"totalCount": total_count, "nodes": nodes},
+                }
+            }
+        }
+    )
+
+
+def nodes_response(nodes: list[dict[str, Any] | None]) -> CommandResult:
+    """A ``nodes(ids:)`` answer as gh relays it: exit 1 whenever one is missing."""
+    errors = [
+        {
+            "type": "NOT_FOUND",
+            "path": ["nodes", index],
+            "message": "Could not resolve to a node with the given global id",
+        }
+        for index, node in enumerate(nodes)
+        if node is None
+    ]
+    payload: dict[str, Any] = {"data": {"nodes": nodes}}
+    if errors:
+        payload["errors"] = errors
+    return completed(
+        stdout=json.dumps(payload),
+        stderr="gh: Could not resolve to a node" if errors else "",
+        returncode=1 if errors else 0,
+    )
+
+
+def by_id(record: dict[str, Any]) -> dict[str, Any]:
+    return {"__typename": "Issue", **record}
 
 
 def issue_page(
@@ -147,17 +217,25 @@ def source(
     *,
     budget: RefreshBudget | None = None,
     monotonic: Any = None,
+    reconcile_seconds: float = 300.0,
 ) -> GitHubIssuesSource:
-    times = iter(timestamps or ["2026-08-26T10:00:00Z"])
+    stamps = timestamps or ["2026-08-26T10:00:00Z"]
+    times = iter(stamps)
     return GitHubIssuesSource(
         Path("/repo"),
         project_id=PROJECT_ID,
         repository_id=REPOSITORY_ID,
         runner=runner,
-        clock=lambda: next(times),
+        # A refresh past the scripted stamps keeps the last one.
+        clock=lambda: next(times, stamps[-1]),
         budget=budget or RefreshBudget(),
         monotonic=monotonic,
+        reconcile_seconds=reconcile_seconds,
     )
+
+
+def query_of(call: tuple[list[str], Path, float]) -> str:
+    return call[0][4]
 
 
 def graphql_failure(type: str, path: list[str], message: str) -> CommandResult:
@@ -827,7 +905,8 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         self.assertEqual(2, len(runner.calls))
 
         # The budget covers a whole cycle: a good cycle within it stays good
-        # and the next overrun retains it.
+        # and the next overrun — a Reconciliation a person asked for — retains
+        # it.
         runner = SequenceRunner([completed(issue_page([issue_record(1)])), *pages[:2]])
         github = source(
             runner,
@@ -835,7 +914,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             budget=RefreshBudget(seconds=60, pages=2),
         )
         github.refresh()
-        stale = github.refresh()
+        stale = github.refresh(reconcile=True)
         assert_stale_observation(
             self,
             stale,
@@ -920,6 +999,278 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         observation = source(runner).refresh()
 
         self.assertEqual("github-rate-limit", observation.diagnostics[0].code)
+
+
+class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
+    """After a first complete observation the source refreshes incrementally."""
+
+    OLDER = "2026-08-26T08:00:00Z"
+    MARK = "2026-08-26T09:00:00Z"
+    LATER = "2026-08-26T09:30:00Z"
+
+    def first_sweep(self) -> CommandResult:
+        return completed(
+            issue_page(
+                [
+                    unrelated(issue_record(1, updated_at=self.OLDER)),
+                    unrelated(issue_record(2, updated_at=self.MARK)),
+                ]
+            )
+        )
+
+    def test_an_unchanged_collection_costs_one_probe(self) -> None:
+        runner = SequenceRunner(
+            [self.first_sweep(), completed(probe_response(2, self.MARK))]
+        )
+        github = source(runner, ["2026-08-26T10:00:00Z", "2026-08-26T10:00:15Z"])
+
+        first = github.refresh()
+        second = github.refresh()
+
+        assert_fresh_observation(
+            self,
+            second,
+            attempted_at="2026-08-26T10:00:15Z",
+            expected_issues=list(first.issues),
+        )
+        self.assertEqual(first.label_colors, second.label_colors)
+        self.assertEqual(first.issue_activity, second.issue_activity)
+        self.assertEqual(2, len(runner.calls))
+        probe = query_of(runner.calls[1])
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", probe)
+        self.assertIn("totalCount", probe)
+        self.assertIn("first: 1", probe)
+        self.assertNotIn("body", probe)
+
+    def test_changes_since_the_mark_are_merged_by_identity(self) -> None:
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(3, self.LATER)),
+                completed(
+                    issue_page(
+                        [
+                            # The Issue at the mark is observed again: the
+                            # boundary is inclusive.
+                            unrelated(
+                                issue_record(2, updated_at=self.MARK, title="Renamed")
+                            ),
+                            unrelated(issue_record(3, updated_at=self.LATER)),
+                        ]
+                    )
+                ),
+                completed(probe_response(3, self.LATER)),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        changed = github.refresh()
+        unchanged = github.refresh()
+
+        self.assertEqual("fresh", changed.status)
+        self.assertEqual(
+            [(1, "I_issue_1"), (2, "I_issue_2"), (3, "I_issue_3")],
+            [(issue.number, issue.id) for issue in changed.issues],
+        )
+        self.assertEqual("Renamed", changed.issues[1].title)
+        self.assertIn("I_issue_3", changed.issue_activity)
+        delta_args, delta = runner.calls[2][0], query_of(runner.calls[2])
+        self.assertIn(f"since={self.MARK}", delta_args)
+        self.assertIn("first: 24", delta)
+        self.assertIn("filterBy: {since: $since}", delta)
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: ASC}", delta)
+        # The mark advanced to the newest change, so the next probe is enough.
+        self.assertEqual(changed.issues, unchanged.issues)
+        self.assertEqual(4, len(runner.calls))
+
+    def test_a_changed_relationship_observes_its_other_end(self) -> None:
+        blocked = related(
+            unrelated(issue_record(1, updated_at=self.LATER)), "blockedBy", "I_issue_2"
+        )
+        blocker = related(
+            unrelated(issue_record(2, updated_at=self.MARK)), "blocking", "I_issue_1"
+        )
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(2, self.LATER)),
+                completed(issue_page([blocked])),
+                nodes_response([by_id(blocker)]),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        by_number = {issue.number: issue for issue in observation.issues}
+        self.assertEqual(("I_issue_2",), tuple(by_number[1].relationships.blocked_by))
+        self.assertEqual(("I_issue_1",), tuple(by_number[2].relationships.blocking))
+        lookup_args, lookup = runner.calls[3][0], query_of(runner.calls[3])
+        self.assertIn("nodes(ids: $ids)", lookup)
+        self.assertEqual(["-f", "ids[]=I_issue_2"], lookup_args[-2:])
+
+    def test_a_missing_other_end_leaves_the_snapshot(self) -> None:
+        # Issue 1 no longer has a parent; the former parent, Issue 2, has been
+        # deleted, so its identity answers null — positive evidence it is gone.
+        parented = related(issue_record(1, updated_at=self.OLDER), "subIssues")
+        parented["parent"] = {"id": "I_issue_2"}
+        orphaned = copy.deepcopy(parented)
+        orphaned["parent"] = None
+        orphaned["updatedAt"] = self.LATER
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page([parented, issue_record(2, updated_at=self.MARK)])
+                ),
+                completed(probe_response(1, self.LATER)),
+                completed(issue_page([orphaned])),
+                nodes_response([None]),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(["I_issue_1"], [issue.id for issue in observation.issues])
+        self.assertIsNone(observation.issues[0].relationships.parent)
+        self.assertEqual(4, len(runner.calls))
+
+    def test_an_unexplained_count_observes_everything_afresh(self) -> None:
+        # Issue 1 was deleted: nothing bumped, the count fell, and the delta
+        # (the Issue at the mark, inclusive) cannot say which Issue went.
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(1, self.MARK)),
+                completed(
+                    issue_page([unrelated(issue_record(2, updated_at=self.MARK))])
+                ),
+                completed(
+                    issue_page([unrelated(issue_record(2, updated_at=self.MARK))])
+                ),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(["I_issue_2"], [issue.id for issue in observation.issues])
+        self.assertEqual(4, len(runner.calls))
+        self.assertIn(
+            "orderBy: {field: CREATED_AT, direction: ASC}", query_of(runner.calls[3])
+        )
+
+    def test_an_empty_collection_is_observed_afresh_each_time(self) -> None:
+        runner = SequenceRunner([completed(issue_page([])), completed(issue_page([]))])
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual((), observation.issues)
+        self.assertEqual(2, len(runner.calls))
+
+    def test_a_reconciliation_is_due_after_its_period(self) -> None:
+        clock = iter([0.0, 0.0, 100.0, 100.0, 300.0, 300.0])
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(2, self.MARK)),
+                self.first_sweep(),
+            ]
+        )
+        github = source(runner, monotonic=lambda: next(clock), reconcile_seconds=300)
+
+        github.refresh()
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(3, len(runner.calls))
+        self.assertIn("CREATED_AT", query_of(runner.calls[2]))
+        self.assertNotIn("direction: DESC", query_of(runner.calls[2]))
+
+    def test_a_person_asks_for_a_reconciliation(self) -> None:
+        runner = SequenceRunner([self.first_sweep(), self.first_sweep()])
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh(reconcile=True)
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(2, len(runner.calls))
+        self.assertNotIn("direction: DESC", query_of(runner.calls[1]))
+
+    def test_an_abandoned_reconciliation_is_retried_a_period_later_and_warned_overdue(
+        self,
+    ) -> None:
+        # One reading when a refresh starts and one before each page.
+        clock = iter(
+            [
+                *[0.0] * 2,  # bootstrap: one page
+                *[300.0] * 4,  # due: abandoned before its third page
+                *[315.0] * 2,  # between: the probe
+                *[600.0] * 4,  # due again: abandoned again
+                *[620.0] * 2,  # between: the probe, now overdue
+            ]
+        )
+        two_pages = [
+            completed(
+                issue_page([issue_record(1)], has_next_page=True, end_cursor="p1")
+            ),
+            completed(
+                issue_page([issue_record(2)], has_next_page=True, end_cursor="p2")
+            ),
+        ]
+        runner = SequenceRunner(
+            [
+                completed(issue_page([issue_record(1, updated_at=self.MARK)])),
+                *two_pages,
+                completed(probe_response(1, self.MARK)),
+                *two_pages,
+                completed(probe_response(1, self.MARK)),
+            ]
+        )
+        stamps = [f"2026-08-26T10:{minute:02d}:00Z" for minute in range(5)]
+        github = source(
+            runner,
+            stamps,
+            budget=RefreshBudget(seconds=60, pages=2),
+            monotonic=lambda: next(clock),
+            reconcile_seconds=300,
+        )
+
+        github.refresh()
+        abandoned = github.refresh()
+        between = github.refresh()
+        abandoned_again = github.refresh()
+        overdue = github.refresh()
+
+        self.assertEqual("stale", abandoned.status)
+        self.assertEqual("github-refresh-budget", abandoned.diagnostics[0].code)
+        assert_fresh_observation(
+            self,
+            between,
+            attempted_at=stamps[2],
+            expected_issues=[normalize(issue_record(1, updated_at=self.MARK))],
+        )
+        self.assertEqual("stale", abandoned_again.status)
+        self.assertEqual("fresh", overdue.status)
+        self.assertEqual(1, len(overdue.diagnostics))
+        warning = overdue.diagnostics[0]
+        self.assertEqual("github-reconciliation-overdue", warning.code)
+        self.assertEqual("warning", warning.severity)
+        self.assertIn("last observed in full 620s ago", warning.message)
+        self.assertIn("period of 300s", warning.message)
+        self.assertEqual(7, len(runner.calls))
 
 
 class GitHubIssuesFindTests(unittest.TestCase):

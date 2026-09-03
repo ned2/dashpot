@@ -137,6 +137,7 @@ class IssueSource(ABC):
         self._last_good_at: str | None = None
         self._last_good_label_colors: dict[str, str] = {}
         self._last_good_issue_activity: dict[str, IssueActivity] = {}
+        self._reconcile_requested = False
 
     @property
     @abstractmethod
@@ -148,8 +149,20 @@ class IssueSource(ABC):
         """Prefix the shared diagnostic codes; defaults to the source name."""
         return self.name
 
-    def refresh(self) -> IssueSourceObservation:
+    @property
+    def reconcile_requested(self) -> bool:
+        """Whether the refresh under way asked for a Reconciliation."""
+        return self._reconcile_requested
+
+    def refresh(self, *, reconcile: bool = False) -> IssueSourceObservation:
+        """Observe the complete collection, retaining the last good one on failure.
+
+        ``reconcile`` asks a source that refreshes incrementally to observe
+        every Issue afresh this time — a Reconciliation — rather than only
+        what changed since its last complete observation.
+        """
         attempted_at = self._clock()
+        self._reconcile_requested = reconcile
         try:
             collected = self._collect()
             self._check_collection_invariants(collected)
