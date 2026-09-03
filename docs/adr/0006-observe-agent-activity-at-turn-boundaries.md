@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-08-30
+amended-by: 0016-hold-a-session-running-while-its-sub-agents-work.md
 ---
 
 # Observe Agent Session activity at turn boundaries

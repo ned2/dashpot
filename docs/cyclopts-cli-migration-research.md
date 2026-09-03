@@ -1,7 +1,7 @@
 ---
 status: superseded
 date: 2026-08-30
-superseded-by: docs/adr/0020-build-the-command-line-on-cyclopts.md
+superseded-by: adr/0020-build-the-command-line-on-cyclopts.md
 ---
 
 # Cyclopts for the Dashpot CLI

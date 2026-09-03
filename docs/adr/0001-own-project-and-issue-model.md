@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-26
-amended-by: 0003
+amended-by: 0003-prefer-project-local-dashpot-state.md
 ---
 
 # Own the Project and Issue model

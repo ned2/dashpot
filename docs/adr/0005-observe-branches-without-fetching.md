@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-29
-amended-by: 0008, 0014
+amended-by: 0008-let-management-commands-mutate-on-explicit-invocation.md, 0014-fetch-remotes-on-explicit-key-press.md
 ---
 
 # Observe Branches without fetching

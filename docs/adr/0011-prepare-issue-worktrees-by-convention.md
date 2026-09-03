@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-30
-amended-by: 0019
+amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md
 ---
 
 # Prepare Issue Worktrees by convention, and only report their removability

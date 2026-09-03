@@ -1,13 +1,14 @@
 ---
-status: research
-date: 2026-08-25
+status: living
+date: 2026-09-03
 ---
 
 # Textual implementation notes for Dashpot
 
-Research date: 2026-08-25. These notes target Textual 8.2.8, the version already
-exercised by the framework spike. They are implementation guidance for the first
-passive observer slice, not a claim that Textual is permanently locked in.
+These notes began as research on 2026-08-25 and are now maintained alongside
+the interface they describe: they target Textual 8.2.8, the pinned version, and
+are updated when the dashboard's shape changes. They are implementation
+guidance, not a claim that Textual is permanently locked in.
 
 ## Recommended shape
 

@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0018
+amended-by: 0018-assess-remote-tracking-branch-integration.md
 ---
 
 # Observe Branch integration by content when commits are unreachable

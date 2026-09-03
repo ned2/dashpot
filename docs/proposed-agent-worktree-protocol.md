@@ -1,7 +1,7 @@
 ---
 status: superseded
 date: 2026-08-30
-superseded-by: docs/adr/0011-prepare-issue-worktrees-by-convention.md
+superseded-by: adr/0011-prepare-issue-worktrees-by-convention.md
 ---
 
 # Propose an Issue worktree protocol for agent handoff

@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-31
-amended-by: 0017, 0018
+amended-by: 0017-observe-branch-integration-by-content-when-commits-are-unreachable.md, 0018-assess-remote-tracking-branch-integration.md
 ---
 
 # Observe Branch integration by commit reachability

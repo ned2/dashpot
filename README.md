@@ -1198,14 +1198,21 @@ so its standing is visible without reading it:
 | `living` | Maintained alongside the code; expected to be current. |
 | `research` | A dated investigation. True as of its `date:`, never updated. |
 | `proposal` | A direction under review; nothing has been accepted yet. |
-| `superseded` | Kept as evidence. A `superseded-by:` field names what replaced it. |
+| `superseded` | Kept as evidence, and no longer describes the code. |
 
 An ADR's `status` is `proposed`, `accepted`, `amended`, or `superseded`
-instead; an `amended` ADR still holds, with a later ADR named in
-`amended-by:` and in its own Consequences. The `date:` is the decision or
-research date, not the last edit. `uv run python scripts/check_docs.py`
-enforces both the frontmatter and every in-repo Markdown link, and runs as
-part of the [quality gates](#quality-gates).
+instead; an `amended` ADR still holds, with the change recorded in its own
+Consequences. The `date:` is the decision or research date, not the last edit —
+a document that keeps up with the code is `living`, and its date moves with it.
+
+A `superseded` document names its replacement in `superseded-by:`, and an
+`amended` one names every ADR that changed it in `amended-by:`. Both are
+comma-separated paths written relative to the naming document's own directory,
+the way its prose links are, and both are resolved by the gate: a replacement
+that is renamed or removed fails the build rather than rotting quietly.
+
+`uv run python scripts/check_docs.py` enforces the frontmatter and every
+in-repo Markdown link, and runs as part of the [quality gates](#quality-gates).
 
 ## License
 

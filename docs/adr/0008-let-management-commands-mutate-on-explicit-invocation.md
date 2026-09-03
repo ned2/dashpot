@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-30
-amended-by: 0014, 0019
+amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md
 ---
 
 # Let named management commands mutate on explicit invocation
