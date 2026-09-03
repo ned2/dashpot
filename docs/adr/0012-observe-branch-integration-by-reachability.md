@@ -29,7 +29,10 @@ The pane keeps synchronization and integration separate:
   integration.
 - `INTEGRATED` reports `⊆` when all commits are reachable, `↑N` for the exact
   number that are not, `⊘` when no comparison is available, and `-` when the
-  row has no local ref.
+  row has no local ref (amended by
+  [ADR 0018](0018-assess-remote-tracking-branch-integration.md): a
+  remote-only row now reports its Remote-Tracking Branches' result, or `⊘`
+  when they disagree).
 
 The Worktrees `PATH` cell also stops shortening paths to a fixed character
 limit. Home-directory abbreviation remains presentation rather than data loss;
@@ -69,3 +72,7 @@ scrolling exposes it.
   squash-merged Branch whose content the Integration Branch holds is shown
   as integrated by content, `↑N` stays for work that never landed, and this
   decision's conservative reachability count is kept beside it.
+- Amended by [ADR 0018](0018-assess-remote-tracking-branch-integration.md):
+  integration is assessed for every concrete local and Remote-Tracking Branch
+  ref, so `unintegratedCommits` is reported on Remote-Tracking records too
+  and a remote-only row renders their result.

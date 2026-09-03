@@ -87,3 +87,6 @@ the tip merge and the listing on every refresh.
 - A conflict resolved by hand during a squash merge, or a squash edited
   before landing, produces a tree the Branch cannot reproduce and stays
   `↑N`: the conservative false negative is kept over a false positive.
+- Amended by [ADR 0018](0018-assess-remote-tracking-branch-integration.md):
+  content integration is assessed for Remote-Tracking Branch refs as well,
+  reusing the result for refs at the same commit within one observation.
