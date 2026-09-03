@@ -9,6 +9,7 @@ from typing import Any
 import pydantic
 
 from dashpot.commands import CommandResult
+from dashpot.github import RefreshBudget
 from dashpot.github_issues import (
     GitHubIssuesSource,
     normalize_github_issue,
@@ -141,7 +142,11 @@ class SequenceRunner:
 
 
 def source(
-    runner: SequenceRunner, timestamps: list[str] | None = None
+    runner: SequenceRunner,
+    timestamps: list[str] | None = None,
+    *,
+    budget: RefreshBudget | None = None,
+    monotonic: Any = None,
 ) -> GitHubIssuesSource:
     times = iter(timestamps or ["2026-08-26T10:00:00Z"])
     return GitHubIssuesSource(
@@ -150,7 +155,31 @@ def source(
         repository_id=REPOSITORY_ID,
         runner=runner,
         clock=lambda: next(times),
+        budget=budget or RefreshBudget(),
+        monotonic=monotonic,
     )
+
+
+def graphql_failure(type: str, path: list[str], message: str) -> CommandResult:
+    """The shape a real ``gh api graphql`` failure takes: body first, prose after."""
+    body = json.dumps(
+        {
+            "data": {"node": None},
+            "errors": [{"type": type, "path": path, "message": message}],
+        }
+    )
+    return completed(stdout=body, stderr=f"gh: {message}", returncode=1)
+
+
+def with_rate_limit(response: str, remaining: int, limit: int = 5000) -> str:
+    payload = json.loads(response)
+    payload["data"]["rateLimit"] = {
+        "cost": 6,
+        "limit": limit,
+        "remaining": remaining,
+        "resetAt": "2026-08-26T11:00:00Z",
+    }
+    return json.dumps(payload)
 
 
 class GitHubIssueNormalizerTests(unittest.TestCase):
@@ -726,6 +755,172 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         self.assertEqual("fresh", observation.status)
         self.assertEqual((), observation.issues)
 
+    def test_every_query_observes_the_rate_limit_beside_its_data(self) -> None:
+        record = raw_fixture()
+        record["labels"]["pageInfo"] = {"hasNextPage": True, "endCursor": "l1"}
+        runner = SequenceRunner(
+            [
+                completed(issue_page([record])),
+                completed(nested_page([{"name": "later", "color": "5319e7"}])),
+            ]
+        )
+
+        source(runner).refresh()
+
+        for args, _cwd, _timeout in runner.calls:
+            self.assertIn("rateLimit { cost limit remaining resetAt }", args[4])
+
+    def test_a_low_rate_limit_warns_beside_a_fresh_collection(self) -> None:
+        runner = SequenceRunner(
+            [completed(with_rate_limit(issue_page([raw_fixture()]), remaining=499))]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual([expected_fixture()], list(observation.issues))
+        (diagnostic,) = observation.diagnostics
+        self.assertEqual(
+            ("github-issues", "github-rate-limit-low", "warning"),
+            (diagnostic.source, diagnostic.code, diagnostic.severity),
+        )
+        self.assertIn(
+            "499 of 5000 points remain until 2026-08-26T11:00:00Z", diagnostic.message
+        )
+
+        # A tenth of the hour left is not yet low.
+        runner = SequenceRunner(
+            [completed(with_rate_limit(issue_page([raw_fixture()]), remaining=500))]
+        )
+        self.assertEqual((), source(runner).refresh().diagnostics)
+
+    def test_a_refresh_over_its_page_budget_is_abandoned_as_stale(self) -> None:
+        pages: list[CommandResult | Exception] = [
+            completed(
+                issue_page([issue_record(1)], has_next_page=True, end_cursor="p1")
+            ),
+            completed(
+                issue_page([issue_record(2)], has_next_page=True, end_cursor="p2")
+            ),
+            completed(issue_page([issue_record(3)])),
+        ]
+        runner = SequenceRunner(pages)
+        github = source(
+            runner,
+            ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"],
+            budget=RefreshBudget(seconds=60, pages=2),
+        )
+        first = github.refresh()
+        assert_unavailable_observation(
+            self,
+            first,
+            attempted_at="2026-08-26T10:00:00Z",
+            source_name="github-issues",
+            diagnostic_code="github-refresh-budget",
+        )
+        self.assertEqual(
+            "GitHub refresh abandoned after 2 pages in 0.0s with 2 Issues; "
+            "the budget is 2 pages or 60s",
+            first.diagnostics[0].message,
+        )
+        # Two pages were fetched and the third was never asked for.
+        self.assertEqual(2, len(runner.calls))
+
+        # The budget covers a whole cycle: a good cycle within it stays good
+        # and the next overrun retains it.
+        runner = SequenceRunner([completed(issue_page([issue_record(1)])), *pages[:2]])
+        github = source(
+            runner,
+            ["2026-08-26T10:00:00Z", "2026-08-26T10:01:00Z"],
+            budget=RefreshBudget(seconds=60, pages=2),
+        )
+        github.refresh()
+        stale = github.refresh()
+        assert_stale_observation(
+            self,
+            stale,
+            attempted_at="2026-08-26T10:01:00Z",
+            last_good_at="2026-08-26T10:00:00Z",
+            source_name="github-issues",
+            diagnostic_code="github-refresh-budget",
+            expected_issues=[normalize(issue_record(1))],
+        )
+
+    def test_a_refresh_over_its_time_budget_is_abandoned_between_pages(self) -> None:
+        clock = iter([0.0, 0.5, 61.0])
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page([issue_record(1)], has_next_page=True, end_cursor="p1")
+                ),
+                completed(issue_page([issue_record(2)])),
+            ]
+        )
+
+        observation = source(
+            runner,
+            budget=RefreshBudget(seconds=60, pages=25),
+            monotonic=lambda: next(clock),
+        ).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-refresh-budget", observation.diagnostics[0].code)
+        self.assertIn(
+            "after 1 pages in 61.0s with 1 Issues", observation.diagnostics[0].message
+        )
+        self.assertEqual(1, len(runner.calls))
+
+    def test_nested_pages_spend_the_same_budget(self) -> None:
+        record = raw_fixture()
+        record["labels"]["pageInfo"] = {"hasNextPage": True, "endCursor": "l1"}
+        runner = SequenceRunner(
+            [
+                completed(issue_page([record])),
+                completed(nested_page([{"name": "later", "color": "5319e7"}])),
+            ]
+        )
+
+        observation = source(runner, budget=RefreshBudget(pages=1)).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertIn(
+            "after 1 pages in 0.0s with 3 labels of Issue",
+            observation.diagnostics[0].message,
+        )
+
+    def test_a_repository_not_found_by_identity_is_a_repository_diagnostic(
+        self,
+    ) -> None:
+        runner = SequenceRunner(
+            [
+                graphql_failure(
+                    "NOT_FOUND",
+                    ["node"],
+                    "Could not resolve to a node with the global id of 'R_gone'",
+                )
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-repository", observation.diagnostics[0].code)
+
+    def test_a_typed_error_names_the_code_whatever_its_prose_says(self) -> None:
+        runner = SequenceRunner(
+            [
+                graphql_failure(
+                    "RATE_LIMITED",
+                    ["node"],
+                    "Something went wrong while executing your query.",
+                )
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("github-rate-limit", observation.diagnostics[0].code)
+
 
 class GitHubIssuesFindTests(unittest.TestCase):
     def test_find_by_number_issues_exactly_one_command(self) -> None:
@@ -768,6 +963,19 @@ class GitHubIssuesFindTests(unittest.TestCase):
     def test_find_unresolved_issue_number_is_a_miss_not_an_outage(self) -> None:
         runner = SequenceRunner(
             [
+                graphql_failure(
+                    "NOT_FOUND",
+                    ["node", "issue"],
+                    "Could not resolve to an Issue with the number of 99.",
+                )
+            ]
+        )
+
+        self.assertIsNone(source(runner).find(parse_issue_hint("99")))
+
+    def test_find_reads_a_miss_told_only_in_prose(self) -> None:
+        runner = SequenceRunner(
+            [
                 completed(
                     stderr=(
                         "GraphQL: Could not resolve to an Issue or PullRequest "
@@ -779,6 +987,22 @@ class GitHubIssuesFindTests(unittest.TestCase):
         )
 
         self.assertIsNone(source(runner).find(parse_issue_hint("99")))
+
+    def test_find_in_a_missing_repository_is_an_outage(self) -> None:
+        runner = SequenceRunner(
+            [
+                graphql_failure(
+                    "NOT_FOUND",
+                    ["node"],
+                    "Could not resolve to a node with the global id of 'R_gone'",
+                )
+            ]
+        )
+
+        with self.assertRaises(IssueSourceRefreshError) as caught:
+            source(runner).find(parse_issue_hint("99"))
+
+        self.assertEqual("github-repository", caught.exception.code)
 
     def test_find_null_issue_is_a_miss(self) -> None:
         runner = SequenceRunner([completed(issue_response(None))])

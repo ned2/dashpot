@@ -1,21 +1,31 @@
 from __future__ import annotations
 
 import copy
-import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from typing_extensions import override
 
 from .commands import CommandRunner, run_command
+from .github import (
+    DEFAULT_REFRESH_BUDGET,
+    NOT_FOUND,
+    RATE_LIMIT_SELECTION,
+    CursorTrail,
+    GitHubGateway,
+    GitHubRequestError,
+    RefreshBudget,
+    RefreshMeter,
+)
 from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import (
     Clock,
     CollectedIssues,
     IssueHint,
     IssueSource,
+    IssueSourceDiagnostic,
     IssueSourceRefreshError,
 )
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
@@ -85,6 +95,7 @@ _ISSUE_NODE_FIELDS = """
 
 _ISSUES_QUERY = f"""
 query DashpotIssues($repositoryId: ID!, $cursor: String) {{
+  {RATE_LIMIT_SELECTION}
   node(id: $repositoryId) {{
     ... on Repository {{
       id
@@ -107,6 +118,7 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {{
 
 _ISSUE_QUERY = f"""
 query DashpotIssue($repositoryId: ID!, $number: Int!) {{
+  {RATE_LIMIT_SELECTION}
   node(id: $repositoryId) {{
     ... on Repository {{
       id
@@ -139,6 +151,8 @@ class GitHubIssuesSource(IssueSource):
         timeout: float = 10,
         runner: CommandRunner = run_command,
         clock: Clock | None = None,
+        budget: RefreshBudget = DEFAULT_REFRESH_BUDGET,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
         super().__init__(clock=clock)
         self.root = root
@@ -146,6 +160,9 @@ class GitHubIssuesSource(IssueSource):
         self.repository_id = repository_id
         self.timeout = timeout
         self.runner = runner
+        self.budget = budget
+        self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
+        self._monotonic = monotonic
 
     @property
     @override
@@ -159,12 +176,19 @@ class GitHubIssuesSource(IssueSource):
 
     @override
     def _collect(self) -> CollectedIssues:
-        records = self._collect_issue_nodes()
+        try:
+            return self._collect_from_github()
+        except GitHubRequestError as exc:
+            raise IssueSourceRefreshError(exc.code, str(exc)) from exc
+
+    def _collect_from_github(self) -> CollectedIssues:
+        meter = self._start_meter()
+        records = self._collect_issue_nodes(meter)
         issues: list[IssueProfile] = []
         label_colors: dict[str, str] = {}
         issue_activity: dict[str, IssueActivity] = {}
         for record in records:
-            complete_record = self._complete_nested_connections(record)
+            complete_record = self._complete_nested_connections(record, meter)
             label_colors.update(_label_colors(complete_record))
             issue = normalize_github_issue(
                 complete_record,
@@ -177,6 +201,30 @@ class GitHubIssuesSource(IssueSource):
             issues=tuple(issues),
             label_colors=label_colors,
             issue_activity=issue_activity,
+            diagnostics=self._rate_limit_diagnostics(),
+        )
+
+    def _start_meter(self) -> RefreshMeter:
+        if self._monotonic is None:
+            return self.budget.start()
+        return self.budget.start(self._monotonic)
+
+    def _rate_limit_diagnostics(self) -> tuple[IssueSourceDiagnostic, ...]:
+        """Warn while the hour's GraphQL points run low; never fail for it."""
+        rate_limit = self.gateway.rate_limit
+        if rate_limit is None or not rate_limit.low:
+            return ()
+        return (
+            IssueSourceDiagnostic(
+                source=self.name,
+                code="github-rate-limit-low",
+                severity="warning",
+                message=(
+                    f"GitHub GraphQL rate limit is low: {rate_limit.remaining} of "
+                    f"{rate_limit.limit} points remain until {rate_limit.reset_at}; "
+                    f"the last request cost {rate_limit.cost}"
+                ),
+            ),
         )
 
     @override
@@ -191,21 +239,28 @@ class GitHubIssuesSource(IssueSource):
         if hint.number is None:
             return None
         try:
-            data = self._graphql(
+            return self._find_on_github(hint.number, hint.reference)
+        except GitHubRequestError as exc:
+            raise IssueSourceRefreshError(exc.code, str(exc)) from exc
+
+    def _find_on_github(
+        self, number: int, reference: str | None
+    ) -> IssueProfile | None:
+        meter = self._start_meter()
+        meter.next_page("no Issue yet")
+        try:
+            data = self._repository_query(
                 _ISSUE_QUERY,
-                {"repositoryId": self.repository_id, "number": hint.number},
+                {"repositoryId": self.repository_id, "number": number},
             )
-        except IssueSourceRefreshError as exc:
-            # GitHub reports a missing Issue number as a GraphQL NOT_FOUND
-            # error rather than a null field; that is a miss, not an outage.
-            if "could not resolve to an issue" in str(exc).casefold():
+        except GitHubRequestError as exc:
+            # GitHub reports a missing Issue number as a NOT_FOUND error at
+            # the issue field rather than a null field; that is a miss, not
+            # an outage. A not-found described only in prose is read the
+            # same way, since the one thing asked for by number is the Issue.
+            if exc.code == NOT_FOUND and exc.path[-1:] in ((), ("issue",)):
                 return None
             raise
-        if data.get("node") is None:
-            raise IssueSourceRefreshError(
-                "github-repository",
-                "Configured GitHub repository was not found or is inaccessible",
-            )
         repository = _object(data, "node", "data", _RESPONSE_CODE)
         observed_repository_id = _fetched_string(
             repository, "id", "data.repository", _RESPONSE_CODE
@@ -223,28 +278,24 @@ class GitHubIssuesSource(IssueSource):
                 _RESPONSE_CODE, "data.repository.issue must be an object or null"
             )
         issue = normalize_github_issue(
-            self._complete_nested_connections(record),
+            self._complete_nested_connections(record, meter),
             project_id=self.project_id,
             repository_id=self.repository_id,
         )
-        if hint.reference is not None and issue.reference != hint.reference:
+        if reference is not None and issue.reference != reference:
             return None
         return issue
 
-    def _collect_issue_nodes(self) -> list[dict[str, Any]]:
+    def _collect_issue_nodes(self, meter: RefreshMeter) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []
         cursor: str | None = None
-        seen_cursors: set[str] = set()
+        trail = CursorTrail("Issue collection")
         while True:
             variables: dict[str, str | int] = {"repositoryId": self.repository_id}
             if cursor is not None:
                 variables["cursor"] = cursor
-            data = self._graphql(_ISSUES_QUERY, variables)
-            if data.get("node") is None:
-                raise IssueSourceRefreshError(
-                    "github-repository",
-                    "Configured GitHub repository was not found or is inaccessible",
-                )
+            meter.next_page(f"{len(nodes)} Issues")
+            data = self._repository_query(_ISSUES_QUERY, variables)
             repository = _object(data, "node", "data", _RESPONSE_CODE)
             observed_repository_id = _fetched_string(
                 repository, "id", "data.repository", _RESPONSE_CODE
@@ -264,9 +315,11 @@ class GitHubIssuesSource(IssueSource):
             nodes.extend(page_nodes)
             if not has_next:
                 return nodes
-            cursor = _next_cursor(end_cursor, seen_cursors, "Issue collection")
+            cursor = trail.follow(end_cursor)
 
-    def _complete_nested_connections(self, record: Mapping[str, Any]) -> dict[str, Any]:
+    def _complete_nested_connections(
+        self, record: Mapping[str, Any], meter: RefreshMeter
+    ) -> dict[str, Any]:
         complete = copy.deepcopy(dict(record))
         issue_id = _fetched_string(complete, "id", "issue", _RESPONSE_CODE)
         for connection_name, item_field in _CONNECTION_FIELDS.items():
@@ -274,12 +327,11 @@ class GitHubIssuesSource(IssueSource):
             nodes, has_next, end_cursor = _connection_page(
                 connection, f"issue.{connection_name}", _RESPONSE_CODE
             )
-            seen_cursors: set[str] = set()
+            trail = CursorTrail(f"Issue {issue_id} {connection_name}")
             while has_next:
-                cursor = _next_cursor(
-                    end_cursor, seen_cursors, f"Issue {issue_id} {connection_name}"
-                )
-                data = self._graphql(
+                cursor = trail.follow(end_cursor)
+                meter.next_page(f"{len(nodes)} {connection_name} of Issue {issue_id}")
+                data = self.gateway.graphql(
                     _nested_connection_query(connection_name, item_field),
                     {"id": issue_id, "cursor": cursor},
                 )
@@ -295,53 +347,27 @@ class GitHubIssuesSource(IssueSource):
             connection["pageInfo"] = {"hasNextPage": False, "endCursor": end_cursor}
         return complete
 
-    def _graphql(
+    def _repository_query(
         self, query: str, variables: Mapping[str, str | int]
     ) -> Mapping[str, Any]:
-        args = ["gh", "api", "graphql", "-f", f"query={query}"]
-        for key, value in variables.items():
-            # -F sends an integer as a typed GraphQL Int variable; -f would
-            # send it as a String and fail the query's variable declaration.
-            flag = "-F" if isinstance(value, int) else "-f"
-            args.extend([flag, f"{key}={value}"])
+        """Run a query rooted at the configured repository node.
+
+        The one node asked for by identity is the repository, so a null or
+        not-found node is the configured repository gone or inaccessible.
+        """
         try:
-            result = self.runner(args, self.root, self.timeout)
-        except (OSError, RuntimeError) as exc:
-            # The runner maps a missing gh and a timeout to RuntimeError; any
-            # other failure to run it (a permission error, an exhausted
-            # process table) is the same refusal to reach GitHub.
-            raise IssueSourceRefreshError(
-                _classify_github_error(str(exc)), str(exc)
-            ) from exc
-        if result.returncode != 0:
-            message = result.stderr.strip() or (
-                f"gh api graphql exited {result.returncode}"
-            )
-            raise IssueSourceRefreshError(_classify_github_error(message), message)
-        try:
-            payload = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise IssueSourceRefreshError(
-                _RESPONSE_CODE,
-                f"GitHub returned malformed JSON: {exc.msg}",
-            ) from exc
-        if not isinstance(payload, dict):
-            raise IssueSourceRefreshError(
-                _RESPONSE_CODE, "GitHub response is not an object"
-            )
-        errors = payload.get("errors")
-        if errors is not None and not isinstance(errors, list):
-            raise IssueSourceRefreshError(
-                _RESPONSE_CODE,
-                "GitHub response has a malformed GraphQL errors value",
-            )
-        if errors:
-            message = _graphql_error_message(errors)
-            raise IssueSourceRefreshError(_classify_github_error(message), message)
-        data = payload.get("data")
-        if not isinstance(data, Mapping):
-            raise IssueSourceRefreshError(
-                _RESPONSE_CODE, "GitHub response has no data object"
+            data = self.gateway.graphql(query, variables)
+        except GitHubRequestError as exc:
+            if exc.code == NOT_FOUND and exc.path == ("node",):
+                raise GitHubRequestError(
+                    "github-repository",
+                    "Configured GitHub repository was not found or is inaccessible",
+                ) from exc
+            raise
+        if data.get("node") is None:
+            raise GitHubRequestError(
+                "github-repository",
+                "Configured GitHub repository was not found or is inaccessible",
             )
         return data
 
@@ -614,74 +640,16 @@ def _connection_page(
     return records, has_next, page_info.get("endCursor")
 
 
-def _next_cursor(end_cursor: object, seen: set[str], subject: str) -> str:
-    if not isinstance(end_cursor, str) or not end_cursor:
-        raise IssueSourceRefreshError(
-            "github-pagination", f"{subject} has another page but no end cursor"
-        )
-    if end_cursor in seen:
-        raise IssueSourceRefreshError(
-            "github-pagination", f"{subject} repeated pagination cursor {end_cursor}"
-        )
-    seen.add(end_cursor)
-    return end_cursor
-
-
 def _nested_connection_query(connection_name: str, item_field: str) -> str:
     node_fields = " ".join(
         (item_field, *_CONNECTION_EXTRA_FIELDS.get(connection_name, ()))
     )
     return (
         "query DashpotIssueConnection($id: ID!, $cursor: String!) { "
+        f"{RATE_LIMIT_SELECTION} "
         "node(id: $id) { ... on Issue { "
         f"connection: {connection_name}(first: {_PAGE_SIZE}, after: $cursor) {{ "
         f"nodes {{ {node_fields} }} "
         "pageInfo { hasNextPage endCursor } "
         "} } } }"
     )
-
-
-def _graphql_error_message(errors: object) -> str:
-    messages: list[str] = []
-    if isinstance(errors, list):
-        for error in errors:
-            message = error.get("message") if isinstance(error, Mapping) else None
-            if isinstance(message, str):
-                messages.append(message)
-    return "; ".join(messages) or "GitHub GraphQL request failed"
-
-
-def _classify_github_error(message: str) -> str:
-    normalized = message.casefold()
-    if "rate limit" in normalized:
-        return "github-rate-limit"
-    if any(
-        text in normalized
-        for text in ("bad credentials", "not logged", "authentication", "unauthorized")
-    ):
-        return "github-authentication"
-    if any(
-        text in normalized
-        for text in ("forbidden", "permission", "resource not accessible")
-    ):
-        return "github-permission"
-    if any(
-        text in normalized
-        for text in ("could not resolve to a repository", "repository not found")
-    ):
-        return "github-repository"
-    if "timed out" in normalized or "timeout" in normalized:
-        return "github-timeout"
-    if any(
-        text in normalized
-        for text in (
-            "network",
-            "connection",
-            "could not resolve host",
-            "error connecting",
-        )
-    ):
-        return "github-network"
-    if "command not found" in normalized:
-        return "github-cli-unavailable"
-    return "github-request"
