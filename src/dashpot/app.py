@@ -99,6 +99,9 @@ MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
 # press, a Remote Fetch or Cleanup that changed the Repository, a follow-up
 # of a publish) still observes once more after the running one lands.
 COALESCED_TRIGGERS = frozenset({"timer"})
+# Triggers that ask an Issue Source observing incrementally to re-observe
+# every Issue: a person's `r` wants the whole truth now, not the next delta.
+RECONCILING_TRIGGERS = frozenset({"manual"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -1313,7 +1316,12 @@ class DashpotApp(App[None]):
             elif rerun_in_flight:
                 self.pending_rerun[key] = trigger
                 coalesced = True
-        for ticket in self.scheduler.request(wanted) if wanted else ():
+        tickets = (
+            self.scheduler.request(wanted, reconcile=trigger in RECONCILING_TRIGGERS)
+            if wanted
+            else ()
+        )
+        for ticket in tickets:
             self.in_flight[ticket.key] = ticket.generation
             # A partial rather than a coroutine object, so a worker cancelled
             # at shutdown before it starts leaves no coroutine never awaited.

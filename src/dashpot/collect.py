@@ -75,10 +75,15 @@ WORKSPACE_KEY = ObservationKey("workspace")
 
 @dataclass(frozen=True, slots=True)
 class ObservationTicket:
-    """A request for one observation; only the newest ticket per key is accepted."""
+    """A request for one observation; only the newest ticket per key is accepted.
+
+    ``reconcile`` carries a person's request that an Issue Source observing
+    incrementally re-observe every Issue this time.
+    """
 
     key: ObservationKey
     generation: int
+    reconcile: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +105,9 @@ class ObservationScheduler(Protocol):
 
     def keys(self, project_id: str | None = None) -> Sequence[ObservationKey]: ...
 
-    def request(self, keys: Sequence[ObservationKey]) -> list[ObservationTicket]: ...
+    def request(
+        self, keys: Sequence[ObservationKey], *, reconcile: bool = False
+    ) -> list[ObservationTicket]: ...
 
     def is_current(self, ticket: ObservationTicket) -> bool: ...
 
@@ -122,7 +129,7 @@ OBSERVATION_FAILURES = (OSError, RuntimeError, ValidationError)
 class ProjectObserver(Protocol):
     """What the coordinator asks of a per-Project collector."""
 
-    def observe_issues(self) -> IssueSourceObservation: ...
+    def observe_issues(self, *, reconcile: bool = False) -> IssueSourceObservation: ...
 
     def observe_targets(self) -> RepositoryStateInventory: ...
 
@@ -145,8 +152,8 @@ class ProjectCollector:
         self.branch_observer = branch_observer
         self.clock = clock
 
-    def observe_issues(self) -> IssueSourceObservation:
-        return self.source.refresh()
+    def observe_issues(self, *, reconcile: bool = False) -> IssueSourceObservation:
+        return self.source.refresh(reconcile=reconcile)
 
     def observe_targets(self) -> RepositoryStateInventory:
         """Observe the worktree topology and the Branches as one Repository State."""
@@ -455,14 +462,16 @@ class ObservationCoordinator:
             return [AGENT_RUNS_KEY]
         return []
 
-    def request(self, keys: Sequence[ObservationKey]) -> list[ObservationTicket]:
+    def request(
+        self, keys: Sequence[ObservationKey], *, reconcile: bool = False
+    ) -> list[ObservationTicket]:
         tickets: list[ObservationTicket] = []
         with self._state_lock:
             for key in keys:
                 generation = self._generations.get(key, 0) + 1
                 self._generations[key] = generation
                 self._key_locks.setdefault(key, threading.Lock())
-                tickets.append(ObservationTicket(key, generation))
+                tickets.append(ObservationTicket(key, generation, reconcile=reconcile))
         return tickets
 
     def is_current(self, ticket: ObservationTicket) -> bool:
@@ -498,7 +507,9 @@ class ObservationCoordinator:
                 raise RuntimeError(f"unsupported observation kind: {key.kind}")
             with self._state_lock:
                 previous = self._observations.get(key)
-            observation = self._observe_project_half(key, previous)
+            observation = self._observe_project_half(
+                key, previous, reconcile=ticket.reconcile
+            )
             observation = replace(
                 observation, elapsed_ms=round((time.monotonic() - started) * 1000)
             )
@@ -607,7 +618,11 @@ class ObservationCoordinator:
         return collector
 
     def _observe_project_half(
-        self, key: ObservationKey, previous: _SourceObservation | None
+        self,
+        key: ObservationKey,
+        previous: _SourceObservation | None,
+        *,
+        reconcile: bool = False,
     ) -> _SourceObservation:
         project = self.projects_by_id[key.project_id]
         attempted_at = self.clock()
@@ -627,7 +642,7 @@ class ObservationCoordinator:
             )
         if key.kind == "issues":
             try:
-                issue_observation = collector.observe_issues()
+                issue_observation = collector.observe_issues(reconcile=reconcile)
             except OBSERVATION_FAILURES as exc:
                 return _failed_half(
                     previous,
@@ -745,13 +760,18 @@ class SnapshotScheduler:
     def follow_ups(self, changes: Sequence[StoreChange]) -> list[ObservationKey]:
         return []
 
-    def request(self, keys: Sequence[ObservationKey]) -> list[ObservationTicket]:
-        # Any key means the one Workspace key; no key means no ticket.
+    def request(
+        self, keys: Sequence[ObservationKey], *, reconcile: bool = False
+    ) -> list[ObservationTicket]:
+        # Any key means the one Workspace key; no key means no ticket. A
+        # single-shot collector observes everything afresh whatever is asked.
         if not keys:
             return []
         with self._lock:
             self._generation += 1
-            return [ObservationTicket(WORKSPACE_KEY, self._generation)]
+            return [
+                ObservationTicket(WORKSPACE_KEY, self._generation, reconcile=reconcile)
+            ]
 
     def is_current(self, ticket: ObservationTicket) -> bool:
         with self._lock:

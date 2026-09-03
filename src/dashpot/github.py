@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +22,10 @@ from .errors import DashpotError
 # Every GraphQL query Dashpot sends carries this selection beside its data,
 # so the rate limit is observed on the way rather than asked for separately.
 RATE_LIMIT_SELECTION = "rateLimit { cost limit remaining resetAt }"
+
+# A GraphQL variable as gh sends it: a string, a typed Int, or a list of
+# strings (an ``[ID!]!`` of nodes to look up).
+GraphQLVariables = Mapping[str, str | int | Sequence[str]]
 
 MALFORMED_RESPONSE = "github-malformed-response"
 NOT_FOUND = "github-not-found"
@@ -94,12 +98,14 @@ class RefreshMeter:
     def __init__(self, budget: RefreshBudget, monotonic: Callable[[], float]) -> None:
         self.budget = budget
         self._monotonic = monotonic
-        self._started = monotonic()
+        # The monotonic moment the refresh started, which is also the
+        # refresh's one reading of "now" for anything it schedules by.
+        self.started = monotonic()
         self.pages = 0
 
     @property
     def elapsed(self) -> float:
-        return self._monotonic() - self._started
+        return self._monotonic() - self.started
 
     def next_page(self, fetched: str) -> None:
         """Spend one page, refusing when the budget is already exhausted.
@@ -136,23 +142,40 @@ class GitHubGateway:
         self.rate_limit: RateLimit | None = None
 
     def graphql(
-        self, query: str, variables: Mapping[str, str | int]
+        self,
+        query: str,
+        variables: GraphQLVariables,
+        *,
+        tolerated: Container[str] = (),
     ) -> Mapping[str, Any]:
-        """Run one GraphQL query and return its ``data`` object."""
+        """Run one GraphQL query and return its ``data`` object.
+
+        ``tolerated`` names the GraphQL error types that leave the data
+        usable — a ``NOT_FOUND`` beside a ``nodes(ids:)`` lookup marks one
+        position null while its siblings answer — so a response whose every
+        error is tolerated is returned rather than raised.
+        """
         args = ["gh", "api", "graphql", "-f", f"query={query}"]
         for key, value in variables.items():
-            # -F sends an integer as a typed GraphQL Int variable; -f would
-            # send it as a String and fail the query's variable declaration.
-            flag = "-F" if isinstance(value, int) else "-f"
-            args.extend([flag, f"{key}={value}"])
-        payload = self._run(args)
+            if isinstance(value, str):
+                args.extend(["-f", f"{key}={value}"])
+            elif isinstance(value, int):
+                # -F sends an integer as a typed GraphQL Int variable; -f
+                # would send it as a String and fail the variable declaration.
+                args.extend(["-F", f"{key}={value}"])
+            else:
+                # gh's key[]=value form appends to a list variable.
+                args.extend(
+                    part for item in value for part in ("-f", f"{key}[]={item}")
+                )
+        payload = self._run(args, tolerated=tolerated)
         errors = payload.get("errors")
         if errors is not None and not isinstance(errors, list):
             raise GitHubRequestError(
                 MALFORMED_RESPONSE,
                 "GitHub response has a malformed GraphQL errors value",
             )
-        if errors:
+        if errors and not _all_tolerated(errors, tolerated):
             raise _graphql_failure(errors)
         data = payload.get("data")
         if not isinstance(data, Mapping):
@@ -168,7 +191,9 @@ class GitHubGateway:
         """Run one REST request and return its JSON object."""
         return self._run(["gh", "api", path])
 
-    def _run(self, args: list[str]) -> Mapping[str, Any]:
+    def _run(
+        self, args: list[str], *, tolerated: Container[str] = ()
+    ) -> Mapping[str, Any]:
         try:
             result = self.runner(args, self.root, self.timeout)
         except (OSError, RuntimeError) as exc:
@@ -183,6 +208,10 @@ class GitHubGateway:
             if isinstance(payload, Mapping):
                 errors = payload.get("errors")
                 if isinstance(errors, list) and errors:
+                    # gh exits non-zero whenever errors are present, even
+                    # beside data every tolerated error leaves usable.
+                    if _all_tolerated(errors, tolerated):
+                        return payload
                     raise _graphql_failure(errors)
                 message = payload.get("message")
                 status = payload.get("status")
@@ -277,6 +306,16 @@ def _status_code(status: str, normalized: str) -> str | None:
     if status.startswith("5"):
         return "github-unavailable"
     return None
+
+
+def _all_tolerated(errors: Sequence[object], tolerated: Container[str]) -> bool:
+    for error in errors:
+        if not isinstance(error, Mapping):
+            return False
+        error_type = error.get("type")
+        if not isinstance(error_type, str) or error_type not in tolerated:
+            return False
+    return True
 
 
 def _graphql_failure(errors: Sequence[object]) -> GitHubRequestError:

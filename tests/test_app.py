@@ -637,6 +637,25 @@ async def test_only_a_timer_tick_coalesces_without_a_rerun(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_a_key_press_asks_for_a_reconciliation_and_a_tick_does_not(
+    tmp_path: Path,
+) -> None:
+    coordinator, collectors = coordinated_workspace(tmp_path)
+    app = DashpotApp(coordinator, refresh_seconds=0)
+    beta = collectors["beta"].source
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: not app.in_flight)
+        app.schedule_observations([ObservationKey("issues", "beta")], "timer")
+        await wait_until(lambda: beta.calls == 2 and not app.in_flight)
+        await pilot.press("r")
+        await wait_until(lambda: beta.calls == 3 and not app.in_flight)
+
+    # The initial observation, the tick, and the press.
+    assert beta.reconcile_requests == [False, False, True]
+
+
+@pytest.mark.asyncio
 async def test_a_timer_tick_failure_never_toasts() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     collector = SequenceCollector(

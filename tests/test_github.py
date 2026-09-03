@@ -175,6 +175,50 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(["-f", "id=R_1", "-F", "number=9"], args[5:])
         self.assertEqual((Path("/repo"), 7), (cwd, timeout))
 
+    def test_a_list_variable_is_sent_one_item_per_flag(self) -> None:
+        runner = RecordingRunner(completed(json.dumps({"data": {}})))
+        gate = GitHubGateway(Path("/repo"), runner=runner)
+
+        gate.graphql(QUERY, {"ids": ["I_1", "I_2"]})
+
+        self.assertEqual(["-f", "ids[]=I_1", "-f", "ids[]=I_2"], runner.calls[0][0][5:])
+
+    def test_a_tolerated_error_leaves_the_answer_usable(self) -> None:
+        body = json.dumps(
+            {
+                "data": {"nodes": [{"id": "I_1"}, None]},
+                "errors": [
+                    {"type": "NOT_FOUND", "path": ["nodes", 1], "message": "gone"}
+                ],
+            }
+        )
+        # gh exits 1 whenever errors are present, whatever the data beside.
+        answered = completed(stdout=body, stderr="gh: gone", returncode=1)
+
+        data = gateway(answered).graphql(
+            QUERY, {"ids": ["I_1", "I_2"]}, tolerated=frozenset({"NOT_FOUND"})
+        )
+
+        self.assertEqual([{"id": "I_1"}, None], data["nodes"])
+
+    def test_an_error_outside_the_tolerated_types_still_fails(self) -> None:
+        for errors in (
+            [
+                {"type": "NOT_FOUND", "path": ["nodes", 0], "message": "gone"},
+                {"type": "FORBIDDEN", "path": ["nodes", 1], "message": "no"},
+            ],
+            [{"path": ["nodes", 0], "message": "untyped"}],
+        ):
+            with self.subTest(errors=errors):
+                body = json.dumps({"data": {"nodes": [None, None]}, "errors": errors})
+                answered = completed(stdout=body, stderr="gh: failed", returncode=1)
+                with self.assertRaises(GitHubRequestError):
+                    gateway(answered).graphql(
+                        QUERY,
+                        {"ids": ["I_1", "I_2"]},
+                        tolerated=frozenset({"NOT_FOUND"}),
+                    )
+
     def test_the_rate_limit_is_read_beside_every_answer(self) -> None:
         answered = json.dumps(
             {
