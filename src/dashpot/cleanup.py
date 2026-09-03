@@ -301,12 +301,14 @@ def _local_branch_target(
     )
     blockers = _integration_branch_blockers(refname, name, integration_ref, None)
     if checked_out_at is not None:
-        blockers.append(
-            CleanupBlocker(
-                kind="checked-out",
-                detail=f"checked out at {checked_out_at}; remove that Worktree first",
-            )
+        # From the Worktrees pane the Branch is a target only because the
+        # Worktree goes first; a Worktree that cannot go keeps it checked out.
+        detail = (
+            f"checked out at {checked_out_at}, whose removal is blocked"
+            if requires is not None
+            else f"checked out at {checked_out_at}; remove that Worktree first"
         )
+        blockers.append(CleanupBlocker(kind="checked-out", detail=detail))
     blockers.extend(_integration_blockers(fact, refname))
     consequences = [
         f"deletes {refname} at {commit[:7]}; recreate with: git branch {name} {commit}"
@@ -559,7 +561,7 @@ def _inspect_worktree(
                     branch,
                     refs,
                     refs.integration_ref(),
-                    checked_out_at=None,
+                    checked_out_at=path if blockers else None,
                     requires=identity,
                 )
             )
@@ -951,8 +953,8 @@ def _delete_remote_branch(git: Git, target: CleanupTarget) -> TargetResult:
             target,
             "unknown",
             f"git push did not complete: {exc.detail}; check with: "
-            f"git ls-remote --heads {remote} {refname}; a surviving {tracking} "
-            f"is pruned by the next fetch",
+            f"git ls-remote --heads {remote} {refname}; a surviving "
+            f"{_prune_hint(remote, tracking)}",
             recovery,
         )
     if result.returncode == 0:
@@ -971,18 +973,26 @@ def _delete_remote_branch(git: Git, target: CleanupTarget) -> TargetResult:
         return _result(
             target,
             "already-absent",
-            f"{name} at {remote} was already gone; {tracking} is stale until the "
-            f"next fetch prunes it",
+            f"{name} at {remote} was already gone; the stale "
+            f"{_prune_hint(remote, tracking)}",
         )
     if presence == "present":
         return _result(
             target,
             "refused",
             f"{remote} no longer has {name} at the leased {target.expected[:7]}: "
-            f"it moved since the last fetch; fetch and confirm against the "
-            f"revised preview",
+            f"it moved since the last fetch; press f (or git fetch --prune "
+            f"{remote}), then confirm against the revised preview",
         )
     return _result(target, "refused", reason)
+
+
+def _prune_hint(remote: str, tracking: str) -> str:
+    """How a stale Remote-Tracking Branch goes: the next Remote Fetch, never Cleanup."""
+    return (
+        f"{tracking} is pruned by the next Remote Fetch: press f, or "
+        f"git fetch --prune {remote}"
+    )
 
 
 def _push_reason(stderr: str) -> str:

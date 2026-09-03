@@ -852,13 +852,15 @@ last fetch, before any local deletion; it needs the canonical fetch mapping
 and exactly one push URL, honours the pre-push hook, and never fetches. Git
 rejects the push with `stale info` when the remote moved and when the Branch
 is already gone there, so that rejection is followed by one read-only
-`git ls-remote` to report `refused` (fetch and confirm again) or
-`already-absent` (the Remote-Tracking Branch is stale until the next fetch
-prunes it); a successful delete push drops the Remote-Tracking Branch itself.
+`git ls-remote` to report `refused` (press `f`, or `git fetch --prune`, then
+confirm again) or `already-absent` (the stale Remote-Tracking Branch is pruned
+the same way); a successful delete push drops the Remote-Tracking Branch itself.
 Neither command deletes the Integration Branch, a checked-out Branch, a
 Branch with commits the Integration Branch does not reach, or a Worktree that
-is the main one, dirty, locked, occupied by an Agent Session or Agent Run, or
-the checkout the command runs from. Every target reports its own outcome —
+is the main one, dirty, locked, occupied by an Agent Session or Agent Run,
+the checkout the command runs from, or a configured Repository Anchor (the
+checkout's own root when it carries a Project configuration, and every anchor
+of the Workspace config). Every target reports its own outcome —
 `deleted`, `already-absent`, `refused`, or `unknown` when Git did not answer —
 with the command that recreates a deleted one, and after a refused or unknown
 outcome the remaining targets are not attempted. `--dry-run` validates the
@@ -906,17 +908,21 @@ store into a request against its Repository Anchor, the read-only preview is
 inspected off the event loop, and a modal lists every concrete target
 unselected — the local Branch, the Branch at each remote, the Worktree — with
 its integration fact, blockers, and consequences beneath, disables the
-unavailable ones, asks for the Worktree's ignored content to be acknowledged,
+unavailable ones (a Worktree's Branch among them while the Worktree cannot be
+removed), asks for the Worktree's ignored content to be acknowledged,
 and answers a premature press of the destructive button by deleting nothing,
 saying why beneath the list and in a toast, and moving focus to what is
-missing; the button turns red once the selection is one the performer
-accepts, and `Escape` cancels. Confirmation performs off the
+missing; the button is never disabled, since Textual would still light it
+under the mouse and swallow the click silently, and it turns red once the
+selection is one the performer accepts. `Escape` cancels. Confirmation performs off the
 event loop through the injected cleanup adapter (a construction without one
 refuses `x`, as one without a fetcher refuses `f`), one mutation per Project
 at a time: a Cleanup and a Remote Fetch of the same Project exclude each
 other, each refusal naming the other. A preview that changed in between
 performs nothing and reopens the revised preview for another confirmation;
-otherwise the per-target outcomes and recovery commands are shown, the
+otherwise the per-target outcomes and recovery commands are shown (a refused
+or unknown remote outcome among them, with the local ref retained for a
+revised preview after the next `f`), the
 Project's Worktrees and Git state are re-observed the passive way, and the
 row cursor settles on the deleted row's neighbour. The same adapter is
 exercised by the acceptance scenarios in

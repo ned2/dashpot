@@ -44,9 +44,13 @@ and it mutates only the targets the person selected:
 - **Remote deletion is leased.** A Branch at a remote is deleted with
   `git push --force-with-lease=refs/heads/NAME:<oid> <remote>
   :refs/heads/NAME`, the lease being the Remote-Tracking Branch's tip as of
-  the last Remote Fetch. A remote that advanced refuses the push
-  (`[rejected] (delete) -> NAME (stale info)`); a remote ref already gone is
-  reported as already absent, with the hint to press `f`. Only the canonical
+  the last Remote Fetch. Git rejects the push with
+  `[rejected] (delete) -> NAME (stale info)` both when the remote advanced
+  and when the ref is already gone there (verified on Git 2.53), so the
+  rejection is followed by one read-only `git ls-remote --exit-code --heads`
+  to tell them apart: a ref still present is `refused`, one that is gone is
+  `already-absent`, and a remote that does not answer leaves the refusal as
+  Git stated it. Either way the hint says to press `f`. Only the canonical
   fetch mapping `+refs/heads/*:refs/remotes/<remote>/*` and a remote with
   exactly one effective push URL are supported, so the Remote-Tracking
   Branch whose fact is shown is the ref the push acts on, and Git itself
@@ -67,13 +71,18 @@ and it mutates only the targets the person selected:
   reachable from another local, Remote-Tracking, or tag ref; otherwise the
   preview shows the rescue-Branch command. Unintegrated commits on the
   attached Branch do not block removing the Worktree while the Branch is
-  retained; deleting that Branch is a separate target with its own gate.
+  retained; deleting that Branch is a separate target with its own gate,
+  and while the Worktree cannot be removed the Branch stays checked out
+  there, so it is shown unavailable rather than selectable and refused.
 - **Ordering favours the revisable path.** A Worktree is removed before its
   Branch is deleted. A Branch at a remote is deleted before the local ref: a
   lease refusal is the strongest sign that someone is still working there,
   and a revised preview can only be offered while the local ref exists, so a
-  refused or unknown remote outcome stops the local deletion. Operations are
-  not transactional and a successful mutation is never rolled back.
+  refused or unknown remote outcome stops the local deletion. Dashpot never
+  fetches on its own, so the preview cannot be revised in the same step: the
+  outcome is reported with the local ref retained, and pressing `f` and then
+  `x` again offers the revised preview. Operations are not transactional and
+  a successful mutation is never rolled back.
 - **Every target reports its own outcome.** `deleted`, `already-absent`,
   `refused`, or `unknown` — the last for a timeout or an interrupted remote
   operation that may have succeeded, which Dashpot never retries. A deleted
@@ -116,7 +125,15 @@ and it mutates only the targets the person selected:
   command a person could run, and Dashpot runs none of them.
 - **Live remote observation before deletion** (`git ls-remote`): rejected
   under [ADR 0005](0005-observe-branches-without-fetching.md); the lease
-  answers the same question at the moment it matters.
+  answers the same question at the moment it matters. The one `ls-remote`
+  Dashpot runs follows a `stale info` rejection, to name the outcome of a
+  push Git has already refused; it observes nothing for the panes and writes
+  nothing.
+- **A disabled confirm button until the selection is valid:** rejected;
+  Textual still lights a disabled button under the mouse and swallows the
+  click without a word. The button always answers a press — deleting
+  nothing, saying what is missing beneath the list and in a toast, and
+  moving focus there — and turns red only once a press would delete.
 
 ## Consequences
 

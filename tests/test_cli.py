@@ -37,7 +37,7 @@ from dashpot.model import (
 from dashpot.processes import AgentAncestry, ProcessIdentity
 from dashpot.workspace import WorkspaceInventory, WorkspaceResolution
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
-from factories import write_config_marker
+from factories import git, write_config_marker
 from helpers import issue_payload
 
 
@@ -734,6 +734,7 @@ def test_branch_delete_previews_confirms_and_reports(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     local = cleanup_target("local-branch")
     preview = cleanup_preview("branch", local)
@@ -791,6 +792,7 @@ def test_branch_delete_names_each_remote_it_is_given(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     preview = cleanup_preview("branch", cleanup_target("local-branch"))
     report = cleanup_report(preview, performed=False, refusals=("nothing",))
@@ -827,6 +829,7 @@ def test_branch_delete_without_a_target_flag_is_a_usage_refusal(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(cli, "inspect_cleanup") as inspect:
@@ -844,6 +847,7 @@ def test_branch_delete_refusal_exits_2_and_names_each_reason(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     preview = cleanup_preview("branch")
     report = cleanup_report(
@@ -869,6 +873,7 @@ def test_worktree_remove_selects_its_targets_from_the_flags(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     tree = cleanup_target("worktree")
     local = cleanup_target("local-branch", requires=tree.identity)
@@ -937,6 +942,7 @@ def test_worktree_remove_with_delete_branch_needs_a_branch(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
     preview = cleanup_preview("worktree", cleanup_target("worktree"))
 
@@ -950,6 +956,76 @@ def test_worktree_remove_with_delete_branch_needs_a_branch(
     assert capsys.readouterr().err == (
         "dashpot: /w/x has no Branch checked out to delete\n"
     )
+
+
+def test_cleanup_protects_this_checkout_and_every_configured_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI protects what a dashboard run from here would observe."""
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    git(repository, "init", "-q", "-b", "main")
+    write_config_marker(repository)
+    inside = repository / "src"
+    inside.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "-q", "-b", "main")
+    other_inside = other / "pkg"
+    other_inside.mkdir()
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    xdg = tmp_path / "xdg"
+    (xdg / "dashpot").mkdir(parents=True)
+    (xdg / "dashpot" / "workspaces.json").write_text(
+        json.dumps(
+            {
+                "workspaces": [
+                    {"name": "all", "anchors": [str(other_inside), str(plain)]}
+                ]
+            }
+        )
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.chdir(inside)
+    preview = cleanup_preview("worktree", cleanup_target("worktree"))
+    report = cleanup_report(preview, dry_run=True, performed=False)
+
+    with (
+        mock.patch.object(cli, "cleanup_git", return_value=object()),
+        mock.patch.object(cli, "inspect_cleanup", return_value=preview) as inspect,
+        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+    ):
+        assert cli.main(["worktree", "remove", "/w/x", "--dry-run"]) == 0
+
+    expected = [
+        inside.resolve(),
+        repository.resolve(),
+        other.resolve(),
+        plain.resolve(),
+    ]
+    assert inspect.call_args.kwargs["protected"] == expected
+    assert perform.call_args.kwargs["protected"] == expected
+
+
+def test_cleanup_refuses_when_the_workspace_inventory_cannot_be_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    xdg = tmp_path / "xdg"
+    (xdg / "dashpot").mkdir(parents=True)
+    (xdg / "dashpot" / "workspaces.json").write_text("not json")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(cli, "inspect_cleanup") as inspect:
+        assert cli.main(["branch", "delete", "feat", "--local"]) == 2
+
+    inspect.assert_not_called()
+    err = capsys.readouterr().err
+    assert "cannot tell which Repository Anchors to protect" in err
+    assert "workspaces.json" in err
 
 
 def test_integrate_codex_dispatches_install_remove_and_status(
