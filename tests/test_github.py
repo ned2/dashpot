@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
 from pathlib import Path
 
@@ -263,6 +264,72 @@ class RequestTests(unittest.TestCase):
         self.assertEqual({"node_id": "R_1", "full_name": "a/b"}, gate.rest("repos/a/b"))
 
 
+class ConcurrentRunner:
+    """Answer each request by its ``n`` variable, holding until enough are active."""
+
+    def __init__(self, *, hold_until_active: int = 0, failing: str | None = None):
+        self.calls: list[list[str]] = []
+        self.lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+        self.hold_until_active = hold_until_active
+        self.failing = failing
+        self.released = threading.Event()
+        if not hold_until_active:
+            self.released.set()
+
+    def __call__(self, args, cwd, timeout):
+        with self.lock:
+            self.calls.append(list(args))
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            if self.active >= self.hold_until_active:
+                self.released.set()
+        self.released.wait(timeout=2)
+        with self.lock:
+            self.active -= 1
+        number = next(arg.removeprefix("n=") for arg in args if arg.startswith("n="))
+        if number == self.failing:
+            raise RuntimeError("timed out")
+        return completed(json.dumps({"data": {"n": number}}))
+
+
+class ManyRequestsTests(unittest.TestCase):
+    def test_answers_come_back_in_the_order_asked(self) -> None:
+        runner = ConcurrentRunner()
+        gate = GitHubGateway(Path("/repo"), runner=runner)
+
+        answers = gate.graphql_many(QUERY, [{"n": str(n)} for n in range(10)])
+
+        self.assertEqual([{"n": str(n)} for n in range(10)], answers)
+        self.assertEqual(10, len(runner.calls))
+
+    def test_at_most_four_requests_are_in_flight(self) -> None:
+        runner = ConcurrentRunner(hold_until_active=4)
+        gate = GitHubGateway(Path("/repo"), runner=runner)
+
+        answers = gate.graphql_many(QUERY, [{"n": str(n)} for n in range(9)])
+
+        self.assertEqual(9, len(answers))
+        self.assertEqual(4, runner.max_active)
+
+    def test_one_request_is_sent_without_a_pool(self) -> None:
+        runner = RecordingRunner(completed(json.dumps({"data": {"n": "0"}})))
+        gate = GitHubGateway(Path("/repo"), runner=runner)
+
+        self.assertEqual([{"n": "0"}], gate.graphql_many(QUERY, [{"n": "0"}]))
+        self.assertEqual([], gate.graphql_many(QUERY, []))
+
+    def test_a_failed_request_fails_the_whole_batch(self) -> None:
+        runner = ConcurrentRunner(failing="2")
+        gate = GitHubGateway(Path("/repo"), runner=runner)
+
+        with self.assertRaises(GitHubRequestError) as caught:
+            gate.graphql_many(QUERY, [{"n": str(n)} for n in range(6)])
+
+        self.assertEqual("github-timeout", caught.exception.code)
+
+
 class CursorTrailTests(unittest.TestCase):
     def test_a_missing_or_repeated_cursor_is_a_pagination_fault(self) -> None:
         trail = CursorTrail("Issue collection")
@@ -278,31 +345,33 @@ class CursorTrailTests(unittest.TestCase):
 
 
 class RefreshBudgetTests(unittest.TestCase):
-    def test_pages_are_spent_until_the_count_is_exhausted(self) -> None:
-        meter = RefreshBudget(seconds=60, pages=2).start(lambda: 0.0)
+    def test_requests_are_spent_until_the_count_is_exhausted(self) -> None:
+        meter = RefreshBudget(seconds=60, requests=2).start(lambda: 0.0)
 
-        meter.next_page("0 Issues")
-        meter.next_page("100 Issues")
+        meter.next_request("0 Issues")
+        meter.next_request("100 Issues")
         with self.assertRaises(GitHubRequestError) as caught:
-            meter.next_page("200 Issues")
+            meter.next_request("200 Issues")
 
         self.assertEqual("github-refresh-budget", caught.exception.code)
         self.assertEqual(
-            "GitHub refresh abandoned after 2 pages in 0.0s with 200 Issues; "
-            "the budget is 2 pages or 60s",
+            "GitHub refresh abandoned after 2 requests in 0.0s with 200 Issues; "
+            "the budget is 2 requests or 60s",
             str(caught.exception),
         )
 
     def test_time_is_checked_before_each_page(self) -> None:
         clock = iter([0.0, 1.0, 61.5])
-        meter = RefreshBudget(seconds=60, pages=25).start(lambda: next(clock))
+        meter = RefreshBudget(seconds=60, requests=25).start(lambda: next(clock))
 
-        meter.next_page("0 Issues")
+        meter.next_request("0 Issues")
         with self.assertRaises(GitHubRequestError) as caught:
-            meter.next_page("100 Issues")
+            meter.next_request("100 Issues")
 
-        self.assertIn("after 1 pages in 61.5s with 100 Issues", str(caught.exception))
-        self.assertEqual(1, meter.pages)
+        self.assertIn(
+            "after 1 requests in 61.5s with 100 Issues", str(caught.exception)
+        )
+        self.assertEqual(1, meter.requests)
 
 
 if __name__ == "__main__":

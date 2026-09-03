@@ -12,6 +12,7 @@ import json
 import re
 import time
 from collections.abc import Callable, Container, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,12 @@ RATE_LIMIT_SELECTION = "rateLimit { cost limit remaining resetAt }"
 # A GraphQL variable as gh sends it: a string, a typed Int, or a list of
 # strings (an ``[ID!]!`` of nodes to look up).
 GraphQLVariables = Mapping[str, str | int | Sequence[str]]
+
+# How many requests one refresh may have in flight at once. GitHub asks
+# clients to avoid concurrency and caps GraphQL at sixty seconds of CPU time
+# a minute; four batches of a second or two each stay well inside that
+# while a Reconciliation of thousands of Issues finishes within its budget.
+MAX_IN_FLIGHT = 4
 
 MALFORMED_RESPONSE = "github-malformed-response"
 NOT_FOUND = "github-not-found"
@@ -78,12 +85,14 @@ class RateLimit:
 class RefreshBudget:
     """How much one refresh may fetch before it is abandoned as too costly.
 
-    Both bounds are checked before each page, so a refresh overruns by at
-    most one page plus the command timeout.
+    Both bounds are checked before each request, so a refresh overruns by at
+    most the requests in flight plus the command timeout. The default covers
+    a Reconciliation of about two and a half thousand Issues in batches of
+    twenty-four beside the probe, the delta and the nested pages.
     """
 
     seconds: float = 60.0
-    pages: int = 25
+    requests: int = 120
 
     def start(self, monotonic: Callable[[], float] = time.monotonic) -> RefreshMeter:
         return RefreshMeter(self, monotonic)
@@ -101,28 +110,28 @@ class RefreshMeter:
         # The monotonic moment the refresh started, which is also the
         # refresh's one reading of "now" for anything it schedules by.
         self.started = monotonic()
-        self.pages = 0
+        self.requests = 0
 
     @property
     def elapsed(self) -> float:
         return self._monotonic() - self.started
 
-    def next_page(self, fetched: str) -> None:
-        """Spend one page, refusing when the budget is already exhausted.
+    def next_request(self, fetched: str) -> None:
+        """Spend one request, refusing when the budget is already exhausted.
 
         ``fetched`` names what the refresh has so far, so the diagnostic says
         what was fetched before the refresh was abandoned.
         """
         elapsed = self.elapsed
         budget = self.budget
-        if self.pages >= budget.pages or elapsed > budget.seconds:
+        if self.requests >= budget.requests or elapsed > budget.seconds:
             raise GitHubRequestError(
                 REFRESH_BUDGET,
-                f"GitHub refresh abandoned after {self.pages} pages in "
-                f"{elapsed:.1f}s with {fetched}; the budget is {budget.pages} "
-                f"pages or {budget.seconds:g}s",
+                f"GitHub refresh abandoned after {self.requests} requests in "
+                f"{elapsed:.1f}s with {fetched}; the budget is "
+                f"{budget.requests} requests or {budget.seconds:g}s",
             )
-        self.pages += 1
+        self.requests += 1
 
 
 class GitHubGateway:
@@ -186,6 +195,36 @@ class GitHubGateway:
         if rate_limit is not None:
             self.rate_limit = rate_limit
         return data
+
+    def graphql_many(
+        self,
+        query: str,
+        variables: Sequence[GraphQLVariables],
+        *,
+        tolerated: Container[str] = (),
+    ) -> list[Mapping[str, Any]]:
+        """Run one query for each set of variables, at most MAX_IN_FLIGHT at once.
+
+        Answers come back in the order asked. The first failure is raised
+        once the requests already running have finished, and the ones not
+        yet started are never sent.
+        """
+        if len(variables) <= 1:
+            return [
+                self.graphql(query, each, tolerated=tolerated) for each in variables
+            ]
+        with ThreadPoolExecutor(
+            max_workers=min(MAX_IN_FLIGHT, len(variables)), thread_name_prefix="gh"
+        ) as executor:
+            futures = [
+                executor.submit(self.graphql, query, each, tolerated=tolerated)
+                for each in variables
+            ]
+            try:
+                return [future.result() for future in futures]
+            except BaseException:
+                executor.shutdown(wait=True, cancel_futures=True)
+                raise
 
     def rest(self, path: str) -> Mapping[str, Any]:
         """Run one REST request and return its JSON object."""
