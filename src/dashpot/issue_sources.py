@@ -61,6 +61,10 @@ class CollectedIssues:
     issues: tuple[IssueProfile, ...]
     label_colors: Mapping[str, str] = field(default_factory=dict)
     issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
+    # What a complete cycle still wants a person to know (a rate limit
+    # running low, say): warnings and information, never the failure a
+    # raised ``IssueSourceRefreshError`` reports.
+    diagnostics: tuple[IssueSourceDiagnostic, ...] = ()
 
 
 _NUMBER_HINT = re.compile(r"#?([1-9][0-9]*)")
@@ -171,7 +175,7 @@ class IssueSource(ABC):
             attempted_at=attempted_at,
             last_good_at=attempted_at,
             issues=collected.issues,
-            diagnostics=(),
+            diagnostics=collected.diagnostics,
             label_colors=FrozenDict(collected.label_colors),
             issue_activity=FrozenDict(collected.issue_activity),
         )

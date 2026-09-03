@@ -171,6 +171,42 @@ class RepositoryTests(unittest.TestCase):
             calls,
         )
 
+    def test_identity_failures_carry_the_classified_code(self) -> None:
+        cases = [
+            (
+                CommandResult(
+                    [],
+                    1,
+                    '{"message":"Not Found","status":"404"}',
+                    "gh: Not Found (HTTP 404)",
+                ),
+                "github-repository",
+                "cannot resolve GitHub repository ned2/gone: Not Found (HTTP 404)",
+            ),
+            (
+                CommandResult([], 1, "", "HTTP 401: Bad credentials"),
+                "github-authentication",
+                "cannot resolve GitHub repository ned2/gone: HTTP 401: Bad credentials",
+            ),
+        ]
+        for result, code, message in cases:
+            with self.subTest(code=code):
+                runner = FixedRunner(result)
+                with self.assertRaises(RuntimeError) as caught:
+                    observe_github_repository_identity(
+                        Path("/repo"), "ned2/gone", 7, runner
+                    )
+                self.assertEqual(code, getattr(caught.exception, "code", None))
+                self.assertEqual(message, str(caught.exception))
+
+
+class FixedRunner:
+    def __init__(self, result: CommandResult) -> None:
+        self.result = result
+
+    def __call__(self, args, cwd, timeout) -> CommandResult:
+        return self.result
+
 
 class ProjectCollectorTests(unittest.TestCase):
     def test_combines_issue_and_target_observations(self) -> None:

@@ -326,6 +326,28 @@ last fetched, which Integration Branch reachability compares against, and
 which Repository Anchor supplied the Branches. It is observation, never
 configuration or identity.
 
+**Diagnostic**:
+One line an observation reports beside its data: its source, a stable code, a
+severity, and a message a person can act on. A failed refresh reports one
+Diagnostic and retains the last good result; a complete refresh may still
+carry a warning (a rate limit running low). Codes are prefixed by the source
+family — a GitHub Issue Source reports `github-authentication`,
+`github-permission`, `github-not-found`, `github-repository`,
+`github-rate-limit`, `github-rate-limit-low`, `github-refresh-budget`,
+`github-timeout`, `github-network`, `github-pagination`,
+`github-malformed-response` and `github-profile` — and are read from the
+tracker's structured signals before its prose
+([ADR 0021](docs/adr/0021-bound-each-github-refresh-by-a-budget.md)).
+
+**Refresh Budget**:
+The bound on what one refresh of a GitHub Issue Source may fetch before it is
+abandoned: a number of pages and a wall-clock duration, each checked before
+the next page. An abandoned refresh is a failed refresh, reported by one
+`github-refresh-budget` Diagnostic naming what it fetched, with the last good
+collection retained; nothing partial is ever published
+([ADR 0002](docs/adr/0002-require-complete-issue-profile-snapshots.md),
+[ADR 0021](docs/adr/0021-bound-each-github-refresh-by-a-budget.md)).
+
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.

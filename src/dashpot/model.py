@@ -40,7 +40,10 @@ class IssueActivity(ObservationModel):
     """Tracker engagement facts that sit beside the Issue profile.
 
     They are GitHub-shaped rather than source-neutral, so they travel with
-    the snapshot keyed by Issue Identity instead of inside each Issue.
+    the snapshot keyed by Issue Identity instead of inside each Issue. They
+    are presentation, not the complete snapshot ADR 0002 requires of the
+    profile: the linked pull requests are the first twenty GitHub returns,
+    unpaged, so an Issue closed by more than twenty shows twenty.
     """
 
     comment_count: int = 0

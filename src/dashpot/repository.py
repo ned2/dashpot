@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import stat
 import time
@@ -8,10 +7,11 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from .commands import CommandRunner, run_command
 from .git import Git, GitError
+from .github import NOT_FOUND, GitHubGateway, GitHubRequestError
 from .model import (
     Branch,
     Diagnostic,
@@ -762,20 +762,16 @@ def observe_github_repository_identity(
     runner: CommandRunner = run_command,
 ) -> tuple[str, str]:
     """Resolve a mutable GitHub reference to its durable Repository identity."""
-    result = runner(["gh", "api", f"repos/{reference}"], root, timeout)
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"gh api exited {result.returncode}"
-        raise RuntimeError(f"cannot resolve GitHub repository {reference}: {detail}")
+    gateway = GitHubGateway(root, timeout=timeout, runner=runner)
     try:
-        payload: Any = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"GitHub returned malformed repository metadata for {reference}: {exc.msg}"
+        payload = gateway.rest(f"repos/{reference}")
+    except GitHubRequestError as exc:
+        # The one thing asked for by name is the repository, so a not-found
+        # answer is the repository's; every other code is passed on as read.
+        code = "github-repository" if exc.code == NOT_FOUND else exc.code
+        raise GitHubRequestError(
+            code, f"cannot resolve GitHub repository {reference}: {exc}"
         ) from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError(
-            f"GitHub returned malformed repository metadata for {reference}"
-        )
     repository_id = payload.get("node_id")
     observed_reference = payload.get("full_name")
     if not isinstance(repository_id, str) or not repository_id:
