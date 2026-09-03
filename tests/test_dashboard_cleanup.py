@@ -520,6 +520,72 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         ]
 
 
+BLOCKED_TREE = target(
+    "worktree",
+    f"worktree:{WORKTREE}",
+    "Worktree",
+    path=WORKTREE,
+    blockers=(CleanupBlocker(kind="dirty", detail="1 changed path"),),
+)
+HELD = target(
+    "local-branch",
+    "local:refs/heads/feat",
+    "Local Branch",
+    ref="refs/heads/feat",
+    requires=BLOCKED_TREE.identity,
+    blockers=(
+        CleanupBlocker(
+            kind="checked-out",
+            detail=f"checked out at {WORKTREE}, whose removal is blocked",
+        ),
+    ),
+)
+BLOCKED_WORKTREE_PREVIEW = preview("worktree", WORKTREE, BLOCKED_TREE, HELD)
+
+
+@pytest.mark.asyncio
+async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
+    cleaner = FakeCleaner(BLOCKED_WORKTREE_PREVIEW)
+    app = DashpotApp(
+        SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
+    )
+
+    async with app.run_test(size=(140, 50)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await pilot.pause()
+
+        screen = cleanup_screen(app)
+        targets = screen.query_one("#cleanup-targets", SelectionList)
+        assert targets.option_count == 2
+        for option in (BLOCKED_TREE, HELD):
+            assert targets.get_option(option.identity).disabled is True
+            assert "unavailable" in str(targets.get_option(option.identity).prompt)
+        details = str(screen.query_one("#cleanup-details", Static).render())
+        assert "  blocked: 1 changed path" in details
+        assert (
+            f"  blocked: checked out at {WORKTREE}, whose removal is blocked"
+        ) in details
+        assert problem_text(app) == "Nothing here can be deleted."
+        assert confirm_button(app).variant == "default"
+
+        # Neither space nor the button can select or delete anything.
+        await pilot.press("space")
+        await pilot.pause()
+        assert marks(targets) == ["▐ ▌", "▐ ▌"]
+        await pilot.click("#cleanup-confirm")
+        await pilot.pause()
+        assert isinstance(app.screen, CleanupScreen)
+        assert cleaner.confirmations == []
+        assert toasts(app) == ["Nothing here can be deleted."]
+
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
+        assert app.cleaning == {}
+
+
 @pytest.mark.asyncio
 async def test_x_is_refused_where_no_deletable_row_has_focus() -> None:
     cleaner = FakeCleaner(BRANCH_PREVIEW)

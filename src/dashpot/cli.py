@@ -465,7 +465,7 @@ def _cleanup(
     json_output: bool,
 ) -> int:
     """Preview, select, perform, and report one Cleanup from this checkout."""
-    protected = [Path.cwd().resolve()]
+    protected = cleanup_protection()
     git = cleanup_git(timeout)
     preview = inspect_cleanup(request, protected=protected, timeout=timeout, git=git)
     # A preview with nothing to select has already said why; ``perform``
@@ -492,6 +492,42 @@ def _cleanup(
     if report.dry_run:
         return USAGE_EXIT_CODE if report.refusals else 0
     return 0 if report.succeeded else USAGE_EXIT_CODE
+
+
+def cleanup_protection() -> list[Path]:
+    """The checkouts a Cleanup never removes: this one and every configured Repository Anchor.
+
+    The anchors are the ones a dashboard run from here would observe: the
+    checkout's own root when it carries a Project configuration, and each
+    anchor of the Workspace config, taken at its Worktree root. An inventory
+    that cannot be read refuses the Cleanup rather than proceeding unaware.
+    """
+    current = Path.cwd().resolve()
+    protected = [current]
+    try:
+        root = worktree_root(current)
+    except RuntimeError:
+        root = None
+    if root is not None and (root / PROJECT_CONFIG_NAME).is_file():
+        protected.append(root)
+    inventory = default_workspace_config()
+    if inventory.is_file():
+        try:
+            workspaces = load_workspaces(inventory).workspaces
+        except RuntimeError as exc:
+            raise CleanupError(
+                f"cannot tell which Repository Anchors to protect: {exc}"
+            ) from exc
+        for workspace in workspaces:
+            for anchor in workspace.anchors:
+                path = Path(anchor.path)
+                # An anchor that is gone or not a repository still names a
+                # path no Cleanup should touch.
+                try:
+                    protected.append(worktree_root(path))
+                except (OSError, RuntimeError):
+                    protected.append(path)
+    return list(dict.fromkeys(protected))
 
 
 branch = App(

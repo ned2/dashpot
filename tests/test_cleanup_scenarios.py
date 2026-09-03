@@ -277,23 +277,32 @@ def test_a_dirty_worktree_on_a_branch_named_unlike_it_halts_before_its_branch(
     tree, local = target(preview, "worktree"), target(preview, "local-branch")
     assert tree.available is False
     assert [blocker.kind for blocker in tree.blockers] == ["dirty"]
-    assert local.available is True
+    # The Branch is integrated by content, but a Worktree that cannot go
+    # keeps it checked out: nothing here is selectable.
+    assert local.available is False
     assert local.integration is not None
     assert local.integration.state == "content-integrated"
     assert local.requires == tree.identity
-    assert [item.identity for item in preview.selectable] == [local.identity]
+    assert [blocker.kind for blocker in local.blockers] == ["checked-out"]
+    assert local.blockers[0].detail == (
+        f"checked out at {worktree}, whose removal is blocked"
+    )
+    assert preview.selectable == ()
 
     alone = ADAPTER.perform(confirm(preview_request, preview, local), protected=(root,))
     assert alone.performed is False
     assert alone.refusals == (
-        f"Local Branch can only be deleted together with {tree.identity}",
+        f"Local Branch is unavailable: {local.blockers[0].detail}",
     )
 
     together = ADAPTER.perform(
         confirm(preview_request, preview, tree, local), protected=(root,)
     )
     assert together.performed is False
-    assert together.refusals == (f"Worktree is unavailable: {tree.blockers[0].detail}",)
+    assert together.refusals == (
+        f"Worktree is unavailable: {tree.blockers[0].detail}",
+        f"Local Branch is unavailable: {local.blockers[0].detail}",
+    )
 
     # From the Branches pane the same Branch is refused as checked out there.
     from_branch_request = BranchCleanupRequest(root, "agents-md-hold-issue-work")

@@ -258,6 +258,32 @@ def test_non_canonical_mapping_and_several_push_urls_block_the_remote(
     assert by_kind["push-url"].detail.startswith("remote origin has 2 push URLs")
 
 
+def test_a_remote_whose_push_url_git_cannot_report_has_no_destination(
+    tmp_path: Path,
+) -> None:
+    """Git answers ``get-url`` with the remote's name even without a URL, so
+    the zero case is Git refusing to answer at all."""
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    track(root, "feat", tip)
+
+    def urlless(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if args[1:4] == ["remote", "get-url", "--push"]:
+            return CommandResult(
+                list(args), 128, "", "fatal: No such remote 'origin'\n"
+            )
+        return run_command(args, cwd, timeout)
+
+    preview = inspect_cleanup(
+        BranchCleanupRequest(root, "feat"), git=Git(root, 5, urlless)
+    )
+    target = by_identity(preview)["remote:origin:refs/heads/feat"]
+
+    assert kinds(target) == {"push-url"}
+    assert target.blockers[0].detail.startswith("remote origin has no push URL")
+
+
 def test_every_remote_is_its_own_target(tmp_path: Path) -> None:
     root = repo(tmp_path)
     tip = branch(root, "feat")
@@ -404,8 +430,32 @@ def test_dirty_locked_and_occupied_worktree_is_blocked(tmp_path: Path) -> None:
     tree, local = preview.targets
     assert kinds(tree) == {"dirty", "locked", "agent-session"}
     assert tree.available is False
-    # The Branch's own gate is independent of the Worktree's state.
-    assert kinds(local) == {"unintegrated"}
+    # The Branch keeps its own gate, and stays checked out while the Worktree
+    # cannot go.
+    assert kinds(local) == {"checked-out", "unintegrated"}
+    assert preview.selectable == ()
+
+
+def test_an_integrated_branch_under_a_blocked_worktree_stays_checked_out(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "feat")
+    (worktree / "scratch.txt").write_text("")
+
+    preview = preview_worktree(root, worktree)
+
+    tree, local = preview.targets
+    assert kinds(tree) == {"dirty"}
+    assert local.integration is not None
+    assert local.integration.state == "integrated"
+    (blocker,) = local.blockers
+    assert blocker.kind == "checked-out"
+    assert blocker.detail == f"checked out at {worktree}, whose removal is blocked"
+    assert local.requires == tree.identity
     assert preview.selectable == ()
 
 
@@ -422,7 +472,7 @@ def test_protected_and_main_worktrees_are_never_removable(tmp_path: Path) -> Non
     assert kinds(protected.targets[0]) == {"protected"}
     assert kinds(main.targets[0]) == {"main-worktree"}
     assert main.targets[1].identity == "local:refs/heads/main"
-    assert kinds(main.targets[1]) == {"integration-branch"}
+    assert kinds(main.targets[1]) == {"integration-branch", "checked-out"}
 
 
 def test_detached_worktree_needs_a_durable_ref(tmp_path: Path) -> None:
@@ -723,6 +773,47 @@ def test_deleting_at_the_remote_is_leased_and_drops_the_tracking_ref(
     assert git(root, "for-each-ref", "refs/heads/feat") == ""
 
 
+def test_the_delete_push_carries_the_lease_and_nothing_touches_the_tracking_ref(
+    tmp_path: Path,
+) -> None:
+    root, _bare, tip = served_feature(tmp_path)
+    request = BranchCleanupRequest(root, "feat")
+    mutations: list[tuple[str, ...]] = []
+
+    def recording(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        # Every Git command that could write; ``worktree list``, ``config
+        # --get-all``, and the rest are reads and stay out of the record.
+        if (
+            args[1] in {"push", "update-ref", "branch"}
+            or (args[1] == "config" and "--get-all" not in args)
+            or (args[1] == "worktree" and args[2] != "list")
+        ):
+            mutations.append(tuple(args[1:]))
+        return run_command(args, cwd, timeout)
+
+    git_ = Git(root, 5, recording)
+    preview = inspect_cleanup(request, git=git_)
+    mutations.clear()
+    report = perform_cleanup(
+        confirm(
+            request, preview, "remote:origin:refs/heads/feat", "local:refs/heads/feat"
+        ),
+        git=git_,
+    )
+
+    assert report.succeeded is True
+    assert mutations == [
+        (
+            "push",
+            f"--force-with-lease=refs/heads/feat:{tip}",
+            "origin",
+            ":refs/heads/feat",
+        ),
+        ("update-ref", "-d", "refs/heads/feat", tip),
+        ("config", "--remove-section", "branch.feat"),
+    ]
+
+
 def test_a_remote_that_moved_refuses_the_lease_and_halts_the_local(
     tmp_path: Path,
 ) -> None:
@@ -748,7 +839,8 @@ def test_a_remote_that_moved_refuses_the_lease_and_halts_the_local(
     assert remote.outcome == "refused"
     assert remote.detail == (
         f"origin no longer has feat at the leased {tip[:7]}: it moved since the "
-        f"last fetch; fetch and confirm against the revised preview"
+        f"last fetch; press f (or git fetch --prune origin), then confirm against "
+        f"the revised preview"
     )
     assert local.outcome == "refused"
     assert local.detail == "not attempted: Branch at origin was refused"
@@ -770,8 +862,8 @@ def test_a_branch_already_gone_at_the_remote_is_already_absent(
     (remote,) = report.results
     assert remote.outcome == "already-absent"
     assert remote.detail == (
-        "feat at origin was already gone; refs/remotes/origin/feat is stale until "
-        "the next fetch prunes it"
+        "feat at origin was already gone; the stale refs/remotes/origin/feat is "
+        "pruned by the next Remote Fetch: press f, or git fetch --prune origin"
     )
     assert report.succeeded is True
     # Nothing was fetched: the stale Remote-Tracking Branch is for ``f``.
@@ -822,7 +914,8 @@ def test_a_push_that_does_not_answer_is_unknown(tmp_path: Path) -> None:
     assert remote.detail == (
         "git push did not complete: timed out after 5.0s; check with: "
         "git ls-remote --heads origin refs/heads/feat; a surviving "
-        "refs/remotes/origin/feat is pruned by the next fetch"
+        "refs/remotes/origin/feat is pruned by the next Remote Fetch: press f, or "
+        "git fetch --prune origin"
     )
     assert remote.recovery == f"git push origin {tip}:refs/heads/feat"
     assert local.detail == "not attempted: Branch at origin was unknown"
