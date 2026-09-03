@@ -42,7 +42,7 @@ triaging unrelated repositories in one Dashpot screen.
 
 The accepted language is unambiguous on the first two distinctions. A Project
 is rooted in “exactly one Git Repository,” while a Workspace is a local grouping
-of Projects ([domain language](../README.md#domain-language)). ADR 0001 says
+of Projects ([domain language](domain-language.md)). ADR 0001 says
 that a multi-repository product is initially represented as several Projects
 grouped in a Workspace and defers Projects with zero or several repositories
 (`docs/adr/0001-own-project-and-issue-model.md:44-53`).
@@ -111,7 +111,7 @@ between two independent clones.
 multi-location, not multi-repository.**
 
 Git-linked worktrees are runtime Observation Targets, never persisted Workspace
-members ([domain language](../README.md#observation)).
+members ([domain language](domain-language.md#observation)).
 [GitHub issue #14](https://github.com/ned2/dashpot/issues/14) names concrete
 behaviour: observe a main worktree plus linked worktree, show per-target Git and
 agent facts, and react to adding or removing worktrees without changing saved
@@ -126,7 +126,7 @@ does not by itself justify combining unrelated repositories in one screen.
 Workspace-level view when both Projects are configured.**
 
 Issue Binding is defined to survive Project membership changes
-([domain language](../README.md#observation)). ADR 0001 makes binding
+([domain language](domain-language.md#observation)). ADR 0001 makes binding
 Workspace-global and explicitly
 separates execution location from Issue membership across transfers
 (`docs/adr/0001-own-project-and-issue-model.md:65-71`). The resolver searches

@@ -20,11 +20,11 @@ The shared context for humans and agents is the README:
   [Quality gates](README.md#quality-gates), and
   [Continuous integration](README.md#continuous-integration)
 - [Contributing](README.md#contributing) — the branch, push, and CI workflow
-- [Domain language](README.md#domain-language)
+- [Domain language](docs/domain-language.md)
 - [Project configuration](README.md#project-configuration)
-- [Agent session observation](README.md#agent-session-observation) and
-  [Issue work opt-in](README.md#issue-work-opt-in)
-- [Design](README.md#design) and the [Documentation map](README.md#documentation-map)
+- [Agent sessions](docs/agent-sessions.md) — how sessions are observed and
+  [Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)
+- [Design](docs/design.md) and the [Documentation map](README.md#documentation-map)
 
 ## Issue work lifecycle
 
@@ -80,7 +80,7 @@ Local Issue slug. `stop` takes no argument. Check what is recorded with
   checkout's `.venv`.
 - It works from a sandboxed shell too: when the harness process cannot be
   seen, the session is identified by the Agent Session Identity its hooks
-  published (see [Issue work opt-in](README.md#issue-work-opt-in)). If it is
+  published (see [Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)). If it is
   refused, run `uv run dashpot integrate <harness> --status` and read the
   `Agent Session identity claimed here` line; do not write a Work Store
   record by hand.
@@ -127,7 +127,7 @@ uv run dashpot work start 35                 # 4. inside that session, at that W
 ## Vocabulary
 
 Before changing code, tests, or documentation, read the shared
-[domain language](README.md#domain-language). Use its terms consistently —
+[domain language](docs/domain-language.md). Use its terms consistently —
 Agent Session versus Agent Run, Work Store, Issue Binding, Issue Hint, Worktree
 versus Repository Anchor — in code, tests, messages, documentation, and commit
 messages, and follow every _Avoid_ note. Update the domain language in the same
