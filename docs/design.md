@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-04
+date: 2026-09-05
 ---
 
 # Design
@@ -78,8 +78,9 @@ High-Water Mark are fetched, in pages of twenty-four, together with the other
 end of every relationship they added or removed, and merged by identity. A
 Reconciliation runs every five minutes, on `r`, and whenever the count no
 longer adds up, because a deletion, a transfer, a linked pull request and the
-blocker's side of a dependency leave no trace a delta can see: every Issue
-already known is observed afresh by identity, in batches of twenty-four sent
+blocker's side of a dependency leave no trace a delta can see, and neither end
+of a parent/sub-Issue relationship bumps `updatedAt`: every Issue already
+known is observed afresh by identity, in batches of twenty-four sent
 through the gateway with at most four in flight
 ([ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)),
 then the delta since the High-Water Mark, and only a count those cannot

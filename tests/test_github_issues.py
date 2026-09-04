@@ -1779,6 +1779,8 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         self.assertEqual("warning", warning.severity)
         self.assertIn("last observed in full 620s ago", warning.message)
         self.assertIn("period of 300s", warning.message)
+        self.assertIn("parent/sub-Issue relationship", warning.message)
+        self.assertIn("deleted or transferred Issue", warning.message)
         self.assertEqual(7, len(runner.calls))
 
 

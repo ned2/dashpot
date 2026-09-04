@@ -23,10 +23,13 @@ established what an incremental refresh can and cannot see:
   independently, a missing one as `null` beside a positional `NOT_FOUND`.
 - `updatedAt` is not bumped by a cross-reference (so not by a linked pull
   request appearing or changing state), by a commit reference, or on the
-  blocker when a `blocking` edge is added; assignment, sub-issue and parent
-  changes are unverified either way; a deleted or transferred Issue leaves
-  every `since` window without trace; and nested connections truncate
-  silently in queries wider than about forty Issues.
+  blocker when a `blocking` edge is added. Assignment and milestone assignment
+  and removal bump the Issue; milestone assignment and removal also bump the
+  milestone. Adding or removing a parent/sub-Issue relationship bumps neither
+  Issue. Issue-type changes could not be exercised in this user-owned
+  repository, where GitHub exposes no Issue Types; a deleted or transferred
+  Issue leaves every `since` window without trace; and nested connections
+  truncate silently in queries wider than about forty Issues.
 
 The GitHub Issue Source now keeps the collection it last observed as a
 snapshot by Issue identity and assembles each fresh observation from it:
@@ -95,12 +98,14 @@ snapshot by Issue identity and assembles each fresh observation from it:
   instead of exhausting the limit.
 - The blind spots are enumerated, and each is closed by the next
   Reconciliation, up to five minutes late, or by `r` on demand: a linked
-  pull request change; a blocker-side dependency change; a deletion offset
-  by a creation in the same window; an update in the same second as the
-  High-Water Mark that GitHub's one-second `updatedAt` cannot order after
-  it; and a fact GitHub does not date on the Issue — a label's colour, a
-  milestone or Issue type renamed — on an Issue that was not itself
-  updated. The Pull Requests pane
+  pull request change; a blocker-side dependency change; a parent/sub-Issue
+  relationship change; a deletion or transfer whose Issue-count change is
+  offset by another collection change in the same window; an update in the
+  same second as the High-Water Mark that GitHub's one-second `updatedAt`
+  cannot order after it; and a fact GitHub does not date on the Issue — a
+  label's colour, a milestone or Issue type renamed — on an Issue that was
+  not itself updated. Issue-type changes remain conservatively
+  covered because this repository cannot exercise it. The Pull Requests pane
   ([#83](https://github.com/ned2/dashpot/issues/83)) will need a probe of
   its own, which is exactly the signal that closes the linked-pull-request
   blind spot.

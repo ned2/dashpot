@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-04
+date: 2026-09-05
 ---
 
 # Domain language
@@ -217,17 +217,22 @@ start of its next delta. It advances only through what a refresh fetched, so
 no clock of Dashpot's ever enters the boundary.
 
 **Reconciliation**:
-An observation of every GitHub Issue afresh, which alone can see a deletion,
-a transfer, or a change GitHub does not date — a linked pull request, the
-blocker's side of a dependency, a label's colour, an update in the same
-second as the High-Water Mark. Every Issue already known is observed by
+An observation of every GitHub Issue afresh, which alone can see a linked pull
+request change; a blocker-side dependency change; a parent/sub-Issue
+relationship change; a deletion or transfer whose Issue-count change is
+offset by another collection change in the same window; an update in the same
+second as the High-Water Mark; or a fact GitHub does not date on the Issue — a
+label's colour, a milestone or Issue type renamed — on an Issue that was not
+itself updated. Issue-type changes are also covered conservatively because
+their `updatedAt` behaviour could not be exercised in the user-owned
+repository where it was researched. Every Issue already known is observed by
 identity, in batches of twenty-four with at most four in flight, then the
-delta since the High-Water Mark; only a count those cannot explain falls
-back to the sweep in order of creation, which is also how a run starts. It
-runs on a period (five minutes), on `r`, and whenever the Issue count no
-longer adds up; an observation whose Reconciliation is more than two periods
-overdue carries a `github-reconciliation-overdue` warning, and one whose
-count still disagrees after a Reconciliation failed carries
+delta since the High-Water Mark; only a count those cannot explain falls back
+to the sweep in order of creation, which is also how a run starts. It runs on
+a period (five minutes), on `r`, and whenever the Issue count no longer adds up; an
+observation whose Reconciliation is more than two periods overdue carries a
+`github-reconciliation-overdue` warning, and one whose count still disagrees
+after a Reconciliation failed carries
 `github-issue-count`
 ([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
 [ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).

@@ -1,11 +1,11 @@
 ---
 status: research
-date: 2026-09-04
+date: 2026-09-05
 ---
 
 # GitHub API batching and bulk queries for the GitHub Issue Source
 
-Research date: 2026-09-04
+Research dates: 2026-09-04–2026-09-05.
 
 This note establishes what GitHub's API offers for batching and bulk queries,
 to inform a later incremental-refresh design for
@@ -15,8 +15,12 @@ GraphQL schema (introspected through `gh api graphql`), the `cli/cli` and
 `cli/go-gh` source at the installed release, or a read-only experiment
 against `ned2/dashpot` (repository node id `R_kgDOUEerrg`; 81 Issues and 33
 pull requests at the time, so numbers 1–114 are all in use). Experiments ran
-GitHub CLI `2.98.0`. Nothing on GitHub was mutated. Anything the sources do not
-settle is marked **unverified**.
+GitHub CLI `2.98.0`. The initial research was read-only. The follow-up on
+2026-09-05 made only the controlled scratch-Issue, relationship, and Milestone
+mutations authorized by
+[#128](https://github.com/ned2/dashpot/issues/128), then closed those scratch
+objects. Anything the sources do not settle is marked **unverified**, and a
+feature this repository cannot exercise is named as such rather than inferred.
 
 ## Summary
 
@@ -33,14 +37,17 @@ settle is marked **unverified**.
    `gh api` exits 1 whenever `errors` is present, so a batch must be judged
    from the body, not the exit code.
 3. `filterBy: {since:}` is inclusive ("updated at or after") and matched a
-   local computation exactly. But `updatedAt` is **not** bumped by
-   cross-references (Issue or pull request mentions) or by commit references,
-   and one observed case shows it is not bumped on the blocker when a blocking
-   relationship is added. Since Dashpot's linked pull requests
-   (`closedByPullRequestsReferences`) derive from cross-references, a
-   `since`-delta cannot see them change. Whether assignment, sub-issue,
-   parent, and blocked-by changes bump `updatedAt` could **not** be
-   established from this repository's history.
+   local computation exactly. Assignment and unassignment bump the Issue;
+   Milestone assignment and removal bump both the Issue and the Milestone.
+   Adding or removing a parent/sub-Issue relationship bumps **neither** Issue,
+   even though GitHub records events on both. Cross-references and commit
+   references also do not bump the Issue, and one observed case shows no bump
+   on the blocker when a blocking relationship is added. Since Dashpot's
+   Linked Pull Requests (`closedByPullRequestsReferences`) derive from
+   cross-references, a `since` delta cannot see them change. Issue type changes
+   remain unexercised for an explicit reason: `ned2/dashpot` is owned by a
+   personal account and has no Issue types, which GitHub scopes to
+   organizations.
 4. Wide queries can **silently truncate nested connections**: requesting
    `timelineItems(first: 100)` for 60 or more Issues in one query returned
    fewer items *and a smaller `totalCount`* for some Issues, with no error and
@@ -259,16 +266,630 @@ event more than 1.5 s *after* `updatedAt` proves that event did not.
 | `CrossReferencedEvent` (mention from an Issue or pull request) | **does not bump** | 17 Issues with cross-references up to days after `updatedAt`, e.g. #79 referenced by PR #115 on 2026-09-03 while `updatedAt` stayed 2026-08-31; all inspected cases had `willCloseTarget: false` |
 | `ReferencedEvent` (commit reference) | **does not bump** | 7 Issues; the 6 exact coincidences were commits that closed the Issue |
 | `BlockingAddedEvent` on the blocker | **does not bump** | #2: event 07:04:47 after `updatedAt` 06:17:25 |
-| `AssignedEvent`, `BlockedByAddedEvent`, `ParentIssueAddedEvent`, `SubIssueAddedEvent`, `RenamedTitleEvent`, `ReopenedEvent` | **unverified** | every occurrence was followed by a bumping event before `updatedAt`, so neither outcome can be separated |
-| `ConnectedEvent`, milestone, issue-type, project events | **unverified** | absent from this repository |
+| `AssignedEvent` / `UnassignedEvent` | bumps | Controlled #128 experiment on scratch Issue #132: `updatedAt` advanced to the exact second of each event |
+| `SubIssueAddedEvent` / `ParentIssueAddedEvent` | **does not bump either Issue** | Controlled #128 experiment on scratch parent #132 and child #133: both timestamps stayed unchanged while both events were recorded |
+| `SubIssueRemovedEvent` / `ParentIssueRemovedEvent` | **does not bump either Issue** | Controlled #128 experiment on the same pair: both timestamps again stayed unchanged while both events were recorded |
+| `MilestonedEvent` / `DemilestonedEvent` | bumps the Issue and Milestone | Controlled #128 experiment on scratch Issue #132 and Milestone #1: both objects advanced to each event's second on assignment and removal |
+| Issue type events | **not exercisable here** | `ned2/dashpot` is owned by a personal account; its `issueTypes` and named `issueType` fields returned `null`, and #132 returned `viewerCanType: false` |
+| `BlockedByAddedEvent`, `RenamedTitleEvent`, `ReopenedEvent` | **unverified** | every historical occurrence was followed by a bumping event before `updatedAt`, so neither outcome can be separated |
+| `ConnectedEvent`, project events | **unverified** | absent from this repository |
 
 Consequences for a delta: a change to an Issue's linked pull requests
 (`closedByPullRequestsReferences`, derived from cross-references) or to the
 `blocking` side of a dependency can happen without the Issue entering a
-`since` window. Whether a closing-keyword cross-reference
+`since` window. Adding or removing a parent/sub-Issue relationship enters
+neither Issue in the window, so fetching the other end of a changed
+relationship cannot recover this case. Assignment and Milestone assignment
+or removal do enter the affected Issue in the window. Whether a
+closing-keyword cross-reference
 (`willCloseTarget: true`) bumps `updatedAt` is **unverified** (none present).
 Whether the blocked side (`blockedBy`) is bumped is unverified, so a
-relationship change may be invisible on both sides.
+dependency relationship change may be invisible on both sides. Issue type
+change behavior has no verdict: GitHub exposes Issue types to organizations,
+but this personal-account repository has no usable Issue Type identity.
+
+#### Controlled #128 experiment
+
+GitHub's GraphQL reference describes `Issue.updatedAt` only as the time the
+object was last updated; it does not say which Issue operations update it. The
+following controlled experiment therefore isolated each previously unresolved
+operation on two scratch Issues and one scratch Milestone. All request windows
+below are UTC on **2026-09-04**; the research was conducted on 2026-09-05 in
+Australia/Melbourne. Client request windows bracket the complete `gh api`
+process, while GitHub timestamps have one-second precision.
+
+The scratch objects were:
+
+| Object | Identity | Creation request window | GitHub creation state |
+| --- | --- | --- | --- |
+| Parent Issue #132 | `I_kwDOUEerrs8AAAABPuvAJw` | `16:31:19.363142036Z`–`16:31:20.123034383Z` | `createdAt = updatedAt = 16:31:19Z` |
+| Child Issue #133 | `I_kwDOUEerrs8AAAABPuvFeQ` | `16:31:27.449512335Z`–`16:31:28.155256716Z` | `createdAt = updatedAt = 16:31:27Z` |
+| Milestone #1, `Scratch: #128 updatedAt experiment` | `MI_kwDOUEerrs4BDWX-` | `16:31:36.899736242Z`–`16:31:37.483397526Z` | `createdAt = updatedAt = 16:31:37Z` |
+
+The two Issues were created independently, without assignees, a parent,
+sub-Issues, a Milestone, or an Issue type, so creation could not confound a
+relationship result. The GraphQL creation shape was:
+
+```graphql
+mutation($repositoryId: ID!, $title: String!, $body: String!) {
+  createIssue(
+    input: {repositoryId: $repositoryId, title: $title, body: $body}
+  ) {
+    issue {
+      id
+      number
+      url
+      createdAt
+      updatedAt
+      viewerCanAssign
+      viewerCanSetMilestone
+      viewerCanType
+    }
+  }
+}
+```
+
+A body string identifying the Issue as temporary #128 experiment data was
+supplied for each creation.
+
+GraphQL exposes no Milestone-creation mutation. Milestone #1 was created with
+the documented REST endpoint and its returned `node_id` became the GraphQL
+identity:
+
+```console
+gh api --method POST repos/ned2/dashpot/milestones \
+  -f title='Scratch: #128 updatedAt experiment'
+```
+
+Every baseline and confirming state read used this query. In particular, it
+observes the Milestone separately by repository Milestone Number so removing it
+from an Issue does not also remove the only path by which its own `updatedAt`
+can be read.
+
+```graphql
+query ExperimentState(
+  $owner: String!
+  $name: String!
+  $parent: Int!
+  $sub: Int!
+  $milestone: Int!
+) {
+  repository(owner: $owner, name: $name) {
+    parent: issue(number: $parent) {
+      id
+      number
+      updatedAt
+      assignees(first: 10) {
+        nodes {
+          id
+          login
+        }
+      }
+      parent {
+        id
+        number
+      }
+      subIssues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+      milestone {
+        id
+        number
+        title
+        updatedAt
+      }
+      issueType {
+        id
+        name
+      }
+      viewerCanType
+    }
+    sub: issue(number: $sub) {
+      id
+      number
+      updatedAt
+      assignees(first: 10) {
+        nodes {
+          id
+          login
+        }
+      }
+      parent {
+        id
+        number
+      }
+      subIssues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+      milestone {
+        id
+        number
+        title
+        updatedAt
+      }
+      issueType {
+        id
+        name
+      }
+      viewerCanType
+    }
+    milestone: milestone(number: $milestone) {
+      id
+      number
+      updatedAt
+      openIssueCount
+      closedIssueCount
+      issues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+    }
+  }
+}
+```
+
+The variables were `owner = "ned2"`, `name = "dashpot"`, `parent = 132`,
+`sub = 133`, and `milestone = 1`.
+
+The baseline read, from `16:31:57.847981360Z` through
+`16:31:58.537073569Z`, confirmed the empty relationship facts and that all
+three `updatedAt` values still matched the creation responses in the table
+above.
+
+##### Assignment and unassignment
+
+The mutations were:
+
+```graphql
+mutation Assign($issue: ID!, $assignees: [ID!]!) {
+  addAssigneesToAssignable(
+    input: {assignableId: $issue, assigneeIds: $assignees}
+  ) {
+    assignable {
+      ... on Issue {
+        id
+        number
+        updatedAt
+        assignees(first: 10) {
+          nodes {
+            id
+            login
+          }
+        }
+      }
+    }
+  }
+}
+
+mutation Unassign($issue: ID!, $assignees: [ID!]!) {
+  removeAssigneesFromAssignable(
+    input: {assignableId: $issue, assigneeIds: $assignees}
+  ) {
+    assignable {
+      ... on Issue {
+        id
+        number
+        updatedAt
+        assignees(first: 10) {
+          nodes {
+            id
+            login
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+| Operation | Request window | #132 `updatedAt` | Timeline event |
+| --- | --- | --- | --- |
+| Assign `ned2` | `16:32:10.779998064Z`–`16:32:12.007764581Z` | `16:31:19Z` → `16:32:11Z` | `AssignedEvent.createdAt = 16:32:11Z` |
+| Unassign `ned2` | `16:32:31.959462821Z`–`16:32:33.170524871Z` | `16:32:11Z` → `16:32:32Z` | `UnassignedEvent.createdAt = 16:32:32Z` |
+
+An `ExperimentState` read from `16:32:22.189482052Z` through
+`16:32:22.818613983Z` independently confirmed the assigned state and first
+timestamp. The mutation results and the final timeline read confirmed the
+unassigned state and second timestamp. **Assignment and unassignment bump the
+Issue's `updatedAt`.**
+
+##### Parent/sub-Issue addition and removal
+
+The mutations returned both affected Issues:
+
+```graphql
+mutation AddRelationship($parent: ID!, $sub: ID!) {
+  addSubIssue(input: {issueId: $parent, subIssueId: $sub}) {
+    issue {
+      id
+      number
+      updatedAt
+      subIssues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+      parent {
+        id
+        number
+      }
+    }
+    subIssue {
+      id
+      number
+      updatedAt
+      parent {
+        id
+        number
+      }
+      subIssues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+    }
+  }
+}
+
+mutation RemoveRelationship($parent: ID!, $sub: ID!) {
+  removeSubIssue(input: {issueId: $parent, subIssueId: $sub}) {
+    issue {
+      id
+      number
+      updatedAt
+      subIssues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+      parent {
+        id
+        number
+      }
+    }
+    subIssue {
+      id
+      number
+      updatedAt
+      parent {
+        id
+        number
+      }
+      subIssues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+    }
+  }
+}
+```
+
+| Operation | Request window | Parent #132 | Child #133 | Timeline events |
+| --- | --- | --- | --- | --- |
+| Add relationship | `16:32:49.243100854Z`–`16:32:50.113601248Z` | `subIssues` gained #133; `updatedAt` stayed `16:32:32Z` | `parent` became #132; `updatedAt` stayed `16:31:27Z` | `SubIssueAddedEvent` and `ParentIssueAddedEvent` at `16:32:50Z` |
+| Remove relationship | `16:33:10.764322946Z`–`16:33:11.812701944Z` | `subIssues` emptied; `updatedAt` stayed `16:32:32Z` | `parent` became `null`; `updatedAt` stayed `16:31:27Z` | `SubIssueRemovedEvent` and `ParentIssueRemovedEvent` at `16:33:11Z` |
+
+An `ExperimentState` read from `16:33:01.376461226Z` through
+`16:33:02.018470961Z` independently confirmed the added relationship and
+unchanged timestamps. The remove mutation and final timeline read confirmed
+the cleared relationship and second event pair. **Adding and removing a
+parent/sub-Issue relationship bump neither affected Issue**, even though
+GitHub records a same-second event at both ends.
+
+##### Milestone assignment and removal
+
+The mutations were:
+
+```graphql
+mutation AssignMilestone($issue: ID!, $milestone: ID!) {
+  updateIssue(input: {id: $issue, milestoneId: $milestone}) {
+    issue {
+      id
+      number
+      updatedAt
+      milestone {
+        id
+        number
+        title
+        updatedAt
+        openIssueCount
+        closedIssueCount
+        issues(first: 10) {
+          nodes {
+            id
+            number
+          }
+        }
+      }
+    }
+  }
+}
+
+mutation RemoveMilestone($issue: ID!) {
+  updateIssue(input: {id: $issue, milestoneId: null}) {
+    issue {
+      id
+      number
+      updatedAt
+      milestone {
+        id
+        number
+        title
+        updatedAt
+      }
+    }
+  }
+}
+```
+
+| Operation | Request window | #132 `updatedAt` | Milestone #1 `updatedAt` | Timeline event |
+| --- | --- | --- | --- | --- |
+| Assign | `16:33:22.644018954Z`–`16:33:23.761108700Z` | `16:32:32Z` → `16:33:23Z` | `16:31:37Z` → `16:33:23Z` | `MilestonedEvent.createdAt = 16:33:23Z` |
+| Remove | `16:33:30.937718676Z`–`16:33:32.073800743Z` | `16:33:23Z` → `16:33:31Z` | `16:33:23Z` → `16:33:31Z` | `DemilestonedEvent.createdAt = 16:33:31Z` |
+
+The `ExperimentState` read from `16:33:41.129337838Z` through
+`16:33:41.712385912Z` confirmed the Issue no longer named a Milestone,
+Milestone #1 listed no Issues, and both removal timestamps were
+`16:33:31Z`. **Milestone assignment and removal bump both the Issue and the
+Milestone.**
+
+##### Complete event read
+
+This final query captured all relevant event timestamps without relying on a
+mutation payload. It ran from `16:34:39.004319093Z` through
+`16:34:39.770494647Z` and confirmed the final pre-cleanup state and every event
+listed above.
+
+```graphql
+query IssueSnapshots($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    __typename
+    ... on Issue {
+      id
+      number
+      createdAt
+      updatedAt
+      assignees(first: 10) {
+        nodes {
+          id
+          login
+        }
+      }
+      parent {
+        id
+        number
+      }
+      subIssues(first: 10) {
+        nodes {
+          id
+          number
+        }
+      }
+      milestone {
+        id
+        number
+        title
+        updatedAt
+      }
+      issueType {
+        id
+        name
+      }
+      timelineItems(
+        last: 20
+        itemTypes: [
+          ASSIGNED_EVENT
+          UNASSIGNED_EVENT
+          MILESTONED_EVENT
+          DEMILESTONED_EVENT
+          SUB_ISSUE_ADDED_EVENT
+          SUB_ISSUE_REMOVED_EVENT
+          PARENT_ISSUE_ADDED_EVENT
+          PARENT_ISSUE_REMOVED_EVENT
+          ISSUE_TYPE_ADDED_EVENT
+          ISSUE_TYPE_CHANGED_EVENT
+          ISSUE_TYPE_REMOVED_EVENT
+        ]
+      ) {
+        nodes {
+          __typename
+          ... on AssignedEvent {
+            createdAt
+          }
+          ... on UnassignedEvent {
+            createdAt
+          }
+          ... on MilestonedEvent {
+            createdAt
+            milestoneTitle
+          }
+          ... on DemilestonedEvent {
+            createdAt
+            milestoneTitle
+          }
+          ... on SubIssueAddedEvent {
+            createdAt
+            subIssue {
+              id
+              number
+            }
+          }
+          ... on SubIssueRemovedEvent {
+            createdAt
+            subIssue {
+              id
+              number
+            }
+          }
+          ... on ParentIssueAddedEvent {
+            createdAt
+            parent {
+              id
+              number
+            }
+          }
+          ... on ParentIssueRemovedEvent {
+            createdAt
+            parent {
+              id
+              number
+            }
+          }
+          ... on IssueTypeAddedEvent {
+            createdAt
+            issueType {
+              id
+              name
+            }
+          }
+          ... on IssueTypeChangedEvent {
+            createdAt
+            issueType {
+              id
+              name
+            }
+            prevIssueType {
+              id
+              name
+            }
+          }
+          ... on IssueTypeRemovedEvent {
+            createdAt
+            issueType {
+              id
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+##### Issue type limitation
+
+The live schema exposes `Issue.issueType`, `Repository.issueTypes`,
+`Repository.issueType`, `UpdateIssueInput.issueTypeId`, and the dedicated
+`updateIssueIssueType` mutation. A capable repository could use:
+
+```graphql
+mutation SetIssueType($issueId: ID!, $issueTypeId: ID) {
+  updateIssueIssueType(
+    input: {issueId: $issueId, issueTypeId: $issueTypeId}
+  ) {
+    issue {
+      id
+      number
+      updatedAt
+      issueType {
+        id
+        name
+      }
+    }
+  }
+}
+```
+
+This Project's repository cannot supply the required Issue Type identity. The
+capability query ran from `16:34:55.561717510Z` through
+`16:34:56.127091792Z`:
+
+```graphql
+query IssueTypeCapability(
+  $owner: String!
+  $name: String!
+  $number: Int!
+) {
+  repository(owner: $owner, name: $name) {
+    owner {
+      __typename
+      login
+    }
+    issueTypes(first: 20) {
+      totalCount
+      nodes {
+        id
+        name
+        isEnabled
+      }
+    }
+    issueType(name: "Task") {
+      id
+      name
+      isEnabled
+    }
+    issue(number: $number) {
+      id
+      number
+      updatedAt
+      issueType {
+        id
+        name
+      }
+      viewerCanType
+    }
+  }
+}
+```
+
+With `owner = "ned2"`, `name = "dashpot"`, and `number = 132`, it returned
+an owner of `{"__typename":"User","login":"ned2"}`, `issueTypes: null`,
+`issueType: null`, and an untyped #132 with `viewerCanType: false`. GitHub's
+documentation defines Issue types as organization-level configuration and
+says every *organization* receives the default Task, Bug, and Feature types
+([Managing issue types in an organization](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/managing-issue-types-in-an-organization)).
+`ned2/dashpot` is instead owned by a personal account. There was therefore no
+valid type-setting mutation to perform, and **this experiment gives no verdict
+on whether an Issue type change bumps `updatedAt`**.
+
+##### Cleanup
+
+After the final evidence reads, both scratch Issues were closed as not planned
+with this mutation:
+
+```graphql
+mutation CloseScratch($issue: ID!) {
+  closeIssue(input: {issueId: $issue, stateReason: NOT_PLANNED}) {
+    issue {
+      id
+      number
+      state
+      stateReason
+      updatedAt
+      closedAt
+    }
+  }
+}
+```
+
+| Cleanup | Request window | Result |
+| --- | --- | --- |
+| Close #132 | `16:35:04.132369709Z`–`16:35:05.140707130Z` | closed at `16:35:04Z` |
+| Close #133 | `16:35:13.596861770Z`–`16:35:15.003516676Z` | closed at `16:35:14Z` |
+| Close Milestone #1 through REST | `16:35:20.681929587Z`–`16:35:21.258246478Z` | closed and updated at `16:35:21Z` |
+
+The final Milestone cleanup command was:
+
+```console
+gh api --method PATCH repos/ned2/dashpot/milestones/1 -f state=closed
+```
+
+The cleanup timestamps are later bumping operations and do not participate in
+the relationship verdicts above.
 
 ### Transferred and deleted Issues
 
@@ -446,7 +1067,7 @@ about 60 s serial at ~3 s per page (extrapolated from an 81-Issue page).
 
 | Option | Requests | Points | Wall time | What it cannot prove |
 |---|---|---|---|---|
-| (a) Change probe: `issues(first: 1, orderBy: UPDATED_AT DESC) { totalCount nodes { updatedAt } }` | 1 | 1 | ~0.6 s | any change that does not bump `updatedAt` (cross-references and so linked pull requests; blocker-side dependencies; unverified kinds in §3); a deletion or transfer offset by a creation; a transfer or deletion of an older Issue leaves `updatedAt` unchanged and only moves `totalCount` |
+| (a) Change probe: `issues(first: 1, orderBy: UPDATED_AT DESC) { totalCount nodes { updatedAt } }` | 1 | 1 | ~0.6 s | any change that does not bump `updatedAt` (cross-references and so Linked Pull Requests; the blocker side of a dependency; both ends of a parent/sub-Issue relationship); Issue type changes, which this repository cannot exercise; a deletion or transfer offset by a creation; a transfer or deletion of an older Issue leaves `updatedAt` unchanged and only moves `totalCount` |
 | (a′) REST probe: conditional `GET /repos/{o}/{r}/issues?state=all&sort=updated&per_page=1` | 1 | 0 on `304`, 1 REST request otherwise | ~0.5 s | same gaps; the list ETag also changes on pull request activity, so a `200` is not proof of Issue change; REST and GraphQL limits are separate |
 | (b) Delta by `since`: `issues(first: 100, filterBy: {since}, orderBy: UPDATED_AT)` with full fields | ceil(changed/100) | 6 per 100 changed | ~3 s per 100 changed | everything in (a); needs an overlap window (inclusive boundary, clock skew); nested overflow pagination as today; wide-query truncation (§3.4) applies to the page shape |
 | (c) Bulk fetch by `nodes(ids:)` of known identities | ceil(n/100) | 6 per 100 (1 per 100 with identity-only fields) | ~3 s per 100 | requires the identities first; a transferred or deleted Issue is a `null` with `NOT_FOUND`, indistinguishable from each other; ids only — the 100-id cap is hard |
@@ -456,10 +1077,12 @@ Facts common to every delta shape: a `since` or `nodes` result lists only
 Issues that still exist, so absence is never established by a delta (compare
 [ADR 0002](adr/0002-require-complete-issue-profile-snapshots.md)); the
 relationship facts Dashpot collects live on both ends of a relationship, and
-the observed evidence shows at least one end (the blocker's `blocking`) does
-not bump `updatedAt`; and the wide-query truncation in §3.4 is invisible to
-`hasNextPage`, so any batch shape above about 40 Issues per query needs its
-own completeness check before it can be trusted as a fresh observation.
+the observed evidence shows the blocker's `blocking` end does not bump
+`updatedAt` and neither end of a parent/sub-Issue relationship bumps it; and
+the wide-query truncation in §3.4 is invisible to `hasNextPage`, so any batch
+shape above about 40 Issues per query needs its own completeness check before
+it can be trusted as a fresh observation. Assignment and Milestone assignment
+or removal are not blind spots: each bumps the affected Issue.
 
 ## Experiment artefacts
 
@@ -469,13 +1092,16 @@ scratch directory: `aliased.graphql`, `aliased.out`, `aliased.err`,
 `rest_issues.txt`, `rest_304.txt`, `costs.py`, `nested_check.py`,
 `complete_timelines.json`, `aliased_timelines.json`, and the downloaded
 documentation text under `docs/`. The queries are reproducible from the
-descriptions in each section; all are read-only.
+descriptions in each section; those initial experiments were read-only. The
+controlled #128 queries, mutations, request windows, identities, and cleanup
+are reproduced inline in §3.
 
 ## Sources
 
 - [Rate limits and query limits for the GraphQL API](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api)
 - [Using pagination in the GraphQL API](https://docs.github.com/en/graphql/guides/using-pagination-in-the-graphql-api)
 - [Using global node IDs](https://docs.github.com/en/graphql/guides/using-global-node-ids)
+- [GraphQL reference: Issues](https://docs.github.com/en/graphql/reference/issues)
 - [GraphQL reference: queries](https://docs.github.com/en/graphql/reference/queries),
   [input objects (`IssueFilters`)](https://docs.github.com/en/graphql/reference/input-objects#issuefilters),
   and the live schema introspected with `gh api graphql` (`__type(name: "Query" | "IssueFilters" | "RateLimit" | "Repository" | "Issue" | "IssueConnection")`)
@@ -484,6 +1110,8 @@ descriptions in each section; all are read-only.
 - [REST API endpoints for issues: List repository issues](https://docs.github.com/en/rest/issues/issues#list-repository-issues),
   [sub-issues](https://docs.github.com/en/rest/issues/sub-issues),
   [issue dependencies](https://docs.github.com/en/rest/issues/issue-dependencies)
+- [REST API endpoints for Milestones](https://docs.github.com/en/rest/issues/milestones)
+- [Managing Issue types in an organization](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/managing-issue-types-in-an-organization)
 - [GitHub's OpenAPI description, `descriptions/api.github.com/api.github.com.json`](https://github.com/github/rest-api-description)
 - [Transferring an issue to another repository](https://docs.github.com/en/issues/tracking-your-work-with-issues/administering-issues/transferring-an-issue-to-another-repository)
 - [Deleting an issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/administering-issues/deleting-an-issue)
@@ -496,3 +1124,6 @@ descriptions in each section; all are read-only.
   [`pkg/api/http_client.go`](https://github.com/cli/go-gh/blob/v2.13.0/pkg/api/http_client.go),
   [`pkg/config/config.go`](https://github.com/cli/go-gh/blob/v2.13.0/pkg/config/config.go)
 - Read-only experiments against `ned2/dashpot` (`R_kgDOUEerrg`) with GitHub CLI 2.98.0 on 2026-09-04, as quoted in each section
+- Controlled scratch-Issue, relationship, and Milestone experiments against
+  `ned2/dashpot` with GitHub CLI 2.98.0 for #128 on 2026-09-05, with their UTC
+  request windows from 2026-09-04 reproduced in §3

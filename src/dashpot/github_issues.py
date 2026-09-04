@@ -552,8 +552,9 @@ class GitHubIssuesSource(IssueSource):
                     message=(
                         f"GitHub Issues were last observed in full {age:.0f}s ago "
                         f"against a Reconciliation period of {period:g}s; a "
-                        "linked pull request, a blocker's dependency or a deleted "
-                        "Issue may be out of date until one succeeds"
+                        "linked pull request, a blocker's dependency, a parent/"
+                        "sub-Issue relationship or a deleted or transferred Issue "
+                        "may be out of date until one succeeds"
                     ),
                 )
             )
