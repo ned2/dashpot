@@ -51,6 +51,7 @@ from .collect import (
 )
 from .column_editor import IssueColumnEditor
 from .fetch import FetchReport, RemoteFetcher
+from .focus_table import FocusCursorTable
 from .issue_cells import TableCell, cells_match, issue_state_colors
 from .issue_list import (
     IssueListQuery,
@@ -225,10 +226,6 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         pull_request_pane_rows,
     ),
 )
-# Focus starts in the first list and cycles through the four in reading
-# order, the Issue table last; the Issue controls are not part
-# of the cycle.
-LIST_TABLE_IDS = (*(spec.table_id for spec in LIST_PANE_SPECS), "queue")
 
 
 class ObservationFinished(Message):
@@ -410,11 +407,9 @@ class DashboardScreen(Screen[None]):
         """The content-sized panes in reading order."""
         return tuple(self.list_pane(spec.pane_id) for spec in LIST_PANE_SPECS)
 
-    def list_tables(self) -> tuple[DataTable[Any], ...]:
-        """Return every table in the dashboard's focus-cycle order."""
-        return tuple(
-            self.query_one(f"#{table_id}", DataTable) for table_id in LIST_TABLE_IDS
-        )
+    def focus_tables(self) -> tuple[FocusCursorTable[Any], ...]:
+        """Return the dashboard tables in their composed reading order."""
+        return tuple(self.query_one("#body").query(FocusCursorTable))
 
     def _update_widgets_mounted(self) -> bool:
         """Report whether dashboard updates can still reach every surface."""
@@ -451,12 +446,19 @@ class DashboardScreen(Screen[None]):
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus to the next list when a list has it; otherwise decline."""
-        tables = self.list_tables()
+        tables = self.focus_tables()
         focused = self.focused
         if focused not in tables:
             return False
         tables[(tables.index(focused) + step) % len(tables)].focus()
         return True
+
+    def on_focus_cursor_table_row_boundary_reached(
+        self, event: FocusCursorTable.RowBoundaryReached
+    ) -> None:
+        """Move focus when the focused table cannot move its row cursor."""
+        if self.focused is event.control:
+            self.cycle_list_focus(event.step)
 
     def on_mount(self) -> None:
         self.query_one("#queue-pane").border_title = Content(ISSUE_PANE_LABEL)

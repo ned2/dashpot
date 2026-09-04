@@ -131,7 +131,10 @@ granted first so an empty pane costs three lines, and the caps shrink before
 the Issue table would drop below its minimum height, so the panes only ever
 cost the Issue table what they actually use. The Sessions list starts with
 focus, `Tab` and `Shift+Tab` cycle focus Sessions → Worktrees → Branches →
-Pull Requests → Issues, and `/` moves it to the Issue search. The row cursor
+Pull Requests → Issues, and `/` moves it to the Issue search. `Down` at the
+last row and `Up` at the first row cycle focus through the same order; an empty
+list moves on immediately, and each list keeps its row cursor when focus
+returns. The row cursor
 in the Sessions, Worktrees, Branches and Pull Requests panes is for scrolling,
 copying and refresh scope (`r`); only
 the Issue table drives the Issue selection, `Enter`

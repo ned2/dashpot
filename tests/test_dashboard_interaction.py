@@ -11,6 +11,7 @@ from app_harness import (
     SequenceCollector,
     issue,
     pane_title,
+    prepare_pane,
     workspace_snapshot,
 )
 from dashpot.app import DashpotApp
@@ -27,6 +28,7 @@ from dashpot.issue_table import (
     SortTerm,
 )
 from dashpot.issue_view import IssueScreen
+from dashpot.list_pane import ListRow
 from dashpot.observation_store import WorkspaceObservationStore
 from helpers import wait_until
 
@@ -575,6 +577,77 @@ async def test_tab_cycles_focus_through_every_list() -> None:
         assert app.query_one("#issue-search", Input).has_focus
         await pilot.press("tab")
         assert queue.has_focus
+
+
+@pytest.mark.asyncio
+async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
+    app = DashpotApp(
+        SequenceCollector(
+            workspace_snapshot(
+                issue("test/repo#1", "First"),
+                issue("test/repo#2", "Second"),
+            )
+        ),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        sessions = prepare_pane(app, "sessions-pane")
+        sessions.show_rows(
+            (ListRow("first", ("first", "-")), ListRow("last", ("last", "-")))
+        )
+        await pilot.pause()
+
+        await pilot.press("down")
+        assert sessions.table.has_focus
+        assert sessions.highlighted() == ("last", 1)
+
+        await pilot.press("down")
+        assert app.dashboard.worktrees_pane().table.has_focus
+
+        await pilot.press("up")
+        assert sessions.table.has_focus
+        assert sessions.highlighted() == ("last", 1)
+
+        await pilot.press("up")
+        assert sessions.table.has_focus
+        assert sessions.highlighted() == ("first", 0)
+
+        await pilot.press("up")
+        assert app.dashboard.queue_table().has_focus
+
+
+@pytest.mark.asyncio
+async def test_arrows_cross_empty_lists_in_composed_order() -> None:
+    app = DashpotApp(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await pilot.pause()
+        tables = tuple(app.query_one("#body").query(DataTable))
+        assert [table.id for table in tables] == [
+            "sessions",
+            "worktrees",
+            "branches",
+            "pull-requests",
+            "queue",
+        ]
+        for pane in app.dashboard.list_panes():
+            pane.show_rows(())
+        await pilot.pause()
+
+        for table in tables[1:] + tables[:1]:
+            await pilot.press("down")
+            assert table.has_focus
+
+        for table in reversed(tables):
+            await pilot.press("up")
+            assert table.has_focus
 
 
 @pytest.mark.asyncio
