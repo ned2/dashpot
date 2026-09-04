@@ -39,6 +39,7 @@
   "milestone": { "title": "v1" },
   "comments": { "totalCount": 3 },
   "closedByPullRequestsReferences": {
+    "totalCount": 2,
     "nodes": [
       { "number": 41, "url": "https://github.com/ned2/dashpot/pull/41", "state": "MERGED" },
       { "number": 12, "url": "https://github.com/ned2/dashpot/pull/12", "state": "OPEN" }

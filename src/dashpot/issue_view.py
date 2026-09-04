@@ -191,6 +191,10 @@ def issue_metadata_items(
         )
     else:
         items.append(DetailItem("-", kind="list"))
+    if activity.unlisted_pull_request_count:
+        items.append(
+            DetailItem(f"and {activity.unlisted_pull_request_count} more", kind="list")
+        )
 
     relationships = issue.relationships
     items.append(DetailItem("Relationships", kind="section"))

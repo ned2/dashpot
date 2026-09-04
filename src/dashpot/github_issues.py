@@ -104,6 +104,7 @@ _ISSUE_NODE_FIELDS = """
           milestone { title }
           comments { totalCount }
           closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {
+            totalCount
             nodes { number url state }
           }
           createdAt
@@ -1050,8 +1051,17 @@ def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
                 )
             )
     linked_pull_requests.sort(key=lambda pull: pull.number)
+    # The connection is unpaged: the count says how many the first twenty
+    # left unlisted, so the dashboard can say so rather than show a
+    # complete-looking list.
+    unlisted = 0
+    total = references.get("totalCount") if isinstance(references, Mapping) else None
+    if isinstance(total, int) and not isinstance(total, bool):
+        unlisted = max(0, total - len(linked_pull_requests))
     return IssueActivity(
-        comment_count=comment_count, linked_pull_requests=linked_pull_requests
+        comment_count=comment_count,
+        linked_pull_requests=linked_pull_requests,
+        unlisted_pull_request_count=unlisted,
     )
 
 

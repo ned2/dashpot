@@ -591,6 +591,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
                         state="merged",
                     )
                 ],
+                unlisted_pull_request_count=2,
             )
         },
     )
@@ -613,6 +614,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
             "Comments: 2",
             "Pull requests:",
             "  #9 merged https://github.com/test/repo/pull/9",
+            "  and 2 more",
             "Relationships:",
             "  Parent: #1 Parent",
             "  Blocked by: I_elsewhere",
