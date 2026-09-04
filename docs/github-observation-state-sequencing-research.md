@@ -49,38 +49,43 @@ all settled in-memory state -------------------------------> #124
 ```
 
 The linear work followed the recommended order **#128, #127, #123, #126,
-#125, #129 triage, then #124**. The first six are complete. #123 added a Pull
+#125, #129 triage, then #124**. All seven are complete. #123 added a Pull
 Request change signal inside the GitHub Issue Source without coupling it to the
 independently scheduled Pull Requests pane; #126 and #125 settled their
 configuration and state-machine choices; and #129 rejected the REST gate after
-measurement. #124 remains last because it makes that settled state machine and
-its compatibility contract durable across runs.
+measurement. #124 then made the settled state machine durable across runs as a
+strictly validated Snapshot Seed that is never published before a live
+Reconciliation.
 
 ## Current architecture that constrains the order
 
-The GitHub Issue Source currently has three distinct layers of in-process state:
+The GitHub Issue observation now has four distinct layers of state:
 
-1. Its private `_Snapshot` owns the Issues by Issue Identity; separate Issue and
+1. A versioned Snapshot Seed beneath `.dashpot/state/github-issues/` may carry a
+   previous process's internal state into a mandatory startup Reconciliation.
+   It is untrusted persisted input, not an observation
+   ([`github_issue_snapshot.py`](../src/dashpot/github_issue_snapshot.py),
+   [ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
+2. Its private in-process `_Snapshot` owns the Issues by Issue Identity; separate Issue and
    Pull Request High-Water Marks; last successful Reconciliation time; any
    unexplained reported count; and whether a fallback sweep is due. The source
    replaces it only after the merged collection passes its invariants
    ([`github_issues.py`](../src/dashpot/github_issues.py)).
-2. The general `IssueSource` retains the last successfully published complete
+3. The general `IssueSource` retains the last successfully published complete
    Issue collection and returns it as stale after a refresh failure
    ([`issue_sources.py`](../src/dashpot/issue_sources.py),
    [ADR 0002](adr/0002-require-complete-issue-profile-snapshots.md)).
-3. The `ObservationCoordinator` retains each independently scheduled source
+4. The `ObservationCoordinator` retains each independently scheduled source
    result and publishes it into the process-local
    `WorkspaceObservationStore`. Issues and Pull Requests are separate keys with
    separate last-good and failure state
    ([`collect.py`](../src/dashpot/collect.py),
    [`design.md`](design.md)).
 
-This distinction matters most to #123 and #124. Persisting a dashboard
-checkpoint is not the same as persisting enough private source state to resume
-an Incremental Refresh, and a persisted `_Snapshot` does not by itself make the
-base `IssueSource` regard a failed first refresh as stale rather than
-unavailable.
+The distinction remains deliberate. Persisting private source state to resume
+an Incremental Refresh does not persist a dashboard checkpoint, and a Snapshot
+Seed does not make the base `IssueSource` regard a failed first refresh as stale
+rather than unavailable.
 
 The recently completed
 [#83](https://github.com/ned2/dashpot/issues/83) also changes #123's premise.
@@ -100,7 +105,7 @@ the deliberately separate failure states.
 | [#126 Configure the Reconciliation period](https://github.com/ned2/dashpot/issues/126) | Put the five-minute period in each Project's configuration and retain the current default. | Validation needs both the Project setting and the runtime polling period. | **Completed.** `issueSource.reconciliationSeconds` validates positivity in the Project config and is compared with polling at run construction. |
 | [#125 Give the fallback sweep its own Refresh Budget](https://github.com/ned2/dashpot/issues/125) | Prevent an identity Reconciliation plus delta plus fallback sweep from repeatedly exceeding one sixty-second budget on a large repository. | Followed #127's count-disagreement handoff and established state #124 must persist consciously. | **Completed.** ADR 0026 defers the marked sweep to the next refresh under its own Refresh Budget. |
 | [#129 Add a REST conditional probe](https://github.com/ned2/dashpot/issues/129) | Evaluate whether a quiet repository can spend zero GraphQL points per tick by using a REST `304` as a gate before the authoritative GraphQL probe. | #123 added its Pull Request update signal to the existing one-point GraphQL query. Research found that a REST ETag validates only one paginated representation and supplies no exact Issue count, so it cannot safely replace the probe's repository-wide evidence. | **Completed triage; rejected.** ADR 0027 keeps the combined GraphQL probe authoritative rather than adding an undocumented deletion/transfer blind spot. |
-| [#124 Persist the GitHub Issue snapshot](https://github.com/ned2/dashpot/issues/124) | Avoid the full cursor sweep on every process start by loading the previous `_Snapshot`, validating it, and reconciling it before publication. This is the durable-state change in the cluster. | Must decide how to persist the Pull Request marks and fallback-sweep state added by #123 and #125, plus how the configured period applies across processes. | **Ready last, after a dedicated ADR.** Trust age, first-run last-good behavior, and the process-local monotonic Reconciliation time still require decisions. |
+| [#124 Persist the GitHub Issue snapshot](https://github.com/ned2/dashpot/issues/124) | Avoid the full cursor sweep on every process start by loading the previous `_Snapshot`, validating it, and reconciling it before publication. This is the durable-state change in the cluster. | Followed the settled Pull Request marks and fallback-sweep state added by #123 and #125. ADR 0028 excludes process-local scheduling, count, and sweep-due state while preserving both Pull Request marks. | **Completed.** A strict, identity-bound Snapshot Seed starts a mandatory live Reconciliation and never enters retained last-good state by itself. |
 
 ## Sequence plan and outcomes
 
@@ -171,27 +176,24 @@ zero-point optimization
 
 ### 7. Persist only the settled state with #124
 
-Write the ADR before the file format. It should decide at least:
+ADR 0028 preceded the file format and settled the open choices. The strict
+Pydantic record lives at a SHA-256 Repository-Identity key beneath
+`.dashpot/state/github-issues/`; one version covers both its wire shape and the
+embedded Issue Profile. Atomic, locked last-completer-wins replacement keeps
+one complete seed under concurrent processes without merging observations.
 
-- the exact Repository-Identity-keyed path under `.dashpot/state/`, atomic
-  replacement, and behavior with concurrent Dashpot processes;
-- a version covering both the persisted wire model and the Issue Profile shape;
-- whether a maximum age rejects a snapshot, and which wall-clock timestamp
-  replaces or accompanies the current process-local monotonic
-  `reconciled_at`;
-- whether failure of the mandatory startup Reconciliation leaves the source
-  unavailable or may publish the persisted collection as stale; and
-- whether pending fallback-sweep state from #125 and any Pull Request
-  High-Water Mark from #123 are persisted, reset, or deliberately outside this
-  file.
-
-Load and validate the file, but publish nothing from it until GitHub has
-successfully reconciled it, as #124 requires. Corruption, identity mismatch, an
-unsupported version, or an explicitly over-age snapshot should fall back to
-the existing bootstrap sweep rather than contaminate the live source's
-last-good state. This keeps persisted state a validating seam under
+No maximum age or wall-clock freshness field is stored: the mandatory live
+Reconciliation establishes freshness, then resets the process-local monotonic
+schedule. A failure leaves the first observation unavailable and keeps the seed
+private for another attempt. Issue and Pull Request High-Water Marks, including
+the pending Pull Request candidate, persist; reported count and fallback-sweep
+state reset because startup current-count evidence re-establishes them.
+Corruption, identity mismatch, an unsupported version, or an incompatible Issue
+Profile falls back to the bootstrap sweep. This keeps persisted state a
+validating seam under
 [ADR 0013](adr/0013-adopt-pydantic-models-by-seam.md) and retains ADR 0002's
-complete-observation guarantee.
+complete-observation guarantee
+([ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
 
 ## Resulting dependency graph
 

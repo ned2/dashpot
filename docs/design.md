@@ -68,9 +68,15 @@ whose Branch the forge deleted after a squash merge, a merged Branch still at
 `origin`, pushed but unintegrated work, a second approach with commits of its
 own, and a dirty Worktree on a Branch named unlike its directory.
 
-The GitHub Issue Source observes every Issue once, then refreshes
-incrementally ([`github_issues.py`](../src/dashpot/github_issues.py),
-[ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)):
+The GitHub Issue Source starts from a valid persisted Snapshot Seed when one is
+available, Reconciles every saved Issue by identity before publishing anything,
+then refreshes incrementally
+([`github_issues.py`](../src/dashpot/github_issues.py),
+[ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
+[ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
+Without a usable seed it observes every Issue once by cursor sweep. The seed is
+strictly versioned local input, not retained last-good state; a failed startup
+Reconciliation leaves the source unavailable. After startup,
 each tick asks GitHub one one-point question — the newest update and the
 Issue count, plus the newest Pull Request update — and an unchanged repository
 is answered by that alone, whatever its size

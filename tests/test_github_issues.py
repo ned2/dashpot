@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ import pydantic
 
 from dashpot.commands import CommandResult
 from dashpot.github import RefreshBudget
+from dashpot.github_issue_snapshot import GitHubIssueSnapshotStore
 from dashpot.github_issues import (
     GitHubIssuesSource,
     normalize_github_issue,
@@ -370,11 +372,13 @@ def source(
     budget: RefreshBudget | None = None,
     monotonic: Any = None,
     reconcile_seconds: float = 300.0,
+    root: Path = Path("/repo"),
+    snapshot_store: GitHubIssueSnapshotStore | None = None,
 ) -> GitHubIssuesSource:
     stamps = timestamps or ["2026-08-26T10:00:00Z"]
     times = iter(stamps)
     return GitHubIssuesSource(
-        Path("/repo"),
+        root,
         project_id=PROJECT_ID,
         repository_id=REPOSITORY_ID,
         runner=runner,
@@ -383,6 +387,7 @@ def source(
         budget=budget or RefreshBudget(),
         monotonic=monotonic,
         reconcile_seconds=reconcile_seconds,
+        snapshot_store=snapshot_store,
     )
 
 
@@ -2372,6 +2377,332 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         self.assertIn("parent/sub-Issue relationship", warning.message)
         self.assertIn("deleted or transferred Issue", warning.message)
         self.assertEqual(7, len(runner.calls))
+
+
+class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
+    """A Snapshot Seed must be Reconciled before it becomes an observation."""
+
+    OLDER = "2026-08-26T08:00:00Z"
+    MARK = "2026-08-26T09:00:00Z"
+    LATER = "2026-08-26T09:30:00Z"
+    ISSUE_AFTER_PROBE = "2026-08-26T09:45:00Z"
+
+    def first_sweep(self) -> CommandResult:
+        return completed(
+            issue_page(
+                [
+                    unrelated(issue_record(1, updated_at=self.OLDER)),
+                    unrelated(issue_record(2, updated_at=self.MARK)),
+                ]
+            )
+        )
+
+    def persist_seed(self, root: Path) -> GitHubIssueSnapshotStore:
+        store = GitHubIssueSnapshotStore(root)
+        observation = source(
+            SequenceRunner([self.first_sweep()]),
+            root=root,
+            snapshot_store=store,
+        ).refresh()
+        self.assertEqual("fresh", observation.status)
+        return store
+
+    def test_a_later_process_reconciles_the_seed_without_a_cursor_sweep(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = self.persist_seed(root)
+            payload = json.loads(store.path(REPOSITORY_ID).read_text(encoding="utf-8"))
+            self.assertEqual(1, payload["version"])
+            self.assertEqual(REPOSITORY_ID, payload["repositoryId"])
+            self.assertNotIn("reconciledAt", payload)
+            self.assertNotIn("reportedCount", payload)
+            self.assertNotIn("sweepDue", payload)
+
+            runner = SequenceRunner(
+                [
+                    completed(probe_response(2, self.MARK)),
+                    nodes_response(
+                        [
+                            by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
+                            by_id(unrelated(issue_record(2, updated_at=self.MARK))),
+                        ]
+                    ),
+                    completed(issue_page([])),
+                ]
+            )
+            observation = source(runner, root=root, snapshot_store=store).refresh()
+
+            self.assertEqual("fresh", observation.status)
+            self.assertEqual([1, 2], [issue.number for issue in observation.issues])
+            self.assertEqual(3, len(runner.calls))
+            self.assertFalse(
+                any("CREATED_AT" in query_of(call) for call in runner.calls)
+            )
+
+    def test_a_failed_startup_reconciliation_never_publishes_the_seed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = self.persist_seed(root)
+            runner = SequenceRunner(
+                [
+                    completed(probe_response(2, self.MARK)),
+                    graphql_failure("FORBIDDEN", ["nodes"], "Permission denied"),
+                    completed(probe_response(2, self.MARK)),
+                    nodes_response(
+                        [
+                            by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
+                            by_id(unrelated(issue_record(2, updated_at=self.MARK))),
+                        ]
+                    ),
+                    completed(issue_page([])),
+                ]
+            )
+            github = source(
+                runner,
+                ["2026-08-26T10:00:00Z", "2026-08-26T10:00:15Z"],
+                root=root,
+                snapshot_store=store,
+            )
+
+            failed = github.refresh()
+            recovered = github.refresh()
+
+            self.assertEqual("unavailable", failed.status)
+            self.assertEqual((), failed.issues)
+            self.assertIsNone(failed.last_good_at)
+            self.assertEqual("github-permission", failed.diagnostics[0].code)
+            self.assertEqual("fresh", recovered.status)
+            self.assertEqual([1, 2], [issue.number for issue in recovered.issues])
+            self.assertFalse(
+                any("CREATED_AT" in query_of(call) for call in runner.calls)
+            )
+
+    def test_untrusted_or_incompatible_seed_records_fall_back_to_the_sweep(
+        self,
+    ) -> None:
+        def corrupt(payload: dict[str, Any]) -> str:
+            return "{not json"
+
+        def invalid_utf8(payload: dict[str, Any]) -> bytes:
+            return b"\xff"
+
+        def unsupported_version(payload: dict[str, Any]) -> str:
+            payload["version"] = 2
+            return json.dumps(payload)
+
+        def wrong_repository(payload: dict[str, Any]) -> str:
+            payload["repositoryId"] = "R_other"
+            return json.dumps(payload)
+
+        def wrong_project(payload: dict[str, Any]) -> str:
+            payload["projectId"] = "project:other"
+            return json.dumps(payload)
+
+        def changed_profile(payload: dict[str, Any]) -> str:
+            del payload["issues"][0]["issue"]["title"]
+            return json.dumps(payload)
+
+        def duplicate_issue(payload: dict[str, Any]) -> str:
+            payload["issues"].append(copy.deepcopy(payload["issues"][0]))
+            return json.dumps(payload)
+
+        mutations = (
+            corrupt,
+            invalid_utf8,
+            unsupported_version,
+            wrong_repository,
+            wrong_project,
+            changed_profile,
+            duplicate_issue,
+        )
+        for mutation in mutations:
+            with (
+                self.subTest(mutation=mutation.__name__),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                store = self.persist_seed(root)
+                path = store.path(REPOSITORY_ID)
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                mutated = mutation(payload)
+                if isinstance(mutated, bytes):
+                    path.write_bytes(mutated)
+                else:
+                    path.write_text(mutated, encoding="utf-8")
+                runner = SequenceRunner([self.first_sweep()])
+
+                observation = source(runner, root=root, snapshot_store=store).refresh()
+
+                self.assertEqual("fresh", observation.status)
+                self.assertEqual(1, len(runner.calls))
+                self.assertIn("CREATED_AT", query_of(runner.calls[0]))
+
+    def test_pending_pull_request_confirmation_survives_a_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = GitHubIssueSnapshotStore(root)
+            linked = with_linked_pull_requests(
+                unrelated(issue_record(1, updated_at=self.ISSUE_AFTER_PROBE)),
+                (10, "OPEN"),
+            )
+            first_process_runner = SequenceRunner(
+                [
+                    self.first_sweep(),
+                    completed(
+                        probe_response(2, self.MARK, pull_request_updated_at=self.LATER)
+                    ),
+                    completed(
+                        pull_request_changes_page(
+                            [pull_request_change(10, self.LATER, "I_issue_1")]
+                        )
+                    ),
+                    nodes_response([by_id(linked)]),
+                ]
+            )
+            first_process = source(
+                first_process_runner, root=root, snapshot_store=store
+            )
+            self.assertEqual("fresh", first_process.refresh().status)
+            self.assertEqual("fresh", first_process.refresh().status)
+            pending = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
+            assert pending is not None
+            self.assertEqual(PULL_REQUEST_MARK, pending.pull_request_marks.settled)
+            self.assertEqual(self.LATER, pending.pull_request_marks.candidate)
+            # A point observation after the probe may be newer without advancing
+            # the listing-derived Issue High-Water Mark.
+            self.assertEqual(self.MARK, pending.high_water)
+            self.assertEqual(
+                self.ISSUE_AFTER_PROBE,
+                next(
+                    entry.updated_at
+                    for entry in pending.issues
+                    if entry.issue.number == 1
+                ),
+            )
+
+            second_process_runner = SequenceRunner(
+                [
+                    completed(
+                        probe_response(
+                            2,
+                            self.ISSUE_AFTER_PROBE,
+                            pull_request_updated_at=self.LATER,
+                        )
+                    ),
+                    nodes_response(
+                        [
+                            by_id(linked),
+                            by_id(unrelated(issue_record(2, updated_at=self.MARK))),
+                        ]
+                    ),
+                    completed(issue_page([linked])),
+                    completed(
+                        pull_request_changes_page(
+                            [pull_request_change(10, self.LATER, "I_issue_1")]
+                        )
+                    ),
+                    nodes_response([by_id(linked)]),
+                ]
+            )
+
+            observation = source(
+                second_process_runner, root=root, snapshot_store=store
+            ).refresh()
+            settled = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
+
+            self.assertEqual("fresh", observation.status)
+            assert settled is not None
+            self.assertEqual(self.LATER, settled.pull_request_marks.settled)
+            self.assertIsNone(settled.pull_request_marks.candidate)
+            self.assertFalse(
+                any(
+                    "CREATED_AT" in query_of(call)
+                    for call in second_process_runner.calls
+                )
+            )
+
+    def test_restart_reestablishes_a_due_fallback_sweep_from_current_count(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = GitHubIssueSnapshotStore(root)
+            known = [
+                unrelated(issue_record(1, updated_at=self.OLDER)),
+                unrelated(issue_record(2, updated_at=self.MARK)),
+            ]
+            first_process_runner = SequenceRunner(
+                [
+                    completed(issue_page(known)),
+                    completed(probe_response(3, self.MARK)),
+                    nodes_response([by_id(record) for record in known]),
+                    completed(issue_page([])),
+                    completed(probe_response(3, self.MARK)),
+                ]
+            )
+            first_process = source(
+                first_process_runner, root=root, snapshot_store=store
+            )
+
+            first_process.refresh()
+            mismatched = first_process.refresh(reconcile=True)
+            payload = json.loads(store.path(REPOSITORY_ID).read_text(encoding="utf-8"))
+
+            self.assertEqual("fresh", mismatched.status)
+            self.assertEqual("github-issue-count", mismatched.diagnostics[0].code)
+            self.assertNotIn("reportedCount", payload)
+            self.assertNotIn("sweepDue", payload)
+
+            transferred = unrelated(issue_record(3, updated_at=self.OLDER))
+            second_process_runner = SequenceRunner(
+                [
+                    completed(probe_response(3, self.MARK)),
+                    nodes_response([by_id(record) for record in known]),
+                    completed(issue_page([])),
+                    completed(probe_response(3, self.MARK)),
+                    completed(issue_page([*known, transferred])),
+                ]
+            )
+            second_process = source(
+                second_process_runner,
+                root=root,
+                snapshot_store=store,
+                budget=RefreshBudget(seconds=60, requests=4),
+            )
+
+            reconciled = second_process.refresh()
+            swept = second_process.refresh()
+
+            self.assertEqual("fresh", reconciled.status)
+            self.assertEqual("github-issue-count", reconciled.diagnostics[0].code)
+            self.assertEqual("fresh", swept.status)
+            self.assertEqual([1, 2, 3], [issue.number for issue in swept.issues])
+            self.assertEqual(5, len(second_process_runner.calls))
+            self.assertFalse(
+                any(
+                    "CREATED_AT" in query_of(call)
+                    for call in second_process_runner.calls[:4]
+                )
+            )
+            self.assertIn("CREATED_AT", query_of(second_process_runner.calls[4]))
+
+    def test_a_snapshot_write_failure_does_not_fail_live_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".dashpot").write_text("not a directory", encoding="utf-8")
+
+            observation = source(
+                SequenceRunner([self.first_sweep()]),
+                root=root,
+                snapshot_store=GitHubIssueSnapshotStore(root),
+            ).refresh()
+
+            self.assertEqual("fresh", observation.status)
+            self.assertEqual([1, 2], [issue.number for issue in observation.issues])
 
 
 class GitHubIssuesFindTests(unittest.TestCase):

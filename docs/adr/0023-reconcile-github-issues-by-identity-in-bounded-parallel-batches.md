@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-04
-amended-by: 0026-run-fallback-sweeps-under-their-own-refresh-budget.md
+amended-by: 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md
 ---
 
 # Reconcile GitHub Issues by identity in bounded parallel batches
@@ -46,9 +46,10 @@ knows, by identity, plus what its delta and count reveal:
   moves the count after the probe. An Issue transferred in carries its old
   `updatedAt` and no known identity, so it appears in neither the
   identities nor the delta, and only when the count still disagrees does
-  the Reconciliation fall back to the cursor sweep. The first observation of
-  a run, and any Reconciliation without a High-Water Mark to delta from, is
-  that sweep.
+  the Reconciliation fall back to the cursor sweep. The first observation
+  without a valid Snapshot Seed, and any Reconciliation without a High-Water
+  Mark to delta from, is that sweep
+  ([ADR 0028](0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
 - **Four in flight, never more.** The gateway sends a batch of requests
   through a pool of four threads and returns the answers in the order asked;
   the first failure fails the batch and the refresh, and nothing partial is
@@ -69,7 +70,8 @@ knows, by identity, plus what its delta and count reveal:
   in order of creation, so a repository the budget cannot cover in full is
   never reconciled at all, and it spends the hour's points on Issues already
   held. It remains the fallback when a count disagrees for a reason no
-  identity or delta explains, and the way a run starts.
+  identity or delta explains, and the way a first run or a run without a
+  usable Snapshot Seed starts.
 - **A sweep by aliased `issue(number:)` in parallel batches:** rejected in
   [ADR 0022](0022-refresh-github-issues-incrementally-between-reconciliations.md);
   identities carry no such ambiguity with pull requests.

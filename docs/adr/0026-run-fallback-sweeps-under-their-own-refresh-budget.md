@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-05
+amended-by: 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md
 ---
 
 # Run fallback sweeps under their own Refresh Budget
@@ -29,9 +30,10 @@ probe now separates the two complete observations:
   collection and does not spend every subsequent polling tick on the same
   attempt. After the configured Reconciliation period, identities and the
   delta can mark another fallback sweep due if the count still disagrees.
-- The first observation, and a Reconciliation without a High-Water Mark, remain
-  direct cursor sweeps. They have no earlier complete collection to publish
-  while deferring their work.
+- A first observation without a valid Snapshot Seed, and a Reconciliation
+  without a High-Water Mark, remain direct cursor sweeps. They have no earlier
+  complete collection to publish while deferring their work
+  ([ADR 0028](0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
 
 ## Considered options
 

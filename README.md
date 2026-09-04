@@ -27,9 +27,9 @@ read-only preview and confirmed
 
 ## What it observes
 
-Everything below is read, never changed: observation's only writes are the
-housekeeping of Dashpot's own ignored state, such as pruning the hook record of
-a session that has ended.
+Everything below is read, never changed: observation's only writes are
+Dashpot's own ignored runtime state, such as persisting a Snapshot Seed or
+pruning the hook record of a session that has ended.
 
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
 - active GitHub Pull Requests, including review, checks, and mergeability
@@ -319,8 +319,9 @@ to proceed.
 Every Repository Anchor has a tracked `.dashpot/config.json` containing stable
 Project and Repository identities, a mutable display label, and the active
 Issue Source. The `.dashpot/state/` directory holds ignored local runtime
-state; add it to your repository's `.gitignore` so it never dirties the
-worktree or gets committed:
+state, including the Work Store and a GitHub Issue Snapshot Seed that is
+Reconciled before use; add it to your repository's `.gitignore` so it never
+dirties the worktree or gets committed:
 
 ```gitignore
 .dashpot/state/

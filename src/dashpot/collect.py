@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from .agent_bindings import bind_issue_runs
 from .agents import observe_agent_runs
 from .git import Git
+from .github_issue_snapshot import GitHubIssueSnapshotStore
 from .github_issues import GitHubIssuesSource
 from .github_pull_requests import GitHubPullRequestsSource
 from .issue_profile import IssueProfile
@@ -270,6 +271,7 @@ def build_issue_source(
             repository_id=config.repository_id,
             timeout=timeout,
             reconcile_seconds=config.issue_source.reconciliation_seconds,
+            snapshot_store=GitHubIssueSnapshotStore(root),
         )
     if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
         return LocalMarkdownIssuesSource(

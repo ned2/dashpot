@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-04
-amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md, 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0027-keep-the-graphql-change-probe-authoritative.md
+amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md, 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0027-keep-the-graphql-change-probe-authoritative.md, 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md
 ---
 
 # Refresh GitHub Issues incrementally between Reconciliations
@@ -53,7 +53,7 @@ snapshot by Issue identity and assembles each fresh observation from it:
 - **A Reconciliation** — every Issue observed afresh by the cursor sweep
   (by identity since
   [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md),
-  which keeps the sweep as the fallback and the first observation) —
+  with the sweep retained for a first run or unusable Snapshot Seed) —
   runs when the Project's configured period (five minutes by default) has
   passed since the last one was attempted, when a person presses `r`, and
   whenever the merged count
@@ -88,8 +88,10 @@ snapshot by Issue identity and assembles each fresh observation from it:
   [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md);
   at the time of this decision the Reconciliation was the sweep the source
   has always run.
-- **Persisting the snapshot across runs:** rejected for now. A run starts
-  with a sweep, as it always has; the saving is on every tick after it.
+- **Persisting the snapshot across runs:** accepted later by
+  [ADR 0028](0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md).
+  A valid record is only a Snapshot Seed and is Reconciled live before it can
+  be published; otherwise a run starts with the sweep.
 - **Reporting an incremental observation as something other than fresh:**
   rejected. The snapshot is complete except for the enumerated blind spots,
   each closed by the next Reconciliation; an observation whose

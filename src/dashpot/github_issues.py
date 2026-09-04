@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import re
 import time
@@ -9,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
 from typing_extensions import override
 
 from .commands import CommandRunner, run_command
@@ -23,6 +25,14 @@ from .github import (
     GraphQLVariables,
     RefreshBudget,
     RefreshMeter,
+)
+from .github_issue_snapshot import (
+    GITHUB_ISSUE_SNAPSHOT_VERSION,
+    GitHubIssueActivityRecord,
+    GitHubIssueSnapshotRecord,
+    GitHubIssueSnapshotStore,
+    GitHubObservedIssueRecord,
+    GitHubPullRequestMarksRecord,
 )
 from .issue_profile import (
     IssueProfile,
@@ -388,6 +398,7 @@ class GitHubIssuesSource(IssueSource):
         budget: RefreshBudget = DEFAULT_REFRESH_BUDGET,
         reconcile_seconds: float = DEFAULT_RECONCILE_SECONDS,
         monotonic: Callable[[], float] | None = None,
+        snapshot_store: GitHubIssueSnapshotStore | None = None,
     ) -> None:
         super().__init__(clock=clock)
         self.root = root
@@ -399,7 +410,9 @@ class GitHubIssuesSource(IssueSource):
         self.reconcile_seconds = reconcile_seconds
         self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
         self._monotonic = monotonic or time.monotonic
+        self._snapshot_store = snapshot_store
         self._snapshot: _Snapshot | None = None
+        self._snapshot_seed = self._load_snapshot_seed()
         self._reconcile_attempted_at: float | None = None
 
     @property
@@ -423,7 +436,13 @@ class GitHubIssuesSource(IssueSource):
         meter = self._start_meter()
         now = meter.started
         snapshot = self._snapshot
-        if snapshot is not None and snapshot.sweep_due:
+        previous_snapshot = snapshot
+        seed = self._snapshot_seed
+        if snapshot is None and seed is not None:
+            probe = self._probe(meter)
+            snapshot = self._reconcile(seed, meter, now, probe=probe)
+            snapshot = self._refresh_linked_pull_requests(snapshot, probe, meter)
+        elif snapshot is not None and snapshot.sweep_due:
             # Clearing before the attempt prevents a sweep that exhausts its
             # own budget from being retried on every polling tick.
             snapshot = replace(snapshot, sweep_due=False)
@@ -444,10 +463,83 @@ class GitHubIssuesSource(IssueSource):
         # kept only once the collection it makes has passed the invariants.
         self._check_collection_invariants(collected)
         self._snapshot = snapshot
+        self._snapshot_seed = None
+        if snapshot is not previous_snapshot:
+            self._persist_snapshot(snapshot)
         return collected
 
     def _start_meter(self) -> RefreshMeter:
         return self.budget.start(self._monotonic)
+
+    def _load_snapshot_seed(self) -> _Snapshot | None:
+        """Load a valid persisted seed without making it observed state."""
+
+        store = self._snapshot_store
+        if store is None:
+            return None
+        record = store.load(
+            repository_id=self.repository_id, project_id=self.project_id
+        )
+        if record is None:
+            return None
+        return _Snapshot(
+            issues={
+                entry.issue.id: _ObservedIssue(
+                    issue=entry.issue,
+                    updated_at=entry.updated_at,
+                    activity=entry.activity.issue_activity(),
+                    linked_pull_request_numbers=frozenset(
+                        entry.linked_pull_request_numbers
+                    ),
+                    label_colors=entry.label_colors,
+                )
+                for entry in record.issues
+            },
+            high_water=record.high_water,
+            pull_request_marks=_PullRequestMarks(
+                settled=record.pull_request_marks.settled,
+                candidate=record.pull_request_marks.candidate,
+            ),
+            # The seed is never published with this placeholder. Its mandatory
+            # live Reconciliation replaces it with this process's monotonic time.
+            reconciled_at=0.0,
+        )
+
+    def _persist_snapshot(self, snapshot: _Snapshot) -> None:
+        """Persist a useful complete snapshot without affecting observation."""
+
+        store = self._snapshot_store
+        if store is None or snapshot.high_water is None:
+            return
+        # Persistence is only a restart optimization. A local persistence
+        # failure cannot turn a complete live GitHub observation into a failed
+        # one, including if this model is ever stricter than valid source state.
+        with contextlib.suppress(OSError, ValidationError):
+            record = GitHubIssueSnapshotRecord(
+                version=GITHUB_ISSUE_SNAPSHOT_VERSION,
+                project_id=self.project_id,
+                repository_id=self.repository_id,
+                issues=[
+                    GitHubObservedIssueRecord(
+                        issue=entry.issue,
+                        updated_at=entry.updated_at,
+                        activity=GitHubIssueActivityRecord.of(entry.activity),
+                        linked_pull_request_numbers=sorted(
+                            entry.linked_pull_request_numbers
+                        ),
+                        label_colors=dict(entry.label_colors),
+                    )
+                    for entry in sorted(
+                        snapshot.issues.values(), key=lambda item: item.issue.number
+                    )
+                ],
+                high_water=snapshot.high_water,
+                pull_request_marks=GitHubPullRequestMarksRecord(
+                    settled=snapshot.pull_request_marks.settled,
+                    candidate=snapshot.pull_request_marks.candidate,
+                ),
+            )
+            store.replace(record)
 
     def _reconciliation_due(self, now: float) -> bool:
         attempted_at = self._reconcile_attempted_at

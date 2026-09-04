@@ -206,6 +206,16 @@ ever published
 [ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md),
 [ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).
 
+**Snapshot Seed**:
+A GitHub Issue Source's complete internal snapshot persisted only to start a
+later process's mandatory Reconciliation by Issue Identity. It is untrusted
+input, never an observation or retained last-good state: an invalid seed is
+ignored, and a valid one remains private until current GitHub evidence has
+Reconciled it. Its version covers both the persisted wire shape and the
+embedded Issue Profile
+([ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
+_Avoid_: cache, checkpoint, saved observation
+
 **Incremental Refresh**:
 How a GitHub Issue Source refreshes after its first complete observation: a
 one-point combined change probe, then only the Issues updated since their
@@ -240,9 +250,10 @@ repository where it was researched. Every Issue already known is observed by
 identity, in batches of twenty-four with at most four in flight, then the
 delta since the High-Water Mark. Only a count those cannot explain marks the
 sweep in order of creation for the next refresh, under a Refresh Budget of its
-own; that sweep is also how a run starts. Each refresh publishes one complete
-observation or fails; it never mixes the identity Reconciliation with a partial
-sweep. Reconciliation runs on the Project's configured period (five minutes by
+own. A later process starts by Reconciliation from a valid Snapshot Seed; a
+first run or unusable seed starts with the sweep. Each refresh publishes one
+complete observation or fails; it never mixes the identity Reconciliation with
+a partial sweep. Reconciliation runs on the Project's configured period (five minutes by
 default), on `r`, and whenever
 the Issue count no longer adds up; the period must be positive and at least the
 polling period. An observation whose Reconciliation is more than two periods
