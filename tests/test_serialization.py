@@ -103,7 +103,7 @@ AGENT_RUN_KEYS = {
     "startedAt",
 }
 DIAGNOSTIC_KEYS = {"source", "severity", "message", "code"}
-ISSUE_ACTIVITY_KEYS = {"commentCount", "linkedPullRequests"}
+ISSUE_ACTIVITY_KEYS = {"commentCount", "linkedPullRequests", "unlistedPullRequestCount"}
 LINKED_PULL_REQUEST_KEYS = {"number", "url", "state"}
 ISSUE_PROFILE_KEYS = {
     "id",

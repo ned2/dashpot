@@ -211,6 +211,14 @@ observed. Provenance does not participate in semantic equivalence.
 **GitHub Issue**:
 The GitHub Issues representation of an Issue.
 
+**Linked Pull Request**:
+A pull request GitHub reports as closing a GitHub Issue, shown with the
+Issue's engagement facts rather than in its profile. The first twenty are
+listed and the count of any beyond them is shown beside the list, since
+GitHub answers them unpaged. A Linked Pull Request appearing or changing
+state does not update the Issue, so it is observed by the next
+Reconciliation rather than by an Incremental Refresh.
+
 **Local Issue**:
 The local Markdown representation of an Issue.
 

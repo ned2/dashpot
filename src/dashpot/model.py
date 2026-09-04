@@ -42,12 +42,15 @@ class IssueActivity(ObservationModel):
     They are GitHub-shaped rather than source-neutral, so they travel with
     the snapshot keyed by Issue Identity instead of inside each Issue. They
     are presentation, not the complete snapshot ADR 0002 requires of the
-    profile: the linked pull requests are the first twenty GitHub returns,
-    unpaged, so an Issue closed by more than twenty shows twenty.
+    profile: the Linked Pull Requests are the first twenty GitHub returns,
+    unpaged, and the count of any it left unlisted is carried beside them
+    so an Issue closed by more than twenty is never shown as closed by
+    exactly twenty.
     """
 
     comment_count: int = 0
     linked_pull_requests: LaxSequence[LinkedPullRequest] = ()
+    unlisted_pull_request_count: int = 0
 
 
 class ObservationTarget(ObservationModel):

@@ -495,6 +495,31 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             "https://github.com/ned2/dashpot/pull/41",
             activity.linked_pull_requests[1].url,
         )
+        self.assertEqual(0, activity.unlisted_pull_request_count)
+
+    def test_pull_requests_beyond_the_first_twenty_are_counted(self) -> None:
+        record = raw_fixture()
+        record["closedByPullRequestsReferences"] = {
+            "totalCount": 23,
+            "nodes": [
+                {
+                    "number": number,
+                    "url": f"https://github.com/ned2/dashpot/pull/{number}",
+                    "state": "MERGED",
+                }
+                for number in range(1, 21)
+            ],
+        }
+        runner = SequenceRunner([completed(issue_page([record]))])
+
+        observation = source(runner).refresh()
+
+        self.assertIn(
+            "totalCount\n            nodes { number url state }", runner.calls[0][0][4]
+        )
+        activity = observation.issue_activity[observation.issues[0].id]
+        self.assertEqual(20, len(activity.linked_pull_requests))
+        self.assertEqual(3, activity.unlisted_pull_request_count)
         self.assertEqual(
             {
                 "priority/P1": "b60205",
@@ -689,6 +714,8 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         activity = observation.issue_activity[observation.issues[0].id]
         self.assertEqual(0, activity.comment_count)
         self.assertEqual((), activity.linked_pull_requests)
+        # No count, or one below what was listed, leaves nothing unlisted.
+        self.assertEqual(0, activity.unlisted_pull_request_count)
 
         bare = raw_fixture()
         del bare["comments"]
