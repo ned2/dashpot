@@ -99,8 +99,9 @@ knows, by identity, plus what its delta and count reveal:
   together outrun the sixty seconds it is abandoned and retried a period
   later, and the transferred Issue is seen once it is next updated, or by
   a Reconciliation that fits. A count disagreement found on an ordinary
-  tick reconciles at once and fetches its delta a second time, a page
-  spent for keeping the Reconciliation one shape.
+  tick reconciles at once and reuses the delta already fetched; when an
+  identity observation and the delta contain the same Issue, the newer
+  `updatedAt` wins and a tie keeps the later identity observation.
 - Requests in flight share one `gh` credential and one command runner; the
   runner is invoked from a pool of threads, so a runner passed to the
   gateway must be safe to call concurrently. The test fakes route identity

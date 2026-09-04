@@ -256,6 +256,14 @@ class _Probe:
     newest_updated_at: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _Delta:
+    """Carry the Issues observed since a High-Water Mark."""
+
+    issues: Mapping[str, _ObservedIssue]
+    high_water: str
+
+
 class GitHubIssuesSource(IssueSource):
     """Collect open and closed GitHub Issues as complete Issue snapshots.
 
@@ -352,16 +360,9 @@ class GitHubIssuesSource(IssueSource):
         meter: RefreshMeter,
         now: float,
         probe: _Probe | None = None,
+        delta: _Delta | None = None,
     ) -> _Snapshot:
-        """Observe every Issue afresh: the one observation that sees a deletion.
-
-        Every Issue of the snapshot is observed by identity in batches, the
-        Issues created or updated since the High-Water Mark by a delta, and
-        the count is checked against the probe's, once more against a fresh
-        probe when it moved; a count that still disagrees, or a collection
-        with no mark yet, is observed by the cursor sweep. ``probe`` is the
-        one already taken this refresh.
-        """
+        """Observe every Issue afresh."""
         # Attempted rather than completed: a Reconciliation the budget
         # abandons is retried after a period, while the ticks in between
         # keep refreshing incrementally instead of failing the same way.
@@ -380,12 +381,25 @@ class GitHubIssuesSource(IssueSource):
         high_water = snapshot.high_water
         for entry in observed.values():
             high_water = _later(high_water, entry.updated_at)
-        changed, high_water = self._changes_since(
-            snapshot.high_water, high_water, meter
-        )
         previous = dict(observed)
-        observed.update(changed)
-        self._observe_counterparts(observed, changed, previous, meter)
+        if delta is None:
+            delta = self._changes_since(snapshot.high_water, high_water, meter)
+            # This delta was observed after the identities, so it wins a tie.
+            observed.update(delta.issues)
+            applied = delta.issues
+        else:
+            # This delta preceded the identities, so only a newer value wins.
+            reused: dict[str, _ObservedIssue] = {}
+            for issue_id, entry in delta.issues.items():
+                identity_entry = observed.get(issue_id)
+                if identity_entry is None or _is_later(
+                    entry.updated_at, identity_entry.updated_at
+                ):
+                    observed[issue_id] = entry
+                    reused[issue_id] = entry
+            applied = reused
+        high_water = _later(high_water, delta.high_water)
+        self._observe_counterparts(observed, applied, previous, meter)
         if len(observed) != probe.total_count:
             # An Issue created or deleted while the identities were in flight
             # moved the count after the probe: one more probe says whether
@@ -426,12 +440,10 @@ class GitHubIssuesSource(IssueSource):
             and probe.total_count == len(snapshot.issues)
         ):
             return snapshot
-        changed, high_water = self._changes_since(
-            snapshot.high_water, snapshot.high_water, meter
-        )
+        delta = self._changes_since(snapshot.high_water, snapshot.high_water, meter)
         observed = dict(snapshot.issues)
-        observed.update(changed)
-        self._observe_counterparts(observed, changed, snapshot.issues, meter)
+        observed.update(delta.issues)
+        self._observe_counterparts(observed, delta.issues, snapshot.issues, meter)
         reported_count: int | None = None
         if len(observed) != probe.total_count:
             # Something left without a trace a delta can see — a deletion, a
@@ -440,18 +452,18 @@ class GitHubIssuesSource(IssueSource):
             # would fail the same way on every tick, so the disagreement is
             # reported beside what is known until the next attempt is due.
             if not self._reconciliation_failed_this_period(snapshot, now):
-                return self._reconcile(snapshot, meter, now, probe)
+                return self._reconcile(snapshot, meter, now, probe=probe, delta=delta)
             reported_count = probe.total_count
         return _Snapshot(
             issues=observed,
-            high_water=high_water,
+            high_water=delta.high_water,
             reconciled_at=snapshot.reconciled_at,
             reported_count=reported_count,
         )
 
     def _changes_since(
         self, since: str, high_water: str, meter: RefreshMeter
-    ) -> tuple[dict[str, _ObservedIssue], str]:
+    ) -> _Delta:
         """List the Issues updated at or after ``since`` and advance the mark."""
         changed: dict[str, _ObservedIssue] = {}
         for record in self._collect_issue_pages(
@@ -464,7 +476,7 @@ class GitHubIssuesSource(IssueSource):
             if previous is None or not _is_later(previous.updated_at, entry.updated_at):
                 changed[entry.issue.id] = entry
             high_water = _later(high_water, entry.updated_at)
-        return changed, high_water
+        return _Delta(issues=changed, high_water=high_water)
 
     def _observe_counterparts(
         self,

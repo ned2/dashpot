@@ -1287,23 +1287,26 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         mark_issue = completed(
             issue_page([unrelated(issue_record(2, updated_at=self.MARK))])
         )
-        identities = nodes_response([None, by_id(unrelated(issue_record(2)))])
+        stale_identities = nodes_response(
+            [by_id(unrelated(issue_record(1))), by_id(unrelated(issue_record(2)))]
+        )
+        settled_identities = nodes_response([None, by_id(unrelated(issue_record(2)))])
         runner = SequenceRunner(
             [
                 self.first_sweep(),
                 # Issue 1 deleted: the count fell; the Reconciliation it
-                # triggers spends the budget on its identities and is
-                # abandoned before its delta.
+                # triggers sees a stale identity result and is abandoned
+                # before it can confirm the still-disagreeing count.
                 completed(probe_response(1, self.MARK)),
                 mark_issue,
-                identities,
+                stale_identities,
                 # Next tick: no second Reconciliation, the disagreement is
                 # reported.
                 completed(probe_response(1, self.MARK)),
                 mark_issue,
                 # A period later the Reconciliation is due and succeeds.
                 completed(probe_response(1, self.MARK)),
-                identities,
+                settled_identities,
                 mark_issue,
             ]
         )
@@ -1391,17 +1394,28 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
     def test_an_unexplained_count_reconciles_by_identity(self) -> None:
         # Issue 1 was deleted: nothing bumped, the count fell, and the delta
         # (the Issue at the mark, inclusive) cannot say which Issue went;
-        # asking for every known identity can.
+        # asking for every known identity can. The identity observation is
+        # later than the already-fetched delta, so it wins their timestamp tie.
         at_mark = completed(
-            issue_page([unrelated(issue_record(2, updated_at=self.MARK))])
+            issue_page(
+                [unrelated(issue_record(2, updated_at=self.MARK, title="delta"))]
+            )
         )
         runner = SequenceRunner(
             [
                 self.first_sweep(),
                 completed(probe_response(1, self.MARK)),
                 at_mark,
-                nodes_response([None, by_id(unrelated(issue_record(2)))]),
-                at_mark,
+                nodes_response(
+                    [
+                        None,
+                        by_id(
+                            unrelated(
+                                issue_record(2, updated_at=self.MARK, title="identity")
+                            )
+                        ),
+                    ]
+                ),
             ]
         )
         github = source(runner)
@@ -1411,15 +1425,48 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
 
         self.assertEqual("fresh", observation.status)
         self.assertEqual(["I_issue_2"], [issue.id for issue in observation.issues])
-        self.assertEqual(5, len(runner.calls))
+        self.assertEqual("identity", observation.issues[0].title)
+        self.assertEqual(4, len(runner.calls))
         self.assertEqual(
             ["-f", "ids[]=I_issue_1", "-f", "ids[]=I_issue_2"], runner.calls[3][0][-4:]
         )
-        self.assertIn(f"since={self.MARK}", runner.calls[4][0])
+        self.assertEqual(
+            1,
+            sum(f"since={self.MARK}" in call[0] for call in runner.calls),
+        )
         # The probe already taken serves the Reconciliation; no sweep ran.
         self.assertFalse(
             any("CREATED_AT" in query_of(call) for call in runner.calls[1:])
         )
+
+    def test_count_reconciliation_keeps_a_newer_delta_observation(self) -> None:
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(1, self.LATER)),
+                completed(
+                    issue_page(
+                        [
+                            unrelated(
+                                issue_record(
+                                    2, updated_at=self.LATER, title="newer delta"
+                                )
+                            )
+                        ]
+                    )
+                ),
+                nodes_response([None, by_id(unrelated(issue_record(2)))]),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual(["I_issue_2"], [issue.id for issue in observation.issues])
+        self.assertEqual("newer delta", observation.issues[0].title)
+        self.assertEqual(4, len(runner.calls))
 
     def test_an_empty_collection_is_observed_afresh_each_time(self) -> None:
         runner = SequenceRunner([completed(issue_page([])), completed(issue_page([]))])
@@ -1445,11 +1492,24 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
                 nodes_response(
                     [
                         by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
-                        by_id(unrelated(issue_record(2, updated_at=self.MARK))),
+                        by_id(
+                            unrelated(
+                                issue_record(2, updated_at=self.MARK, title="identity")
+                            )
+                        ),
                     ]
                 ),
                 completed(
-                    issue_page([unrelated(issue_record(3, updated_at=self.LATER))])
+                    issue_page(
+                        [
+                            unrelated(
+                                issue_record(
+                                    2, updated_at=self.MARK, title="later delta"
+                                )
+                            ),
+                            unrelated(issue_record(3, updated_at=self.LATER)),
+                        ]
+                    )
                 ),
             ]
         )
@@ -1464,6 +1524,7 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
             ["I_issue_1", "I_issue_2", "I_issue_3"],
             [issue.id for issue in observation.issues],
         )
+        self.assertEqual("later delta", observation.issues[1].title)
         self.assertEqual(5, len(runner.calls))
         self.assertEqual(
             ["-f", "ids[]=I_issue_1", "-f", "ids[]=I_issue_2"], runner.calls[3][0][-4:]
