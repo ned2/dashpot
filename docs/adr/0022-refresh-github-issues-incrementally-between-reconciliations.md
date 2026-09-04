@@ -43,7 +43,10 @@ snapshot by Issue identity and assembles each fresh observation from it:
   at both ends and a change may bump only one, so the counterparts a delta
   added or removed are observed by identity in the same refresh, and both
   ends land together.
-- **A Reconciliation** — every Issue observed afresh by the cursor sweep —
+- **A Reconciliation** — every Issue observed afresh by the cursor sweep
+  (by identity since
+  [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md),
+  which keeps the sweep as the fallback and the first observation) —
   runs when a period (five minutes) has passed since the last one was
   attempted, when a person presses `r`, and whenever the merged count
   disagrees with the probe's, which is the only trace a deletion or transfer
@@ -68,9 +71,10 @@ snapshot by Issue identity and assembles each fresh observation from it:
   rejected. Issue numbers are shared with pull requests, so every batch
   carries a `NOT_FOUND` per pull request and a missing Issue cannot be told
   from one. A Reconciliation by `nodes(ids:)` over the snapshot's identities,
-  in batches of twenty-four with a bounded number in flight, is the next
-  step under the same Issue; until then the Reconciliation is the sweep the
-  source has always run.
+  in batches of twenty-four with a bounded number in flight, is decided in
+  [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md);
+  at the time of this decision the Reconciliation was the sweep the source
+  has always run.
 - **Persisting the snapshot across runs:** rejected for now. A run starts
   with a sweep, as it always has; the saving is on every tick after it.
 - **Reporting an incremental observation as something other than fresh:**
