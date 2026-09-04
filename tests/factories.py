@@ -377,10 +377,13 @@ def pull_request(
     pull_request_id: str | None = None,
     title: str = "Add the feature",
     is_draft: bool = False,
+    head_branch: str | None = None,
+    base_branch: str = "main",
     author: str | None = "ned",
     review_decision: str | None = "review-required",
     check_status: str | None = "pending",
     mergeability: str | None = None,
+    created_at: str = "2026-09-01T00:00:00Z",
     updated_at: str = NOW,
 ) -> PullRequest:
     """Build one active repository-wide Pull Request observation."""
@@ -392,12 +395,13 @@ def pull_request(
             "url": f"https://github.com/test/repo/pull/{number}",
             "state": "open",
             "isDraft": is_draft,
-            "headBranch": f"feature-{number}",
-            "baseBranch": "main",
+            "headBranch": head_branch or f"feature-{number}",
+            "baseBranch": base_branch,
             "author": author,
             "reviewDecision": review_decision,
             "checkStatus": check_status,
             "mergeability": mergeability,
+            "createdAt": created_at,
             "updatedAt": updated_at,
         }
     )

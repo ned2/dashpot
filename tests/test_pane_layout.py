@@ -24,6 +24,13 @@ def test_a_long_list_wishes_no_higher_than_the_row_cap() -> None:
     assert pane_wish(50) == pane_wish(DEFAULT_ROW_CAP)
 
 
+def test_filter_controls_join_a_panes_wish_but_disappear_when_it_collapses() -> None:
+    wishes = (pane_wish(0, controls_height=3), pane_wish(8))
+
+    assert wishes[0] == EMPTY_PANE_HEIGHT + 3
+    assert fit_panes(14, 6, wishes, controls_heights=(3, 0)) == (0, 1)
+
+
 def test_empty_panes_keep_their_message_line_with_height_to_spare() -> None:
     wishes = (pane_wish(0), pane_wish(0), pane_wish(0))
 

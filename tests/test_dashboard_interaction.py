@@ -6,6 +6,7 @@ import pytest
 from textual.pilot import Pilot
 from textual.widgets import DataTable, Input, Select, Static, Tooltip
 
+import factories
 from app_harness import (
     NOW,
     SequenceCollector,
@@ -31,6 +32,67 @@ from dashpot.issue_view import IssueScreen
 from dashpot.list_pane import ListRow
 from dashpot.observation_store import WorkspaceObservationStore
 from helpers import wait_until
+
+
+@pytest.mark.asyncio
+async def test_pull_request_filters_update_rows_and_count_but_not_inventory() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Issue"),
+        pull_requests=(
+            factories.pull_request(1, title="Ready clipboard", author="alice"),
+            factories.pull_request(2, title="Draft navigation", is_draft=True),
+        ),
+    )
+    app = DashpotApp(
+        SequenceCollector(snapshot),
+        refresh_seconds=0,
+        observation_store=WorkspaceObservationStore(snapshot),
+    )
+
+    async with app.run_test(size=(160, 40)):
+        pane = app.dashboard.pull_requests_pane()
+        state = app.query_one("#pull-request-state", Select)
+        search = app.query_one("#pull-request-search", Input)
+        count = app.query_one("#pull-request-count", Static)
+
+        assert state.value == "all"
+        assert pane.table.row_count == 2
+        assert str(count.render()) == "2 pull requests"
+        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 2"
+
+        state.value = "draft"
+        await wait_until(lambda: pane.table.row_count == 1)
+        assert "Draft navigation" in str(pane.table.get_row_at(0)[2])
+        assert str(count.render()) == "1 pull request"
+        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 2"
+
+        state.value = "all"
+        search.value = "author:alice"
+        await wait_until(lambda: "Ready clipboard" in str(pane.table.get_row_at(0)[2]))
+        assert pane.table.row_count == 1
+
+        search.value = "no-match"
+        await wait_until(lambda: pane.table.row_count == 0)
+        assert str(count.render()) == "0 pull requests"
+        empty = app.query_one("#pull-requests-pane .list-pane-empty", Static)
+        assert str(empty.render()) == "no Pull Requests match the current filters"
+
+
+@pytest.mark.asyncio
+async def test_slash_focuses_the_pull_request_search_from_its_table() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Issue"),
+        pull_requests=(factories.pull_request(1),),
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        app.dashboard.pull_requests_pane().table.focus()
+
+        await pilot.press("slash")
+
+        assert app.query_one("#pull-request-search", Input).has_focus
 
 
 async def select_header(app: DashpotApp, pilot: Pilot[None], column: str) -> None:
@@ -674,7 +736,7 @@ async def test_hovering_a_glyph_header_shows_its_meaning() -> None:
             # Leave the table first: Textual hides a showing tooltip on any
             # further move within the same widget without restarting the
             # timer, so a fresh entry is what shows the next one.
-            assert await pilot.hover("#issue-search")
+            assert await pilot.hover("#pull-request-search")
             await wait_until(lambda: not tooltip.display)
             assert await pilot.hover("#queue", offset=(x, y))
             await pilot.pause(0.05)

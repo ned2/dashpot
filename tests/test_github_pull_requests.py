@@ -35,6 +35,7 @@ def pull_request_node(number: int = 83, **updates: Any) -> dict[str, Any]:
         "reviewDecision": "REVIEW_REQUIRED",
         "statusCheckRollup": {"state": "PENDING"},
         "mergeable": "UNKNOWN",
+        "createdAt": "2026-09-01T00:00:00Z",
         "updatedAt": NOW,
     }
     node.update(updates)
@@ -102,6 +103,7 @@ def test_normalizes_every_published_fact_and_explicit_unknowns() -> None:
     assert observed.review_decision == "review-required"
     assert observed.check_status == "pending"
     assert observed.mergeability is None
+    assert observed.created_at == "2026-09-01T00:00:00Z"
     assert observed.updated_at == NOW
 
 

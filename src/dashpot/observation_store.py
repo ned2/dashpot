@@ -23,6 +23,8 @@ from .model import (
     WorkspaceSnapshot,
 )
 from .pull_request_list import (
+    DEFAULT_PULL_REQUEST_QUERY,
+    PullRequestListQuery,
     PullRequestListResult,
     _query_indexed_pull_request_list,
 )
@@ -259,12 +261,15 @@ class WorkspaceObservationStore:
         )
         return result
 
-    def query_pull_requests(self) -> PullRequestListResult:
+    def query_pull_requests(
+        self, query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY
+    ) -> PullRequestListResult:
         """Query every active Pull Request with its independent freshness."""
         state = self._state
         return _query_indexed_pull_request_list(
             projects=state.projects,
             pull_requests=state.pull_requests,
+            query=query,
             revision=state.revision,
         )
 

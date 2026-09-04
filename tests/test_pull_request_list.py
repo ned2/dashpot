@@ -13,6 +13,7 @@ from dashpot.pull_request_list import (
     CHECKS_FAILURE_GLYPH,
     CONFLICTING_GLYPH,
     DRAFT_GLYPH,
+    PullRequestListQuery,
     build_pull_request_rows,
     pull_request_empty_message,
     pull_request_note,
@@ -69,6 +70,73 @@ def test_store_query_matches_the_standalone_read_model() -> None:
     store = WorkspaceObservationStore(observed)
 
     assert store.query_pull_requests() == query_pull_request_list(observed, revision=1)
+
+
+def test_status_and_lexical_filters_preserve_the_complete_inventory_count() -> None:
+    ready = factories.pull_request(1, title="Clipboard failure", author="alice")
+    draft = factories.pull_request(2, title="Clipboard experiment", is_draft=True)
+    observed = snapshot(ready, draft)
+
+    result = query_pull_request_list(
+        observed,
+        PullRequestListQuery(readiness=frozenset({"ready"}), text="clipboard alice"),
+    )
+
+    assert [row.pull_request.number for row in result.rows] == [1]
+    assert result.matched_pull_request_count == 1
+    assert result.observed_pull_request_count == 2
+
+
+def test_qualifiers_match_observed_pull_request_facts_with_github_semantics() -> None:
+    matching = factories.pull_request(
+        1,
+        is_draft=True,
+        head_branch="feature/search",
+        base_branch="release",
+        author="Alice",
+        review_decision="changes-requested",
+        check_status=None,
+    )
+    hidden = factories.pull_request(2, author="bob", check_status="success")
+    observed = snapshot(matching, hidden)
+
+    result = query_pull_request_list(
+        observed,
+        PullRequestListQuery(
+            text=(
+                "author:alice head:feature/search base:release is:draft "
+                "review:changes_requested status:pending"
+            )
+        ),
+    )
+
+    assert [row.pull_request.number for row in result.rows] == [1]
+
+
+def test_search_sort_qualifier_overrides_updated_first_order() -> None:
+    created_first = factories.pull_request(
+        1,
+        created_at="2026-09-01T00:00:00Z",
+        updated_at="2026-09-04T00:00:00Z",
+    )
+    created_last = factories.pull_request(
+        2,
+        created_at="2026-09-02T00:00:00Z",
+        updated_at="2026-09-03T00:00:00Z",
+    )
+    observed = snapshot(created_first, created_last)
+
+    default = query_pull_request_list(observed)
+    created = query_pull_request_list(
+        observed, PullRequestListQuery(text="sort:created-asc")
+    )
+
+    assert [row.pull_request.number for row in default.rows] == [1, 2]
+    assert [row.pull_request.number for row in created.rows] == [1, 2]
+    descending = query_pull_request_list(
+        observed, PullRequestListQuery(text="sort:created")
+    )
+    assert [row.pull_request.number for row in descending.rows] == [2, 1]
 
 
 def test_rows_render_draft_review_checks_mergeability_and_age_in_both_themes() -> None:

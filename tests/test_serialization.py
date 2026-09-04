@@ -122,6 +122,7 @@ PULL_REQUEST_KEYS = {
     "reviewDecision",
     "checkStatus",
     "mergeability",
+    "createdAt",
     "updatedAt",
 }
 ISSUE_PROFILE_KEYS = {

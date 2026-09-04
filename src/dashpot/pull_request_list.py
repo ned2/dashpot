@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from rich.text import Text
 
@@ -13,6 +14,9 @@ from .issue_cells import relative_age
 from .issue_list import row_key
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end
 from .model import ProjectObservation, PullRequest, SourceStatus, WorkspaceSnapshot
+from .pull_request_search import PullRequestQualifier, parse_pull_request_search
+
+PullRequestReadiness = Literal["ready", "draft"]
 
 GOOD_COLORS = ("#1a7f37", "#3fb950")
 ATTENTION_COLORS = ("#9a6700", "#d29922")
@@ -83,6 +87,15 @@ PULL_REQUEST_COLUMNS: tuple[ListColumn, ...] = (
 
 
 @dataclass(frozen=True, slots=True)
+class PullRequestListQuery:
+    readiness: frozenset[PullRequestReadiness] = frozenset({"ready", "draft"})
+    text: str = ""
+
+
+DEFAULT_PULL_REQUEST_QUERY = PullRequestListQuery()
+
+
+@dataclass(frozen=True, slots=True)
 class PullRequestListRow:
     """Join one Pull Request to the Project whose Repository owns it."""
 
@@ -94,6 +107,8 @@ class PullRequestListRow:
 @dataclass(frozen=True, slots=True)
 class PullRequestListResult:
     rows: tuple[PullRequestListRow, ...]
+    matched_pull_request_count: int
+    observed_pull_request_count: int
     status: SourceStatus
     attempted_at: str | None
     last_good_at: str | None
@@ -105,7 +120,10 @@ class PullRequestListResult:
 
 
 def query_pull_request_list(
-    snapshot: WorkspaceSnapshot, *, revision: int = 0
+    snapshot: WorkspaceSnapshot,
+    query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY,
+    *,
+    revision: int = 0,
 ) -> PullRequestListResult:
     """Query Pull Request rows from one complete Workspace checkpoint."""
     projects: dict[str, ProjectObservation] = {}
@@ -127,6 +145,7 @@ def query_pull_request_list(
     return _query_indexed_pull_request_list(
         projects=projects,
         pull_requests=pull_requests,
+        query=query,
         revision=revision,
     )
 
@@ -135,8 +154,10 @@ def _query_indexed_pull_request_list(
     *,
     projects: Mapping[str, ProjectObservation],
     pull_requests: Mapping[tuple[str, str], PullRequest],
+    query: PullRequestListQuery,
     revision: int,
 ) -> PullRequestListResult:
+    parsed = parse_pull_request_search(query.text)
     rows = [
         PullRequestListRow(
             row_key("pull-request", project_id, pull_request.id),
@@ -145,9 +166,22 @@ def _query_indexed_pull_request_list(
         )
         for (project_id, _pull_request_id), pull_request in pull_requests.items()
         if project_id in projects
+        and _pull_request_readiness(pull_request) in query.readiness
+        and _matches_search(pull_request, projects[project_id], parsed.terms)
+        and all(
+            _matches_qualifier(pull_request, qualifier)
+            for qualifier in parsed.qualifiers
+        )
     ]
     rows.sort(key=lambda row: row.pull_request.number)
-    rows.sort(key=lambda row: row.pull_request.updated_at, reverse=True)
+    sort = parsed.sort
+    sort_field = (
+        "updated_at" if sort is None or sort.field == "updated" else "created_at"
+    )
+    rows.sort(
+        key=lambda row: getattr(row.pull_request, sort_field),
+        reverse=True if sort is None else sort.descending,
+    )
     snapshots = [
         project.snapshot
         for project in projects.values()
@@ -173,6 +207,8 @@ def _query_indexed_pull_request_list(
     ]
     return PullRequestListResult(
         tuple(rows),
+        len(rows),
+        len(pull_requests),
         status,
         max(attempted, default=None),
         max(last_good, default=None),
@@ -228,13 +264,84 @@ def pull_request_note(result: PullRequestListResult, now: datetime) -> str | Non
     return "unavailable"
 
 
-def pull_request_empty_message(result: PullRequestListResult) -> str:
+def pull_request_empty_message(
+    result: PullRequestListResult,
+    query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY,
+) -> str:
     """Distinguish a fresh empty collection from stale or unavailable data."""
+    if result.observed_pull_request_count and not result.rows:
+        parsed = parse_pull_request_search(query.text)
+        if not parsed.terms and not parsed.qualifiers:
+            if query.readiness == frozenset({"ready"}):
+                return "no ready Pull Requests"
+            if query.readiness == frozenset({"draft"}):
+                return "no draft Pull Requests"
+        return "no Pull Requests match the current filters"
     if result.status == "fresh":
         return "no active pull requests"
     if result.status == "stale":
         return "no active pull requests when last observed"
     return "pull requests unavailable"
+
+
+def pull_request_result_count_text(count: int) -> str:
+    """Describe how many active Pull Requests match every current filter."""
+    return "1 pull request" if count == 1 else f"{count} pull requests"
+
+
+def _pull_request_readiness(pull_request: PullRequest) -> PullRequestReadiness:
+    return "draft" if pull_request.is_draft else "ready"
+
+
+def _matches_search(
+    pull_request: PullRequest,
+    project: ProjectObservation,
+    terms: tuple[str, ...],
+) -> bool:
+    searchable = "\n".join(
+        (
+            f"#{pull_request.number}",
+            pull_request.title,
+            project.display_label,
+            pull_request.head_branch,
+            pull_request.base_branch,
+            pull_request.author or "",
+        )
+    ).casefold()
+    return all(term.casefold() in searchable for term in terms)
+
+
+def _matches_qualifier(
+    pull_request: PullRequest, qualifier: PullRequestQualifier
+) -> bool:
+    value = qualifier.value
+    if qualifier.field == "author":
+        matched = (pull_request.author or "").casefold() == value
+    elif qualifier.field == "base":
+        matched = pull_request.base_branch.casefold() == value
+    elif qualifier.field == "head":
+        matched = pull_request.head_branch.casefold() == value
+    elif qualifier.field == "is":
+        matched = value != "draft" or pull_request.is_draft
+    elif qualifier.field == "state":
+        matched = value == "open"
+    elif qualifier.field == "review":
+        decisions = {
+            "approved": "approved",
+            "changes-requested": "changes-requested",
+            "changes_requested": "changes-requested",
+            "none": None,
+            "required": "review-required",
+        }
+        matched = pull_request.review_decision == decisions[value]
+    else:
+        statuses = {
+            "failure": frozenset({"error", "failure"}),
+            "pending": frozenset({"expected", "pending", None}),
+            "success": frozenset({"success"}),
+        }
+        matched = pull_request.check_status in statuses[value]
+    return not matched if qualifier.negated else matched
 
 
 def _review_cell(pull_request: PullRequest, *, dark: bool) -> Text:

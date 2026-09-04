@@ -1,28 +1,29 @@
+"""Parse the lexical and date-sort subset shared by item-list searches."""
+
 from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
 from typing import Literal
 
-IssueSearchSortField = Literal["created", "updated"]
+SearchSortField = Literal["created", "updated"]
 
 
 @dataclass(frozen=True, slots=True)
-class IssueSearchSort:
-    field: IssueSearchSortField
+class SearchSort:
+    field: SearchSortField
     descending: bool = True
 
 
 @dataclass(frozen=True, slots=True)
-class ParsedIssueSearch:
+class ParsedSearch:
     terms: tuple[str, ...] = ()
-    sort: IssueSearchSort | None = None
+    sort: SearchSort | None = None
     diagnostics: tuple[str, ...] = ()
 
 
-def parse_issue_search(text: str) -> ParsedIssueSearch:
-    """Parse the GitHub-shaped lexical and date-sort subset Dashpot supports."""
-
+def parse_search(text: str) -> ParsedSearch:
+    """Parse quoted terms and GitHub-shaped created or updated sorting."""
     diagnostics: list[str] = []
     try:
         tokens = shlex.split(text)
@@ -31,7 +32,7 @@ def parse_issue_search(text: str) -> ParsedIssueSearch:
         diagnostics.append(str(exc))
 
     terms: list[str] = []
-    sort: IssueSearchSort | None = None
+    sort: SearchSort | None = None
     for token in tokens:
         if not token.casefold().startswith("sort:"):
             terms.append(token)
@@ -46,14 +47,14 @@ def parse_issue_search(text: str) -> ParsedIssueSearch:
             diagnostics.append("Only one sort: qualifier is supported")
         else:
             sort = parsed_sort
-    return ParsedIssueSearch(tuple(terms), sort, tuple(diagnostics))
+    return ParsedSearch(tuple(terms), sort, tuple(diagnostics))
 
 
-def _parse_sort(value: str) -> IssueSearchSort | None:
+def _parse_sort(value: str) -> SearchSort | None:
     normalized = value.casefold()
     for field in ("created", "updated"):
         if normalized in {field, f"{field}-desc"}:
-            return IssueSearchSort(field, descending=True)
+            return SearchSort(field, descending=True)
         if normalized == f"{field}-asc":
-            return IssueSearchSort(field, descending=False)
+            return SearchSort(field, descending=False)
     return None

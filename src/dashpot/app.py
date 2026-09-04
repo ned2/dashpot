@@ -12,7 +12,7 @@ from typing import Any, ClassVar, Literal, Protocol, cast
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Vertical
 from textual.content import Content
 from textual.css.query import NoMatches
 from textual.geometry import Size
@@ -61,7 +61,6 @@ from .issue_list import (
     issue_result_count_text,
     next_issue_states,
 )
-from .issue_search import IssueSearchSort, parse_issue_search
 from .issue_table import (
     COLUMNS_BY_KEY,
     DEFAULT_SORT,
@@ -76,6 +75,7 @@ from .issue_table import (
     sort_key_for_terms,
 )
 from .issue_view import IssueScreen
+from .item_filter import ItemFilterBar
 from .keyed_table import capture_selection, restore_selection
 from .legend import LegendScreen
 from .list_pane import (
@@ -92,11 +92,16 @@ from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .pane_layout import fit_panes, pane_wish
 from .pull_request_list import (
+    DEFAULT_PULL_REQUEST_QUERY,
     PULL_REQUEST_COLUMNS,
+    PullRequestListQuery,
     build_pull_request_rows,
     pull_request_empty_message,
     pull_request_note,
+    pull_request_result_count_text,
 )
+from .pull_request_search import parse_pull_request_search
+from .search import SearchSort, parse_search
 from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
@@ -125,6 +130,7 @@ class PaneRows:
     columns: tuple[ListColumn, ...] | None = None
     note: str | None = None
     empty_message: str | None = None
+    title_count: int | None = None
 
 
 class PaneRowsSource(Protocol):
@@ -180,14 +186,19 @@ def worktree_pane_rows(
 
 
 def pull_request_pane_rows(
-    store: WorkspaceObservationStore, *, dark: bool, now: datetime
+    store: WorkspaceObservationStore,
+    *,
+    dark: bool,
+    now: datetime,
+    query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY,
 ) -> PaneRows:
     """List active Pull Requests with their independent freshness state."""
-    result = store.query_pull_requests()
+    result = store.query_pull_requests(query)
     return PaneRows(
         build_pull_request_rows(result, dark=dark, now=now),
         note=pull_request_note(result, now),
-        empty_message=pull_request_empty_message(result),
+        empty_message=pull_request_empty_message(result, query),
+        title_count=result.observed_pull_request_count,
     )
 
 
@@ -333,6 +344,8 @@ class DashboardScreen(Screen[None]):
         self,
         issue_view: IssueTableViewState,
         search_diagnostics: tuple[str, ...],
+        pull_request_query: PullRequestListQuery,
+        pull_request_search_diagnostics: tuple[str, ...],
     ) -> None:
         super().__init__()
         self.issue_view = issue_view
@@ -340,6 +353,30 @@ class DashboardScreen(Screen[None]):
         self.rows_by_key: dict[str, IssueListRow] = {}
         self.rendered_cells: dict[str, tuple[TableCell, ...]] = {}
         self.search_diagnostics = search_diagnostics
+        self.pull_request_query = pull_request_query
+        self.pull_request_search_diagnostics = pull_request_search_diagnostics
+        self.issue_filter_bar = ItemFilterBar(
+            "issue",
+            statuses=(("Open", "open"), ("Closed", "closed"), ("All", "all")),
+            status=issue_state_filter_value(issue_view.query),
+            query=issue_view.query.text,
+            placeholder="Search Issues",
+            count=issue_result_count_text(0),
+        )
+        self.pull_request_filter_bar = ItemFilterBar(
+            "pull-request",
+            statuses=(("All", "all"), ("Ready", "ready"), ("Draft", "draft")),
+            status=pull_request_status_filter_value(pull_request_query),
+            query=pull_request_query.text,
+            placeholder="Search Pull Requests",
+            count=pull_request_result_count_text(0),
+        )
+        self.list_pane_specs = tuple(
+            replace(spec, rows=self._pull_request_pane_rows)
+            if spec.pane_id == "pull-requests-pane"
+            else spec
+            for spec in LIST_PANE_SPECS
+        )
 
     @property
     def dashpot(self) -> DashpotApp:
@@ -354,30 +391,26 @@ class DashboardScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with DashboardBody(id="body"):
             with Container(id="list-row"):
-                for spec in LIST_PANE_SPECS:
+                for spec in self.list_pane_specs:
                     yield ListPane(
                         spec.label,
                         columns=spec.columns,
                         empty_message=spec.empty_message,
                         id=spec.pane_id,
                         table_id=spec.table_id,
+                        controls=(
+                            self.pull_request_filter_bar
+                            if spec.pane_id == "pull-requests-pane"
+                            else None
+                        ),
+                        controls_height=(
+                            ItemFilterBar.HEIGHT
+                            if spec.pane_id == "pull-requests-pane"
+                            else 0
+                        ),
                     )
             with Vertical(id="queue-pane"):
-                with Horizontal(id="queue-controls"):
-                    yield Select(
-                        (("Open", "open"), ("Closed", "closed"), ("All", "all")),
-                        value=issue_state_filter_value(self.issue_view.query),
-                        allow_blank=False,
-                        compact=True,
-                        id="issue-state",
-                    )
-                    yield Input(
-                        value=self.issue_view.query.text,
-                        placeholder="Search Issues",
-                        compact=True,
-                        id="issue-search",
-                    )
-                    yield Static(issue_result_count_text(0), id="issue-count")
+                yield self.issue_filter_bar
                 yield SpreadTable(id="queue", cursor_type="row", zebra_stripes=False)
         yield Static("", id="alert")
         yield Static("", id="diagnostics")
@@ -405,7 +438,7 @@ class DashboardScreen(Screen[None]):
 
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
-        return tuple(self.list_pane(spec.pane_id) for spec in LIST_PANE_SPECS)
+        return tuple(self.list_pane(spec.pane_id) for spec in self.list_pane_specs)
 
     def focus_tables(self) -> tuple[FocusCursorTable[Any], ...]:
         """Return the dashboard tables in their composed reading order."""
@@ -423,7 +456,18 @@ class DashboardScreen(Screen[None]):
         return True
 
     def action_focus_search(self) -> None:
-        self.query_one("#issue-search", Input).focus()
+        if self.pull_requests_pane().table.has_focus:
+            self.pull_request_filter_bar.search.focus()
+            return
+        self.issue_filter_bar.search.focus()
+
+    def _pull_request_pane_rows(
+        self, store: WorkspaceObservationStore, *, dark: bool, now: datetime
+    ) -> PaneRows:
+        """List Pull Requests through this screen's current filter."""
+        return pull_request_pane_rows(
+            store, dark=dark, now=now, query=self.pull_request_query
+        )
 
     def action_fetch(self) -> None:
         """Fetch the remotes behind the Branches pane, on this explicit key."""
@@ -539,15 +583,23 @@ class DashboardScreen(Screen[None]):
             self.show_row(selected_key)
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "pull-request-search":
+            parsed_search = parse_pull_request_search(event.value)
+            self.pull_request_search_diagnostics = parsed_search.diagnostics
+            self.update_diagnostics()
+            self.set_pull_request_query(
+                replace(self.pull_request_query, text=event.value)
+            )
+            return
         if event.input.id != "issue-search":
             return
-        parsed_search = parse_issue_search(event.value)
+        parsed_search = parse_search(event.value)
         self.search_diagnostics = parsed_search.diagnostics
         self.update_diagnostics()
         # A sort qualifier in the search text owns the sort while it is
         # present, and removing it restores the default; any other keystroke
         # leaves a sort chosen by key or header click alone.
-        previous_search = parse_issue_search(self.issue_view.query.text)
+        previous_search = parse_search(self.issue_view.query.text)
         sort: tuple[SortTerm, ...] | None = None
         if parsed_search.sort is not None:
             sort = issue_search_sort_terms(parsed_search.sort)
@@ -565,6 +617,17 @@ class DashboardScreen(Screen[None]):
         )
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "pull-request-state":
+            readiness = {
+                "all": frozenset({"ready", "draft"}),
+                "ready": frozenset({"ready"}),
+                "draft": frozenset({"draft"}),
+            }.get(str(event.value))
+            if readiness is not None:
+                self.set_pull_request_query(
+                    replace(self.pull_request_query, readiness=readiness)
+                )
+            return
         if event.select.id != "issue-state":
             return
         states = {
@@ -592,6 +655,14 @@ class DashboardScreen(Screen[None]):
             self.update_sort_headers(self.queue_table())
         if self.dashpot.store.has_observations:
             self.reconcile_rows()
+
+    def set_pull_request_query(self, query: PullRequestListQuery) -> None:
+        """Apply one Pull Request filter without changing observed state."""
+        if query == self.pull_request_query:
+            return
+        self.pull_request_query = query
+        if self.dashpot.store.has_observations:
+            self.reconcile_list_panes()
 
     def update_sort_headers(self, table: DataTable[TableCell]) -> None:
         for key, column in table.columns.items():
@@ -653,7 +724,11 @@ class DashboardScreen(Screen[None]):
         caps = fit_panes(
             body.height,
             int(minimum.value) if minimum is not None else 0,
-            tuple(pane_wish(pane.count) for pane in panes),
+            tuple(
+                pane_wish(pane.count, controls_height=pane.controls_height)
+                for pane in panes
+            ),
+            controls_heights=tuple(pane.controls_height for pane in panes),
         )
         for pane, row_cap in zip(panes, caps, strict=True):
             pane.fit_rows(row_cap)
@@ -662,14 +737,19 @@ class DashboardScreen(Screen[None]):
         """Re-list every observed record from the store."""
         dark = self.app.current_theme.dark
         now = datetime.now(UTC)
-        for spec in LIST_PANE_SPECS:
+        for spec in self.list_pane_specs:
             view = spec.rows(self.dashpot.store, dark=dark, now=now)
             self.list_pane(spec.pane_id).show_rows(
                 view.rows,
                 columns=view.columns,
                 note=view.note,
                 empty_message=view.empty_message,
+                title_count=view.title_count,
             )
+            if spec.pane_id == "pull-requests-pane":
+                self.pull_request_filter_bar.count.update(
+                    pull_request_result_count_text(len(view.rows))
+                )
 
     def reconcile_rows(self) -> IssueListResult:
         """Rebuild the table from the store and return the query result."""
@@ -802,6 +882,10 @@ class DashboardScreen(Screen[None]):
             ("error", f"Search: {message}") for message in self.search_diagnostics
         )
         entries.extend(
+            ("error", f"Pull Request search: {message}")
+            for message in self.pull_request_search_diagnostics
+        )
+        entries.extend(
             (
                 entry.diagnostic.severity,
                 f"{entry.project_label} · {entry.diagnostic.source}: "
@@ -886,6 +970,7 @@ class DashpotApp(App[None]):
         refresh_seconds: float = 15,
         observation_store: WorkspaceObservationStore | None = None,
         issue_view: IssueTableViewState = IssueTableViewState(),
+        pull_request_query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY,
         refresh_indicator_seconds: float = 0.75,
         fetcher: RemoteFetcher | None = None,
         cleaner: CleanupAdapter | None = None,
@@ -923,7 +1008,7 @@ class DashpotApp(App[None]):
         self.store = observation_store or WorkspaceObservationStore()
         # The view state lives on the DashboardScreen once it exists; the app
         # only resolves the injected search's sort and hands both over.
-        parsed_search = parse_issue_search(issue_view.query.text)
+        parsed_search = parse_search(issue_view.query.text)
         explicit_sort = issue_search_sort_terms(parsed_search.sort)
         self.initial_issue_view = (
             replace(issue_view, sort=explicit_sort)
@@ -931,6 +1016,11 @@ class DashpotApp(App[None]):
             else issue_view
         )
         self.initial_search_diagnostics = parsed_search.diagnostics
+        parsed_pull_request_search = parse_pull_request_search(pull_request_query.text)
+        self.initial_pull_request_query = pull_request_query
+        self.initial_pull_request_search_diagnostics = (
+            parsed_pull_request_search.diagnostics
+        )
         self.refresh_timer: Timer | None = None
         self.observation_errors: dict[ObservationKey, str] = {}
         # A key is observed at most once at a time, so a pool sized to the
@@ -944,7 +1034,12 @@ class DashpotApp(App[None]):
     @override
     def get_default_screen(self) -> DashboardScreen:
         """Root the app on the dashboard, its one long-lived screen."""
-        return DashboardScreen(self.initial_issue_view, self.initial_search_diagnostics)
+        return DashboardScreen(
+            self.initial_issue_view,
+            self.initial_search_diagnostics,
+            self.initial_pull_request_query,
+            self.initial_pull_request_search_diagnostics,
+        )
 
     @property
     def dashboard(self) -> DashboardScreen:
@@ -1496,7 +1591,7 @@ class DashpotApp(App[None]):
 
 
 def issue_search_sort_terms(
-    search_sort: IssueSearchSort | None,
+    search_sort: SearchSort | None,
 ) -> tuple[SortTerm, ...] | None:
     if search_sort is None:
         return None
@@ -1513,4 +1608,12 @@ def issue_state_filter_value(query: IssueListQuery) -> str:
         return "open"
     if query.states == frozenset({"closed"}):
         return "closed"
+    return "all"
+
+
+def pull_request_status_filter_value(query: PullRequestListQuery) -> str:
+    if query.readiness == frozenset({"ready"}):
+        return "ready"
+    if query.readiness == frozenset({"draft"}):
+        return "draft"
     return "all"
