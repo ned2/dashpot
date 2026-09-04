@@ -34,7 +34,6 @@ from helpers import wait_until
 
 ANCHOR = "/repo"
 STALE_FETCH = (datetime.now(UTC) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
-FRESH_FETCH = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def local(name: str) -> Branch:
@@ -74,8 +73,13 @@ def observed(
     return with_first_project(snapshot, anchors=anchors, primary_anchor=anchors[0])
 
 
+def freshly_fetched() -> WorkspaceSnapshot:
+    """Build an observation whose fetch remains fresh when the test runs."""
+    fetched_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return observed(local("main"), remote("main"), fetched_at=fetched_at)
+
+
 BEFORE = observed(local("main"), remote("main"), remote("feature"))
-AFTER = observed(local("main"), remote("main"), fetched_at=FRESH_FETCH)
 
 
 class RecordingFetcher:
@@ -127,7 +131,7 @@ async def test_f_fetches_and_prunes_every_remote_then_observes_the_result() -> N
         completed("origin\nupstream\n"), completed(""), completed("")
     )
     git = Git(Path("/unused"), runner=runner)
-    collector = SequenceCollector(BEFORE, AFTER)
+    collector = SequenceCollector(BEFORE, freshly_fetched())
     app = DashpotApp(
         collector,
         refresh_seconds=0,
@@ -259,7 +263,7 @@ async def test_a_partial_fetch_is_reported_as_a_failure_but_still_observed() -> 
             (RemoteFetch("origin", True), RemoteFetch("fork", False, "ssh: no route")),
         )
     )
-    collector = SequenceCollector(BEFORE, AFTER)
+    collector = SequenceCollector(BEFORE, freshly_fetched())
     app = DashpotApp(collector, refresh_seconds=0, fetcher=fetcher)
 
     async with app.run_test(size=(120, 40)) as pilot:
@@ -277,7 +281,7 @@ async def test_a_partial_fetch_is_reported_as_a_failure_but_still_observed() -> 
         assert "✖ Fetch failed: Test Repository" in diagnostics_text(app)
 
         # The next clean fetch clears the failure.
-        collector.results.append(AFTER)
+        collector.results.append(freshly_fetched())
         await pilot.press("f")
         await wait_until(lambda: app.store.revision == 3)
         await pilot.pause()
@@ -289,7 +293,7 @@ async def test_a_partial_fetch_is_reported_as_a_failure_but_still_observed() -> 
 async def test_repeated_presses_do_not_overlap_and_the_fetch_is_visible() -> None:
     fetcher = RecordingFetcher()
     fetcher.release.clear()
-    collector = SequenceCollector(BEFORE, AFTER)
+    collector = SequenceCollector(BEFORE, freshly_fetched())
     app = DashpotApp(collector, refresh_seconds=0, fetcher=fetcher)
 
     try:
