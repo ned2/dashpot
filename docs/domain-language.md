@@ -53,10 +53,14 @@ Pull Request merely because GitHub shares their number space
 **Linked Pull Request**:
 A pull request GitHub reports as closing a GitHub Issue, shown with the
 Issue's engagement facts rather than in its profile. The first twenty are
-listed and the count of any beyond them is shown beside the list, since
-GitHub answers them unpaged. A Linked Pull Request appearing or changing
-state does not update the Issue, so it is observed by the next
-Reconciliation rather than by an Incremental Refresh.
+listed in Pull Request Number order and the count of any beyond them is shown
+beside the list; the GitHub Issue Source pages the complete connection for
+incremental relationship evidence. A Linked Pull Request appearing or changing
+state does not update the Issue. The GitHub Issue Source instead observes the
+changed Pull Request's current and previous Issue targets by identity; the
+next Reconciliation remains the fallback for a derived connection whose
+indexing outlasts both confirming scans
+([ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)).
 _Avoid_: using this Issue relationship as the repository-wide Pull Request
 observation
 
@@ -204,24 +208,30 @@ ever published
 
 **Incremental Refresh**:
 How a GitHub Issue Source refreshes after its first complete observation: a
-one-point change probe, then only the Issues updated since its High-Water
-Mark and the other ends of any relationship they changed, merged by Issue
-identity into the collection it last observed. A fresh observation may be
-assembled this way; an Issue leaves the collection only on positive evidence,
-never for being absent from a delta
-([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)).
+one-point combined change probe, then only the Issues updated since their
+High-Water Mark and the other ends of any relationship they changed, plus a
+newest-first Pull Request prefix when its separate mark advances, merged by
+Issue identity into the collection it last observed. A fresh observation may
+be assembled this way; an Issue or Linked Pull Request leaves the collection
+only on positive evidence, never for being absent from a delta or prefix scan
+([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
+[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)).
 
 **High-Water Mark**:
-The newest `updatedAt` the GitHub Issue Source has observed, the inclusive
-start of its next delta. It advances only through what a refresh fetched, so
-no clock of Dashpot's ever enters the boundary.
+The newest `updatedAt` the GitHub Issue Source has observed in one change
+stream, the inclusive start of its next delta or newest-first prefix scan. It
+keeps separate Issue and Pull Request marks. A mark advances only through what
+a refresh fetched, so no clock of Dashpot's ever enters the boundary; a Pull
+Request candidate is scanned on two ticks before it is settled because
+GitHub's derived closing-reference connection indexes asynchronously.
 
 **Reconciliation**:
-An observation of every GitHub Issue afresh, which alone can see a linked pull
-request change; a blocker-side dependency change; a parent/sub-Issue
+An observation of every GitHub Issue afresh, which alone can see a Linked Pull
+Request's derived closing-reference connection when its indexing outlasts
+both confirming scans; a blocker-side dependency change; a parent/sub-Issue
 relationship change; a deletion or transfer whose Issue-count change is
 offset by another collection change in the same window; an update in the same
-second as the High-Water Mark; or a fact GitHub does not date on the Issue — a
+second as its High-Water Mark; or a fact GitHub does not date on the Issue — a
 label's colour, a milestone or Issue type renamed — on an Issue that was not
 itself updated. Issue-type changes are also covered conservatively because
 their `updatedAt` behaviour could not be exercised in the user-owned
@@ -235,7 +245,8 @@ observation whose Reconciliation is more than two periods overdue carries a
 after a Reconciliation failed carries
 `github-issue-count`
 ([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
-[ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).
+[ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md),
+[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)).
 _Avoid_: reconciling for the dashboard's own reuse of table rows and pane
 entries, which is a widget concern, not an observation.
 

@@ -30,6 +30,7 @@ RAW_FIXTURE = ROOT / "tests" / "fixtures" / "github-issue.json"
 EXPECTED_FIXTURE = ROOT / "conformance" / "issue" / "fixtures" / "github.json"
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
 REPOSITORY_ID = "R_kgDOUEerrg"
+PULL_REQUEST_MARK = "2026-08-26T07:00:00Z"
 
 
 def raw_fixture() -> dict[str, Any]:
@@ -82,6 +83,7 @@ def probe_response(
     newest_updated_at: str | None,
     *,
     repository_id: str = REPOSITORY_ID,
+    pull_request_updated_at: str | None = PULL_REQUEST_MARK,
 ) -> str:
     nodes = (
         []
@@ -95,6 +97,13 @@ def probe_response(
                     "id": repository_id,
                     "nameWithOwner": "ned2/dashpot",
                     "issues": {"totalCount": total_count, "nodes": nodes},
+                    "pullRequests": {
+                        "nodes": (
+                            []
+                            if pull_request_updated_at is None
+                            else [{"updatedAt": pull_request_updated_at}]
+                        )
+                    },
                 }
             }
         }
@@ -187,6 +196,7 @@ def issue_page(
     end_cursor: str | None = None,
     repository_id: str = REPOSITORY_ID,
     repository_reference: str = "ned2/dashpot",
+    pull_request_updated_at: str | None = PULL_REQUEST_MARK,
 ) -> str:
     return json.dumps(
         {
@@ -201,10 +211,74 @@ def issue_page(
                             "endCursor": end_cursor,
                         },
                     },
+                    "pullRequests": {
+                        "nodes": (
+                            []
+                            if pull_request_updated_at is None
+                            else [{"updatedAt": pull_request_updated_at}]
+                        )
+                    },
                 }
             }
         }
     )
+
+
+def pull_request_changes_page(
+    nodes: list[dict[str, Any]],
+    *,
+    has_next_page: bool = False,
+    end_cursor: str | None = None,
+) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "node": {
+                    "id": REPOSITORY_ID,
+                    "nameWithOwner": "ned2/dashpot",
+                    "pullRequests": {
+                        "nodes": nodes,
+                        "pageInfo": {
+                            "hasNextPage": has_next_page,
+                            "endCursor": end_cursor,
+                        },
+                    },
+                }
+            }
+        }
+    )
+
+
+def pull_request_change(
+    number: int, updated_at: str, *closing_issue_ids: str
+) -> dict[str, Any]:
+    return {
+        "id": f"PR_{number}",
+        "number": number,
+        "updatedAt": updated_at,
+        "closingIssuesReferences": {
+            "nodes": [{"id": issue_id} for issue_id in closing_issue_ids],
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+        },
+    }
+
+
+def with_linked_pull_requests(
+    record: dict[str, Any], *pull_requests: tuple[int, str]
+) -> dict[str, Any]:
+    record["closedByPullRequestsReferences"] = {
+        "totalCount": len(pull_requests),
+        "nodes": [
+            {
+                "number": number,
+                "url": f"https://github.com/ned2/dashpot/pull/{number}",
+                "state": state,
+            }
+            for number, state in pull_requests
+        ],
+        "pageInfo": {"hasNextPage": False, "endCursor": None},
+    }
+    return record
 
 
 def nested_page(
@@ -218,6 +292,29 @@ def nested_page(
             "data": {
                 "node": {
                     "connection": {
+                        "nodes": nodes,
+                        "pageInfo": {
+                            "hasNextPage": has_next_page,
+                            "endCursor": end_cursor,
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+
+def linked_pull_request_page(
+    nodes: list[dict[str, Any]],
+    *,
+    has_next_page: bool = False,
+    end_cursor: str | None = None,
+) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "node": {
+                    "closedByPullRequestsReferences": {
                         "nodes": nodes,
                         "pageInfo": {
                             "hasNextPage": has_next_page,
@@ -291,6 +388,13 @@ def source(
 
 def query_of(call: tuple[list[str], Path, float]) -> str:
     return call[0][4]
+
+
+def _linked_numbers(observation: Any, issue_id: str) -> set[int]:
+    return {
+        pull_request.number
+        for pull_request in observation.issue_activity[issue_id].linked_pull_requests
+    }
 
 
 def graphql_failure(type: str, path: list[str], message: str) -> CommandResult:
@@ -509,8 +613,27 @@ class GitHubIssuesSourceTests(unittest.TestCase):
                 }
                 for number in range(1, 21)
             ],
+            "pageInfo": {"hasNextPage": True, "endCursor": "linked-20"},
         }
-        runner = SequenceRunner([completed(issue_page([record]))])
+        runner = SequenceRunner(
+            [
+                completed(issue_page([record])),
+                completed(
+                    linked_pull_request_page(
+                        [
+                            {
+                                "number": number,
+                                "url": (
+                                    f"https://github.com/ned2/dashpot/pull/{number}"
+                                ),
+                                "state": "MERGED",
+                            }
+                            for number in range(21, 24)
+                        ]
+                    )
+                ),
+            ]
+        )
 
         observation = source(runner).refresh()
 
@@ -520,6 +643,8 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         activity = observation.issue_activity[observation.issues[0].id]
         self.assertEqual(20, len(activity.linked_pull_requests))
         self.assertEqual(3, activity.unlisted_pull_request_count)
+        self.assertIn("cursor=linked-20", runner.calls[1][0])
+        self.assertIn("includeClosedPrs: true", query_of(runner.calls[1]))
         self.assertEqual(
             {
                 "priority/P1": "b60205",
@@ -1130,7 +1255,298 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", probe)
         self.assertIn("totalCount", probe)
         self.assertIn("first: 1", probe)
+        self.assertIn("pullRequests(", probe)
+        self.assertIn("states: [OPEN, CLOSED, MERGED]", probe)
         self.assertNotIn("body", probe)
+
+    def test_a_new_linked_pull_request_reobserves_its_issue_by_identity(
+        self,
+    ) -> None:
+        pull_request_updated = "2026-08-26T09:40:00Z"
+        linked = with_linked_pull_requests(
+            unrelated(issue_record(1, updated_at=self.OLDER)), (42, "OPEN")
+        )
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(
+                    probe_response(
+                        2,
+                        self.MARK,
+                        pull_request_updated_at=pull_request_updated,
+                    )
+                ),
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(42, pull_request_updated, "I_issue_1")]
+                    )
+                ),
+                nodes_response([by_id(linked)]),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        activity = observation.issue_activity["I_issue_1"]
+        self.assertEqual(
+            [(42, "open")],
+            [(pr.number, pr.state) for pr in activity.linked_pull_requests],
+        )
+        self.assertIn(
+            "orderBy: {field: UPDATED_AT, direction: DESC}", query_of(runner.calls[2])
+        )
+        self.assertIn("closingIssuesReferences(first: 100)", query_of(runner.calls[2]))
+        self.assertEqual(["-f", "ids[]=I_issue_1"], runner.calls[3][0][-2:])
+
+    def test_a_pull_request_mark_waits_for_derived_links_to_be_indexed(self) -> None:
+        pull_request_updated = "2026-08-26T09:40:00Z"
+        linked = with_linked_pull_requests(
+            unrelated(issue_record(1, updated_at=self.OLDER)), (42, "OPEN")
+        )
+        changed_probe = completed(
+            probe_response(
+                2,
+                self.MARK,
+                pull_request_updated_at=pull_request_updated,
+            )
+        )
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                changed_probe,
+                # GitHub has bumped the Pull Request but has not yet indexed
+                # its derived closing reference.
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(42, pull_request_updated)]
+                    )
+                ),
+                changed_probe,
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(42, pull_request_updated, "I_issue_1")]
+                    )
+                ),
+                nodes_response([by_id(linked)]),
+                changed_probe,
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        first_tick = github.refresh()
+        second_tick = github.refresh()
+        settled_tick = github.refresh()
+
+        self.assertNotIn(42, _linked_numbers(first_tick, "I_issue_1"))
+        self.assertIn(42, _linked_numbers(second_tick, "I_issue_1"))
+        self.assertEqual(second_tick.issue_activity, settled_tick.issue_activity)
+        self.assertEqual(7, len(runner.calls))
+
+    def test_an_unlinked_pull_request_reobserves_its_previous_issue(
+        self,
+    ) -> None:
+        pull_request_updated = "2026-08-26T09:40:00Z"
+        linked = with_linked_pull_requests(
+            unrelated(issue_record(1, updated_at=self.OLDER)), (42, "OPEN")
+        )
+        unlinked = with_linked_pull_requests(
+            unrelated(issue_record(1, updated_at=self.OLDER))
+        )
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page(
+                        [linked, unrelated(issue_record(2, updated_at=self.MARK))]
+                    )
+                ),
+                completed(
+                    probe_response(
+                        2,
+                        self.MARK,
+                        pull_request_updated_at=pull_request_updated,
+                    )
+                ),
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(42, pull_request_updated)]
+                    )
+                ),
+                nodes_response([by_id(unlinked)]),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual(
+            (), observation.issue_activity["I_issue_1"].linked_pull_requests
+        )
+        self.assertEqual(["-f", "ids[]=I_issue_1"], runner.calls[3][0][-2:])
+
+    def test_an_unlisted_pull_request_is_removed_only_after_issue_evidence(
+        self,
+    ) -> None:
+        pull_request_updated = "2026-08-26T09:40:00Z"
+        linked = with_linked_pull_requests(
+            unrelated(issue_record(1, updated_at=self.OLDER)),
+            *((number, "OPEN") for number in range(1, 21)),
+        )
+        linked["closedByPullRequestsReferences"].update(
+            totalCount=21,
+            pageInfo={"hasNextPage": True, "endCursor": "linked-20"},
+        )
+        unlinked = with_linked_pull_requests(
+            unrelated(issue_record(1, updated_at=self.OLDER)),
+            *((number, "OPEN") for number in range(1, 21)),
+        )
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page(
+                        [linked, unrelated(issue_record(2, updated_at=self.MARK))]
+                    )
+                ),
+                completed(
+                    linked_pull_request_page(
+                        [
+                            {
+                                "number": 42,
+                                "url": "https://github.com/ned2/dashpot/pull/42",
+                                "state": "OPEN",
+                            }
+                        ]
+                    )
+                ),
+                completed(
+                    probe_response(
+                        2,
+                        self.MARK,
+                        pull_request_updated_at=pull_request_updated,
+                    )
+                ),
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(42, pull_request_updated)]
+                    )
+                ),
+                nodes_response([by_id(unlinked)]),
+            ]
+        )
+        github = source(runner)
+
+        before = github.refresh()
+        after = github.refresh()
+
+        self.assertEqual(
+            1, before.issue_activity["I_issue_1"].unlisted_pull_request_count
+        )
+        self.assertEqual(
+            0, after.issue_activity["I_issue_1"].unlisted_pull_request_count
+        )
+        self.assertEqual(["-f", "ids[]=I_issue_1"], runner.calls[4][0][-2:])
+
+    def test_linked_pull_request_state_changes_refresh_the_issue_state(self) -> None:
+        pull_request_updated = "2026-08-26T09:40:00Z"
+        for github_state, observed_state in (
+            ("CLOSED", "closed"),
+            ("MERGED", "merged"),
+        ):
+            with self.subTest(state=github_state):
+                open_issue = with_linked_pull_requests(
+                    unrelated(issue_record(1, updated_at=self.OLDER)), (42, "OPEN")
+                )
+                changed_issue = with_linked_pull_requests(
+                    unrelated(issue_record(1, updated_at=self.OLDER)),
+                    (42, github_state),
+                )
+                runner = SequenceRunner(
+                    [
+                        completed(
+                            issue_page(
+                                [
+                                    open_issue,
+                                    unrelated(issue_record(2, updated_at=self.MARK)),
+                                ]
+                            )
+                        ),
+                        completed(
+                            probe_response(
+                                2,
+                                self.MARK,
+                                pull_request_updated_at=pull_request_updated,
+                            )
+                        ),
+                        completed(
+                            pull_request_changes_page(
+                                [
+                                    pull_request_change(
+                                        42, pull_request_updated, "I_issue_1"
+                                    )
+                                ]
+                            )
+                        ),
+                        nodes_response([by_id(changed_issue)]),
+                    ]
+                )
+                github = source(runner)
+
+                github.refresh()
+                observation = github.refresh()
+
+                (linked_pull_request,) = observation.issue_activity[
+                    "I_issue_1"
+                ].linked_pull_requests
+                self.assertEqual(
+                    (42, observed_state),
+                    (linked_pull_request.number, linked_pull_request.state),
+                )
+
+    def test_pull_request_scan_includes_every_boundary_page(self) -> None:
+        pull_request_updated = "2026-08-26T09:40:00Z"
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(
+                    probe_response(
+                        2,
+                        self.MARK,
+                        pull_request_updated_at=pull_request_updated,
+                    )
+                ),
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(142, pull_request_updated)],
+                        has_next_page=True,
+                        end_cursor="pr-1",
+                    )
+                ),
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(141, PULL_REQUEST_MARK)],
+                        has_next_page=True,
+                        end_cursor="pr-2",
+                    )
+                ),
+                completed(
+                    pull_request_changes_page(
+                        [pull_request_change(140, "2026-08-26T06:59:59Z")]
+                    )
+                ),
+            ]
+        )
+        github = source(runner)
+
+        github.refresh()
+        observation = github.refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertIn("cursor=pr-1", runner.calls[3][0])
+        self.assertIn("cursor=pr-2", runner.calls[4][0])
+        self.assertEqual(5, len(runner.calls))
 
     def test_changes_since_the_mark_are_merged_by_identity(self) -> None:
         runner = SequenceRunner(

@@ -72,14 +72,19 @@ The GitHub Issue Source observes every Issue once, then refreshes
 incrementally ([`github_issues.py`](../src/dashpot/github_issues.py),
 [ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)):
 each tick asks GitHub one one-point question — the newest update and the
-Issue count — and an unchanged repository is answered by that alone, whatever
-its size. When something changed, only the Issues updated since the
-High-Water Mark are fetched, in pages of twenty-four, together with the other
-end of every relationship they added or removed, and merged by identity. A
+Issue count, plus the newest Pull Request update — and an unchanged repository
+is answered by that alone, whatever its size. When something changed, only
+the Issues updated since their High-Water Mark are fetched, in pages of
+twenty-four, together with the other end of every relationship they added or
+removed, and merged by identity. A Pull Request mark that advances adds a
+newest-first prefix scan and re-observes its current and previous closing
+targets by Issue identity on two confirming ticks
+([ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)). A
 Reconciliation runs every five minutes, on `r`, and whenever the count no
-longer adds up, because a deletion, a transfer, a linked pull request and the
-blocker's side of a dependency leave no trace a delta can see, and neither end
-of a parent/sub-Issue relationship bumps `updatedAt`: every Issue already
+longer adds up, because a deletion, a transfer, the blocker's side of a
+dependency and neither end of a parent/sub-Issue relationship leave no trace
+an Issue delta can see; it also closes the documented limits of the Pull
+Request prefix. Every Issue already
 known is observed afresh by identity, in batches of twenty-four sent
 through the gateway with at most four in flight
 ([ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)),

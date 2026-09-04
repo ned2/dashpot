@@ -58,6 +58,11 @@ feature this repository cannot exercise is named as such rather than inferred.
    in, carries only relationship *counts*, and has no linked-pull-request
    field, so it can serve as a change probe but not as a source of Dashpot's
    Issue profile.
+6. `Repository.pullRequests` has no `filterBy`, `since`, or equivalent
+   time-bound argument. It can order by `UPDATED_AT` in either direction and
+   paginate by cursor, so a caller can scan newest-first to a client-side
+   cutoff, but GitHub does not offer an exact server-side Pull Request delta
+   through this connection.
 
 ## 1. GraphQL rate limits and query limits
 
@@ -1084,6 +1089,317 @@ shape above about 40 Issues per query needs its own completeness check before
 it can be trusted as a fresh observation. Assignment and Milestone assignment
 or removal are not blind spots: each bumps the affected Issue.
 
+### Pull Request refresh has ordering but no server-side delta
+
+The live schema was introspected at `2026-09-04T17:38:44Z` with this exact
+query (the response was projected to the `pullRequests` field with `jq`):
+
+```graphql
+query PullRequestArgumentsAndOrder {
+  repositoryType: __type(name: "Repository") {
+    fields(includeDeprecated: true) {
+      name
+      description
+      args {
+        name
+        description
+        defaultValue
+        type {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+  issueOrder: __type(name: "IssueOrder") {
+    kind
+    name
+    description
+    inputFields {
+      name
+      description
+      defaultValue
+      type {
+        kind
+        name
+        ofType {
+          kind
+          name
+        }
+      }
+    }
+  }
+  issueOrderField: __type(name: "IssueOrderField") {
+    kind
+    name
+    description
+    enumValues(includeDeprecated: true) {
+      name
+      description
+      isDeprecated
+      deprecationReason
+    }
+  }
+  orderDirection: __type(name: "OrderDirection") {
+    kind
+    name
+    description
+    enumValues(includeDeprecated: true) {
+      name
+      description
+      isDeprecated
+      deprecationReason
+    }
+  }
+}
+```
+
+`Repository.pullRequests` reported exactly these arguments: `states`,
+`labels`, `headRefName`, `baseRefName`, `orderBy`, `after`, `before`, `first`,
+and `last`. There is no `filterBy`, `since`, or other time-bound argument.
+`orderBy` is an `IssueOrder`; `IssueOrderField` contains `CREATED_AT`,
+`UPDATED_AT`, and `COMMENTS`, while `OrderDirection` contains `ASC` and
+`DESC`.
+
+The pagination types were introspected separately at
+`2026-09-04T17:38:45Z` because GitHub limits repeated `__Type.fields`
+selections in one request:
+
+```graphql
+query PullRequestPagination {
+  pullRequestConnection: __type(name: "PullRequestConnection") {
+    kind
+    name
+    description
+    fields(includeDeprecated: true) {
+      name
+      description
+      type {
+        kind
+        name
+        ofType {
+          kind
+          name
+        }
+      }
+    }
+  }
+  pageInfo: __type(name: "PageInfo") {
+    kind
+    name
+    description
+    fields(includeDeprecated: true) {
+      name
+      description
+      type {
+        kind
+        name
+        ofType {
+          kind
+          name
+        }
+      }
+    }
+  }
+}
+```
+
+`PullRequestConnection` reported `edges`, `nodes`, `pageInfo`, and
+`totalCount`. `PageInfo` reported `endCursor`, `hasNextPage`,
+`hasPreviousPage`, and `startCursor`; the connection arguments supply both
+forward (`first`, `after`) and backward (`last`, `before`) cursor pagination.
+
+A read-only request at `2026-09-04T17:38:54Z` exercised the useful shape:
+
+```graphql
+query PullRequestsByUpdatedAt(
+  $owner: String!
+  $name: String!
+  $first: Int!
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(
+      first: $first
+      after: $after
+      states: [OPEN, CLOSED, MERGED]
+      orderBy: {field: UPDATED_AT, direction: DESC}
+    ) {
+      totalCount
+      nodes {
+        number
+        updatedAt
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+```
+
+With `$first: 2`, the first page returned #135 at
+`2026-09-04T17:38:49Z` and #131 at `2026-09-04T12:39:43Z`, plus an
+`endCursor` and `hasNextPage: true`. Repeating the same query at
+`2026-09-04T17:39:02Z` with that cursor returned the next older Pull Requests,
+#130 at `2026-09-04T12:38:12Z` and #119 at
+`2026-09-04T01:03:59Z`. This verifies that a client can page a descending
+`updatedAt` scan and stop after crossing its own overlap cutoff. It cannot ask
+the server for only Pull Requests updated since that cutoff, so this is a
+prefix scan rather than an exact delta. The schema does not document the
+tie-break order for equal `updatedAt` values; a design that stops at a cutoff
+must include every page containing the boundary timestamp rather than assume
+a stable secondary key.
+
+### Closing-reference changes bump the Pull Request, then index asynchronously
+
+The controlled experiment for
+[#123](https://github.com/ned2/dashpot/issues/123) used scratch Issue #134 and
+scratch Pull Request #135. The PR targeted `main` and began without a closing
+reference. Its branch contained an empty commit only. The setup was created
+at `2026-09-04T17:38:03.658382666Z`–`17:38:28.241865852Z`; the first evidence
+read at `17:38:39.662791501Z` found PR `updatedAt: 17:38:29Z`, Issue
+`updatedAt: 17:38:04Z`, and empty connections at both ends.
+
+Every evidence read used this exact query (the final read added
+`includeClosedPrs: true` to the Issue connection after the PR was closed):
+
+```graphql
+query Issue123ClosingReference(
+  $owner: String!
+  $name: String!
+  $pr: Int!
+  $issue: Int!
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr) {
+      id
+      number
+      body
+      state
+      updatedAt
+      closingIssuesReferences(first: 10) {
+        nodes { id number updatedAt }
+      }
+    }
+    issue(number: $issue) {
+      id
+      number
+      updatedAt
+      closedByPullRequestsReferences(first: 10) {
+        nodes { id number state updatedAt }
+      }
+    }
+  }
+}
+```
+
+The link and unlink used the same exact mutation shape with different
+`$body` values:
+
+```graphql
+mutation Issue123LinkOrUnlinkClosingReference(
+  $pullRequestId: ID!
+  $body: String!
+) {
+  updatePullRequest(
+    input: {pullRequestId: $pullRequestId, body: $body}
+  ) {
+    pullRequest {
+      id
+      number
+      body
+      updatedAt
+      closingIssuesReferences(first: 10) {
+        nodes { id number updatedAt }
+      }
+    }
+  }
+}
+```
+
+Closing the linked PR used:
+
+```graphql
+mutation Issue123ClosePullRequest($pullRequestId: ID!) {
+  closePullRequest(input: {pullRequestId: $pullRequestId}) {
+    pullRequest {
+      id
+      number
+      state
+      updatedAt
+      closingIssuesReferences(first: 10) {
+        nodes { id number updatedAt }
+      }
+    }
+  }
+}
+```
+
+| Operation and request time | PR `updatedAt` before → after | Issue `updatedAt` | Connection evidence |
+|---|---|---|---|
+| Add `Closes #134`, `17:38:48.866379473Z` | `17:38:29Z` → `17:38:49Z` | stayed `17:38:04Z` | mutation response still empty; both ends named each other at `17:38:57.489434665Z` |
+| Remove the closing reference, `17:39:05.265047571Z` | `17:38:49Z` → `17:39:05Z` | stayed `17:38:04Z` | mutation response still linked; both ends were empty at `17:39:12.746566766Z` |
+| Add `Closes #134` again, `17:40:23.813795953Z` | `17:39:05Z` → `17:40:24Z` | stayed `17:38:04Z` | both ends named each other at `17:40:32.419016049Z` |
+| Close PR #135, `17:40:39.111713032Z` | `17:40:24Z` → `17:40:39Z` | stayed `17:38:04Z` | the linked PR read `CLOSED` at both ends at `17:40:46.878242398Z` |
+
+Thus adding and removing a body-derived closing reference, and closing the
+linked PR, each bumps the Pull Request and not the Issue. The derived
+connections are not transactionally current with the mutation: they lagged
+the PR body and timestamp by 7–9 seconds in this experiment. GitHub publishes
+no indexing-latency bound, so a consumer must not treat the first connection
+read after a newer PR timestamp as conclusive. The experiment did not merge a
+scratch PR; the issue's earlier premise that merge bumps the PR remains based
+on GitHub's ordinary PR state semantics rather than this controlled sequence.
+
+PR #135 and Issue #134 were closed after the final read, and the remote
+scratch branch was deleted. No real Issue or branch was changed.
+
+The combined steady-state probe was exercised at
+`2026-09-04T17:56:15.448926555Z` with the exact production selections:
+
+```graphql
+query Issue123CombinedProbe($repositoryId: ID!) {
+  rateLimit { cost limit remaining resetAt }
+  node(id: $repositoryId) {
+    ... on Repository {
+      id
+      nameWithOwner
+      issues(
+        first: 1
+        states: [OPEN, CLOSED]
+        orderBy: {field: UPDATED_AT, direction: DESC}
+      ) {
+        totalCount
+        nodes { updatedAt }
+      }
+      pullRequests(
+        first: 1
+        states: [OPEN, CLOSED, MERGED]
+        orderBy: {field: UPDATED_AT, direction: DESC}
+      ) {
+        nodes { updatedAt }
+      }
+    }
+  }
+}
+```
+
+GitHub reported `rateLimit.cost: 1`, an Issue count of 91, newest Issue
+`updatedAt: 2026-09-04T17:40:59Z`, and newest Pull Request
+`updatedAt: 2026-09-04T17:41:01Z`. Adding the Pull Request signal to the Issue
+probe therefore does not add a request or a primary point on an unchanged
+tick.
+
 ## Experiment artefacts
 
 Commands and raw outputs referenced above were captured in the session's
@@ -1094,7 +1410,9 @@ scratch directory: `aliased.graphql`, `aliased.out`, `aliased.err`,
 documentation text under `docs/`. The queries are reproducible from the
 descriptions in each section; those initial experiments were read-only. The
 controlled #128 queries, mutations, request windows, identities, and cleanup
-are reproduced inline in §3.
+are reproduced inline in §3. The #123 Pull Request schema, paging, and
+closing-reference queries are reproduced inline in §7; only the explicitly
+named scratch objects in the closing-reference experiment were mutated.
 
 ## Sources
 
@@ -1104,7 +1422,8 @@ are reproduced inline in §3.
 - [GraphQL reference: Issues](https://docs.github.com/en/graphql/reference/issues)
 - [GraphQL reference: queries](https://docs.github.com/en/graphql/reference/queries),
   [input objects (`IssueFilters`)](https://docs.github.com/en/graphql/reference/input-objects#issuefilters),
-  and the live schema introspected with `gh api graphql` (`__type(name: "Query" | "IssueFilters" | "RateLimit" | "Repository" | "Issue" | "IssueConnection")`)
+  [objects (`Repository`, `PullRequestConnection`, and `PageInfo`)](https://docs.github.com/en/graphql/reference/objects),
+  and the live schema introspected with `gh api graphql` (`__type(name: "Query" | "IssueFilters" | "RateLimit" | "Repository" | "Issue" | "IssueConnection" | "PullRequestConnection" | "PageInfo" | "IssueOrder" | "IssueOrderField" | "OrderDirection")`)
 - [Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
 - [Best practices for using the REST API](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
 - [REST API endpoints for issues: List repository issues](https://docs.github.com/en/rest/issues/issues#list-repository-issues),

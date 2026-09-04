@@ -43,7 +43,8 @@
     "nodes": [
       { "number": 41, "url": "https://github.com/ned2/dashpot/pull/41", "state": "MERGED" },
       { "number": 12, "url": "https://github.com/ned2/dashpot/pull/12", "state": "OPEN" }
-    ]
+    ],
+    "pageInfo": { "hasNextPage": false, "endCursor": null }
   },
   "createdAt": "2026-08-26T05:33:04Z",
   "updatedAt": "2026-08-26T08:32:48Z",

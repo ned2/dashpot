@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-04
+amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md
 ---
 
 # Refresh GitHub Issues incrementally between Reconciliations
@@ -35,9 +36,11 @@ The GitHub Issue Source now keeps the collection it last observed as a
 snapshot by Issue identity and assembles each fresh observation from it:
 
 - **A change probe every tick.** One query — the newest `updatedAt` and the
-  Issue count, one point, under a second — decides whether anything is to be
-  fetched. If the newest update is no later than the snapshot's high-water
-  mark and the count is unchanged, the snapshot is the observation.
+  Issue count, plus the newest Pull Request `updatedAt` since
+  [ADR 0025](0025-observe-linked-pull-requests-from-pull-request-changes.md),
+  one point, under a second — decides whether anything is to be fetched. If
+  neither mark advances and the Issue count is unchanged, the snapshot is the
+  observation.
 - **A delta since the high-water mark.** Otherwise the Issues updated at or
   after the mark are fetched in pages of twenty-four, oldest change first,
   merged by identity, and the mark advances to the newest `updatedAt` seen.
@@ -97,18 +100,21 @@ snapshot by Issue identity and assembles each fresh observation from it:
   sweeps of a hundred and twenty points and two hundred and forty probes —
   instead of exhausting the limit.
 - The blind spots are enumerated, and each is closed by the next
-  Reconciliation, up to five minutes late, or by `r` on demand: a linked
-  pull request change; a blocker-side dependency change; a parent/sub-Issue
+  Reconciliation, up to five minutes late, or by `r` on demand: a Linked Pull
+  Request relationship whose derived connection remains unindexed across
+  both confirming scans; a
+  blocker-side dependency change; a parent/sub-Issue
   relationship change; a deletion or transfer whose Issue-count change is
   offset by another collection change in the same window; an update in the
   same second as the High-Water Mark that GitHub's one-second `updatedAt`
   cannot order after it; and a fact GitHub does not date on the Issue — a
   label's colour, a milestone or Issue type renamed — on an Issue that was
   not itself updated. Issue-type changes remain conservatively
-  covered because this repository cannot exercise it. The Pull Requests pane
-  ([#83](https://github.com/ned2/dashpot/issues/83)) will need a probe of
-  its own, which is exactly the signal that closes the linked-pull-request
-  blind spot.
+  covered because this repository cannot exercise it. Ordinary Linked Pull
+  Request changes use their own change mark and Issue identity observations
+  ([ADR 0025](0025-observe-linked-pull-requests-from-pull-request-changes.md));
+  the repository-wide Pull Requests pane remains an independent observation
+  with its own last-good state.
 - A Reconciliation the budget abandons is retried a period later while the
   ticks between keep refreshing incrementally, so a large repository is
   stale for one tick in five minutes rather than on every tick; the overdue

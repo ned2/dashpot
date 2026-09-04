@@ -65,16 +65,7 @@ class PullRequest(ObservationModel):
 
 
 class IssueActivity(ObservationModel):
-    """Tracker engagement facts that sit beside the Issue profile.
-
-    They are GitHub-shaped rather than source-neutral, so they travel with
-    the snapshot keyed by Issue Identity instead of inside each Issue. They
-    are presentation, not the complete snapshot ADR 0002 requires of the
-    profile: the Linked Pull Requests are the first twenty GitHub returns,
-    unpaged, and the count of any it left unlisted is carried beside them
-    so an Issue closed by more than twenty is never shown as closed by
-    exactly twenty.
-    """
+    """Carry tracker engagement facts beside the Issue profile."""
 
     comment_count: int = 0
     linked_pull_requests: LaxSequence[LinkedPullRequest] = ()
