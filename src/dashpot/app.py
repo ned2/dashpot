@@ -416,8 +416,8 @@ class DashboardScreen(Screen[None]):
             self.query_one(f"#{table_id}", DataTable) for table_id in LIST_TABLE_IDS
         )
 
-    def _observation_widgets_mounted(self) -> bool:
-        """Report whether an observation can still update every dashboard surface."""
+    def _update_widgets_mounted(self) -> bool:
+        """Report whether dashboard updates can still reach every surface."""
         try:
             self.queue_table()
             self.list_panes()
@@ -626,14 +626,14 @@ class DashboardScreen(Screen[None]):
     def on_body_resized(self, message: BodyResized) -> None:
         # The last layout of a closing app can report after the screen has
         # been torn down; the panes it would fit are already gone.
-        if not self.is_mounted:
+        if not self.is_mounted or not self._update_widgets_mounted():
             return
         self.fit_list_panes(message.size)
 
     def on_list_pane_rows_changed(self, _message: ListPane.RowsChanged) -> None:
         # A pane's share depends on what every pane wants, so any change of
         # records refits them all.
-        if not self.is_mounted:
+        if not self.is_mounted or not self._update_widgets_mounted():
             return
         self.fit_list_panes(self.query_one("#body").size)
 
@@ -1434,7 +1434,7 @@ class DashpotApp(App[None]):
         # has nowhere to go and is dropped.
         if self._closing or self._closed or not self.screen_stack:
             return
-        if not self.dashboard._observation_widgets_mounted():
+        if not self.dashboard._update_widgets_mounted():
             return
         self._finish_in_flight(message.ticket)
         try:
