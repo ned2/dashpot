@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-09-04
 ---
 
 # Refresh GitHub Issues incrementally between Reconciliations

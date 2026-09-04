@@ -1,3 +1,8 @@
+---
+status: research
+date: 2026-09-04
+---
+
 # GitHub API batching and bulk queries for the GitHub Issue Source
 
 Research date: 2026-09-04

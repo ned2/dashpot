@@ -1,5 +1,6 @@
 ---
 status: accepted
+date: 2026-09-04
 ---
 
 # Reconcile GitHub Issues by identity in bounded parallel batches
