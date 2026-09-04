@@ -677,7 +677,13 @@ async def test_a_timer_tick_failure_never_toasts() -> None:
         # having changed the failure, earns the toast the tick did not.
         await wait_until(lambda: not app.in_flight)
         await app.run_action("refresh")
-        await wait_until(lambda: collector.calls == 2 and not app.in_flight)
+        await wait_until(
+            lambda: (
+                collector.calls == 2
+                and not app.in_flight
+                and len(app._notifications) == 1
+            )
+        )
         assert len(app._notifications) == 1
         assert "forbidden" in (app.ui_error or "")
 
