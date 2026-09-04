@@ -97,8 +97,10 @@ def test_no_argument_cli_defaults_to_configured_current_project(
     resolve.assert_called_once_with(
         [Workspace(tmp_path.name, (RepositoryAnchor(str(tmp_path)),))],
         timeout=10.0,
+        polling_seconds=15.0,
     )
     assert collector.projects == [project(tmp_path)]
+    assert collector.polling_seconds == pytest.approx(15.0)
 
 
 def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
@@ -128,6 +130,7 @@ def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
             )
         ],
         timeout=10.0,
+        polling_seconds=15.0,
     )
     assert collector.projects == [project(project_root)]
 

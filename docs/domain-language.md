@@ -239,8 +239,10 @@ repository where it was researched. Every Issue already known is observed by
 identity, in batches of twenty-four with at most four in flight, then the
 delta since the High-Water Mark; only a count those cannot explain falls back
 to the sweep in order of creation, which is also how a run starts. It runs on
-a period (five minutes), on `r`, and whenever the Issue count no longer adds up; an
-observation whose Reconciliation is more than two periods overdue carries a
+the Project's configured period (five minutes by default), on `r`, and whenever
+the Issue count no longer adds up; the period must be positive and at least the
+polling period. An observation whose Reconciliation is more than two periods
+overdue carries a
 `github-reconciliation-overdue` warning, and one whose count still disagrees
 after a Reconciliation failed carries
 `github-issue-count`

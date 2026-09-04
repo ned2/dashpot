@@ -181,6 +181,7 @@ def resolve_workspace_projects(
     root_observer: RootObserver = worktree_root,
     github_identity_observer: GitHubIdentityObserver = observe_github_repository_identity,
     git: Git | None = None,
+    polling_seconds: float | None = None,
 ) -> WorkspaceResolution:
     """Validate every anchor, then group valid clones by Project Identity."""
     resolved: list[_ResolvedAnchor] = []
@@ -196,6 +197,7 @@ def resolve_workspace_projects(
                         root_observer,
                         github_identity_observer,
                         git,
+                        polling_seconds,
                     )
                 )
             except (OSError, RuntimeError) as exc:
@@ -294,6 +296,7 @@ def _resolve_anchor(
     root_observer: RootObserver,
     github_identity_observer: GitHubIdentityObserver,
     git: Git | None,
+    polling_seconds: float | None,
 ) -> _ResolvedAnchor:
     requested = Path(anchor.path)
     if not requested.is_dir():
@@ -302,7 +305,7 @@ def _resolve_anchor(
             f"Repository Anchor does not exist or is not a directory: {requested}",
         )
     root = root_observer(requested).resolve()
-    config = load_project_config(root)
+    config = load_project_config(root, polling_seconds=polling_seconds)
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
         reference = github_repo_from_remote(root, git)
         if not reference:

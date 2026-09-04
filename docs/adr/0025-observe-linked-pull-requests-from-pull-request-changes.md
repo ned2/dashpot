@@ -8,7 +8,8 @@ date: 2026-09-05
 The GitHub Issue Source's Incremental Refresh cannot see a Linked Pull Request
 appear, disappear, close, or merge because none of those changes bumps the
 Issue's `updatedAt`. Reconciliation closes the gap, but can leave the fact a
-polling interval to five minutes behind. The repository-wide Pull Request
+polling interval to the configured Reconciliation period behind (five minutes
+by default). The repository-wide Pull Request
 observation cannot supply the missing evidence: it is an independently
 scheduled, complete collection of active Pull Requests with its own failure
 state, while an Issue's engagement includes closed and merged Linked Pull
@@ -59,7 +60,8 @@ its full active-collection sweep becomes material.
 ## Considered options
 
 - **Wait for Reconciliation:** rejected. It leaves the dashboard's landing
-  signal behind for up to five minutes despite a one-point change signal.
+  signal behind for up to the configured period despite a one-point change
+  signal.
 - **Use `pullRequests(filterBy: {since})`:** unavailable. Live schema
   introspection found no time-bound argument.
 - **Advance the mark after the first prefix scan:** rejected. The controlled

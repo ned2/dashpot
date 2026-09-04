@@ -60,6 +60,42 @@ def test_loads_github_project_configuration(tmp_path: Path) -> None:
     assert config.display_label == "Dashpot"
     assert config.repository_id == "R_dashpot"
     assert config.issue_source == GitHubIssueSourceConfig(kind="github")
+    assert isinstance(config.issue_source, GitHubIssueSourceConfig)
+    assert config.issue_source.reconciliation_seconds == 300
+
+
+def test_loads_configured_github_reconciliation_period(tmp_path: Path) -> None:
+    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 90})
+
+    config = load_project_config(tmp_path, polling_seconds=15)
+
+    assert isinstance(config.issue_source, GitHubIssueSourceConfig)
+    assert config.issue_source.reconciliation_seconds == 90
+
+
+@pytest.mark.parametrize("value", [0, -1, "300"])
+def test_rejects_non_positive_or_non_numeric_reconciliation_period(
+    tmp_path: Path, value: object
+) -> None:
+    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": value})
+
+    with pytest.raises(RuntimeError, match=r"issueSource\.reconciliationSeconds"):
+        load_project_config(tmp_path)
+
+
+def test_rejects_reconciliation_period_shorter_than_polling_interval(
+    tmp_path: Path,
+) -> None:
+    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 14.5})
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            r"issueSource\.reconciliationSeconds must be at least the polling "
+            "interval of 15 seconds"
+        ),
+    ):
+        load_project_config(tmp_path, polling_seconds=15)
 
 
 def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
@@ -208,7 +244,7 @@ def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
 def test_project_collector_builds_github_source_for_github_anchor(
     tmp_path: Path,
 ) -> None:
-    write_config(tmp_path, {"kind": "github"})
+    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 45})
     git = fake_git(
         completed(f"{tmp_path}\n"),
         completed("https://github.com/ned2/dashpot.git\n"),
@@ -219,6 +255,7 @@ def test_project_collector_builds_github_source_for_github_anchor(
     assert isinstance(collector.source, GitHubIssuesSource)
     assert collector.source.project_id == PROJECT_ID
     assert collector.source.repository_id == "R_dashpot"
+    assert collector.source.reconcile_seconds == 45
     assert isinstance(collector.pull_request_source, GitHubPullRequestsSource)
     assert collector.pull_request_source.repository_id == "R_dashpot"
 
@@ -237,7 +274,7 @@ def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None
 def test_build_issue_source_builds_the_configured_github_source(
     tmp_path: Path,
 ) -> None:
-    write_config(tmp_path, {"kind": "github"})
+    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 90})
     git = fake_git(completed("https://github.com/ned2/dashpot.git\n"))
 
     source = build_issue_source(
@@ -248,6 +285,7 @@ def test_build_issue_source_builds_the_configured_github_source(
     assert source.project_id == PROJECT_ID
     assert source.repository_id == "R_dashpot"
     assert source.timeout == 7
+    assert source.reconcile_seconds == 90
 
 
 def test_build_issue_source_requires_github_repository_anchor(tmp_path: Path) -> None:

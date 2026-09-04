@@ -720,12 +720,17 @@ def create_collector(options: ObservationOptions) -> ObservationCoordinator:
             loaded = load_workspaces(inventory)
             workspaces = list(loaded.workspaces)
             inventory_diagnostics = loaded.diagnostics
-    resolution = resolve_workspace_projects(workspaces, timeout=options.timeout)
+    resolution = resolve_workspace_projects(
+        workspaces,
+        timeout=options.timeout,
+        polling_seconds=options.refresh_seconds,
+    )
     return ObservationCoordinator(
         resolution.projects,
         timeout=options.timeout,
         state_dir=options.state_dir.expanduser() if options.state_dir else None,
         diagnostics=[*inventory_diagnostics, *resolution.diagnostics],
+        polling_seconds=options.refresh_seconds,
     )
 
 

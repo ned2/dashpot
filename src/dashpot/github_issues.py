@@ -39,6 +39,7 @@ from .issue_sources import (
     IssueSourceRefreshError,
 )
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
+from .project_config import DEFAULT_RECONCILIATION_SECONDS
 
 _STATE_REASONS = {
     "COMPLETED": "completed",
@@ -55,7 +56,7 @@ _BATCH_SIZE = 24
 _PULL_REQUEST_PAGE_SIZE = 24
 # How long a snapshot is refreshed incrementally before every Issue is
 # observed afresh to close what a delta cannot see (ADR 0022).
-DEFAULT_RECONCILE_SECONDS = 300.0
+DEFAULT_RECONCILE_SECONDS = DEFAULT_RECONCILIATION_SECONDS
 _RECONCILIATION_OVERDUE = "github-reconciliation-overdue"
 _ISSUE_COUNT = "github-issue-count"
 _CONNECTION_FIELDS = {

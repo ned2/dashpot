@@ -219,12 +219,13 @@ def create_project_collector(
     timeout: float = 10,
     state_dir: Path | None = None,
     git: Git | None = None,
+    polling_seconds: float = 15,
 ) -> ProjectCollector:
     requested_root = Path(project.primary_anchor)
     adapter = git if git is not None else Git(requested_root, timeout)
     root = worktree_root(requested_root, adapter)
     adapter = adapter.at(root)
-    config = load_project_config(root)
+    config = load_project_config(root, polling_seconds=polling_seconds)
     if (
         config.project_id != project.project_id
         or config.display_label != project.display_label
@@ -268,6 +269,7 @@ def build_issue_source(
             project_id=config.project_id,
             repository_id=config.repository_id,
             timeout=timeout,
+            reconcile_seconds=config.issue_source.reconciliation_seconds,
         )
     if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
         return LocalMarkdownIssuesSource(
@@ -497,6 +499,7 @@ class ObservationCoordinator:
         diagnostics: Sequence[Diagnostic] = (),
         agent_observer: WorkspaceAgentObserver | None = None,
         clock: Callable[[], str] = utc_now,
+        polling_seconds: float = 15,
     ) -> None:
         self.projects = list(projects)
         self.projects_by_id = {project.project_id: project for project in self.projects}
@@ -508,6 +511,7 @@ class ObservationCoordinator:
             lambda targets: observe_agent_runs(targets, self.state_dir)
         )
         self.clock = clock
+        self.polling_seconds = polling_seconds
         self.collectors: dict[str, ProjectObserver] = {}
         self.refresh_lock = threading.Lock()
         self._state_lock = threading.Lock()
@@ -691,7 +695,10 @@ class ObservationCoordinator:
             collector = self.collectors.get(project.project_id)
         if collector is None:
             collector = self.factory(
-                project, timeout=self.timeout, state_dir=self.state_dir
+                project,
+                timeout=self.timeout,
+                state_dir=self.state_dir,
+                polling_seconds=self.polling_seconds,
             )
             with self._state_lock:
                 collector = self.collectors.setdefault(project.project_id, collector)

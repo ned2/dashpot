@@ -54,8 +54,9 @@ snapshot by Issue identity and assembles each fresh observation from it:
   (by identity since
   [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md),
   which keeps the sweep as the fallback and the first observation) —
-  runs when a period (five minutes) has passed since the last one was
-  attempted, when a person presses `r`, and whenever the merged count
+  runs when the Project's configured period (five minutes by default) has
+  passed since the last one was attempted, when a person presses `r`, and
+  whenever the merged count
   disagrees with the probe's, which is the only trace a deletion or transfer
   leaves. An Issue leaves the snapshot only on such positive evidence: a
   Reconciliation that no longer lists it, or an identity answered `null`, as
@@ -100,7 +101,8 @@ snapshot by Issue identity and assembles each fresh observation from it:
   sweeps of a hundred and twenty points and two hundred and forty probes —
   instead of exhausting the limit.
 - The blind spots are enumerated, and each is closed by the next
-  Reconciliation, up to five minutes late, or by `r` on demand: a Linked Pull
+  Reconciliation, up to the configured period late, or by `r` on demand: a
+  Linked Pull
   Request relationship whose derived connection remains unindexed across
   both confirming scans; a
   blocker-side dependency change; a parent/sub-Issue
@@ -117,7 +119,8 @@ snapshot by Issue identity and assembles each fresh observation from it:
   with its own last-good state.
 - A Reconciliation the budget abandons is retried a period later while the
   ticks between keep refreshing incrementally, so a large repository is
-  stale for one tick in five minutes rather than on every tick; the overdue
+  stale for one tick in the configured period rather than on every tick; the
+  overdue
   warning says when that has gone on too long. A count disagreement found
   after such a failure is reported beside the fresh snapshot as a
   `github-issue-count` warning rather than sweeping again on every tick.

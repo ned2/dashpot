@@ -334,14 +334,18 @@ A GitHub-backed Project looks like this:
   "displayLabel": "Dashpot",
   "repositoryId": "R_kgDOUEerrg",
   "issueSource": {
-    "kind": "github"
+    "kind": "github",
+    "reconciliationSeconds": 300
   }
 }
 ```
 
 The Repository Anchor must have a GitHub `origin`; collection uses the
-authenticated `gh` CLI. A Local Issue Markdown Project selects a repository-
-relative file or directory:
+authenticated `gh` CLI. `reconciliationSeconds` sets how often the GitHub
+Issue Source observes every Issue afresh. It defaults to 300 seconds when
+omitted, must be positive, and cannot be shorter than the run's polling period
+(`--refresh-seconds`, 15 seconds by default). A Local Issue Markdown Project
+selects a repository-relative file or directory:
 
 ```json
 {
