@@ -60,6 +60,7 @@ class PullRequest(ObservationModel):
     review_decision: PullRequestReviewDecision | None
     check_status: PullRequestCheckStatus | None
     mergeability: PullRequestMergeability | None
+    created_at: Rfc3339Timestamp
     updated_at: Rfc3339Timestamp
 
 

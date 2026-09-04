@@ -23,6 +23,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.app import DashpotApp
+from dashpot.item_filter import ItemFilterBar
 from dashpot.list_pane import ListColumn, ListPane, ListRow
 from dashpot.pane_layout import PANE_MARGIN
 from helpers import wait_until
@@ -173,7 +174,8 @@ async def test_dashboard_stacks_the_panes_above_the_issues() -> None:
         assert sessions.region.height == 3
         assert worktrees.region.height == pane_chrome(worktrees) + 1
         assert branches.region.height == 3
-        assert pull_requests.region.height == 3
+        # The filter stays available above the honest empty state when it fits.
+        assert pull_requests.region.height == 3 + ItemFilterBar.HEIGHT
         empty_messages = [
             str(message.render())
             for message in app.query(".list-pane-empty").results(Static)
@@ -198,7 +200,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         refresh_seconds=0,
     )
 
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 43)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         pane = prepare_pane(app, "sessions-pane")
@@ -371,9 +373,14 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
 
         await pilot.resize_terminal(80, 31)
         await wait_until(
-            lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 4
+            lambda: (
+                sessions.region.height == 2 + 1 + 2
+                and worktrees.region.height == 2 + 1 + 3
+            )
         )
-        assert sessions.region.height == worktrees.region.height == 2 + 1 + 4
+        # The Pull Request controls now own three of the spare rows.
+        assert sessions.region.height == 2 + 1 + 2
+        assert worktrees.region.height == 2 + 1 + 3
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= app.query_one(Footer).region.y
 

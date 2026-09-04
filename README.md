@@ -93,19 +93,20 @@ the management commands `init`, `integrate`,
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
 | `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
-| `/` | Focus the Issue search |
+| `/` | Focus the Pull Request search when its table has focus; otherwise focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
 | `c` | Open the column editor: toggle the visible Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, while each list keeps its row cursor |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, highlight that Issue in the table; unbound on Pull Requests |
 | `q` | Quit |
 
-The search box takes whitespace- or quote-separated terms matched against the
-Issue's number, title, labels, Project, assignees, author, milestone, and
-type, plus one `sort:` term — `sort:created`, `sort:updated`, or either with
-an `-asc` / `-desc` suffix (`-desc` is the default) — which overrides the
-column sort while it is present. A search the parser cannot read is reported
-as a `Search:` error in Diagnostics rather than silently ignored. The count
+Both search boxes take whitespace- or quote-separated terms and one `sort:`
+term — `sort:created`, `sort:updated`, or either with an `-asc` / `-desc`
+suffix (`-desc` is the default). For Issues, the lexical terms match the
+number, title, labels, Project, assignees, author, milestone, and type, and
+the sort overrides the column sort while it is present. A search the parser
+cannot read is reported as a `Search:` error in Diagnostics rather than
+silently ignored. The count
 beside the search box (`6 issues`) is the number of Issues matching every
 active filter, never an `M of N` total. The Issue table's columns are `◉`
 (Issue state) and `◈` (agent state), which are unsortable, then `#`, `TITLE`,
@@ -123,13 +124,24 @@ the column rather than invent a default, so an Issue Source that does not use
 priority labels pays no width for it.
 
 The `PULL REQUESTS` pane lists every open Pull Request of a GitHub-backed
-Project, newest update first. Its columns are `STATE`, `#`, `TITLE`, `HEAD`,
+Project, newest update first. Its status selector defaults to `All` active Pull
+Requests and narrows them to `Ready` or `Draft`; it deliberately does not fetch
+the repository's closed and merged history. Bare search terms match the number,
+title, Project, head Branch, base Branch, and author. The query also supports
+the GitHub-shaped `author:`, `head:`, `base:`, `review:`, `status:`, `is:draft`,
+`is:open`, `is:pr`, and `is:unmerged` qualifiers, including a leading `-` to
+negate one, over the facts Dashpot observes. `status:pending` includes a Pull
+Request with no reported checks, matching
+[GitHub's search semantics](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/filtering-and-searching-issues-and-pull-requests).
+The pane title keeps the complete active inventory while the count beside the
+query reports only matches. Its columns are `STATE`, `#`, `TITLE`, `HEAD`,
 `BASE`, `AUTHOR`, `REVIEW`, `CHECKS`, `MERGE`, and `UPDATED`; drafts, review
 decisions, the head commit's combined check/status result, merge conflicts,
 and mergeability still being calculated are distinct Glyphs explained by the
 Legend. Long content scrolls horizontally rather than dropping facts. A fresh
-empty collection says `no active pull requests`; stale last-good data and an
-unavailable or unconfigured source say so separately.
+empty collection says `no active pull requests`; a filter with no matches says
+so, and stale last-good data and an unavailable or unconfigured source say so
+separately.
 
 A Workspace inventory stores named groupings of anchor paths for one Project —
 independent clones, never discovered or persisted worktree paths:

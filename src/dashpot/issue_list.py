@@ -8,8 +8,8 @@ from enum import StrEnum
 from typing import Literal
 
 from .issue_profile import IssueProfile
-from .issue_search import parse_issue_search
 from .model import AgentRun, ProjectObservation, RunState, WorkspaceSnapshot
+from .search import parse_search
 
 IssueState = Literal["open", "closed"]
 RowKind = Literal["issue"]
@@ -145,9 +145,7 @@ def _query_indexed_issue_list(
     observed_issue_count = 0
     matched_issue_count = 0
     open_issue_count = 0
-    search_terms = tuple(
-        term.casefold() for term in parse_issue_search(query.text).terms
-    )
+    search_terms = tuple(term.casefold() for term in parse_search(query.text).terms)
     for project in projects.values():
         project_issues = issues_by_project[project.project_id]
         observed_issue_count += len(project_issues)
@@ -239,7 +237,7 @@ def row_key(kind: str, *identities: str) -> str:
 
 def empty_issue_message(query: IssueListQuery) -> str:
     """Explain an empty Issue list in terms of the active query."""
-    if parse_issue_search(query.text).terms:
+    if parse_search(query.text).terms:
         return "no Issues match the current filters"
     if query.states == frozenset({"open"}):
         return "no open Issues"

@@ -109,7 +109,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
 
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 0"
         assert str(app.query_one("#issue-count", Static).render()) == "2 issues"
-        assert not app.query("#queue-controls .pane-title")
+        assert not app.query("#issue-filters .pane-title")
         diagnostics = app.query_one("#diagnostics", Static)
         assert_panes_stack_above_full_width_queue(app)
         # With nothing to report the Diagnostics box is hidden rather than

@@ -96,8 +96,8 @@ cursor-paginated GraphQL connection, under its own Refresh Budget and
 last-good state, and publishes no partial page set. The compact published model
 keeps GitHub's nested check graph behind the source: it carries the combined
 check/status rollup, review decision, and mergeability alongside identity,
-Branches, author, draft state, and update time. A Local Issue Markdown Project
-uses a second adapter at that seam which reports Pull Requests as not
+Branches, author, draft state, and creation and update times. A Local Issue
+Markdown Project uses a second adapter at that seam which reports Pull Requests as not
 configured; it never inspects Git remotes for hosting. Neither result changes
 the Issue Source status.
 
@@ -123,15 +123,19 @@ belongs to a list: from the top,
 the full-width `SESSIONS`, `WORKTREES`, `BRANCHES` and `PULL REQUESTS` panes
 stack above the full-width `ISSUES` table. Nothing is switched to: every
 active Agent Session, every observed Worktree, every Branch and every active
-Pull Request is listed in its pane, with
-the count in the pane title and an honest one-line empty state. The panes are
+Pull Request is listed in its pane by default, with
+the complete count in the pane title and an honest one-line empty state. Its
+status and query controls filter the read model to ready or draft Pull Requests
+and GitHub-shaped terms without changing or refetching observed state. The panes
+are
 sized to their content rather than sharing the flex height: each asks for the
 rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
-granted first so an empty pane costs three lines, and the caps shrink before
-the Issue table would drop below its minimum height, so the panes only ever
+granted first so an ordinary empty pane costs three lines, and the caps shrink
+before the Issue table would drop below its minimum height, so the panes only ever
 cost the Issue table what they actually use. The Sessions list starts with
 focus, `Tab` and `Shift+Tab` cycle focus Sessions → Worktrees → Branches →
-Pull Requests → Issues, and `/` moves it to the Issue search. `Down` at the
+Pull Requests → Issues. `/` moves from the Pull Request table to its search and
+from elsewhere to the Issue search. `Down` at the
 last row and `Up` at the first row cycle focus through the same order; an empty
 list moves on immediately, and each list keeps its row cursor when focus
 returns. The row cursor

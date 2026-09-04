@@ -79,6 +79,7 @@ query DashpotPullRequests($repositoryId: ID!, $cursor: String) {{
           reviewDecision
           statusCheckRollup {{ state }}
           mergeable
+          createdAt
           updatedAt
         }}
         pageInfo {{ hasNextPage endCursor }}
@@ -110,6 +111,7 @@ class _PullRequestNode(ConfigModel):
     review_decision: Literal["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] | None
     status_check_rollup: _StatusCheckRollup | None
     mergeable: Literal["CONFLICTING", "MERGEABLE", "UNKNOWN"]
+    created_at: Rfc3339Timestamp
     updated_at: Rfc3339Timestamp
 
 
@@ -160,6 +162,7 @@ def normalize_github_pull_request(record: Mapping[str, Any]) -> PullRequest:
         review_decision=review,
         check_status=checks,
         mergeability=mergeability,
+        created_at=node.created_at,
         updated_at=node.updated_at,
     )
 

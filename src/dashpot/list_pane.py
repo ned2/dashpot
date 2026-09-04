@@ -11,6 +11,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.content import Content
 from textual.message import Message
+from textual.widget import Widget
 from textual.widgets import DataTable, Static
 from typing_extensions import override
 
@@ -84,17 +85,25 @@ class ListPane(Vertical):
         empty_message: str,
         id: str,
         table_id: str,
+        controls: Widget | None = None,
+        controls_height: int = 0,
     ) -> None:
         super().__init__(id=id)
+        if (controls is None) != (controls_height == 0):
+            raise ValueError("List pane controls and their height must be set together")
         self.label = label
         self.columns = tuple(columns)
         self.empty_message = empty_message
         self.table_id = table_id
         self.rows_by_key: dict[str, ListRow] = {}
         self.row_cap = DEFAULT_ROW_CAP
+        self.controls = controls
+        self._controls_height = controls_height
 
     @override
     def compose(self) -> ComposeResult:
+        if self.controls is not None:
+            yield self.controls
         yield FocusCursorTable(id=self.table_id, cursor_type="row", zebra_stripes=False)
         yield Static(self.empty_message, classes="list-pane-empty", markup=False)
 
@@ -110,6 +119,11 @@ class ListPane(Vertical):
     @property
     def count(self) -> int:
         return len(self.rows_by_key)
+
+    @property
+    def controls_height(self) -> int:
+        """Report the height the pane needs whenever it shows its controls."""
+        return self._controls_height
 
     def declare_columns(self, columns: Sequence[ListColumn]) -> None:
         """Replace the pane's columns, which a read model may vary per refresh."""
@@ -131,6 +145,7 @@ class ListPane(Vertical):
         columns: Sequence[ListColumn] | None = None,
         note: str | None = None,
         empty_message: str | None = None,
+        title_count: int | None = None,
     ) -> None:
         """Replace the listed records, keeping the cursor by row identity.
 
@@ -158,7 +173,9 @@ class ListPane(Vertical):
                 )
                 table.add_row(*cells, key=row.key)
         self.rows_by_key = desired
-        self.border_title = Content(f"{self.label} · {self.count}")
+        self.border_title = Content(
+            f"{self.label} · {self.count if title_count is None else title_count}"
+        )
         self.border_subtitle = Content(note) if note else None
         # The empty state is the message line alone: a header over nothing
         # would only cost the Issue table a row.
@@ -196,6 +213,8 @@ class ListPane(Vertical):
 
     def apply_row_cap(self) -> None:
         table = self.table
+        if self.controls is not None:
+            self.controls.display = self.row_cap > 0
         header_height = 1 if table.show_header else 0
         table.styles.max_height = (
             header_height + self.row_cap if self.row_cap and self.rows_by_key else 0
