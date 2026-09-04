@@ -237,18 +237,22 @@ itself updated. Issue-type changes are also covered conservatively because
 their `updatedAt` behaviour could not be exercised in the user-owned
 repository where it was researched. Every Issue already known is observed by
 identity, in batches of twenty-four with at most four in flight, then the
-delta since the High-Water Mark; only a count those cannot explain falls back
-to the sweep in order of creation, which is also how a run starts. It runs on
-the Project's configured period (five minutes by default), on `r`, and whenever
+delta since the High-Water Mark. Only a count those cannot explain marks the
+sweep in order of creation for the next refresh, under a Refresh Budget of its
+own; that sweep is also how a run starts. Each refresh publishes one complete
+observation or fails; it never mixes the identity Reconciliation with a partial
+sweep. Reconciliation runs on the Project's configured period (five minutes by
+default), on `r`, and whenever
 the Issue count no longer adds up; the period must be positive and at least the
 polling period. An observation whose Reconciliation is more than two periods
 overdue carries a
-`github-reconciliation-overdue` warning, and one whose count still disagrees
-after a Reconciliation failed carries
+`github-reconciliation-overdue` warning, and one whose count remains
+unexplained after a Reconciliation carries
 `github-issue-count`
 ([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
 [ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md),
-[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)).
+[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md),
+[ADR 0026](adr/0026-run-fallback-sweeps-under-their-own-refresh-budget.md)).
 _Avoid_: reconciling for the dashboard's own reuse of table rows and pane
 entries, which is a widget concern, not an observation.
 

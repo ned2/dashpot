@@ -2093,7 +2093,7 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         self.assertEqual(["I_issue_1"], [issue.id for issue in observation.issues])
         self.assertEqual(4, len(runner.calls))
 
-    def test_a_count_still_unexplained_after_identities_falls_back_to_the_sweep(
+    def test_a_count_still_unexplained_schedules_a_sweep_with_its_own_budget(
         self,
     ) -> None:
         # An Issue transferred in carries an old updatedAt: it enters no
@@ -2110,7 +2110,8 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
                     ]
                 ),
                 completed(issue_page([])),
-                # One more probe: the count did not move, so the sweep runs.
+                # One more probe confirms the count disagreement. The next
+                # refresh starts a new Refresh Budget and runs only the sweep.
                 completed(probe_response(3, self.MARK)),
                 completed(
                     issue_page(
@@ -2126,15 +2127,127 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         github = source(runner)
 
         github.refresh()
-        observation = github.refresh(reconcile=True)
+        reconciled = github.refresh(reconcile=True)
+        swept = github.refresh()
 
-        self.assertEqual("fresh", observation.status)
+        self.assertEqual("fresh", reconciled.status)
+        self.assertEqual(
+            ["I_issue_1", "I_issue_2"],
+            [issue.id for issue in reconciled.issues],
+        )
+        self.assertEqual(
+            ["github-issue-count"], [item.code for item in reconciled.diagnostics]
+        )
+        self.assertFalse(
+            any("CREATED_AT" in query_of(call) for call in runner.calls[1:5])
+        )
+        self.assertEqual("fresh", swept.status)
         self.assertEqual(
             ["I_issue_1", "I_issue_2", "I_issue_3"],
-            [issue.id for issue in observation.issues],
+            [issue.id for issue in swept.issues],
         )
+        self.assertEqual((), swept.diagnostics)
         self.assertEqual(6, len(runner.calls))
         self.assertIn("CREATED_AT", query_of(runner.calls[5]))
+
+    def test_an_abandoned_fallback_sweep_waits_a_period_before_retry(
+        self,
+    ) -> None:
+        known = unrelated(issue_record(1, updated_at=self.OLDER))
+        second = unrelated(issue_record(2, updated_at=self.MARK))
+        transferred = unrelated(issue_record(3, updated_at=self.OLDER))
+
+        def page(cursor: str) -> CommandResult:
+            return completed(issue_page([known], has_next_page=True, end_cursor=cursor))
+
+        runner = SequenceRunner(
+            [
+                self.first_sweep(),
+                completed(probe_response(3, self.MARK)),
+                nodes_response(
+                    [
+                        by_id(known),
+                        by_id(second),
+                    ]
+                ),
+                completed(issue_page([])),
+                completed(probe_response(3, self.MARK)),
+                page("p1"),
+                page("p2"),
+                page("p3"),
+                page("p4"),
+                completed(probe_response(3, self.MARK)),
+                completed(issue_page([])),
+                # One period after the sweep attempt, another Reconciliation
+                # confirms the disagreement and schedules a new attempt.
+                completed(probe_response(3, self.MARK)),
+                nodes_response([by_id(known), by_id(second)]),
+                completed(issue_page([])),
+                completed(probe_response(3, self.MARK)),
+                completed(issue_page([known, second, transferred])),
+            ]
+        )
+        monotonic = iter(
+            [
+                *[0.0] * 2,
+                *[300.0] * 5,
+                *[315.0] * 6,
+                *[330.0] * 3,
+                *[615.0] * 5,
+                *[630.0] * 2,
+            ]
+        )
+        github = source(
+            runner,
+            [
+                "2026-08-26T10:00:00Z",
+                "2026-08-26T10:05:00Z",
+                "2026-08-26T10:05:15Z",
+                "2026-08-26T10:05:30Z",
+                "2026-08-26T10:10:15Z",
+                "2026-08-26T10:10:30Z",
+            ],
+            budget=RefreshBudget(seconds=60, requests=4),
+            monotonic=lambda: next(monotonic),
+            reconcile_seconds=300,
+        )
+
+        github.refresh()
+        reconciled = github.refresh(reconcile=True)
+        abandoned = github.refresh()
+        next_tick = github.refresh()
+        reconciled_again = github.refresh()
+        recovered = github.refresh()
+
+        self.assertEqual("fresh", reconciled.status)
+        self.assertEqual("github-issue-count", reconciled.diagnostics[0].code)
+        assert_stale_observation(
+            self,
+            abandoned,
+            attempted_at="2026-08-26T10:05:15Z",
+            last_good_at="2026-08-26T10:05:00Z",
+            source_name="github-issues",
+            diagnostic_code="github-refresh-budget",
+            expected_issues=list(reconciled.issues),
+        )
+        self.assertEqual("fresh", next_tick.status)
+        self.assertEqual("github-issue-count", next_tick.diagnostics[0].code)
+        self.assertEqual("fresh", reconciled_again.status)
+        self.assertEqual("github-issue-count", reconciled_again.diagnostics[0].code)
+        self.assertEqual("fresh", recovered.status)
+        self.assertEqual(
+            ["I_issue_1", "I_issue_2", "I_issue_3"],
+            [issue.id for issue in recovered.issues],
+        )
+        self.assertEqual((), recovered.diagnostics)
+        self.assertEqual(16, len(runner.calls))
+        self.assertTrue(
+            all("CREATED_AT" in query_of(call) for call in runner.calls[5:9])
+        )
+        self.assertFalse(
+            any("CREATED_AT" in query_of(call) for call in runner.calls[9:15])
+        )
+        self.assertIn("CREATED_AT", query_of(runner.calls[15]))
 
     def test_a_count_moved_by_a_creation_in_flight_is_settled_by_one_more_probe(
         self,

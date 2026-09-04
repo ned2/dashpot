@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-04
+amended-by: 0026-run-fallback-sweeps-under-their-own-refresh-budget.md
 ---
 
 # Reconcile GitHub Issues by identity in bounded parallel batches

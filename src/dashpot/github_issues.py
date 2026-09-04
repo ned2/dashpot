@@ -4,7 +4,7 @@ import copy
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -327,6 +327,7 @@ class _Snapshot:
     pull_request_marks: _PullRequestMarks
     reconciled_at: float
     reported_count: int | None = None
+    sweep_due: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,7 +423,14 @@ class GitHubIssuesSource(IssueSource):
         meter = self._start_meter()
         now = meter.started
         snapshot = self._snapshot
-        if snapshot is None or snapshot.high_water is None:
+        if snapshot is not None and snapshot.sweep_due:
+            # Clearing before the attempt prevents a sweep that exhausts its
+            # own budget from being retried on every polling tick.
+            snapshot = replace(snapshot, sweep_due=False)
+            self._snapshot = snapshot
+            self._reconcile_attempted_at = now
+            snapshot = self._sweep(meter, now)
+        elif snapshot is None or snapshot.high_water is None:
             snapshot = self._reconcile(snapshot, meter, now)
         else:
             probe = self._probe(meter)
@@ -508,8 +516,15 @@ class GitHubIssuesSource(IssueSource):
             probe = self._probe(meter)
         if len(observed) != probe.total_count:
             # An Issue transferred in carries its old updatedAt and no known
-            # identity: only the sweep lists it.
-            return self._sweep(meter, now)
+            # identity: only a sweep under a fresh Refresh Budget lists it.
+            return _Snapshot(
+                issues=observed,
+                high_water=high_water,
+                pull_request_marks=snapshot.pull_request_marks,
+                reconciled_at=now,
+                reported_count=probe.total_count,
+                sweep_due=True,
+            )
         return _Snapshot(
             issues=observed,
             high_water=high_water,
@@ -627,6 +642,7 @@ class GitHubIssuesSource(IssueSource):
             ),
             reconciled_at=snapshot.reconciled_at,
             reported_count=snapshot.reported_count,
+            sweep_due=snapshot.sweep_due,
         )
 
     def _pull_request_changes_since(
@@ -801,8 +817,8 @@ class GitHubIssuesSource(IssueSource):
                     message=(
                         f"GitHub reports {snapshot.reported_count} Issues but "
                         f"{len(snapshot.issues)} are known; a deleted or "
-                        "transferred Issue may be shown until a Reconciliation "
-                        "succeeds"
+                        "transferred Issue may be shown until the fallback "
+                        "sweep succeeds"
                     ),
                 )
             )

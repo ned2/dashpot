@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-04
-amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md
+amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md, 0026-run-fallback-sweeps-under-their-own-refresh-budget.md
 ---
 
 # Refresh GitHub Issues incrementally between Reconciliations
@@ -64,6 +64,10 @@ snapshot by Issue identity and assembles each fresh observation from it:
   from a delta never removes anything,
   which keeps [ADR 0002](0002-require-complete-issue-profile-snapshots.md)'s
   guarantee that nothing partially fetched masquerades as a deletion.
+  When identities and the delta cannot explain a count, their complete
+  observation publishes with `github-issue-count`; the next refresh runs the
+  fallback sweep alone under a fresh Refresh Budget
+  ([ADR 0026](0026-run-fallback-sweeps-under-their-own-refresh-budget.md)).
 - **The request rides the ticket.** `r` requests its observations with a
   Reconciliation, a timer tick without, and a press coalesced onto an
   observation in flight ([ADR 0020](0020-coalesce-requests-onto-the-observation-in-flight.md))
@@ -121,8 +125,9 @@ snapshot by Issue identity and assembles each fresh observation from it:
   ticks between keep refreshing incrementally, so a large repository is
   stale for one tick in the configured period rather than on every tick; the
   overdue
-  warning says when that has gone on too long. A count disagreement found
-  after such a failure is reported beside the fresh snapshot as a
-  `github-issue-count` warning rather than sweeping again on every tick.
+  warning says when that has gone on too long. A fallback sweep the budget
+  abandons is likewise not retried on every tick; the `github-issue-count`
+  warning remains beside the fresh snapshot until a later observation settles
+  it.
 - Issue Profiles are published ordered by Issue Number rather than by the
   sweep's creation order, since a merged snapshot has no page order.

@@ -90,8 +90,11 @@ known is observed afresh by identity, in batches of twenty-four sent
 through the gateway with at most four in flight
 ([ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)),
 then the delta since the High-Water Mark, and only a count those cannot
-explain falls back to the sweep in order of creation; an Issue is removed
-only on positive evidence. A Reconciliation the Refresh Budget abandons is
+explain marks the sweep in order of creation for the next refresh, where it
+runs alone under a new Refresh Budget
+([ADR 0026](adr/0026-run-fallback-sweeps-under-their-own-refresh-budget.md)); an
+Issue is removed only on positive evidence. A Reconciliation or fallback sweep
+the Refresh Budget abandons is
 retried a period later while the ticks between keep refreshing
 incrementally, and one more than two periods overdue is reported as a
 warning. The research behind the shape of every query is in
