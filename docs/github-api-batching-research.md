@@ -7,10 +7,10 @@ date: 2026-09-05
 
 Research dates: 2026-09-04–2026-09-05.
 
-This note establishes what GitHub's API offers for batching and bulk queries,
-to inform a later incremental-refresh design for
-[`GitHubIssuesSource`](../src/dashpot/github_issues.py). It does not decide
-the design. Every claim is checked against GitHub's documentation, the live
+This note establishes what GitHub's API offers for batching and bulk queries
+and records the evidence behind the accepted Incremental Refresh designs for
+[`GitHubIssuesSource`](../src/dashpot/github_issues.py). It records evidence,
+not decisions. Every claim is checked against GitHub's documentation, the live
 GraphQL schema (introspected through `gh api graphql`), the `cli/cli` and
 `cli/go-gh` source at the installed release, or a read-only experiment
 against `ned2/dashpot` (repository node id `R_kgDOUEerrg`; 81 Issues and 33
@@ -54,10 +54,12 @@ feature this repository cannot exercise is named as such rather than inferred.
    `hasNextPage` unable to reveal it. Dashpot's current 100-per-page query
    showed no such loss on 24 spot-checked Issues, but the mechanism exists.
 5. A REST `304 Not Modified` costs nothing against the primary limit (verified:
-   `x-ratelimit-used` unchanged), but the REST Issue list mixes pull requests
-   in, carries only relationship *counts*, and has no linked-pull-request
-   field, so it can serve as a change probe but not as a source of Dashpot's
-   Issue profile.
+   `x-ratelimit-used` unchanged), but it validates only the exact requested
+   representation, not the repository-wide Issue and Pull Request collection.
+   The REST Issue list also mixes pull requests in, carries only relationship
+   *counts*, and has no linked-pull-request field, so it can serve as a
+   best-effort change probe but not as a source of Dashpot's Issue Profile or
+   positive evidence of collection completeness.
 6. `Repository.pullRequests` has no `filterBy`, `since`, or equivalent
    time-bound argument. It can order by `UPDATED_AT` in either direction and
    paginate by cursor, so a caller can scan newest-first to a client-side
@@ -984,6 +986,100 @@ larger repositories.
   ([Sub-issues](https://docs.github.com/en/rest/issues/sub-issues),
   [Issue dependencies](https://docs.github.com/en/rest/issues/issue-dependencies))
   and `.../timeline` for pull request links.
+
+### Issue #129: validator scope and probe limits
+
+The candidate probe is the first page of the repository Issues endpoint, with
+the filters and ordering kept identical between requests:
+
+```text
+GET /repos/{owner}/{repo}/issues
+    ?state=all&sort=updated&direction=desc&per_page=1&page=1
+Accept: application/vnd.github+json
+X-GitHub-Api-Version: 2022-11-28
+If-None-Match: <ETag saved from the preceding 200 response>
+```
+
+`state=all` is required because the endpoint defaults to open Issues;
+`sort=updated`, `direction=desc`, `per_page=1`, and `page=1` select the newest
+returned item. The endpoint documents a maximum `per_page` of 100 and returns
+an array, not a collection count
+([List repository issues](https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28#list-repository-issues)).
+GitHub's generic conditional-request contract says that most endpoints return
+an `ETag`, that sending it as `If-None-Match` returns `304 Not Modified` when
+the response has not changed, and that an authenticated `304` does not count
+against the primary rate limit
+([REST best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests)).
+The repository-Issues endpoint's own status table omits `304`, but the live
+endpoint accepted the documented conditional request.
+
+Read-only check against `ned2/dashpot` on 2026-09-04:
+
+```bash
+gh api --include \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  'repos/ned2/dashpot/issues?state=all&sort=updated&direction=desc&per_page=1&page=1'
+
+gh api --include \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  -H 'If-None-Match: W/"fb7fed9a7058f9c879dd46142b47aa867e104dbe740f4e118d6e047ec2641c82"' \
+  'repos/ned2/dashpot/issues?state=all&sort=updated&direction=desc&per_page=1&page=1'
+```
+
+| UTC request time | Status and relevant headers | Body |
+|---|---|---|
+| `2026-09-04T18:44:25.765138069Z` | `200 OK`; `ETag: W/"fb7f…1c82"`; `Cache-Control: private, max-age=60, s-maxage=60`; `X-RateLimit-Resource: core`; `X-RateLimit-Used: 43`; `Link` named only page 2 | one-element array containing Issue #125 |
+| `2026-09-04T18:44:31.467534553Z` | `304 Not Modified`; the same ETag without its weak prefix; `X-RateLimit-Resource: core`; `X-RateLimit-Used: 43` | empty; `gh api` exited 1 and printed `gh: HTTP 304` |
+
+The unchanged `X-RateLimit-Used` matches the documented zero primary-limit
+charge. A normal REST `GET` usually costs one *secondary*-limit point, and the
+docs do not exempt conditional requests from that separate budget
+([REST rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#calculating-points-for-the-secondary-rate-limit)).
+
+Crucially, GitHub defines `304` in terms of "the representation that you
+requested", and says that a different page size, page number, or filter
+produces a different representation and ETag. It separately warns that
+`sort=updated` reorders a paginated list whenever an item changes
+([REST best practices, "Make requests that can be cached"](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#make-requests-that-can-be-cached)).
+Live, page 1 returned `W/"fb7…1c82"` at
+`2026-09-04T18:41:03.001356095Z`; sending that ETag without the weak prefix to
+the otherwise identical `page=2` request at
+`2026-09-04T18:41:58.225256575Z` returned `200`, a different `W/"0200…6aab"`
+ETag, and Issue #126. The table above repeats the page-1 observation before its
+paired conditional request. This projection checked Pull Request membership at
+`2026-09-04T18:42:08.874429794Z`:
+
+```bash
+gh api \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  'repos/ned2/dashpot/issues?state=all&sort=updated&direction=desc&per_page=100&page=1' \
+  --jq '{items: length, pull_request_count: [.[] | select(has("pull_request"))] | length, newest_pull_requests: [.[] | select(has("pull_request")) | {number, updated_at}][0:3]}'
+```
+
+It returned 100 objects, 43 of them pull requests, with #135, #131, and #130
+the three newest pull requests. Therefore:
+
+- A page-1 `304` is documented evidence only that the exact one-element page
+  representation is unchanged. GitHub does **not** document it as evidence
+  that every later page, the collection size, or every repository Issue and
+  Pull Request is unchanged.
+- The array has no total count. The live page-1 `Link` header named only
+  `rel="next"`; GitHub documents that `rel="last"` may be absent when it cannot
+  be calculated
+  ([REST pagination](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api#using-link-headers)).
+  Consequently the probe supplies no positive evidence for deletion or
+  transfer of an older Issue, and cannot detect a removal offset by an
+  addition. Whether GitHub currently invalidates page 1 for every change on a
+  later page is **unverified and not part of the documented contract**.
+- Pull Requests are members of this representation. Thus a
+  non-`304` response can be caused solely by Pull Request activity and must
+  lead to the GraphQL probe rather than being treated as positive evidence of
+  an Issue change. Conversely, the REST validator adds no coverage for a
+  relationship change that changes neither the Issue nor the represented
+  page; Reconciliation remains responsible for the verified blind spots.
 
 ## 5. `gh api` behaviour
 

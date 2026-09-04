@@ -73,7 +73,9 @@ incrementally ([`github_issues.py`](../src/dashpot/github_issues.py),
 [ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md)):
 each tick asks GitHub one one-point question — the newest update and the
 Issue count, plus the newest Pull Request update — and an unchanged repository
-is answered by that alone, whatever its size. When something changed, only
+is answered by that alone, whatever its size
+([ADR 0027](adr/0027-keep-the-graphql-change-probe-authoritative.md)). When
+something changed, only
 the Issues updated since their High-Water Mark are fetched, in pages of
 twenty-four, together with the other end of every relationship they added or
 removed, and merged by identity. A Pull Request mark that advances adds a

@@ -215,7 +215,8 @@ Issue identity into the collection it last observed. A fresh observation may
 be assembled this way; an Issue or Linked Pull Request leaves the collection
 only on positive evidence, never for being absent from a delta or prefix scan
 ([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
-[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)).
+[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md),
+[ADR 0027](adr/0027-keep-the-graphql-change-probe-authoritative.md)).
 
 **High-Water Mark**:
 The newest `updatedAt` the GitHub Issue Source has observed in one change

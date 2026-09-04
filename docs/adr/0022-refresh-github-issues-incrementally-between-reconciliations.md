@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-04
-amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md, 0026-run-fallback-sweeps-under-their-own-refresh-budget.md
+amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md, 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0027-keep-the-graphql-change-probe-authoritative.md
 ---
 
 # Refresh GitHub Issues incrementally between Reconciliations
@@ -75,10 +75,11 @@ snapshot by Issue identity and assembles each fresh observation from it:
 
 ## Considered options
 
-- **A REST conditional probe (`304 Not Modified` costs nothing):** deferred.
-  The GraphQL probe costs one point a tick, two hundred and forty an hour;
-  the REST list's ETag also moves on pull request activity and lives on a
-  separate limit. Worth revisiting only if the probe's cost ever matters.
+- **A REST conditional probe (`304 Not Modified` costs nothing):** rejected in
+  [ADR 0027](0027-keep-the-graphql-change-probe-authoritative.md). GitHub
+  validates one paginated REST representation, not the repository-wide Issue
+  and Pull Request collection, and the response carries no exact Issue count.
+  It therefore cannot safely decide that the GraphQL probe is unnecessary.
 - **A full sweep by aliased `issue(number:)` in parallel batches:**
   rejected. Issue numbers are shared with pull requests, so every batch
   carries a `NOT_FOUND` per pull request and a missing Issue cannot be told

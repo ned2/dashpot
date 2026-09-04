@@ -1,11 +1,11 @@
 ---
-status: research
-date: 2026-09-04
+status: living
+date: 2026-09-05
 ---
 
 # Sequencing GitHub observation data and state work
 
-Research date: 2026-09-04.
+Initial research date: 2026-09-04. Updated as the sequence lands.
 
 ## Scope
 
@@ -48,23 +48,22 @@ configuration:                                #126 (after its seam is corrected)
 all settled in-memory state -------------------------------> #124
 ```
 
-For one person working linearly, the recommended order is **#128, #127, #123,
-#126, #125, #129 triage, then #124**. #128 and #127 are the two cleanly ready
-starting points. #123 is the highest-priority user-visible gap, but its proposed
-shape predates the now-complete Pull Requests pane and must be revised before
-implementation. #126, #125, and #124 each contain a design choice or seam
-contradiction despite carrying `ready-for-agent`. #129 already carries
-`needs-triage` and should be implemented only if measurement after #123 justifies
-it. #124 should be last because it makes the state machine and its compatibility
-contract durable across runs.
+The linear work followed the recommended order **#128, #127, #123, #126,
+#125, #129 triage, then #124**. The first six are complete. #123 added a Pull
+Request change signal inside the GitHub Issue Source without coupling it to the
+independently scheduled Pull Requests pane; #126 and #125 settled their
+configuration and state-machine choices; and #129 rejected the REST gate after
+measurement. #124 remains last because it makes that settled state machine and
+its compatibility contract durable across runs.
 
 ## Current architecture that constrains the order
 
 The GitHub Issue Source currently has three distinct layers of in-process state:
 
-1. Its private `_Snapshot` owns the Issues by Issue Identity, High-Water Mark,
-   last successful Reconciliation time, and any unexplained reported count.
-   The source replaces it only after the merged collection passes its invariants
+1. Its private `_Snapshot` owns the Issues by Issue Identity; separate Issue and
+   Pull Request High-Water Marks; last successful Reconciliation time; any
+   unexplained reported count; and whether a fallback sweep is due. The source
+   replaces it only after the merged collection passes its invariants
    ([`github_issues.py`](../src/dashpot/github_issues.py)).
 2. The general `IssueSource` retains the last successfully published complete
    Issue collection and returns it as stale after a refresh failure
@@ -95,80 +94,80 @@ the deliberately separate failure states.
 
 | Issue | Present scope and value | Dependency or overlap | Readiness |
 | --- | --- | --- | --- |
-| [#128 Verify which Issue changes bump `updatedAt`](https://github.com/ned2/dashpot/issues/128) | Live experiments for assignment, parent/sub-Issue, milestone, and Issue type changes; then make ADR 0022 and the README's blind-spot list exact. This is correctness evidence, not an optimization. | Informs which facts require Reconciliation and the design of #123. No code dependency. | **Ready first.** It requires authorized scratch-Issue mutations, but its experiment and documentation outcome are fully stated. |
-| [#127 Reuse the already-fetched delta](https://github.com/ned2/dashpot/issues/127) | Remove a duplicated delta when an ordinary tick discovers a count disagreement and enters Reconciliation; merge duplicate observations by `updatedAt`, with the identity observation winning a tie. | Changes the same `_refresh_incrementally` to `_reconcile` handoff that #125 will restructure. | **Ready first.** Small, pinned by an existing request-sequence test, and should precede #125. |
-| [#123 Observe Linked Pull Requests incrementally](https://github.com/ned2/dashpot/issues/123) | Close the most visible five-minute blind spot: a Linked Pull Request opening, merging, closing, linking, or unlinking should update its Issue on the next tick. It is the only P2 in the cluster. | The issue's sketch assumes a new Pull Request probe, but #83 has since supplied an independent full Pull Request source. It also leaves two API facts for live verification: whether closing-reference edits bump the Pull Request's `updatedAt`, and whether a usable Pull Request `since` delta exists. | **Re-triage, then design first.** Revise the Issue/ADR around one Pull Request observation rather than duplicate collection, while preserving independent Issue and Pull Request failure state. |
-| [#126 Configure the Reconciliation period](https://github.com/ned2/dashpot/issues/126) | Put the five-minute period in each Project's configuration and retain the current default. This is useful tuning for repositories with different sizes and shared-token pressure. | The requested validation compares the configured period with the polling interval, but `ProjectConfig` sees only `.dashpot/config.json`; polling is the runtime `--refresh-seconds` CLI option and is passed directly to the app, not the Project collector ([`project_config.py`](../src/dashpot/project_config.py), [`cli.py`](../src/dashpot/cli.py)). | **Specification correction required.** Validate positivity in the Project config model, and validate the period-versus-polling relationship at run construction after both values are known. Clarify the rule for zero polling and headless single-shot runs. |
-| [#125 Give the fallback sweep its own Refresh Budget](https://github.com/ned2/dashpot/issues/125) | Prevent an identity Reconciliation plus delta plus fallback sweep from repeatedly exceeding one sixty-second budget on a large repository. | Overlaps #127's count-disagreement path. Its notes leave two materially different designs open: defer a marked sweep to a later tick, or grant Reconciliation a larger budget. A deferred `sweep_due` marker would become part of the state #124 persists. | **Decide the ADR shape after #127.** Prefer the separate later sweep: it preserves the ordinary Refresh Budget and avoids making a person's `r` unexpectedly much longer, while still publishing no partial sweep. |
-| [#129 Add a REST conditional probe](https://github.com/ned2/dashpot/issues/129) | Let a quiet repository spend zero GraphQL points per tick by using a REST `304` only as a gate before the authoritative GraphQL probe. | Its economics explicitly improve after #123. Its premise also predates #83: the REST Issues-list ETag moving on Pull Request activity may be a useful shared hint now, but Issues and Pull Requests are independently scheduled keys. Sharing it could couple sources; using it separately could duplicate REST calls. | **Triage after #123.** Measure real primary-limit pressure and settle whether one safe shared gate can serve both sources. Close or defer it if the complexity exceeds the saved points. |
-| [#124 Persist the GitHub Issue snapshot](https://github.com/ned2/dashpot/issues/124) | Avoid the full cursor sweep on every process start by loading the previous `_Snapshot`, validating it, and reconciling it before publication. This is the durable-state change in the cluster. | It freezes the shape produced by #125 and the configured period from #126. If #123 introduces shared Pull Request high-water or relationship state, persistence must consciously include or exclude it. | **Last, after a dedicated ADR.** The Issue already leaves trust age and first-run last-good behavior undecided, and the current monotonic `reconciled_at` cannot be meaningfully restored in another process. |
+| [#128 Verify which Issue changes bump `updatedAt`](https://github.com/ned2/dashpot/issues/128) | Live experiments for assignment, parent/sub-Issue, milestone, and Issue type changes; then make ADR 0022 and the README's blind-spot list exact. This is correctness evidence, not an optimization. | Informed which facts require Reconciliation and the design of #123. | **Completed.** Reproducible evidence and the verified blind spots are in the API research note and ADR 0022. |
+| [#127 Reuse the already-fetched delta](https://github.com/ned2/dashpot/issues/127) | Remove a duplicated delta when an ordinary tick discovers a count disagreement and enters Reconciliation; merge duplicate observations by `updatedAt`, with the identity observation winning a tie. | Changed the same `_refresh_incrementally` to `_reconcile` handoff that #125 later restructured. | **Completed.** The handoff reuses one delta with timestamp-ordered merge semantics. |
+| [#123 Observe Linked Pull Requests incrementally](https://github.com/ned2/dashpot/issues/123) | Close the most visible Reconciliation blind spot for a Linked Pull Request opening, merging, closing, linking, or unlinking. | Live research found no Pull Request `since` filter and observed derived closing-reference indexing lag. ADR 0025 therefore uses a newest-first prefix and two confirming ticks inside the Issue Source while preserving the independent Pull Request source. | **Completed.** Pull Request changes re-observe current and previous Issue targets by identity. |
+| [#126 Configure the Reconciliation period](https://github.com/ned2/dashpot/issues/126) | Put the five-minute period in each Project's configuration and retain the current default. | Validation needs both the Project setting and the runtime polling period. | **Completed.** `issueSource.reconciliationSeconds` validates positivity in the Project config and is compared with polling at run construction. |
+| [#125 Give the fallback sweep its own Refresh Budget](https://github.com/ned2/dashpot/issues/125) | Prevent an identity Reconciliation plus delta plus fallback sweep from repeatedly exceeding one sixty-second budget on a large repository. | Followed #127's count-disagreement handoff and established state #124 must persist consciously. | **Completed.** ADR 0026 defers the marked sweep to the next refresh under its own Refresh Budget. |
+| [#129 Add a REST conditional probe](https://github.com/ned2/dashpot/issues/129) | Evaluate whether a quiet repository can spend zero GraphQL points per tick by using a REST `304` as a gate before the authoritative GraphQL probe. | #123 added its Pull Request update signal to the existing one-point GraphQL query. Research found that a REST ETag validates only one paginated representation and supplies no exact Issue count, so it cannot safely replace the probe's repository-wide evidence. | **Completed triage; rejected.** ADR 0027 keeps the combined GraphQL probe authoritative rather than adding an undocumented deletion/transfer blind spot. |
+| [#124 Persist the GitHub Issue snapshot](https://github.com/ned2/dashpot/issues/124) | Avoid the full cursor sweep on every process start by loading the previous `_Snapshot`, validating it, and reconciling it before publication. This is the durable-state change in the cluster. | Must decide how to persist the Pull Request marks and fallback-sweep state added by #123 and #125, plus how the configured period applies across processes. | **Ready last, after a dedicated ADR.** Trust age, first-run last-good behavior, and the process-local monotonic Reconciliation time still require decisions. |
 
-## Recommended sequence and gates
+## Sequence plan and outcomes
 
 ### 1. Establish the missing evidence with #128
 
-Run the controlled GitHub experiments and update the research note, ADR 0022,
-and README together. This prevents the later designs from accidentally
+The controlled GitHub experiments updated the API research note, ADR 0022, and
+domain language together. They prevented the later designs from accidentally
 optimizing around an incomplete list of facts that `updatedAt` does not date
 ([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
-[`github-api-batching-research.md`](github-api-batching-research.md)). If an
-experiment shows that neither end of a relationship changes its timestamp,
-record that as a Reconciliation-only fact before changing the state machine.
+[`github-api-batching-research.md`](github-api-batching-research.md)). The
+verified relationship blind spots remain Reconciliation-only facts.
 
 ### 2. Simplify the existing handoff with #127
 
-Land the small delta-reuse change while the current request sequence is still
-directly represented by the existing test. Besides saving a request, it gives
+The delta-reuse change landed before #125. Besides saving a request, it gave
 #125 one canonical payload to carry from the ordinary tick into a
-Reconciliation. Doing #125 first would force #127 to rediscover that handoff in
-a newly split sweep state machine
+Reconciliation and kept the handoff directly represented by its request-sequence
+test
 ([ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).
 
-### 3. Re-scope and implement #123 against the Pull Request source
+### 3. Re-scope and implement #123 alongside the Pull Request source
 
-Before code, update #123's accepted design to answer:
+ADR 0025 answered the open design questions before code:
 
-- whether the existing Pull Request source becomes incremental and exposes
-  closing-Issue relationship changes, or whether a separate internal observer
-  supplies that signal;
-- how a Pull Request observation asks the Issue Source to re-observe the
-  affected Issue identities without coupling their last-good/failure states;
-- how a merge or close is positive evidence when the active-only Pull Request
-  collection no longer lists that Pull Request; and
-- the two live API questions already named in #123.
+- the Issue Source owns its own bounded Pull Request prefix observation rather
+  than changing the independently scheduled Pull Request source;
+- changed Pull Requests cause current and previous closing-Issue targets to be
+  re-observed by identity without coupling the sources' last-good state;
+- the all-state prefix still observes merge and close transitions after a Pull
+  Request leaves the independent active-only collection, while a two-tick
+  confirmation window accommodates delayed closing-reference indexing; and
+- live API evidence records the absence of a Pull Request `since` filter and
+  the lag in derived closing-reference indexing.
 
-The coordinator's separate observation keys are a useful boundary to preserve,
-not an obstacle to bypass. This work should precede #129 because it determines
-whether Dashpot has one or two GraphQL change probes per tick and whether the
-REST ETag can safely gate either of them.
+The coordinator's separate observation keys remain a boundary: the additional
+Pull Request signal shares the Issue Source's one-point probe but not the Pull
+Request source's schedule or failure state
+([ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)).
 
 ### 4. Correct and implement #126
 
-Keep the per-Project setting on `GitHubIssueSourceConfig`, but split validation:
-the model can reject a non-positive value and the CLI/application composition
-seam can compare it with the effective polling interval. With polling disabled
-or a headless one-shot collection, there is no recurring polling interval to
-compare. The Issue should say this explicitly before code so configuration
-parsing does not acquire a hidden dependency on CLI state.
+The per-Project `issueSource.reconciliationSeconds` setting now rejects a
+non-positive value in `GitHubIssueSourceConfig`; the application composition
+seam compares it with the effective polling interval after both are known.
+Polling disabled with zero and headless one-shot collection have no recurring
+polling interval to compare.
 
 ### 5. Decide and implement #125
 
-After #127, record the two-stage fallback in an ADR: an identity-based
-Reconciliation may publish its complete best-known collection with the existing
-`github-issue-count` warning, then a later refresh performs only the cursor
-sweep under a fresh Refresh Budget. Mark the sweep attempted before sending it
-so a failure is retried on the Reconciliation period rather than every tick,
-matching the existing retry discipline. Keep a person's `r` semantics explicit:
-it requests a Reconciliation, not an unbounded chain of follow-up requests.
+ADR 0026 records the two-stage fallback: an identity-based Reconciliation may
+publish its complete best-known collection with the existing
+`github-issue-count` warning, then the next refresh performs only the cursor
+sweep under a fresh Refresh Budget. The source clears the due marker before
+sending the sweep, so a failure is retried on the Reconciliation period rather
+than every tick. A person's `r` requests a Reconciliation, not an unbounded
+chain of follow-up requests
+([ADR 0026](adr/0026-run-fallback-sweeps-under-their-own-refresh-budget.md)).
 
-### 6. Re-evaluate #129 rather than assuming it should ship
+### 6. Triage #129: keep the GraphQL probe authoritative
 
-After #123, measure the resulting GraphQL probe cost and update #129 for the
-actual Pull Request architecture. The REST gate remains non-authoritative: only
-`304` may suppress GraphQL; any other response continues to the existing
-probe. Implement it only if it can preserve independently scheduled source
-state without a shared-cache lifecycle more complex than the points it saves.
-Its current `needs-triage` label is accurate.
+After #123, the combined Issue and Pull Request probe still cost one GraphQL
+point. Live and documented REST evidence showed that `304` validates only the
+requested page, which has no exact Issue count; it cannot safely suppress the
+repository-wide evidence of the GraphQL probe. ADR 0027 therefore rejects the
+REST gate. This closes #129 as triaged rather than implementing its requested
+zero-point optimization
+([ADR 0027](adr/0027-keep-the-graphql-change-probe-authoritative.md)).
 
 ### 7. Persist only the settled state with #124
 
@@ -196,18 +195,14 @@ complete-observation guarantee.
 
 ## Resulting dependency graph
 
-There is no reason to serialize all seven changes. After #128, #123 can proceed
-independently of the #127 to #125 chain, and #126 can proceed as soon as its
-specification is corrected. The points at which sequencing matters are:
+The work did not require serializing all seven changes. The points at which
+sequencing mattered were:
 
-- **#128 before the final #123 design**, because it settles which Issue-side
+- **#128 before the final #123 design**, because it settled which Issue-side
   changes require Reconciliation;
 - **#127 before #125**, because both own the count-disagreement handoff;
-- **#123 before the #129 decision**, because it changes both the number of
+- **#123 before the #129 decision**, because it changed both the number of
   probes and the usefulness of Pull Request activity moving the REST ETag; and
 - **#125 and #126 before #124**, with #123 also settled, because persistence
   should encode a stable source state machine once rather than become a
   migration burden immediately.
-
-The GitHub dependency metadata should be updated to express those real
-prerequisites once the Issue bodies' open design choices have been resolved.
