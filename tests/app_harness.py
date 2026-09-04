@@ -20,7 +20,13 @@ from dashpot.issue_list import IssueListRow
 from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_view import issue_metadata_items, selection_title
 from dashpot.list_pane import ListPane, ListRow
-from dashpot.model import AgentRun, Diagnostic, SourceStatus, WorkspaceSnapshot
+from dashpot.model import (
+    AgentRun,
+    Diagnostic,
+    PullRequest,
+    SourceStatus,
+    WorkspaceSnapshot,
+)
 from helpers import snapshot_of
 
 NOW = "2026-08-25T01:00:00Z"
@@ -53,6 +59,7 @@ def issue(
 def workspace_snapshot(
     *issues: IssueProfile,
     runs: list[AgentRun] | None = None,
+    pull_requests: tuple[PullRequest, ...] = (),
     status: SourceStatus = "fresh",
     diagnostics: list[Diagnostic] | None = None,
     elapsed_ms: int = 12,
@@ -65,6 +72,7 @@ def workspace_snapshot(
         targets=[factories.target("/repo")],
         anchors=("/repo",),
         status=status,
+        pull_requests=pull_requests,
         diagnostics=diagnostics or [],
         elapsed_ms=elapsed_ms,
         now=NOW,
@@ -136,14 +144,16 @@ def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
     list_row = app.query_one("#list-row")
     sessions = app.query_one("#sessions-pane")
     branches = app.query_one("#branches-pane")
+    pull_requests = app.query_one("#pull-requests-pane")
     worktrees = app.query_one("#worktrees-pane")
     queue_pane = app.query_one("#queue-pane")
 
     assert sessions.region.y == list_row.region.y
     assert sessions.region.bottom <= worktrees.region.y
     assert worktrees.region.bottom <= branches.region.y
-    assert branches.region.bottom <= list_row.region.bottom <= queue_pane.region.y
-    for pane in (sessions, worktrees, branches, queue_pane):
+    assert branches.region.bottom <= pull_requests.region.y
+    assert pull_requests.region.bottom <= list_row.region.bottom <= queue_pane.region.y
+    for pane in (sessions, worktrees, branches, pull_requests, queue_pane):
         assert pane.region.x == body.region.x
         assert pane.region.width == body.region.width
     assert queue_pane.region.height >= 6

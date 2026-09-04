@@ -52,6 +52,9 @@ def fit_panes(body_height: int, minimum: int, wishes: Sequence[int]) -> tuple[in
     for position, index in enumerate(order):
         granted = min(wishes[index], remaining // (len(wishes) - position))
         remaining -= granted
-        row_cap = granted - PANE_CHROME
-        caps[index] = row_cap if row_cap >= 1 else 0
+        if wishes[index] == EMPTY_PANE_HEIGHT:
+            caps[index] = 1 if granted >= EMPTY_PANE_HEIGHT else 0
+        else:
+            row_cap = granted - PANE_CHROME
+            caps[index] = row_cap if row_cap >= 1 else 0
     return tuple(caps)

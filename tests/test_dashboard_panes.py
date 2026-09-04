@@ -14,6 +14,7 @@ from app_harness import (
     SequenceCollector,
     issue,
     list_rows,
+    pane_subtitle,
     pane_title,
     prepare_pane,
     selected_title,
@@ -33,6 +34,100 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from helpers import snapshot_of, wait_until
+
+
+@pytest.mark.asyncio
+async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -> None:
+    first_pull_request = factories.pull_request(
+        1,
+        pull_request_id="PR_one",
+        title="First",
+        updated_at="2026-08-25T00:00:00Z",
+    )
+    selected_pull_request = factories.pull_request(
+        2,
+        pull_request_id="PR_two",
+        title="Selected",
+        is_draft=True,
+        updated_at="2026-08-24T00:00:00Z",
+    )
+    refreshed_pull_request = selected_pull_request.model_copy(
+        update={"title": "Selected and refreshed", "updated_at": "2026-08-26T00:00:00Z"}
+    )
+    first = workspace_snapshot(
+        issue("test/repo#1", "Issue"),
+        pull_requests=(first_pull_request, selected_pull_request),
+    )
+    second = workspace_snapshot(
+        issue("test/repo#1", "Issue"),
+        pull_requests=(refreshed_pull_request, first_pull_request),
+    )
+    app = DashpotApp(SequenceCollector(first, second), refresh_seconds=0)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        pane = app.dashboard.pull_requests_pane()
+        await pilot.pause()
+        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 2"
+        assert [str(column.label) for column in pane.table.columns.values()] == [
+            "STATE",
+            "#",
+            "TITLE",
+            "HEAD",
+            "BASE",
+            "AUTHOR",
+            "REVIEW",
+            "CHECKS",
+            "MERGE",
+            "UPDATED",
+        ]
+        pane.table.move_cursor(row=1)
+        selected_key, _index = pane.highlighted()
+        assert selected_key is not None and "PR_two" in selected_key
+        pane.table.focus()
+
+        # Enter is intentionally unbound for Pull Requests in the first cut.
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, IssueScreen)
+        assert pane.table.has_focus
+
+        await pilot.press("r")
+        await wait_until(lambda: app.store.revision == 2)
+        await pilot.pause()
+
+        assert pane.highlighted() == (selected_key, 0)
+        assert "Selected and refreshed" in str(pane.table.get_row_at(0)[2])
+
+
+@pytest.mark.asyncio
+async def test_pull_requests_pane_distinguishes_stale_and_unavailable_empty_states() -> (
+    None
+):
+    stale = with_first_project_snapshot(
+        workspace_snapshot(issue("test/repo#1", "Issue")),
+        pull_request_status="stale",
+        pull_request_last_good_at="2026-08-25T00:00:00Z",
+    )
+    unavailable = with_first_project_snapshot(
+        stale,
+        pull_request_status="unavailable",
+        pull_request_last_good_at=None,
+    )
+    app = DashpotApp(SequenceCollector(stale), refresh_seconds=0)
+
+    async with app.run_test(size=(120, 32)):
+        await wait_until(lambda: app.store.revision == 1)
+        empty = app.query_one("#pull-requests-pane .list-pane-empty")
+        assert str(empty.render()) == "no active pull requests when last observed"
+        assert pane_subtitle(app, "#pull-requests-pane").startswith("stale")
+
+    unavailable_app = DashpotApp(SequenceCollector(unavailable), refresh_seconds=0)
+    async with unavailable_app.run_test(size=(120, 32)):
+        await wait_until(lambda: unavailable_app.store.revision == 1)
+        empty = unavailable_app.query_one("#pull-requests-pane .list-pane-empty")
+        assert str(empty.render()) == "pull requests unavailable"
+        assert pane_subtitle(unavailable_app, "#pull-requests-pane") == "unavailable"
 
 
 @pytest.mark.asyncio

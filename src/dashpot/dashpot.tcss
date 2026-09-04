@@ -8,11 +8,11 @@ Screen {
     overflow-x: auto;
 }
 
-/* The Sessions, Worktrees and Branches panes stack full-width above the Issue table,
-   each sized to its content: a pane grows with its records up to the cap on
-   its table and scrolls beyond it, so the Issue table only pays for rows in
-   use. Each pane carries the blank line below it, which separates it from the
-   next pane and, for the last one, from the Issue table. */
+/* The list panes stack full-width above the Issue table, each sized to its
+   content: a pane grows with its records up to the cap on its table and
+   scrolls beyond it, so the Issue table only pays for rows in use. Each pane
+   carries the blank line below it, which separates it from the next pane and,
+   for the last one, from the Issue table. */
 #list-row {
     width: 1fr;
     height: auto;
@@ -29,9 +29,10 @@ ListPane {
     border-title-color: $foreground;
 }
 
-/* Remote freshness is a secondary fact on the opposite end of the Branches
-   pane's frame, distinct from its label and count. */
-#branches-pane {
+/* Source freshness is a secondary fact on the opposite end of a pane's frame,
+   distinct from its label and count. */
+#branches-pane,
+#pull-requests-pane {
     border-subtitle-align: right;
     border-subtitle-color: $text-muted;
     border-subtitle-style: none;

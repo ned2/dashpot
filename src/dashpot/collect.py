@@ -14,6 +14,7 @@ from .agent_bindings import bind_issue_runs
 from .agents import observe_agent_runs
 from .git import Git
 from .github_issues import GitHubIssuesSource
+from .github_pull_requests import GitHubPullRequestsSource
 from .issue_profile import IssueProfile
 from .issue_sources import IssueSource, IssueSourceObservation, utc_now
 from .local_markdown_issues import LocalMarkdownIssuesSource
@@ -25,6 +26,7 @@ from .model import (
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
+    PullRequest,
     RepositoryStateInventory,
     ResolvedProject,
     SourceStatus,
@@ -37,6 +39,11 @@ from .project_config import (
     LocalMarkdownIssueSourceConfig,
     ProjectConfig,
     load_project_config,
+)
+from .pull_request_sources import (
+    PullRequestSource,
+    PullRequestSourceObservation,
+    UnconfiguredPullRequestSource,
 )
 from .repository import (
     BranchObservation,
@@ -53,7 +60,9 @@ WorkspaceAgentObserver = Callable[
 ObservationTargetObserver = Callable[[Sequence[Path]], RepositoryStateInventory]
 BranchObserver = Callable[[Sequence[Path]], BranchObservation]
 
-ScheduledObservationKind = Literal["issues", "targets", "agent-runs", "workspace"]
+ScheduledObservationKind = Literal[
+    "issues", "pull-requests", "targets", "agent-runs", "workspace"
+]
 WORKSPACE_SCOPE = "*"
 
 
@@ -131,6 +140,8 @@ class ProjectObserver(Protocol):
 
     def observe_issues(self, *, reconcile: bool = False) -> IssueSourceObservation: ...
 
+    def observe_pull_requests(self) -> PullRequestSourceObservation: ...
+
     def observe_targets(self) -> RepositoryStateInventory: ...
 
 
@@ -144,16 +155,25 @@ class ProjectCollector:
         target_observer: ObservationTargetObserver = observe_observation_targets,
         branch_observer: BranchObserver = observe_branches,
         clock: Callable[[], str] = utc_now,
+        pull_request_source: PullRequestSource
+        | UnconfiguredPullRequestSource
+        | None = None,
     ) -> None:
         self.project = project
         self.root = Path(project.primary_anchor)
         self.source = source
+        self.pull_request_source = pull_request_source or UnconfiguredPullRequestSource(
+            clock=clock
+        )
         self.target_observer = target_observer
         self.branch_observer = branch_observer
         self.clock = clock
 
     def observe_issues(self, *, reconcile: bool = False) -> IssueSourceObservation:
         return self.source.refresh(reconcile=reconcile)
+
+    def observe_pull_requests(self) -> PullRequestSourceObservation:
+        return self.pull_request_source.refresh()
 
     def observe_targets(self) -> RepositoryStateInventory:
         """Observe the worktree topology and the Branches as one Repository State."""
@@ -170,8 +190,9 @@ class ProjectCollector:
         )
 
     def refresh(self) -> ProjectSnapshot:
-        """Observe both halves in one call (single-shot convenience)."""
+        """Observe every Project source in one call (single-shot convenience)."""
         issues = _issue_half(self.observe_issues())
+        pull_requests = _pull_request_half(self.observe_pull_requests())
         attempted_at = self.clock()
         try:
             targets = _target_half(self.observe_targets(), attempted_at)
@@ -185,7 +206,11 @@ class ProjectCollector:
                 project_failure=False,
             )
         return _project_snapshot(
-            self.project, collected_at=self.clock(), issues=issues, targets=targets
+            self.project,
+            collected_at=self.clock(),
+            issues=issues,
+            pull_requests=pull_requests,
+            targets=targets,
         )
 
 
@@ -215,6 +240,7 @@ def create_project_collector(
             anchors, git=adapter, process_lookup=lock_holder_probe
         ),
         branch_observer=lambda anchors: observe_branches(anchors, git=adapter),
+        pull_request_source=build_pull_request_source(root, config, timeout=timeout),
     )
 
 
@@ -254,9 +280,29 @@ def build_issue_source(
     )
 
 
+def build_pull_request_source(
+    root: Path,
+    config: ProjectConfig,
+    *,
+    timeout: float,
+) -> PullRequestSource | UnconfiguredPullRequestSource:
+    """Build the Project's GitHub source or its honest unconfigured result."""
+    if isinstance(config.issue_source, GitHubIssueSourceConfig):
+        return GitHubPullRequestsSource(
+            root,
+            repository_id=config.repository_id,
+            timeout=timeout,
+        )
+    if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
+        return UnconfiguredPullRequestSource()
+    raise RuntimeError(  # pragma: no cover - exhaustive guard for future kinds.
+        "unsupported configured Issue Source"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _SourceObservation:
-    """The latest accepted result for one Project half (Issues or targets)."""
+    """Carry the latest accepted result for one scheduled Project part."""
 
     status: SourceStatus
     attempted_at: str
@@ -264,10 +310,11 @@ class _SourceObservation:
     diagnostics: tuple[Diagnostic, ...]
     project_diagnostics: tuple[Diagnostic, ...]
     elapsed_ms: int
-    # Exactly one payload is populated per half; keeping both typed lets the
+    # Exactly one payload is populated per part; keeping each typed lets the
     # shared snapshot factory stay fully typed instead of tunnelling through
     # an ``Any`` field.
     issues: tuple[IssueProfile, ...] = ()
+    pull_requests: tuple[PullRequest, ...] = ()
     targets: tuple[ObservationTarget, ...] = ()
     label_colors: Mapping[str, str] = field(default_factory=dict)
     issue_activity: Mapping[str, IssueActivity] = field(default_factory=dict)
@@ -306,6 +353,29 @@ def _issue_half(observation: IssueSourceObservation) -> _SourceObservation:
         issues=observation.issues,
         label_colors=observation.label_colors,
         issue_activity=observation.issue_activity,
+    )
+
+
+def _pull_request_half(
+    observation: PullRequestSourceObservation,
+) -> _SourceObservation:
+    """Shape one Pull Request source refresh as its independent Project half."""
+    return _SourceObservation(
+        status=observation.status,
+        attempted_at=observation.attempted_at,
+        last_good_at=observation.last_good_at,
+        diagnostics=tuple(
+            Diagnostic(
+                source=diagnostic.source,
+                severity=diagnostic.severity,
+                message=diagnostic.message,
+                code=diagnostic.code,
+            )
+            for diagnostic in observation.diagnostics
+        ),
+        project_diagnostics=(),
+        elapsed_ms=0,
+        pull_requests=observation.pull_requests,
     )
 
 
@@ -356,9 +426,10 @@ def _project_snapshot(
     *,
     collected_at: str,
     issues: _SourceObservation,
+    pull_requests: _SourceObservation,
     targets: _SourceObservation,
 ) -> ProjectSnapshot:
-    """Assemble one Project Snapshot from its two observed halves.
+    """Assemble one Project Snapshot from its independently observed parts.
 
     Pure and cheap by design: the coordinator calls it while holding its
     state lock, so the clock reading is passed in rather than taken here.
@@ -373,9 +444,17 @@ def _project_snapshot(
         issue_source_last_good_at=issues.last_good_at,
         observation_targets=targets.targets,
         issues=issues.issues,
-        diagnostics=[*issues.diagnostics, *targets.diagnostics],
+        diagnostics=[
+            *issues.diagnostics,
+            *pull_requests.diagnostics,
+            *targets.diagnostics,
+        ],
         label_colors=issues.label_colors,
         issue_activity=issues.issue_activity,
+        pull_request_status=pull_requests.status,
+        pull_request_attempted_at=pull_requests.attempted_at,
+        pull_request_last_good_at=pull_requests.last_good_at,
+        pull_requests=pull_requests.pull_requests,
         target_status=targets.status,
         target_attempted_at=targets.attempted_at,
         target_last_good_at=targets.last_good_at,
@@ -400,12 +479,13 @@ class ObservationCoordinator:
     Every ``(kind, project_id)`` key carries its own generation, lock, and last
     accepted result. A ticket whose generation is no longer current is skipped
     before it starts or discarded after it finishes, so a late result can never
-    overwrite a newer one. Issues and worktree targets are observed separately;
-    a Project is composed from its latest accepted halves and becomes
-    publishable only once both have been observed at least once, so a store
-    never shows a Project as "observed absent" before its first complete
-    observation. ``publish`` moves every pending composition into a store in
-    accept order, which keeps the store single-threaded for its consumer.
+    overwrite a newer one. Issues, Pull Requests and Repository State are
+    observed separately; a Project is composed from its latest accepted parts
+    and becomes publishable only once all have been observed at least once, so
+    a store never shows a Project as "observed absent" before its first
+    complete observation. ``publish`` moves every pending composition into a
+    store in accept order, which keeps the store single-threaded for its
+    consumer.
     """
 
     def __init__(
@@ -451,14 +531,14 @@ class ObservationCoordinator:
         keys = [
             ObservationKey(kind, current)
             for current in selected
-            for kind in ("issues", "targets")
+            for kind in ("issues", "pull-requests", "targets")
         ]
         keys.append(AGENT_RUNS_KEY)
         return keys
 
     def follow_ups(self, changes: Sequence[StoreChange]) -> list[ObservationKey]:
-        """Agent Runs depend on published Projects: re-observe after any."""
-        if any("projects" in change.kinds for change in changes):
+        """Re-observe Agent Runs when a published binding input changes."""
+        if any(change.agent_dependency_project_ids for change in changes):
             return [AGENT_RUNS_KEY]
         return []
 
@@ -503,7 +583,7 @@ class ObservationCoordinator:
                     self._agent = agent
                     self._agent_pending = True
                 return ObservationOutcome(ticket, accepted=True)
-            if key.kind not in ("issues", "targets"):
+            if key.kind not in ("issues", "pull-requests", "targets"):
                 raise RuntimeError(f"unsupported observation kind: {key.kind}")
             with self._state_lock:
                 previous = self._observations.get(key)
@@ -656,6 +736,22 @@ class ObservationCoordinator:
                     project_failure=False,
                 )
             return _issue_half(issue_observation)
+        if key.kind == "pull-requests":
+            try:
+                pull_request_observation = collector.observe_pull_requests()
+            except OBSERVATION_FAILURES as exc:
+                return _failed_half(
+                    previous,
+                    attempted_at,
+                    Diagnostic(
+                        source=f"project:{project.project_id}",
+                        severity="error",
+                        message=f"Cannot collect Pull Requests: {exc}",
+                        code="pull-request-collection",
+                    ),
+                    project_failure=False,
+                )
+            return _pull_request_half(pull_request_observation)
         try:
             inventory = collector.observe_targets()
         except OBSERVATION_FAILURES as exc:
@@ -668,17 +764,28 @@ class ObservationCoordinator:
         return _target_half(inventory, attempted_at)
 
     def _compose(self, project_id: str) -> ProjectObservation | None:
-        """Compose a Project from its latest accepted halves, or None if pending."""
+        """Compose a Project from its latest accepted parts, or None if pending."""
         issues = self._observations.get(ObservationKey("issues", project_id))
+        pull_requests = self._observations.get(
+            ObservationKey("pull-requests", project_id)
+        )
         targets = self._observations.get(ObservationKey("targets", project_id))
-        if issues is None or targets is None:
+        if issues is None or pull_requests is None or targets is None:
             return None
         project = self.projects_by_id[project_id]
         project_diagnostics = _unique_diagnostics(
-            [*issues.project_diagnostics, *targets.project_diagnostics]
+            [
+                *issues.project_diagnostics,
+                *pull_requests.project_diagnostics,
+                *targets.project_diagnostics,
+            ]
         )
-        elapsed_ms = issues.elapsed_ms + targets.elapsed_ms
-        never_observed = issues.last_good_at is None and targets.last_good_at is None
+        elapsed_ms = issues.elapsed_ms + pull_requests.elapsed_ms + targets.elapsed_ms
+        never_observed = (
+            issues.last_good_at is None
+            and pull_requests.last_good_at is None
+            and targets.last_good_at is None
+        )
         if project_diagnostics and never_observed:
             snapshot = None
         else:
@@ -686,6 +793,7 @@ class ObservationCoordinator:
                 project,
                 collected_at=self.clock(),
                 issues=issues,
+                pull_requests=pull_requests,
                 targets=targets,
             )
         return ProjectObservation(

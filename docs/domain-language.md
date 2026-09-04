@@ -41,6 +41,15 @@ observed. Provenance does not participate in semantic equivalence.
 **GitHub Issue**:
 The GitHub Issues representation of an Issue.
 
+**Pull Request**:
+An active proposal to integrate one head Branch into one base Branch of the
+Project's Git Repository, observed from the configured GitHub repository. Its
+opaque GitHub node ID is identity; its Pull Request Number is only a compact
+Project-local label. Dashpot observes open Pull Requests, including drafts,
+independently of the Project's Issue Source collection.
+_Avoid_: Linked Pull Request for a repository-wide Pull Request; Issue for a
+Pull Request merely because GitHub shares their number space
+
 **Linked Pull Request**:
 A pull request GitHub reports as closing a GitHub Issue, shown with the
 Issue's engagement facts rather than in its profile. The first twenty are
@@ -48,6 +57,8 @@ listed and the count of any beyond them is shown beside the list, since
 GitHub answers them unpaged. A Linked Pull Request appearing or changing
 state does not update the Issue, so it is observed by the next
 Reconciliation rather than by an Incremental Refresh.
+_Avoid_: using this Issue relationship as the repository-wide Pull Request
+observation
 
 **Local Issue**:
 The local Markdown representation of an Issue.
@@ -175,15 +186,18 @@ family — a GitHub Issue Source reports `github-authentication`,
 `github-reconciliation-overdue`, `github-issue-count`, `github-timeout`,
 `github-network`,
 `github-pagination`, `github-malformed-response` and `github-profile` — and
-are read from the tracker's structured signals before its prose
+are read from the tracker's structured signals before its prose. A Project
+whose Issue Source is Local Markdown reports `pull-requests-not-configured`
+rather than inferring GitHub hosting from a Git remote
 ([ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md)).
 
 **Refresh Budget**:
-The bound on what one refresh of a GitHub Issue Source may fetch before it is
+The bound on what one refresh of a GitHub observation may fetch before it is
 abandoned: a number of requests and a wall-clock duration, each checked
 before the next request is sent. An abandoned refresh is a failed refresh,
 reported by one `github-refresh-budget` Diagnostic naming what it fetched,
-with the last good collection retained; nothing partial is ever published
+with that observation's last good collection retained; nothing partial is
+ever published
 ([ADR 0002](adr/0002-require-complete-issue-profile-snapshots.md),
 [ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md),
 [ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).

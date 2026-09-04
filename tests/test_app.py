@@ -23,8 +23,8 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp, project_label
-from dashpot.collect import ObservationKey
+from dashpot.app import DashpotApp, ObservationFinished, project_label
+from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
 from dashpot.issue_list import IssueListQuery, row_key
 from dashpot.issue_table import (
     COLUMN_KEYS,
@@ -745,14 +745,24 @@ async def test_refresh_fans_out_to_every_project(
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
         await wait_until(lambda: table.row_count == 2)
+        await wait_until(lambda: not app.in_flight)
         beta_key = row_key("issue", "I_beta#1")
         table.move_cursor(row=table.get_row_index(beta_key), animate=False)
         await wait_until(lambda: app.dashboard.selected_row_key == beta_key)
         calls = {name: c.source.calls for name, c in collectors.items()}
+        pull_request_calls = {
+            name: collector.pull_request_calls for name, collector in collectors.items()
+        }
 
         await app.run_action("refresh")
         await wait_until(lambda: collectors["alpha"].source.calls == calls["alpha"] + 1)
         await wait_until(lambda: collectors["beta"].source.calls == calls["beta"] + 1)
+        await wait_until(
+            lambda: all(
+                collector.pull_request_calls == pull_request_calls[name] + 1
+                for name, collector in collectors.items()
+            )
+        )
         await wait_until(lambda: not app.in_flight)
 
         assert collectors["alpha"].target_calls == 2
@@ -799,6 +809,25 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
         assert alpha_snapshot().target_status == "fresh"
         assert table.row_count == 2
         assert app.ui_error is None
+
+
+@pytest.mark.asyncio
+async def test_late_observation_is_dropped_after_dashboard_children_unmount() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: app.store.revision == 1)
+        await app.query_one("#body").remove()
+
+        ticket = ObservationTicket(ObservationKey("issues", "project:test-repo"), 99)
+        app.on_observation_finished(
+            ObservationFinished(
+                ticket,
+                "timer",
+                outcome=ObservationOutcome(ticket, accepted=True),
+            )
+        )
 
 
 def alert(app: DashpotApp) -> Static:

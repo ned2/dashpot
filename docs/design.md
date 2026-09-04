@@ -6,15 +6,16 @@ date: 2026-09-04
 # Design
 
 Observation is scheduled per key rather than as one refresh: the Project's
-Issue Source and its worktree topology are observed independently, and Agent
-Runs are observed once per Workspace whenever the Project has been published. An
-[`ObservationCoordinator`](../src/dashpot/collect.py) tracks a generation per key
-so a superseded observation can never overwrite a newer one, retains the last
-good result per key when a refresh fails, and composes each Project from its
-latest accepted halves. The Textual interface publishes every accepted
-observation into a process-local `WorkspaceObservationStore` as soon as it
-lands, then re-queries source-neutral Issue-list read models carrying a store
-revision; a slow GitHub call therefore never delays branch or dirty state.
+Issue Source, Pull Request source and Repository State are observed
+independently. Agent Runs are observed once per Workspace after a Project
+publishes a changed binding input; Pull Request-only changes do not trigger
+them. An [`ObservationCoordinator`](../src/dashpot/collect.py) tracks a
+generation per key so a superseded observation can never overwrite a newer
+one, retains the last good result per key when a refresh fails, and composes
+each Project from its latest accepted parts. The Textual interface publishes
+every accepted observation into a process-local `WorkspaceObservationStore`
+as soon as it lands, then re-queries read models carrying a store revision; a
+slow GitHub call therefore never delays branch or dirty state.
 A key is observed at most once at a time: a request for a key whose
 observation is still in flight coalesces onto it rather than superseding it,
 so a slow Issue Source that outlasts the polling period still publishes when
@@ -89,10 +90,23 @@ incrementally, and one more than two periods overdue is reported as a
 warning. The research behind the shape of every query is in
 [`docs/github-api-batching-research.md`](github-api-batching-research.md).
 
+The GitHub Pull Request source is a separate scheduled observation over the
+same durable Repository Identity. It lists every open Pull Request through a
+cursor-paginated GraphQL connection, under its own Refresh Budget and
+last-good state, and publishes no partial page set. The compact published model
+keeps GitHub's nested check graph behind the source: it carries the combined
+check/status rollup, review decision, and mergeability alongside identity,
+Branches, author, draft state, and update time. A Local Issue Markdown Project
+uses a second adapter at that seam which reports Pull Requests as not
+configured; it never inspects Git remotes for hosting. Neither result changes
+the Issue Source status.
+
 Exceptional state is summarized in a
 one-line alert above Diagnostics that takes no space while everything is
-healthy: refresh failures and unavailable Projects are errors, unavailable or
-stale worktrees and stale Issue Sources are warnings, and a refresh that has
+healthy: refresh failures, unavailable Projects and failed Pull Request
+observations are errors; unavailable or stale worktrees and stale Issue or
+Pull Request sources are warnings. A Local Markdown Project's intentionally
+unconfigured Pull Request source is not an alert. A refresh that has
 been running longer than a moment, or a Remote Fetch from the moment it
 starts, is shown as information. The alert is
 derived from current observations and clears itself on recovery; toasts are
@@ -106,9 +120,10 @@ reconciled by stable row keys.
 
 The main screen is a single pane of glass with no Header, so every row
 belongs to a list: from the top,
-the full-width `SESSIONS`, `WORKTREES` and `BRANCHES` panes stack above the
-full-width `ISSUES` table. Nothing is switched to: every active Agent
-Session, every observed Worktree and every Branch is listed in its pane, with
+the full-width `SESSIONS`, `WORKTREES`, `BRANCHES` and `PULL REQUESTS` panes
+stack above the full-width `ISSUES` table. Nothing is switched to: every
+active Agent Session, every observed Worktree, every Branch and every active
+Pull Request is listed in its pane, with
 the count in the pane title and an honest one-line empty state. The panes are
 sized to their content rather than sharing the flex height: each asks for the
 rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
@@ -116,13 +131,15 @@ granted first so an empty pane costs three lines, and the caps shrink before
 the Issue table would drop below its minimum height, so the panes only ever
 cost the Issue table what they actually use. The Sessions list starts with
 focus, `Tab` and `Shift+Tab` cycle focus Sessions → Worktrees → Branches →
-Issues, and `/` moves it to the Issue search. The row cursor in the Sessions,
-Worktrees and Branches panes is for scrolling, copying and refresh scope (`r`); only
+Pull Requests → Issues, and `/` moves it to the Issue search. The row cursor
+in the Sessions, Worktrees, Branches and Pull Requests panes is for scrolling,
+copying and refresh scope (`r`); only
 the Issue table drives the Issue selection, `Enter`
 on an Issue opens it in the full-screen Issue view (its location on the left
 of the heading line, `opened 3d ago by ned2` on the right, and both panes'
 borders in the Issue's state colour), and `Enter` on a session with an Issue
-Binding highlights that Issue in the Issue table. The Sessions pane is its own read model
+Binding highlights that Issue in the Issue table; `Enter` is unbound on a Pull
+Request. The Sessions pane is its own read model
 ([`session_list.py`](../src/dashpot/session_list.py), queried through
 `WorkspaceObservationStore.query_sessions`): every active Agent Session of the
 observed Project exactly once, sorted running → waiting → unknown and then by

@@ -18,7 +18,7 @@ from dashpot.serialization import (
     worktree_plan_document,
 )
 from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
-from factories import agent_run, project, target, workspace
+from factories import agent_run, project, pull_request, target, workspace
 from helpers import make_issue
 
 SNAPSHOT_KEYS = {
@@ -61,6 +61,10 @@ PROJECT_SNAPSHOT_KEYS = {
     "branchAnchor",
     "integrationRef",
     "issueActivity",
+    "pullRequestStatus",
+    "pullRequestAttemptedAt",
+    "pullRequestLastGoodAt",
+    "pullRequests",
 }
 OBSERVATION_TARGET_KEYS = {
     "path",
@@ -105,6 +109,21 @@ AGENT_RUN_KEYS = {
 DIAGNOSTIC_KEYS = {"source", "severity", "message", "code"}
 ISSUE_ACTIVITY_KEYS = {"commentCount", "linkedPullRequests", "unlistedPullRequestCount"}
 LINKED_PULL_REQUEST_KEYS = {"number", "url", "state"}
+PULL_REQUEST_KEYS = {
+    "id",
+    "number",
+    "title",
+    "url",
+    "state",
+    "isDraft",
+    "headBranch",
+    "baseBranch",
+    "author",
+    "reviewDecision",
+    "checkStatus",
+    "mergeability",
+    "updatedAt",
+}
 ISSUE_PROFILE_KEYS = {
     "id",
     "projectId",
@@ -166,6 +185,15 @@ def test_the_snapshot_document_pins_every_nested_shape() -> None:
     observation = project(
         "project:one",
         issue,
+        pull_requests=[
+            pull_request(
+                83,
+                author=None,
+                review_decision=None,
+                check_status=None,
+                mergeability=None,
+            )
+        ],
         targets=[target("/project:one", branch=None)],
         branches=[branch],
         diagnostics=[Diagnostic(source="s", severity="info", message="m")],
@@ -206,8 +234,14 @@ def test_the_snapshot_document_pins_every_nested_shape() -> None:
     assert set(diagnostic) == DIAGNOSTIC_KEYS
     activity = project_snapshot["issueActivity"]["I_one"]
     assert set(activity) == ISSUE_ACTIVITY_KEYS
-    (pull_request,) = activity["linkedPullRequests"]
-    assert set(pull_request) == LINKED_PULL_REQUEST_KEYS
+    (linked_pull_request,) = activity["linkedPullRequests"]
+    assert set(linked_pull_request) == LINKED_PULL_REQUEST_KEYS
+    (repository_pull_request,) = project_snapshot["pullRequests"]
+    assert set(repository_pull_request) == PULL_REQUEST_KEYS
+    assert repository_pull_request["author"] is None
+    assert repository_pull_request["reviewDecision"] is None
+    assert repository_pull_request["checkStatus"] is None
+    assert repository_pull_request["mergeability"] is None
     (run_document,) = document["agentRuns"]
     assert set(run_document) == AGENT_RUN_KEYS
 
@@ -226,6 +260,7 @@ def test_unknown_values_are_explicit_nulls_not_omitted_keys() -> None:
     assert run_document["turnStartedAt"] is None
     assert document["projects"][0]["snapshot"]["fetchedAt"] is None
     assert document["projects"][0]["snapshot"]["targetAttemptedAt"] is None
+    assert document["projects"][0]["snapshot"]["pullRequests"] == []
 
 
 def test_a_missing_project_snapshot_is_an_explicit_null() -> None:

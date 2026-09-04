@@ -9,6 +9,7 @@ import pytest
 from rich.text import Text
 from textual.widgets import DataTable, Footer, Input, Static
 
+import factories
 from app_harness import (
     SequenceCollector,
     assert_panes_stack_above_full_width_queue,
@@ -36,7 +37,13 @@ async def test_dashboard_tables_do_not_use_zebra_stripes() -> None:
         await wait_until(lambda: app.store.revision == 1)
         tables = tuple(
             app.query_one(f"#{table_id}", DataTable)
-            for table_id in ("queue", "sessions", "worktrees", "branches")
+            for table_id in (
+                "queue",
+                "sessions",
+                "worktrees",
+                "branches",
+                "pull-requests",
+            )
         )
 
         assert all(not table.zebra_stripes for table in tables)
@@ -143,17 +150,20 @@ async def test_dashboard_stacks_the_panes_above_the_issues() -> None:
         sessions = app.query_one("#sessions-pane", ListPane)
         worktrees = app.query_one("#worktrees-pane", ListPane)
         branches = app.query_one("#branches-pane", ListPane)
+        pull_requests = app.query_one("#pull-requests-pane", ListPane)
         queue_pane = app.query_one("#queue-pane")
         assert_panes_stack_above_full_width_queue(app)
         # One blank line separates back-to-back panes.
         assert sessions.region.bottom + 1 == worktrees.region.y
         assert worktrees.region.bottom + 1 == branches.region.y
+        assert branches.region.bottom + 1 == pull_requests.region.y
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         # Remote freshness sits apart from the label and count, aligned to the
         # lower-right pane border. Dashpot never fetches, and this repository
         # never has.
         assert pane_title(app, "#branches-pane") == "BRANCHES · 0"
+        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 0"
         assert pane_subtitle(app, "#branches-pane") == (
             "integration unavailable · remote never fetched"
         )
@@ -163,12 +173,17 @@ async def test_dashboard_stacks_the_panes_above_the_issues() -> None:
         assert sessions.region.height == 3
         assert worktrees.region.height == pane_chrome(worktrees) + 1
         assert branches.region.height == 3
+        assert pull_requests.region.height == 3
         empty_messages = [
             str(message.render())
             for message in app.query(".list-pane-empty").results(Static)
             if message.display
         ]
-        assert empty_messages == ["no active sessions", "no branches observed yet"]
+        assert empty_messages == [
+            "no active sessions",
+            "no branches observed yet",
+            "no active pull requests",
+        ]
         assert not app.query_one("#worktrees-pane .list-pane-empty").display
         assert app.query_one("#sessions", DataTable).has_focus
         assert queue_pane.region.height >= 6
@@ -248,6 +263,38 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pull_requests_pane_scrolls_vertically_and_horizontally_at_narrow_width() -> (
+    None
+):
+    pull_requests = tuple(
+        factories.pull_request(
+            number,
+            title=f"A deliberately long Pull Request title number {number}",
+        )
+        for number in range(1, 13)
+    )
+    app = DashpotApp(
+        SequenceCollector(
+            workspace_snapshot(
+                issue("test/repo#1", "First"), pull_requests=pull_requests
+            )
+        ),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(60, 40)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        pane = app.dashboard.pull_requests_pane()
+        await pilot.pause()
+
+        assert pane.count == 12
+        assert pane.region.width == app.query_one("#body").region.width
+        assert pane.table.show_vertical_scrollbar
+        assert pane.table.show_horizontal_scrollbar
+        assert app.query_one("#queue-pane").region.height >= 6
+
+
+@pytest.mark.asyncio
 async def test_panes_stack_full_width_at_every_breakpoint() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
@@ -294,10 +341,9 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         refresh_seconds=0,
     )
 
-    # 21 rows: the Footer and the Issue table's minimum of 6 leave 14;
-    # the empty Branches pane takes the 4 it wants, frame, line and margin,
-    # and the two full panes split the rest into a record each.
-    async with app.run_test(size=(80, 21)) as pilot:
+    # 25 rows: the Footer and the Issue table's minimum leave enough for the
+    # two empty panes and one record in each populated pane.
+    async with app.run_test(size=(80, 25)) as pilot:
         await wait_until(lambda: app.store.revision == 1)
         await pilot.pause()
         sessions = prepare_pane(app, "sessions-pane")
@@ -323,7 +369,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
             app.query_one("#list-row").region.height + queue_pane.region.height
         )
 
-        await pilot.resize_terminal(80, 27)
+        await pilot.resize_terminal(80, 31)
         await wait_until(
             lambda: sessions.region.height == worktrees.region.height == 2 + 1 + 4
         )
@@ -331,12 +377,13 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= app.query_one(Footer).region.y
 
-        # Too short even for a record each: the full panes collapse to their
-        # counts while the empty one keeps its honest line.
+        # Too short even for a content line each: every list collapses to its
+        # frame and count before the Issue pane loses its minimum.
         await pilot.resize_terminal(80, 19)
         await wait_until(lambda: sessions.region.height == worktrees.region.height == 2)
         assert sessions.region.height == worktrees.region.height == 2
-        assert app.query_one("#branches-pane").region.height == 3
+        assert app.query_one("#branches-pane").region.height == 2
+        assert app.query_one("#pull-requests-pane").region.height == 2
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 12"
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= app.query_one(Footer).region.y

@@ -14,6 +14,7 @@ from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, Horizontal, Vertical
 from textual.content import Content
+from textual.css.query import NoMatches
 from textual.geometry import Size
 from textual.message import Message
 from textual.screen import Screen
@@ -79,6 +80,7 @@ from .legend import LegendScreen
 from .list_pane import (
     BRANCHES_PANE_LABEL,
     ISSUE_PANE_LABEL,
+    PULL_REQUESTS_PANE_LABEL,
     SESSIONS_PANE_LABEL,
     WORKTREES_PANE_LABEL,
     ListColumn,
@@ -88,6 +90,12 @@ from .list_pane import (
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
 from .pane_layout import fit_panes, pane_wish
+from .pull_request_list import (
+    PULL_REQUEST_COLUMNS,
+    build_pull_request_rows,
+    pull_request_empty_message,
+    pull_request_note,
+)
 from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
@@ -115,6 +123,7 @@ class PaneRows:
     rows: tuple[ListRow, ...]
     columns: tuple[ListColumn, ...] | None = None
     note: str | None = None
+    empty_message: str | None = None
 
 
 class PaneRowsSource(Protocol):
@@ -169,6 +178,18 @@ def worktree_pane_rows(
     return PaneRows(build_worktree_rows(store.query_worktrees(), dark=dark))
 
 
+def pull_request_pane_rows(
+    store: WorkspaceObservationStore, *, dark: bool, now: datetime
+) -> PaneRows:
+    """List active Pull Requests with their independent freshness state."""
+    result = store.query_pull_requests()
+    return PaneRows(
+        build_pull_request_rows(result, dark=dark, now=now),
+        note=pull_request_note(result, now),
+        empty_message=pull_request_empty_message(result),
+    )
+
+
 # The list panes in reading order, each declared once.
 LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
     PaneSpec(
@@ -194,6 +215,14 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         BRANCH_COLUMNS,
         "no branches observed yet",
         branch_pane_rows,
+    ),
+    PaneSpec(
+        "pull-requests-pane",
+        "pull-requests",
+        PULL_REQUESTS_PANE_LABEL,
+        PULL_REQUEST_COLUMNS,
+        "pull requests unavailable",
+        pull_request_pane_rows,
     ),
 )
 # Focus starts in the first list and cycles through the four in reading
@@ -374,15 +403,29 @@ class DashboardScreen(Screen[None]):
     def worktrees_pane(self) -> ListPane:
         return self.list_pane("worktrees-pane")
 
+    def pull_requests_pane(self) -> ListPane:
+        return self.list_pane("pull-requests-pane")
+
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
         return tuple(self.list_pane(spec.pane_id) for spec in LIST_PANE_SPECS)
 
     def list_tables(self) -> tuple[DataTable[Any], ...]:
-        """The lists in focus-cycle order: Sessions, Worktrees, Branches, Issues."""
+        """Return every table in the dashboard's focus-cycle order."""
         return tuple(
             self.query_one(f"#{table_id}", DataTable) for table_id in LIST_TABLE_IDS
         )
+
+    def _observation_widgets_mounted(self) -> bool:
+        """Report whether an observation can still update every dashboard surface."""
+        try:
+            self.queue_table()
+            self.list_panes()
+            self.query_one("#alert", Static)
+            self.query_one("#diagnostics", Static)
+        except NoMatches:
+            return False
+        return True
 
     def action_focus_search(self) -> None:
         self.query_one("#issue-search", Input).focus()
@@ -614,13 +657,16 @@ class DashboardScreen(Screen[None]):
             pane.fit_rows(row_cap)
 
     def reconcile_list_panes(self) -> None:
-        """Re-list every observed session, worktree and branch from the store."""
+        """Re-list every observed record from the store."""
         dark = self.app.current_theme.dark
         now = datetime.now(UTC)
         for spec in LIST_PANE_SPECS:
             view = spec.rows(self.dashpot.store, dark=dark, now=now)
             self.list_pane(spec.pane_id).show_rows(
-                view.rows, columns=view.columns, note=view.note
+                view.rows,
+                columns=view.columns,
+                note=view.note,
+                empty_message=view.empty_message,
             )
 
     def reconcile_rows(self) -> IssueListResult:
@@ -1387,6 +1433,8 @@ class DashpotApp(App[None]):
         # are being unmounted one by one; any missing widget means the result
         # has nowhere to go and is dropped.
         if self._closing or self._closed or not self.screen_stack:
+            return
+        if not self.dashboard._observation_widgets_mounted():
             return
         self._finish_in_flight(message.ticket)
         try:

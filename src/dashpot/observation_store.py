@@ -19,7 +19,12 @@ from .model import (
     Diagnostic,
     ObservationTarget,
     ProjectObservation,
+    PullRequest,
     WorkspaceSnapshot,
+)
+from .pull_request_list import (
+    PullRequestListResult,
+    _query_indexed_pull_request_list,
 )
 from .session_list import SessionListResult, _query_indexed_session_list
 from .worktree_list import WorktreeListResult, _query_indexed_worktree_list
@@ -38,6 +43,8 @@ class StoreChange:
     observation_target_keys: frozenset[tuple[str, str]] = frozenset()
     branch_keys: frozenset[tuple[str, str]] = frozenset()
     agent_run_ids: frozenset[str] = frozenset()
+    pull_request_keys: frozenset[tuple[str, str]] = frozenset()
+    agent_dependency_project_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +67,7 @@ class _StoreState:
     elapsed_ms: int
     projects: dict[str, ProjectObservation]
     issues: dict[tuple[str, str], IssueProfile]
+    pull_requests: dict[tuple[str, str], PullRequest]
     observation_targets: dict[tuple[str, str], ObservationTarget]
     branches: dict[tuple[str, str], Branch]
     agent_runs: dict[str, AgentRun]
@@ -77,6 +85,7 @@ class WorkspaceObservationStore:
             elapsed_ms=0,
             projects={},
             issues={},
+            pull_requests={},
             observation_targets={},
             branches={},
             agent_runs={},
@@ -106,6 +115,7 @@ class WorkspaceObservationStore:
             retained_issue_ids.update(retained)
         projects = _projects_by_id(accepted_projects)
         issues = _issues_by_project(projects)
+        pull_requests = _pull_requests_by_project(projects)
         observation_targets = _targets_by_project(projects)
         branches = _branches_by_project(projects)
         agent_runs = _agent_runs_by_id(snapshot.agent_runs)
@@ -128,6 +138,7 @@ class WorkspaceObservationStore:
                 elapsed_ms=snapshot.elapsed_ms,
                 projects=projects,
                 issues=issues,
+                pull_requests=pull_requests,
                 observation_targets=observation_targets,
                 branches=branches,
                 agent_runs=agent_runs,
@@ -153,6 +164,7 @@ class WorkspaceObservationStore:
         projects = dict(before.projects)
         projects[accepted.project_id] = accepted
         issues = _issues_by_project(projects)
+        pull_requests = _pull_requests_by_project(projects)
         observation_targets = _targets_by_project(projects)
         branches = _branches_by_project(projects)
 
@@ -161,6 +173,7 @@ class WorkspaceObservationStore:
                 before,
                 projects=projects,
                 issues=issues,
+                pull_requests=pull_requests,
                 observation_targets=observation_targets,
                 branches=branches,
                 **_metadata_updates(before, collected_at, elapsed_ms),
@@ -246,6 +259,15 @@ class WorkspaceObservationStore:
         )
         return result
 
+    def query_pull_requests(self) -> PullRequestListResult:
+        """Query every active Pull Request with its independent freshness."""
+        state = self._state
+        return _query_indexed_pull_request_list(
+            projects=state.projects,
+            pull_requests=state.pull_requests,
+            revision=state.revision,
+        )
+
     def projects(self) -> tuple[ProjectObservation, ...]:
         """Every observed Project, in acceptance order."""
         return tuple(self._state.projects.values())
@@ -311,25 +333,41 @@ class WorkspaceObservationStore:
                 incoming.model_copy(update={"snapshot": previous.snapshot}),
                 retained_issue_ids,
             )
+        if incoming.snapshot is None:
+            return incoming, frozenset[str]()
+        snapshot = incoming.snapshot
+        snapshot_updates: dict[str, Any] = {}
+        accepted_status = incoming.status
         if (
-            incoming.snapshot is not None
-            and incoming.snapshot.issue_source_status == "unavailable"
+            snapshot.issue_source_status == "unavailable"
             and previous.snapshot.issue_source_last_good_at is not None
         ):
-            snapshot = incoming.snapshot.model_copy(
-                update={
-                    "issue_source_status": "stale",
-                    "issue_source_last_good_at": (
-                        previous.snapshot.issue_source_last_good_at
-                    ),
-                    "issues": previous.snapshot.issues,
-                }
+            snapshot_updates.update(
+                issue_source_status="stale",
+                issue_source_last_good_at=previous.snapshot.issue_source_last_good_at,
+                issues=previous.snapshot.issues,
             )
-            return (
-                incoming.model_copy(update={"status": "stale", "snapshot": snapshot}),
-                retained_issue_ids,
+            accepted_status = "stale"
+        else:
+            retained_issue_ids = frozenset[str]()
+        if (
+            snapshot.pull_request_status == "unavailable"
+            and previous.snapshot.pull_request_last_good_at is not None
+        ):
+            snapshot_updates.update(
+                pull_request_status="stale",
+                pull_request_last_good_at=(previous.snapshot.pull_request_last_good_at),
+                pull_requests=previous.snapshot.pull_requests,
             )
-        return incoming, frozenset[str]()
+        if not snapshot_updates:
+            return incoming, retained_issue_ids
+        accepted_snapshot = snapshot.model_copy(update=snapshot_updates)
+        return (
+            incoming.model_copy(
+                update={"status": accepted_status, "snapshot": accepted_snapshot}
+            ),
+            retained_issue_ids,
+        )
 
     def _commit(self, candidate: _StoreState) -> StoreChange:
         before = self._state
@@ -427,7 +465,14 @@ def _issue_contexts(state: _StoreState, issue_id: str) -> list[IssueContext]:
 
 def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
     project_ids = _changed_keys(before.projects, after.projects)
+    agent_dependency_project_ids = {
+        project_id
+        for project_id in before.projects.keys() | after.projects.keys()
+        if _agent_project_projection(before.projects.get(project_id))
+        != _agent_project_projection(after.projects.get(project_id))
+    }
     issue_keys = _changed_keys(before.issues, after.issues)
+    pull_request_keys = _changed_keys(before.pull_requests, after.pull_requests)
     binding_issue_ids = _changed_keys(before.issue_runs, after.issue_runs)
     observation_target_keys = _changed_keys(
         before.observation_targets,
@@ -457,6 +502,27 @@ def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
         observation_target_keys=frozenset(observation_target_keys),
         branch_keys=frozenset(branch_keys),
         agent_run_ids=frozenset(agent_run_ids),
+        pull_request_keys=frozenset(pull_request_keys),
+        agent_dependency_project_ids=frozenset(agent_dependency_project_ids),
+    )
+
+
+def _agent_project_projection(
+    project: ProjectObservation | None,
+) -> object:
+    """Keep only Project facts the Agent Run observation and binding consume."""
+    if project is None or project.snapshot is None:
+        return project
+    return (
+        project.project_id,
+        project.repository_id,
+        project.workspaces,
+        project.anchors,
+        project.primary_anchor,
+        project.status,
+        project.snapshot.issue_source_status,
+        project.snapshot.issues,
+        project.snapshot.observation_targets,
     )
 
 
@@ -486,6 +552,24 @@ def _issues_by_project(
                     f"Duplicate Issue Identity {issue.id} in {project.project_id}"
                 )
             indexed[key] = issue
+    return indexed
+
+
+def _pull_requests_by_project(
+    projects: Mapping[str, ProjectObservation],
+) -> dict[tuple[str, str], PullRequest]:
+    indexed: dict[tuple[str, str], PullRequest] = {}
+    for project in projects.values():
+        if project.snapshot is None:
+            continue
+        for pull_request in project.snapshot.pull_requests:
+            key = (project.project_id, pull_request.id)
+            if key in indexed:
+                raise ValueError(
+                    f"Duplicate Pull Request identity {pull_request.id} in "
+                    f"{project.project_id}"
+                )
+            indexed[key] = pull_request
     return indexed
 
 

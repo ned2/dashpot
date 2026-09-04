@@ -40,8 +40,11 @@ def project(
     project_id: str,
     *issues: IssueProfile,
     status: SourceStatus = "fresh",
+    pull_requests=(),
 ) -> ProjectObservation:
-    return factories.project(project_id, *issues, status=status)
+    return factories.project(
+        project_id, *issues, status=status, pull_requests=pull_requests
+    )
 
 
 def run(run_id: str, project_id: str, issue_id: str | None) -> AgentRun:
@@ -275,6 +278,51 @@ def test_adapter_supplied_stale_collection_remains_authoritative() -> None:
     store.replace_project(stale)
 
     assert required(store.issue("I_one")).issue.title == "Adapter last good"
+
+
+def test_unavailable_pull_requests_use_store_last_good_without_degrading_issues() -> (
+    None
+):
+    pull_request = factories.pull_request(83, pull_request_id="PR_stable")
+    available = project(
+        "project:one", issue("I_one", "Issue"), pull_requests=[pull_request]
+    )
+    store = WorkspaceObservationStore(workspace(available))
+    incoming_snapshot = snapshot_of(available).model_copy(
+        update={
+            "pull_request_status": "unavailable",
+            "pull_request_attempted_at": "2026-08-27T04:00:00Z",
+            "pull_request_last_good_at": None,
+            "pull_requests": (),
+        }
+    )
+
+    change = store.replace_project(
+        available.model_copy(update={"snapshot": incoming_snapshot})
+    )
+
+    accepted = store.project("project:one")
+    assert accepted is not None and accepted.snapshot is not None
+    assert accepted.status == "fresh"
+    assert accepted.snapshot.issue_source_status == "fresh"
+    assert accepted.snapshot.pull_request_status == "stale"
+    assert accepted.snapshot.pull_requests == (pull_request,)
+    assert change.pull_request_keys == frozenset()
+
+
+def test_pull_request_change_reports_its_project_qualified_identity() -> None:
+    first_pull_request = factories.pull_request(1, title="First")
+    second_pull_request = factories.pull_request(1, title="Changed")
+    store = WorkspaceObservationStore(
+        workspace(project("project:one", pull_requests=[first_pull_request]))
+    )
+
+    change = store.replace_project(
+        project("project:one", pull_requests=[second_pull_request])
+    )
+
+    assert change.pull_request_keys == frozenset({("project:one", "PR_1")})
+    assert change.agent_dependency_project_ids == frozenset()
 
 
 def test_conflicting_issue_identities_remain_project_qualified() -> None:

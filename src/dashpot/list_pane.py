@@ -1,11 +1,4 @@
-"""Content-sized, read-only list panes for the main screen's pane row.
-
-The Sessions and Worktrees panes share one shell: a titled frame whose
-`DataTable` grows with its records up to a cap, scrolls beyond it, and shows an
-honest empty-state line instead of a blank frame. The pane owns its row cursor
-and preserves it across refreshes by stable row identity; the records
-themselves come from the read models supplied by the pane's caller.
-"""
+"""Present content-sized, read-only lists in the main screen's pane row."""
 
 from __future__ import annotations
 
@@ -30,6 +23,7 @@ ListCell = str | Text
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
 BRANCHES_PANE_LABEL = "BRANCHES"
+PULL_REQUESTS_PANE_LABEL = "PULL REQUESTS"
 WORKTREES_PANE_LABEL = "WORKTREES"
 ELLIPSIS = "…"
 
@@ -136,6 +130,7 @@ class ListPane(Vertical):
         *,
         columns: Sequence[ListColumn] | None = None,
         note: str | None = None,
+        empty_message: str | None = None,
     ) -> None:
         """Replace the listed records, keeping the cursor by row identity.
 
@@ -145,6 +140,7 @@ class ListPane(Vertical):
         Branches pane's Remote-Tracking Branches were last fetched.
         """
         table = self.table
+        message = empty_message or self.empty_message
         prior_key, prior_index = self.highlighted()
         desired = {row.key: row for row in rows}
         if len(desired) != len(rows):
@@ -167,7 +163,9 @@ class ListPane(Vertical):
         # The empty state is the message line alone: a header over nothing
         # would only cost the Issue table a row.
         table.show_header = bool(rows)
-        self.query_one(".list-pane-empty", Static).display = not rows
+        empty = self.query_one(".list-pane-empty", Static)
+        empty.update(message)
+        empty.display = not rows
         self.apply_row_cap()
         self.post_message(self.RowsChanged(self))
         restore_selection(table, prior_key, prior_index, desired)
@@ -189,8 +187,9 @@ class ListPane(Vertical):
     def fit_rows(self, row_cap: int) -> None:
         """Cap the visible records so the panes never crowd out the Issue table.
 
-        ``row_cap`` is the number of records the table may show before it
-        scrolls; zero collapses the table to its frame and title count.
+        ``row_cap`` is the number of content lines the pane may show before it
+        scrolls; an empty pane uses one for its message, while zero collapses
+        the table to its frame and title count.
         """
         self.row_cap = max(0, min(DEFAULT_ROW_CAP, row_cap))
         self.apply_row_cap()
@@ -200,6 +199,9 @@ class ListPane(Vertical):
         header_height = 1 if table.show_header else 0
         table.styles.max_height = (
             header_height + self.row_cap if self.row_cap and self.rows_by_key else 0
+        )
+        self.query_one(".list-pane-empty", Static).display = (
+            not self.rows_by_key and self.row_cap > 0
         )
 
     def highlighted(self) -> tuple[str | None, int]:

@@ -32,6 +32,7 @@ from dashpot.model import (
     ResolvedProject,
     WorkspaceSnapshot,
 )
+from dashpot.pull_request_sources import PullRequestSourceObservation
 from dashpot.repository import BranchObservation, observe_github_repository_identity
 from factories import observation_target
 from helpers import jsonable
@@ -76,6 +77,9 @@ def project_snapshot(
         observation_targets=[observation_target(root)],
         issues=[issue()] if issues is None else issues,
         diagnostics=[],
+        pull_request_status="fresh",
+        pull_request_attempted_at="2026-08-24T15:00:00Z",
+        pull_request_last_good_at="2026-08-24T15:00:00Z",
     )
 
 
@@ -409,10 +413,18 @@ class ProjectCollectorTests(unittest.TestCase):
         self.assertEqual("fresh", snapshot.issue_source_status)
         self.assertEqual(1, len(snapshot.issues))
         self.assertEqual((), snapshot.observation_targets)
-        self.assertEqual("target-discovery", snapshot.diagnostics[0].code)
+        self.assertIn(
+            "target-discovery", [diagnostic.code for diagnostic in snapshot.diagnostics]
+        )
 
     def test_refresh_stamps_timestamps_from_the_injected_clock(self) -> None:
-        ticks = iter(["2026-09-02T00:00:01Z", "2026-09-02T00:00:02Z"])
+        ticks = iter(
+            [
+                "2026-09-02T00:00:01Z",
+                "2026-09-02T00:00:02Z",
+                "2026-09-02T00:00:03Z",
+            ]
+        )
         collector = ProjectCollector(
             resolved_project(),
             FakeSource(),
@@ -422,9 +434,10 @@ class ProjectCollectorTests(unittest.TestCase):
 
         snapshot = collector.refresh()
 
-        self.assertEqual("2026-09-02T00:00:01Z", snapshot.target_attempted_at)
-        self.assertEqual("2026-09-02T00:00:01Z", snapshot.target_last_good_at)
-        self.assertEqual("2026-09-02T00:00:02Z", snapshot.collected_at)
+        self.assertEqual("2026-09-02T00:00:01Z", snapshot.pull_request_attempted_at)
+        self.assertEqual("2026-09-02T00:00:02Z", snapshot.target_attempted_at)
+        self.assertEqual("2026-09-02T00:00:02Z", snapshot.target_last_good_at)
+        self.assertEqual("2026-09-02T00:00:03Z", snapshot.collected_at)
 
     def test_refresh_target_failure_leaves_no_last_good_timestamp(self) -> None:
         collector = ProjectCollector(
@@ -445,7 +458,7 @@ class ProjectCollectorTests(unittest.TestCase):
 
 
 class FakeProjectCollector:
-    """Serve one prepared snapshot as two independently observed halves."""
+    """Serve one prepared snapshot as independently observed Project parts."""
 
     def __init__(self, snapshot: ProjectSnapshot) -> None:
         self.snapshot = snapshot
@@ -462,6 +475,18 @@ class FakeProjectCollector:
     def observe_targets(self) -> RepositoryStateInventory:
         return RepositoryStateInventory(
             targets=copy.deepcopy(self.snapshot.observation_targets), diagnostics=[]
+        )
+
+    def observe_pull_requests(self) -> PullRequestSourceObservation:
+        return PullRequestSourceObservation(
+            status=self.snapshot.pull_request_status,
+            attempted_at=(
+                self.snapshot.pull_request_attempted_at
+                or self.snapshot.issue_source_attempted_at
+            ),
+            last_good_at=self.snapshot.pull_request_last_good_at,
+            pull_requests=tuple(self.snapshot.pull_requests),
+            diagnostics=(),
         )
 
 

@@ -101,6 +101,8 @@ def summarize_alerts(
     unavailable_projects: list[str] = []
     unavailable_issues: list[str] = []
     stale_issues: list[tuple[str, str | None]] = []
+    unavailable_pull_requests: list[str] = []
+    stale_pull_requests: list[tuple[str, str | None]] = []
     unavailable_scans: list[str] = []
     stale_scans: list[str] = []
     unavailable_targets: list[str] = []
@@ -114,6 +116,14 @@ def summarize_alerts(
             unavailable_issues.append(label)
         elif snapshot.issue_source_status == "stale":
             stale_issues.append((label, snapshot.issue_source_last_good_at))
+        pull_requests_configured = not any(
+            diagnostic.code == "pull-requests-not-configured"
+            for diagnostic in snapshot.diagnostics
+        )
+        if pull_requests_configured and snapshot.pull_request_status == "unavailable":
+            unavailable_pull_requests.append(label)
+        elif pull_requests_configured and snapshot.pull_request_status == "stale":
+            stale_pull_requests.append((label, snapshot.pull_request_last_good_at))
         if snapshot.target_status == "unavailable":
             unavailable_scans.append(label)
         elif snapshot.target_status == "stale":
@@ -137,6 +147,14 @@ def summarize_alerts(
             AlertItem(
                 "error",
                 f"Unavailable Issues: {_join(unavailable_issues, 'Projects')}",
+            )
+        )
+    if unavailable_pull_requests:
+        items.append(
+            AlertItem(
+                "error",
+                "Unavailable Pull Requests: "
+                f"{_join(unavailable_pull_requests, 'Projects')}",
             )
         )
     for diagnostic in workspace_diagnostics:
@@ -171,6 +189,19 @@ def summarize_alerts(
                 AlertItem(
                     "warning",
                     f"Stale Issues: {len(stale_issues)} Projects",
+                )
+            )
+    if stale_pull_requests:
+        if len(stale_pull_requests) == 1:
+            label, last_good_at = stale_pull_requests[0]
+            age = relative_age(last_good_at, current)
+            detail = f" (last good {age})" if age else ""
+            items.append(AlertItem("warning", f"Stale Pull Requests: {label}{detail}"))
+        else:
+            items.append(
+                AlertItem(
+                    "warning",
+                    f"Stale Pull Requests: {len(stale_pull_requests)} Projects",
                 )
             )
     if stale_scans:

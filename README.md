@@ -32,13 +32,17 @@ housekeeping of Dashpot's own ignored state, such as pruning the hook record of
 a session that has ended.
 
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
+- active GitHub Pull Requests, including review, checks, and mergeability
 - git Branches, Remote-Tracking Branches, worktrees, HEAD, and dirty state
 - Codex and Claude Code lifecycle records published through opt-in hooks
 - source freshness, failures, and last-good state
 - durable Agent Run bindings through opaque Issue Identity
 
-Each source remains independent in the read model. A failed Issue refresh, for
-example, does not erase the last good Issue collection or hide repository facts.
+Each source remains independent in the read model. A failed Pull Request
+refresh, for example, retains its last good collection without degrading a
+healthy Issue Source or hiding repository facts. A Local Issue Markdown
+Project reports Pull Requests as not configured rather than inferring a host
+from its Git remotes.
 
 ## Usage
 
@@ -88,12 +92,12 @@ the management commands `init`, `integrate`,
 | `r` | Refresh every observation in the Workspace, observing every GitHub Issue afresh rather than only what changed |
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
 | `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
-| `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, and Issues lists |
+| `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
 | `/` | Focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
 | `c` | Open the column editor: toggle the visible Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move the row cursor in the focused list |
-| `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, highlight that Issue in the table |
+| `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, highlight that Issue in the table; unbound on Pull Requests |
 | `q` | Quit |
 
 The search box takes whitespace- or quote-separated terms matched against the
@@ -118,6 +122,15 @@ label, an Issue without one shows nothing there, and a table with none omits
 the column rather than invent a default, so an Issue Source that does not use
 priority labels pays no width for it.
 
+The `PULL REQUESTS` pane lists every open Pull Request of a GitHub-backed
+Project, newest update first. Its columns are `STATE`, `#`, `TITLE`, `HEAD`,
+`BASE`, `AUTHOR`, `REVIEW`, `CHECKS`, `MERGE`, and `UPDATED`; drafts, review
+decisions, the head commit's combined check/status result, merge conflicts,
+and mergeability still being calculated are distinct Glyphs explained by the
+Legend. Long content scrolls horizontally rather than dropping facts. A fresh
+empty collection says `no active pull requests`; stale last-good data and an
+unavailable or unconfigured source say so separately.
+
 A Workspace inventory stores named groupings of anchor paths for one Project —
 independent clones, never discovered or persisted worktree paths:
 
@@ -139,7 +152,7 @@ Relative anchor paths are resolved relative to the inventory file. Every anchor
 is validated independently, and clones with the same Project Identity and
 Repository Identity are presented as one Project. Anchor order is significant:
 the first valid anchor for a Project supplies its display label and is the
-authoritative checkout used for Issue collection.
+authoritative checkout used for Issue and Pull Request collection.
 
 On every refresh, Dashpot asks Git for the main and linked worktrees reachable
 from every configured anchor. These runtime Observation Targets are deduplicated

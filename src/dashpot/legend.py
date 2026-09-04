@@ -20,11 +20,12 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 from typing_extensions import override
 
-from . import alerts, branch_list, issue_cells, session_list
+from . import alerts, branch_list, issue_cells, pull_request_list, session_list
 from .glyphs import Glyph, LegendSection
 from .list_pane import (
     BRANCHES_PANE_LABEL,
     ISSUE_PANE_LABEL,
+    PULL_REQUESTS_PANE_LABEL,
     SESSIONS_PANE_LABEL,
     WORKTREES_PANE_LABEL,
 )
@@ -81,6 +82,10 @@ LEGEND: tuple[LegendSection, ...] = (
     LegendSection(
         BRANCHES_PANE_LABEL, "SESSIONS", session_list.LEGEND, SESSIONS_COUNT_NOTE
     ),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "STATE", pull_request_list.STATE_LEGEND),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "REVIEW", pull_request_list.REVIEW_LEGEND),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "CHECKS", pull_request_list.CHECKS_LEGEND),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "MERGE", pull_request_list.MERGE_LEGEND),
     LegendSection(
         ISSUE_PANE_LABEL,
         issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol,

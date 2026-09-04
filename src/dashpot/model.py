@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from .issue_profile import IssueProfile
-from .models import FrozenMapping, LaxSequence, PublishedModel
+from .models import (
+    FrozenMapping,
+    LaxSequence,
+    NonEmptyString,
+    PublishedModel,
+    Rfc3339Timestamp,
+)
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
@@ -28,12 +34,33 @@ class Diagnostic(ObservationModel):
 
 
 PullRequestState = Literal["open", "closed", "merged"]
+PullRequestReviewDecision = Literal["approved", "changes-requested", "review-required"]
+PullRequestCheckStatus = Literal["error", "expected", "failure", "pending", "success"]
+PullRequestMergeability = Literal["mergeable", "conflicting"]
 
 
 class LinkedPullRequest(ObservationModel):
     number: int
     url: str
     state: PullRequestState
+
+
+class PullRequest(ObservationModel):
+    """Publish one active Pull Request of the Project's Git Repository."""
+
+    id: NonEmptyString
+    number: Annotated[int, Field(gt=0)]
+    title: NonEmptyString
+    url: NonEmptyString
+    state: Literal["open"]
+    is_draft: bool
+    head_branch: NonEmptyString
+    base_branch: NonEmptyString
+    author: NonEmptyString | None
+    review_decision: PullRequestReviewDecision | None
+    check_status: PullRequestCheckStatus | None
+    mergeability: PullRequestMergeability | None
+    updated_at: Rfc3339Timestamp
 
 
 class IssueActivity(ObservationModel):
@@ -153,6 +180,10 @@ class ProjectSnapshot(ObservationModel):
     # empty when the source has no palette.
     label_colors: FrozenMapping[str, str] = Field(default_factory=dict)
     issue_activity: FrozenMapping[str, IssueActivity] = Field(default_factory=dict)
+    pull_request_status: SourceStatus = "unavailable"
+    pull_request_attempted_at: str | None = None
+    pull_request_last_good_at: str | None = None
+    pull_requests: LaxSequence[PullRequest] = ()
     # Branches are observed with the worktree topology and share its
     # freshness; ``fetched_at`` is the last fetch of the Remote-Tracking
     # Branches, which observation reports rather than refreshes.

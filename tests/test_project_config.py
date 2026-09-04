@@ -7,8 +7,13 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from dashpot.collect import build_issue_source, create_project_collector
+from dashpot.collect import (
+    build_issue_source,
+    build_pull_request_source,
+    create_project_collector,
+)
 from dashpot.github_issues import GitHubIssuesSource
+from dashpot.github_pull_requests import GitHubPullRequestsSource
 from dashpot.issue_resolution import configured_issue_source
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from dashpot.model import ResolvedProject
@@ -19,6 +24,7 @@ from dashpot.project_config import (
     load_project_config,
     parse_project_config,
 )
+from dashpot.pull_request_sources import UnconfiguredPullRequestSource
 from factories import completed, fake_git, init_repository, write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
@@ -193,6 +199,10 @@ def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
     assert isinstance(collector.source, LocalMarkdownIssuesSource)
     assert collector.source.project_id == PROJECT_ID
     assert collector.source.issues_path == Path("issues")
+    assert isinstance(collector.pull_request_source, UnconfiguredPullRequestSource)
+    pull_requests = collector.pull_request_source.refresh()
+    assert pull_requests.status == "unavailable"
+    assert pull_requests.diagnostics[0].code == "pull-requests-not-configured"
 
 
 def test_project_collector_builds_github_source_for_github_anchor(
@@ -209,6 +219,8 @@ def test_project_collector_builds_github_source_for_github_anchor(
     assert isinstance(collector.source, GitHubIssuesSource)
     assert collector.source.project_id == PROJECT_ID
     assert collector.source.repository_id == "R_dashpot"
+    assert isinstance(collector.pull_request_source, GitHubPullRequestsSource)
+    assert collector.pull_request_source.repository_id == "R_dashpot"
 
 
 def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None:
@@ -244,6 +256,25 @@ def test_build_issue_source_requires_github_repository_anchor(tmp_path: Path) ->
 
     with pytest.raises(RuntimeError, match="GitHub origin remote"):
         build_issue_source(tmp_path, load_project_config(tmp_path), timeout=7, git=git)
+
+
+def test_build_pull_request_source_follows_the_configured_issue_source(
+    tmp_path: Path,
+) -> None:
+    write_config(tmp_path, {"kind": "github"})
+    config = load_project_config(tmp_path)
+
+    source = build_pull_request_source(tmp_path, config, timeout=7)
+
+    assert isinstance(source, GitHubPullRequestsSource)
+    assert source.repository_id == "R_dashpot"
+    assert source.gateway.timeout == 7
+
+    write_config(tmp_path, {"kind": "markdown", "path": "issues"})
+    local_source = build_pull_request_source(
+        tmp_path, load_project_config(tmp_path), timeout=7
+    )
+    assert isinstance(local_source, UnconfiguredPullRequestSource)
 
 
 def test_every_entry_point_builds_the_same_issue_source(tmp_path: Path) -> None:

@@ -78,6 +78,7 @@ def test_legend_follows_the_screen_top_to_bottom() -> None:
         "SESSIONS",
         "WORKTREES",
         "BRANCHES",
+        "PULL REQUESTS",
         "ISSUES",
         legend.DIAGNOSTICS_LABEL,
     ]

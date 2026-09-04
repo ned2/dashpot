@@ -52,13 +52,19 @@ async def test_only_focused_dashboard_table_shows_its_row_cursor() -> None:
         await wait_until(lambda: app.store.revision == 1)
         tables = {
             table_id: app.query_one(f"#{table_id}", DataTable)
-            for table_id in ("queue", "sessions", "worktrees", "branches")
+            for table_id in (
+                "queue",
+                "sessions",
+                "worktrees",
+                "branches",
+                "pull-requests",
+            )
         }
 
         assert {
             table_id for table_id, table in tables.items() if table.show_cursor
         } == {"sessions"}
-        for table_id in ("worktrees", "branches", "queue"):
+        for table_id in ("worktrees", "branches", "pull-requests", "queue"):
             await pilot.press("tab")
             assert {
                 current_id for current_id, table in tables.items() if table.show_cursor
@@ -522,7 +528,7 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
 
 
 @pytest.mark.asyncio
-async def test_tab_cycles_focus_through_the_four_lists() -> None:
+async def test_tab_cycles_focus_through_every_list() -> None:
     app = DashpotApp(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -535,6 +541,7 @@ async def test_tab_cycles_focus_through_the_four_lists() -> None:
         sessions = app.query_one("#sessions", DataTable)
         worktrees = app.query_one("#worktrees", DataTable)
         branches = app.query_one("#branches", DataTable)
+        pull_requests = app.query_one("#pull-requests", DataTable)
         # The Sessions list, first on screen, starts with focus.
         assert sessions.has_focus
         assert app.query_one("#sessions-pane").has_pseudo_class("focus-within")
@@ -547,12 +554,17 @@ async def test_tab_cycles_focus_through_the_four_lists() -> None:
         assert branches.has_focus
         assert app.query_one("#branches-pane").has_pseudo_class("focus-within")
         await pilot.press("tab")
+        assert pull_requests.has_focus
+        assert app.query_one("#pull-requests-pane").has_pseudo_class("focus-within")
+        await pilot.press("tab")
         assert queue.has_focus
         assert app.query_one("#queue-pane").has_pseudo_class("focus-within")
         await pilot.press("tab")
         assert sessions.has_focus
         await pilot.press("shift+tab")
         assert queue.has_focus
+        await pilot.press("shift+tab")
+        assert pull_requests.has_focus
         await pilot.press("shift+tab")
         assert branches.has_focus
         await pilot.press("shift+tab")

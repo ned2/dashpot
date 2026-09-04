@@ -22,7 +22,9 @@ def project(
     *,
     issue_status: SourceStatus = "fresh",
     target_status: SourceStatus = "fresh",
+    pull_request_status: SourceStatus = "fresh",
     last_good_at: str | None = "2026-08-28T11:48:00Z",
+    diagnostics: tuple[Diagnostic, ...] = (),
     targets: list[ObservationTarget] | None = None,
     missing: bool = False,
 ) -> ProjectObservation:
@@ -33,7 +35,10 @@ def project(
         anchors=("/repo",),
         status=issue_status,
         target_status=target_status,
+        pull_request_status=pull_request_status,
         last_good_at=last_good_at,
+        pull_request_last_good_at=last_good_at,
+        diagnostics=diagnostics,
         elapsed_ms=1,
         now="2026-08-28T12:00:00Z",
         missing=missing,
@@ -66,6 +71,33 @@ def test_stale_issue_source_names_the_project_and_its_age() -> None:
     assert alert is not None
     assert alert.severity == "warning"
     assert alert.text == "⚠ Stale Issues: Alpha (last good 12m ago)"
+
+
+def test_pull_request_failures_alert_without_alarming_when_not_configured() -> None:
+    not_configured = Diagnostic(
+        source="pull-requests",
+        severity="info",
+        message="Pull Requests are not configured",
+        code="pull-requests-not-configured",
+    )
+    alert = summarize_alerts(
+        store(
+            project("alpha", pull_request_status="stale"),
+            project("beta", pull_request_status="unavailable"),
+            project(
+                "gamma",
+                pull_request_status="unavailable",
+                diagnostics=(not_configured,),
+            ),
+        ),
+        now=clock,
+    )
+
+    assert alert is not None
+    assert [item.text for item in alert.items] == [
+        "Unavailable Pull Requests: Beta",
+        "Stale Pull Requests: Alpha (last good 12m ago)",
+    ]
 
 
 def test_many_stale_projects_are_counted_not_listed() -> None:

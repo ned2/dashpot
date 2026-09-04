@@ -24,6 +24,7 @@ from dashpot.model import (
     ObservationTarget,
     ProjectObservation,
     ProjectSnapshot,
+    PullRequest,
     RunState,
     SourceStatus,
     TargetAvailability,
@@ -370,6 +371,38 @@ def target(
     )
 
 
+def pull_request(
+    number: int = 1,
+    *,
+    pull_request_id: str | None = None,
+    title: str = "Add the feature",
+    is_draft: bool = False,
+    author: str | None = "ned",
+    review_decision: str | None = "review-required",
+    check_status: str | None = "pending",
+    mergeability: str | None = None,
+    updated_at: str = NOW,
+) -> PullRequest:
+    """Build one active repository-wide Pull Request observation."""
+    return PullRequest.model_validate(
+        {
+            "id": pull_request_id or f"PR_{number}",
+            "number": number,
+            "title": title,
+            "url": f"https://github.com/test/repo/pull/{number}",
+            "state": "open",
+            "isDraft": is_draft,
+            "headBranch": f"feature-{number}",
+            "baseBranch": "main",
+            "author": author,
+            "reviewDecision": review_decision,
+            "checkStatus": check_status,
+            "mergeability": mergeability,
+            "updatedAt": updated_at,
+        }
+    )
+
+
 def project(
     project_id: str,
     *issues: IssueProfile,
@@ -377,10 +410,13 @@ def project(
     repository_id: str | None = None,
     targets: Sequence[ObservationTarget] | None = None,
     branches: Sequence[Branch] | None = None,
+    pull_requests: Sequence[PullRequest] = (),
     anchors: Sequence[str] | None = None,
     status: SourceStatus = "fresh",
     target_status: SourceStatus = "fresh",
+    pull_request_status: SourceStatus = "fresh",
     last_good_at: str | None = _DERIVED,
+    pull_request_last_good_at: str | None = _DERIVED,
     diagnostics: Sequence[Diagnostic] = (),
     elapsed_ms: int = 3,
     now: str = NOW,
@@ -391,6 +427,10 @@ def project(
     repository = repository_id or f"repository:{project_id}"
     if last_good_at is _DERIVED:
         last_good_at = now if status != "unavailable" else None
+    if pull_request_last_good_at is _DERIVED:
+        pull_request_last_good_at = (
+            now if pull_request_status != "unavailable" else None
+        )
     anchor_paths = list(anchors or (f"/{project_id}",))
     snapshot = None
     if not missing:
@@ -407,6 +447,10 @@ def project(
             diagnostics=list(diagnostics),
             target_status=target_status,
             branches=list(branches or []),
+            pull_request_status=pull_request_status,
+            pull_request_attempted_at=now,
+            pull_request_last_good_at=pull_request_last_good_at,
+            pull_requests=list(pull_requests),
         )
     return ProjectObservation(
         project_id=project_id,

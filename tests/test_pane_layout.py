@@ -24,10 +24,10 @@ def test_a_long_list_wishes_no_higher_than_the_row_cap() -> None:
     assert pane_wish(50) == pane_wish(DEFAULT_ROW_CAP)
 
 
-def test_empty_panes_collapse_even_with_height_to_spare() -> None:
+def test_empty_panes_keep_their_message_line_with_height_to_spare() -> None:
     wishes = (pane_wish(0), pane_wish(0), pane_wish(0))
 
-    assert fit_panes(30, 6, wishes) == (0, 0, 0)
+    assert fit_panes(30, 6, wishes) == (1, 1, 1)
 
 
 def test_zero_body_height_collapses_every_pane() -> None:
@@ -39,7 +39,7 @@ def test_zero_body_height_collapses_every_pane() -> None:
 def test_a_full_pane_is_capped_with_its_scrollbar_spare_row() -> None:
     wishes = (pane_wish(1), pane_wish(50), pane_wish(0))
 
-    assert fit_panes(32, 6, wishes) == (2, DEFAULT_ROW_CAP + 1, 0)
+    assert fit_panes(32, 6, wishes) == (2, DEFAULT_ROW_CAP + 1, 1)
 
 
 def test_a_modest_wish_leaves_its_share_to_the_panes_that_want_more() -> None:
@@ -47,7 +47,7 @@ def test_a_modest_wish_leaves_its_share_to_the_panes_that_want_more() -> None:
     # the empty pane's unused share flows to them instead.
     wishes = (pane_wish(0), pane_wish(50), pane_wish(50))
 
-    assert fit_panes(40, 6, wishes) == (0, DEFAULT_ROW_CAP + 1, DEFAULT_ROW_CAP + 1)
+    assert fit_panes(40, 6, wishes) == (1, DEFAULT_ROW_CAP + 1, DEFAULT_ROW_CAP + 1)
 
 
 def test_caps_follow_the_order_of_the_wishes_not_the_grant_order() -> None:
@@ -55,7 +55,7 @@ def test_caps_follow_the_order_of_the_wishes_not_the_grant_order() -> None:
     # the caller's pane order.
     wishes = (pane_wish(50), pane_wish(0))
 
-    assert fit_panes(20, 6, wishes) == (10 - PANE_CHROME, 0)
+    assert fit_panes(20, 6, wishes) == (10 - PANE_CHROME, 1)
 
 
 def test_the_issue_table_minimum_squeezes_panes_to_bare_frames() -> None:

@@ -25,6 +25,7 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from dashpot.observation_store import StoreChange, WorkspaceObservationStore
+from dashpot.pull_request_sources import PullRequestSourceObservation
 
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
@@ -95,6 +96,8 @@ class ScriptedCollector:
         self.source = source
         self.root = root
         self.target_failures: list[Exception] = []
+        self.pull_request_failures: list[Exception] = []
+        self.pull_request_calls = 0
         self.target_calls = 0
         self.targets_release = threading.Event()
         self.targets_release.set()
@@ -102,6 +105,19 @@ class ScriptedCollector:
 
     def observe_issues(self, *, reconcile: bool = False):
         return self.source.refresh(reconcile=reconcile)
+
+    def observe_pull_requests(self) -> PullRequestSourceObservation:
+        self.pull_request_calls += 1
+        if self.pull_request_failures:
+            raise self.pull_request_failures.pop(0)
+        attempted_at = "2026-08-28T00:00:00Z"
+        return PullRequestSourceObservation(
+            status="fresh",
+            attempted_at=attempted_at,
+            last_good_at=attempted_at,
+            pull_requests=(),
+            diagnostics=(),
+        )
 
     def observe_targets(self) -> RepositoryStateInventory:
         self.target_calls += 1
@@ -176,19 +192,24 @@ def test_keys_select_one_project_or_the_whole_workspace(workspace) -> None:
 
     assert coordinator.keys("beta") == [
         ObservationKey("issues", "beta"),
+        ObservationKey("pull-requests", "beta"),
         ObservationKey("targets", "beta"),
         AGENT_RUNS_KEY,
     ]
     assert coordinator.keys() == [
         ObservationKey("issues", "alpha"),
+        ObservationKey("pull-requests", "alpha"),
         ObservationKey("targets", "alpha"),
         ObservationKey("issues", "beta"),
+        ObservationKey("pull-requests", "beta"),
         ObservationKey("targets", "beta"),
         AGENT_RUNS_KEY,
     ]
     assert coordinator.keys("unknown") == coordinator.keys()
     projects_changed = StoreChange(
-        1, frozenset({"projects"}), frozenset(), frozenset(), frozenset(), frozenset()
+        1,
+        frozenset({"projects"}),
+        agent_dependency_project_ids=frozenset({"alpha"}),
     )
     runs_changed = StoreChange(
         2, frozenset({"agent-runs"}), frozenset(), frozenset(), frozenset(), frozenset()
@@ -214,16 +235,24 @@ def test_a_reconciliation_request_rides_the_ticket_to_the_source(workspace) -> N
     assert collectors["alpha"].source.reconcile_requests == [True, False]
 
 
-def test_project_is_published_only_after_both_halves_are_observed(
+def test_project_is_published_only_after_every_project_part_is_observed(
     workspace,
 ) -> None:
     coordinator, _collectors, _runs, _targets = workspace
     store = WorkspaceObservationStore()
-    issues, targets = coordinator.request(
-        [ObservationKey("issues", "alpha"), ObservationKey("targets", "alpha")]
+    issues, pull_requests, targets = coordinator.request(
+        [
+            ObservationKey("issues", "alpha"),
+            ObservationKey("pull-requests", "alpha"),
+            ObservationKey("targets", "alpha"),
+        ]
     )
 
     assert coordinator.observe(issues).accepted
+    assert coordinator.publish(store) == []
+    assert not store.has_observations
+
+    assert coordinator.observe(pull_requests).accepted
     assert coordinator.publish(store) == []
     assert not store.has_observations
 
@@ -392,6 +421,30 @@ def test_issue_failure_keeps_last_good_issues_and_fresh_targets(
     )
 
 
+def test_pull_request_failure_keeps_issues_and_targets_fresh(workspace) -> None:
+    coordinator, collectors, _runs, _targets = workspace
+    store = WorkspaceObservationStore()
+    observe_all(coordinator)
+    coordinator.publish(store)
+    collectors["alpha"].pull_request_failures = [RuntimeError("GitHub PRs failed")]
+    collectors["alpha"].head = "fresh00"
+
+    observe_all(coordinator, "alpha")
+    coordinator.publish(store)
+
+    project = store.project("alpha")
+    assert project is not None and project.snapshot is not None
+    assert project.status == "fresh"
+    assert project.snapshot.issue_source_status == "fresh"
+    assert project.snapshot.target_status == "fresh"
+    assert project.snapshot.observation_targets[0].head == "fresh00"
+    assert project.snapshot.pull_request_status == "stale"
+    assert project.snapshot.pull_requests == ()
+    assert [diagnostic.code for diagnostic in project.snapshot.diagnostics] == [
+        "pull-request-collection"
+    ]
+
+
 def test_project_failure_after_success_retains_both_halves_once(
     workspace, tmp_path: Path
 ) -> None:
@@ -464,6 +517,7 @@ def test_workspace_fan_out_refreshes_every_project(workspace) -> None:
     }
     assert [change.kinds for change in changes][-1] >= {"agent-runs"}
     assert all(c.source.calls == 1 for c in collectors.values())
+    assert all(c.pull_request_calls == 1 for c in collectors.values())
     assert all(c.target_calls == 1 for c in collectors.values())
 
 
