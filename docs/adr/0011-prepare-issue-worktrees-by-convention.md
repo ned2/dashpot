@@ -1,6 +1,6 @@
 ---
 status: amended
-date: 2026-08-30
+date: 2026-09-05
 amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md
 ---
 
@@ -94,9 +94,13 @@ conventions the command owns, so that no agent skill re-derives them.
   disposable Local Issue Markdown repositories only.
 - The domain language gains **Issue Worktree** and **Worktree Root**; a
   Worktree's path and Branch remain Issue Hints.
-- `AGENTS.md` carries an interim *Preparing a Worktree for an Issue*
-  sequence until the agent-facing skill ([#58](https://github.com/ned2/dashpot/issues/58))
-  replaces it.
+- `dashpot integrate <harness>` installs the model-invoked
+  `dashpot-issue-work` skill. Its short common path delegates Issue resolution
+  and Worktree policy to these commands; progressive dispatch and recovery
+  references select among existing Worktrees, `worktree create`, Claude Code
+  `EnterWorktree`, sequential Codex resume, and the fresh-session fallback
+  without reimplementing the conventions. `AGENTS.md` points to that workflow
+  instead of carrying an interim copy.
 - The default Worktree root is a sibling of the Repository Anchor, so a
   command run from a linked Worktree that itself lives inside the main
   Worktree (Claude Code's `.claude/worktrees/`) must name a root explicitly.

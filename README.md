@@ -371,9 +371,11 @@ defaults its Work list to open Issues. Both adapters are currently read-only.
 ## Agent session observation
 
 Dashpot observes Codex and Claude Code sessions through opt-in lifecycle hooks
-installed once per user with `dashpot integrate`, and a session declares the
-Issue it is working on with `dashpot work start`. Both commands, the Work Store,
-and how a session is identified are documented in
+installed once per user with `dashpot integrate`. The same command installs the
+model-invoked `dashpot-issue-work` skill in the harness's user skill directory;
+the skill resolves and declares Issue work, dispatches Worktree handoffs, and
+holds the Issue Binding through the repository's delivery workflow. The
+commands, the Work Store, and how a session is identified are documented in
 [`docs/agent-sessions.md`](docs/agent-sessions.md).
 
 ## Issue Worktrees
@@ -495,10 +497,14 @@ report (`kind`, `subject`, `anchor`, `dryRun`, `performed`, `changed`,
 `refusals`, `planned`, `results`, `succeeded`, and the `preview`). The exit
 code is 0 only when every selected target was deleted or already absent.
 
-The created Worktree carries no harness. Launch whichever harness should
-work there with its working directory set — `codex -C <path>` or
-`cd <path> && claude` — and declare the Issue from inside that session with
-`dashpot work start` ([Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)); Claude Code's
+The created Worktree carries no harness. The installed Issue-work skill moves
+a running Claude Code session with `EnterWorktree`, or hands a Codex session
+off through sequential `codex resume <session-id> -C <path>` when that version
+supports it. The old Codex client exits first; a fresh `codex -C <path>`
+session is the disclosed compatibility fallback. Both paths run and verify
+`dashpot work start` after arrival because active Agent Run continuity through
+process exit is not promised
+([Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)). Claude Code's
 own `--worktree` is not used because it places, names, bases, and may reset
 Worktrees by its own rules. Each Worktree owns its own `.venv` and
 `.dashpot/state/`.
@@ -527,9 +533,10 @@ it:
 4. Watch CI to completion with `gh run watch <id> --exit-status`; the change
    is done when the run is green.
 
-Agent sessions additionally declare the Issue they are working on with
-`dashpot work start` (see [Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)); the
-expectations on agents themselves are in [`AGENTS.md`](AGENTS.md).
+Agent sessions use the `dashpot-issue-work` skill to declare and verify the
+Issue they are working on (see
+[Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)); the expectations
+on agents themselves are in [`AGENTS.md`](AGENTS.md).
 
 ## Documentation map
 

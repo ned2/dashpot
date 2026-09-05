@@ -1333,6 +1333,7 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
     assert "[choices: codex, claude-code]" in integrate
     assert "--status" in integrate
     assert "--remove" in integrate
+    assert "Issue-work integration" in integrate
 
 
 def test_help_and_version_print_to_stdout_and_exit_zero(

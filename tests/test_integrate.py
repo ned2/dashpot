@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import sysconfig
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -12,11 +13,14 @@ from dashpot.hook_records import write_hook_record
 from dashpot.integrate import (
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
+    ISSUE_WORK_SKILL_MARKER,
+    ISSUE_WORK_SKILL_VERSION,
     codex_integration_status,
     install_codex_integration,
     install_integration,
     integration,
     integration_status,
+    issue_work_skill_directory,
     remove_codex_integration,
     remove_integration,
     resolve_hook_command,
@@ -55,6 +59,10 @@ def read_hooks(home: Path) -> dict[str, Any]:
     return json.loads((home / "hooks.json").read_text())
 
 
+def installed_skill(home: Path, harness: str = "codex") -> Path:
+    return issue_work_skill_directory(integration(harness), home)
+
+
 def test_fresh_install_registers_every_lifecycle_event(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     command = publisher(tmp_path)
@@ -89,6 +97,55 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
 
     assert (home / "hooks.json").read_text() == before
     assert any("already installed" in message for message in messages)
+
+
+def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> None:
+    home = codex_home(tmp_path)
+
+    messages = install_codex_integration(home, command_path=publisher(tmp_path))
+
+    skill = installed_skill(home)
+    text = (skill / "SKILL.md").read_text()
+    assert skill == tmp_path / ".agents" / "skills" / "dashpot-issue-work"
+    assert ISSUE_WORK_SKILL_MARKER in text
+    assert f"written for Dashpot {ISSUE_WORK_SKILL_VERSION}" in text
+    assert (
+        "codex resume <session-id> -C <worktree-path>"
+        in (skill / "references" / "dispatch.md").read_text()
+    )
+    assert (skill / "references" / "recovery.md").is_file()
+    assert version("dashpot") == ISSUE_WORK_SKILL_VERSION
+    assert any(f"installed Dashpot Issue work skill in {skill}" in m for m in messages)
+
+
+def test_install_repairs_a_managed_issue_work_skill(tmp_path: Path) -> None:
+    home = codex_home(tmp_path)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    skill = installed_skill(home)
+    dispatch = skill / "references" / "dispatch.md"
+    dispatch.write_text("stale\n")
+
+    status = integration_status(
+        "codex", home, state_dir=tmp_path / "state", current=tmp_path
+    )
+    messages = install_codex_integration(home, command_path=publisher(tmp_path))
+
+    assert any("skill update available" in message for message in status)
+    assert dispatch.read_text() != "stale\n"
+    assert any("updated Dashpot Issue work skill" in message for message in messages)
+
+
+def test_install_refuses_to_overwrite_an_unmanaged_skill(tmp_path: Path) -> None:
+    home = codex_home(tmp_path)
+    skill = installed_skill(home)
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: dashpot-issue-work\n---\nMine.\n")
+
+    with pytest.raises(RuntimeError, match="not managed by Dashpot"):
+        install_codex_integration(home, command_path=publisher(tmp_path))
+
+    assert not (home / "hooks.json").exists()
+    assert (skill / "SKILL.md").read_text().endswith("Mine.\n")
 
 
 def test_a_publisher_path_containing_spaces_is_recognised(tmp_path: Path) -> None:
@@ -258,7 +315,24 @@ def test_remove_deletes_a_file_that_only_held_dashpot_hooks(
     messages = remove_codex_integration(home)
 
     assert not (home / "hooks.json").exists()
+    assert not installed_skill(home).exists()
     assert any("contained only the Dashpot hooks" in message for message in messages)
+
+
+def test_remove_preserves_foreign_files_in_the_managed_skill_directory(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    skill = installed_skill(home)
+    foreign = skill / "notes.txt"
+    foreign.write_text("keep me\n")
+
+    messages = remove_codex_integration(home)
+
+    assert foreign.read_text() == "keep me\n"
+    assert not (skill / "SKILL.md").exists()
+    assert any("removed the Dashpot Issue work skill" in m for m in messages)
 
 
 def test_remove_without_installation_is_a_calm_message(tmp_path: Path) -> None:
@@ -268,6 +342,20 @@ def test_remove_without_installation_is_a_calm_message(tmp_path: Path) -> None:
 
     (home / "hooks.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": []}]}}))
     assert "no Dashpot hooks" in remove_codex_integration(home)[0]
+
+
+def test_remove_cleans_the_managed_skill_when_hooks_are_already_absent(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    (home / "hooks.json").unlink()
+
+    messages = remove_codex_integration(home)
+
+    assert not installed_skill(home).exists()
+    assert "integration is not installed" in messages[0]
+    assert "removed the Dashpot Issue work skill" in messages[1]
 
 
 def test_install_then_remove_round_trips_a_user_file(tmp_path: Path) -> None:
@@ -297,6 +385,7 @@ def test_status_reports_installed_state_and_records(tmp_path: Path) -> None:
     joined = "\n".join(messages)
     assert f"installed in {home / 'hooks.json'}" in joined
     assert f"hook publisher: {command}" in joined
+    assert "Issue work skill installed" in joined
     assert (
         f"session records outside configured Projects: 1 in {state} "
         "(0 live, 0 unknown, 0 stale, 1 unreadable)"
@@ -462,6 +551,9 @@ def test_claude_code_install_merges_into_settings(tmp_path: Path) -> None:
     assert document["hooks"]["Stop"][0]["hooks"][0]["command"] == "notify-send x"
     assert document["hooks"]["Stop"][1]["hooks"][0]["command"] == str(command)
     assert any("Claude Code lifecycle hooks" in message for message in messages)
+    skill = installed_skill(home, "claude-code")
+    assert skill == home / "skills" / "dashpot-issue-work"
+    assert (skill / "SKILL.md").is_file()
 
 
 def test_claude_code_remove_keeps_unrelated_settings(tmp_path: Path) -> None:

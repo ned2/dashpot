@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-08-30
+date: 2026-09-05
 ---
 
 # Hold one active Agent Run per Agent Session across a Repository's Worktrees
@@ -28,11 +28,13 @@ session's key while the session's hooks keep firing from A (whether its
 sandboxed identity claim also carries the main session's identity is
 unverified).
 
-A session is one harness process, so "the same session at A and B" can only
-mean one process acting in two places. Dashpot will hold that a live Agent
-Session has at most one active Agent Run across the linked Worktrees of one
-Git Repository, and `work start` and `stop` will enforce it by distinguishing
-a relocation from a wrong-location opt-in on hook evidence:
+An Agent Session is the harness conversation identified by its stable opaque
+identity, not one process. A running harness can move in place, and Codex can
+resume the same conversation under a new process at another working directory.
+Dashpot will hold that a live Agent Session has at most one active Agent Run
+across the linked Worktrees of one Git Repository, and `work start` and `stop`
+will enforce it by distinguishing a relocation from a wrong-location opt-in on
+hook evidence:
 
 - The session's *current location* is the `repositoryRoot` (else the `cwd`)
   of its freshest hook record by `lastActivityAt` across every hook store
@@ -80,6 +82,18 @@ The same run showed that the session's graceful `SessionEnd` at B removed only
 B's record; the record left behind at A is stale observation state, pruned
 once its process is gone, and is never the freshest.
 
+Measured on 2026-09-05 with Codex CLI 0.153.4, `codex resume <session-id> -C
+<path>` preserved the exact Agent Session Identity and conversation history in
+a new interactive client. Its `UserPromptSubmit` hook carried the new Worktree
+as `cwd`, and a shell command in the resumed turn ran there, so a subsequent
+`work start` can use the same verified-location rule. The old client must exit
+before the resumed client starts; concurrent clients for one identity are
+unsupported. This evidence does not establish active Agent Run continuity
+through the old process's exit: the agent-facing workflow requires `work start`
+and `work show` after resume, while preserving a run across that boundary is
+deferred to [#137](https://github.com/ned2/dashpot/issues/137). A `cd` inside a
+tool call remains wrong-location evidence, not relocation.
+
 `ExitWorktree` is the return trip and fires no lifecycle event either, so the
 integration subscribes `PostToolUse` matched to `ExitWorktree` as well.
 Measured on 2026-09-03 with Claude Code 2.1.259, in a disposable repository
@@ -108,9 +122,9 @@ predates the subscription is reported by `dashpot integrate claude-code
   inside a tool call, or a sub-agent, would end the main session's declared
   work while the session keeps working at the old Worktree.
 - **Always refuse while a record exists elsewhere:** rejected because a
-  relocated Claude Code session could clear its old record only by
-  re-entering A. Codex cannot relocate, so it is refused elsewhere under both
-  options and clears a record by `stop`.
+  relocated Claude Code session could clear its old record only by re-entering
+  A. A sequential Codex resume can also preserve the Agent Session Identity at
+  a new Worktree, but the resumed workflow establishes its Issue Binding again.
 - **An explicit `work start --here` or `--move` override:** rejected because
   it lets the agent assert a relocation without evidence, which is the
   inference the Work Store exists to refuse.
@@ -135,6 +149,7 @@ predates the subscription is reported by `dashpot integrate claude-code
   the freshest record; `validate_session_claim` uses the same rule.
 - `dashpot integrate claude-code` installs the matched `PostToolUse` hooks
   for `EnterWorktree` and `ExitWorktree`, and `--status` reports them and
-  names a missing one; Codex needs nothing.
+  names a missing one. Codex's ordinary lifecycle hooks publish the fresh
+  location on the first resumed turn.
 - The `work-session-conflict` diagnostic remains for records written before
   this decision, by an older Dashpot, or across independent clones.

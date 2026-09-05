@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-04
+date: 2026-09-05
 ---
 
 # Agent sessions
@@ -17,19 +17,22 @@ Installing Dashpot provides the no-stdout `dashpot-codex-hook` and
 automatically; register the lifecycle hooks once per user with:
 
 ```bash
-dashpot integrate codex                 # hooks in ~/.codex/hooks.json
-dashpot integrate claude-code           # hooks in ~/.claude/settings.json
-dashpot integrate <harness> --status    # diagnose config, publisher, records
-dashpot integrate <harness> --remove    # remove exactly the Dashpot hooks
+dashpot integrate codex                 # hooks plus ~/.agents/skills/dashpot-issue-work
+dashpot integrate claude-code           # hooks plus ~/.claude/skills/dashpot-issue-work
+dashpot integrate <harness> --status    # diagnose hooks, skill, records, identity
+dashpot integrate <harness> --remove    # remove Dashpot's hooks and managed skill
 ```
 
 Installation performs a surgical merge of the harness's user-level hook file:
 existing hooks and unrelated settings are preserved, the registered command is
 the absolute path of this environment's publisher (so hook and observer
 versions stay in lock-step), and rerunning `integrate` is idempotent and
-repairs stale paths. Removal deletes only the Dashpot handlers. If Codex hooks
-are also defined inline in `~/.codex/config.toml`, Dashpot leaves that file
-alone and points out that Codex merges both layers.
+repairs stale paths. The same command installs Dashpot's model-invoked
+`dashpot-issue-work` skill from that installed version. Removal deletes only
+the Dashpot handlers and files marked as its managed skill; a different skill
+at the same path is reported and left untouched. If Codex hooks are also
+defined inline in `~/.codex/config.toml`, Dashpot leaves that file alone and
+points out that Codex merges both layers.
 [`examples/codex-hooks.json`](../examples/codex-hooks.json) shows the equivalent
 manual Codex configuration.
 
@@ -55,6 +58,27 @@ observation is routed to the checkout the session runs in, landing in that
 worktree's ignored `.dashpot/state/sessions/`. Sessions outside any
 Dashpot-configured checkout fall back to the platform's normal
 application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
+
+### Agent-facing Issue-work skill
+
+Codex and Claude Code consume the same bundled Agent Skills payload. The
+short main workflow reads the repository's instructions, checks that the
+installed Dashpot version matches the skill, resolves one fresh Issue, confirms
+the Agent Session's Worktree, establishes and verifies its Issue Binding,
+follows the repository workflow, and stops the Agent Run only after delivery
+and CI are complete. Dispatch and refusal recovery are separate references so
+an ordinary in-place opt-in does not load Worktree and harness detail.
+
+When work needs another Worktree, the skill delegates path, Branch, base,
+collision, and rollback policy to `issue show` and `worktree create`. Claude
+Code relocates the running session with `EnterWorktree`. Codex prefers a
+sequential resume of the same Agent Session with `codex resume <session-id> -C
+<path>`: the old client exits first, and the resumed turn must publish fresh
+lifecycle evidence before it runs `work start` and verifies `work show`.
+Codex versions that cannot perform that resume use a disclosed fresh-session
+fallback. Neither path promises to preserve an active Agent Run
+through process exit; that is why opt-in is repeated after arrival. A shell
+tool's `cd` remains repository preparation rather than session relocation.
 
 Each refresh checks that a session's recorded process is still the one that
 published the record. A graceful `SessionEnd` removes the session's record and
@@ -82,8 +106,9 @@ when the session's own commands cannot see it.
 
 ## Issue work opt-in
 
-An agent session declares which Issue it is working on from inside the
-session, at the worktree where the work happens:
+The installed `dashpot-issue-work` skill is the agent-facing workflow for these
+commands. An Agent Session declares which Issue it is working on from inside
+the session, at the Worktree where the work happens:
 
 ```bash
 dashpot work start 123         # a bare Issue Number

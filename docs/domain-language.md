@@ -277,11 +277,13 @@ Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.
 
 **Agent Session**:
-The lifetime of one harness conversation or process, such as a single Codex
-run. A session is never permanently bound to an Issue; its lifecycle state
-(running, waiting, or unknown) and activity age (how long the current turn
-has run, or how long it has been idle) are observations of the session
-itself, taken at turn boundaries.
+The lifetime of one harness conversation, such as one Codex thread or Claude
+Code conversation. A resumed conversation keeps its Agent Session Identity
+even when a new harness process continues it; process identity is liveness
+evidence, not the definition of the session. A session is never permanently
+bound to an Issue; its lifecycle state (running, waiting, or unknown) and
+activity age (how long the current turn has run, or how long it has been idle)
+are observations of the session itself, taken at turn boundaries.
 
 **Agent Run**:
 A time-bounded period during one Agent Session when it is explicitly working

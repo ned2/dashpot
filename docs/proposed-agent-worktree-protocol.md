@@ -1,6 +1,6 @@
 ---
 status: superseded
-date: 2026-08-30
+date: 2026-09-05
 superseded-by: adr/0011-prepare-issue-worktrees-by-convention.md
 ---
 
@@ -11,17 +11,18 @@ superseded-by: adr/0011-prepare-issue-worktrees-by-convention.md
 > [ADR 0011](adr/0011-prepare-issue-worktrees-by-convention.md), amended by
 > [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).
 > `dashpot issue show`, `worktree create`, `worktree check`, `worktree remove`,
-> and `branch delete` ship; the README's
+> `branch delete`, and the `dashpot-issue-work` skill distributed by
+> `dashpot integrate` ship; the README's
 > [Issue Worktrees](../README.md#issue-worktrees) section documents them as
 > built. Read this document as the evidence and the walked decisions behind
 > those ADRs, not as a description of the commands. Where it disagrees with an
 > ADR, the ADR wins.
 
-This document proposes a workflow for preparing a Git-linked Worktree, launching
-any supported agent harness there, and explicitly starting and stopping Issue
-work. It is a review artifact, not an accepted design: the commands below do not
-exist, and the proposal does not revise Dashpot's passive product contract or
-accepted ADRs. Candidate command spellings are provisional throughout.
+This document proposed a workflow for preparing a Git-linked Worktree,
+launching any supported agent harness there, and explicitly starting and
+stopping Issue work. It is a review artifact, not the current product contract;
+the superseding ADRs and README describe the shipped commands and skill.
+Candidate command spellings below record what the review considered.
 
 The proposal is deliberately a protocol between callers and modules rather than
 a draft agent skill. Product commands should first own every deterministic rule
@@ -123,10 +124,12 @@ Anything not marked *measured* or *read from* code or documentation is marked
 - **No JSON on management commands yet.** `dashpot --json` prints a complete
   observation snapshot (`serialization.py`), which is the only stable
   machine-readable contract today; `work start/show/stop` print lines.
-- **Skills.** Both harnesses read a user-level skills directory
-  (`~/.claude/skills/`, `~/.codex/skills/` exist on the reviewed machine); no
-  Dashpot skill exists. Version skew between a skill and the CLI it calls is
-  not detectable today beyond `dashpot --version`.
+- **Skills.** Both harnesses implement the Agent Skills directory convention.
+  Claude Code reads personal skills from `~/.claude/skills/`; current Codex
+  reads user skills from `~/.agents/skills/` (the earlier
+  `~/.codex/skills/` observation is obsolete). `dashpot integrate` now installs
+  the same managed skill for both, and the skill checks `dashpot --version`
+  before it invokes the management contract.
 
 ### Git linked-Worktree semantics (measured)
 
@@ -352,9 +355,10 @@ intended-work relationship; neither is part of the current model. Git already
 lists every Worktree with its Branch, so a read-only listing can *suggest*
 candidates by Branch name while saying plainly that the suggestion is a hint.
 
-### 3. Launch the selected harness
+### 3. Launch or resume the selected harness
 
-The launcher starts the harness in the returned path. Illustratively:
+For a fresh session, the launcher starts the harness in the returned path.
+Illustratively:
 
 ```bash
 codex -C /home/ned/projects/dashpot.worktrees/35-propose-an-issue-worktree-protocol \
@@ -375,25 +379,28 @@ own rules, and because reusing a name can reset a clean Worktree.
 Completion criterion: the new Agent Session begins with its harness working root
 and recorded Observation Location inside the selected Worktree.
 
-**Relocation.** A skill invoked by an already-running Codex session cannot
-satisfy this criterion; it may prepare a Worktree for a subsequent session and
-return a relaunch instruction. A running Claude Code session can relocate with
-`EnterWorktree path=<worktree>` (the path must be in `git worktree list`), after
-which hook `cwd` follows it. Because the Work Store is per Worktree, relocation
-interacts with the Work Store. Review outcome 14 (ADR 0009): `work start`
+**Relocation.** A running Claude Code session relocates with `EnterWorktree
+path=<worktree>` (the path must be in `git worktree list`), after which hook
+`cwd` follows it. Codex CLI 0.153.4 can resume the exact Agent Session Identity
+and conversation history in a new client with `codex resume <session-id> -C
+<worktree>`; the old client must exit before the new one starts, and the first
+resumed turn publishes the new `cwd`. A fresh `codex -C` session remains the
+compatibility fallback when that interface is unavailable. Because the Work
+Store is per Worktree, relocation interacts with the Work Store. Review outcome
+14 (ADR 0009): `work start`
 at the new Worktree ends the same session's record at the old one only when
 the session's freshest hook record, across every store reachable from the
 Worktree, places the harness there; a `work start` issued from a tool call
 that merely `cd`ed elsewhere, or from a sub-agent sharing the session, is
 refused as wrong-location, and `stop` ends the record wherever it is. Because
-`EnterWorktree` fires no event Dashpot subscribes to, the Claude Code
-integration adds a `PostToolUse` hook matched to `EnterWorktree` alone.
-Until that is implemented, the old record stays active and Dashpot reports a
-`work-session-conflict` rather than an Orphaned Agent Run, so the skill must
-run `dashpot work stop` before moving. Merely
-running `cd` inside a tool call relocates nothing (measured: the run is
-recorded with `unknown` activity because the harness's hooks publish
-elsewhere).
+`EnterWorktree` fires no ordinary lifecycle event, the Claude Code integration
+adds a `PostToolUse` hook matched to `EnterWorktree` and `ExitWorktree`.
+Preserving an active Agent Run across a Codex client's exit and resume is not
+established here and is tracked by
+[#137](https://github.com/ned2/dashpot/issues/137); the resumed workflow runs
+`work start` and verifies `work show` again. Merely running `cd` inside a tool
+call relocates nothing (measured: the run is recorded with `unknown` activity
+because the harness's hooks publish elsewhere).
 
 **Trust.** Both harnesses apply per-directory trust; a fresh path is a fresh
 trust decision for an interactive session. Non-interactive Codex `exec` did not
@@ -661,14 +668,18 @@ the reasoning stays reviewable.
   `dashpot --version` and refuse on a mismatch with the version it was
   written for.
 - Confidence: medium. Depends on the commands stabilizing.
+- **Outcome:** (a). The managed skill is bundled with Dashpot, installed at the
+  harness's current user skill location, reported by `--status`, removed only
+  when Dashpot owns it, and guarded by its written-for version.
 
 ### 14. Relocation invariant (new)
 
 - Options: (a) skill obligation only; (b) `work start` at Worktree B ends the
   same session's active record at Worktree A of the same Project; (c)
   `work start` refuses while a record exists elsewhere.
-- A session is one harness process, so "the same session at A and B" can only
-  mean one process acting in two places. Plain (b) is unsafe in exactly those
+- A live session acting through one process can move in place; a resumed Codex
+  conversation can also keep its Agent Session Identity under a new process.
+  Plain (b) is unsafe in exactly those
   cases: a tool call that `cd`s to B while the harness stays at A (measured:
   the run lands at B with `unknown` activity), and a Claude Code sub-agent in
   its own Worktree, which shares the main session's key. In both, the hooks
@@ -772,13 +783,16 @@ call it a passive view) and should be a separate proposal if ever.
    relocation moves the record; wrong-location `start` is refused; `stop`
    acts wherever the record is), with the matched `PostToolUse` hook for
    Claude Code.
-4. Launch outside Dashpot: `codex -C <path>` or `cd <path> && claude`.
+4. Relocate Claude Code with `EnterWorktree`; resume Codex sequentially with
+   `codex resume <session-id> -C <path>`, or launch a fresh session when resume
+   is unsupported.
 5. `dashpot work start <hint>` / `show` / `stop` unchanged.
-6. No cleanup, dispatch, registry, or skill in this version.
+6. Keep dispatch outside Dashpot, and distribute the common model-invoked skill
+   through `dashpot integrate`; cleanup remains its own explicit workflow.
 
-## Candidate agent-facing skill shape
+## Agent-facing skill shape
 
-The eventual skill should be model-invoked when a user asks an agent to start,
+The shipped skill is model-invoked when a user asks an agent to start,
 switch, finish, hand off, or recover declared Issue work, or to prepare a
 Worktree for it. Its common own-session path should remain short:
 
@@ -789,11 +803,11 @@ Worktree for it. Its common own-session path should remain short:
 5. Perform the repository's own workflow.
 6. Run `dashpot work stop` at the terminal outcome and verify it stopped.
 
-Worktree preparation or launching another Agent Session should be progressively
-disclosed behind a dispatch reference, which for Claude Code includes the
-`EnterWorktree path=` → `work start` relocation sequence (with an explicit
-`work stop` first until outcome 14 is implemented) and for Codex a relaunch
-instruction. Wrong-location sessions, collisions, partial
+Worktree preparation or moving an Agent Session is progressively disclosed
+behind a dispatch reference, which for Claude Code includes the
+`EnterWorktree path=` → `work start` sequence and for Codex prefers a
+sequential resume before a fresh-session fallback. Wrong-location sessions,
+collisions, partial
 creation (`initializing` locks), missing or incompatible configuration, dirty
 Worktrees, conflicts across Worktrees, and Orphaned Agent Runs should be
 disclosed behind a recovery reference. Deterministic path, Git, and Issue
@@ -831,7 +845,7 @@ cross-Worktree semantics), [#56](https://github.com/ned2/dashpot/issues/56)
 (`issue show`), [#57](https://github.com/ned2/dashpot/issues/57)
 (`worktree create` and `worktree check`, with interim `AGENTS.md`
 instructions), and [#58](https://github.com/ned2/dashpot/issues/58) (the
-agent-facing skill, blocked on the commands).
+agent-facing skill and its `integrate` distribution).
 
 Decision 12 (binding provenance) stays conditional on dispatch ever moving
 inside Dashpot. Decisions 2, 3, 7, 9, 10, 13, 16, 17, and 18 carry
@@ -861,7 +875,18 @@ predating `.dashpot/config.json`.
 | `PostToolUse(EnterWorktree)` reports the new location | Measured (2026-08-30, Claude Code 2.1.251) | With a project-level `PostToolUse` hook matched to `EnterWorktree` running the installed publisher in Sim (linked Worktrees A and B), a session started at A that called `EnterWorktree path=B` fired the hook once; its input carried `tool_name: EnterWorktree` and `cwd` at B, and the record written from that event had `cwd`, `repositoryRoot`, and `branch` at B and was the freshest for the session across both stores (A kept the earlier `UserPromptSubmit`). ADR 0009 is accepted without its fallback: `work start` may follow `EnterWorktree` in the same turn. The session's graceful `SessionEnd` at B removed only B's record; A's is pruned as gone. |
 | Removability report | Implemented (#57) | `worktree check` on a clean idle Worktree reports removable; on a dirty one, a locked one (`initializing`, a live Claude session lock, a user lock), one with an active Agent Run, and one with unpushed commits it reports each reason with its Git command, and mutates nothing. |
 | Default naming and root | Implemented (#57) | With no root configured, `worktree create 35` in `~/p/sim` creates `~/p/sim.worktrees/35-worktree-protocol` on Branch `35-worktree-protocol` from `origin/HEAD`, and the JSON names both sources; with no `origin/HEAD` and one local `main` it reports the guess; with neither it exits 2 naming `--base`. |
-| Skill forward-test | Deferred | Give unprimed Codex and Claude Code the same ordinary prompt and judge outcomes, once the commands exist. |
+| Skill forward-test | Measured (2026-09-05, Codex 0.153.4 and Claude Code 2.1.261) | Given the same ordinary Issue-work prompt in separate disposable Local Markdown Projects, each unprimed harness selected the installed `dashpot-issue-work` skill. Codex resolved and created the Worktree, refused to treat a tool working directory as relocation, and its hook-enabled fresh-session fallback completed `work start` / `show` / `stop` / `show`; the separate sequential-resume probe above remains the evidence for identity and conversation continuity. Claude Code resolved and created the Worktree, required interactive confirmation for `EnterWorktree`, then its matched hook confirmed the new location and the same lifecycle completed. Both Worktrees stayed clean; the final snapshots had no Orphaned Agent Run. |
+
+The forward test also bounded two harness behaviors rather than generalising
+past them. A non-interactive Codex child did not publish lifecycle records after
+the user hook file changed until the vetted acceptance invocation bypassed hook
+trust; the ordinary workflow must instead have a person review the hook in an
+interactive client. Claude Code refused `EnterWorktree` twice in print mode,
+including with the tool allowlisted, because relocation outside
+`.claude/worktrees/` requires interactive confirmation. In both cases the skill
+stopped before `work start`, so neither missing permission became a false Issue
+Binding. These are explicit automation limitations, not evidence that hook
+trust or relocation confirmation may be bypassed in routine work.
 
 The rows marked *Implemented (#56)* and *(#57)* are covered by
 `tests/test_issue_resolution.py`, `tests/test_worktrees.py`, and
@@ -888,5 +913,6 @@ creation in progress and a killed one.
    Done under ADR 0011; the harness end-to-end run is the skill's forward-test.
 4. Rerun the review probes, including the relocation probe, before writing the
    model-invoked skill.
-5. Write, distribute, and forward-test the skill (#58), pruning instructions
-   that product behavior makes redundant.
+5. Write and distribute the skill through `dashpot integrate` (#58), pruning
+   instructions that product behavior makes redundant, and run the unprimed
+   live prompt as a release check.

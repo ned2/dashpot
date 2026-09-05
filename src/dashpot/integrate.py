@@ -34,6 +34,14 @@ HOOK_TIMEOUT = 3
 # Codex also keeps its hook trust ledger under ``[hooks.state...]``, which is
 # not a definition and must not trigger the coexistence note.
 CONFIG_HOOKS_TABLE = re.compile(r"^\s*\[+\s*hooks\s*(?:\]|\.(?!state\b))", re.MULTILINE)
+ISSUE_WORK_SKILL_NAME = "dashpot-issue-work"
+ISSUE_WORK_SKILL_VERSION = "0.1.0"
+ISSUE_WORK_SKILL_MARKER = "<!-- dashpot-managed-skill: dashpot-issue-work -->"
+ISSUE_WORK_SKILL_FILES = (
+    Path("SKILL.md"),
+    Path("references/dispatch.md"),
+    Path("references/recovery.md"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +53,7 @@ class HarnessIntegration:
     home_name: str
     hooks_file: str
     command_name: str
+    skills_home: Path
     events: tuple[str, ...]
     checks_config_toml: bool
     # Events subscribed for one tool alone, as ``(event, matcher)``: the
@@ -54,6 +63,10 @@ class HarnessIntegration:
     @property
     def default_home(self) -> Path:
         return Path.home() / self.home_name
+
+    @property
+    def default_skills_home(self) -> Path:
+        return Path.home() / self.skills_home
 
     @property
     def hook_labels(self) -> tuple[str, ...]:
@@ -74,6 +87,7 @@ CODEX = HarnessIntegration(
     home_name=".codex",
     hooks_file="hooks.json",
     command_name="dashpot-codex-hook",
+    skills_home=Path(".agents/skills"),
     events=(
         "SessionStart",
         "UserPromptSubmit",
@@ -90,6 +104,7 @@ CLAUDE_CODE = HarnessIntegration(
     home_name=".claude",
     hooks_file="settings.json",
     command_name="dashpot-claude-code-hook",
+    skills_home=Path(".claude/skills"),
     # A sub-agent's boundaries keep the session running while it works after
     # the main turn has stopped (ADR 0016).
     events=(
@@ -154,6 +169,8 @@ def install_integration(
             f"no {spec.display} configuration directory at {home}; install "
             f"and run {spec.display} once before integrating"
         )
+    skill = issue_work_skill_directory(spec, home)
+    _validate_skill_destination(skill)
     command = command_path or resolve_hook_command(spec)
     path = home / spec.hooks_file
     document = _load_hooks_document(spec, path)
@@ -194,44 +211,54 @@ def install_integration(
     else:
         messages.append(f"{spec.display} lifecycle hooks already installed in {path}")
     messages.append(f"hook publisher: {command}")
+    messages.append(_install_issue_work_skill(skill))
     messages.extend(_config_toml_coexistence_warning(spec, home))
     return messages
 
 
 def remove_integration(harness: str, home: Path | None = None) -> list[str]:
-    """Remove exactly the Dashpot handlers from one harness's hooks."""
+    """Remove exactly Dashpot's hooks and managed skill for one harness."""
     spec = integration(harness)
     home = home or spec.default_home
     path = home / spec.hooks_file
+    messages: list[str] = []
     if not path.is_file():
-        return [f"{spec.display} integration is not installed: no {path}"]
-    document = _load_hooks_document(spec, path)
-    hooks = document.get("hooks")
-    if not isinstance(hooks, dict):
-        return [f"{spec.display} integration is not installed: no hooks in {path}"]
-    removed = False
-    for event in list(hooks):
-        groups = hooks[event]
-        if not isinstance(groups, list):
-            continue
-        kept, ours = _split_dashpot_handlers(groups)
-        if ours:
-            removed = True
-        if kept:
-            hooks[event] = kept
+        messages.append(f"{spec.display} integration is not installed: no {path}")
+    else:
+        document = _load_hooks_document(spec, path)
+        hooks = document.get("hooks")
+        if not isinstance(hooks, dict):
+            messages.append(
+                f"{spec.display} integration is not installed: no hooks in {path}"
+            )
         else:
-            del hooks[event]
-    if not removed:
-        return [
-            f"{spec.display} integration is not installed: no Dashpot hooks in {path}"
-        ]
-    if not hooks:
-        del document["hooks"]
-    if set(document) - {"description"}:
-        _write_json(path, document)
-        return [f"removed the Dashpot hooks from {path}"]
-    path.unlink()
-    return [f"removed {path}; it contained only the Dashpot hooks"]
+            removed = False
+            for event in list(hooks):
+                groups = hooks[event]
+                if not isinstance(groups, list):
+                    continue
+                kept, ours = _split_dashpot_handlers(groups)
+                if ours:
+                    removed = True
+                if kept:
+                    hooks[event] = kept
+                else:
+                    del hooks[event]
+            if not removed:
+                messages.append(
+                    f"{spec.display} integration is not installed: no Dashpot "
+                    f"hooks in {path}"
+                )
+            elif hooks or set(document) - {"description", "hooks"}:
+                if not hooks:
+                    del document["hooks"]
+                _write_json(path, document)
+                messages.append(f"removed the Dashpot hooks from {path}")
+            else:
+                path.unlink()
+                messages.append(f"removed {path}; it contained only the Dashpot hooks")
+    messages.append(_remove_issue_work_skill(issue_work_skill_directory(spec, home)))
+    return messages
 
 
 def integration_status(
@@ -250,8 +277,7 @@ def integration_status(
     messages: list[str] = []
     if not home.is_dir():
         messages.append(f"{spec.display} configuration directory not found: {home}")
-        return messages
-    if not path.is_file():
+    elif not path.is_file():
         messages.append(f"not installed: no {path}")
     else:
         try:
@@ -281,6 +307,11 @@ def integration_status(
                     messages.append(f"hook publisher at {command} is not executable")
                 else:
                     messages.append(f"hook publisher: {command}")
+    messages.append(
+        _issue_work_skill_status(
+            issue_work_skill_directory(spec, home), harness=spec.harness
+        )
+    )
     messages.extend(_config_toml_coexistence_warning(spec, home))
     messages.extend(_record_store_status(state_dir, current, lookup))
     messages.extend(_claimed_identity_status(spec, current, lookup, environ))
@@ -314,6 +345,105 @@ def codex_integration_status(
         current=current,
         lookup=lookup,
         environ=environ,
+    )
+
+
+def issue_work_skill_directory(spec: HarnessIntegration, home: Path) -> Path:
+    """Locate this harness's user-wide Dashpot Issue-work skill."""
+    if home == spec.default_home:
+        return spec.default_skills_home / ISSUE_WORK_SKILL_NAME
+    return home.parent / spec.skills_home / ISSUE_WORK_SKILL_NAME
+
+
+def _bundled_issue_work_skill() -> Path:
+    return Path(__file__).with_name("skills") / ISSUE_WORK_SKILL_NAME
+
+
+def _validate_skill_destination(destination: Path) -> None:
+    if destination.exists() and not destination.is_dir():
+        raise RuntimeError(
+            f"cannot install the Dashpot Issue work skill at {destination}: "
+            "the path is not a directory; move it and retry"
+        )
+    skill_file = destination / "SKILL.md"
+    if not destination.exists() or not any(destination.iterdir()):
+        return
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot install the Dashpot Issue work skill at {destination}: "
+            "an existing skill is not managed by Dashpot; move it and retry"
+        ) from exc
+    if ISSUE_WORK_SKILL_MARKER not in text:
+        raise RuntimeError(
+            f"cannot install the Dashpot Issue work skill at {destination}: "
+            "an existing skill is not managed by Dashpot; move it and retry"
+        )
+
+
+def _install_issue_work_skill(destination: Path) -> str:
+    source = _bundled_issue_work_skill()
+    current = all(
+        (destination / relative).is_file()
+        and (destination / relative).read_bytes() == (source / relative).read_bytes()
+        for relative in ISSUE_WORK_SKILL_FILES
+    )
+    if current:
+        return f"Dashpot Issue work skill already installed in {destination}"
+    existed = destination.exists()
+    for relative in ISSUE_WORK_SKILL_FILES:
+        target = destination / relative
+        _write_text(target, (source / relative).read_text(encoding="utf-8"))
+    verb = "updated" if existed else "installed"
+    return f"{verb} Dashpot Issue work skill in {destination}"
+
+
+def _remove_issue_work_skill(destination: Path) -> str:
+    skill_file = destination / "SKILL.md"
+    if not skill_file.is_file():
+        return f"Dashpot Issue work skill is not installed: no {skill_file}"
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"could not inspect Dashpot Issue work skill at {destination}: {exc}"
+    if ISSUE_WORK_SKILL_MARKER not in text:
+        return f"left unmanaged Issue work skill unchanged at {destination}"
+    for relative in ISSUE_WORK_SKILL_FILES:
+        path = destination / relative
+        if path.is_file():
+            path.unlink()
+    references = destination / "references"
+    if references.is_dir() and not any(references.iterdir()):
+        references.rmdir()
+    if destination.is_dir() and not any(destination.iterdir()):
+        destination.rmdir()
+    return f"removed the Dashpot Issue work skill from {destination}"
+
+
+def _issue_work_skill_status(destination: Path, *, harness: str) -> str:
+    skill_file = destination / "SKILL.md"
+    if not skill_file.is_file():
+        return f"Issue work skill not installed: no {skill_file}"
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"Issue work skill unreadable at {destination}: {exc}"
+    if ISSUE_WORK_SKILL_MARKER not in text:
+        return f"Issue work skill conflict at {destination}: not managed by Dashpot"
+    source = _bundled_issue_work_skill()
+    if not all(
+        (destination / relative).is_file()
+        and (destination / relative).read_bytes() == (source / relative).read_bytes()
+        for relative in ISSUE_WORK_SKILL_FILES
+    ):
+        return (
+            f"Issue work skill update available at {destination}; run "
+            f"'dashpot integrate {harness}' to repair"
+        )
+    return (
+        f"Issue work skill installed in {destination} for Dashpot "
+        f"{ISSUE_WORK_SKILL_VERSION}"
     )
 
 
@@ -532,6 +662,21 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             json.dump(document, stream, indent=2)
             stream.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(content)
         os.replace(temporary, path)
     finally:
         if temporary.exists():
