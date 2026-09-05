@@ -17,15 +17,14 @@ from .model import ProjectObservation, PullRequest, SourceStatus, WorkspaceSnaps
 from .pull_request_search import PullRequestQualifier, parse_pull_request_search
 
 PullRequestLifecycle = Literal["open", "closed"]
-PullRequestReadiness = Literal["ready", "draft"]
 
 GOOD_COLORS = ("#1a7f37", "#3fb950")
 ATTENTION_COLORS = ("#9a6700", "#d29922")
 BAD_COLORS = ("#cf222e", "#f85149")
 MUTED_COLORS = ("#59636e", "#8b949e")
 
-OPEN_GLYPH = Glyph("⊙", "an open Pull Request", GOOD_COLORS)
-DRAFT_GLYPH = Glyph("◌", "a draft Pull Request", MUTED_COLORS)
+OPEN_GLYPH = Glyph("■", "an open Pull Request", GOOD_COLORS)
+DRAFT_GLYPH = Glyph("■", "a draft Pull Request", ("#59636e", "#9198a1"))
 APPROVED_GLYPH = Glyph("✓R", "reviews approve the Pull Request", GOOD_COLORS)
 CHANGES_REQUESTED_GLYPH = Glyph(
     "✗R", "reviews request changes to the Pull Request", BAD_COLORS
@@ -48,8 +47,10 @@ MERGEABILITY_UNKNOWN_GLYPH = Glyph(
     "…M", "GitHub is still determining mergeability", MUTED_COLORS
 )
 
-CLOSED_GLYPH = Glyph("⊗", "a Pull Request closed without merging", BAD_COLORS)
-MERGED_GLYPH = Glyph("⑂", "a merged Pull Request", ("#8250df", "#a371f7"))
+CLOSED_GLYPH = Glyph(
+    "■", "a Pull Request closed without merging", ("#d1242f", "#f85149")
+)
+MERGED_GLYPH = Glyph("■", "a merged Pull Request", ("#8250df", "#ab7df8"))
 MERGE_NOT_APPLICABLE_GLYPH = Glyph("—M", "mergeability does not apply", MUTED_COLORS)
 
 STATE_LEGEND = (OPEN_GLYPH, DRAFT_GLYPH, CLOSED_GLYPH, MERGED_GLYPH)
@@ -94,7 +95,6 @@ PULL_REQUEST_COLUMNS: tuple[ListColumn, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class PullRequestListQuery:
-    readiness: frozenset[PullRequestReadiness] = frozenset({"ready", "draft"})
     text: str = ""
     states: frozenset[PullRequestLifecycle] = frozenset({"open"})
 
@@ -175,7 +175,6 @@ def _query_indexed_pull_request_list(
         )
         for (project_id, _pull_request_id), pull_request in pull_requests.items()
         if project_id in projects
-        and _pull_request_readiness(pull_request) in query.readiness
         and _matches_search(pull_request, projects[project_id], parsed.terms)
         and all(
             _matches_qualifier(pull_request, qualifier)
@@ -290,12 +289,6 @@ def pull_request_empty_message(
 ) -> str:
     """Distinguish a fresh empty collection from stale or unavailable data."""
     if result.observed_pull_request_count and not result.rows:
-        parsed = parse_pull_request_search(query.text)
-        if not parsed.terms and not parsed.qualifiers:
-            if query.readiness == frozenset({"ready"}):
-                return "no non-draft Pull Requests"
-            if query.readiness == frozenset({"draft"}):
-                return "no draft Pull Requests"
         return "no Pull Requests match the current filters"
     if result.status == "fresh":
         return "no pull requests"
@@ -307,10 +300,6 @@ def pull_request_empty_message(
 def pull_request_result_count_text(count: int) -> str:
     """Describe how many Pull Requests match every current filter."""
     return "1 pull request" if count == 1 else f"{count} pull requests"
-
-
-def _pull_request_readiness(pull_request: PullRequest) -> PullRequestReadiness:
-    return "draft" if pull_request.is_draft else "ready"
 
 
 def _matches_search(
@@ -437,4 +426,34 @@ def pull_request_inventory_text(result: PullRequestListResult) -> str:
 def _is_lifecycle_qualifier(qualifier: PullRequestQualifier) -> bool:
     return qualifier.field == "state" or (
         qualifier.field == "is" and qualifier.value in {"open", "closed"}
+    )
+
+
+def query_pull_request_search_results(
+    project: ProjectObservation,
+    pull_requests: tuple[PullRequest, ...],
+    query: PullRequestListQuery,
+    *,
+    status: SourceStatus,
+    attempted_at: str | None,
+    last_good_at: str | None,
+) -> PullRequestListResult:
+    """Filter a complete GitHub search by lifecycle while preserving its order."""
+    rows = tuple(
+        PullRequestListRow(
+            row_key("pull-request", project.project_id, pr.id), project, pr
+        )
+        for pr in pull_requests
+        if _lifecycle(pr) in query.states
+    )
+    open_count = sum(pr.state == "open" for pr in pull_requests)
+    return PullRequestListResult(
+        rows=rows,
+        matched_pull_request_count=len(rows),
+        observed_pull_request_count=len(pull_requests),
+        status=status,
+        attempted_at=attempted_at,
+        last_good_at=last_good_at,
+        open_pull_request_count=open_count,
+        closed_pull_request_count=len(pull_requests) - open_count,
     )

@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-06
+amended-by: 0032-submit-pull-request-queries-to-github-advanced-search.md
 ---
 
 # Observe complete Pull Request lifecycle history
@@ -43,3 +44,8 @@ and recovery design. Filtering never triggers a network request.
 This amends [ADR 0025](0025-observe-linked-pull-requests-from-pull-request-changes.md)
 only in the scope of the independent Pull Request collection. It still supplies
 no Issue relationship evidence and cannot affect Issue Source freshness.
+
+[ADR 0032](0032-submit-pull-request-queries-to-github-advanced-search.md) replaces
+the draft selector with submitted GitHub searches and shared state blocks.
+The complete background collection and headless contract remain unchanged;
+interactive search has its own result collection and freshness.

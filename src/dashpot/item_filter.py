@@ -25,7 +25,6 @@ class ItemFilterBar(Horizontal):
         query: str,
         placeholder: str,
         count: str,
-        readiness: str | None = None,
     ) -> None:
         super().__init__(id=f"{item}-filters")
         self.item = item
@@ -34,7 +33,6 @@ class ItemFilterBar(Horizontal):
         self.initial_query = query
         self.placeholder = placeholder
         self.initial_count = count
-        self.initial_readiness = readiness
 
     @override
     def compose(self) -> ComposeResult:
@@ -46,19 +44,6 @@ class ItemFilterBar(Horizontal):
             id=f"{self.item}-state",
             classes="item-state",
         )
-        if self.initial_readiness is not None:
-            yield Select(
-                (
-                    ("Any draft status", "all"),
-                    ("Non-draft", "ready"),
-                    ("Draft", "draft"),
-                ),
-                value=self.initial_readiness,
-                allow_blank=False,
-                compact=True,
-                id=f"{self.item}-readiness",
-                classes="item-readiness",
-            )
         yield Input(
             value=self.initial_query,
             placeholder=self.placeholder,

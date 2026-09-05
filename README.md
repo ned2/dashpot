@@ -126,38 +126,51 @@ priority labels pays no width for it.
 The `PULL REQUESTS` pane defaults to open Pull Requests of a GitHub-backed
 Project, newest update first. Its lifecycle selector offers `Open`, `Closed`,
 and `All`; Open includes drafts and non-drafts, while Closed includes merged
-Pull Requests and those closed without merging. A separate selector offers
-`Any draft status`, `Non-draft`, and `Draft`. Draft status remains visible on
-rows, including closed drafts.
+Pull Requests and those closed without merging.
 
-The title shows `Open N · Closed M`, scoped to the current search and draft
-filters before lifecycle selection. The count beside search reports matches
-of every filter, including lifecycle. Unlike the Issues pane's fixed lifecycle
-inventory, these counters follow GitHub's filtered summaries. Bare search terms
-match the number, title, Project, head Branch, base Branch, and author.
-GitHub-shaped qualifiers include `author:`, `head:`, `base:`, `review:`,
-`status:`, `draft:true`, `draft:false`, `is:draft`, `is:open`, `is:closed`,
-`state:open`, `state:closed`, `is:merged`, `is:unmerged`, and `is:pr`, with a
-leading `-` to negate one. Qualifiers combine with the selectors; select `All`
-to search across lifecycles. Open/closed search qualifiers narrow the rows but
-leave both lifecycle counters visible. `status:pending` includes a Pull
-Request with no reported checks, matching
-[GitHub's search semantics](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/filtering-and-searching-issues-and-pull-requests).
+Enter a GitHub Pull Request query in its search box and press `Enter` to
+submit it. Use `draft:true` for drafts or `draft:false` for non-drafts; there
+is no separate draft selector. Queries run through GitHub's advanced search
+within this Project's configured repository, using the signed-in `gh` account.
+GitHub evaluates the operators, including labels, assignees, review requests,
+comments, dates and numeric ranges, `@me`, negation, Boolean `AND` / `OR`,
+parentheses, and `sort:`. For example:
+
+```text
+(label:bug OR label:regression) draft:false comments:>2 sort:updated-desc
+```
+
+See [GitHub's qualifier reference](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests)
+and the [search research](docs/github-pull-request-search-research.md) for the
+operator inventory. GitHub's permissions, indexing, query limits, and search
+ordering apply. Scope qualifiers can narrow this Project's results; they do
+not expand the pane to other repositories. The lifecycle selector filters the
+returned collection locally; choose `All` when the query itself selects the
+lifecycle. `Open N · Closed M` summarizes the complete search results before
+the selector, and the count beside search reflects the displayed matches.
+
+Typing does not send requests. Resubmit the query or press `r` to refresh its
+results; submit an empty query to return to the background observation.
+A failed repeat retains the same query's last-good results as stale. A different
+query never inherits those results. Searches are bounded, and GitHub returns
+at most 1,000 matches: narrow an oversized query instead of receiving a partial
+list. Search results stay separate from the background Pull Request and Issue
+observations. Issues search continues to filter its observed collection locally
+as you type.
 
 The columns are `STATE`, `#`, `TITLE`, `HEAD`, `BASE`, `AUTHOR`, `REVIEW`,
-`CHECKS`, `MERGE`, and `UPDATED`. Closed and merged states have distinct Glyphs;
-mergeability is not applicable after closure. The Legend explains the Glyphs,
-and long content scrolls horizontally. A fresh empty collection says
-`no pull requests`; no matches, stale last-good data, and an unavailable or
-unconfigured source are distinguished. An unavailable source shows no invented
-zero totals.
+`CHECKS`, `MERGE`, and `UPDATED`. The state uses the same `■` character as
+Issues, with GitHub's foreground colours: green for open, grey for draft, red
+for closed without merging, and purple for merged. State labels remain visible,
+including closed drafts. Mergeability is not applicable after closure. The
+Legend explains the Glyphs, and long content scrolls horizontally.
 
-Observation collects the complete Pull Request history under its independent
-Refresh Budget. If history exceeds that budget or collection fails, the whole
-last-good collection is retained as stale; without a successful collection the
-pane is unavailable. Totals are never inferred from a truncated list.
-Headless JSON's `pullRequests` now includes all lifecycles and its `state` is
-`open`, `closed` (without merging), or `merged`; the field names are unchanged.
+Background observation collects the complete Pull Request history under its
+independent Refresh Budget. A failed refresh retains the whole last-good
+collection as stale, or reports unavailability before the first success. Totals
+are never inferred from a truncated list. Headless JSON's `pullRequests` keeps
+the complete background collection with `open`, `closed` (without merging),
+or `merged` state; interactive search does not change that contract.
 
 A Workspace inventory stores named groupings of anchor paths for one Project —
 independent clones, never discovered or persisted worktree paths:

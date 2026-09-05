@@ -50,10 +50,17 @@ Pull Requests independently of the Project's Issue Source collection. Open
 includes drafts and non-drafts. The Closed summary groups closed without
 merging and merged Pull Requests; each row and the published model preserve
 the distinction. Draft status is independent of lifecycle. Open / Closed
-summaries reflect the current search and draft filters before lifecycle
-selection ([ADR 0031](adr/0031-observe-complete-pull-request-lifecycle-history.md)).
+summaries reflect the current search before lifecycle selection
+([ADR 0032](adr/0032-submit-pull-request-queries-to-github-advanced-search.md)).
 _Avoid_: Linked Pull Request for a repository-wide Pull Request; Issue for a
 Pull Request merely because GitHub shares their number space
+
+**Pull Request Search**:
+A person-submitted query evaluated by GitHub within the Project's configured
+repository. Its complete result collection has its own query, ordering, and
+freshness; it never replaces the background Pull Request observation or changes
+Issue Source freshness. Resubmitting the same query can retain its last-good
+results on failure; a different query cannot inherit them.
 
 **Linked Pull Request**:
 A pull request GitHub reports as closing a GitHub Issue, shown with the
@@ -396,8 +403,9 @@ Anchor. It is never part of the tracked Project configuration.
 **Glyph**:
 One rendered symbol paired with the fact it stands for and, when the cell
 colours it, its light and dark colour. Every pane renders from `Glyph`
-values, so a symbol is never separated from its meaning, and a symbol has one
-meaning wherever it is seen.
+values, so a symbol is never separated from its meaning. A symbol has one
+meaning wherever it is seen, except the shared Issue and Pull Request state
+block, whose colours distinguish its states.
 _Avoid_: icon or symbol for the value; the symbol is one field of a Glyph
 
 **Legend**:

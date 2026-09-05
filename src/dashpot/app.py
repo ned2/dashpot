@@ -53,6 +53,7 @@ from .collect import (
 from .column_editor import IssueColumnEditor
 from .fetch import FetchReport, RemoteFetcher
 from .focus_table import FocusCursorTable
+from .github_pull_request_search import PullRequestSearcher
 from .issue_cells import TableCell, cells_match, issue_state_colors
 from .issue_list import (
     IssueListQuery,
@@ -89,7 +90,7 @@ from .list_pane import (
     ListPane,
     ListRow,
 )
-from .model import ProjectObservation
+from .model import ProjectObservation, PullRequest, SourceStatus
 from .observation_store import WorkspaceObservationStore
 from .pane_layout import fit_panes, pane_wish
 from .pull_request_list import (
@@ -101,6 +102,7 @@ from .pull_request_list import (
     pull_request_inventory_text,
     pull_request_note,
     pull_request_result_count_text,
+    query_pull_request_search_results,
 )
 from .pull_request_search import parse_pull_request_search
 from .search import SearchSort, parse_search
@@ -242,6 +244,21 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
 )
 
 
+class PullRequestSearchFinished(Message):
+    def __init__(
+        self,
+        generation: int,
+        project: ProjectObservation,
+        records: tuple[PullRequest, ...] | None = None,
+        error: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.generation = generation
+        self.project = project
+        self.records = records
+        self.error = error
+
+
 class ObservationFinished(Message):
     """One keyed observation ran; the outcome says whether it was accepted."""
 
@@ -370,7 +387,6 @@ class DashboardScreen(Screen[None]):
             "pull-request",
             statuses=(("Open", "open"), ("Closed", "closed"), ("All", "all")),
             status=pull_request_status_filter_value(pull_request_query),
-            readiness=pull_request_readiness_filter_value(pull_request_query),
             query=pull_request_query.text,
             placeholder="Search Pull Requests",
             count=pull_request_result_count_text(0),
@@ -469,6 +485,38 @@ class DashboardScreen(Screen[None]):
         self, store: WorkspaceObservationStore, *, dark: bool, now: datetime
     ) -> PaneRows:
         """List Pull Requests through this screen's current filter."""
+        app = self.dashpot
+        if app.pull_request_searcher is not None and self.pull_request_query.text:
+            project = app.pull_request_search_project
+            if (
+                project is None
+                or app.pull_request_search_good_text != self.pull_request_query.text
+            ):
+                return PaneRows(
+                    (),
+                    title_summary="searching"
+                    if app.pull_request_search_running
+                    else "unavailable",
+                    empty_message="searching GitHub"
+                    if app.pull_request_search_running
+                    else "Pull Request search unavailable",
+                )
+            result = query_pull_request_search_results(
+                project,
+                app.pull_request_search_records,
+                self.pull_request_query,
+                status=app.pull_request_search_status,
+                attempted_at=app.pull_request_search_attempted_at,
+                last_good_at=app.pull_request_search_last_good_at,
+            )
+            return PaneRows(
+                build_pull_request_rows(result, dark=dark, now=now),
+                title_summary=pull_request_inventory_text(result),
+                note="searching GitHub"
+                if app.pull_request_search_running
+                else pull_request_note(result, now),
+                empty_message="no Pull Requests match the current filters",
+            )
         return pull_request_pane_rows(
             store, dark=dark, now=now, query=self.pull_request_query
         )
@@ -588,6 +636,8 @@ class DashboardScreen(Screen[None]):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "pull-request-search":
+            if self.dashpot.pull_request_searcher is not None:
+                return
             parsed_search = parse_pull_request_search(event.value)
             self.pull_request_search_diagnostics = parsed_search.diagnostics
             self.update_diagnostics()
@@ -613,6 +663,18 @@ class DashboardScreen(Screen[None]):
             replace(self.issue_view.query, text=event.value), sort=sort
         )
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if (
+            event.input.id != "pull-request-search"
+            or self.dashpot.pull_request_searcher is None
+        ):
+            return
+        event.stop()
+        self.pull_request_query = replace(
+            self.pull_request_query, text=event.value.strip()
+        )
+        self.dashpot.request_pull_request_search()
+
     def action_cycle_issue_state(self) -> None:
         states = next_issue_states(self.issue_view.query.states)
         # Drive the control so the header, the query, and the Select agree.
@@ -630,17 +692,6 @@ class DashboardScreen(Screen[None]):
             if states is not None:
                 self.set_pull_request_query(
                     replace(self.pull_request_query, states=states)
-                )
-            return
-        if event.select.id == "pull-request-readiness":
-            readiness = {
-                "all": frozenset({"ready", "draft"}),
-                "ready": frozenset({"ready"}),
-                "draft": frozenset({"draft"}),
-            }.get(str(event.value))
-            if readiness is not None:
-                self.set_pull_request_query(
-                    replace(self.pull_request_query, readiness=readiness)
                 )
             return
         if event.select.id != "issue-state":
@@ -1000,8 +1051,18 @@ class DashpotApp(App[None]):
         refresh_indicator_seconds: float = 0.75,
         fetcher: RemoteFetcher | None = None,
         cleaner: CleanupAdapter | None = None,
+        pull_request_searcher: PullRequestSearcher | None = None,
     ) -> None:
         super().__init__()
+        self.pull_request_searcher = pull_request_searcher
+        self.pull_request_search_generation = 0
+        self.pull_request_search_running = False
+        self.pull_request_search_project: ProjectObservation | None = None
+        self.pull_request_search_records: tuple[PullRequest, ...] = ()
+        self.pull_request_search_good_text: str | None = None
+        self.pull_request_search_status: SourceStatus = "unavailable"
+        self.pull_request_search_attempted_at: str | None = None
+        self.pull_request_search_last_good_at: str | None = None
         # The explicit Cleanup seam (``x``): without one the key is refused,
         # so no observation-only construction can ever delete.
         self.cleaner = cleaner
@@ -1046,6 +1107,8 @@ class DashpotApp(App[None]):
         self.initial_pull_request_query = pull_request_query
         self.initial_pull_request_search_diagnostics = (
             parsed_pull_request_search.diagnostics
+            if pull_request_searcher is None
+            else ()
         )
         self.refresh_timer: Timer | None = None
         self.observation_errors: dict[ObservationKey, str] = {}
@@ -1120,6 +1183,10 @@ class DashpotApp(App[None]):
 
     def on_ready(self) -> None:
         dashboard = self.dashboard
+        if self.pull_request_searcher is not None:
+            dashboard.pull_request_filter_bar.search.placeholder = (
+                "Search Pull Requests (Enter)"
+            )
         if not self.store.has_observations:
             dashboard.queue_table().loading = True
             self.request_refresh("initial")
@@ -1127,6 +1194,7 @@ class DashpotApp(App[None]):
             dashboard.update_issue_inventory(dashboard.reconcile_rows())
             dashboard.reconcile_list_panes()
             dashboard.update_diagnostics()
+            self._start_initial_pull_request_search()
         if self.refresh_seconds > 0:
             self.refresh_timer = self.set_interval(
                 self.refresh_seconds,
@@ -1142,6 +1210,11 @@ class DashpotApp(App[None]):
         if self.refresh_timer is not None:
             self.refresh_timer.reset()
         self.request_refresh("manual")
+        if (
+            self.pull_request_searcher is not None
+            and self.dashboard.pull_request_query.text
+        ):
+            self.request_pull_request_search()
 
     def timer_refresh(self) -> None:
         """One automatic tick: coalesce onto whatever is still in flight."""
@@ -1149,6 +1222,95 @@ class DashpotApp(App[None]):
 
     def request_refresh(self, trigger: str) -> None:
         self.schedule_observations(self.scheduler.keys(), trigger)
+
+    def _start_initial_pull_request_search(self) -> None:
+        if (
+            self.pull_request_searcher is not None
+            and self.pull_request_search_generation == 0
+            and self.dashboard.pull_request_query.text
+        ):
+            self.request_pull_request_search()
+
+    def request_pull_request_search(self) -> None:
+        """Submit the current query and coalesce edits onto the search in flight."""
+        self.pull_request_search_generation += 1
+        self.dashboard.pull_request_search_diagnostics = ()
+        if not self.pull_request_search_running:
+            self._start_pull_request_search()
+        self.dashboard.reconcile_list_panes()
+        self.dashboard.update_diagnostics()
+
+    def _start_pull_request_search(self) -> None:
+        text = self.dashboard.pull_request_query.text
+        if not text:
+            return
+        projects = self.store.checkpoint().projects
+        if len(projects) != 1:
+            self.dashboard.pull_request_search_diagnostics = (
+                "Wait for one configured Project before submitting a search",
+            )
+            return
+        project = projects[0]
+        self.pull_request_search_running = True
+        self.pull_request_search_attempted_at = datetime.now(UTC).isoformat()
+        self.run_worker(
+            partial(
+                self._search_pull_requests,
+                self.pull_request_search_generation,
+                project,
+                text,
+            ),
+            name="Pull Request search",
+            group="pull-request-search",
+            exit_on_error=False,
+        )
+
+    async def _search_pull_requests(
+        self, generation: int, project: ProjectObservation, text: str
+    ) -> None:
+        searcher = self.pull_request_searcher
+        if searcher is None:
+            return
+        worker = get_current_worker()
+        try:
+            records = await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor, searcher, project, text
+            )
+        except Exception as exc:
+            if not worker.is_cancelled:
+                self.post_message(
+                    PullRequestSearchFinished(generation, project, error=str(exc))
+                )
+            return
+        if not worker.is_cancelled:
+            self.post_message(
+                PullRequestSearchFinished(generation, project, records=records)
+            )
+
+    def on_pull_request_search_finished(
+        self, message: PullRequestSearchFinished
+    ) -> None:
+        if self._closing or self._closed or not self.screen_stack:
+            return
+        self.pull_request_search_running = False
+        if message.generation != self.pull_request_search_generation:
+            self._start_pull_request_search()
+        elif message.records is not None:
+            self.pull_request_search_project = message.project
+            self.pull_request_search_records = message.records
+            self.pull_request_search_good_text = self.dashboard.pull_request_query.text
+            self.pull_request_search_status = "fresh"
+            self.pull_request_search_last_good_at = (
+                self.pull_request_search_attempted_at
+            )
+            self.dashboard.pull_request_search_diagnostics = ()
+        else:
+            self.pull_request_search_status = "stale"
+            self.dashboard.pull_request_search_diagnostics = (
+                message.error or "Search failed",
+            )
+        self.dashboard.reconcile_list_panes()
+        self.dashboard.update_diagnostics()
 
     def request_fetch(self) -> None:
         """Fetch the remotes of every observed Project's authoritative anchor.
@@ -1608,6 +1770,7 @@ class DashpotApp(App[None]):
         dashboard.update_issue_inventory(dashboard.reconcile_rows())
         dashboard.reconcile_list_panes()
         dashboard.update_diagnostics()
+        self._start_initial_pull_request_search()
         # Follow-ups are derived from what was published, not from this
         # ticket's key: another key's handler may already have published
         # this one's pending composition.
@@ -1646,12 +1809,4 @@ def pull_request_status_filter_value(query: PullRequestListQuery) -> str:
         return "open"
     if query.states == frozenset({"closed"}):
         return "closed"
-    return "all"
-
-
-def pull_request_readiness_filter_value(query: PullRequestListQuery) -> str:
-    if query.readiness == frozenset({"ready"}):
-        return "ready"
-    if query.readiness == frozenset({"draft"}):
-        return "draft"
     return "all"

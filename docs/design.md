@@ -133,6 +133,25 @@ Markdown Project uses a second adapter at that seam which reports Pull Requests 
 configured; it never inspects Git remotes for hosting. Neither result changes
 the Issue Source status.
 
+Pull Request Search is an injected read-only seam. The CLI supplies
+`GitHubPullRequestSearcher`, which resolves the configured Repository Identity,
+wraps the submitted expression within that scope, and reads every
+`ISSUE_ADVANCED` page under a Refresh Budget. The search preserves GitHub's
+ordering and evaluates all its PR qualifiers without approximating missing
+facts locally. Its result must match the reported count, contain only unique
+Pull Requests from that Repository, and stay within GitHub's 1,000-result
+ceiling. Validation, pagination, or request failures publish no partial list.
+
+The dashboard submits on Enter, runs at most one search at a time off the UI
+thread, and coalesces further submissions to the latest query. A superseded
+completion is discarded. Search data remains outside the observation store;
+only a repeat of the same query can retain its last-good rows after a failure.
+A different query reports unavailable results on failure, and clearing the
+submitted query restores the background collection. Manual refresh also reruns
+the submitted query; periodic observations do not. The standalone local read
+model remains available to observation-only callers without the search adapter
+([ADR 0032](adr/0032-submit-pull-request-queries-to-github-advanced-search.md)).
+
 Exceptional state is summarized in a
 one-line alert above Diagnostics that takes no space while everything is
 healthy: refresh failures, unavailable Projects and failed Pull Request
@@ -157,9 +176,10 @@ stack above the full-width `ISSUES` table. Nothing is switched to: every
 active Agent Session, every observed Worktree, every Branch and every active
 Pull Request is listed in its pane by default, with
 an honest one-line empty state. The Pull Request title summarizes Open / Closed
-under search and draft filters; lifecycle selection then narrows the list and
-matched count. Separate lifecycle and draft controls and GitHub-shaped search
-terms filter the read model without changing or refetching observed state.
+under the submitted search; lifecycle selection then narrows the list and
+matched count locally. Draft filtering uses `draft:true` or `draft:false` in
+the query. A submitted non-empty query uses a separate GitHub advanced-search
+adapter; Issue search still filters local observations as the person types.
 The panes are sized to their content rather than sharing the flex height: each asks for the
 rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
 granted first so an ordinary empty pane costs three lines, and the caps shrink

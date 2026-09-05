@@ -83,7 +83,7 @@ def test_status_and_lexical_filters_preserve_the_complete_inventory_count() -> N
 
     result = query_pull_request_list(
         observed,
-        PullRequestListQuery(readiness=frozenset({"ready"}), text="clipboard alice"),
+        PullRequestListQuery(text="clipboard alice draft:false"),
     )
 
     assert [row.pull_request.number for row in result.rows] == [1]
@@ -215,7 +215,7 @@ def test_lifecycle_selection_groups_merged_with_closed_and_scopes_counters() -> 
     assert [row.pull_request.number for row in closed.rows] == [3, 4]
     assert (closed.open_pull_request_count, closed.closed_pull_request_count) == (2, 2)
     draft = query_pull_request_list(
-        observed, replace(query, readiness=frozenset({"draft"}))
+        observed, replace(query, text="author:alice draft:true")
     )
     assert [row.pull_request.number for row in draft.rows] == [3]
     assert (draft.open_pull_request_count, draft.closed_pull_request_count) == (1, 1)
@@ -279,3 +279,30 @@ def test_lifecycle_and_draft_search_qualifiers_and_negations() -> None:
         closed_search.open_pull_request_count,
         closed_search.closed_pull_request_count,
     ) == (1, 1)
+
+
+def test_state_blocks_share_issue_character_and_use_github_foreground_colours() -> None:
+    from dashpot.issue_cells import ISSUE_STATE_GLYPHS
+
+    records = (
+        factories.pull_request(1),
+        factories.pull_request(2, is_draft=True),
+        factories.pull_request(3, state="closed", is_draft=True),
+        factories.pull_request(4, state="merged"),
+    )
+    colours = (
+        ("#1a7f37", "#3fb950"),
+        ("#59636e", "#9198a1"),
+        ("#d1242f", "#f85149"),
+        ("#8250df", "#ab7df8"),
+    )
+    result = query_pull_request_list(
+        snapshot(*records), PullRequestListQuery(states=frozenset({"open", "closed"}))
+    )
+    for dark in (False, True):
+        rows = build_pull_request_rows(result, dark=dark, now=NOW)
+        for row, colour in zip(rows, colours, strict=True):
+            cell = row.cells[0]
+            assert isinstance(cell, Text)
+            assert cell.plain.startswith(ISSUE_STATE_GLYPHS["open"].symbol + " ")
+            assert str(cell.style) == colour[dark]

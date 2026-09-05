@@ -25,6 +25,7 @@ from .cleanup import (
 from .collect import ObservationCoordinator
 from .errors import DashpotError
 from .fetch import remote_fetcher
+from .github_pull_request_search import GitHubPullRequestSearcher
 from .init import initialize_project
 from .integrate import (
     install_integration,
@@ -199,6 +200,7 @@ def observe(
             refresh_seconds=refresh_seconds,
             fetcher=remote_fetcher(timeout),
             cleaner=GitCleanupAdapter(timeout),
+            pull_request_searcher=GitHubPullRequestSearcher(timeout=timeout),
         ).run()
     return 0
 

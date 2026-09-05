@@ -59,8 +59,8 @@ def test_a_symbol_carries_one_meaning() -> None:
     for glyph in legend.legend_glyphs():
         meanings.setdefault(glyph.symbol, set()).add(glyph.meaning)
 
-    # The Issue state block differs by colour alone; every other symbol
-    # means one thing wherever it is seen.
+    # Issue and Pull Request state blocks share colour encoding; every other
+    # symbol means one thing wherever it is seen.
     collisions = {
         symbol: found
         for symbol, found in meanings.items()
