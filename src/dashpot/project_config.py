@@ -6,7 +6,7 @@ import json
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, Field, ValidationError
+from pydantic import AfterValidator, Field, FiniteFloat, ValidationError
 
 from .models import ConfigModel, NonBlankString, translate_validation_error
 
@@ -25,7 +25,9 @@ class GitHubIssueSourceConfig(ConfigModel):
     """Issues come from the GitHub repository at the Worktree's origin."""
 
     kind: Literal["github"]
-    reconciliation_seconds: float = Field(default=DEFAULT_RECONCILIATION_SECONDS, gt=0)
+    reconciliation_seconds: Annotated[FiniteFloat, Field(gt=0)] = (
+        DEFAULT_RECONCILIATION_SECONDS
+    )
 
 
 class LocalMarkdownIssueSourceConfig(ConfigModel):

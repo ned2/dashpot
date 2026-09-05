@@ -70,7 +70,8 @@ own, and a dirty Worktree on a Branch named unlike its directory.
 
 The GitHub Issue Source starts from a valid persisted Snapshot Seed when one is
 available, Reconciles every saved Issue by identity before publishing anything,
-then refreshes incrementally
+and derives publishable High-Water Marks from that live evidence before it
+refreshes incrementally
 ([`github_issues.py`](../src/dashpot/github_issues.py),
 [ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
 [ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
@@ -88,6 +89,8 @@ removed, and merged by identity. A Pull Request mark that advances adds a
 newest-first prefix scan and re-observes its current and previous closing
 targets by Issue identity on two confirming ticks
 ([ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)). A
+Pull Request timestamp observed beside an initial or fallback Issue sweep is a
+candidate until the following inclusive prefix scan confirms it. A
 Reconciliation runs on the Project's configured period (five minutes by
 default), on `r`, and whenever the count no longer adds up, because a deletion,
 a transfer, the blocker's side of a

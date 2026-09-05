@@ -59,6 +59,9 @@ probe now separates the two complete observations:
   atomically. Together they may spend more points than one Refresh Budget, but
   neither can cause the other to be abandoned for their combined wall time or
   request count.
+- A successful fallback sweep retains its newest observed Pull Request update
+  as a candidate. Its required inclusive prefix scan runs on the next refresh,
+  under that refresh's own budget, before the candidate settles.
 - An abandoned fallback sweep is retried only after another Reconciliation
   period and confirming count disagreement, matching the existing rule for an
   abandoned Reconciliation rather than turning every tick into a sweep.

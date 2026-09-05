@@ -241,7 +241,52 @@ def test_json_mode_prints_snapshot() -> None:
     create_collector.assert_called_once_with(
         cli.ObservationOptions(
             workspaces=(Workspace("repo", (RepositoryAnchor("/repo"),)),)
-        )
+        ),
+        recurring=False,
+    )
+
+
+def test_tui_mode_constructs_a_recurring_collector() -> None:
+    collector = mock.Mock()
+
+    with (
+        mock.patch.object(
+            cli, "create_collector", return_value=collector
+        ) as create_collector,
+        mock.patch.object(cli, "DashpotApp") as app,
+    ):
+        result = cli.main(["--workspace", "/repo"])
+
+    assert result == 0
+    create_collector.assert_called_once_with(
+        cli.ObservationOptions(
+            workspaces=(Workspace("repo", (RepositoryAnchor("/repo"),)),)
+        ),
+        recurring=True,
+    )
+    app.return_value.run.assert_called_once_with()
+
+
+def test_compact_json_mode_has_no_recurring_polling_schedule() -> None:
+    collector = mock.Mock()
+    collector.refresh.return_value = WorkspaceSnapshot(
+        collected_at="2026-08-25T01:00:00Z", elapsed_ms=4, projects=[]
+    )
+
+    with (
+        mock.patch.object(
+            cli, "create_collector", return_value=collector
+        ) as create_collector,
+        mock.patch("sys.stdout", new_callable=io.StringIO),
+    ):
+        result = cli.main(["--workspace", "/repo", "--compact-json"])
+
+    assert result == 0
+    create_collector.assert_called_once_with(
+        cli.ObservationOptions(
+            workspaces=(Workspace("repo", (RepositoryAnchor("/repo"),)),)
+        ),
+        recurring=False,
     )
 
 

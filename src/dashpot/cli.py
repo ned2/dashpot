@@ -173,6 +173,7 @@ def observe(
     ] = False,
 ) -> int:
     """Open the TUI for one Project, or print a headless snapshot."""
+    headless = json_output or compact_json
     collector = create_collector(
         ObservationOptions(
             workspaces=tuple(workspace or ()),
@@ -180,9 +181,10 @@ def observe(
             timeout=timeout,
             refresh_seconds=refresh_seconds,
             state_dir=state_dir,
-        )
+        ),
+        recurring=not headless,
     )
-    if json_output or compact_json:
+    if headless:
         # The coordinated barrier publishes every observation and then
         # checkpoints, so headless output stays a single complete snapshot.
         print(render_json(snapshot_document(collector.refresh()), compact=compact_json))
@@ -685,8 +687,13 @@ def _report(messages: Iterable[str]) -> None:
         print(message)
 
 
-def create_collector(options: ObservationOptions) -> ObservationCoordinator:
+def create_collector(
+    options: ObservationOptions, *, recurring: bool = True
+) -> ObservationCoordinator:
     """Resolve the Workspaces one run observes into its coordinator."""
+    polling_seconds = (
+        options.refresh_seconds if recurring and options.refresh_seconds > 0 else None
+    )
     inventory_diagnostics: Sequence[Diagnostic] = ()
     if options.workspaces:
         workspaces = merge_workspaces(list(options.workspaces))
@@ -723,14 +730,14 @@ def create_collector(options: ObservationOptions) -> ObservationCoordinator:
     resolution = resolve_workspace_projects(
         workspaces,
         timeout=options.timeout,
-        polling_seconds=options.refresh_seconds,
+        polling_seconds=polling_seconds,
     )
     return ObservationCoordinator(
         resolution.projects,
         timeout=options.timeout,
         state_dir=options.state_dir.expanduser() if options.state_dir else None,
         diagnostics=[*inventory_diagnostics, *resolution.diagnostics],
-        polling_seconds=options.refresh_seconds,
+        polling_seconds=polling_seconds,
     )
 
 

@@ -47,9 +47,10 @@ Incremental Refresh:
   that confirmation. This reduces the observed indexing race; it cannot turn
   GitHub's undocumented eventual consistency into a guarantee.
 - The initial sweep and fallback sweep ask for the Pull Request probe beside
-  every Issue page and retain the newest answer. Their complete Issue nodes
-  establish the Linked Pull Request activity; later Pull Request changes use
-  the separate mark.
+  every Issue page and retain the newest answer as a candidate, never a settled
+  mark. Their complete Issue nodes establish the Linked Pull Request activity;
+  the next refresh performs the required inclusive prefix scan before that
+  candidate can settle.
 
 The repository-wide Pull Request Source remains independent. Combining it
 with the GitHub Issue Source would couple two scheduled observations, their
@@ -85,6 +86,9 @@ its full active-collection sweep becomes material.
   completed for relationship evidence while the published activity remains
   the lowest-numbered twenty plus an unlisted count. No relationship is
   removed without the positive evidence of a complete Issue identity answer.
+- Initial and fallback Issue sweeps may publish a pending Pull Request candidate.
+  Persisting that candidate retains the required confirmation across restart;
+  a sweep never turns its point-in-time probe directly into a settled mark.
 - Equal-second changes beyond the settled mark remain indistinguishable to a
   timestamp probe, as they are for Issue changes. The two-scan confirmation
   covers observed indexing lag, not an unbounded delay. Both limitations stay

@@ -234,7 +234,10 @@ stream, the inclusive start of its next delta or newest-first prefix scan. It
 keeps separate Issue and Pull Request marks. A mark advances only through what
 a refresh fetched, so no clock of Dashpot's ever enters the boundary; a Pull
 Request candidate is scanned on two ticks before it is settled because
-GitHub's derived closing-reference connection indexes asynchronously.
+GitHub's derived closing-reference connection indexes asynchronously. Marks in
+a Snapshot Seed are untrusted startup cursors: live Reconciliation evidence
+derives the marks that can be published, and the live probe bounds a persisted
+future cursor.
 
 **Reconciliation**:
 An observation of every GitHub Issue afresh, which alone can see a Linked Pull
@@ -255,8 +258,9 @@ first run or unusable seed starts with the sweep. Each refresh publishes one
 complete observation or fails; it never mixes the identity Reconciliation with
 a partial sweep. Reconciliation runs on the Project's configured period (five minutes by
 default), on `r`, and whenever
-the Issue count no longer adds up; the period must be positive and at least the
-polling period. An observation whose Reconciliation is more than two periods
+the Issue count no longer adds up; the period must be positive and finite, and
+at least the recurring TUI polling period. A headless collection and a TUI with
+polling disabled have no polling period to compare. An observation whose Reconciliation is more than two periods
 overdue carries a
 `github-reconciliation-overdue` warning, and one whose count remains
 unexplained after a Reconciliation carries

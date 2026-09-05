@@ -91,7 +91,8 @@ snapshot by Issue identity and assembles each fresh observation from it:
 - **Persisting the snapshot across runs:** accepted later by
   [ADR 0028](0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md).
   A valid record is only a Snapshot Seed and is Reconciled live before it can
-  be published; otherwise a run starts with the sweep.
+  be published; its saved marks are startup cursors rather than authorities,
+  and otherwise a run starts with the sweep.
 - **Reporting an incremental observation as something other than fresh:**
   rejected. The snapshot is complete except for the enumerated blind spots,
   each closed by the next Reconciliation; an observation whose

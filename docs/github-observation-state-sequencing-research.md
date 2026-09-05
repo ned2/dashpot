@@ -1,11 +1,12 @@
 ---
-status: living
+status: research
 date: 2026-09-05
 ---
 
 # Sequencing GitHub observation data and state work
 
-Initial research date: 2026-09-04. Updated as the sequence lands.
+Initial research date: 2026-09-04. Outcomes captured when the investigation
+closed on 2026-09-05.
 
 ## Scope
 
@@ -102,10 +103,10 @@ the deliberately separate failure states.
 | [#128 Verify which Issue changes bump `updatedAt`](https://github.com/ned2/dashpot/issues/128) | Live experiments for assignment, parent/sub-Issue, milestone, and Issue type changes; then make ADR 0022 and the README's blind-spot list exact. This is correctness evidence, not an optimization. | Informed which facts require Reconciliation and the design of #123. | **Completed.** Reproducible evidence and the verified blind spots are in the API research note and ADR 0022. |
 | [#127 Reuse the already-fetched delta](https://github.com/ned2/dashpot/issues/127) | Remove a duplicated delta when an ordinary tick discovers a count disagreement and enters Reconciliation; merge duplicate observations by `updatedAt`, with the identity observation winning a tie. | Changed the same `_refresh_incrementally` to `_reconcile` handoff that #125 later restructured. | **Completed.** The handoff reuses one delta with timestamp-ordered merge semantics. |
 | [#123 Observe Linked Pull Requests incrementally](https://github.com/ned2/dashpot/issues/123) | Close the most visible Reconciliation blind spot for a Linked Pull Request opening, merging, closing, linking, or unlinking. | Live research found no Pull Request `since` filter and observed derived closing-reference indexing lag. ADR 0025 therefore uses a newest-first prefix and two confirming ticks inside the Issue Source while preserving the independent Pull Request source. | **Completed.** Pull Request changes re-observe current and previous Issue targets by identity. |
-| [#126 Configure the Reconciliation period](https://github.com/ned2/dashpot/issues/126) | Put the five-minute period in each Project's configuration and retain the current default. | Validation needs both the Project setting and the runtime polling period. | **Completed.** `issueSource.reconciliationSeconds` validates positivity in the Project config and is compared with polling at run construction. |
+| [#126 Configure the Reconciliation period](https://github.com/ned2/dashpot/issues/126) | Put the five-minute period in each Project's configuration and retain the current default. | Validation needs the Project setting, and a recurring TUI run also needs its polling period. | **Completed.** `issueSource.reconciliationSeconds` requires a positive finite value and is compared only with a recurring TUI polling schedule. |
 | [#125 Give the fallback sweep its own Refresh Budget](https://github.com/ned2/dashpot/issues/125) | Prevent an identity Reconciliation plus delta plus fallback sweep from repeatedly exceeding one sixty-second budget on a large repository. | Followed #127's count-disagreement handoff and established state #124 must persist consciously. | **Completed.** ADR 0026 defers the marked sweep to the next refresh under its own Refresh Budget. |
 | [#129 Add a REST conditional probe](https://github.com/ned2/dashpot/issues/129) | Evaluate whether a quiet repository can spend zero GraphQL points per tick by using a REST `304` as a gate before the authoritative GraphQL probe. | #123 added its Pull Request update signal to the existing one-point GraphQL query. Research found that a REST ETag validates only one paginated representation and supplies no exact Issue count, so it cannot safely replace the probe's repository-wide evidence. | **Completed triage; rejected.** ADR 0027 keeps the combined GraphQL probe authoritative rather than adding an undocumented deletion/transfer blind spot. |
-| [#124 Persist the GitHub Issue snapshot](https://github.com/ned2/dashpot/issues/124) | Avoid the full cursor sweep on every process start by loading the previous `_Snapshot`, validating it, and reconciling it before publication. This is the durable-state change in the cluster. | Followed the settled Pull Request marks and fallback-sweep state added by #123 and #125. ADR 0028 excludes process-local scheduling, count, and sweep-due state while preserving both Pull Request marks. | **Completed.** A strict, identity-bound Snapshot Seed starts a mandatory live Reconciliation and never enters retained last-good state by itself. |
+| [#124 Persist the GitHub Issue snapshot](https://github.com/ned2/dashpot/issues/124) | Avoid the full cursor sweep on every process start by loading the previous `_Snapshot`, validating it, and reconciling it before publication. This is the durable-state change in the cluster. | Followed the settled Pull Request marks and fallback-sweep state added by #123 and #125. ADR 0028 excludes process-local scheduling, count, and sweep-due state while preserving both Pull Request cursors. | **Completed.** A strict, identity-bound Snapshot Seed starts a mandatory live Reconciliation; its marks are untrusted cursors and never enter retained last-good state by themselves. |
 
 ## Sequence plan and outcomes
 
@@ -148,10 +149,10 @@ Request source's schedule or failure state
 ### 4. Correct and implement #126
 
 The per-Project `issueSource.reconciliationSeconds` setting now rejects a
-non-positive value in `GitHubIssueSourceConfig`; the application composition
-seam compares it with the effective polling interval after both are known.
-Polling disabled with zero and headless one-shot collection have no recurring
-polling interval to compare.
+non-positive or non-finite value in `GitHubIssueSourceConfig`; the application
+composition seam compares it with the effective polling interval only after a
+recurring TUI schedule exists. Polling disabled with zero and headless one-shot
+collection have no recurring polling interval to compare.
 
 ### 5. Decide and implement #125
 
@@ -186,8 +187,10 @@ No maximum age or wall-clock freshness field is stored: the mandatory live
 Reconciliation establishes freshness, then resets the process-local monotonic
 schedule. A failure leaves the first observation unavailable and keeps the seed
 private for another attempt. Issue and Pull Request High-Water Marks, including
-the pending Pull Request candidate, persist; reported count and fallback-sweep
-state reset because startup current-count evidence re-establishes them.
+the pending Pull Request candidate, persist only as startup cursors; live probe,
+identity, delta, and prefix evidence derive their publishable replacements.
+Reported count and fallback-sweep state reset because startup current-count
+evidence re-establishes them.
 Corruption, identity mismatch, an unsupported version, or an incompatible Issue
 Profile falls back to the bootstrap sweep. This keeps persisted state a
 validating seam under

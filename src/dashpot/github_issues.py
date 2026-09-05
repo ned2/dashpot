@@ -440,7 +440,9 @@ class GitHubIssuesSource(IssueSource):
         seed = self._snapshot_seed
         if snapshot is None and seed is not None:
             probe = self._probe(meter)
-            snapshot = self._reconcile(seed, meter, now, probe=probe)
+            snapshot = self._reconcile(
+                seed, meter, now, probe=probe, untrusted_cursors=True
+            )
             snapshot = self._refresh_linked_pull_requests(snapshot, probe, meter)
         elif snapshot is not None and snapshot.sweep_due:
             # Clearing before the attempt prevents a sweep that exhausts its
@@ -448,7 +450,9 @@ class GitHubIssuesSource(IssueSource):
             snapshot = replace(snapshot, sweep_due=False)
             self._snapshot = snapshot
             self._reconcile_attempted_at = now
-            snapshot = self._sweep(meter, now)
+            snapshot = self._sweep(
+                meter, now, previous_marks=snapshot.pull_request_marks
+            )
         elif snapshot is None or snapshot.high_water is None:
             snapshot = self._reconcile(snapshot, meter, now)
         else:
@@ -562,6 +566,8 @@ class GitHubIssuesSource(IssueSource):
         now: float,
         probe: _Probe | None = None,
         delta: _Delta | None = None,
+        *,
+        untrusted_cursors: bool = False,
     ) -> _Snapshot:
         """Observe every Issue afresh."""
         # Attempted rather than completed: a Reconciliation the budget
@@ -569,7 +575,11 @@ class GitHubIssuesSource(IssueSource):
         # keep refreshing incrementally instead of failing the same way.
         self._reconcile_attempted_at = now
         if snapshot is None or snapshot.high_water is None:
-            return self._sweep(meter, now)
+            return self._sweep(
+                meter,
+                now,
+                previous_marks=(snapshot.pull_request_marks if snapshot else None),
+            )
         if probe is None:
             probe = self._probe(meter)
         observed: dict[str, _ObservedIssue] = {}
@@ -579,12 +589,26 @@ class GitHubIssuesSource(IssueSource):
             entry = self._own_issue(record, meter)
             if entry is not None:
                 observed[issue_id] = entry
-        high_water = snapshot.high_water
+        high_water = (
+            probe.newest_updated_at if untrusted_cursors else snapshot.high_water
+        )
         for entry in observed.values():
             high_water = _later(high_water, entry.updated_at)
         previous = dict(observed)
-        if delta is None:
-            delta = self._changes_since(snapshot.high_water, high_water, meter)
+        if delta is None and untrusted_cursors and probe.newest_updated_at is None:
+            # An empty live collection offers no safe timestamp cursor. Keeping
+            # the persisted value could hide an Issue created before a future
+            # seed mark, so the next non-empty observation starts with a sweep.
+            applied: Mapping[str, _ObservedIssue] = dict[str, _ObservedIssue]()
+        elif delta is None:
+            since = snapshot.high_water
+            if (
+                untrusted_cursors
+                and probe.newest_updated_at is not None
+                and _is_later(since, probe.newest_updated_at)
+            ):
+                since = probe.newest_updated_at
+            delta = self._changes_since(since, high_water or since, meter)
             # This delta was observed after the identities, so it wins a tie.
             observed.update(delta.issues)
             applied = delta.issues
@@ -599,7 +623,8 @@ class GitHubIssuesSource(IssueSource):
                     observed[issue_id] = entry
                     reused[issue_id] = entry
             applied = reused
-        high_water = _later(high_water, delta.high_water)
+        if delta is not None:
+            high_water = _later(high_water, delta.high_water)
         self._observe_counterparts(observed, applied, previous, meter)
         if len(observed) != probe.total_count:
             # An Issue created or deleted while the identities were in flight
@@ -612,7 +637,11 @@ class GitHubIssuesSource(IssueSource):
             return _Snapshot(
                 issues=observed,
                 high_water=high_water,
-                pull_request_marks=snapshot.pull_request_marks,
+                pull_request_marks=(
+                    _startup_pull_request_marks(snapshot.pull_request_marks, probe)
+                    if untrusted_cursors
+                    else snapshot.pull_request_marks
+                ),
                 reconciled_at=now,
                 reported_count=probe.total_count,
                 sweep_due=True,
@@ -620,11 +649,21 @@ class GitHubIssuesSource(IssueSource):
         return _Snapshot(
             issues=observed,
             high_water=high_water,
-            pull_request_marks=snapshot.pull_request_marks,
+            pull_request_marks=(
+                _startup_pull_request_marks(snapshot.pull_request_marks, probe)
+                if untrusted_cursors
+                else snapshot.pull_request_marks
+            ),
             reconciled_at=now,
         )
 
-    def _sweep(self, meter: RefreshMeter, now: float) -> _Snapshot:
+    def _sweep(
+        self,
+        meter: RefreshMeter,
+        now: float,
+        *,
+        previous_marks: _PullRequestMarks | None = None,
+    ) -> _Snapshot:
         """Observe the whole collection page by page, the ground truth."""
         pages = self._collect_issue_pages(
             _ISSUES_QUERY, {}, meter, "Issue collection", observe_pull_request=True
@@ -633,12 +672,19 @@ class GitHubIssuesSource(IssueSource):
         high_water: str | None = None
         for entry in entries:
             high_water = _later(high_water, entry.updated_at)
+        marks = previous_marks or _PullRequestMarks(settled=None)
+        newest_pull_request = pages.pull_request_newest_updated_at
+        if newest_pull_request is not None and (
+            marks.settled is None or _is_later(newest_pull_request, marks.settled)
+        ):
+            marks = _PullRequestMarks(
+                settled=marks.settled,
+                candidate=newest_pull_request,
+            )
         return _Snapshot(
             issues={entry.issue.id: entry for entry in entries},
             high_water=high_water,
-            pull_request_marks=_PullRequestMarks(
-                settled=pages.pull_request_newest_updated_at
-            ),
+            pull_request_marks=marks,
             reconciled_at=now,
         )
 
@@ -1157,24 +1203,18 @@ class GitHubIssuesSource(IssueSource):
             nodes, has_next, end_cursor = _connection_page(
                 connection, f"issue.{connection_name}", _RESPONSE_CODE
             )
-            trail = CursorTrail(f"Issue {issue_id} {connection_name}")
-            while has_next:
-                cursor = trail.follow(end_cursor)
-                meter.next_request(
-                    f"{len(nodes)} {connection_name} of Issue {issue_id}"
-                )
-                data = self.gateway.graphql(
-                    _nested_connection_query(connection_name, item_field),
-                    {"id": issue_id, "cursor": cursor},
-                )
-                node = _object(data, "node", "data", _RESPONSE_CODE)
-                next_connection = _object(
-                    node, "connection", "data.node", _RESPONSE_CODE
-                )
-                next_nodes, has_next, end_cursor = _connection_page(
-                    next_connection, f"issue.{connection_name}", _RESPONSE_CODE
-                )
-                nodes.extend(next_nodes)
+            nodes, end_cursor = self._complete_issue_connection_pages(
+                issue_id,
+                nodes,
+                has_next,
+                end_cursor,
+                meter,
+                query=_nested_connection_query(connection_name, item_field),
+                response_field="connection",
+                response_path=f"issue.{connection_name}",
+                trail_subject=f"Issue {issue_id} {connection_name}",
+                request_subject=f"{connection_name} of Issue {issue_id}",
+            )
             connection["nodes"] = nodes
             connection["pageInfo"] = {"hasNextPage": False, "endCursor": end_cursor}
         return complete
@@ -1199,30 +1239,49 @@ class GitHubIssuesSource(IssueSource):
             return complete
         has_next = page_info["hasNextPage"]
         end_cursor = page_info.get("endCursor")
-        trail = CursorTrail(f"Issue {issue_id} Linked Pull Requests")
-        while has_next:
-            cursor = trail.follow(end_cursor if isinstance(end_cursor, str) else None)
-            meter.next_request(f"{len(nodes)} Linked Pull Requests of Issue {issue_id}")
-            data = self.gateway.graphql(
-                _ISSUE_LINKED_PULL_REQUESTS_QUERY,
-                {"id": issue_id, "cursor": cursor},
-            )
-            issue = _object(data, "node", "data", _RESPONSE_CODE)
-            next_connection = _object(
-                issue,
-                "closedByPullRequestsReferences",
-                "data.node",
-                _RESPONSE_CODE,
-            )
-            next_nodes, has_next, end_cursor = _connection_page(
-                next_connection,
-                "data.node.closedByPullRequestsReferences",
-                _RESPONSE_CODE,
-            )
-            nodes.extend(next_nodes)
+        nodes, end_cursor = self._complete_issue_connection_pages(
+            issue_id,
+            nodes,
+            has_next,
+            end_cursor,
+            meter,
+            query=_ISSUE_LINKED_PULL_REQUESTS_QUERY,
+            response_field="closedByPullRequestsReferences",
+            response_path="data.node.closedByPullRequestsReferences",
+            trail_subject=f"Issue {issue_id} Linked Pull Requests",
+            request_subject=f"Linked Pull Requests of Issue {issue_id}",
+        )
         connection["nodes"] = nodes
         connection["pageInfo"] = {"hasNextPage": False, "endCursor": end_cursor}
         return complete
+
+    def _complete_issue_connection_pages(
+        self,
+        issue_id: str,
+        nodes: list[dict[str, Any]],
+        has_next: bool,
+        end_cursor: object,
+        meter: RefreshMeter,
+        *,
+        query: str,
+        response_field: str,
+        response_path: str,
+        trail_subject: str,
+        request_subject: str,
+    ) -> tuple[list[dict[str, Any]], object]:
+        """Complete one already-validated connection owned by an Issue."""
+        trail = CursorTrail(trail_subject)
+        while has_next:
+            cursor = trail.follow(end_cursor)
+            meter.next_request(f"{len(nodes)} {request_subject}")
+            data = self.gateway.graphql(query, {"id": issue_id, "cursor": cursor})
+            issue = _object(data, "node", "data", _RESPONSE_CODE)
+            connection = _object(issue, response_field, "data.node", _RESPONSE_CODE)
+            next_nodes, has_next, end_cursor = _connection_page(
+                connection, response_path, _RESPONSE_CODE
+            )
+            nodes.extend(next_nodes)
+        return nodes, end_cursor
 
     def _own_repository(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
         """The repository node of an answer, checked to be the configured one."""
@@ -1318,6 +1377,22 @@ def _is_later(value: str, than: str) -> bool:
 
 def _later(mark: str | None, value: str) -> str:
     return value if mark is None or _is_later(value, mark) else mark
+
+
+def _startup_pull_request_marks(
+    marks: _PullRequestMarks, probe: _Probe
+) -> _PullRequestMarks:
+    """Bound persisted Pull Request cursors by the live startup probe."""
+    newest = probe.pull_request_newest_updated_at
+    if newest is None:
+        return _PullRequestMarks(settled=None)
+    settled = marks.settled
+    candidate = marks.candidate
+    if settled is not None and _is_later(settled, newest):
+        settled = None
+    if candidate is not None and _is_later(candidate, newest):
+        candidate = None
+    return _PullRequestMarks(settled=settled, candidate=candidate)
 
 
 def normalize_github_issue(
@@ -1523,9 +1598,8 @@ def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
             )
     linked_pull_requests.sort(key=lambda pull: pull.number)
     linked_pull_requests = linked_pull_requests[:20]
-    # The connection is unpaged: the count says how many the first twenty
-    # left unlisted, so the dashboard can say so rather than show a
-    # complete-looking list.
+    # Relationship evidence uses the completed connection, while presentation
+    # keeps the lowest-numbered twenty and says how many remain unlisted.
     unlisted = 0
     total = references.get("totalCount") if isinstance(references, Mapping) else None
     if isinstance(total, int) and not isinstance(total, bool):

@@ -85,7 +85,7 @@ def probe_response(
     newest_updated_at: str | None,
     *,
     repository_id: str = REPOSITORY_ID,
-    pull_request_updated_at: str | None = PULL_REQUEST_MARK,
+    pull_request_updated_at: str | None = None,
 ) -> str:
     nodes = (
         []
@@ -198,7 +198,7 @@ def issue_page(
     end_cursor: str | None = None,
     repository_id: str = REPOSITORY_ID,
     repository_reference: str = "ned2/dashpot",
-    pull_request_updated_at: str | None = PULL_REQUEST_MARK,
+    pull_request_updated_at: str | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -856,6 +856,20 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             0, observation.issue_activity[observation.issues[0].id].comment_count
         )
 
+    def test_a_malformed_required_nested_connection_fails_the_refresh(self) -> None:
+        record = raw_fixture()
+        record["labels"] = {
+            "nodes": "not an object array",
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+        }
+
+        observation = source(
+            SequenceRunner([completed(issue_page([record]))])
+        ).refresh()
+
+        self.assertEqual("unavailable", observation.status)
+        self.assertEqual("github-malformed-response", observation.diagnostics[0].code)
+
     def test_repeated_nested_cursor_is_a_pagination_diagnostic(self) -> None:
         record = raw_fixture()
         record["labels"]["pageInfo"] = {
@@ -1237,6 +1251,47 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
                 ]
             )
         )
+
+    def test_an_initial_sweep_keeps_its_pull_request_mark_as_a_candidate(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = GitHubIssueSnapshotStore(root)
+            runner = SequenceRunner(
+                [
+                    completed(
+                        issue_page(
+                            [unrelated(issue_record(1, updated_at=self.MARK))],
+                            pull_request_updated_at=self.LATER,
+                        )
+                    ),
+                    completed(
+                        probe_response(
+                            1,
+                            self.MARK,
+                            pull_request_updated_at=self.LATER,
+                        )
+                    ),
+                    completed(
+                        pull_request_changes_page([pull_request_change(10, self.LATER)])
+                    ),
+                ]
+            )
+            github = source(runner, root=root, snapshot_store=store)
+
+            github.refresh()
+            candidate = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
+            github.refresh()
+            settled = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
+
+            assert candidate is not None
+            self.assertIsNone(candidate.pull_request_marks.settled)
+            self.assertEqual(self.LATER, candidate.pull_request_marks.candidate)
+            assert settled is not None
+            self.assertEqual(self.LATER, settled.pull_request_marks.settled)
+            self.assertIsNone(settled.pull_request_marks.candidate)
+            self.assertIn("PullRequestChanges", query_of(runner.calls[2]))
 
     def test_an_unchanged_collection_costs_one_probe(self) -> None:
         runner = SequenceRunner(
@@ -2155,6 +2210,104 @@ class GitHubIssuesIncrementalRefreshTests(unittest.TestCase):
         self.assertEqual(6, len(runner.calls))
         self.assertIn("CREATED_AT", query_of(runner.calls[5]))
 
+    def test_a_fallback_sweep_keeps_its_newest_pull_request_as_a_candidate(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = GitHubIssueSnapshotStore(root)
+            known = [
+                unrelated(issue_record(1, updated_at=self.OLDER)),
+                unrelated(issue_record(2, updated_at=self.MARK)),
+            ]
+            transferred = unrelated(issue_record(3, updated_at=self.OLDER))
+            runner = SequenceRunner(
+                [
+                    completed(
+                        issue_page(known, pull_request_updated_at=PULL_REQUEST_MARK)
+                    ),
+                    completed(
+                        probe_response(
+                            2,
+                            self.MARK,
+                            pull_request_updated_at=PULL_REQUEST_MARK,
+                        )
+                    ),
+                    completed(
+                        pull_request_changes_page(
+                            [pull_request_change(5, PULL_REQUEST_MARK)]
+                        )
+                    ),
+                    completed(
+                        probe_response(
+                            3,
+                            self.MARK,
+                            pull_request_updated_at=PULL_REQUEST_MARK,
+                        )
+                    ),
+                    nodes_response([by_id(record) for record in known]),
+                    completed(issue_page([])),
+                    completed(
+                        probe_response(
+                            3,
+                            self.MARK,
+                            pull_request_updated_at=PULL_REQUEST_MARK,
+                        )
+                    ),
+                    completed(
+                        issue_page(
+                            [known[0]],
+                            has_next_page=True,
+                            end_cursor="fallback-1",
+                            pull_request_updated_at=self.LATER,
+                        )
+                    ),
+                    completed(
+                        issue_page(
+                            [known[1], transferred],
+                            pull_request_updated_at=PULL_REQUEST_MARK,
+                        )
+                    ),
+                    completed(
+                        probe_response(
+                            3,
+                            self.MARK,
+                            pull_request_updated_at=self.LATER,
+                        )
+                    ),
+                    completed(
+                        pull_request_changes_page(
+                            [pull_request_change(6, self.LATER)],
+                            has_next_page=True,
+                            end_cursor="pull-request-1",
+                        )
+                    ),
+                    completed(
+                        pull_request_changes_page(
+                            [pull_request_change(5, PULL_REQUEST_MARK)]
+                        )
+                    ),
+                ]
+            )
+            github = source(runner, root=root, snapshot_store=store)
+
+            github.refresh()
+            github.refresh()
+            github.refresh(reconcile=True)
+            github.refresh()
+            candidate = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
+            github.refresh()
+            settled = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
+
+            assert candidate is not None
+            self.assertEqual(PULL_REQUEST_MARK, candidate.pull_request_marks.settled)
+            self.assertEqual(self.LATER, candidate.pull_request_marks.candidate)
+            assert settled is not None
+            self.assertEqual(self.LATER, settled.pull_request_marks.settled)
+            self.assertIsNone(settled.pull_request_marks.candidate)
+            self.assertIn("cursor=fallback-1", runner.calls[8][0])
+            self.assertIn("cursor=pull-request-1", runner.calls[11][0])
+
     def test_an_abandoned_fallback_sweep_waits_a_period_before_retry(
         self,
     ) -> None:
@@ -2386,6 +2539,7 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
     MARK = "2026-08-26T09:00:00Z"
     LATER = "2026-08-26T09:30:00Z"
     ISSUE_AFTER_PROBE = "2026-08-26T09:45:00Z"
+    FUTURE = "2099-01-01T00:00:00Z"
 
     def first_sweep(self) -> CommandResult:
         return completed(
@@ -2570,7 +2724,7 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             self.assertEqual("fresh", first_process.refresh().status)
             pending = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
             assert pending is not None
-            self.assertEqual(PULL_REQUEST_MARK, pending.pull_request_marks.settled)
+            self.assertIsNone(pending.pull_request_marks.settled)
             self.assertEqual(self.LATER, pending.pull_request_marks.candidate)
             # A point observation after the probe may be newer without advancing
             # the listing-derived Issue High-Water Mark.
@@ -2624,6 +2778,120 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
                     for call in second_process_runner.calls
                 )
             )
+
+    def test_a_future_seed_issue_mark_cannot_suppress_live_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = self.persist_seed(root)
+            path = store.path(REPOSITORY_ID)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["highWater"] = self.FUTURE
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            changed = unrelated(
+                issue_record(2, updated_at=self.LATER, title="Changed live")
+            )
+            runner = SequenceRunner(
+                [
+                    completed(probe_response(2, self.MARK)),
+                    nodes_response(
+                        [
+                            by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
+                            by_id(unrelated(issue_record(2, updated_at=self.MARK))),
+                        ]
+                    ),
+                    completed(issue_page([])),
+                    completed(probe_response(2, self.LATER)),
+                    completed(issue_page([changed])),
+                ]
+            )
+            github = source(runner, root=root, snapshot_store=store)
+
+            github.refresh()
+            observation = github.refresh()
+
+            self.assertEqual("fresh", observation.status)
+            self.assertEqual("Changed live", observation.issues[1].title)
+            self.assertIn(f"since={self.MARK}", runner.calls[2][0])
+            self.assertIn(f"since={self.MARK}", runner.calls[4][0])
+
+    def test_a_future_seed_issue_mark_is_dropped_when_github_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = self.persist_seed(root)
+            path = store.path(REPOSITORY_ID)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["highWater"] = self.FUTURE
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            created = unrelated(issue_record(1, updated_at=self.LATER))
+            runner = SequenceRunner(
+                [
+                    completed(probe_response(0, None)),
+                    nodes_response([None, None]),
+                    completed(issue_page([created])),
+                ]
+            )
+            github = source(runner, root=root, snapshot_store=store)
+
+            empty = github.refresh()
+            observation = github.refresh()
+
+            self.assertEqual("fresh", empty.status)
+            self.assertEqual((), empty.issues)
+            self.assertEqual("fresh", observation.status)
+            self.assertEqual([1], [issue.number for issue in observation.issues])
+            self.assertEqual(3, len(runner.calls))
+            self.assertIn("CREATED_AT", query_of(runner.calls[2]))
+
+    def test_a_future_seed_pull_request_mark_cannot_suppress_live_changes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = self.persist_seed(root)
+            path = store.path(REPOSITORY_ID)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["pullRequestMarks"] = {
+                "settled": self.FUTURE,
+                "candidate": None,
+            }
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            linked = with_linked_pull_requests(
+                unrelated(issue_record(1, updated_at=self.OLDER)), (10, "OPEN")
+            )
+            runner = SequenceRunner(
+                [
+                    completed(
+                        probe_response(
+                            2,
+                            self.MARK,
+                            pull_request_updated_at=self.LATER,
+                        )
+                    ),
+                    nodes_response(
+                        [
+                            by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
+                            by_id(unrelated(issue_record(2, updated_at=self.MARK))),
+                        ]
+                    ),
+                    completed(issue_page([])),
+                    completed(
+                        pull_request_changes_page(
+                            [pull_request_change(10, self.LATER, "I_issue_1")]
+                        )
+                    ),
+                    nodes_response([by_id(linked)]),
+                ]
+            )
+
+            observation = source(runner, root=root, snapshot_store=store).refresh()
+            replaced = store.load(repository_id=REPOSITORY_ID, project_id=PROJECT_ID)
+
+            self.assertEqual("fresh", observation.status)
+            self.assertEqual({10}, _linked_numbers(observation, "I_issue_1"))
+            assert replaced is not None
+            self.assertIsNone(replaced.pull_request_marks.settled)
+            self.assertEqual(self.LATER, replaced.pull_request_marks.candidate)
+            self.assertIn("PullRequestChanges", query_of(runner.calls[3]))
 
     def test_restart_reestablishes_a_due_fallback_sweep_from_current_count(
         self,

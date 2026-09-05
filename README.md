@@ -344,8 +344,10 @@ A GitHub-backed Project looks like this:
 The Repository Anchor must have a GitHub `origin`; collection uses the
 authenticated `gh` CLI. `reconciliationSeconds` sets how often the GitHub
 Issue Source observes every Issue afresh. It defaults to 300 seconds when
-omitted, must be positive, and cannot be shorter than the run's polling period
-(`--refresh-seconds`, 15 seconds by default). A Local Issue Markdown Project
+omitted and must be positive and finite. In the TUI it cannot be shorter than
+the recurring polling period (`--refresh-seconds`, 15 seconds by default).
+Headless `--json` and `--compact-json` collection has no recurring schedule,
+so it applies no polling-period comparison. A Local Issue Markdown Project
 selects a repository-relative file or directory:
 
 ```json

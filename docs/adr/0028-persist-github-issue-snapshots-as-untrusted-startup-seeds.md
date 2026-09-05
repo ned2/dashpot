@@ -29,9 +29,13 @@ discarding it after an arbitrary interval would only remove the restart
 benefit. The process-local monotonic Reconciliation time is reset to the live
 startup attempt. An unexplained reported count and a due fallback sweep are not
 persisted: the mandatory Reconciliation re-establishes either condition from
-current GitHub evidence. Both Pull Request marks are persisted so a restart
-neither scans the full all-state Pull Request connection nor loses a pending
-second confirmation.
+current GitHub evidence. Persisted Issue and Pull Request marks are untrusted
+startup cursors, not publishable facts: the live probe bounds any cursor beyond
+GitHub's newest update, and the identity Reconciliation and delta derive the
+Issue mark that replaces it. Both Pull Request marks are persisted so an
+ordinary restart avoids an unnecessary full all-state prefix and does not lose
+a pending second confirmation; the live probe discards either mark when it lies
+beyond current evidence.
 
 If the mandatory startup Reconciliation fails, the source is unavailable under
 ADR 0002. The Snapshot Seed remains private for another attempt; it cannot make
@@ -66,6 +70,10 @@ process must Reconcile, not an authority whose recency Dashpot trusts.
 - A non-empty repository with a valid Snapshot Seed starts with the bounded
   identity Reconciliation and delta instead of the cursor sweep. A first run,
   invalid seed, or empty seed without an Issue High-Water Mark still sweeps.
+- A syntactically valid future mark cannot suppress current GitHub evidence.
+  Startup may move a mark backwards because the seed supplied only a cursor;
+  the published mark comes from the live probe, identities, delta, and any
+  required Pull Request prefix scan.
 - The ignored file may be old or may be replaced by a slower concurrent
   process. Correctness is unchanged because no saved value is published before
   current GitHub evidence reconciles it.

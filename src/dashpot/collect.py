@@ -220,7 +220,7 @@ def create_project_collector(
     timeout: float = 10,
     state_dir: Path | None = None,
     git: Git | None = None,
-    polling_seconds: float = 15,
+    polling_seconds: float | None = 15,
 ) -> ProjectCollector:
     requested_root = Path(project.primary_anchor)
     adapter = git if git is not None else Git(requested_root, timeout)
@@ -501,7 +501,7 @@ class ObservationCoordinator:
         diagnostics: Sequence[Diagnostic] = (),
         agent_observer: WorkspaceAgentObserver | None = None,
         clock: Callable[[], str] = utc_now,
-        polling_seconds: float = 15,
+        polling_seconds: float | None = 15,
     ) -> None:
         self.projects = list(projects)
         self.projects_by_id = {project.project_id: project for project in self.projects}

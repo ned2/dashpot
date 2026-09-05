@@ -83,6 +83,25 @@ def test_rejects_non_positive_or_non_numeric_reconciliation_period(
         load_project_config(tmp_path)
 
 
+def test_rejects_overflowed_json_reconciliation_period(tmp_path: Path) -> None:
+    path = tmp_path / PROJECT_CONFIG_NAME
+    text = (
+        '{"projectId":"p","displayLabel":"d","repositoryId":"r",'
+        '"issueSource":{"kind":"github","reconciliationSeconds":1e309}}'
+    )
+
+    with pytest.raises(RuntimeError, match=r"issueSource\.reconciliationSeconds"):
+        parse_project_config(text, path)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_github_config_model_rejects_non_finite_reconciliation_period(
+    value: float,
+) -> None:
+    with pytest.raises(ValidationError):
+        GitHubIssueSourceConfig(kind="github", reconciliation_seconds=value)
+
+
 def test_rejects_reconciliation_period_shorter_than_polling_interval(
     tmp_path: Path,
 ) -> None:
@@ -96,6 +115,17 @@ def test_rejects_reconciliation_period_shorter_than_polling_interval(
         ),
     ):
         load_project_config(tmp_path, polling_seconds=15)
+
+
+def test_accepts_short_reconciliation_period_without_a_polling_schedule(
+    tmp_path: Path,
+) -> None:
+    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 1})
+
+    config = load_project_config(tmp_path, polling_seconds=None)
+
+    assert isinstance(config.issue_source, GitHubIssueSourceConfig)
+    assert config.issue_source.reconciliation_seconds == 1
 
 
 def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:
