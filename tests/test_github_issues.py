@@ -199,6 +199,7 @@ def issue_page(
     repository_id: str = REPOSITORY_ID,
     repository_reference: str = "ned2/dashpot",
     pull_request_updated_at: str | None = None,
+    probe: str | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -206,6 +207,11 @@ def issue_page(
                 "node": {
                     "id": repository_id,
                     "nameWithOwner": repository_reference,
+                    **(
+                        {"probeIssues": json.loads(probe)["data"]["node"]["issues"]}
+                        if probe
+                        else {}
+                    ),
                     "issues": {
                         "nodes": nodes,
                         "pageInfo": {
@@ -231,6 +237,7 @@ def pull_request_changes_page(
     *,
     has_next_page: bool = False,
     end_cursor: str | None = None,
+    probe: str | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -238,6 +245,11 @@ def pull_request_changes_page(
                 "node": {
                     "id": REPOSITORY_ID,
                     "nameWithOwner": "ned2/dashpot",
+                    **(
+                        {"issues": json.loads(probe)["data"]["node"]["issues"]}
+                        if probe
+                        else {}
+                    ),
                     "pullRequests": {
                         "nodes": nodes,
                         "pageInfo": {
@@ -2576,21 +2588,20 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
 
             runner = SequenceRunner(
                 [
-                    completed(probe_response(2, self.MARK)),
                     nodes_response(
                         [
                             by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
                             by_id(unrelated(issue_record(2, updated_at=self.MARK))),
                         ]
                     ),
-                    completed(issue_page([])),
+                    completed(issue_page([], probe=probe_response(2, self.MARK))),
                 ]
             )
             observation = source(runner, root=root, snapshot_store=store).refresh()
 
             self.assertEqual("fresh", observation.status)
             self.assertEqual([1, 2], [issue.number for issue in observation.issues])
-            self.assertEqual(3, len(runner.calls))
+            self.assertEqual(2, len(runner.calls))
             self.assertFalse(
                 any("CREATED_AT" in query_of(call) for call in runner.calls)
             )
@@ -2603,16 +2614,14 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             store = self.persist_seed(root)
             runner = SequenceRunner(
                 [
-                    completed(probe_response(2, self.MARK)),
                     graphql_failure("FORBIDDEN", ["nodes"], "Permission denied"),
-                    completed(probe_response(2, self.MARK)),
                     nodes_response(
                         [
                             by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
                             by_id(unrelated(issue_record(2, updated_at=self.MARK))),
                         ]
                     ),
-                    completed(issue_page([])),
+                    completed(issue_page([], probe=probe_response(2, self.MARK))),
                 ]
             )
             github = source(
@@ -2741,10 +2750,9 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             second_process_runner = SequenceRunner(
                 [
                     completed(
-                        probe_response(
-                            2,
-                            self.ISSUE_AFTER_PROBE,
-                            pull_request_updated_at=self.LATER,
+                        pull_request_changes_page(
+                            [pull_request_change(10, self.LATER, "I_issue_1")],
+                            probe=probe_response(2, self.ISSUE_AFTER_PROBE),
                         )
                     ),
                     nodes_response(
@@ -2754,12 +2762,6 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
                         ]
                     ),
                     completed(issue_page([linked])),
-                    completed(
-                        pull_request_changes_page(
-                            [pull_request_change(10, self.LATER, "I_issue_1")]
-                        )
-                    ),
-                    nodes_response([by_id(linked)]),
                 ]
             )
 
@@ -2772,6 +2774,7 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             assert settled is not None
             self.assertEqual(self.LATER, settled.pull_request_marks.settled)
             self.assertIsNone(settled.pull_request_marks.candidate)
+            self.assertEqual(3, len(second_process_runner.calls))
             self.assertFalse(
                 any(
                     "CREATED_AT" in query_of(call)
@@ -2792,13 +2795,13 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             )
             runner = SequenceRunner(
                 [
-                    completed(probe_response(2, self.MARK)),
                     nodes_response(
                         [
                             by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
                             by_id(unrelated(issue_record(2, updated_at=self.MARK))),
                         ]
                     ),
+                    completed(issue_page([], probe=probe_response(2, self.MARK))),
                     completed(issue_page([])),
                     completed(probe_response(2, self.LATER)),
                     completed(issue_page([changed])),
@@ -2825,8 +2828,8 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             created = unrelated(issue_record(1, updated_at=self.LATER))
             runner = SequenceRunner(
                 [
-                    completed(probe_response(0, None)),
                     nodes_response([None, None]),
+                    completed(issue_page([], probe=probe_response(0, None))),
                     completed(issue_page([created])),
                 ]
             )
@@ -2860,20 +2863,19 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             )
             runner = SequenceRunner(
                 [
-                    completed(
-                        probe_response(
-                            2,
-                            self.MARK,
-                            pull_request_updated_at=self.LATER,
-                        )
-                    ),
                     nodes_response(
                         [
                             by_id(unrelated(issue_record(1, updated_at=self.OLDER))),
                             by_id(unrelated(issue_record(2, updated_at=self.MARK))),
                         ]
                     ),
-                    completed(issue_page([])),
+                    completed(
+                        issue_page(
+                            [],
+                            probe=probe_response(2, self.MARK),
+                            pull_request_updated_at=self.LATER,
+                        )
+                    ),
                     completed(
                         pull_request_changes_page(
                             [pull_request_change(10, self.LATER, "I_issue_1")]
@@ -2891,7 +2893,7 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             assert replaced is not None
             self.assertIsNone(replaced.pull_request_marks.settled)
             self.assertEqual(self.LATER, replaced.pull_request_marks.candidate)
-            self.assertIn("PullRequestChanges", query_of(runner.calls[3]))
+            self.assertIn("PullRequestChanges", query_of(runner.calls[2]))
 
     def test_restart_reestablishes_a_due_fallback_sweep_from_current_count(
         self,
@@ -2928,9 +2930,8 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             transferred = unrelated(issue_record(3, updated_at=self.OLDER))
             second_process_runner = SequenceRunner(
                 [
-                    completed(probe_response(3, self.MARK)),
                     nodes_response([by_id(record) for record in known]),
-                    completed(issue_page([])),
+                    completed(issue_page([], probe=probe_response(3, self.MARK))),
                     completed(probe_response(3, self.MARK)),
                     completed(issue_page([*known, transferred])),
                 ]
@@ -2949,14 +2950,14 @@ class GitHubIssueSnapshotPersistenceTests(unittest.TestCase):
             self.assertEqual("github-issue-count", reconciled.diagnostics[0].code)
             self.assertEqual("fresh", swept.status)
             self.assertEqual([1, 2, 3], [issue.number for issue in swept.issues])
-            self.assertEqual(5, len(second_process_runner.calls))
+            self.assertEqual(4, len(second_process_runner.calls))
             self.assertFalse(
                 any(
                     "CREATED_AT" in query_of(call)
-                    for call in second_process_runner.calls[:4]
+                    for call in second_process_runner.calls[:3]
                 )
             )
-            self.assertIn("CREATED_AT", query_of(second_process_runner.calls[4]))
+            self.assertIn("CREATED_AT", query_of(second_process_runner.calls[3]))
 
     def test_a_snapshot_write_failure_does_not_fail_live_observation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

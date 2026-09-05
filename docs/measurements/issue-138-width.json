@@ -1,0 +1,254 @@
+[
+  {
+    "repository": "ned2/dashpot",
+    "size": 24,
+    "seconds": 0.7126009539933875,
+    "bytes": 5110,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4531,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 24,
+    "targets": 8,
+    "hasNextPage": true
+  },
+  {
+    "repository": "ned2/dashpot",
+    "size": 48,
+    "seconds": 0.7102292450144887,
+    "bytes": 9260,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4530,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 44,
+    "targets": 21,
+    "hasNextPage": false
+  },
+  {
+    "repository": "ned2/dashpot",
+    "size": 50,
+    "seconds": 0.7552956830477342,
+    "bytes": 9260,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4529,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 44,
+    "targets": 21,
+    "hasNextPage": false
+  },
+  {
+    "repository": "ned2/dashpot",
+    "size": 100,
+    "seconds": 0.8580925619462505,
+    "bytes": 9260,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4528,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 44,
+    "targets": 21,
+    "hasNextPage": false
+  },
+  {
+    "repository": "ned2/dashpot",
+    "size": 24,
+    "pointComparisons": 24,
+    "mismatches": []
+  },
+  {
+    "repository": "ned2/dashpot",
+    "size": 48,
+    "pointComparisons": 44,
+    "mismatches": []
+  },
+  {
+    "repository": "ned2/dashpot",
+    "size": 50,
+    "pointComparisons": 44,
+    "mismatches": []
+  },
+  {
+    "repository": "ned2/dashpot",
+    "size": 100,
+    "pointComparisons": 44,
+    "mismatches": []
+  },
+  {
+    "repository": "cli/cli",
+    "size": 24,
+    "seconds": 0.6912670329911634,
+    "bytes": 5162,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4481,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 24,
+    "targets": 9,
+    "hasNextPage": true
+  },
+  {
+    "repository": "cli/cli",
+    "size": 48,
+    "seconds": 0.9013078970601782,
+    "bytes": 10024,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4480,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 48,
+    "targets": 26,
+    "hasNextPage": true
+  },
+  {
+    "repository": "cli/cli",
+    "size": 50,
+    "seconds": 0.8966333210701123,
+    "bytes": 10414,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4479,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 50,
+    "targets": 27,
+    "hasNextPage": true
+  },
+  {
+    "repository": "cli/cli",
+    "size": 100,
+    "seconds": 1.0976389599964023,
+    "bytes": 20756,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4478,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 100,
+    "targets": 61,
+    "hasNextPage": true
+  },
+  {
+    "repository": "cli/cli",
+    "size": 24,
+    "pointComparisons": 24,
+    "mismatches": []
+  },
+  {
+    "repository": "cli/cli",
+    "size": 48,
+    "pointComparisons": 48,
+    "mismatches": []
+  },
+  {
+    "repository": "cli/cli",
+    "size": 50,
+    "pointComparisons": 50,
+    "mismatches": []
+  },
+  {
+    "repository": "cli/cli",
+    "size": 100,
+    "pointComparisons": 100,
+    "mismatches": []
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 24,
+    "seconds": 0.8038312039570883,
+    "bytes": 5363,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4375,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 24,
+    "targets": 18,
+    "hasNextPage": true
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 48,
+    "seconds": 0.8078655221033841,
+    "bytes": 10247,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4374,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 48,
+    "targets": 35,
+    "hasNextPage": true
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 50,
+    "seconds": 0.8056760099716485,
+    "bytes": 10671,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4373,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 50,
+    "targets": 37,
+    "hasNextPage": true
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 100,
+    "seconds": 0.9234136480372399,
+    "bytes": 20625,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4372,
+      "resetAt": "2026-09-05T16:41:03Z"
+    },
+    "pullRequests": 100,
+    "targets": 66,
+    "hasNextPage": true
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 24,
+    "pointComparisons": 24,
+    "mismatches": []
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 48,
+    "pointComparisons": 48,
+    "mismatches": []
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 50,
+    "pointComparisons": 50,
+    "mismatches": []
+  },
+  {
+    "repository": "Textualize/textual",
+    "size": 100,
+    "pointComparisons": 100,
+    "mismatches": []
+  }
+]

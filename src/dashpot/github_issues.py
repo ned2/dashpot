@@ -256,6 +256,44 @@ query DashpotPullRequestChanges($repositoryId: ID!, $cursor: String) {{
 }}
 """.strip()
 
+# A pending startup must read this page regardless of its untrusted cursors.
+_PULL_REQUEST_STARTUP_QUERY = _PULL_REQUEST_CHANGES_QUERY.replace(
+    "DashpotPullRequestChanges", "DashpotPullRequestStartup"
+).replace(
+    "      pullRequests(",
+    """      issues(
+        first: 1
+        states: [OPEN, CLOSED]
+        orderBy: {field: UPDATED_AT, direction: DESC}
+      ) {
+        totalCount
+        nodes { updatedAt }
+      }
+      pullRequests(""",
+)
+
+_ISSUES_STARTUP_QUERY = _ISSUES_SINCE_QUERY.replace(
+    "DashpotIssuesSince", "DashpotIssuesStartup"
+).replace(
+    "      issues(",
+    """      probeIssues: issues(
+        first: 1
+        states: [OPEN, CLOSED]
+        orderBy: {field: UPDATED_AT, direction: DESC}
+      ) {
+        totalCount
+        nodes { updatedAt }
+      }
+      pullRequests(
+        first: 1
+        states: [OPEN, CLOSED, MERGED]
+        orderBy: {field: UPDATED_AT, direction: DESC}
+      ) {
+        nodes { updatedAt }
+      }
+      issues(""",
+)
+
 _PULL_REQUEST_CLOSING_ISSUES_QUERY = f"""
 query DashpotPullRequestClosingIssues($id: ID!, $cursor: String!) {{
   {RATE_LIMIT_SELECTION}
@@ -363,6 +401,7 @@ class _IssuePages:
 
     records: tuple[dict[str, Any], ...]
     pull_request_newest_updated_at: str | None
+    probe: _Probe | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,12 +477,14 @@ class GitHubIssuesSource(IssueSource):
         snapshot = self._snapshot
         previous_snapshot = snapshot
         seed = self._snapshot_seed
-        if snapshot is None and seed is not None:
-            probe = self._probe(meter)
-            snapshot = self._reconcile(
-                seed, meter, now, probe=probe, untrusted_cursors=True
-            )
-            snapshot = self._refresh_linked_pull_requests(snapshot, probe, meter)
+        if (
+            snapshot is None
+            and seed is not None
+            and seed.pull_request_marks.candidate is None
+        ):
+            snapshot = self._reconcile_settled_seed(seed, meter, now)
+        elif snapshot is None and seed is not None:
+            snapshot = self._reconcile_pending_seed(seed, meter, now)
         elif snapshot is not None and snapshot.sweep_due:
             # Clearing before the attempt prevents a sweep that exhausts its
             # own budget from being retried on every polling tick.
@@ -474,6 +515,93 @@ class GitHubIssuesSource(IssueSource):
 
     def _start_meter(self) -> RefreshMeter:
         return self.budget.start(self._monotonic)
+
+    def _reconcile_settled_seed(
+        self, seed: _Snapshot, meter: RefreshMeter, now: float
+    ) -> _Snapshot:
+        """Reconcile a settled seed with live probe evidence beside its later delta."""
+        self._reconcile_attempted_at = now
+        assert seed.high_water is not None
+        observed = self._reobserve_identities(sorted(seed.issues), meter)
+        pages = self._collect_issue_pages(
+            _ISSUES_STARTUP_QUERY,
+            {"since": seed.high_water},
+            meter,
+            "startup Issue delta",
+            observe_probe=True,
+        )
+        probe = pages.probe
+        assert probe is not None
+        newest = probe.newest_updated_at
+        if newest is not None and _is_later(seed.high_water, newest):
+            # Only the live response can establish that the persisted cursor
+            # skipped changes. Repeat the inclusive delta at its safe boundary.
+            changed = self._changes_since(newest, newest, meter).issues
+        else:
+            changed = self._changed_records(pages.records, meter)
+        previous = dict(observed)
+        observed.update(changed)
+        high_water = newest
+        for entry in observed.values():
+            high_water = _later(high_water, entry.updated_at)
+        self._observe_counterparts(observed, changed, previous, meter)
+        snapshot = self._finish_reconciliation(
+            seed, observed, high_water, probe, meter, now, untrusted_cursors=True
+        )
+        return self._refresh_linked_pull_requests(snapshot, probe, meter)
+
+    def _reconcile_pending_seed(
+        self, seed: _Snapshot, meter: RefreshMeter, now: float
+    ) -> _Snapshot:
+        """Confirm a pending prefix before observing every seed and closing target."""
+        meter.next_request("the startup Pull Request prefix and change probe")
+        first_prefix = self._own_repository(
+            self._repository_query(
+                _PULL_REQUEST_STARTUP_QUERY, {"repositoryId": self.repository_id}
+            )
+        )
+        probe = self._read_probe(first_prefix)
+        marks = _startup_pull_request_marks(seed.pull_request_marks, probe)
+        delta = (
+            self._pull_request_changes_since(
+                marks.settled, meter, first_page=first_prefix
+            )
+            if _pull_requests_changed(marks, probe)
+            else None
+        )
+        closing_ids = {
+            issue_id
+            for change in (delta.pull_requests if delta else ())
+            for issue_id in change.closing_issue_ids
+        }
+        snapshot = self._reconcile(
+            seed,
+            meter,
+            now,
+            probe=probe,
+            untrusted_cursors=True,
+            additional_ids=closing_ids,
+        )
+        return (
+            replace(
+                snapshot, pull_request_marks=_confirmed_pull_request_marks(marks, delta)
+            )
+            if delta is not None
+            else snapshot
+        )
+
+    def _reobserve_identities(
+        self, ids: Sequence[str], meter: RefreshMeter
+    ) -> dict[str, _ObservedIssue]:
+        """Retain only complete live Issue nodes belonging to this Repository."""
+        observed: dict[str, _ObservedIssue] = {}
+        for issue_id, record in self._fetch_by_identity(
+            ids, meter, "Issues of the collection"
+        ).items():
+            entry = self._own_issue(record, meter)
+            if entry is not None:
+                observed[issue_id] = entry
+        return observed
 
     def _load_snapshot_seed(self) -> _Snapshot | None:
         """Load a valid persisted seed without making it observed state."""
@@ -568,6 +696,7 @@ class GitHubIssuesSource(IssueSource):
         delta: _Delta | None = None,
         *,
         untrusted_cursors: bool = False,
+        additional_ids: frozenset[str] | set[str] = frozenset(),
     ) -> _Snapshot:
         """Observe every Issue afresh."""
         # Attempted rather than completed: a Reconciliation the budget
@@ -582,13 +711,13 @@ class GitHubIssuesSource(IssueSource):
             )
         if probe is None:
             probe = self._probe(meter)
-        observed: dict[str, _ObservedIssue] = {}
-        for issue_id, record in self._fetch_by_identity(
-            sorted(snapshot.issues), meter, "Issues of the collection"
-        ).items():
-            entry = self._own_issue(record, meter)
-            if entry is not None:
-                observed[issue_id] = entry
+        observed = self._reobserve_identities(
+            sorted(snapshot.issues.keys() | additional_ids), meter
+        )
+        if additional_ids:
+            # The later identity reads cover every previous closing target too.
+            # A new target can name a counterpart absent from the seed.
+            self._observe_counterparts(observed, observed, snapshot.issues, meter)
         high_water = (
             probe.newest_updated_at if untrusted_cursors else snapshot.high_water
         )
@@ -626,6 +755,28 @@ class GitHubIssuesSource(IssueSource):
         if delta is not None:
             high_water = _later(high_water, delta.high_water)
         self._observe_counterparts(observed, applied, previous, meter)
+        return self._finish_reconciliation(
+            snapshot,
+            observed,
+            high_water,
+            probe,
+            meter,
+            now,
+            untrusted_cursors=untrusted_cursors,
+        )
+
+    def _finish_reconciliation(
+        self,
+        snapshot: _Snapshot,
+        observed: Mapping[str, _ObservedIssue],
+        high_water: str | None,
+        probe: _Probe,
+        meter: RefreshMeter,
+        now: float,
+        *,
+        untrusted_cursors: bool = False,
+    ) -> _Snapshot:
+        """Check the live count and schedule any fallback under its own budget."""
         if len(observed) != probe.total_count:
             # An Issue created or deleted while the identities were in flight
             # moved the count after the probe: one more probe says whether
@@ -727,27 +878,35 @@ class GitHubIssuesSource(IssueSource):
         self, since: str, high_water: str, meter: RefreshMeter
     ) -> _Delta:
         """List the Issues updated at or after ``since`` and advance the mark."""
-        changed: dict[str, _ObservedIssue] = {}
-        for record in self._collect_issue_pages(
+        pages = self._collect_issue_pages(
             _ISSUES_SINCE_QUERY, {"since": since}, meter, "Issue delta"
-        ).records:
+        )
+        changed = self._changed_records(pages.records, meter)
+        for entry in changed.values():
+            high_water = _later(high_water, entry.updated_at)
+        return _Delta(issues=changed, high_water=high_water)
+
+    def _changed_records(
+        self, records: Sequence[Mapping[str, Any]], meter: RefreshMeter
+    ) -> dict[str, _ObservedIssue]:
+        """Keep the latest complete observation of each Issue in a delta."""
+        changed: dict[str, _ObservedIssue] = {}
+        for record in records:
             entry = self._observe_record(record, meter)
             # An Issue updated again while the delta paged moves past the
             # cursor and is listed once more; the later observation wins.
             previous = changed.get(entry.issue.id)
             if previous is None or not _is_later(previous.updated_at, entry.updated_at):
                 changed[entry.issue.id] = entry
-            high_water = _later(high_water, entry.updated_at)
-        return _Delta(issues=changed, high_water=high_water)
+        return changed
 
     def _refresh_linked_pull_requests(
         self, snapshot: _Snapshot, probe: _Probe, meter: RefreshMeter
     ) -> _Snapshot:
         """Re-observe Issues named since the Pull Request High-Water Mark."""
-        newest = probe.pull_request_newest_updated_at
         marks = snapshot.pull_request_marks
         mark = marks.settled
-        if newest is None or (mark is not None and not _is_later(newest, mark)):
+        if not _pull_requests_changed(marks, probe):
             return snapshot
         delta = self._pull_request_changes_since(mark, meter)
         changed_numbers = {pull_request.number for pull_request in delta.pull_requests}
@@ -770,21 +929,21 @@ class GitHubIssuesSource(IssueSource):
                 observed[issue_id] = entry
                 changed[issue_id] = entry
         self._observe_counterparts(observed, changed, snapshot.issues, meter)
-        settled = delta.high_water is not None and delta.high_water == marks.candidate
         return _Snapshot(
             issues=observed,
             high_water=snapshot.high_water,
-            pull_request_marks=_PullRequestMarks(
-                settled=delta.high_water if settled else marks.settled,
-                candidate=None if settled else delta.high_water,
-            ),
+            pull_request_marks=_confirmed_pull_request_marks(marks, delta),
             reconciled_at=snapshot.reconciled_at,
             reported_count=snapshot.reported_count,
             sweep_due=snapshot.sweep_due,
         )
 
     def _pull_request_changes_since(
-        self, since: str | None, meter: RefreshMeter
+        self,
+        since: str | None,
+        meter: RefreshMeter,
+        *,
+        first_page: Mapping[str, Any] | None = None,
     ) -> _PullRequestDelta:
         """Scan through the inclusive Pull Request High-Water Mark."""
         changed: dict[str, _PullRequestChange] = {}
@@ -797,9 +956,12 @@ class GitHubIssuesSource(IssueSource):
             }
             if cursor is not None:
                 variables["cursor"] = cursor
-            meter.next_request(f"{len(changed)} changed Pull Requests")
-            data = self._repository_query(_PULL_REQUEST_CHANGES_QUERY, variables)
-            repository = self._own_repository(data)
+            if first_page is not None:
+                repository, first_page = first_page, None
+            else:
+                meter.next_request(f"{len(changed)} changed Pull Requests")
+                data = self._repository_query(_PULL_REQUEST_CHANGES_QUERY, variables)
+                repository = self._own_repository(data)
             connection = _object(
                 repository, "pullRequests", "data.repository", _RESPONSE_CODE
             )
@@ -1033,7 +1195,13 @@ class GitHubIssuesSource(IssueSource):
             _ISSUE_PROBE_QUERY, {"repositoryId": self.repository_id}
         )
         repository = self._own_repository(data)
-        issues = _object(repository, "issues", "data.repository", _RESPONSE_CODE)
+        return self._read_probe(repository)
+
+    def _read_probe(
+        self, repository: Mapping[str, Any], *, issues_field: str = "issues"
+    ) -> _Probe:
+        """Read live Issue count and both change signals from one Repository."""
+        issues = _object(repository, issues_field, "data.repository", _RESPONSE_CODE)
         total_count = _fetched(
             issues, "totalCount", "data.repository.issues", _RESPONSE_CODE
         )
@@ -1063,11 +1231,13 @@ class GitHubIssuesSource(IssueSource):
         subject: str,
         *,
         observe_pull_request: bool = False,
+        observe_probe: bool = False,
     ) -> _IssuePages:
         nodes: list[dict[str, Any]] = []
         pull_request_newest_updated_at: str | None = None
         cursor: str | None = None
         trail = CursorTrail(subject)
+        probe = None
         while True:
             page_variables: dict[str, str | int | Sequence[str]] = {
                 "repositoryId": self.repository_id,
@@ -1078,6 +1248,8 @@ class GitHubIssuesSource(IssueSource):
             meter.next_request(f"{len(nodes)} Issues")
             data = self._repository_query(query, page_variables)
             repository = self._own_repository(data)
+            if observe_probe and probe is None:
+                probe = self._read_probe(repository, issues_field="probeIssues")
             if observe_pull_request:
                 pull_requests = _object(
                     repository, "pullRequests", "data.repository", _RESPONSE_CODE
@@ -1098,6 +1270,7 @@ class GitHubIssuesSource(IssueSource):
                 return _IssuePages(
                     records=tuple(nodes),
                     pull_request_newest_updated_at=pull_request_newest_updated_at,
+                    probe=probe,
                 )
             cursor = trail.follow(end_cursor)
 
@@ -1377,6 +1550,25 @@ def _is_later(value: str, than: str) -> bool:
 
 def _later(mark: str | None, value: str) -> str:
     return value if mark is None or _is_later(value, mark) else mark
+
+
+def _pull_requests_changed(marks: _PullRequestMarks, probe: _Probe) -> bool:
+    """Identify a Pull Request signal requiring an inclusive prefix scan."""
+    newest = probe.pull_request_newest_updated_at
+    return newest is not None and (
+        marks.settled is None or _is_later(newest, marks.settled)
+    )
+
+
+def _confirmed_pull_request_marks(
+    marks: _PullRequestMarks, delta: _PullRequestDelta
+) -> _PullRequestMarks:
+    """Settle only a candidate repeated by a complete inclusive prefix scan."""
+    settled = delta.high_water is not None and delta.high_water == marks.candidate
+    return _PullRequestMarks(
+        settled=delta.high_water if settled else marks.settled,
+        candidate=None if settled else delta.high_water,
+    )
 
 
 def _startup_pull_request_marks(

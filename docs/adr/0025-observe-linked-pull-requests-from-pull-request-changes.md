@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-05
+amended-by: 0030-combine-startup-evidence-with-mandatory-reads.md
 ---
 
 # Observe Linked Pull Requests from Pull Request changes
@@ -76,6 +77,12 @@ its full active-collection sweep becomes material.
 
 ## Consequences
 
+- [ADR 0030](0030-combine-startup-evidence-with-mandatory-reads.md) combines a
+  pending startup's probe with its first prefix page, bounds its untrusted
+  cursors from that evidence, and observes every saved Issue and current closing
+  target after the complete prefix. Those later identity reads supply the
+  affected-Issue evidence without a duplicate batch. Ordinary ticks keep the
+  ordering described above and candidate confirmation is unchanged.
 - An unchanged Incremental Refresh still uses one combined probe request. A
   Pull Request change adds a newest-first prefix scan and bounded Issue
   identity batches on two ticks; a connection beyond one hundred closing

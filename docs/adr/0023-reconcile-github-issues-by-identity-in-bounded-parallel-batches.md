@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-04
-amended-by: 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md
+amended-by: 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md, 0030-combine-startup-evidence-with-mandatory-reads.md
 ---
 
 # Reconcile GitHub Issues by identity in bounded parallel batches
@@ -90,6 +90,11 @@ knows, by identity, plus what its delta and count reveal:
 
 ## Consequences
 
+- [ADR 0030](0030-combine-startup-evidence-with-mandatory-reads.md) changes only
+  Snapshot Seed startup: the settled-seed delta carries its probe, and a pending
+  Pull Request prefix precedes identity Reconciliation so its closing targets
+  share those complete reads. Live cursor validation, count confirmation, and
+  the later delta's tie precedence remain required.
 - A Reconciliation of two thousand Issues costs about eighty-six points
   and completes in a budget; the hour's cost for such a repository falls
   from about seventeen hundred points to about thirteen hundred, and for a

@@ -1,0 +1,1662 @@
+[
+  {
+    "ref": "/tmp/dashpot-138-experiment3.py",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.2062087639933452
+      },
+      {
+        "event": "collector",
+        "seconds": 0.7068871019873768
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.7756444530095905
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.777163736987859
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.7775333949830383
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.777865783078596
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.7780604170402512
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.7796180860605091
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.8411338190780953
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.402835667016916
+      },
+      {
+        "event": "end:issues",
+        "seconds": 4.797127490979619
+      },
+      {
+        "event": "first-row",
+        "seconds": 4.803995624068193
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 4.805745656020008
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 4.818444807082415
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.21055018401239067,
+        "end": 0.706460808054544,
+        "seconds": 0.49591062404215336,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssueProbe",
+        "start": 0.7886409170459956,
+        "end": 1.3230178570374846,
+        "seconds": 0.534376939991489,
+        "bytes": 294,
+        "nodes": 2,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4339,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.8004128470784053,
+        "end": 1.4022663150681183,
+        "seconds": 0.601853467989713,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4338,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.3233307109912857,
+        "end": 2.0912342329975218,
+        "seconds": 0.767903522006236,
+        "bytes": 4674,
+        "nodes": 32,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4337,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 2.091962323989719,
+        "end": 2.708906439016573,
+        "seconds": 0.616944115026854,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4336,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.7110258860047907,
+        "end": 3.6714332880219445,
+        "seconds": 0.9604074020171538,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4335,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.713424329063855,
+        "end": 3.672829029033892,
+        "seconds": 0.9594046999700367,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4332,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.7103350720135495,
+        "end": 3.8599657639861107,
+        "seconds": 1.1496306919725612,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4333,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.7121518870117143,
+        "end": 4.176024732063524,
+        "seconds": 1.4638728450518101,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4334,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 4.195044741034508,
+        "end": 4.782424413016997,
+        "seconds": 0.5873796719824895,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4331,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  },
+  {
+    "ref": "current",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.1949804670875892
+      },
+      {
+        "event": "collector",
+        "seconds": 0.6840528110042214
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.7539264000952244
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.7554302600910887
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.7559250510530546
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.7561517850263044
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.7567156330915168
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.7587733520194888
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.8367012609960511
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.334573341999203
+      },
+      {
+        "event": "end:issues",
+        "seconds": 4.154875211999752
+      },
+      {
+        "event": "first-row",
+        "seconds": 4.162899755057879
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 4.1646337590646
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 4.176271286094561
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.1996951240580529,
+        "end": 0.6836778640281409,
+        "seconds": 0.483982739970088,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.7863796970341355,
+        "end": 1.334107966045849,
+        "seconds": 0.5477282690117136,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4330,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestStartup",
+        "start": 0.7888876950601116,
+        "end": 1.4876991430064663,
+        "seconds": 0.6988114479463547,
+        "bytes": 4748,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4329,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.4885494300397113,
+        "end": 2.1512046420248225,
+        "seconds": 0.6626552119851112,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4328,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.1533897230401635,
+        "end": 3.1113879840122536,
+        "seconds": 0.9579982609720901,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4327,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.154514382011257,
+        "end": 3.2285791489994153,
+        "seconds": 1.0740647669881582,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4324,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.1553959550801665,
+        "end": 3.3073770460905507,
+        "seconds": 1.1519810910103843,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4326,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.1526425150223076,
+        "end": 3.5289904860546812,
+        "seconds": 1.3763479710323736,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4325,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 3.5460201610112563,
+        "end": 4.14289518003352,
+        "seconds": 0.5968750190222636,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4323,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  },
+  {
+    "ref": "current",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.1923819730291143
+      },
+      {
+        "event": "collector",
+        "seconds": 0.7105867660138756
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.7828564869705588
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.784332950017415
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.7847576369531453
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.7850304519524798
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.7855798810487613
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.7876853960333392
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.8589374270522967
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.416815064032562
+      },
+      {
+        "event": "end:issues",
+        "seconds": 4.048118737991899
+      },
+      {
+        "event": "first-row",
+        "seconds": 4.055116679053754
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 4.0568451300496235
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 4.070949665969238
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.19699955102987587,
+        "end": 0.7099980890052393,
+        "seconds": 0.5129985379753634,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.8015921550104395,
+        "end": 1.4163382969563827,
+        "seconds": 0.6147461419459432,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4322,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestStartup",
+        "start": 0.7965056180255488,
+        "end": 1.5695759520167485,
+        "seconds": 0.7730703339911997,
+        "bytes": 4748,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4321,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.5704027069732547,
+        "end": 2.15639006101992,
+        "seconds": 0.5859873540466651,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4318,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.1578256719512865,
+        "end": 3.0606780940433964,
+        "seconds": 0.9028524220921099,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4317,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.1609686060110107,
+        "end": 3.094869727967307,
+        "seconds": 0.9339011219562963,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4314,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.1598330929409713,
+        "end": 3.238711004029028,
+        "seconds": 1.0788779110880569,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4315,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.1590978410094976,
+        "end": 3.440637551015243,
+        "seconds": 1.2815397100057453,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4316,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 3.4552179239690304,
+        "end": 4.030429829959758,
+        "seconds": 0.5752119059907272,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4313,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  },
+  {
+    "ref": "/tmp/dashpot-138-experiment3.py",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.20319332601502538
+      },
+      {
+        "event": "collector",
+        "seconds": 0.7351131070172414
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.8034890629351139
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.8049807189963758
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.8054835660150275
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.8057255019666627
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.8060230759438127
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.8075895350193605
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.8759227900300175
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.3687387129757553
+      },
+      {
+        "event": "end:issues",
+        "seconds": 4.569392145960592
+      },
+      {
+        "event": "first-row",
+        "seconds": 4.577747888979502
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 4.579348647966981
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 4.590029760962352
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.20767557399813086,
+        "end": 0.7347321750130504,
+        "seconds": 0.5270566010149196,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssueProbe",
+        "start": 0.8169171619229019,
+        "end": 1.3337824639165774,
+        "seconds": 0.5168653019936755,
+        "bytes": 294,
+        "nodes": 2,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4312,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.8286735619185492,
+        "end": 1.3685759749496356,
+        "seconds": 0.5399024130310863,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4311,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.33409230702091,
+        "end": 1.949844948016107,
+        "seconds": 0.615752640995197,
+        "bytes": 4674,
+        "nodes": 32,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4310,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.9505838429322466,
+        "end": 2.7170713170198724,
+        "seconds": 0.7664874740876257,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4309,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.7216171299805865,
+        "end": 3.707034576917067,
+        "seconds": 0.9854174469364807,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4306,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.7184424669248983,
+        "end": 3.7860193379456177,
+        "seconds": 1.0675768710207194,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4307,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.7201962779508904,
+        "end": 3.835608560941182,
+        "seconds": 1.1154122829902917,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4308,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.7194420589366928,
+        "end": 3.9560345099307597,
+        "seconds": 1.236592450994067,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4305,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 3.9716775219421834,
+        "end": 4.54875328799244,
+        "seconds": 0.5770757660502568,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4304,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  },
+  {
+    "ref": "/tmp/dashpot-138-experiment3.py",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.19939333305228502
+      },
+      {
+        "event": "collector",
+        "seconds": 0.7556579289957881
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.8296304820105433
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.8310659039998427
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.8314677199814469
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.831806933041662
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.8320627269567922
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.833901148987934
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.9167159940116107
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.4009616440162063
+      },
+      {
+        "event": "end:issues",
+        "seconds": 4.647878421004862
+      },
+      {
+        "event": "first-row",
+        "seconds": 4.655860924045555
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 4.657573985983618
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 4.671793913003057
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.20380850497167557,
+        "end": 0.7552206399850547,
+        "seconds": 0.5514121350133792,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.8660857490031049,
+        "end": 1.4005206329748034,
+        "seconds": 0.5344348839716986,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4303,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssueProbe",
+        "start": 0.8546287489589304,
+        "end": 1.4262685419525951,
+        "seconds": 0.5716397929936647,
+        "bytes": 294,
+        "nodes": 2,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4302,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.4266731099924073,
+        "end": 2.0466739799594507,
+        "seconds": 0.6200008699670434,
+        "bytes": 4674,
+        "nodes": 32,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4301,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 2.0474482380086556,
+        "end": 2.6388424379983917,
+        "seconds": 0.5913941999897361,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4300,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.6409431010251865,
+        "end": 3.538034760975279,
+        "seconds": 0.8970916599500924,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4299,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.6445448780432343,
+        "end": 3.5788499789778143,
+        "seconds": 0.93430510093458,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4298,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.6417931070318446,
+        "end": 3.988264595041983,
+        "seconds": 1.3464714880101383,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4296,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.6430918619735166,
+        "end": 4.015310121001676,
+        "seconds": 1.372218259028159,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4297,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 4.040281326975673,
+        "end": 4.63774235395249,
+        "seconds": 0.5974610269768164,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4295,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  },
+  {
+    "ref": "current",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.19285981205757707
+      },
+      {
+        "event": "collector",
+        "seconds": 0.7117677719797939
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.7816701319534332
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.7831945939688012
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.7836969450581819
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.784118699026294
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.7844548959983513
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.7861194000579417
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.8471563010243699
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.333129393053241
+      },
+      {
+        "event": "end:issues",
+        "seconds": 4.260393623029813
+      },
+      {
+        "event": "first-row",
+        "seconds": 4.2690448589855805
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 4.270739858970046
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 4.282302903011441
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.1966667560627684,
+        "end": 0.7113927219761536,
+        "seconds": 0.5147259659133852,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.8199981600046158,
+        "end": 1.3326821950031444,
+        "seconds": 0.5126840349985287,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4293,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestStartup",
+        "start": 0.7976726080523804,
+        "end": 1.4205499839736149,
+        "seconds": 0.6228773759212345,
+        "bytes": 4748,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4294,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.4214029790600762,
+        "end": 2.0414827059721574,
+        "seconds": 0.6200797269120812,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4292,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.0428958190605044,
+        "end": 2.953719609999098,
+        "seconds": 0.9108237909385934,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4291,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.0455089790048078,
+        "end": 3.0236265750136226,
+        "seconds": 0.9781175960088149,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4290,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.045051652006805,
+        "end": 3.221483219997026,
+        "seconds": 1.176431567990221,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4289,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.044109308044426,
+        "end": 3.4944135500118136,
+        "seconds": 1.4503042419673875,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4288,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 3.5092204510001466,
+        "end": 4.248028478003107,
+        "seconds": 0.7388080270029604,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4285,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  },
+  {
+    "ref": "current",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.1916407400276512
+      },
+      {
+        "event": "collector",
+        "seconds": 0.7053362779552117
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.7732243810314685
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.7748127899831161
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.7752411159453914
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.7755291439825669
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.7757216859608889
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.7780385069781914
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.8378871970344335
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.3466462929500267
+      },
+      {
+        "event": "end:issues",
+        "seconds": 3.8881049719639122
+      },
+      {
+        "event": "first-row",
+        "seconds": 3.896426851977594
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 3.8981158069800586
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 3.9132638609735295
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.19638223701622337,
+        "end": 0.7049233269644901,
+        "seconds": 0.5085410899482667,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.7990475129336119,
+        "end": 1.346243544947356,
+        "seconds": 0.5471960320137441,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4283,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestStartup",
+        "start": 0.7871087730163708,
+        "end": 1.4047103449702263,
+        "seconds": 0.6176015719538555,
+        "bytes": 4748,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4284,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.4057676990050822,
+        "end": 2.041519947932102,
+        "seconds": 0.6357522489270195,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4282,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.043593970942311,
+        "end": 2.963032981962897,
+        "seconds": 0.9194390110205859,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4280,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.046072058030404,
+        "end": 3.07508419000078,
+        "seconds": 1.0290121319703758,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4281,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.0471963610034436,
+        "end": 3.164579852949828,
+        "seconds": 1.1173834919463843,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4279,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.04509702604264,
+        "end": 3.2664650089573115,
+        "seconds": 1.2213679829146713,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4278,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 3.285282872035168,
+        "end": 3.863067177007906,
+        "seconds": 0.577784304972738,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4277,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  },
+  {
+    "ref": "/tmp/dashpot-138-experiment3.py",
+    "state": "pending",
+    "events": [
+      {
+        "event": "imports",
+        "seconds": 0.19934701302554458
+      },
+      {
+        "event": "collector",
+        "seconds": 0.6954185910290107
+      },
+      {
+        "event": "on_ready",
+        "seconds": 0.7656540690222755
+      },
+      {
+        "event": "start:issues",
+        "seconds": 0.7671973560936749
+      },
+      {
+        "event": "start:pull-requests",
+        "seconds": 0.7674135360866785
+      },
+      {
+        "event": "start:targets",
+        "seconds": 0.7678276730002835
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 0.768011900014244
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 0.7697787350043654
+      },
+      {
+        "event": "end:targets",
+        "seconds": 0.834627510048449
+      },
+      {
+        "event": "end:pull-requests",
+        "seconds": 1.3654575149994344
+      },
+      {
+        "event": "end:issues",
+        "seconds": 4.702767497044988
+      },
+      {
+        "event": "first-row",
+        "seconds": 4.708314756047912
+      },
+      {
+        "event": "start:agent-runs",
+        "seconds": 4.710063287988305
+      },
+      {
+        "event": "end:agent-runs",
+        "seconds": 4.722122695064172
+      }
+    ],
+    "requests": [
+      {
+        "query": "repos/ned2/dashpot",
+        "start": 0.20367668999824673,
+        "end": 0.6949824040057138,
+        "seconds": 0.49130571400746703,
+        "bytes": 5291,
+        "nodes": 0,
+        "rateLimit": null,
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequests",
+        "start": 0.7810751120559871,
+        "end": 1.365048427018337,
+        "seconds": 0.5839733149623498,
+        "bytes": 203,
+        "nodes": 0,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4276,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssueProbe",
+        "start": 0.8008220170158893,
+        "end": 1.4673245270969346,
+        "seconds": 0.6665025100810453,
+        "bytes": 294,
+        "nodes": 2,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4275,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 1.4675910091027617,
+        "end": 2.1720962560502812,
+        "seconds": 0.7045052469475195,
+        "bytes": 4674,
+        "nodes": 32,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4274,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotPullRequestChanges",
+        "start": 2.172875541029498,
+        "end": 2.838662947062403,
+        "seconds": 0.665787406032905,
+        "bytes": 4141,
+        "nodes": 33,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4273,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.843150152009912,
+        "end": 3.731853589997627,
+        "seconds": 0.888703437987715,
+        "bytes": 83141,
+        "nodes": 70,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4270,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.8400490330532193,
+        "end": 3.7654315780382603,
+        "seconds": 0.925382544985041,
+        "bytes": 88037,
+        "nodes": 95,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4272,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.841796626104042,
+        "end": 3.832043753005564,
+        "seconds": 0.9902471269015223,
+        "bytes": 100244,
+        "nodes": 93,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4269,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesById",
+        "start": 2.840786056010984,
+        "end": 4.080656116013415,
+        "seconds": 1.2398700600024313,
+        "bytes": 85557,
+        "nodes": 124,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4271,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      },
+      {
+        "query": "query DashpotIssuesSince",
+        "start": 4.095342965098098,
+        "end": 4.6823127350071445,
+        "seconds": 0.5869697699090466,
+        "bytes": 4608,
+        "nodes": 5,
+        "rateLimit": {
+          "cost": 1,
+          "limit": 5000,
+          "remaining": 4268,
+          "resetAt": "2026-09-05T15:40:52Z"
+        },
+        "returncode": 0
+      }
+    ],
+    "statuses": [
+      [
+        "fresh",
+        94
+      ]
+    ]
+  }
+]

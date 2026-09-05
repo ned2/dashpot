@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-05
+date: 2026-09-06
 ---
 
 # Design
@@ -77,7 +77,14 @@ refreshes incrementally
 [ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
 Without a usable seed it observes every Issue once by cursor sweep. The seed is
 strictly versioned local input, not retained last-good state; a failed startup
-Reconciliation leaves the source unavailable. After startup,
+Reconciliation leaves the source unavailable. Settled-seed startup combines the
+live probe with the mandatory Issue delta after its identity reads; a future
+cursor requires a corrected inclusive delta. A pending candidate instead
+combines its probe with the first Pull Request prefix page, completes the
+inclusive prefix using live-bounded cursors, then observes every seed Issue and
+current closing target in the identity Reconciliation before the Issue delta
+([ADR 0030](adr/0030-combine-startup-evidence-with-mandatory-reads.md),
+[measurements](github-startup-latency-experiments.md)). After startup,
 each tick asks GitHub one one-point question — the newest update and the
 Issue count, plus the newest Pull Request update — and an unchanged repository
 is answered by that alone, whatever its size

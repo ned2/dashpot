@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-05
+amended-by: 0030-combine-startup-evidence-with-mandatory-reads.md
 ---
 
 # Persist GitHub Issue snapshots as untrusted startup seeds
@@ -67,6 +68,12 @@ process must Reconcile, not an authority whose recency Dashpot trusts.
 
 ## Consequences
 
+- [ADR 0030](0030-combine-startup-evidence-with-mandatory-reads.md) collects the
+  live startup probe beside a mandatory read: the later Issue delta for a settled
+  seed, or the first Pull Request prefix page for a pending candidate. A future
+  Issue cursor requires a corrected inclusive delta; pending closing targets
+  join the following identity Reconciliation. This changes request ordering,
+  not the Snapshot Seed wire version or its trust boundary.
 - A non-empty repository with a valid Snapshot Seed starts with the bounded
   identity Reconciliation and delta instead of the cursor sweep. A first run,
   invalid seed, or empty seed without an Issue High-Water Mark still sweeps.

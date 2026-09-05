@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-05
+date: 2026-09-06
 ---
 
 # Domain language
@@ -238,6 +238,13 @@ GitHub's derived closing-reference connection indexes asynchronously. Marks in
 a Snapshot Seed are untrusted startup cursors: live Reconciliation evidence
 derives the marks that can be published, and the live probe bounds a persisted
 future cursor.
+
+Startup collects that live probe beside a mandatory read: the later Issue delta
+for a settled Snapshot Seed, or the first prefix page for a pending Pull Request
+candidate. A future Issue cursor requires a corrected inclusive delta, and a
+pending prefix's current closing targets join the subsequent complete identity
+Reconciliation
+([ADR 0030](adr/0030-combine-startup-evidence-with-mandatory-reads.md)).
 
 **Reconciliation**:
 An observation of every GitHub Issue afresh, which alone can see a Linked Pull

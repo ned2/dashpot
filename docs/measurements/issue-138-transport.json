@@ -1,0 +1,178 @@
+[
+  {
+    "mode": "gh",
+    "repetition": 0,
+    "seconds": 0.499325348995626,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4235,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 0,
+    "seconds": 0.7446144809946418,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4234,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 1,
+    "seconds": 0.4923518199939281,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4233,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "gh",
+    "repetition": 1,
+    "seconds": 0.5641543359961361,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4232,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "gh",
+    "repetition": 2,
+    "seconds": 0.5197259470587596,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4231,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 2,
+    "seconds": 0.4403537899488583,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4230,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 3,
+    "seconds": 0.4035387779586017,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4229,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "gh",
+    "repetition": 3,
+    "seconds": 0.5237596279475838,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4228,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "gh",
+    "repetition": 4,
+    "seconds": 0.5623841900378466,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4227,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 4,
+    "seconds": 0.41567303996998817,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4226,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 5,
+    "seconds": 0.4074473660439253,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4225,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "gh",
+    "repetition": 5,
+    "seconds": 0.5611049908911809,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4224,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "gh",
+    "repetition": 6,
+    "seconds": 0.6001141059678048,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4223,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 6,
+    "seconds": 0.4590932510327548,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4222,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "reuse",
+    "repetition": 7,
+    "seconds": 0.41722894506528974,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4221,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  },
+  {
+    "mode": "gh",
+    "repetition": 7,
+    "seconds": 0.5362146719126031,
+    "rateLimit": {
+      "cost": 1,
+      "limit": 5000,
+      "remaining": 4220,
+      "resetAt": "2026-09-05T16:41:03Z"
+    }
+  }
+]
