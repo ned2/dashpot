@@ -454,6 +454,24 @@ def test_work_start_dispatches_with_reference_and_timeout(
     assert "started work on #7" in capsys.readouterr().out
 
 
+def test_work_relocate_dispatches_with_the_target_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "linked"
+
+    with mock.patch.object(
+        cli, "relocate_issue_work", return_value=["prepared relocation"]
+    ) as relocate:
+        code = cli.main(["work", "relocate", str(target)])
+
+    assert code == 0
+    relocate.assert_called_once_with(Path.cwd().resolve(), target.resolve())
+    assert "prepared relocation" in capsys.readouterr().out
+
+
 def test_work_stop_and_show_dispatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1296,11 +1314,14 @@ def test_root_help_describes_the_command_hierarchy_and_options() -> None:
 def test_subcommand_help_pages_describe_their_arguments() -> None:
     work = help_text(["work", "--help"])
     assert "Usage: dashpot work COMMAND" in work
-    for command in ("start", "stop", "show"):
+    for command in ("relocate", "start", "stop", "show"):
         assert f" {command} " in work
 
     start = help_text(["work", "start", "--help"])
     assert "Usage: dashpot work start [OPTIONS] REFERENCE" in start
+
+    relocate = help_text(["work", "relocate", "--help"])
+    assert "Usage: dashpot work relocate PATH" in relocate
 
     create = help_text(["worktree", "create", "--help"])
     assert "Usage: dashpot worktree create [OPTIONS] REFERENCE" in create

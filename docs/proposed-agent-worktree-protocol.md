@@ -1,7 +1,7 @@
 ---
 status: superseded
 date: 2026-09-05
-superseded-by: adr/0011-prepare-issue-worktrees-by-convention.md
+superseded-by: adr/0011-prepare-issue-worktrees-by-convention.md, adr/0029-preserve-agent-runs-through-declared-codex-relocation.md
 ---
 
 # Propose an Issue worktree protocol for agent handoff
@@ -10,6 +10,8 @@ superseded-by: adr/0011-prepare-issue-worktrees-by-convention.md
 > its outcomes are recorded in
 > [ADR 0011](adr/0011-prepare-issue-worktrees-by-convention.md), amended by
 > [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).
+> Active Codex Agent Run continuity is recorded separately in
+> [ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md).
 > `dashpot issue show`, `worktree create`, `worktree check`, `worktree remove`,
 > `branch delete`, and the `dashpot-issue-work` skill distributed by
 > `dashpot integrate` ship; the README's
@@ -395,12 +397,13 @@ that merely `cd`ed elsewhere, or from a sub-agent sharing the session, is
 refused as wrong-location, and `stop` ends the record wherever it is. Because
 `EnterWorktree` fires no ordinary lifecycle event, the Claude Code integration
 adds a `PostToolUse` hook matched to `EnterWorktree` and `ExitWorktree`.
-Preserving an active Agent Run across a Codex client's exit and resume is not
-established here and is tracked by
-[#137](https://github.com/ned2/dashpot/issues/137); the resumed workflow runs
-`work start` and verifies `work show` again. Merely running `cd` inside a tool
-call relocates nothing (measured: the run is recorded with `unknown` activity
-because the harness's hooks publish elsewhere).
+ADR 0029 now preserves an active Agent Run through that sequential Codex resume
+only when the old client first records an exact target with `work relocate` and
+the target hook proves the same Agent Session Identity with no client live or
+unobservable elsewhere. The resumed workflow checks `work show` before using
+`work start`. Merely running `cd` inside a tool call relocates nothing
+(measured: the run is recorded with `unknown` activity because the harness's
+hooks publish elsewhere).
 
 **Trust.** Both harnesses apply per-directory trust; a fresh path is a fresh
 trust decision for an interactive session. Non-interactive Codex `exec` did not
@@ -786,7 +789,9 @@ call it a passive view) and should be a separate proposal if ever.
 4. Relocate Claude Code with `EnterWorktree`; resume Codex sequentially with
    `codex resume <session-id> -C <path>`, or launch a fresh session when resume
    is unsupported.
-5. `dashpot work start <hint>` / `show` / `stop` unchanged.
+5. Preserve an active Codex run with `dashpot work relocate <path>` before
+   exit; after resume use `show`, or `start <hint>` when no run was preserved.
+   `stop` remains the terminal action.
 6. Keep dispatch outside Dashpot, and distribute the common model-invoked skill
    through `dashpot integrate`; cleanup remains its own explicit workflow.
 
@@ -799,14 +804,16 @@ Worktree for it. Its common own-session path should remain short:
 1. Read repository instructions and use their prescribed Dashpot invocation.
 2. Resolve the Issue through `dashpot issue show`.
 3. Confirm this Agent Session is already in the Worktree where work will occur.
-4. Run `dashpot work start` and verify the intended Issue with `work show`.
+4. Run `dashpot work show`; retain a verified relocated run, otherwise run
+   `dashpot work start` and verify it with `work show`.
 5. Perform the repository's own workflow.
 6. Run `dashpot work stop` at the terminal outcome and verify it stopped.
 
 Worktree preparation or moving an Agent Session is progressively disclosed
 behind a dispatch reference, which for Claude Code includes the
-`EnterWorktree path=` → `work start` sequence and for Codex prefers a
-sequential resume before a fresh-session fallback. Wrong-location sessions,
+`EnterWorktree path=` → `work start` sequence and for Codex prefers `work
+relocate` → sequential resume → `work show` before a fresh-session fallback.
+Wrong-location sessions,
 collisions, partial
 creation (`initializing` locks), missing or incompatible configuration, dirty
 Worktrees, conflicts across Worktrees, and Orphaned Agent Runs should be
@@ -872,6 +879,7 @@ predating `.dashpot/config.json`.
 | Correct Agent Session, Agent Run, Worktree, Branch, and Issue Binding observed | Measured | Snapshot from the main Worktree listed each run with its Worktree, Branch, and Issue Identity; after the sessions ended, one `work-session-orphaned` diagnostic per run named the right Worktree. |
 | Finished work leaves a reusable Worktree without automatic cleanup | Measured | Both Worktrees remained registered and clean after the sessions ended; nothing removed them. Cleanup refusal test deferred with decision 11. |
 | Relocation leaves no stale binding | Implemented (#55) | `work start` at B for a session whose freshest hook record is at B ends its run at A and reports `switched from <ref> at A to <ref> at B`; observation lists one run at B, no conflict; `stop` at B ends a run held at A. A `start` where the freshest record places the session elsewhere — a tool-call `cd`, a sub-agent's Worktree, or a sandboxed `start` at A after the move — is refused and writes nothing. Covered by `tests/test_work.py` through the `WorkStore`, hook-record, and fake-process seams, and measured end to end (Claude Code 2.1.251, Sim with the matched `PostToolUse` hook): `work start 35` at A, `EnterWorktree path=B`, `work start 35`, `work show`, `work stop` in one turn reported the switch, listed one run at B, and ended it; the snapshot from the main Worktree afterwards listed no run and no diagnostic. |
+| Active Codex run survives sequential resume | Implemented (#137) | `work relocate B` records an exact target without changing the run identity or `startedAt`; `SessionEnd` preserves it, and the first eligible same-identity hook at B moves the record and adopts the resumed process. Fake lifecycle tests cover process and sandboxed identity routes, concurrent clients, a killed old client, mismatched and missing target evidence, cancellation at the origin, passive pending observation, and unchanged Claude Code behavior. Live Codex 0.153.4 evidence from #58 established that sequential resume retains the identity, conversation, and target hook location; #137 does not generalise beyond that measured harness interface. |
 | `PostToolUse(EnterWorktree)` reports the new location | Measured (2026-08-30, Claude Code 2.1.251) | With a project-level `PostToolUse` hook matched to `EnterWorktree` running the installed publisher in Sim (linked Worktrees A and B), a session started at A that called `EnterWorktree path=B` fired the hook once; its input carried `tool_name: EnterWorktree` and `cwd` at B, and the record written from that event had `cwd`, `repositoryRoot`, and `branch` at B and was the freshest for the session across both stores (A kept the earlier `UserPromptSubmit`). ADR 0009 is accepted without its fallback: `work start` may follow `EnterWorktree` in the same turn. The session's graceful `SessionEnd` at B removed only B's record; A's is pruned as gone. |
 | Removability report | Implemented (#57) | `worktree check` on a clean idle Worktree reports removable; on a dirty one, a locked one (`initializing`, a live Claude session lock, a user lock), one with an active Agent Run, and one with unpushed commits it reports each reason with its Git command, and mutates nothing. |
 | Default naming and root | Implemented (#57) | With no root configured, `worktree create 35` in `~/p/sim` creates `~/p/sim.worktrees/35-worktree-protocol` on Branch `35-worktree-protocol` from `origin/HEAD`, and the JSON names both sources; with no `origin/HEAD` and one local `main` it reports the guess; with neither it exits 2 naming `--base`. |
@@ -916,3 +924,6 @@ creation in progress and a killed one.
 5. Write and distribute the skill through `dashpot integrate` (#58), pruning
    instructions that product behavior makes redundant, and run the unprimed
    live prompt as a release check.
+6. Preserve an already-active Codex Agent Run through the measured sequential
+   resume only after an explicit Relocation Intent and matching target hook
+   evidence (#137, ADR 0029).

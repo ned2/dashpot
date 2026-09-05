@@ -61,7 +61,9 @@ def observe_agent_runs(
     probe = LivenessProbe(lookup)
     sessions, diagnostics = observe_hook_sessions(targets_by_project, directory, probe)
     activity = ObservedActivityIndex(sessions)
-    work_runs, work_diagnostics = observe_work_runs(targets_by_project, probe, activity)
+    work_runs, work_diagnostics = observe_work_runs(
+        targets_by_project, probe, activity, directory
+    )
     diagnostics.extend(work_diagnostics)
     diagnostics.extend(activity.diagnostics)
     runs = list(work_runs)
@@ -152,6 +154,7 @@ def observe_work_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     probe: LivenessProbe,
     activity: ObservedActivityIndex,
+    directory: Path | None,
 ) -> tuple[list[AgentRun], list[Diagnostic]]:
     """Turn each Worktree's active Work Store records into bound Agent Runs."""
     runs: list[AgentRun] = []
@@ -164,7 +167,7 @@ def observe_work_runs(
         sweep_work_store(store)
         for work in active:
             process_key = work_process_key(work)
-            if work.session_process is not None:
+            if work.relocation is None and work.session_process is not None:
                 liveness = probe.observe(work.session_process.key)
                 if liveness.liveness == "gone":
                     diagnostics.append(orphaned_run_diagnostic(work, target))
@@ -179,6 +182,16 @@ def observe_work_runs(
                 # when the work began and nothing about what it has done.
                 observed = ObservedActivity("unknown", None, None)
             runs.append(work_to_run(work, target, project_id, observed))
+            if work.relocation is not None:
+                diagnostics.append(
+                    relocation_diagnostic(
+                        work,
+                        target,
+                        targets_by_project[project_id],
+                        directory,
+                        probe,
+                    )
+                )
     return runs, diagnostics
 
 
@@ -225,6 +238,84 @@ def orphaned_run_diagnostic(work: ActiveWork, target: ObservationTarget) -> Diag
         f"--session {work.session_key}' at that "
         f"Worktree to end the orphaned Agent Run",
         code="work-session-orphaned",
+    )
+
+
+def relocation_diagnostic(
+    work: ActiveWork,
+    target: ObservationTarget,
+    project_targets: Sequence[ObservationTarget],
+    directory: Path | None,
+    probe: LivenessProbe,
+) -> Diagnostic:
+    """Report why a declared relocation has not completed yet."""
+    assert work.relocation is not None
+    stores: list[Path] = [directory or state_directory()]
+    stores.extend(session_directory(Path(item.path)) for item in project_targets)
+    unique_stores = list(dict.fromkeys(path.resolve() for path in stores))
+    locations: set[Path] = set()
+    if work.session_id is not None:
+        for scanned in scan_hook_stores(
+            unique_stores,
+            probe,
+            select=lambda path: path.stem == work.session_id,
+        ):
+            if (
+                scanned.record.harness == work.harness
+                and scanned.record.outcome not in {"ended", "gone"}
+            ):
+                try:
+                    locations.add(
+                        Path(
+                            scanned.record.repository_root or scanned.record.cwd
+                        ).resolve()
+                    )
+                except (OSError, RuntimeError, ValueError):
+                    continue
+    if len(locations) > 1:
+        places = ", ".join(str(path) for path in sorted(locations, key=str))
+        return Diagnostic(
+            source=work.run_id,
+            severity="warning",
+            message=(
+                f"{work.session_label} cannot complete its relocation while "
+                "the same Agent Session Identity is live or unobservable at "
+                f"multiple Worktrees: {places}; exit the old Codex client and "
+                "begin another turn at the intended target"
+            ),
+            code="work-relocation-concurrent",
+        )
+    if len(locations) == 1:
+        observed_location = next(iter(locations))
+        try:
+            intended = Path(work.relocation.target_worktree).resolve()
+            source = Path(target.path).resolve()
+        except (OSError, RuntimeError, ValueError):
+            intended = source = observed_location
+        if observed_location not in {source, intended}:
+            return Diagnostic(
+                source=work.run_id,
+                severity="warning",
+                message=(
+                    f"{work.session_label} resumed at {observed_location}, not its "
+                    f"intended relocation target {intended}; the Issue work on "
+                    f"{work.issue_reference} ({work.issue_id}) remains at "
+                    f"{target.path} and cannot be reassigned there. Resume the "
+                    "same Agent Session at the intended Worktree"
+                ),
+                code="work-relocation-mismatched",
+            )
+    return Diagnostic(
+        source=work.run_id,
+        severity="warning",
+        message=(
+            f"{work.session_label} has a pending relocation of Issue work on "
+            f"{work.issue_reference} ({work.issue_id}) from {target.path} to "
+            f"{work.relocation.target_worktree}; resume that Agent Session at "
+            "the intended Worktree, or if the relocation was abandoned run "
+            f"'dashpot work stop --session {work.session_key}' at {target.path}"
+        ),
+        code="work-relocation-pending",
     )
 
 

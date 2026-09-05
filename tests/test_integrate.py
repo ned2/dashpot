@@ -109,10 +109,9 @@ def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> N
     assert skill == tmp_path / ".agents" / "skills" / "dashpot-issue-work"
     assert ISSUE_WORK_SKILL_MARKER in text
     assert f"written for Dashpot {ISSUE_WORK_SKILL_VERSION}" in text
-    assert (
-        "codex resume <session-id> -C <worktree-path>"
-        in (skill / "references" / "dispatch.md").read_text()
-    )
+    dispatch = (skill / "references" / "dispatch.md").read_text()
+    assert "codex resume <session-id> -C <worktree-path>" in dispatch
+    assert "work relocate <worktree-path>" in dispatch
     assert (skill / "references" / "recovery.md").is_file()
     assert version("dashpot") == ISSUE_WORK_SKILL_VERSION
     assert any(f"installed Dashpot Issue work skill in {skill}" in m for m in messages)

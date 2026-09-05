@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,7 @@ from dashpot.model import ObservationTarget
 from dashpot.processes import ProcessIdentity, ProcessLookup, ProcessPresent
 from dashpot.work import (
     identify_agent_session,
+    relocate_issue_work,
     show_issue_work,
     start_issue_work,
     stop_issue_work,
@@ -34,7 +37,7 @@ from factories import (
     legacy_ended_record,
     write_project_config,
 )
-from helpers import absent, present, unobservable
+from helpers import absent, present, table_lookup, unobservable
 
 
 def codex_lookup(_pid: int) -> ProcessPresent:
@@ -165,6 +168,42 @@ def test_show_lists_active_work_at_the_worktree(tmp_path: Path) -> None:
     assert len(messages) == 1
     assert "build-observer" in messages[0]
     assert "codex pid 4242" in messages[0]
+
+
+def test_a_version_one_work_store_record_remains_readable(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo")
+    start_issue_work(root, "build-observer", lookup=codex_lookup)
+    (path,) = WorkStore(root).directory.glob("*.json")
+    record = json.loads(path.read_text())
+    record["version"] = 1
+    record.pop("relocation", None)
+    path.write_text(json.dumps(record))
+
+    active, diagnostics = WorkStore(root).active()
+
+    assert len(active) == 1
+    assert active[0].relocation is None
+    assert diagnostics == []
+
+
+def test_a_version_one_record_cannot_claim_version_two_relocation_semantics(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    start_issue_work(root, "build-observer", lookup=codex_lookup)
+    (path,) = WorkStore(root).directory.glob("*.json")
+    record = json.loads(path.read_text())
+    record["version"] = 1
+    record["relocation"] = {
+        "targetWorktree": "/other",
+        "requestedAt": "2026-09-05T05:20:00.000000Z",
+    }
+    path.write_text(json.dumps(record))
+
+    active, diagnostics = WorkStore(root).active()
+
+    assert active == []
+    assert "version 1" in diagnostics[0].message
 
 
 def test_start_refuses_when_this_sessions_own_record_is_unreadable(
@@ -654,6 +693,445 @@ ROUTES = [
     pytest.param(codex_lookup, {}, id="process-route"),
     pytest.param(ISOLATED, CODEX_ENVIRON, id="sandboxed-claim"),
 ]
+
+
+def test_codex_declares_where_its_active_run_will_resume(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+
+    messages = relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+
+    (pending,) = WorkStore(a).active()[0]
+    assert messages == [
+        f"prepared this Agent Run to resume at {b}; exit this Codex client "
+        f"before resuming session {CODEX_SESSION} there"
+    ]
+    assert pending.run_id == before.run_id
+    assert pending.started_at == before.started_at
+    assert pending.relocation is not None
+    assert pending.relocation.target_worktree == str(b)
+    assert WorkStore(b).active()[0] == []
+
+
+def test_relocation_requires_a_confirmed_codex_identity(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+
+    with pytest.raises(RuntimeError, match="Agent Session Identity is not confirmed"):
+        relocate_issue_work(a, b, lookup=codex_lookup, environ={})
+
+    assert WorkStore(a).active()[0][0].relocation is None
+
+
+def test_relocation_refuses_a_target_outside_the_linked_worktrees(
+    tmp_path: Path,
+) -> None:
+    a, _b = two_worktrees(tmp_path)
+    unrelated = repository(tmp_path / "unrelated")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+
+    with pytest.raises(RuntimeError, match="not a linked Worktree"):
+        relocate_issue_work(a, unrelated, lookup=codex_lookup, environ=CODEX_ENVIRON)
+
+    assert WorkStore(a).active()[0][0].relocation is None
+
+
+def test_relocation_refuses_unreadable_work_store_state(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    unreadable = WorkStore(b).record_path("other-session")
+    unreadable.parent.mkdir(parents=True)
+    unreadable.write_text("not json")
+
+    with pytest.raises(DashpotError, match="repair the Work Store"):
+        relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+
+    assert WorkStore(a).active()[0][0].relocation is None
+
+
+def test_session_end_keeps_a_declared_codex_relocation_pending(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+
+    (pending,) = WorkStore(a).active()[0]
+    assert pending == before
+    assert session_directory(a).joinpath(f"{CODEX_SESSION}.json").exists() is False
+
+
+def test_relocation_records_an_identity_confirmed_after_work_started(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ={})
+    assert WorkStore(a).active()[0][0].session_id is None
+
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (pending,) = WorkStore(a).active()[0]
+    assert pending.session_id == CODEX_SESSION
+
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+
+    assert WorkStore(a).active()[0] == [pending]
+
+
+def test_target_hook_completes_the_declared_relocation_as_the_same_run(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "SessionStart",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    assert WorkStore(a).active()[0] == []
+    (continued,) = WorkStore(b).active()[0]
+    assert continued.run_id == before.run_id
+    assert continued.started_at == before.started_at
+    assert continued.issue_id == before.issue_id
+    assert continued.relocation is None
+    assert continued.session_process == SessionProcess(
+        pid=resumed.pid, started_at=resumed.started_at
+    )
+    assert continued.working_directory == str(b)
+    assert continued.branch == "linked"
+
+
+def test_target_hook_repairs_the_persisted_two_record_crash_window(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (pending,) = WorkStore(a).active()[0]
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+    WorkStore(b).start(
+        replace(
+            pending,
+            session_label=f"codex pid {resumed.pid}",
+            session_process=SessionProcess(
+                pid=resumed.pid, started_at=resumed.started_at
+            ),
+            working_directory=str(b),
+            branch="linked",
+            relocation=None,
+        )
+    )
+
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "UserPromptSubmit",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    assert WorkStore(a).active()[0] == []
+    (continued,) = WorkStore(b).active()[0]
+    assert continued.run_id == pending.run_id
+    assert continued.relocation is None
+
+
+def test_an_abandoned_relocation_remains_visible_and_actionable(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+
+    runs, diagnostics = observe_agent_runs(
+        {"project:test": [target(a), target(b)]},
+        state_directory(),
+        lookup=absent(),
+    )
+
+    assert [(run.issue_id, run.state, run.started_at) for run in runs] == [
+        ("I_observer", "unknown", WorkStore(a).active()[0][0].started_at)
+    ]
+    assert [item.code for item in diagnostics] == ["work-relocation-pending"]
+    assert str(b) in diagnostics[0].message
+    assert "work stop --session" in diagnostics[0].message
+    assert "relocation pending" in show_issue_work(a)[0]
+
+
+def test_a_resume_at_the_wrong_target_cannot_reassign_the_pending_run(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    c = (tmp_path / "repo-third").resolve()
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", "third", str(c)],
+        cwd=a,
+        check=True,
+    )
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(c),
+            "hook_event_name": "SessionStart",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    with pytest.raises(RuntimeError, match=re.escape(f"prepared to resume at {b}")):
+        start_issue_work(
+            c,
+            "build-observer",
+            lookup=present(resumed),
+            environ=CODEX_ENVIRON,
+        )
+
+    assert len(WorkStore(a).active()[0]) == 1
+    assert WorkStore(b).active()[0] == []
+    assert WorkStore(c).active()[0] == []
+    _runs, diagnostics = observe_agent_runs(
+        {"project:test": [target(a), target(b), target(c)]},
+        state_directory(),
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+    assert [item.code for item in diagnostics] == ["work-relocation-mismatched"]
+    assert str(c) in diagnostics[0].message
+    assert str(b) in diagnostics[0].message
+
+
+def test_start_cannot_bypass_an_unreadable_pending_source(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+    (source_record,) = WorkStore(a).directory.glob("*.json")
+    source_record.write_text("not json")
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "SessionStart",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    with pytest.raises(DashpotError, match="Cannot read Work Store record"):
+        start_issue_work(
+            b,
+            "build-observer",
+            lookup=present(resumed),
+            environ=CODEX_ENVIRON,
+        )
+
+    assert source_record.read_text() == "not json"
+    assert WorkStore(b).active()[0] == []
+
+
+def test_concurrent_codex_clients_cannot_complete_a_relocation(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    both_live = table_lookup({CODEX.pid: CODEX, resumed.pid: resumed})
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "SessionStart",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=both_live,
+    )
+
+    assert WorkStore(a).active()[0] == [before]
+    assert WorkStore(b).active()[0] == []
+    _runs, diagnostics = observe_agent_runs(
+        {"project:test": [target(a), target(b)]},
+        state_directory(),
+        lookup=both_live,
+    )
+    assert [item.code for item in diagnostics] == ["work-relocation-concurrent"]
+    assert str(a) in diagnostics[0].message
+    assert str(b) in diagnostics[0].message
+
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "UserPromptSubmit",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    assert WorkStore(a).active()[0] == []
+    assert WorkStore(b).active()[0][0].run_id == before.run_id
+
+
+def test_a_killed_old_client_can_resume_after_its_process_is_proved_gone(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "SessionStart",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    assert WorkStore(a).active()[0] == []
+    assert WorkStore(b).active()[0][0].run_id == before.run_id
+
+
+def test_sandboxed_identity_route_preserves_the_run_across_resume(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+    relocate_issue_work(a, b, lookup=ISOLATED, environ=CODEX_ENVIRON)
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "SessionStart",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    assert WorkStore(a).active()[0] == []
+    assert WorkStore(b).active()[0][0].run_id == before.run_id
+
+
+def test_a_tool_call_at_another_worktree_cannot_prepare_relocation(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+
+    with pytest.raises(RuntimeError, match=re.escape(f"not at {b}")):
+        relocate_issue_work(b, a, lookup=codex_lookup, environ=CODEX_ENVIRON)
+
+    (unchanged,) = WorkStore(a).active()[0]
+    assert unchanged.relocation is None
+    assert WorkStore(b).active()[0] == []
+
+
+def test_claude_code_keeps_using_enter_worktree_instead_of_relocation_intent(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CLAUDE_SESSION, "claude-code", CLAUDE)
+    start_issue_work(
+        a, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
+    )
+
+    with pytest.raises(RuntimeError, match=r"Claude Code moves.*EnterWorktree"):
+        relocate_issue_work(a, b, lookup=present(CLAUDE), environ=CLAUDE_ENVIRON)
+
+    assert WorkStore(a).active()[0][0].relocation is None
+
+
+def test_resuming_at_the_origin_can_cancel_a_failed_relocation(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+    publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(a),
+            "hook_event_name": "SessionStart",
+        },
+        environ={},
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    messages = relocate_issue_work(a, a, lookup=present(resumed), environ=CODEX_ENVIRON)
+
+    (continued,) = WorkStore(a).active()[0]
+    assert messages == ["cancelled the pending relocation; this Agent Run remains here"]
+    assert continued.run_id == before.run_id
+    assert continued.started_at == before.started_at
+    assert continued.relocation is None
+    assert continued.session_process == SessionProcess(
+        pid=resumed.pid, started_at=resumed.started_at
+    )
 
 
 @pytest.mark.parametrize(("lookup", "environ"), ROUTES)

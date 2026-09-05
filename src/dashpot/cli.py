@@ -43,7 +43,12 @@ from .serialization import (
     snapshot_document,
     worktree_plan_document,
 )
-from .work import show_issue_work, start_issue_work, stop_issue_work
+from .work import (
+    relocate_issue_work,
+    show_issue_work,
+    start_issue_work,
+    stop_issue_work,
+)
 from .workspace import (
     default_workspace_config,
     load_workspaces,
@@ -230,7 +235,7 @@ work = App(
     name="work",
     help=(
         "Opt this running agent session into Issue work.\n\n"
-        "Start, switch, stop, or show explicit Issue work for the agent "
+        "Start, switch, relocate, stop, or show explicit Issue work for the agent "
         "session enclosing this command, recorded at the current Worktree's "
         ".dashpot/state/."
     ),
@@ -255,6 +260,20 @@ def start(
 ) -> int:
     """Start or switch this session's Issue work."""
     _report(start_issue_work(Path.cwd().resolve(), reference, timeout=timeout))
+    return 0
+
+
+@work.command
+def relocate(
+    path: Annotated[
+        Path,
+        Parameter(help="Linked Worktree where this Codex Agent Session will resume"),
+    ],
+    /,
+) -> int:
+    """Prepare this Agent Run for a verified sequential Codex resume."""
+    relocate_target = path.expanduser().resolve()
+    _report(relocate_issue_work(Path.cwd().resolve(), relocate_target))
     return 0
 
 

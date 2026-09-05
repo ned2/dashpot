@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-05
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md
 ---
 
 # Hold one active Agent Run per Agent Session across a Repository's Worktrees
@@ -88,11 +89,10 @@ a new interactive client. Its `UserPromptSubmit` hook carried the new Worktree
 as `cwd`, and a shell command in the resumed turn ran there, so a subsequent
 `work start` can use the same verified-location rule. The old client must exit
 before the resumed client starts; concurrent clients for one identity are
-unsupported. This evidence does not establish active Agent Run continuity
-through the old process's exit: the agent-facing workflow requires `work start`
-and `work show` after resume, while preserving a run across that boundary is
-deferred to [#137](https://github.com/ned2/dashpot/issues/137). A `cd` inside a
-tool call remains wrong-location evidence, not relocation.
+unsupported. Active Agent Run continuity through that process boundary is now
+admitted only through the explicit, two-phase Relocation Intent in
+[ADR 0029](0029-preserve-agent-runs-through-declared-codex-relocation.md). A
+`cd` inside a tool call remains wrong-location evidence, not relocation.
 
 `ExitWorktree` is the return trip and fires no lifecycle event either, so the
 integration subscribes `PostToolUse` matched to `ExitWorktree` as well.
@@ -123,8 +123,8 @@ predates the subscription is reported by `dashpot integrate claude-code
   work while the session keeps working at the old Worktree.
 - **Always refuse while a record exists elsewhere:** rejected because a
   relocated Claude Code session could clear its old record only by re-entering
-  A. A sequential Codex resume can also preserve the Agent Session Identity at
-  a new Worktree, but the resumed workflow establishes its Issue Binding again.
+  A. A sequential Codex resume uses ADR 0029's explicit intent and target hook
+  evidence to preserve the existing run instead.
 - **An explicit `work start --here` or `--move` override:** rejected because
   it lets the agent assert a relocation without evidence, which is the
   inference the Work Store exists to refuse.

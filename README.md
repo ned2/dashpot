@@ -10,11 +10,11 @@ Like its [mechanical namesake](https://en.wikipedia.org/wiki/Dashpot), Dashpot i
 intended to reduce oscillation without stopping progress. Observation never
 mutates: the view, every refresh, and `dashpot --json` never assign or edit
 Issues, change the Git Repository, or control agent sessions. Dashpot's named
-management commands — `init`, `integrate`, `work start` and `stop`, `branch
-delete` and `worktree remove` — and its two mutating keys — `f`, which fetches
-Git remotes, and `x`, which deletes a Branch or removes a Worktree — mutate
-only what their name says, on explicit invocation, and report what they
-changed
+management commands — `init`, `integrate`, `work start`, `work relocate`,
+`work stop`, `branch delete`, and `worktree remove` — and its two mutating
+keys — `f`, which fetches Git remotes, and `x`, which deletes a Branch or
+removes a Worktree — mutate only what their name says, on explicit invocation,
+and report what they changed
 ([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md),
 [ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)). A Cleanup
 goes one step further: it deletes only the targets a person selected from a
@@ -374,7 +374,9 @@ Dashpot observes Codex and Claude Code sessions through opt-in lifecycle hooks
 installed once per user with `dashpot integrate`. The same command installs the
 model-invoked `dashpot-issue-work` skill in the harness's user skill directory;
 the skill resolves and declares Issue work, dispatches Worktree handoffs, and
-holds the Issue Binding through the repository's delivery workflow. The
+holds the Issue Binding through the repository's delivery workflow. A declared
+Codex resume can preserve the same Agent Run and `startedAt` across client
+processes; Claude Code continues to relocate its live client. The
 commands, the Work Store, and how a session is identified are documented in
 [`docs/agent-sessions.md`](docs/agent-sessions.md).
 
@@ -500,10 +502,13 @@ code is 0 only when every selected target was deleted or already absent.
 The created Worktree carries no harness. The installed Issue-work skill moves
 a running Claude Code session with `EnterWorktree`, or hands a Codex session
 off through sequential `codex resume <session-id> -C <path>` when that version
-supports it. The old Codex client exits first; a fresh `codex -C <path>`
-session is the disclosed compatibility fallback. Both paths run and verify
-`dashpot work start` after arrival because active Agent Run continuity through
-process exit is not promised
+supports it. An active Codex run first declares the target with `dashpot work
+relocate <path>`; after the old client exits, the resumed hook moves the same
+run only when it proves the same Agent Session Identity at that target and no
+client remains live or unobservable elsewhere. The resumed session verifies
+the preserved binding with `work show`; an unbound session uses `work start`.
+A fresh `codex -C <path>` session is the disclosed compatibility fallback and
+cannot preserve another session's Agent Run
 ([Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)). Claude Code's
 own `--worktree` is not used because it places, names, bases, and may reset
 Worktrees by its own rules. Each Worktree owns its own `.venv` and

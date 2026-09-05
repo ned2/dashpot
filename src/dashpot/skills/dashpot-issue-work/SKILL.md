@@ -24,15 +24,17 @@ This skill is written for Dashpot 0.1.0.
    `Agent Session identity claimed here` line to be confirmed. If a Worktree
    must be selected, prepared, or entered, read
    [dispatch](references/dispatch.md) and complete that branch first.
-5. Run `<dashpot> work start <reference>` from that Worktree, then `<dashpot>
-   work show`. Continue only when `show` reports this Agent Session working on
-   the intended Issue at the intended Worktree.
+5. Run `<dashpot> work show` from that Worktree. When it already reports this
+   Agent Session working on the intended Issue, retain that Agent Run. Otherwise
+   run `<dashpot> work start <reference>`, then `work show`. Continue only when
+   `show` reports the intended Issue at the intended Worktree.
 6. Follow the repository's implementation, test, commit, push, review, and CI
    workflow. Keep the Issue Binding active across the entire engagement.
 
 Never infer an Issue Binding from a Branch, Worktree, conversation, or Issue
-lookup. Only `work start` declares it. Observation commands and dashboards stay
-passive; run a management command only for the action the user requested.
+lookup. Only `work start` declares it; `work relocate` can preserve that
+existing binding but cannot create one. Observation commands and dashboards
+stay passive; run a management command only for the action the user requested.
 
 ## Finish the engagement
 

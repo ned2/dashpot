@@ -230,12 +230,14 @@ def test_the_persisted_record_keeps_its_wire_key_set(tmp_path: Path) -> None:
         "workingDirectory",
         "branch",
         "sessionId",
+        "relocation",
     ]
     assert document["sessionProcess"] == {
         "pid": 42,
         "startedAt": "Tue Aug 25 01:00:00 2026",
     }
     assert document["sessionId"] is None
+    assert document["relocation"] is None
 
 
 def _rewrite(store: WorkStore, **changes: object) -> None:

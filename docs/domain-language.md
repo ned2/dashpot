@@ -280,10 +280,13 @@ directory. It is evidence about execution, never Project or Issue identity.
 The lifetime of one harness conversation, such as one Codex thread or Claude
 Code conversation. A resumed conversation keeps its Agent Session Identity
 even when a new harness process continues it; process identity is liveness
-evidence, not the definition of the session. A session is never permanently
-bound to an Issue; its lifecycle state (running, waiting, or unknown) and
-activity age (how long the current turn has run, or how long it has been idle)
-are observations of the session itself, taken at turn boundaries.
+evidence, not the definition of the session. `SessionEnd` normally ends the
+session's Agent Run; when that run carries a Relocation Intent, it instead ends
+the old Codex client while the declared conversation continuation remains
+pending. A session is never permanently bound to an Issue; its lifecycle state
+(running, waiting, or unknown) and activity age (how long the current turn has
+run, or how long it has been idle) are observations of the session itself,
+taken at turn boundaries.
 
 **Agent Run**:
 A time-bounded period during one Agent Session when it is explicitly working
@@ -292,9 +295,24 @@ ends Agent Runs without ending or restarting the session. A live Agent
 Session holds at most one active Agent Run across the linked Worktrees of one
 Git Repository: a session that has moved to another Worktree of the same
 Repository and starts work there switches its run rather than adding one
-([ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
+([ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md)). A
+Codex run can keep its identity and `startedAt` through a sequential resume
+only when its old client declared a Relocation Intent and the intended target's
+hook evidence completes it
+([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)).
 _Avoid_: Agent Run as a synonym for the whole session; a second run at
 another Worktree for a session that has relocated
+
+**Relocation Intent**:
+The explicit, temporary destination attached to an active Codex Agent Run by
+`work relocate` before its client exits. It preserves the run at its original
+Worktree until a hook for the same Agent Session Identity proves a sequential
+resume at exactly that linked Worktree; completion moves the Work Store record
+without changing its Issue Binding, identity, or `startedAt`. A pending intent
+never places the session, creates work, expires by time, or authorizes a fresh
+Agent Session. It remains visible until completed, cancelled by the same
+session at its origin, or explicitly stopped.
+_Avoid_: treating a planned path as an Observation Location
 
 **Agent Session Identity**:
 The stable, opaque identity a harness gives one Agent Session, as its
@@ -323,8 +341,9 @@ stale observation state.
 _Avoid_: orphaned session for a gone unbound session
 
 **Work Store**:
-The versioned, Project-local record of active Agent Runs. Each record is
-stored beneath the Worktree its run is at (`.dashpot/state/`), and the records
+The versioned, Project-local record of active Agent Runs and any Relocation
+Intent attached to one. Each record is stored beneath the Worktree its run is
+at (`.dashpot/state/`), and the records
 at all linked Worktrees of one Git Repository are jointly the sole authority
 for which sessions are working on which Issues in that Repository
 ([ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).

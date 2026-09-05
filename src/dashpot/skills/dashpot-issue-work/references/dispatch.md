@@ -31,16 +31,20 @@ clients for one Agent Session are unsupported.
    Session Identity.
 2. Run `codex resume --help`. Prefer resume only when this Codex version supports
    both a session identifier and `-C`/`--cd`.
-3. Give the user one safely shell-quoted command of this shape:
+3. Run `<dashpot> work show`. If it reports an active Agent Run for this
+   session, run `<dashpot> work relocate <worktree-path>` and require its
+   confirmation before exit. With no active run, omit this step; relocation
+   never creates an Issue Binding.
+4. Give the user one safely shell-quoted command of this shape:
 
    ```text
-   codex resume <session-id> -C <worktree-path> 'Continue Issue <reference>. First run <dashpot> work start <reference> and verify it with <dashpot> work show, then follow the repository workflow through green CI.'
+   codex resume <session-id> -C <worktree-path> 'Continue Issue <reference>. First run <dashpot> work show. If it reports this session already working on Issue <reference>, retain that Agent Run; otherwise run <dashpot> work start <reference> and verify it with <dashpot> work show. Then follow the repository workflow through green CI.'
    ```
 
-4. Tell the user to exit this client before running it, and do not continue in
-   the old client after handing over the command. The resumed turn must
-   establish fresh lifecycle evidence at the new Worktree before `work start`
-   can succeed.
+5. Tell the user to exit this client before running it, and do not continue in
+   the old client after handing over the command. The resumed hook completes a
+   declared relocation only after it proves the same Agent Session Identity at
+   the intended Worktree and no live or unknown client remains elsewhere.
 
 If session identity cannot be confirmed or this Codex version lacks compatible
 resume support, explain the limitation and give the same quoted instruction to
@@ -51,5 +55,6 @@ codex -C <worktree-path> 'Continue Issue <reference>. First run <dashpot> work s
 ```
 
 This fallback creates a new Agent Session. It is compatibility behavior, not
-the preferred path. Active Agent Run continuity across exit and resume is not
-promised: the resumed session explicitly runs `work start` again.
+the preferred path. It cannot preserve an active Agent Run: end the old run
+explicitly once its session and agents are finished, then let the new session
+establish its own run with `work start`.

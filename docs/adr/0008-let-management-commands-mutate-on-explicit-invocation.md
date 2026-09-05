@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-30
-amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md
+amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0029-preserve-agent-runs-through-declared-codex-relocation.md
 ---
 
 # Let named management commands mutate on explicit invocation
@@ -16,8 +16,9 @@ own ignored state, never the Git Repository's refs, objects, or working trees
 hook publisher, which the harness invokes on lifecycle events and which
 writes only that session's own hook record; and explicitly invoked commands —
 `dashpot init` writes `.dashpot/config.json`, `dashpot integrate` edits or
-removes a harness's user-level hook file, `dashpot work start` and `stop`
-write the Work Store — each touching only what its name says.
+removes a harness's user-level hook file, and `dashpot work start`, `dashpot
+work relocate`, and `dashpot work stop` write the Work Store — each touching
+only what its name says.
 
 The [agent Worktree handoff proposal](../proposed-agent-worktree-protocol.md)
 needs a command that creates a Git-linked Worktree for an Issue. The review

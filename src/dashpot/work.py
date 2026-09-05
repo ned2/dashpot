@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -35,7 +35,13 @@ from .processes import (
     observe_agent_ancestry,
 )
 from .repository import repository_worktrees, worktree_root
-from .work_store import SESSION_KEY, ActiveWork, SessionProcess, WorkStore
+from .work_store import (
+    SESSION_KEY,
+    ActiveWork,
+    RelocationIntent,
+    SessionProcess,
+    WorkStore,
+)
 
 IdentityRoute = Literal["process", "session"]
 
@@ -263,8 +269,39 @@ def start_issue_work(
             f"(a tool call that changes directory, or a sub-agent, does not "
             f"move the session), so nothing was written"
         )
+    unreadable_elsewhere: list[Diagnostic] = []
+    for candidate in worktrees:
+        if _same_worktree(candidate, root):
+            continue
+        pending, candidate_diagnostics = _session_work(WorkStore(candidate), session)
+        unreadable_elsewhere.extend(candidate_diagnostics)
+        if pending is None or pending.relocation is None:
+            continue
+        intended = Path(pending.relocation.target_worktree)
+        if not _same_worktree(intended, root):
+            raise RuntimeError(
+                f"this Agent Run was prepared to resume at {intended}, not {root}; "
+                "the pending run was left unchanged"
+            )
+        raise RuntimeError(
+            f"this Agent Run is still pending relocation from {candidate} to "
+            f"{root}; its target hook has not completed the move, so nothing "
+            "was written"
+        )
+    if session.session_id is not None and unreadable_elsewhere:
+        raise DashpotError(
+            "; ".join(item.message for item in unreadable_elsewhere)
+            + "; cannot safely exclude a pending relocation for this Agent "
+            "Session, so nothing was written"
+        )
     store = WorkStore(root)
     previous, store_diagnostics = _session_work(store, session)
+    if session.session_id is not None and store_diagnostics:
+        raise DashpotError(
+            "; ".join(item.message for item in store_diagnostics)
+            + "; cannot safely exclude a pending relocation for this Agent "
+            "Session, so nothing was written"
+        )
     unreadable = _own_record_diagnostic(store, session.session_key, store_diagnostics)
     if unreadable is not None:
         # Writing beside an unreadable record for this session's own key would
@@ -325,6 +362,129 @@ def start_issue_work(
     # are surfaced rather than dropped, as `work show` already surfaces them.
     messages.extend(diagnostic.message for diagnostic in store_diagnostics)
     return messages
+
+
+def relocate_issue_work(
+    current: Path,
+    target: Path,
+    *,
+    lookup: ProcessLookup = host_process_lookup,
+    environ: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Prepare this Codex session's active Agent Run for a verified resume."""
+    root = worktree_root(current)
+    target_root = worktree_root(target)
+    worktrees = repository_worktrees(root)
+    if not any(_same_worktree(target_root, worktree) for worktree in worktrees):
+        raise RuntimeError(
+            f"{target_root} is not a linked Worktree of the current Git Repository"
+        )
+    stores = reachable_hook_stores(worktrees)
+    session = identify_agent_session(
+        lookup, environ=environ, worktree=root, stores=stores
+    )
+    if session.harness != "codex":
+        raise RuntimeError(
+            "work relocate is for a sequential Codex resume; Claude Code moves "
+            "its live session with EnterWorktree"
+        )
+    if session.session_id is None:
+        raise RuntimeError(
+            "the Codex Agent Session Identity is not confirmed by its lifecycle "
+            "hook record; run 'dashpot integrate codex --status'"
+        )
+    location = _session_location(session, stores, lookup)
+    if location is None or not _same_worktree(location.worktree, root):
+        observed = "nowhere" if location is None else str(location.worktree)
+        raise RuntimeError(
+            f"{session.session_label} is at {observed} according to its freshest "
+            f"Codex hook record, not at {root}; nothing was written"
+        )
+    matches: list[tuple[Path, WorkStore, ActiveWork]] = []
+    diagnostics: list[Diagnostic] = []
+    for worktree in worktrees:
+        store = WorkStore(worktree)
+        work, found_diagnostics = _session_work(store, session)
+        diagnostics.extend(found_diagnostics)
+        if work is not None:
+            matches.append((worktree, store, work))
+    if diagnostics:
+        raise DashpotError(
+            "; ".join(item.message for item in diagnostics)
+            + "; repair the Work Store before preparing relocation"
+        )
+    if not matches:
+        raise RuntimeError(
+            "this Agent Session has no active Issue work to preserve; resume at "
+            "the target and run 'dashpot work start' there"
+        )
+    if len(matches) != 1:
+        raise RuntimeError(
+            "this Agent Session has Issue work recorded at more than one Worktree; "
+            "resolve the work-session-conflict before preparing relocation"
+        )
+    worktree, store, work = matches[0]
+    if not _same_worktree(worktree, root):
+        raise RuntimeError(
+            f"this Agent Session's active Agent Run is at {worktree}, not {root}; "
+            "nothing was written"
+        )
+    branch = Git(root, timeout=2).maybe("symbolic-ref", "--quiet", "--short", "HEAD")
+    if _same_worktree(root, target_root):
+        if work.relocation is None:
+            raise RuntimeError(
+                "the relocation target is this session's current Worktree"
+            )
+        _replace_current_run(
+            store,
+            work,
+            replace(
+                work,
+                session_label=session.session_label,
+                session_process=session.session_process,
+                working_directory=str(current),
+                branch=branch,
+                session_id=session.session_id,
+                relocation=None,
+            ),
+        )
+        return ["cancelled the pending relocation; this Agent Run remains here"]
+    _replace_current_run(
+        store,
+        work,
+        replace(
+            work,
+            session_label=session.session_label,
+            session_process=session.session_process,
+            working_directory=str(current),
+            branch=branch,
+            session_id=session.session_id,
+            relocation=RelocationIntent(
+                target_worktree=str(target_root), requested_at=now_iso()
+            ),
+        ),
+    )
+    return [
+        f"prepared this Agent Run to resume at {target_root}; exit this Codex "
+        f"client before resuming session {session.session_id} there"
+    ]
+
+
+def _replace_current_run(
+    store: WorkStore, expected: ActiveWork, replacement: ActiveWork
+) -> None:
+    """Replace a run unless another management command changed it first."""
+    try:
+        replaced = store.replace_current(expected, replacement)
+    except (OSError, ValueError) as exc:
+        raise DashpotError(
+            f"cannot safely update this Agent Run for relocation: {exc}"
+        ) from exc
+    if not replaced:
+        raise RuntimeError(
+            "this Agent Run changed while relocation was being prepared; "
+            "nothing was overwritten, so inspect it with 'dashpot work show'"
+        )
 
 
 def stop_issue_work(
@@ -425,6 +585,11 @@ def show_issue_work(current: Path) -> list[str]:
     messages = [
         f"{work.session_label}: {work.issue_reference} ({work.issue_id}) "
         f"since {work.started_at}"
+        + (
+            f"; relocation pending to {work.relocation.target_worktree}"
+            if work.relocation is not None
+            else ""
+        )
         for work in active
     ]
     messages.extend(diagnostic.message for diagnostic in diagnostics)

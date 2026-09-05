@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-02
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md
 ---
 
 # Reconcile the session's Agent Run at SessionEnd
@@ -34,6 +35,13 @@ session's own record:
   would be forensically paired with is already gone.
 - A Work Store that cannot be read is left for observation to diagnose. The
   hook must never break its harness, so reconciliation never raises.
+
+[ADR 0029](0029-preserve-agent-runs-through-declared-codex-relocation.md)
+adds one explicit exception: a Codex Agent Run carrying a Relocation Intent is
+preserved before the old client's hook record is removed. The intended target
+still has to publish the same Agent Session Identity without another live or
+unobservable client before the run moves; without the intent, this decision's
+ordinary end remains unchanged.
 
 This is housekeeping of Dashpot's own ignored state by the hook that the
 harness invokes for that session, the same class of write as removing the

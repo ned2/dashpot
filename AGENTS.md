@@ -6,8 +6,9 @@ Guidance for AI coding agents working in this repository.
 
 Dashpot is a passive terminal view of declared Issues, repository state, and
 active coding-agent runs. Observation never mutates; the named management
-commands (`init`, `integrate`, `work start` / `stop`, `branch delete`,
-`worktree remove`) and the dashboard's mutating keys (`f`, a Remote Fetch;
+commands (`init`, `integrate`, `work start` / `work relocate` / `work stop`,
+`branch delete`, `worktree remove`) and the dashboard's mutating keys (`f`, a
+Remote Fetch;
 `x`, a Cleanup) mutate only what they name, on explicit invocation, and a
 Cleanup — deleting a Branch or removing a Worktree — only what a person
 selected from a preview and confirmed
@@ -40,10 +41,10 @@ where work happens. Hold the Issue Binding through the whole engagement,
 including every delegated task, final push, and CI run. A plain tool-call
 `cd`, or a sub-agent's shell elsewhere, does not relocate an Agent Session.
 Codex relocation uses sequential `codex resume <session-id> -C <path>` with the
-old client exited first; Claude Code uses `EnterWorktree`. Active Agent Run
-continuity across a Codex exit and resume is not promised, so the resumed turn
-runs `work start` and verifies `work show` again. Leave the Worktree in place
-unless the user explicitly requests Cleanup.
+old client exited first; an active run declares its target with `work relocate`
+before exit, and the resumed turn verifies the preserved run with `work show`
+before using `work start`. Claude Code uses `EnterWorktree`. Leave the Worktree
+in place unless the user explicitly requests Cleanup.
 
 ## Vocabulary
 

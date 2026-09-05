@@ -50,10 +50,11 @@ delegated to is still working, since sub-agents share the session's Agent Run
 ([ADR 0016](adr/0016-hold-a-session-running-while-its-sub-agents-work.md)).
 A session that has not
 declared an Issue is not listed as Work; it is listed in the Sessions pane
-with `no active Issue work` until it opts in with `dashpot work start`. Codex and Claude
-Code sessions are observed side by side with distinct identities, and both may
-work on the same Issue as separate Agent Runs. One user-level installation per
-harness covers every configured repository, including linked worktrees: each
+with `no active Issue work` until it opts in with `dashpot work start`. Codex
+and Claude Code sessions are observed side by side with distinct identities,
+and both may work on the same Issue as separate Agent Runs. One user-level
+installation per harness covers every configured repository, including linked
+worktrees: each
 observation is routed to the checkout the session runs in, landing in that
 worktree's ignored `.dashpot/state/sessions/`. Sessions outside any
 Dashpot-configured checkout fall back to the platform's normal
@@ -74,20 +75,26 @@ collision, and rollback policy to `issue show` and `worktree create`. Claude
 Code relocates the running session with `EnterWorktree`. Codex prefers a
 sequential resume of the same Agent Session with `codex resume <session-id> -C
 <path>`: the old client exits first, and the resumed turn must publish fresh
-lifecycle evidence before it runs `work start` and verifies `work show`.
-Codex versions that cannot perform that resume use a disclosed fresh-session
-fallback. Neither path promises to preserve an active Agent Run
-through process exit; that is why opt-in is repeated after arrival. A shell
-tool's `cd` remains repository preparation rather than session relocation.
+lifecycle evidence. An active run first declares its exact target with `work
+relocate <path>`; the resumed hook moves that same run only after the old client
+is no longer live, and `work show` verifies the preserved binding. An unbound
+session still runs `work start` after arrival. Codex versions that cannot
+perform that resume use a disclosed fresh-session fallback, which creates a
+new Agent Session and cannot preserve the old run. A shell tool's `cd` remains
+repository preparation rather than session relocation.
 
 Each refresh checks that a session's recorded process is still the one that
 published the record. A graceful `SessionEnd` removes the session's record and
 ends the session's Agent Run in the Work Store, wherever in the Repository's
 worktrees it is recorded
-([ADR 0015](adr/0015-reconcile-the-agent-run-at-session-end.md)). A
+([ADR 0015](adr/0015-reconcile-the-agent-run-at-session-end.md)). The declared
+Codex resume in
+[ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)
+is the one exception: `SessionEnd` preserves the pending run before removing
+the old client's hook record. A
 session that was killed, or whose `SessionEnd` hook never ran, is dropped
-quietly and its stale record and lock file are cleaned up; it only becomes a Diagnostics
-warning when it leaves an orphaned Agent Run behind (see below). When the
+quietly and its stale record and lock file are cleaned up; it only becomes a
+Diagnostics warning when it leaves an orphaned Agent Run behind (see below). When the
 process cannot be observed at all (for example from inside a sandboxed process
 namespace) the session is shown with `unknown` state rather than assumed to
 have exited. `dashpot integrate <harness> --status` classifies every session
@@ -115,6 +122,8 @@ dashpot work start 123         # a bare Issue Number
 dashpot work start '#123'      # the same Issue, # quoted for the shell
 dashpot work start owner/repository#123   # or a full Issue Reference
 dashpot work show              # list active Issue work at this worktree
+dashpot work relocate ../target-worktree  # preserve this Codex run across resume
+dashpot work relocate .        # cancel a pending move after resuming here
 dashpot work stop              # end this session's run; the session stays alive
 dashpot work stop --session KEY  # end the orphaned run of a session that is gone
 ```
@@ -149,11 +158,31 @@ between configured Projects.
 The ordinary TUI continues to show current References; raw identities remain in
 headless output and diagnostics.
 
+`dashpot work relocate PATH` is the explicit first phase of preserving an
+active Codex Agent Run through a sequential resume. It accepts only the live
+session's one recorded run, a confirmed Codex Agent Session Identity, fresh
+hook evidence at the current Worktree, and an exact linked Worktree target. It
+adds a Relocation Intent without changing the Issue Binding, run identity, or
+`startedAt`. The old client's `SessionEnd` then retains the pending record. A
+hook at the intended target completes the second phase only when no hook record
+places a live or unobservable client with that identity elsewhere; completion
+moves the same Work Store record, adopts the resumed process, working directory,
+and Branch, and clears the intent. A mismatched target emits
+`work-relocation-mismatched`; concurrent locations emit
+`work-relocation-concurrent`. Either case, a missing hook, or unreadable state
+leaves the intent unchanged and cannot make `work start` reassign it. A
+proven-gone old process permits recovery when `SessionEnd` was lost. `work
+relocate .` cancels after the same session resumes at its origin, while `work
+stop --session KEY` explicitly ends an abandoned pending run. Claude Code
+continues to move its live process with `EnterWorktree` and `ExitWorktree`
+instead.
+
 ### How the session is identified
 
-`dashpot work start` and `stop` identify the enclosing Agent Session through
-one harness-neutral seam with a [Harness Adapter](domain-language.md) per
-supported harness (`src/dashpot/harnesses.py`), by two routes:
+`dashpot work start`, `work relocate`, and `work stop` identify the enclosing
+Agent Session through one harness-neutral seam with a
+[Harness Adapter](domain-language.md) per supported harness
+(`src/dashpot/harnesses.py`), by two routes:
 
 1. **Host process ancestry.** The command walks up its parent processes to
    the nearest Codex or Claude Code process, as it always has. A sandbox
@@ -203,6 +232,8 @@ session is gone but its Work Store record remains, that record is an orphaned
 Agent Run: it is excluded from the listed runs and reported once as an
 actionable `work-session-orphaned` diagnostic naming the Issue and the
 `dashpot work stop --session <key>` command that ends it. Dashpot never
-reassigns Issue work, and ends a run on its own only when the harness delivers
-the session's graceful `SessionEnd`; a session that is killed still leaves an
-orphaned Agent Run for a person to end.
+reassigns Issue work. It ends a run on its own only when the harness delivers
+its session's graceful `SessionEnd`, except that a declared Codex relocation
+retains the run until verified resume or explicit cleanup. A killed session
+without a valid target continuation still leaves visible work for a person to
+end.
