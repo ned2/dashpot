@@ -337,3 +337,25 @@ def test_render_json_is_indented_unless_compact() -> None:
 
     assert render_json(document) == json.dumps(document, indent=2)
     assert render_json(document, compact=True) == '{"a": null, "b": [1]}'
+
+
+def test_pull_request_history_serializes_each_lifecycle_without_collapsing_merged() -> (
+    None
+):
+    observation = project(
+        "project:one",
+        pull_requests=[
+            pull_request(index, state=state, is_draft=draft)
+            for index, (state, draft) in enumerate(
+                [("open", True), ("closed", True), ("merged", False)], start=1
+            )
+        ],
+    )
+    document = snapshot_document(workspace(observation))
+    records = document["projects"][0]["snapshot"]["pullRequests"]
+    assert [(record["state"], record["isDraft"]) for record in records] == [
+        ("open", True),
+        ("closed", True),
+        ("merged", False),
+    ]
+    assert all(set(record) == PULL_REQUEST_KEYS for record in records)

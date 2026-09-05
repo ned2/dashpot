@@ -98,6 +98,7 @@ from .pull_request_list import (
     PullRequestListQuery,
     build_pull_request_rows,
     pull_request_empty_message,
+    pull_request_inventory_text,
     pull_request_note,
     pull_request_result_count_text,
 )
@@ -132,6 +133,7 @@ class PaneRows:
     note: str | None = None
     empty_message: str | None = None
     title_count: int | None = None
+    title_summary: str | None = None
 
 
 class PaneRowsSource(Protocol):
@@ -193,13 +195,13 @@ def pull_request_pane_rows(
     now: datetime,
     query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY,
 ) -> PaneRows:
-    """List active Pull Requests with their independent freshness state."""
+    """List Pull Requests with their independent freshness state."""
     result = store.query_pull_requests(query)
     return PaneRows(
         build_pull_request_rows(result, dark=dark, now=now),
         note=pull_request_note(result, now),
         empty_message=pull_request_empty_message(result, query),
-        title_count=result.observed_pull_request_count,
+        title_summary=pull_request_inventory_text(result),
     )
 
 
@@ -366,8 +368,9 @@ class DashboardScreen(Screen[None]):
         )
         self.pull_request_filter_bar = ItemFilterBar(
             "pull-request",
-            statuses=(("All", "all"), ("Ready", "ready"), ("Draft", "draft")),
+            statuses=(("Open", "open"), ("Closed", "closed"), ("All", "all")),
             status=pull_request_status_filter_value(pull_request_query),
+            readiness=pull_request_readiness_filter_value(pull_request_query),
             query=pull_request_query.text,
             placeholder="Search Pull Requests",
             count=pull_request_result_count_text(0),
@@ -619,6 +622,17 @@ class DashboardScreen(Screen[None]):
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "pull-request-state":
+            states = {
+                "open": frozenset({"open"}),
+                "closed": frozenset({"closed"}),
+                "all": frozenset({"open", "closed"}),
+            }.get(str(event.value))
+            if states is not None:
+                self.set_pull_request_query(
+                    replace(self.pull_request_query, states=states)
+                )
+            return
+        if event.select.id == "pull-request-readiness":
             readiness = {
                 "all": frozenset({"ready", "draft"}),
                 "ready": frozenset({"ready"}),
@@ -746,6 +760,7 @@ class DashboardScreen(Screen[None]):
                 note=view.note,
                 empty_message=view.empty_message,
                 title_count=view.title_count,
+                title_summary=view.title_summary,
             )
             if spec.pane_id == "pull-requests-pane":
                 self.pull_request_filter_bar.count.update(
@@ -1627,6 +1642,14 @@ def issue_state_filter_value(query: IssueListQuery) -> str:
 
 
 def pull_request_status_filter_value(query: PullRequestListQuery) -> str:
+    if query.states == frozenset({"open"}):
+        return "open"
+    if query.states == frozenset({"closed"}):
+        return "closed"
+    return "all"
+
+
+def pull_request_readiness_filter_value(query: PullRequestListQuery) -> str:
     if query.readiness == frozenset({"ready"}):
         return "ready"
     if query.readiness == frozenset({"draft"}):

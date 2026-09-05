@@ -264,7 +264,7 @@ class WorkspaceObservationStore:
     def query_pull_requests(
         self, query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY
     ) -> PullRequestListResult:
-        """Query every active Pull Request with its independent freshness."""
+        """Query every Pull Request with its independent freshness."""
         state = self._state
         return _query_indexed_pull_request_list(
             projects=state.projects,

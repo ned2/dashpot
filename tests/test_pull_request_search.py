@@ -1,4 +1,4 @@
-"""GitHub-shaped search parsing for the active Pull Request inventory."""
+"""GitHub-shaped search parsing for the Pull Request inventory."""
 
 from __future__ import annotations
 

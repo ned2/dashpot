@@ -68,7 +68,10 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
         await wait_until(lambda: app.store.revision == 1)
         pane = app.dashboard.pull_requests_pane()
         await pilot.pause()
-        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 2"
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 2 · Closed 0"
+        )
         assert [str(column.label) for column in pane.table.columns.values()] == [
             "STATE",
             "#",
@@ -119,7 +122,7 @@ async def test_pull_requests_pane_distinguishes_stale_and_unavailable_empty_stat
     async with app.run_test(size=(120, 32)):
         await wait_until(lambda: app.store.revision == 1)
         empty = app.query_one("#pull-requests-pane .list-pane-empty")
-        assert str(empty.render()) == "no active pull requests when last observed"
+        assert str(empty.render()) == "no pull requests when last observed"
         assert pane_subtitle(app, "#pull-requests-pane").startswith("stale")
 
     unavailable_app = DashpotApp(SequenceCollector(unavailable), refresh_seconds=0)

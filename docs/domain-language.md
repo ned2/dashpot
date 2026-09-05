@@ -42,11 +42,16 @@ observed. Provenance does not participate in semantic equivalence.
 The GitHub Issues representation of an Issue.
 
 **Pull Request**:
-An active proposal to integrate one head Branch into one base Branch of the
+A proposal to integrate one head Branch into one base Branch of the
 Project's Git Repository, observed from the configured GitHub repository. Its
 opaque GitHub node ID is identity; its Pull Request Number is only a compact
-Project-local label. Dashpot observes open Pull Requests, including drafts,
-independently of the Project's Issue Source collection.
+Project-local label. Dashpot observes open, closed without merging, and merged
+Pull Requests independently of the Project's Issue Source collection. Open
+includes drafts and non-drafts. The Closed summary groups closed without
+merging and merged Pull Requests; each row and the published model preserve
+the distinction. Draft status is independent of lifecycle. Open / Closed
+summaries reflect the current search and draft filters before lifecycle
+selection ([ADR 0031](adr/0031-observe-complete-pull-request-lifecycle-history.md)).
 _Avoid_: Linked Pull Request for a repository-wide Pull Request; Issue for a
 Pull Request merely because GitHub shares their number space
 

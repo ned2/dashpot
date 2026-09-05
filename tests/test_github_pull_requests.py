@@ -47,6 +47,7 @@ def page(
     has_next: bool = False,
     cursor: str | None = None,
     remaining: int = 4000,
+    total: int | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -60,6 +61,7 @@ def page(
                 "node": {
                     "id": "R_1",
                     "pullRequests": {
+                        "totalCount": len(nodes) if total is None else total,
                         "nodes": list(nodes),
                         "pageInfo": {
                             "hasNextPage": has_next,
@@ -151,7 +153,7 @@ def test_normalizes_nullable_and_blocking_states(
     [
         lambda node: node.pop("title"),
         lambda node: node.update(number=True),
-        lambda node: node.update(state="CLOSED"),
+        lambda node: node.update(state="UNEXPECTED"),
         lambda node: node.update(mergeable="NEW_ENUM_VALUE"),
         lambda node: node.update(unrequested="surprise"),
     ],
@@ -170,7 +172,7 @@ def test_collects_every_page_and_orders_newest_first() -> None:
     first = pull_request_node(1, updatedAt="2026-09-03T00:00:00Z")
     second = pull_request_node(2, updatedAt="2026-09-04T00:00:00Z")
     pull_requests, runner = source(
-        page(first, has_next=True, cursor="c1"), page(second)
+        page(first, has_next=True, cursor="c1", total=2), page(second, total=2)
     )
 
     observation = pull_requests.refresh()
@@ -278,3 +280,74 @@ def test_wrong_repository_identity_is_unavailable() -> None:
 
     assert observation.status == "unavailable"
     assert observation.diagnostics[0].code == "github-repository"
+
+
+def test_collects_all_lifecycles_and_preserves_draft_and_merge_facts() -> None:
+    pull_requests, runner = source(
+        page(pull_request_node(1, isDraft=True), has_next=True, cursor="next", total=3),
+        page(
+            pull_request_node(2, state="CLOSED", isDraft=True),
+            pull_request_node(3, state="MERGED", reviewDecision=None),
+            total=3,
+        ),
+    )
+
+    observed = pull_requests.refresh()
+
+    assert observed.status == "fresh"
+    assert [(pr.state, pr.is_draft) for pr in observed.pull_requests] == [
+        ("open", True),
+        ("closed", True),
+        ("merged", False),
+    ]
+    query = next(arg for arg in runner.calls[0][0] if arg.startswith("query="))
+    assert "states: [OPEN, CLOSED, MERGED]" in query
+    assert "field: CREATED_AT, direction: ASC" in query
+    assert "totalCount" in query
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        (page(pull_request_node(), total=2),),
+        (
+            page(pull_request_node(1), has_next=True, cursor="next", total=2),
+            page(pull_request_node(2), total=3),
+        ),
+    ],
+)
+def test_incomplete_or_changing_total_retains_the_whole_last_good_history(
+    answers,
+) -> None:
+    pull_requests, _ = source(
+        page(pull_request_node(1), pull_request_node(2, state="MERGED")), *answers
+    )
+    first = pull_requests.refresh()
+    second = pull_requests.refresh()
+
+    assert second.status == "stale"
+    assert second.pull_requests == first.pull_requests
+    assert second.last_good_at == first.last_good_at
+    assert second.diagnostics[0].code == "github-pull-request-count"
+
+
+def test_failure_on_closed_history_page_retains_all_lifecycles_and_recovers() -> None:
+    pull_requests, _ = source(
+        page(pull_request_node(1), pull_request_node(2, state="CLOSED")),
+        page(
+            pull_request_node(1, state="MERGED"), has_next=True, cursor="next", total=2
+        ),
+        page(pull_request_node(2, state="INVALID"), total=2),
+        page(
+            pull_request_node(1, state="MERGED"), pull_request_node(2, state="CLOSED")
+        ),
+    )
+    first = pull_requests.refresh()
+    failed = pull_requests.refresh()
+    recovered = pull_requests.refresh()
+
+    assert failed.status == "stale"
+    assert failed.pull_requests == first.pull_requests
+    assert failed.diagnostics[0].code == "github-malformed-response"
+    assert recovered.status == "fresh"
+    assert [pr.state for pr in recovered.pull_requests] == ["merged", "closed"]

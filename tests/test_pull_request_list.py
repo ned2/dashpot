@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from rich.text import Text
@@ -11,8 +12,11 @@ from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.pull_request_list import (
     APPROVED_GLYPH,
     CHECKS_FAILURE_GLYPH,
+    CLOSED_GLYPH,
     CONFLICTING_GLYPH,
     DRAFT_GLYPH,
+    MERGE_NOT_APPLICABLE_GLYPH,
+    MERGED_GLYPH,
     PullRequestListQuery,
     build_pull_request_rows,
     pull_request_empty_message,
@@ -183,11 +187,95 @@ def test_empty_message_and_note_distinguish_fresh_stale_and_unavailable() -> Non
     stale = query_pull_request_list(snapshot(status="stale"))
     unavailable = query_pull_request_list(snapshot(status="unavailable"))
 
-    assert pull_request_empty_message(fresh) == "no active pull requests"
+    assert pull_request_empty_message(fresh) == "no pull requests"
     assert pull_request_note(fresh, NOW) is None
-    assert pull_request_empty_message(stale) == (
-        "no active pull requests when last observed"
-    )
+    assert pull_request_empty_message(stale) == ("no pull requests when last observed")
     assert pull_request_note(stale, NOW) == "stale · last good 1h ago"
     assert pull_request_empty_message(unavailable) == "pull requests unavailable"
     assert pull_request_note(unavailable, NOW) == "unavailable"
+
+
+def test_lifecycle_selection_groups_merged_with_closed_and_scopes_counters() -> None:
+    observed = snapshot(
+        factories.pull_request(1, author="alice"),
+        factories.pull_request(2, is_draft=True, author="alice"),
+        factories.pull_request(3, state="closed", is_draft=True, author="alice"),
+        factories.pull_request(4, state="merged", author="alice"),
+        factories.pull_request(5, state="merged", author="bob"),
+    )
+    default = query_pull_request_list(observed)
+    assert [row.pull_request.number for row in default.rows] == [1, 2]
+    assert (default.open_pull_request_count, default.closed_pull_request_count) == (
+        2,
+        3,
+    )
+
+    query = PullRequestListQuery(states=frozenset({"closed"}), text="author:alice")
+    closed = query_pull_request_list(observed, query)
+    assert [row.pull_request.number for row in closed.rows] == [3, 4]
+    assert (closed.open_pull_request_count, closed.closed_pull_request_count) == (2, 2)
+    draft = query_pull_request_list(
+        observed, replace(query, readiness=frozenset({"draft"}))
+    )
+    assert [row.pull_request.number for row in draft.rows] == [3]
+    assert (draft.open_pull_request_count, draft.closed_pull_request_count) == (1, 1)
+    all_rows = query_pull_request_list(
+        observed, replace(query, states=frozenset({"open", "closed"}))
+    )
+    assert all_rows.count == 4
+
+
+def test_closed_rows_keep_lifecycle_and_draft_visible_in_both_themes() -> None:
+
+    observed = snapshot(
+        factories.pull_request(1, state="closed", is_draft=True),
+        factories.pull_request(2, state="merged"),
+    )
+    result = query_pull_request_list(
+        observed, PullRequestListQuery(states=frozenset({"closed"}))
+    )
+    for dark in (False, True):
+        rows = build_pull_request_rows(result, dark=dark, now=NOW)
+        for row, glyph, label in zip(
+            rows, (CLOSED_GLYPH, MERGED_GLYPH), ("closed draft", "merged"), strict=True
+        ):
+            assert str(row.cells[0]) == f"{glyph.symbol} {label}"
+            assert isinstance(row.cells[0], Text)
+            assert str(row.cells[0].style) == glyph.style(dark=dark)
+            assert str(row.cells[8]) == f"{MERGE_NOT_APPLICABLE_GLYPH.symbol} n/a"
+
+
+def test_lifecycle_and_draft_search_qualifiers_and_negations() -> None:
+    observed = snapshot(
+        factories.pull_request(1),
+        factories.pull_request(2, is_draft=True),
+        factories.pull_request(3, state="closed", is_draft=True),
+        factories.pull_request(4, state="merged"),
+    )
+    cases = {
+        "is:open": [1, 2],
+        "is:closed": [3, 4],
+        "state:closed": [3, 4],
+        "is:merged": [4],
+        "is:unmerged": [1, 2, 3],
+        "-is:unmerged": [4],
+        "draft:true": [2, 3],
+        "draft:false": [1, 4],
+        "-draft:true": [1, 4],
+        "-state:closed": [1, 2],
+        "is:closed draft:true": [3],
+    }
+    for text, expected in cases.items():
+        result = query_pull_request_list(
+            observed,
+            PullRequestListQuery(states=frozenset({"open", "closed"}), text=text),
+        )
+        assert [row.pull_request.number for row in result.rows] == expected, text
+    closed_search = query_pull_request_list(
+        observed,
+        PullRequestListQuery(states=frozenset({"closed"}), text="is:closed draft:true"),
+    )
+    assert (
+        closed_search.open_pull_request_count,
+        closed_search.closed_pull_request_count,
+    ) == (1, 1)

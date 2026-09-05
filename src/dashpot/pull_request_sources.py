@@ -1,4 +1,4 @@
-"""Observe complete active Pull Request collections behind one small interface."""
+"""Observe complete Pull Request collections behind one small interface."""
 
 from __future__ import annotations
 
@@ -125,7 +125,7 @@ class PullRequestSource(ABC):
 
     @abstractmethod
     def _collect(self) -> CollectedPullRequests:
-        """Observe one complete active Pull Request collection."""
+        """Observe one complete Pull Request collection."""
 
 
 class UnconfiguredPullRequestSource:

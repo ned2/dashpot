@@ -1,4 +1,4 @@
-"""Observe active GitHub Pull Requests as one bounded complete collection."""
+"""Observe GitHub Pull Requests as one bounded complete collection."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from .model import (
     PullRequestCheckStatus,
     PullRequestMergeability,
     PullRequestReviewDecision,
+    PullRequestState,
 )
 from .models import ConfigModel, LaxSequence, NonEmptyString, Rfc3339Timestamp
 from .pull_request_sources import (
@@ -32,6 +33,12 @@ from .pull_request_sources import (
     PullRequestSourceDiagnostic,
     PullRequestSourceRefreshError,
 )
+
+_STATES: Mapping[str, PullRequestState] = {
+    "OPEN": "open",
+    "CLOSED": "closed",
+    "MERGED": "merged",
+}
 
 _PAGE_SIZE = 100
 _RESPONSE_CODE = "github-malformed-response"
@@ -63,9 +70,10 @@ query DashpotPullRequests($repositoryId: ID!, $cursor: String) {{
       pullRequests(
         first: {_PAGE_SIZE}
         after: $cursor
-        states: [OPEN]
-        orderBy: {{field: UPDATED_AT, direction: DESC}}
+        states: [OPEN, CLOSED, MERGED]
+        orderBy: {{field: CREATED_AT, direction: ASC}}
       ) {{
+        totalCount
         nodes {{
           id
           number
@@ -103,7 +111,7 @@ class _PullRequestNode(ConfigModel):
     number: int = Field(gt=0)
     title: NonEmptyString
     url: HttpUrl
-    state: Literal["OPEN"]
+    state: Literal["OPEN", "CLOSED", "MERGED"]
     is_draft: bool
     head_ref_name: NonEmptyString
     base_ref_name: NonEmptyString
@@ -121,6 +129,7 @@ class _PageInfo(ConfigModel):
 
 
 class _PullRequestConnection(ConfigModel):
+    total_count: int = Field(ge=0)
     nodes: LaxSequence[_PullRequestNode]
     page_info: _PageInfo
 
@@ -154,7 +163,7 @@ def normalize_github_pull_request(record: Mapping[str, Any]) -> PullRequest:
         number=node.number,
         title=node.title,
         url=str(node.url),
-        state="open",
+        state=_STATES[node.state],
         is_draft=node.is_draft,
         head_branch=node.head_ref_name,
         base_branch=node.base_ref_name,
@@ -168,7 +177,7 @@ def normalize_github_pull_request(record: Mapping[str, Any]) -> PullRequest:
 
 
 class GitHubPullRequestsSource(PullRequestSource):
-    """Collect every active Pull Request of one configured GitHub repository."""
+    """Collect every Pull Request of one configured GitHub repository."""
 
     def __init__(
         self,
@@ -198,6 +207,7 @@ class GitHubPullRequestsSource(PullRequestSource):
             self.budget.start(self.monotonic) if self.monotonic else self.budget.start()
         )
         records: list[_PullRequestNode] = []
+        total_count: int | None = None
         cursor: str | None = None
         trail = CursorTrail("Pull Request collection")
         try:
@@ -210,13 +220,26 @@ class GitHubPullRequestsSource(PullRequestSource):
                 meter.next_request(f"{len(records)} Pull Requests")
                 data = self.gateway.graphql(_PULL_REQUESTS_QUERY, variables)
                 repository = self._repository_page(data)
-                records.extend(repository.pull_requests.nodes)
+                connection = repository.pull_requests
+                if total_count is not None and connection.total_count != total_count:
+                    raise PullRequestSourceRefreshError(
+                        "github-pull-request-count",
+                        "GitHub Pull Request count changed during collection; retry refresh",
+                    )
+                total_count = connection.total_count
+                records.extend(connection.nodes)
                 page = repository.pull_requests.page_info
                 if not page.has_next_page:
                     break
                 cursor = trail.follow(page.end_cursor)
         except GitHubRequestError as exc:
             raise PullRequestSourceRefreshError(exc.code, str(exc)) from exc
+        if len(records) != total_count:
+            raise PullRequestSourceRefreshError(
+                "github-pull-request-count",
+                f"GitHub reported {total_count} Pull Requests but returned {len(records)}; "
+                "retry refresh",
+            )
         pull_requests = tuple(
             normalize_github_pull_request(record.model_dump(by_alias=True, mode="json"))
             for record in records

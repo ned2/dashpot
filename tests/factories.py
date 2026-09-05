@@ -376,6 +376,7 @@ def pull_request(
     *,
     pull_request_id: str | None = None,
     title: str = "Add the feature",
+    state: str = "open",
     is_draft: bool = False,
     head_branch: str | None = None,
     base_branch: str = "main",
@@ -386,14 +387,14 @@ def pull_request(
     created_at: str = "2026-09-01T00:00:00Z",
     updated_at: str = NOW,
 ) -> PullRequest:
-    """Build one active repository-wide Pull Request observation."""
+    """Build one repository-wide Pull Request observation."""
     return PullRequest.model_validate(
         {
             "id": pull_request_id or f"PR_{number}",
             "number": number,
             "title": title,
             "url": f"https://github.com/test/repo/pull/{number}",
-            "state": "open",
+            "state": state,
             "isDraft": is_draft,
             "headBranch": head_branch or f"feature-{number}",
             "baseBranch": base_branch,

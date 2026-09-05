@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-05
-amended-by: 0030-combine-startup-evidence-with-mandatory-reads.md
+amended-by: 0030-combine-startup-evidence-with-mandatory-reads.md, 0031-observe-complete-pull-request-lifecycle-history.md
 ---
 
 # Observe Linked Pull Requests from Pull Request changes
@@ -104,3 +104,8 @@ its full active-collection sweep becomes material.
   recent activity or a large equal-timestamp boundary. The Refresh Budget
   abandons the whole observation rather than publishing partial Issue
   activity.
+
+[ADR 0031](0031-observe-complete-pull-request-lifecycle-history.md) extends the
+repository-wide observation to closed and merged history. Its independent
+schedule and failure state, and its omission of closing-reference relationships,
+still prevent it from supplying the Issue Source's relationship evidence.

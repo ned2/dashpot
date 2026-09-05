@@ -35,7 +35,7 @@ from helpers import wait_until
 
 
 @pytest.mark.asyncio
-async def test_pull_request_filters_update_rows_and_count_but_not_inventory() -> None:
+async def test_pull_request_filters_update_rows_matches_and_scoped_summary() -> None:
     snapshot = workspace_snapshot(
         issue("test/repo#1", "Issue"),
         pull_requests=(
@@ -52,21 +52,28 @@ async def test_pull_request_filters_update_rows_and_count_but_not_inventory() ->
     async with app.run_test(size=(160, 40)):
         pane = app.dashboard.pull_requests_pane()
         state = app.query_one("#pull-request-state", Select)
+        readiness = app.query_one("#pull-request-readiness", Select)
         search = app.query_one("#pull-request-search", Input)
         count = app.query_one("#pull-request-count", Static)
 
-        assert state.value == "all"
+        assert state.value == "open"
         assert pane.table.row_count == 2
         assert str(count.render()) == "2 pull requests"
-        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 2"
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 2 · Closed 0"
+        )
 
-        state.value = "draft"
+        readiness.value = "draft"
         await wait_until(lambda: pane.table.row_count == 1)
         assert "Draft navigation" in str(pane.table.get_row_at(0)[2])
         assert str(count.render()) == "1 pull request"
-        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 2"
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 1 · Closed 0"
+        )
 
-        state.value = "all"
+        readiness.value = "all"
         search.value = "author:alice"
         await wait_until(lambda: "Ready clipboard" in str(pane.table.get_row_at(0)[2]))
         assert pane.table.row_count == 1
@@ -778,3 +785,64 @@ async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
         app.dashboard.action_open_issue()
         await pilot.pause()
         assert not isinstance(app.screen, IssueScreen)
+
+
+@pytest.mark.asyncio
+async def test_pull_request_lifecycle_and_draft_controls_keep_scoped_counts() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Issue"),
+        pull_requests=(
+            factories.pull_request(1, author="alice"),
+            factories.pull_request(2, is_draft=True, author="alice"),
+            factories.pull_request(3, state="closed", is_draft=True, author="alice"),
+            factories.pull_request(4, state="merged", author="alice"),
+            factories.pull_request(5, state="merged", author="bob"),
+        ),
+    )
+    collector = SequenceCollector(snapshot)
+    app = DashpotApp(collector, refresh_seconds=0)
+    async with app.run_test(size=(120, 40)):
+        await wait_until(lambda: app.store.revision == 1)
+        pane = app.dashboard.pull_requests_pane()
+        lifecycle = app.query_one("#pull-request-state", Select)
+        readiness = app.query_one("#pull-request-readiness", Select)
+        search = app.query_one("#pull-request-search", Input)
+        count = app.query_one("#pull-request-count", Static)
+        assert lifecycle.value == "open"
+        assert readiness.value == "all"
+        assert pane.table.row_count == 2
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 2 · Closed 3"
+        )
+
+        lifecycle.value = "closed"
+        await wait_until(lambda: pane.table.row_count == 3)
+        assert str(count.render()) == "3 pull requests"
+        assert "closed draft" in str(pane.table.get_row_at(0)[0])
+        assert "merged" in str(pane.table.get_row_at(1)[0])
+        search.value = "author:alice"
+        await wait_until(lambda: pane.table.row_count == 2)
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 2 · Closed 2"
+        )
+
+        readiness.value = "draft"
+        await wait_until(lambda: pane.table.row_count == 1)
+        assert str(count.render()) == "1 pull request"
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 1 · Closed 1"
+        )
+        lifecycle.value = "all"
+        await wait_until(lambda: pane.table.row_count == 2)
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 1 · Closed 1"
+        )
+        readiness.value = "ready"
+        await wait_until(lambda: "open" in str(pane.table.get_row_at(0)[0]))
+        assert pane.table.row_count == 2
+        assert "merged" in str(pane.table.get_row_at(1)[0])
+        assert collector.calls == 1

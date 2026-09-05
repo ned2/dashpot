@@ -32,7 +32,7 @@ Dashpot's own ignored runtime state, such as persisting a Snapshot Seed or
 pruning the hook record of a session that has ended.
 
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
-- active GitHub Pull Requests, including review, checks, and mergeability
+- GitHub Pull Requests across their lifecycle, including review, checks, and mergeability
 - git Branches, Remote-Tracking Branches, worktrees, HEAD, and dirty state
 - Codex and Claude Code lifecycle records published through opt-in hooks
 - source freshness, failures, and last-good state
@@ -123,25 +123,41 @@ label, an Issue without one shows nothing there, and a table with none omits
 the column rather than invent a default, so an Issue Source that does not use
 priority labels pays no width for it.
 
-The `PULL REQUESTS` pane lists every open Pull Request of a GitHub-backed
-Project, newest update first. Its status selector defaults to `All` active Pull
-Requests and narrows them to `Ready` or `Draft`; it deliberately does not fetch
-the repository's closed and merged history. Bare search terms match the number,
-title, Project, head Branch, base Branch, and author. The query also supports
-the GitHub-shaped `author:`, `head:`, `base:`, `review:`, `status:`, `is:draft`,
-`is:open`, `is:pr`, and `is:unmerged` qualifiers, including a leading `-` to
-negate one, over the facts Dashpot observes. `status:pending` includes a Pull
+The `PULL REQUESTS` pane defaults to open Pull Requests of a GitHub-backed
+Project, newest update first. Its lifecycle selector offers `Open`, `Closed`,
+and `All`; Open includes drafts and non-drafts, while Closed includes merged
+Pull Requests and those closed without merging. A separate selector offers
+`Any draft status`, `Non-draft`, and `Draft`. Draft status remains visible on
+rows, including closed drafts.
+
+The title shows `Open N · Closed M`, scoped to the current search and draft
+filters before lifecycle selection. The count beside search reports matches
+of every filter, including lifecycle. Unlike the Issues pane's fixed lifecycle
+inventory, these counters follow GitHub's filtered summaries. Bare search terms
+match the number, title, Project, head Branch, base Branch, and author.
+GitHub-shaped qualifiers include `author:`, `head:`, `base:`, `review:`,
+`status:`, `draft:true`, `draft:false`, `is:draft`, `is:open`, `is:closed`,
+`state:open`, `state:closed`, `is:merged`, `is:unmerged`, and `is:pr`, with a
+leading `-` to negate one. Qualifiers combine with the selectors; select `All`
+to search across lifecycles. Open/closed search qualifiers narrow the rows but
+leave both lifecycle counters visible. `status:pending` includes a Pull
 Request with no reported checks, matching
 [GitHub's search semantics](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/filtering-and-searching-issues-and-pull-requests).
-The pane title keeps the complete active inventory while the count beside the
-query reports only matches. Its columns are `STATE`, `#`, `TITLE`, `HEAD`,
-`BASE`, `AUTHOR`, `REVIEW`, `CHECKS`, `MERGE`, and `UPDATED`; drafts, review
-decisions, the head commit's combined check/status result, merge conflicts,
-and mergeability still being calculated are distinct Glyphs explained by the
-Legend. Long content scrolls horizontally rather than dropping facts. A fresh
-empty collection says `no active pull requests`; a filter with no matches says
-so, and stale last-good data and an unavailable or unconfigured source say so
-separately.
+
+The columns are `STATE`, `#`, `TITLE`, `HEAD`, `BASE`, `AUTHOR`, `REVIEW`,
+`CHECKS`, `MERGE`, and `UPDATED`. Closed and merged states have distinct Glyphs;
+mergeability is not applicable after closure. The Legend explains the Glyphs,
+and long content scrolls horizontally. A fresh empty collection says
+`no pull requests`; no matches, stale last-good data, and an unavailable or
+unconfigured source are distinguished. An unavailable source shows no invented
+zero totals.
+
+Observation collects the complete Pull Request history under its independent
+Refresh Budget. If history exceeds that budget or collection fails, the whole
+last-good collection is retained as stale; without a successful collection the
+pane is unavailable. Totals are never inferred from a truncated list.
+Headless JSON's `pullRequests` now includes all lifecycles and its `state` is
+`open`, `closed` (without merging), or `merged`; the field names are unchanged.
 
 A Workspace inventory stores named groupings of anchor paths for one Project —
 independent clones, never discovered or persisted worktree paths:

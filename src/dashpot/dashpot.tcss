@@ -75,6 +75,11 @@ ItemFilterBar {
     align-vertical: middle;
 }
 
+ItemFilterBar > .item-readiness {
+    width: 20;
+    margin-right: 1;
+}
+
 ItemFilterBar > .item-state {
     width: 14;
     margin-right: 1;

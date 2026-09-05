@@ -46,13 +46,13 @@ class LinkedPullRequest(ObservationModel):
 
 
 class PullRequest(ObservationModel):
-    """Publish one active Pull Request of the Project's Git Repository."""
+    """Publish one Pull Request of the Project's Git Repository."""
 
     id: NonEmptyString
     number: Annotated[int, Field(gt=0)]
     title: NonEmptyString
     url: NonEmptyString
-    state: Literal["open"]
+    state: PullRequestState
     is_draft: bool
     head_branch: NonEmptyString
     base_branch: NonEmptyString

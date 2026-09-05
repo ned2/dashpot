@@ -119,10 +119,14 @@ warning. The research behind the shape of every query is in
 [`docs/github-api-batching-research.md`](github-api-batching-research.md).
 
 The GitHub Pull Request source is a separate scheduled observation over the
-same durable Repository Identity. It lists every open Pull Request through a
-cursor-paginated GraphQL connection, under its own Refresh Budget and
-last-good state, and publishes no partial page set. The compact published model
-keeps GitHub's nested check graph behind the source: it carries the combined
+same durable Repository Identity. It lists every open, closed, and merged Pull
+Request through a cursor-paginated GraphQL connection in creation order, under
+its own Refresh Budget and last-good state, and publishes no partial page set. Every page must report the
+same total and the complete collection must match it. This deliberately pays
+for complete history so both the closed list and filter-scoped totals can be
+answered locally; exceeding the budget retains stale data or reports
+unavailability ([ADR 0031](adr/0031-observe-complete-pull-request-lifecycle-history.md)).
+The compact published model keeps GitHub's nested check graph behind the source: it carries the combined
 check/status rollup, review decision, and mergeability alongside identity,
 Branches, author, draft state, and creation and update times. A Local Issue
 Markdown Project uses a second adapter at that seam which reports Pull Requests as not
@@ -152,11 +156,11 @@ the full-width `SESSIONS`, `WORKTREES`, `BRANCHES` and `PULL REQUESTS` panes
 stack above the full-width `ISSUES` table. Nothing is switched to: every
 active Agent Session, every observed Worktree, every Branch and every active
 Pull Request is listed in its pane by default, with
-the complete count in the pane title and an honest one-line empty state. Its
-status and query controls filter the read model to ready or draft Pull Requests
-and GitHub-shaped terms without changing or refetching observed state. The panes
-are
-sized to their content rather than sharing the flex height: each asks for the
+an honest one-line empty state. The Pull Request title summarizes Open / Closed
+under search and draft filters; lifecycle selection then narrows the list and
+matched count. Separate lifecycle and draft controls and GitHub-shaped search
+terms filter the read model without changing or refetching observed state.
+The panes are sized to their content rather than sharing the flex height: each asks for the
 rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
 granted first so an ordinary empty pane costs three lines, and the caps shrink
 before the Issue table would drop below its minimum height, so the panes only ever

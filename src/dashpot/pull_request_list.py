@@ -1,4 +1,4 @@
-"""Read and render the Project's active Pull Requests for the main screen."""
+"""Read and render the Project's Pull Requests for the main screen."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from .list_pane import ListCell, ListColumn, ListRow, truncate_end
 from .model import ProjectObservation, PullRequest, SourceStatus, WorkspaceSnapshot
 from .pull_request_search import PullRequestQualifier, parse_pull_request_search
 
+PullRequestLifecycle = Literal["open", "closed"]
 PullRequestReadiness = Literal["ready", "draft"]
 
 GOOD_COLORS = ("#1a7f37", "#3fb950")
@@ -47,7 +48,11 @@ MERGEABILITY_UNKNOWN_GLYPH = Glyph(
     "…M", "GitHub is still determining mergeability", MUTED_COLORS
 )
 
-STATE_LEGEND = (OPEN_GLYPH, DRAFT_GLYPH)
+CLOSED_GLYPH = Glyph("⊗", "a Pull Request closed without merging", BAD_COLORS)
+MERGED_GLYPH = Glyph("⑂", "a merged Pull Request", ("#8250df", "#a371f7"))
+MERGE_NOT_APPLICABLE_GLYPH = Glyph("—M", "mergeability does not apply", MUTED_COLORS)
+
+STATE_LEGEND = (OPEN_GLYPH, DRAFT_GLYPH, CLOSED_GLYPH, MERGED_GLYPH)
 REVIEW_LEGEND = (
     APPROVED_GLYPH,
     CHANGES_REQUESTED_GLYPH,
@@ -66,6 +71,7 @@ MERGE_LEGEND = (
     MERGEABLE_GLYPH,
     CONFLICTING_GLYPH,
     MERGEABILITY_UNKNOWN_GLYPH,
+    MERGE_NOT_APPLICABLE_GLYPH,
 )
 LEGEND = STATE_LEGEND + REVIEW_LEGEND + CHECKS_LEGEND + MERGE_LEGEND
 
@@ -90,6 +96,7 @@ PULL_REQUEST_COLUMNS: tuple[ListColumn, ...] = (
 class PullRequestListQuery:
     readiness: frozenset[PullRequestReadiness] = frozenset({"ready", "draft"})
     text: str = ""
+    states: frozenset[PullRequestLifecycle] = frozenset({"open"})
 
 
 DEFAULT_PULL_REQUEST_QUERY = PullRequestListQuery()
@@ -112,6 +119,8 @@ class PullRequestListResult:
     status: SourceStatus
     attempted_at: str | None
     last_good_at: str | None
+    open_pull_request_count: int
+    closed_pull_request_count: int
     revision: int = 0
 
     @property
@@ -171,6 +180,19 @@ def _query_indexed_pull_request_list(
         and all(
             _matches_qualifier(pull_request, qualifier)
             for qualifier in parsed.qualifiers
+            if not _is_lifecycle_qualifier(qualifier)
+        )
+    ]
+    open_count = sum(row.pull_request.state == "open" for row in rows)
+    closed_count = len(rows) - open_count
+    rows = [
+        row
+        for row in rows
+        if _lifecycle(row.pull_request) in query.states
+        and all(
+            _matches_qualifier(row.pull_request, qualifier)
+            for qualifier in parsed.qualifiers
+            if _is_lifecycle_qualifier(qualifier)
         )
     ]
     rows.sort(key=lambda row: row.pull_request.number)
@@ -206,13 +228,15 @@ def _query_indexed_pull_request_list(
         if snapshot.pull_request_last_good_at is not None
     ]
     return PullRequestListResult(
-        tuple(rows),
-        len(rows),
-        len(pull_requests),
-        status,
-        max(attempted, default=None),
-        max(last_good, default=None),
-        revision,
+        rows=tuple(rows),
+        matched_pull_request_count=len(rows),
+        observed_pull_request_count=len(pull_requests),
+        status=status,
+        attempted_at=max(attempted, default=None),
+        last_good_at=max(last_good, default=None),
+        open_pull_request_count=open_count,
+        closed_pull_request_count=closed_count,
+        revision=revision,
     )
 
 
@@ -222,7 +246,7 @@ def build_pull_request_rows(
     dark: bool,
     now: datetime | None = None,
 ) -> tuple[ListRow, ...]:
-    """Render every active Pull Request with its scan-level coordination facts."""
+    """Render every Pull Request with its scan-level coordination facts."""
     current = now or datetime.now(UTC)
     return tuple(
         ListRow(
@@ -237,11 +261,7 @@ def pull_request_cells(
     pull_request: PullRequest, *, dark: bool, now: datetime
 ) -> tuple[ListCell, ...]:
     return (
-        _glyph_text(
-            DRAFT_GLYPH if pull_request.is_draft else OPEN_GLYPH,
-            "draft" if pull_request.is_draft else "open",
-            dark=dark,
-        ),
+        _state_cell(pull_request, dark=dark),
         str(pull_request.number),
         truncate_end(pull_request.title, TITLE_LIMIT),
         truncate_end(pull_request.head_branch, BRANCH_LIMIT),
@@ -273,19 +293,19 @@ def pull_request_empty_message(
         parsed = parse_pull_request_search(query.text)
         if not parsed.terms and not parsed.qualifiers:
             if query.readiness == frozenset({"ready"}):
-                return "no ready Pull Requests"
+                return "no non-draft Pull Requests"
             if query.readiness == frozenset({"draft"}):
                 return "no draft Pull Requests"
         return "no Pull Requests match the current filters"
     if result.status == "fresh":
-        return "no active pull requests"
+        return "no pull requests"
     if result.status == "stale":
-        return "no active pull requests when last observed"
+        return "no pull requests when last observed"
     return "pull requests unavailable"
 
 
 def pull_request_result_count_text(count: int) -> str:
-    """Describe how many active Pull Requests match every current filter."""
+    """Describe how many Pull Requests match every current filter."""
     return "1 pull request" if count == 1 else f"{count} pull requests"
 
 
@@ -321,10 +341,19 @@ def _matches_qualifier(
         matched = pull_request.base_branch.casefold() == value
     elif qualifier.field == "head":
         matched = pull_request.head_branch.casefold() == value
+    elif qualifier.field == "draft":
+        matched = pull_request.is_draft == (value == "true")
     elif qualifier.field == "is":
-        matched = value != "draft" or pull_request.is_draft
+        matched = {
+            "pr": True,
+            "draft": pull_request.is_draft,
+            "open": pull_request.state == "open",
+            "closed": pull_request.state != "open",
+            "merged": pull_request.state == "merged",
+            "unmerged": pull_request.state != "merged",
+        }[value]
     elif qualifier.field == "state":
-        matched = value == "open"
+        matched = value == _lifecycle(pull_request)
     elif qualifier.field == "review":
         decisions = {
             "approved": "approved",
@@ -369,6 +398,8 @@ def _checks_cell(pull_request: PullRequest, *, dark: bool) -> Text:
 
 
 def _merge_cell(pull_request: PullRequest, *, dark: bool) -> Text:
+    if pull_request.state != "open":
+        return _glyph_text(MERGE_NOT_APPLICABLE_GLYPH, "n/a", dark=dark)
     values = {
         "mergeable": (MERGEABLE_GLYPH, "mergeable"),
         "conflicting": (CONFLICTING_GLYPH, "conflicts"),
@@ -380,3 +411,30 @@ def _merge_cell(pull_request: PullRequest, *, dark: bool) -> Text:
 
 def _glyph_text(glyph: Glyph, label: str, *, dark: bool) -> Text:
     return Text(f"{glyph.symbol} {label}", style=glyph.style(dark=dark))
+
+
+def _lifecycle(pull_request: PullRequest) -> PullRequestLifecycle:
+    return "open" if pull_request.state == "open" else "closed"
+
+
+def _state_cell(pull_request: PullRequest, *, dark: bool) -> Text:
+    if pull_request.state == "open":
+        glyph = DRAFT_GLYPH if pull_request.is_draft else OPEN_GLYPH
+        label = "draft" if pull_request.is_draft else "open"
+    else:
+        glyph = MERGED_GLYPH if pull_request.state == "merged" else CLOSED_GLYPH
+        label = pull_request.state + (" draft" if pull_request.is_draft else "")
+    return _glyph_text(glyph, label, dark=dark)
+
+
+def pull_request_inventory_text(result: PullRequestListResult) -> str:
+    """Summarize both lifecycles under the current search and draft filters."""
+    if result.status == "unavailable":
+        return "unavailable"
+    return f"Open {result.open_pull_request_count} · Closed {result.closed_pull_request_count}"
+
+
+def _is_lifecycle_qualifier(qualifier: PullRequestQualifier) -> bool:
+    return qualifier.field == "state" or (
+        qualifier.field == "is" and qualifier.value in {"open", "closed"}
+    )

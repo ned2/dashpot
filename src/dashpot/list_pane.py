@@ -146,6 +146,7 @@ class ListPane(Vertical):
         note: str | None = None,
         empty_message: str | None = None,
         title_count: int | None = None,
+        title_summary: str | None = None,
     ) -> None:
         """Replace the listed records, keeping the cursor by row identity.
 
@@ -173,9 +174,10 @@ class ListPane(Vertical):
                 )
                 table.add_row(*cells, key=row.key)
         self.rows_by_key = desired
-        self.border_title = Content(
-            f"{self.label} · {self.count if title_count is None else title_count}"
-        )
+        summary = title_summary
+        if summary is None:
+            summary = str(self.count if title_count is None else title_count)
+        self.border_title = Content(f"{self.label} · {summary}")
         self.border_subtitle = Content(note) if note else None
         # The empty state is the message line alone: a header over nothing
         # would only cost the Issue table a row.

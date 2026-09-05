@@ -164,7 +164,10 @@ async def test_dashboard_stacks_the_panes_above_the_issues() -> None:
         # lower-right pane border. Dashpot never fetches, and this repository
         # never has.
         assert pane_title(app, "#branches-pane") == "BRANCHES · 0"
-        assert pane_title(app, "#pull-requests-pane") == "PULL REQUESTS · 0"
+        assert (
+            pane_title(app, "#pull-requests-pane")
+            == "PULL REQUESTS · Open 0 · Closed 0"
+        )
         assert pane_subtitle(app, "#branches-pane") == (
             "integration unavailable · remote never fetched"
         )
@@ -184,7 +187,7 @@ async def test_dashboard_stacks_the_panes_above_the_issues() -> None:
         assert empty_messages == [
             "no active sessions",
             "no branches observed yet",
-            "no active pull requests",
+            "no pull requests",
         ]
         assert not app.query_one("#worktrees-pane .list-pane-empty").display
         assert app.query_one("#sessions", DataTable).has_focus

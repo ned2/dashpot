@@ -8,7 +8,7 @@ from typing import Literal, cast
 from .search import SearchSort, parse_search
 
 PullRequestQualifierField = Literal[
-    "author", "base", "head", "is", "review", "state", "status"
+    "author", "base", "draft", "head", "is", "review", "state", "status"
 ]
 
 
@@ -31,11 +31,12 @@ _QUALIFIER_VALUES: dict[PullRequestQualifierField, frozenset[str]] = {
     "author": frozenset(),
     "base": frozenset(),
     "head": frozenset(),
-    "is": frozenset({"draft", "open", "pr", "unmerged"}),
+    "draft": frozenset({"true", "false"}),
+    "is": frozenset({"draft", "open", "closed", "merged", "pr", "unmerged"}),
     "review": frozenset(
         {"approved", "changes-requested", "changes_requested", "none", "required"}
     ),
-    "state": frozenset({"open"}),
+    "state": frozenset({"open", "closed"}),
     "status": frozenset({"failure", "pending", "success"}),
 }
 

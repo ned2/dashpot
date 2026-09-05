@@ -18,9 +18,8 @@ writes GitHub's JSON body — with its typed `errors[].type` and `errors[].path`
 limit were told apart by prose GitHub may reword and `gh` may localise.
 
 Every GitHub request now goes through one gateway
-([`github.py`](../../src/dashpot/github.py)), which the Issue Source and the
-repository identity check use and the Pull Requests pane
-([#83](https://github.com/ned2/dashpot/issues/83)) will:
+([`github.py`](../../src/dashpot/github.py)), which the Issue Source, the repository identity check, and the Pull Requests
+pane ([#83](https://github.com/ned2/dashpot/issues/83)) use:
 
 - **A failure is read from its structured signals first.** The JSON body on
   stdout is parsed even when `gh` exited non-zero: a GraphQL error's `type`

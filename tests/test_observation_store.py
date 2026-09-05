@@ -280,10 +280,11 @@ def test_adapter_supplied_stale_collection_remains_authoritative() -> None:
     assert required(store.issue("I_one")).issue.title == "Adapter last good"
 
 
-def test_unavailable_pull_requests_use_store_last_good_without_degrading_issues() -> (
-    None
-):
-    pull_request = factories.pull_request(83, pull_request_id="PR_stable")
+@pytest.mark.parametrize("state", ["open", "closed", "merged"])
+def test_unavailable_pull_requests_use_store_last_good_without_degrading_issues(
+    state,
+) -> None:
+    pull_request = factories.pull_request(83, pull_request_id="PR_stable", state=state)
     available = project(
         "project:one", issue("I_one", "Issue"), pull_requests=[pull_request]
     )
