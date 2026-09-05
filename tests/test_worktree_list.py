@@ -97,6 +97,23 @@ def test_store_lists_every_target_across_projects_in_topology_order() -> None:
     assert store.query_worktrees().rows[0].target.dirty is False
 
 
+def test_main_worktree_is_pinned_before_the_existing_path_order() -> None:
+    alpha = project(
+        "project:alpha",
+        target("/alpha-linked", branch="alpha"),
+        target("/zeta-main", role="main"),
+        target("/zeta-linked", branch="zeta"),
+    )
+
+    result = query_worktree_list(workspace(alpha))
+
+    assert [row.target.path for row in result.rows] == [
+        "/zeta-main",
+        "/alpha-linked",
+        "/zeta-linked",
+    ]
+
+
 def test_active_sessions_join_the_target_they_are_located_at() -> None:
     alpha = project(
         "project:alpha",

@@ -141,6 +141,27 @@ def test_checked_out_branches_lead_then_the_most_recent_commit() -> None:
     ]
 
 
+def test_integration_branch_is_pinned_before_the_existing_order() -> None:
+    observation = branchy_project(
+        "project:one",
+        local("main", committed_at="2026-08-01T00:00:00Z"),
+        remote("main", committed_at="2026-08-01T00:00:00Z"),
+        local("checked-out", committed_at="2026-08-02T00:00:00Z"),
+        local("newest", committed_at="2026-08-27T02:59:00Z"),
+        local("older", committed_at="2026-08-26T00:00:00Z"),
+        targets=[target("/project:one", role="main", branch="checked-out")],
+    )
+
+    result = query_branch_list(workspace(observation))
+
+    assert [row.name for row in result.rows] == [
+        "main",
+        "checked-out",
+        "newest",
+        "older",
+    ]
+
+
 def test_sessions_join_the_branch_they_are_on_and_the_store_serves_the_query() -> None:
     observation = branchy_project(
         "project:one", local("issue/1", upstream="origin/issue/1"), remote("issue/1")

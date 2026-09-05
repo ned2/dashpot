@@ -202,11 +202,12 @@ def _query_indexed_branch_list(
                 sessions=tuple(sessions_by_branch.get((project_id, name), ())),
             )
         )
-    # Stable sorts, last key first: checked-out branches lead, then the most
-    # recent commit, then the name.
+    # Stable sorts, last key first: the Integration Branch leads, then
+    # checked-out branches, the most recent commit, and the name.
     rows.sort(key=lambda row: row.name)
     rows.sort(key=lambda row: row.committed_at, reverse=True)
     rows.sort(key=lambda row: 0 if row.worktrees else 1)
+    rows.sort(key=lambda row: 0 if _is_integration_branch(row) else 1)
     fetched = [
         project.snapshot.fetched_at
         for project in projects.values()
@@ -225,6 +226,14 @@ def _query_indexed_branch_list(
         revision,
         fetched_at=max(fetched, default=None),
         integration_refs=tuple(integration_refs),
+    )
+
+
+def _is_integration_branch(row: BranchListRow) -> bool:
+    """Identify the row carrying its Project's Integration Branch."""
+    snapshot = row.project.snapshot
+    return snapshot is not None and any(
+        ref.refname == snapshot.integration_ref for ref in row.refs
     )
 
 
