@@ -219,6 +219,17 @@ def deleted(one: CleanupTarget) -> TargetResult:
     )
 
 
+def refused(one: CleanupTarget) -> TargetResult:
+    return TargetResult(
+        identity=one.identity,
+        kind=one.kind,
+        label=one.label,
+        expected=one.expected,
+        outcome="refused",
+        detail=f"{one.label} moved after the preview",
+    )
+
+
 class FakeCleaner:
     """An adapter that answers scripted previews and reports, recording each call."""
 
@@ -259,6 +270,10 @@ def toasts(app: DashpotApp) -> list[str]:
     return [notification.message for notification in app._notifications]
 
 
+def toast_titles(app: DashpotApp) -> list[str]:
+    return [notification.title for notification in app._notifications]
+
+
 async def focus_row(app: DashpotApp, pilot: object, pane_id: str, key: str) -> None:
     """Focus a list pane and put its cursor on the row with ``key``."""
     pane = app.query_one(f"#{pane_id}", ListPane)
@@ -292,7 +307,7 @@ WORKTREE_KEY = row_key("worktree", PROJECT, WORKTREE)
 
 
 @pytest.mark.asyncio
-async def test_x_on_a_branch_row_previews_selects_performs_and_reports() -> None:
+async def test_x_on_a_branch_row_previews_selects_performs_and_notifies() -> None:
     cleaner = FakeCleaner(
         BRANCH_PREVIEW, reports=[report(BRANCH_PREVIEW, deleted(LOCAL))]
     )
@@ -335,28 +350,45 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_reports() -> None
         assert marks(targets) == ["▐X▌", "▐ ▌"]
 
         await pilot.click("#cleanup-confirm")
-        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
-        await pilot.pause()
+        await wait_until(lambda: app.store.revision == 2)
 
         assert cleaner.confirmations == [
             CleanupConfirmation(BRANCH_REQUEST, "0123456789abcdef", (LOCAL.identity,))
         ]
-        text = str(app.screen.query_one("#cleanup-report", Static).render())
-        assert "deleted        Local Branch refs/heads/feat" in text
-        assert f"recover: git branch feat {TIP}" in text
-        assert toasts(app) == ["Test Repository: deleted Local Branch"]
+        assert toasts(app) == ["Deleted Local Branch"]
+        assert toast_titles(app) == ["Test Repository cleanup"]
         assert app.cleaning == {}
+        assert not isinstance(app.screen, CleanupReportScreen)
         # What the deletion changed is observed passively afterwards.
-        await wait_until(lambda: app.store.revision == 2)
         assert collector.calls == 2
 
-        await pilot.press("escape")
-        await pilot.pause()
-        assert not isinstance(app.screen, CleanupReportScreen)
         assert sorted(row.name for row in app.store.query_branches().rows) == ["main"]
         # The deleted row's neighbour holds the cursor, so the next x is one press away.
         pane = app.query_one("#branches-pane", ListPane)
         assert pane.highlighted() == (row_key("branch", PROJECT, "main"), 0)
+
+
+@pytest.mark.asyncio
+async def test_a_refused_cleanup_keeps_its_detailed_report() -> None:
+    cleaner = FakeCleaner(
+        BRANCH_PREVIEW, reports=[report(BRANCH_PREVIEW, refused(LOCAL))]
+    )
+    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
+
+    async with app.run_test(size=(140, 50)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await pilot.press("space")
+        await pilot.click("#cleanup-confirm")
+        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
+
+        report_text = str(app.screen.query_one("#cleanup-report", Static).render())
+        assert "refused        Local Branch refs/heads/feat" in report_text
+        assert "Local Branch moved after the preview" in report_text
+        assert toasts(app) == ["Refused Local Branch"]
+        assert toast_titles(app) == ["Test Repository cleanup"]
 
 
 @pytest.mark.asyncio
@@ -448,9 +480,10 @@ async def test_a_changed_preview_reopens_for_another_confirmation() -> None:
 
         await pilot.press("space")
         await pilot.click("#cleanup-confirm")
-        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
+        await wait_until(lambda: app.cleaning == {})
         assert cleaner.confirmations[1].fingerprint == "fedcba9876543210"
-        assert app.cleaning == {}
+        assert toasts(app)[-1] == "Deleted Local Branch"
+        assert not isinstance(app.screen, CleanupReportScreen)
 
 
 @pytest.mark.asyncio
@@ -506,7 +539,7 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         assert acknowledgement.render().plain.startswith("▐X▌")
 
         await pilot.click("#cleanup-confirm")
-        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
+        await wait_until(lambda: app.cleaning == {})
         assert cleaner.confirmations == [
             CleanupConfirmation(
                 WORKTREE_REQUEST,
@@ -515,9 +548,8 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
                 delete_ignored=True,
             )
         ]
-        assert toasts(app) == [
-            "Test Repository: deleted Worktree; deleted Local Branch"
-        ]
+        assert toasts(app) == ["Removed Worktree\nDeleted Local Branch"]
+        assert not isinstance(app.screen, CleanupReportScreen)
 
 
 BLOCKED_TREE = target(
@@ -671,9 +703,8 @@ async def test_cleanup_and_fetch_exclude_each_other_per_project() -> None:
             assert not fetched.is_set()
 
             cleaner.release.set()
-            await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
-            await pilot.press("escape")
             await wait_until(lambda: app.store.revision == 2)
+            assert not isinstance(app.screen, CleanupReportScreen)
     finally:
         cleaner.release.set()
 
@@ -777,7 +808,7 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         await pilot.press("tab", "tab")  # Cancel, then Delete selected
         assert app.focused.id == "cleanup-confirm"
         await pilot.press("enter")
-        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
+        await wait_until(lambda: app.cleaning == {})
         assert cleaner.confirmations == [
             CleanupConfirmation(
                 WORKTREE_REQUEST,
@@ -786,6 +817,8 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
                 delete_ignored=True,
             )
         ]
+        assert toasts(app) == ["Removed Worktree\nDeleted Local Branch"]
+        assert not isinstance(app.screen, CleanupReportScreen)
 
 
 @pytest.mark.asyncio
@@ -828,7 +861,7 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
         await pilot.pause()
         assert confirm_button(app).variant == "error"
         await pilot.click("#cleanup-confirm")
-        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
+        await wait_until(lambda: app.cleaning == {})
         assert cleaner.confirmations == [
             CleanupConfirmation(
                 WORKTREE_REQUEST,
@@ -837,3 +870,5 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
                 delete_ignored=True,
             )
         ]
+        assert toasts(app)[-1] == "Removed Worktree\nDeleted Local Branch"
+        assert not isinstance(app.screen, CleanupReportScreen)

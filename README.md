@@ -91,7 +91,7 @@ the management commands `init`, `integrate`,
 |---|---|
 | `r` | Refresh every observation in the Workspace, observing every GitHub Issue afresh rather than only what changed |
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
-| `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
+| `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; success returns directly to the dashboard with one toast line per outcome, while a refused or unknown outcome opens its detailed report; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
 | `/` | Focus the Pull Request search when its table has focus; otherwise focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |

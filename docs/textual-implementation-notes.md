@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-03
+date: 2026-09-06
 ---
 
 # Textual implementation notes for Dashpot
@@ -335,6 +335,10 @@ needs a selection and a confirmation:
   show it beneath the list, switch the variant to `error` only once a press
   would delete, and answer a premature press with a toast and focus on what is
   missing; deselect what must never stay selected in the same handler.
+- Return directly to the dashboard after every successful Cleanup and list its
+  target outcomes as concise lines in a toast. Push the detailed report screen
+  only for a refused or unknown outcome, where its reason and recovery context
+  remain actionable.
 - Inspect and perform in `run_worker(partial(...), group=..., exit_on_error=False)`
   over the app's executor, post a message with the result, and let the message
   handler push the next screen; the modal never blocks the event loop.

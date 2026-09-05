@@ -7,8 +7,9 @@ the destructive button stays disabled until the selection is one
 ``perform_cleanup`` would accept — every required target selected and the
 Worktree's ignored content acknowledged — and Escape always cancels. The
 screen dismisses with the :class:`CleanupConfirmation` the app performs, or
-None. :class:`CleanupReportScreen` then shows each target's outcome and the
-command that recreates a deleted one.
+None. A successful Cleanup returns directly to the dashboard with one toast
+line per outcome; :class:`CleanupReportScreen` preserves the full detail for
+a refused or unknown outcome.
 """
 
 from __future__ import annotations

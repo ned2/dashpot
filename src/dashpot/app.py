@@ -38,6 +38,7 @@ from .cleanup import (
     CleanupPreview,
     CleanupReport,
     CleanupRequest,
+    TargetResult,
     WorktreeCleanupRequest,
 )
 from .cleanup_view import CleanupReportScreen, CleanupScreen
@@ -941,11 +942,21 @@ def cleanup_subject(request: CleanupRequest) -> str:
     return str(request.path)
 
 
+def cleanup_result_line(result: TargetResult) -> str:
+    """Render one concise Cleanup outcome for a toast."""
+    if result.outcome == "deleted":
+        verb = "Removed" if result.kind == "worktree" else "Deleted"
+        return f"{verb} {result.label}"
+    if result.outcome == "already-absent":
+        return f"{result.label} already absent"
+    return f"{result.outcome.capitalize()} {result.label}"
+
+
 def cleanup_summary(report: CleanupReport) -> str:
-    """One line for the toast: each target's outcome, or why nothing ran."""
+    """List each target's outcome for a toast, or why nothing ran."""
     if report.refusals:
-        return "; ".join(report.refusals)
-    return "; ".join(f"{result.outcome} {result.label}" for result in report.results)
+        return "\n".join(report.refusals)
+    return "\n".join(cleanup_result_line(result) for result in report.results)
 
 
 class DashpotApp(App[None]):
@@ -1410,11 +1421,15 @@ class DashpotApp(App[None]):
             return
         self.cleaning.pop(message.project_id, None)
         self.notify(
-            f"{label}: {cleanup_summary(report)}",
+            cleanup_summary(report),
             severity="information" if report.succeeded else "error",
-            title="Dashpot cleanup",
+            title=f"{label} cleanup",
         )
-        self.push_screen(CleanupReportScreen(report))
+        if not report.succeeded:
+            # A successful report is already complete in the toast. Keep the
+            # detailed screen only where a person needs the refusal or unknown
+            # outcome and its recovery context.
+            self.push_screen(CleanupReportScreen(report))
         if report.performed:
             self.reobserve_after_cleanup(message.project_id)
 
