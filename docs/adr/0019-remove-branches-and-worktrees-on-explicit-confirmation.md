@@ -159,3 +159,22 @@ and it mutates only the targets the person selected:
 - Non-goals: bulk deletion, custom remote-ref mappings, several push
   destinations, forge or open-PR checks, automatic fetching, and atomic
   rollback across filesystem, refs, and network. Each needs its own decision.
+
+## Presentation refinement — 2026-09-12
+
+The dashboard groups each explicit choice with its availability, every blocking
+condition, and essential consequences. Repository context and the target name
+stay visible; expandable evidence retains full paths, refs, recovery commands,
+and remedial commands. Remote comparisons explicitly use last-fetched state.
+Content integration does not imply that the original commits are retained by
+the Integration Branch. Worktree removal states that its Branch is retained
+unless selected separately, and ignored paths include their contents.
+
+One scrollable body holds the preview and keyboard-accessible disclosures; a
+compact footer keeps confirmation feedback and actions visible. The separate
+ignored-content acknowledgement appears only when Worktree removal is selected
+and resets when deselected. If no target is selectable, Close is the only action.
+Otherwise an invalid confirmation still explains what is missing and focuses
+its control. Every target starts unselected, and a changed preview resets both
+selection and acknowledgement. These presentation changes preserve the Cleanup
+inspection and execution contract above ([#142](https://github.com/ned2/dashpot/issues/142)).
