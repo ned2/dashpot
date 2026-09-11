@@ -461,51 +461,114 @@ CleanupScreen, CleanupReportScreen {
 }
 
 #cleanup-title, #cleanup-report-title {
-    height: 1;
+    height: auto;
     color: $text;
     text-style: bold;
 }
 
-#cleanup-help {
+#cleanup-body {
     height: auto;
-    margin: 1 0;
+    max-height: 1fr;
+    min-height: 3;
+}
+
+#cleanup-subject {
+    height: auto;
+    text-style: bold;
+}
+
+#cleanup-context, #cleanup-freshness {
+    height: auto;
     color: $text-muted;
 }
 
-.cleanup-refusal {
+#cleanup-freshness, #cleanup-help {
+    margin-top: 1;
     height: auto;
-    color: $error;
 }
 
-#cleanup-targets {
+#cleanup-targets, .cleanup-target {
     height: auto;
-    max-height: 24;
 }
 
-#cleanup-details {
+.cleanup-target {
+    margin-top: 1;
+}
+
+.cleanup-target-heading {
     height: auto;
-    max-height: 16;
-    margin: 1 0 0 0;
-    color: $text-muted;
+}
+
+.cleanup-target CleanupChoice {
+    width: 1fr;
+    height: auto;
+    border: none;
+    padding: 0;
+    text-wrap: wrap;
+    text-style: bold;
+}
+
+.cleanup-target CleanupChoice > .toggle--button,
+.cleanup-target CleanupChoice.-on > .toggle--button,
+#cleanup-ignored > .toggle--button,
+#cleanup-ignored.-on > .toggle--button {
+    color: $text;
+}
+
+.cleanup-availability {
+    width: auto;
+    height: 1;
+    margin-left: 1;
+    color: $success;
+    text-style: bold;
+}
+
+.cleanup-availability.-blocked, .cleanup-blocker {
+    color: $warning;
+}
+
+.cleanup-blocker, .cleanup-summary {
+    height: auto;
+    margin-left: 4;
+}
+
+#cleanup-help.cleanup-blocker {
+    margin-left: 0;
+}
+
+.cleanup-target Collapsible {
+    padding: 0 0 0 3;
+    border: none;
+}
+
+.cleanup-target Collapsible > Contents {
+    padding: 0 0 0 2;
+}
+
+.cleanup-target Collapsible Static {
+    height: auto;
 }
 
 #cleanup-ignored {
     height: auto;
-    margin: 1 0 0 0;
+    width: 1fr;
+    border: none;
+    padding: 0;
+    text-wrap: wrap;
+    display: none;
 }
 
 #cleanup-footer {
     dock: bottom;
     height: auto;
     background: $surface;
+    padding-top: 1;
 }
 
 #cleanup-problem {
     height: auto;
     min-height: 1;
-    margin: 1 0 0 0;
     color: $warning;
-    text-style: bold;
 }
 
 #cleanup-report {

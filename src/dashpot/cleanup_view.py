@@ -1,32 +1,21 @@
-"""The dashboard's Cleanup modals: preview and select, then the outcomes.
-
-The ``x`` key on a Branches or Worktrees row opens :class:`CleanupScreen`
-over the preview ``cleanup.inspect_cleanup`` produced off the event loop.
-Every target starts unselected and an unavailable one cannot be selected;
-the destructive button stays disabled until the selection is one
-``perform_cleanup`` would accept — every required target selected and the
-Worktree's ignored content acknowledged — and Escape always cancels. The
-screen dismisses with the :class:`CleanupConfirmation` the app performs, or
-None. A successful Cleanup returns directly to the dashboard with one toast
-line per outcome; :class:`CleanupReportScreen` preserves the full detail for
-a refused or unknown outcome.
-"""
+"""Present Cleanup choices with their blockers, consequences, and evidence."""
 
 from __future__ import annotations
 
-from typing import ClassVar, cast
+from pathlib import Path
+from typing import ClassVar
 
 from textual.app import ComposeResult
-from textual.binding import BindingType
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.events import DescendantFocus
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, SelectionList, Static
-from textual.widgets.selection_list import Selection
+from textual.widgets import Button, Checkbox, Collapsible, Static
 from typing_extensions import override
 
 from .cleanup import (
     CHANGED_SINCE_PREVIEW,
-    INTEGRATION_WORDS,
+    CleanupBlocker,
     CleanupConfirmation,
     CleanupPreview,
     CleanupReport,
@@ -34,65 +23,182 @@ from .cleanup import (
     CleanupTarget,
     describe_cleanup_report,
 )
-from .marked_widgets import MarkedCheckbox, MarkedSelectionList
+from .marked_widgets import MarkedCheckbox
 
-SELECT_HELP = (
-    "Select the targets to delete. Nothing is deleted until Delete selected is "
-    "pressed; Escape cancels."
-)
 CHANGED_HELP = (
-    f"{CHANGED_SINCE_PREVIEW[0].upper()}{CHANGED_SINCE_PREVIEW[1:]}. This is the "
-    "revised preview; select and confirm again."
+    f"{CHANGED_SINCE_PREVIEW[0].upper()}{CHANGED_SINCE_PREVIEW[1:]}. "
+    "Nothing was deleted. Select and confirm again."
 )
 
 
-def target_line(target: CleanupTarget) -> str:
-    """The one line a target shows in the list: what, where, and whether it can go."""
-    state = " — unavailable" if not target.available else ""
-    where = target.path if target.kind == "worktree" else target.ref
-    return f"{target.label}{state}  {where} @ {target.expected[:7]}"
-
-
-def target_details(preview: CleanupPreview) -> str:
-    """Every target's gate and consequences, under its label, for the text below the list."""
-    blocks: list[str] = []
-    for target in preview.targets:
-        lines = [target.label]
-        if target.integration is not None:
-            lines.append(f"  {INTEGRATION_WORDS[target.integration.state]}")
-        if target.requires is not None:
-            required = preview.target(target.requires)
-            name = required.label if required is not None else target.requires
-            lines.append(f"  only together with {name}")
-        lines.extend(f"  blocked: {blocker.detail}" for blocker in target.blockers)
-        lines.extend(f"  → {consequence}" for consequence in target.consequences)
-        blocks.append("\n".join(lines))
-    return "\n".join(blocks)
-
-
-def ignored_prompt(preview: CleanupPreview) -> str:
-    """The acknowledgement a Worktree's ignored content asks for."""
-    shown = ", ".join(preview.ignored[:3])
-    more = f", … ({len(preview.ignored)} in all)" if len(preview.ignored) > 3 else ""
+def short_ref(ref: str | None) -> str:
+    """Label a ref without its Git namespace."""
     return (
-        f"Delete the {len(preview.ignored)} ignored path(s) inside it too: "
-        f"{shown}{more}"
+        (ref or "the Integration Branch")
+        .removeprefix("refs/heads/")
+        .removeprefix("refs/remotes/")
     )
+
+
+def blocker_summary(blocker: CleanupBlocker, target: CleanupTarget) -> str:
+    """Keep each blocking condition visible beside its target."""
+    if blocker.kind == "checked-out":
+        return (
+            "Worktree removal is blocked; this Branch stays checked out."
+            if target.requires
+            else "Checked out in a Worktree; remove that Worktree first."
+        )
+    if blocker.kind == "unintegrated" and target.integration:
+        fact = target.integration
+        return (
+            f"{fact.unintegrated_commits} commits not integrated into "
+            f"{short_ref(fact.integration_ref)}."
+        )
+    summaries = {
+        "dirty": "Uncommitted changes or untracked files; inspect before removal.",
+        "locked": "The Worktree is locked; inspect the lock before removal.",
+        "agent-session": "An Agent Session is still recorded; exit it or verify its liveness.",
+        "agent-run": "Active Issue work remains; finish it before removal.",
+        "work-store": "The Work Store cannot be verified; inspect it before removal.",
+        "protected": "This Worktree is in use by Dashpot or configured as a Repository Anchor.",
+        "main-worktree": "The main Worktree cannot be removed.",
+    }
+    return summaries.get(blocker.kind, blocker.detail)
+
+
+def ignored_description(preview: CleanupPreview) -> str:
+    """Describe ignored paths as including their contents."""
+    count = len(preview.ignored)
+    return (
+        "1 ignored path and its contents"
+        if count == 1
+        else f"{count} ignored paths and their contents"
+    )
+
+
+def target_summary(preview: CleanupPreview, target: CleanupTarget) -> str:
+    """Show the consequences needed to choose a Cleanup target."""
+    lines: list[str] = []
+    if target.kind == "worktree":
+        lines.append("Removes the directory and its contents.")
+        if any(one.requires == target.identity for one in preview.targets):
+            lines.append("Keeps the local Branch unless selected below.")
+        if preview.ignored:
+            lines.append(f"Includes {ignored_description(preview)}.")
+    else:
+        fact = target.integration
+        if fact and fact.state == "integrated":
+            lines.append(f"Commits integrated into {short_ref(fact.integration_ref)}.")
+        elif fact and fact.state == "content-integrated":
+            lines.append(
+                f"Content integrated into {short_ref(fact.integration_ref)}; "
+                f"{fact.unintegrated_commits} original commits are not retained there."
+            )
+        if target.requires:
+            required = preview.target(target.requires)
+            lines.append(
+                f"Requires removing {required.label if required else 'the Worktree'}."
+            )
+        if target.kind == "remote-branch":
+            lines.append(
+                f"Deletes the Branch on {target.remote}; refuses if its tip changed."
+            )
+    return "\n".join(lines)
+
+
+def target_evidence(target: CleanupTarget) -> str:
+    """Retain full target identity, recovery commands, and blocker evidence."""
+    lines = [f"{target.path or target.ref}", f"Commit: {target.expected}"]
+    if target.observed_at:
+        lines.append(f"Last fetched: {target.observed_at}")
+    for blocker in target.blockers:
+        lines.append(f"Blocked: {blocker.detail}")
+        if blocker.command:
+            lines.append(f"Next step: {blocker.command}")
+    lines.extend(target.consequences)
+    return "\n".join(lines)
+
+
+class CleanupChoice(MarkedCheckbox):
+    """Move between Cleanup choices without traversing their evidence."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("down", "next_choice(1)", show=False),
+        Binding("up", "next_choice(-1)", show=False),
+    ]
+
+    def action_next_choice(self, step: int) -> None:
+        choices = [one for one in self.screen.query(CleanupChoice) if not one.disabled]
+        if self in choices:
+            choices[(choices.index(self) + step) % len(choices)].focus()
+
+
+class CleanupTargetView(Vertical):
+    """Group one Cleanup choice with its availability and consequences."""
+
+    def __init__(
+        self, preview: CleanupPreview, target: CleanupTarget, index: int
+    ) -> None:
+        super().__init__(classes="cleanup-target")
+        self.preview = preview
+        self.target = target
+        self.index = index
+
+    @override
+    def compose(self) -> ComposeResult:
+        target = self.target
+        with Horizontal(classes="cleanup-target-heading"):
+            yield CleanupChoice(
+                target.label,
+                id=f"cleanup-target-{self.index}",
+                disabled=not target.available,
+            )
+            yield Static(
+                "AVAILABLE" if target.available else "BLOCKED",
+                classes="cleanup-availability"
+                + (" -blocked" if not target.available else ""),
+            )
+        for blocker in target.blockers:
+            yield Static(
+                blocker_summary(blocker, target),
+                markup=False,
+                classes="cleanup-blocker",
+            )
+        summary = target_summary(self.preview, target)
+        if summary:
+            yield Static(summary, markup=False, classes="cleanup-summary")
+        with Collapsible(
+            title="Details and recovery", id=f"cleanup-evidence-{self.index}"
+        ):
+            yield Static(target_evidence(target), markup=False)
+        if target.kind == "worktree" and self.preview.ignored:
+            with Collapsible(
+                title="View ignored paths",
+                id="cleanup-paths",
+            ):
+                yield Static(
+                    "\n".join(self.preview.ignored),
+                    markup=False,
+                    id="cleanup-path-list",
+                )
+
+    def on_descendant_focus(self, event: DescendantFocus) -> None:
+        if isinstance(event.widget, CleanupChoice):
+            # Keep the reason and consequences in view with the focused choice,
+            # rather than scrolling only its checkbox above the fixed footer.
+            self.scroll_visible(animate=False)
+
+    def choice(self) -> CleanupChoice:
+        return self.query_one(CleanupChoice)
 
 
 class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     """Preview a Cleanup and collect the selection a person confirms."""
 
-    BINDINGS: ClassVar[list[BindingType]] = [
-        ("escape", "cancel", "Cancel"),
-    ]
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
 
     def __init__(
-        self,
-        request: CleanupRequest,
-        preview: CleanupPreview,
-        *,
-        changed: bool = False,
+        self, request: CleanupRequest, preview: CleanupPreview, *, changed: bool = False
     ) -> None:
         super().__init__()
         self.request = request
@@ -102,116 +208,141 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     @override
     def compose(self) -> ComposeResult:
         preview = self.preview
-        verb = "DELETE BRANCH" if preview.kind == "branch" else "REMOVE WORKTREE"
-        # The preview scrolls when it outgrows the terminal; the acknowledgement,
-        # the reason the selection cannot be confirmed yet, and the buttons are
-        # docked below it so they are always in view and never scrolled under.
-        with VerticalScroll(id="cleanup-dialog", can_focus=False):
+        verb = "Remove Worktree" if preview.kind == "worktree" else "Delete Branch"
+        subject = (
+            Path(preview.subject).name
+            if preview.kind == "worktree"
+            else preview.subject
+        )
+        with Vertical(id="cleanup-dialog"):
+            with VerticalScroll(id="cleanup-body"):
+                yield Static(verb, id="cleanup-title")
+                yield Static(subject, markup=False, id="cleanup-subject")
+                yield Static(
+                    f"Repository: {preview.anchor}", markup=False, id="cleanup-context"
+                )
+                if self.changed:
+                    yield Static(
+                        CHANGED_HELP, id="cleanup-help", classes="cleanup-blocker"
+                    )
+                for refusal in preview.refusals:
+                    yield Static(
+                        f"Blocked: {refusal}", markup=False, classes="cleanup-blocker"
+                    )
+                if any(
+                    target.kind == "remote-branch"
+                    or (
+                        target.integration
+                        and (target.integration.integration_ref or "").startswith(
+                            "refs/remotes/"
+                        )
+                    )
+                    for target in preview.targets
+                ):
+                    yield Static(
+                        "Uses last fetched state. Close and press f to fetch again.",
+                        id="cleanup-freshness",
+                    )
+                with Vertical(id="cleanup-targets"):
+                    for index, target in enumerate(preview.targets):
+                        yield CleanupTargetView(preview, target, index)
             with Vertical(id="cleanup-footer"):
                 if preview.ignored:
                     yield MarkedCheckbox(
-                        ignored_prompt(preview), value=False, id="cleanup-ignored"
+                        "Delete ignored content too", value=False, id="cleanup-ignored"
                     )
                 yield Static("", id="cleanup-problem")
                 with Horizontal(id="cleanup-actions"):
-                    yield Button("Cancel", id="cleanup-cancel")
-                    yield Button("Delete selected", id="cleanup-confirm")
-            yield Static(f"{verb}  {preview.subject}", id="cleanup-title")
-            yield Static(
-                CHANGED_HELP if self.changed else SELECT_HELP, id="cleanup-help"
-            )
-            for refusal in preview.refusals:
-                yield Static(f"Refused: {refusal}", classes="cleanup-refusal")
-            yield MarkedSelectionList[str](
-                *(
-                    Selection(
-                        target_line(target),
-                        target.identity,
-                        id=target.identity,
-                        disabled=not target.available,
+                    yield Button(
+                        "Cancel" if preview.selectable else "Close", id="cleanup-cancel"
                     )
-                    for target in preview.targets
-                ),
-                id="cleanup-targets",
-            )
-            yield Static(target_details(preview), id="cleanup-details")
+                    if preview.selectable:
+                        yield Button(
+                            "Remove selected"
+                            if preview.kind == "worktree"
+                            else "Delete selected",
+                            id="cleanup-confirm",
+                        )
 
     def on_mount(self) -> None:
-        targets = self.targets()
-        targets.focus()
         self.refresh_state()
+        self.focus_choice()
 
-    def targets(self) -> SelectionList[str]:
-        return cast(
-            "SelectionList[str]", self.query_one("#cleanup-targets", SelectionList)
+    def targets(self) -> tuple[CleanupTargetView, ...]:
+        return tuple(self.query(CleanupTargetView))
+
+    def focus_choice(self) -> None:
+        choice = next(
+            (one.choice() for one in self.targets() if one.target.available), None
         )
+        (choice or self.query_one("#cleanup-cancel", Button)).focus()
 
     def selected(self) -> tuple[str, ...]:
-        """The selected identities in the preview's order."""
-        chosen = set(self.targets().selected)
+        """Return only explicitly selected, available target identities."""
         return tuple(
-            target.identity
-            for target in self.preview.targets
-            if target.identity in chosen
+            one.target.identity
+            for one in self.targets()
+            if one.target.available and one.choice().value
+        )
+
+    def worktree_selected(self) -> bool:
+        return any(
+            one.target.kind == "worktree" and one.target.identity in self.selected()
+            for one in self.targets()
         )
 
     def ignored_acknowledged(self) -> bool:
-        if not self.preview.ignored:
-            return False
-        return self.query_one("#cleanup-ignored", Checkbox).value
+        return bool(
+            self.preview.ignored
+            and self.worktree_selected()
+            and self.query_one("#cleanup-ignored", Checkbox).value
+        )
 
     def acknowledgement_missing(self) -> bool:
-        """Whether a selected Worktree's ignored content still awaits its checkbox."""
-        if not self.preview.ignored or self.ignored_acknowledged():
-            return False
-        return any(
-            target.kind == "worktree"
-            for identity in self.selected()
-            if (target := self.preview.target(identity)) is not None
+        """Identify selected Worktree content that still needs acknowledgement."""
+        return bool(
+            self.preview.ignored
+            and self.worktree_selected()
+            and not self.ignored_acknowledged()
         )
 
     def selection_problem(self) -> str | None:
-        """Why the selection cannot be confirmed yet, or None when it can."""
+        """Explain why the current selection cannot be confirmed."""
         selected = self.selected()
         if not self.preview.selectable:
             return "Nothing here can be deleted."
         if not selected:
-            return "Select at least one target."
+            return (
+                "Select what to remove."
+                if self.preview.kind == "worktree"
+                else "Select what to delete."
+            )
         for identity in selected:
             target = self.preview.target(identity)
-            if target is None or target.requires is None:
-                continue
-            if target.requires not in selected:
+            if target and target.requires and target.requires not in selected:
                 required = self.preview.target(target.requires)
-                name = required.label if required is not None else target.requires
-                return f"{target.label} can only be deleted together with {name}."
+                return f"{target.label} requires removing {required.label if required else 'the Worktree'}."
         if self.acknowledgement_missing():
-            return (
-                f"Acknowledge that the {len(self.preview.ignored)} ignored "
-                f"path(s) are deleted with the Worktree."
-            )
+            return f"Acknowledge removal of {ignored_description(self.preview)}."
         return None
 
     def refresh_state(self) -> None:
-        # An unavailable target never stays selected, whatever toggled it.
-        targets = self.targets()
-        for identity in list(targets.selected):
-            target = self.preview.target(identity)
-            if target is None or not target.available:
-                targets.deselect(identity)
+        for one in self.targets():
+            if not one.target.available and one.choice().value:
+                one.choice().value = False
+        if self.preview.ignored:
+            acknowledgement = self.query_one("#cleanup-ignored", Checkbox)
+            acknowledgement.display = self.worktree_selected()
+            if not acknowledgement.display:
+                acknowledgement.value = False
         problem = self.selection_problem()
         self.query_one("#cleanup-problem", Static).update(problem or "")
-        # The button always answers a press; it turns red once a press would
-        # delete. A disabled button would still light up under the mouse and
-        # swallow the click without a word.
-        self.query_one("#cleanup-confirm", Button).variant = (
-            "error" if problem is None else "default"
-        )
-
-    def on_selection_list_selected_changed(
-        self, _event: SelectionList.SelectedChanged[str]
-    ) -> None:
-        self.refresh_state()
+        if self.preview.selectable:
+            # A premature press still explains what is missing rather than
+            # silently swallowing the click on a disabled button.
+            self.query_one("#cleanup-confirm", Button).variant = (
+                "error" if problem is None else "default"
+            )
 
     def on_checkbox_changed(self, _event: Checkbox.Changed) -> None:
         self.refresh_state()
@@ -222,12 +353,11 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     def action_confirm(self) -> None:
         problem = self.selection_problem()
         if problem is not None:
-            # A premature press deletes nothing and points at what is missing.
             self.notify(problem, title="Nothing deleted", severity="warning")
             if self.acknowledgement_missing():
                 self.query_one("#cleanup-ignored", Checkbox).focus()
             else:
-                self.targets().focus()
+                self.focus_choice()
             return
         self.dismiss(
             CleanupConfirmation(
