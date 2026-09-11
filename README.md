@@ -24,13 +24,13 @@ read-only preview and confirmed
 > [!NOTE]
 > Dashpot 0.1.0 is being prepared as its first alpha release. Publication and
 > real-host acceptance are tracked in [#5](https://github.com/ned2/dashpot/issues/5).
-> The [release policy](docs/adr/0033-publish-an-alpha-with-patch-compatible-interfaces.md)
+> The [release policy](docs/adr/0034-publish-an-alpha-with-patch-compatible-interfaces.md)
 > preserves documented interfaces within 0.1.x.
 
 ## What it observes
 
 Everything below is read, never changed: observation's only writes are
-Dashpot's own ignored runtime state, such as persisting a Snapshot Seed or
+Dashpot's own ignored runtime state, such as
 pruning the hook record of a session that has ended.
 
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
@@ -110,7 +110,7 @@ the management commands `init`, `integrate`,
 
 | Key | Action |
 |---|---|
-| `r` | Refresh every observation in the Workspace, observing every GitHub Issue afresh rather than only what changed |
+| `r` | Restart both submitted queries from page one, refresh Project Totals, relevant Issue identities and local observations |
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
 | `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; success returns directly to the dashboard with one toast line per outcome, while a refused or unknown outcome opens its detailed report; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
@@ -118,18 +118,33 @@ the management commands `init`, `integrate`,
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
 | `c` | Open the column editor: toggle the visible Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, while each list keeps its row cursor |
-| `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, highlight that Issue in the table; unbound on Pull Requests |
+| `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
 | `q` | Quit |
 
-Both search boxes take whitespace- or quote-separated terms and one `sort:`
-term — `sort:created`, `sort:updated`, or either with an `-asc` / `-desc`
-suffix (`-desc` is the default). For Issues, the lexical terms match the
-number, title, labels, Project, assignees, author, milestone, and type, and
-the sort overrides the column sort while it is present. A search the parser
-cannot read is reported as a `Search:` error in Diagnostics rather than
-silently ignored. The count
-beside the search box (`6 issues`) is the number of Issues matching every
-active filter, never an `M of N` total. The Issue table's columns are `◉`
+Both source queries submit on `Enter`; typing leaves the submitted query intact.
+Lifecycle changes use the submitted expression and start at page one. GitHub
+Projects use GitHub advanced syntax for both Issues and Pull Requests; Markdown
+Projects retain local whitespace/quoted text matching. Both default to Open.
+Choose All when lifecycle belongs to the raw expression. Clearing search submits
+the default source query, without restoring a background inventory.
+
+`n` requests Next, `p` returns to Previous, and `Home` restarts the focused query
+pane. Eight accepted pages are retained; an evicted Previous is unavailable and
+requires restart. The page displays its own observation time. The count separates
+rows shown from all matching results; `Open N · Closed M` always reports Project-wide
+totals, independently of search, lifecycle selection and page, with unavailability
+or stale status when appropriate. GitHub exposes only the first 1,000 search results:
+a query with 2,400 matches can show its first 50, and the final accessible page
+explains the provider limit and invites a narrower query.
+
+GitHub column sorts are enabled only for exact source equivalents: `CREATED`
+maps to `sort:created-asc/desc`, `LAST ACTION` to `sort:updated-asc/desc`, and
+`COMMENTS` to `sort:comments-asc/desc`. A submitted `sort:` owns ordering and disables
+competing header sorts. Other GitHub header sorts are unavailable. Markdown sorts
+its complete local query result before pagination, defaulting to latest action,
+and retains local `sort:created` / `sort:updated` qualifiers.
+
+The Issue table's columns are `◉`
 (Issue state) and `◈` (agent state), which are unsortable, then `#`, `TITLE`,
 `PRIORITY`, `LABELS`, `PROJECT`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
 `COMMENTS`, `CREATED`, and `LAST ACTION`. Clicking a sortable column's
@@ -145,7 +160,7 @@ the column rather than invent a default, so an Issue Source that does not use
 priority labels pays no width for it.
 
 The `PULL REQUESTS` pane defaults to open Pull Requests of a GitHub-backed
-Project, newest update first. Its lifecycle selector offers `Open`, `Closed`,
+Project, in provider search order. Its lifecycle selector offers `Open`, `Closed`,
 and `All`; Open includes drafts and non-drafts, while Closed includes merged
 Pull Requests and those closed without merging.
 
@@ -165,19 +180,12 @@ See [GitHub's qualifier reference](https://docs.github.com/en/search-github/sear
 and the [search research](docs/github-pull-request-search-research.md) for the
 operator inventory. GitHub's permissions, indexing, query limits, and search
 ordering apply. Scope qualifiers can narrow this Project's results; they do
-not expand the pane to other repositories. The lifecycle selector filters the
-returned collection locally; choose `All` when the query itself selects the
-lifecycle. `Open N · Closed M` summarizes the complete search results before
-the selector, and the count beside search reflects the displayed matches.
-
-Typing does not send requests. Resubmit the query or press `r` to refresh its
-results; submit an empty query to return to the background observation.
-A failed repeat retains the same query's last-good results as stale. A different
-query never inherits those results. Searches are bounded, and GitHub returns
-at most 1,000 matches: narrow an oversized query instead of receiving a partial
-list. Search results stay separate from the background Pull Request and Issue
-observations. Issues search continues to filter its observed collection locally
-as you type.
+not expand the pane to other repositories. Lifecycle filtering happens at the
+source before pagination. Project-wide counters do not change with the query.
+A failed refresh retains last-good rows only for the same verified page request;
+a failed navigation leaves the previous page available with the error and restart
+guidance. Periodic refresh repeats the displayed page and independently refreshes
+totals and relevant bound/selected Issues.
 
 The columns are `STATE`, `#`, `TITLE`, `HEAD`, `BASE`, `AUTHOR`, `REVIEW`,
 `CHECKS`, `MERGE`, and `UPDATED`. The state uses the same `■` character as
@@ -186,12 +194,31 @@ for closed without merging, and purple for merged. State labels remain visible,
 including closed drafts. Mergeability is not applicable after closure. The
 Legend explains the Glyphs, and long content scrolls horizontally.
 
-Background observation collects the complete Pull Request history under its
-independent Refresh Budget. A failed refresh retains the whole last-good
-collection as stale, or reports unavailability before the first success. Totals
-are never inferred from a truncated list. Headless JSON's `pullRequests` keeps
-the complete background collection with `open`, `closed` (without merging),
-or `merged` state; interactive search does not change that contract.
+Complete history is collected only by explicit `--json` / `--compact-json`
+Workspace Snapshot export, using repository pagination under a Refresh Budget.
+No partial export is placed in complete inventory fields. The existing wire
+contract retains all Issue Profiles and Pull Request lifecycle distinctions.
+
+Paged CLI queries share the dashboard's source semantics:
+
+```bash
+dashpot issue list --query 'label:bug' --state open --page-size 50 --json
+dashpot pr list --query 'draft:true' --state open --page-size 50 --json
+dashpot issue list --query 'is:closed OR author:@me' --state all --compact-json
+```
+
+Use `--cursor` with the same query, lifecycle and page size to continue. Page sizes
+range from 1 to 100, default 50. Each document contains `page` and independently
+scoped `totals`; pages expose request/context, complete records, auxiliary facts,
+counts, continuation, limit, status, attempt time, last-good time and Diagnostics.
+`more`, `end`, `provider-limit` and `unavailable` distinguish continuation outcomes.
+These commands never exhaust pages implicitly. Valid observation documents return
+exit zero, including unavailable or provider-limited observations; inspect status.
+Invalid arguments or malformed/mismatched/expired continuation return stderr and
+exit 2, without a success document. Authentication/network failure is unavailability,
+not proof of token mismatch. Markdown file edits, renames, insertion or deletion
+expire continuation and require restart. `issue show` still resolves one complete
+Issue Profile by Issue Hint.
 
 A Workspace inventory stores named groupings of anchor paths for one Project —
 independent clones, never discovered or persisted worktree paths:
@@ -383,8 +410,7 @@ to proceed.
 Every Repository Anchor has a tracked `.dashpot/config.json` containing stable
 Project and Repository identities, a mutable display label, and the active
 Issue Source. The `.dashpot/state/` directory holds ignored local runtime
-state, including the Work Store and a GitHub Issue Snapshot Seed that is
-Reconciled before use; add it to your repository's `.gitignore` so it never
+state, including the Work Store; add it to your repository's `.gitignore` so it never
 dirties the worktree or gets committed:
 
 ```gitignore
@@ -406,12 +432,9 @@ A GitHub-backed Project looks like this:
 ```
 
 The Repository Anchor must have a GitHub `origin`; collection uses the
-authenticated `gh` CLI. `reconciliationSeconds` sets how often the GitHub
-Issue Source observes every Issue afresh. It defaults to 300 seconds when
-omitted and must be positive and finite. In the TUI it cannot be shorter than
-the recurring polling period (`--refresh-seconds`, 15 seconds by default).
-Headless `--json` and `--compact-json` collection has no recurring schedule,
-so it applies no polling-period comparison. A Local Issue Markdown Project
+authenticated `gh` CLI. `reconciliationSeconds` is deprecated and unused.
+Existing positive finite values remain readable; the setting no longer schedules
+whole-source sweeps or constrains `--refresh-seconds`. A Local Issue Markdown Project
 selects a repository-relative file or directory:
 
 ```json

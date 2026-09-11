@@ -164,20 +164,7 @@ class GitHubGateway:
         position null while its siblings answer — so a response whose every
         error is tolerated is returned rather than raised.
         """
-        args = ["gh", "api", "graphql", "-f", f"query={query}"]
-        for key, value in variables.items():
-            if isinstance(value, str):
-                args.extend(["-f", f"{key}={value}"])
-            elif isinstance(value, int):
-                # -F sends an integer as a typed GraphQL Int variable; -f
-                # would send it as a String and fail the variable declaration.
-                args.extend(["-F", f"{key}={value}"])
-            else:
-                # gh's key[]=value form appends to a list variable.
-                args.extend(
-                    part for item in value for part in ("-f", f"{key}[]={item}")
-                )
-        payload = self._run(args, tolerated=tolerated)
+        payload = self._graphql_payload(query, variables, tolerated=tolerated)
         errors = payload.get("errors")
         if errors is not None and not isinstance(errors, list):
             raise GitHubRequestError(
@@ -195,6 +182,48 @@ class GitHubGateway:
         if rate_limit is not None:
             self.rate_limit = rate_limit
         return data
+
+    def graphql_result(
+        self, query: str, variables: GraphQLVariables
+    ) -> tuple[Mapping[str, Any], Sequence[Mapping[str, Any]]]:
+        """Expose attributable GraphQL errors beside data for identity observations."""
+        payload = self._graphql_payload(query, variables, partial=True)
+        errors = payload.get("errors", [])
+        if not isinstance(errors, list) or not all(
+            isinstance(error, Mapping) for error in errors
+        ):
+            raise GitHubRequestError(MALFORMED_RESPONSE, "GitHub errors are malformed")
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            if errors:
+                raise _graphql_failure(errors)
+            raise GitHubRequestError(
+                MALFORMED_RESPONSE, "GitHub response has no data object"
+            )
+        return data, errors
+
+    def _graphql_payload(
+        self,
+        query: str,
+        variables: GraphQLVariables,
+        *,
+        tolerated: Container[str] = (),
+        partial: bool = False,
+    ) -> Mapping[str, Any]:
+        args = ["gh", "api", "graphql", "-f", f"query={query}"]
+        for key, value in variables.items():
+            if isinstance(value, str):
+                args.extend(["-f", f"{key}={value}"])
+            elif isinstance(value, int):
+                # -F sends an integer as a typed GraphQL Int variable; -f
+                # would send it as a String and fail the variable declaration.
+                args.extend(["-F", f"{key}={value}"])
+            else:
+                # gh's key[]=value form appends to a list variable.
+                args.extend(
+                    part for item in value for part in ("-f", f"{key}[]={item}")
+                )
+        return self._run(args, tolerated=tolerated, partial=partial)
 
     def graphql_many(
         self,
@@ -230,7 +259,7 @@ class GitHubGateway:
         return self._run(["gh", "api", path])
 
     def _run(
-        self, args: list[str], *, tolerated: Container[str] = ()
+        self, args: list[str], *, tolerated: Container[str] = (), partial: bool = False
     ) -> Mapping[str, Any]:
         try:
             result = self.runner(args, self.root, self.timeout)
@@ -248,7 +277,7 @@ class GitHubGateway:
                 if isinstance(errors, list) and errors:
                     # gh exits non-zero whenever errors are present, even
                     # beside data every tolerated error leaves usable.
-                    if _all_tolerated(errors, tolerated):
+                    if partial or _all_tolerated(errors, tolerated):
                         return payload
                     raise _graphql_failure(errors)
                 message = payload.get("message")

@@ -16,7 +16,7 @@ with `uv tool install /absolute/path/to/dashpot-0.1.0-py3-none-any.whl`.
 | --- | --- |
 | Python | CPython 3.11–3.14. CI tests 3.11/3.14 on Linux and macOS, and 3.12/3.13 on Linux. Later Python versions remain unvalidated. |
 | Linux | x86-64; Ubuntu CI plus a real-host checklist before publication. |
-| macOS | Apple Silicon; macOS CI plus real-host acceptance on `omar` in [#4](https://github.com/ned2/dashpot/issues/4). Host acceptance is pending. |
+| macOS | Apple Silicon; macOS CI plus real-host acceptance on `omar` in [#5](https://github.com/ned2/dashpot/issues/5). Host acceptance is pending. |
 | Git | 2.38 or newer. The minimum-version CI leg exercises the full suite with 2.38.0, including content-based Branch integration. |
 | GitHub CLI | gh 2.100.0 or newer for GitHub-backed Projects. 2.100.0 passed live collection during release planning; older versions are outside the initial support promise. |
 | Codex | Candidate baseline 0.154.0, subject to the per-host lifecycle checklist. |
@@ -86,8 +86,8 @@ Track `.dashpot/config.json` in the Project. Add this rule to `.gitignore`:
 .dashpot/state/
 ```
 
-The ignored state contains the Project-local Work Store, session records, and
-Snapshot Seeds. Each linked Worktree owns its own state. The Work Store holds
+The ignored state contains the Project-local Work Store and session records.
+Each linked Worktree owns its own state. The Work Store holds
 declared Issue work and is not a user-edited file format. Machine-local Workspace
 inventory and settings remain outside Project configuration. See
 [Project configuration](../README.md#project-configuration) for full discovery

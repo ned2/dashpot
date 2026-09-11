@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-06
+date: 2026-09-11
 ---
 
 # Domain language
@@ -50,29 +50,24 @@ Pull Requests independently of the Project's Issue Source collection. Open
 includes drafts and non-drafts. The Closed summary groups closed without
 merging and merged Pull Requests; each row and the published model preserve
 the distinction. Draft status is independent of lifecycle. Open / Closed
-summaries reflect the current search before lifecycle selection
+summaries are Project Totals independent of search and lifecycle selection
 ([ADR 0032](adr/0032-submit-pull-request-queries-to-github-advanced-search.md)).
 _Avoid_: Linked Pull Request for a repository-wide Pull Request; Issue for a
 Pull Request merely because GitHub shares their number space
 
 **Pull Request Search**:
-A person-submitted query evaluated by GitHub within the Project's configured
-repository. Its complete result collection has its own query, ordering, and
-freshness; it never replaces the background Pull Request observation or changes
-Issue Source freshness. Resubmitting the same query can retain its last-good
-results on failure; a different query cannot inherit them.
+A person-submitted query evaluated through the configured Issue Source, using
+GitHub's advanced semantics for a GitHub Project. Results are Query Pages with
+their own ordering, coverage and freshness. A different request cannot inherit
+another request's last-good rows.
 
 **Linked Pull Request**:
 A pull request GitHub reports as closing a GitHub Issue, shown with the
 Issue's engagement facts rather than in its profile. The first twenty are
 listed in Pull Request Number order and the count of any beyond them is shown
-beside the list; the GitHub Issue Source pages the complete connection for
-incremental relationship evidence. A Linked Pull Request appearing or changing
-state does not update the Issue. The GitHub Issue Source instead observes the
-changed Pull Request's current and previous Issue targets by identity; the
-next Reconciliation remains the fallback for a derived connection whose
-indexing outlasts both confirming scans
-([ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)).
+beside the list. Targeted and page observations deliberately complete the display
+subset independently of required Issue Profile relationships; missing auxiliary
+observations remain unavailable rather than known empty.
 _Avoid_: using this Issue relationship as the repository-wide Pull Request
 observation
 
@@ -218,78 +213,12 @@ ever published
 [ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md),
 [ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).
 
-**Snapshot Seed**:
-A GitHub Issue Source's complete internal snapshot persisted only to start a
-later process's mandatory Reconciliation by Issue Identity. It is untrusted
-input, never an observation or retained last-good state: an invalid seed is
-ignored, and a valid one remains private until current GitHub evidence has
-Reconciled it. Its version covers both the persisted wire shape and the
-embedded Issue Profile
-([ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
-_Avoid_: cache, checkpoint, saved observation
-
-**Incremental Refresh**:
-How a GitHub Issue Source refreshes after its first complete observation: a
-one-point combined change probe, then only the Issues updated since their
-High-Water Mark and the other ends of any relationship they changed, plus a
-newest-first Pull Request prefix when its separate mark advances, merged by
-Issue identity into the collection it last observed. A fresh observation may
-be assembled this way; an Issue or Linked Pull Request leaves the collection
-only on positive evidence, never for being absent from a delta or prefix scan
-([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
-[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md),
-[ADR 0027](adr/0027-keep-the-graphql-change-probe-authoritative.md)).
-
-**High-Water Mark**:
-The newest `updatedAt` the GitHub Issue Source has observed in one change
-stream, the inclusive start of its next delta or newest-first prefix scan. It
-keeps separate Issue and Pull Request marks. A mark advances only through what
-a refresh fetched, so no clock of Dashpot's ever enters the boundary; a Pull
-Request candidate is scanned on two ticks before it is settled because
-GitHub's derived closing-reference connection indexes asynchronously. Marks in
-a Snapshot Seed are untrusted startup cursors: live Reconciliation evidence
-derives the marks that can be published, and the live probe bounds a persisted
-future cursor.
-
-Startup collects that live probe beside a mandatory read: the later Issue delta
-for a settled Snapshot Seed, or the first prefix page for a pending Pull Request
-candidate. A future Issue cursor requires a corrected inclusive delta, and a
-pending prefix's current closing targets join the subsequent complete identity
-Reconciliation
-([ADR 0030](adr/0030-combine-startup-evidence-with-mandatory-reads.md)).
-
-**Reconciliation**:
-An observation of every GitHub Issue afresh, which alone can see a Linked Pull
-Request's derived closing-reference connection when its indexing outlasts
-both confirming scans; a blocker-side dependency change; a parent/sub-Issue
-relationship change; a deletion or transfer whose Issue-count change is
-offset by another collection change in the same window; an update in the same
-second as its High-Water Mark; or a fact GitHub does not date on the Issue — a
-label's colour, a milestone or Issue type renamed — on an Issue that was not
-itself updated. Issue-type changes are also covered conservatively because
-their `updatedAt` behaviour could not be exercised in the user-owned
-repository where it was researched. Every Issue already known is observed by
-identity, in batches of twenty-four with at most four in flight, then the
-delta since the High-Water Mark. Only a count those cannot explain marks the
-sweep in order of creation for the next refresh, under a Refresh Budget of its
-own. A later process starts by Reconciliation from a valid Snapshot Seed; a
-first run or unusable seed starts with the sweep. Each refresh publishes one
-complete observation or fails; it never mixes the identity Reconciliation with
-a partial sweep. Reconciliation runs on the Project's configured period (five minutes by
-default), on `r`, and whenever
-the Issue count no longer adds up; the period must be positive and finite, and
-at least the recurring TUI polling period. A headless collection and a TUI with
-polling disabled have no polling period to compare. An observation whose Reconciliation is more than two periods
-overdue carries a
-`github-reconciliation-overdue` warning, and one whose count remains
-unexplained after a Reconciliation carries
-`github-issue-count`
-([ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
-[ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md),
-[ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md),
-[ADR 0026](adr/0026-run-fallback-sweeps-under-their-own-refresh-budget.md)).
-_Avoid_: reconciling for the dashboard's own reuse of table rows and pane
-entries, which is a widget concern, not an observation.
+**Snapshot Seed**, **Incremental Refresh**, **High-Water Mark**, **Reconciliation**:
+Historical complete-inventory mechanisms retired by
+[ADR 0033](adr/0033-query-pages-and-independent-issue-resolution.md).
+Ordinary observation refreshes Query Pages and relevant Resolved Issues;
+explicit export uses bounded one-shot Source Enumeration. Saved seeds do not
+supply accepted page data or trigger startup inventory reads.
 
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
@@ -414,3 +343,25 @@ The listing of every Glyph the main screen renders, generated from the same
 appears in and reachable with `?` from inside the app.
 _Avoid_: help screen; the Legend also lists the keys, but it explains what is
 on screen rather than how to use the app
+
+## Source queries
+
+**Query Page**:
+A bounded ordered observation of complete Issues or Pull Requests matching one
+submitted source query and lifecycle constraint. It reports matching count,
+continuation coverage and its own observation times. It is never a Project
+inventory, even when pagination reaches the end of matches.
+
+**Project Totals**:
+An independently observed Open / Closed count for all Issues or Pull Requests of
+the configured Project, unaffected by query, lifecycle selection or page.
+
+**Resolved Issue**:
+The outcome of observing one opaque Issue Identity independently of query
+membership: within the Project, outside its configured Repository, not resolved
+(missing or inaccessible), or unavailable. Only within-Project resolution carries
+a complete Issue Profile; outside-Repository evidence never establishes membership.
+
+**Source Enumeration**:
+An explicit complete collection observation for Workspace Snapshot export, bounded
+by a Refresh Budget. Complete records on a Query Page do not constitute enumeration.

@@ -8,7 +8,6 @@ from typing import Annotated, Literal
 
 from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
-from .app import DashpotApp
 from .cleanup import (
     BranchCleanupRequest,
     CleanupConfirmation,
@@ -25,7 +24,6 @@ from .cleanup import (
 from .collect import ObservationCoordinator
 from .errors import DashpotError
 from .fetch import remote_fetcher
-from .github_pull_request_search import GitHubPullRequestSearcher
 from .init import initialize_project
 from .integrate import (
     install_integration,
@@ -34,6 +32,7 @@ from .integrate import (
 )
 from .issue_resolution import describe_issue, show_issue
 from .model import Diagnostic, RepositoryAnchor, Workspace
+from .paged_app import PagedDashpotApp as DashpotApp
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
 from .serialization import (
@@ -200,7 +199,6 @@ def observe(
             refresh_seconds=refresh_seconds,
             fetcher=remote_fetcher(timeout),
             cleaner=GitCleanupAdapter(timeout),
-            pull_request_searcher=GitHubPullRequestSearcher(timeout=timeout),
         ).run()
     return 0
 
@@ -349,6 +347,79 @@ def issue_show(
     else:
         _report(describe_issue(found))
     return 0
+
+
+pr = App(name="pr", help="Query Pull Requests through the configured Project source.")
+app.command(pr)
+
+
+def _list_page(
+    kind: Literal["issues", "pull-requests"],
+    query: str,
+    state: Literal["open", "closed", "all"],
+    page_size: int,
+    cursor: str | None,
+    compact: bool,
+    timeout: float,
+) -> int:
+    """Emit one Query Page and independently scoped Project Totals."""
+    from .query_source import configured_query_source
+    from .source_queries import QueryRequest
+
+    root = worktree_root(Path.cwd().resolve())
+    source = configured_query_source(root, timeout=timeout)
+    page = source.query_page(
+        QueryRequest(
+            kind=kind, query=query, state=state, page_size=page_size, cursor=cursor
+        )
+    )
+    totals = source.totals(kind)
+    print(
+        render_json(
+            {
+                "page": page.model_dump(mode="json", by_alias=True),
+                "totals": totals.model_dump(mode="json", by_alias=True),
+            },
+            compact=compact,
+        )
+    )
+    return 0
+
+
+@issue.command(name="list")
+def issue_list(
+    *,
+    query: str = "",
+    state: Literal["open", "closed", "all"] = "open",
+    page_size: Annotated[
+        int, Parameter(validator=validators.Number(gte=1, lte=100))
+    ] = 50,
+    cursor: str | None = None,
+    json_output: _JsonOutput = False,
+    compact_json: bool = False,
+    timeout: _Timeout = 10.0,
+) -> int:
+    """Query one Issue page; GitHub advanced syntax or Markdown local text."""
+    return _list_page("issues", query, state, page_size, cursor, compact_json, timeout)
+
+
+@pr.command(name="list")
+def pr_list(
+    *,
+    query: str = "",
+    state: Literal["open", "closed", "all"] = "open",
+    page_size: Annotated[
+        int, Parameter(validator=validators.Number(gte=1, lte=100))
+    ] = 50,
+    cursor: str | None = None,
+    json_output: _JsonOutput = False,
+    compact_json: bool = False,
+    timeout: _Timeout = 10.0,
+) -> int:
+    """Query one Pull Request page using GitHub advanced syntax."""
+    return _list_page(
+        "pull-requests", query, state, page_size, cursor, compact_json, timeout
+    )
 
 
 worktree = App(
@@ -759,6 +830,7 @@ def create_collector(
         state_dir=options.state_dir.expanduser() if options.state_dir else None,
         diagnostics=[*inventory_diagnostics, *resolution.diagnostics],
         polling_seconds=polling_seconds,
+        local_only=recurring,
     )
 
 

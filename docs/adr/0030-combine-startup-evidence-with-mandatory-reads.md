@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded
 date: 2026-09-06
+superseded-by: 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Combine startup evidence with mandatory reads

@@ -90,13 +90,4 @@ def parse_project_config(
             union_message="kind must be 'github' or 'markdown'",
         )
         raise RuntimeError(f"{path} {message.lstrip()}") from exc
-    if (
-        polling_seconds is not None
-        and isinstance(config.issue_source, GitHubIssueSourceConfig)
-        and config.issue_source.reconciliation_seconds < polling_seconds
-    ):
-        raise RuntimeError(
-            f"{path} issueSource.reconciliationSeconds must be at least the "
-            f"polling interval of {polling_seconds:g} seconds"
-        )
     return config

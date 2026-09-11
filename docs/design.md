@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-06
+date: 2026-09-11
 ---
 
 # Design
@@ -25,8 +25,8 @@ An automatic tick queues nothing further, the next tick being its rerun; a
 key press, a Remote Fetch or Cleanup that changed the Repository, and a
 follow-up of a publish each queue one more observation of the key for when
 the running one lands. `r` refreshes every key in the Workspace, which with
-one Project per run is the observed Project, and asks the GitHub Issue
-Source for a Reconciliation. It never fetches: `f`
+one Project per run is the observed Project, and restarts both submitted source queries from page one, refreshing totals
+and relevant identities. It never fetches: `f`
 mutates, a Remote Fetch of the Repository Anchor whose refs
 supplied the Branch observation ([`fetch.py`](../src/dashpot/fetch.py),
 [ADR 0014](adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
@@ -68,89 +68,46 @@ whose Branch the forge deleted after a squash merge, a merged Branch still at
 `origin`, pushed but unintegrated work, a second approach with commits of its
 own, and a dirty Worktree on a Branch named unlike its directory.
 
-The GitHub Issue Source starts from a valid persisted Snapshot Seed when one is
-available, Reconciles every saved Issue by identity before publishing anything,
-and derives publishable High-Water Marks from that live evidence before it
-refreshes incrementally
-([`github_issues.py`](../src/dashpot/github_issues.py),
-[ADR 0022](adr/0022-refresh-github-issues-incrementally-between-reconciliations.md),
-[ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
-Without a usable seed it observes every Issue once by cursor sweep. The seed is
-strictly versioned local input, not retained last-good state; a failed startup
-Reconciliation leaves the source unavailable. Settled-seed startup combines the
-live probe with the mandatory Issue delta after its identity reads; a future
-cursor requires a corrected inclusive delta. A pending candidate instead
-combines its probe with the first Pull Request prefix page, completes the
-inclusive prefix using live-bounded cursors, then observes every seed Issue and
-current closing target in the identity Reconciliation before the Issue delta
-([ADR 0030](adr/0030-combine-startup-evidence-with-mandatory-reads.md),
-[measurements](github-startup-latency-experiments.md)). After startup,
-each tick asks GitHub one one-point question — the newest update and the
-Issue count, plus the newest Pull Request update — and an unchanged repository
-is answered by that alone, whatever its size
-([ADR 0027](adr/0027-keep-the-graphql-change-probe-authoritative.md)). When
-something changed, only
-the Issues updated since their High-Water Mark are fetched, in pages of
-twenty-four, together with the other end of every relationship they added or
-removed, and merged by identity. A Pull Request mark that advances adds a
-newest-first prefix scan and re-observes its current and previous closing
-targets by Issue identity on two confirming ticks
-([ADR 0025](adr/0025-observe-linked-pull-requests-from-pull-request-changes.md)). A
-Pull Request timestamp observed beside an initial or fallback Issue sweep is a
-candidate until the following inclusive prefix scan confirms it. A
-Reconciliation runs on the Project's configured period (five minutes by
-default), on `r`, and whenever the count no longer adds up, because a deletion,
-a transfer, the blocker's side of a
-dependency and neither end of a parent/sub-Issue relationship leave no trace
-an Issue delta can see; it also closes the documented limits of the Pull
-Request prefix. Every Issue already
-known is observed afresh by identity, in batches of twenty-four sent
-through the gateway with at most four in flight
-([ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)),
-then the delta since the High-Water Mark, and only a count those cannot
-explain marks the sweep in order of creation for the next refresh, where it
-runs alone under a new Refresh Budget
-([ADR 0026](adr/0026-run-fallback-sweeps-under-their-own-refresh-budget.md)); an
-Issue is removed only on positive evidence. A Reconciliation or fallback sweep
-the Refresh Budget abandons is
-retried a period later while the ticks between keep refreshing
-incrementally, and one more than two periods overdue is reported as a
-warning. The research behind the shape of every query is in
-[`docs/github-api-batching-research.md`](github-api-batching-research.md).
+The configured source owns Query Pages, Project Totals, identity resolution and
+explicit Source Enumeration ([source_queries.py](../src/dashpot/source_queries.py),
+[query_source.py](../src/dashpot/query_source.py)). GitHub searches use advanced
+syntax, scoped by current Repository name and validated by opaque identity and
+resource type. Search pages contain IDs for Issues, completed in batches of 24;
+Pull Requests carry their existing complete compact records. Each required page
+is accepted atomically under a Refresh Budget. Auxiliary engagement and colour
+observations have a separate budget and availability. The declared lowest-numbered
+twenty Linked Pull Requests require deliberate connection completion when more
+exist; there is no incremental bookkeeping or counterpart expansion.
 
-The GitHub Pull Request source is a separate scheduled observation over the
-same durable Repository Identity. It lists every open, closed, and merged Pull
-Request through a cursor-paginated GraphQL connection in creation order, under
-its own Refresh Budget and last-good state, and publishes no partial page set. Every page must report the
-same total and the complete collection must match it. This deliberately pays
-for complete history so both the closed list and filter-scoped totals can be
-answered locally; exceeding the budget retains stale data or reports
-unavailability ([ADR 0031](adr/0031-observe-complete-pull-request-lifecycle-history.md)).
-The compact published model keeps GitHub's nested check graph behind the source: it carries the combined
-check/status rollup, review decision, and mergeability alongside identity,
-Branches, author, draft state, and creation and update times. A Local Issue
-Markdown Project uses a second adapter at that seam which reports Pull Requests as not
-configured; it never inspects Git remotes for hosting. Neither result changes
-the Issue Source status.
+The dashboard ([paged_app.py](../src/dashpot/paged_app.py)) schedules Issue pages,
+Pull Request pages, both kinds of Project Totals, targeted identities and local
+observations independently. Configured Projects are published before remote work.
+The page store ([paged_store.py](../src/dashpot/paged_store.py)) never puts partial
+query rows in complete snapshot inventory fields. It joins Agent Runs to targeted
+identity evidence without changing Work Store Issue Bindings. Opening a bound
+Issue works independently of page membership; selected relationship titles are
+resolved one level deep. Relevant identities are refreshed directly, including
+relationship changes without an Issue timestamp change.
 
-Pull Request Search is an injected read-only seam. The CLI supplies
-`GitHubPullRequestSearcher`, which resolves the configured Repository Identity,
-wraps the submitted expression within that scope, and reads every
-`ISSUE_ADVANCED` page under a Refresh Budget. The search preserves GitHub's
-ordering and evaluates all its PR qualifiers without approximating missing
-facts locally. Its result must match the reported count, contain only unique
-Pull Requests from that Repository, and stay within GitHub's 1,000-result
-ceiling. Validation, pagination, or request failures publish no partial list.
+A Query Page has its submitted request, effective ordering, matching count,
+returned count, continuation outcome and its own attempt/last-good times. Project
+Totals have independent status and times. Source caches retain at most 16 pages
+and 256 identities. Navigation retains eight accepted pages. Previous reuses its
+retained observation; eviction requires restart instead of reconstructing history.
+Refreshing a page discards its forward history. A failed Next leaves the accepted
+page under its original request and displays the navigation error. New submissions,
+lifecycle/sort changes and manual restart create generations; old completions are
+discarded. Timer refresh does not supersede an in-flight user query.
 
-The dashboard submits on Enter, runs at most one search at a time off the UI
-thread, and coalesces further submissions to the latest query. A superseded
-completion is discarded. Search data remains outside the observation store;
-only a repeat of the same query can retain its last-good rows after a failure.
-A different query reports unavailable results on failure, and clearing the
-submitted query restores the background collection. Manual refresh also reruns
-the submitted query; periodic observations do not. The standalone local read
-model remains available to observation-only callers without the search adapter
-([ADR 0032](adr/0032-submit-pull-request-queries-to-github-advanced-search.md)).
+Portable continuation includes a fingerprint of Project, Repository, effective
+source configuration/location, authenticated principal, query, lifecycle, ordering
+and page size. Markdown adds a deterministic digest of relevant paths and content.
+Context must be observed before mismatch can be asserted. GitHub pages may change
+between requests; only forward cursor traversal checks repetition. Search's
+1,000-result ceiling is distinct from end of matches. Explicit export uses complete
+repository connections, never search, and retains its existing wire semantics and
+complete-last-good behavior. Incremental inventory processing and Snapshot Seeds
+have been retired; deprecated `reconciliationSeconds` no longer schedules work.
 
 Exceptional state is summarized in a
 one-line alert above Diagnostics that takes no space while everything is
@@ -175,11 +132,11 @@ the full-width `SESSIONS`, `WORKTREES`, `BRANCHES` and `PULL REQUESTS` panes
 stack above the full-width `ISSUES` table. Nothing is switched to: every
 active Agent Session, every observed Worktree, every Branch and every active
 Pull Request is listed in its pane by default, with
-an honest one-line empty state. The Pull Request title summarizes Open / Closed
-under the submitted search; lifecycle selection then narrows the list and
-matched count locally. Draft filtering uses `draft:true` or `draft:false` in
-the query. A submitted non-empty query uses a separate GitHub advanced-search
-adapter; Issue search still filters local observations as the person types.
+an honest one-line empty state. Both query pane titles show independently observed Project Totals. Lifecycle
+selection constrains source results before pagination. Draft filtering uses `draft:true` or `draft:false` in
+the query. Both search boxes submit on Enter; clearing search submits the default source
+query. GitHub owns advanced syntax and ordering; Markdown uses local lexical
+matching and local ordering before pagination.
 The panes are sized to their content rather than sharing the flex height: each asks for the
 rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
 granted first so an ordinary empty pane costs three lines, and the caps shrink
@@ -197,7 +154,7 @@ the Issue table drives the Issue selection, `Enter`
 on an Issue opens it in the full-screen Issue view (its location on the left
 of the heading line, `opened 3d ago by ned2` on the right, and both panes'
 borders in the Issue's state colour), and `Enter` on a session with an Issue
-Binding highlights that Issue in the Issue table; `Enter` is unbound on a Pull
+Binding opens that Issue through targeted resolution; `Enter` is unbound on a Pull
 Request. The Sessions pane is its own read model
 ([`session_list.py`](../src/dashpot/session_list.py), queried through
 `WorkspaceObservationStore.query_sessions`): every active Agent Session of the

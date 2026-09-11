@@ -7,7 +7,7 @@ date: 2026-09-11
 
 Publication is an explicit operator action after acceptance. Implementation of
 this workflow is not permission to publish. The release policy is
-[ADR 0033](adr/0033-publish-an-alpha-with-patch-compatible-interfaces.md).
+[ADR 0034](adr/0034-publish-an-alpha-with-patch-compatible-interfaces.md).
 
 ## One-time publisher setup
 
@@ -89,9 +89,11 @@ These tests do not replace real-host acceptance.
 Record the candidate commit and artifact hashes with every result, plus OS
 version, architecture, Python, Git, gh, terminal, Codex, and Claude Code versions.
 Final publication requires passing evidence for every claimed combination.
-macOS evidence belongs in [#4](https://github.com/ned2/dashpot/issues/4), on
-`omar`; its original locked-development checks still apply. Record release-wide
-evidence in #5, not a private agent store.
+Record all host evidence in [#5](https://github.com/ned2/dashpot/issues/5).
+The macOS checklist was consolidated from #4 and runs on `omar`; install the
+locked development environment there and run the complete test suite and
+package build as well as the installed-candidate checks below. Verify BSD
+`ps -o` process identity against a live Codex Agent Session.
 
 - [ ] Install the candidate through `uv tool install /absolute/path/to/wheel`;
   verify `dashpot --version` and `--help` outside the Dashpot source checkout.

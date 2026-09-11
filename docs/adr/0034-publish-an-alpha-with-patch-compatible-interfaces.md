@@ -35,8 +35,8 @@ Codex and Claude Code. CI covers both Python endpoints on both platforms,
 intermediate versions on Linux, and Git 2.38 as the proposed minimum. gh 2.100.0
 is the first release's tested baseline for GitHub-backed Projects; it is not
 needed for Local Issue Markdown. Exact host/harness evidence is a publication
-gate, recorded in [Issue #4](https://github.com/ned2/dashpot/issues/4) and
-[Issue #5](https://github.com/ned2/dashpot/issues/5). These targets do not claim
+gate, recorded in [Issue #5](https://github.com/ned2/dashpot/issues/5), including
+the macOS checklist consolidated from #4. These targets do not claim
 unperformed host validation. See [installation](../installation.md) and
 [the release checklist](../releasing.md#host-acceptance).
 

@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded
 date: 2026-09-05
+superseded-by: 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Keep the GraphQL change probe authoritative

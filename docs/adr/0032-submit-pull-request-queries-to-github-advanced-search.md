@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-06
+amended-by: 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Submit Pull Request queries to GitHub advanced search
@@ -44,3 +45,10 @@ follow Primer's open, draft, closed, and done tokens for the default light and
 dark themes: green, grey, red, and purple. Retain the state labels, including
 closed drafts, so the facts remain readable without distinguishing colours.
 The Legend includes each coloured state block through the same Glyph values.
+
+[ADR 0033](0033-query-pages-and-independent-issue-resolution.md) replaces complete dashboard histories with Query Pages,
+source lifecycle constraints and independently observed Project Totals. Complete
+repository enumeration remains applicable only to explicit Workspace Snapshot
+export. The lifecycle record shapes and state Glyphs above remain applicable;
+filter-scoped counters, background collection and exhaustive interactive searches
+are superseded.

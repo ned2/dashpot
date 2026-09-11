@@ -1,7 +1,7 @@
 ---
-status: amended
+status: superseded
 date: 2026-09-05
-amended-by: 0030-combine-startup-evidence-with-mandatory-reads.md, 0031-observe-complete-pull-request-lifecycle-history.md
+superseded-by: 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Observe Linked Pull Requests from Pull Request changes
