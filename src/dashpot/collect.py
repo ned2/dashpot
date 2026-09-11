@@ -13,11 +13,15 @@ from pydantic import ValidationError
 from .agent_bindings import bind_issue_runs
 from .agents import observe_agent_runs
 from .git import Git
-from .github_issue_snapshot import GitHubIssueSnapshotStore
 from .github_issues import GitHubIssuesSource
 from .github_pull_requests import GitHubPullRequestsSource
 from .issue_profile import IssueProfile
-from .issue_sources import IssueSource, IssueSourceObservation, utc_now
+from .issue_sources import (
+    IssueSource,
+    IssueSourceDiagnostic,
+    IssueSourceObservation,
+    utc_now,
+)
 from .local_markdown_issues import LocalMarkdownIssuesSource
 from .model import (
     AgentRun,
@@ -43,9 +47,11 @@ from .project_config import (
 )
 from .pull_request_sources import (
     PullRequestSource,
+    PullRequestSourceDiagnostic,
     PullRequestSourceObservation,
     UnconfiguredPullRequestSource,
 )
+from .query_source import configured_query_source
 from .repository import (
     BranchObservation,
     github_repo_from_remote,
@@ -53,6 +59,7 @@ from .repository import (
     observe_observation_targets,
     worktree_root,
 )
+from .source_queries import QuerySource
 
 WorkspaceAgentObserver = Callable[
     [Mapping[str, Sequence[ObservationTarget]]],
@@ -163,6 +170,7 @@ class ProjectCollector:
         self.project = project
         self.root = Path(project.primary_anchor)
         self.source = source
+        self.query_source: QuerySource | None = None
         self.pull_request_source = pull_request_source or UnconfiguredPullRequestSource(
             clock=clock
         )
@@ -171,10 +179,52 @@ class ProjectCollector:
         self.clock = clock
 
     def observe_issues(self, *, reconcile: bool = False) -> IssueSourceObservation:
-        return self.source.refresh(reconcile=reconcile)
+        if self.query_source is None:
+            return self.source.refresh(reconcile=reconcile)
+        result = self.query_source.enumerate_source("issues")
+        colors: dict[str, str] = {}
+        activity: dict[str, IssueActivity] = {}
+        for identity, auxiliary in result.auxiliary.items():
+            colors.update(auxiliary.label_colors or {})
+            if auxiliary.activity is not None:
+                activity[identity] = auxiliary.activity
+        return IssueSourceObservation(
+            status=result.status,
+            attempted_at=result.attempted_at,
+            last_good_at=result.last_good_at,
+            issues=tuple(result.issues),
+            label_colors=colors,
+            issue_activity=activity,
+            diagnostics=tuple(
+                IssueSourceDiagnostic(
+                    source=d.source,
+                    severity=d.severity,
+                    code=d.code or "source-unavailable",
+                    message=d.message,
+                )
+                for d in result.diagnostics
+            ),
+        )
 
     def observe_pull_requests(self) -> PullRequestSourceObservation:
-        return self.pull_request_source.refresh()
+        if self.query_source is None:
+            return self.pull_request_source.refresh()
+        result = self.query_source.enumerate_source("pull-requests")
+        return PullRequestSourceObservation(
+            status=result.status,
+            attempted_at=result.attempted_at,
+            last_good_at=result.last_good_at,
+            pull_requests=tuple(result.pull_requests),
+            diagnostics=tuple(
+                PullRequestSourceDiagnostic(
+                    source=d.source,
+                    severity=d.severity,
+                    code=d.code or "source-unavailable",
+                    message=d.message,
+                )
+                for d in result.diagnostics
+            ),
+        )
 
     def observe_targets(self) -> RepositoryStateInventory:
         """Observe the worktree topology and the Branches as one Repository State."""
@@ -235,7 +285,7 @@ def create_project_collector(
         raise RuntimeError(
             f"Project configuration changed after resolving Repository Anchor {root}"
         )
-    return ProjectCollector(
+    collector = ProjectCollector(
         project,
         build_issue_source(root, config, timeout=timeout, git=adapter),
         target_observer=lambda anchors: observe_observation_targets(
@@ -244,6 +294,9 @@ def create_project_collector(
         branch_observer=lambda anchors: observe_branches(anchors, git=adapter),
         pull_request_source=build_pull_request_source(root, config, timeout=timeout),
     )
+
+    collector.query_source = configured_query_source(root, timeout=timeout)
+    return collector
 
 
 def build_issue_source(
@@ -271,7 +324,6 @@ def build_issue_source(
             repository_id=config.repository_id,
             timeout=timeout,
             reconcile_seconds=config.issue_source.reconciliation_seconds,
-            snapshot_store=GitHubIssueSnapshotStore(root),
         )
     if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
         return LocalMarkdownIssuesSource(
@@ -502,7 +554,9 @@ class ObservationCoordinator:
         agent_observer: WorkspaceAgentObserver | None = None,
         clock: Callable[[], str] = utc_now,
         polling_seconds: float | None = 15,
+        local_only: bool = False,
     ) -> None:
+        self.local_only = local_only
         self.projects = list(projects)
         self.projects_by_id = {project.project_id: project for project in self.projects}
         self.timeout = timeout
@@ -525,6 +579,12 @@ class ObservationCoordinator:
         self._pending_projects: dict[str, None] = {}
         self._agent: _AgentObservation | None = None
         self._agent_pending = False
+        if local_only:
+            for project in self.projects:
+                composed = self._compose(project.project_id)
+                if composed is not None:
+                    self._composed[project.project_id] = composed
+                    self._pending_projects[project.project_id] = None
 
     # -- scheduling -------------------------------------------------------
 
@@ -537,7 +597,11 @@ class ObservationCoordinator:
         keys = [
             ObservationKey(kind, current)
             for current in selected
-            for kind in ("issues", "pull-requests", "targets")
+            for kind in (
+                ("targets",)
+                if self.local_only
+                else ("issues", "pull-requests", "targets")
+            )
         ]
         keys.append(AGENT_RUNS_KEY)
         return keys
@@ -779,6 +843,18 @@ class ObservationCoordinator:
             ObservationKey("pull-requests", project_id)
         )
         targets = self._observations.get(ObservationKey("targets", project_id))
+        if self.local_only:
+            pending = _SourceObservation(
+                status="unavailable",
+                attempted_at=self.clock(),
+                last_good_at=None,
+                diagnostics=(),
+                project_diagnostics=(),
+                elapsed_ms=0,
+            )
+            issues = issues or pending
+            pull_requests = pull_requests or pending
+            targets = targets or pending
         if issues is None or pull_requests is None or targets is None:
             return None
         project = self.projects_by_id[project_id]
@@ -812,7 +888,7 @@ class ObservationCoordinator:
             workspaces=project.workspaces,
             anchors=project.anchors,
             primary_anchor=project.primary_anchor,
-            status=issues.status,
+            status="fresh" if self.local_only else issues.status,
             elapsed_ms=elapsed_ms,
             snapshot=snapshot,
             diagnostics=project_diagnostics,
@@ -846,6 +922,16 @@ class ObservationCoordinator:
             published.get(project.project_id) or _pending_project(project)
             for project in self.projects
         ]
+        if self.local_only:
+            bindings: dict[str, list[str]] = {}
+            for run in agent_runs:
+                if run.issue_id:
+                    bindings.setdefault(run.issue_id, []).append(run.id)
+            return _AgentObservation(
+                tuple(agent_runs),
+                {identity: tuple(runs) for identity, runs in bindings.items()},
+                (*self.diagnostics, *agent_diagnostics),
+            )
         binding = bind_issue_runs(binding_projects, agent_runs)
         return _AgentObservation(
             tuple(agent_runs),

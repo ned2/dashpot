@@ -1,7 +1,7 @@
 ---
-status: amended
+status: superseded
 date: 2026-09-04
-amended-by: 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md, 0030-combine-startup-evidence-with-mandatory-reads.md
+superseded-by: 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Reconcile GitHub Issues by identity in bounded parallel batches

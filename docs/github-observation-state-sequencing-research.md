@@ -65,7 +65,7 @@ The GitHub Issue observation now has four distinct layers of state:
 1. A versioned Snapshot Seed beneath `.dashpot/state/github-issues/` may carry a
    previous process's internal state into a mandatory startup Reconciliation.
    It is untrusted persisted input, not an observation
-   ([`github_issue_snapshot.py`](../src/dashpot/github_issue_snapshot.py),
+   ([`github_issue_snapshot.py`](https://github.com/ned2/dashpot/blob/bf4c026585dc7270021781a80b75cc8c38fba91f/src/dashpot/github_issue_snapshot.py),
    [ADR 0028](adr/0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md)).
 2. Its private in-process `_Snapshot` owns the Issues by Issue Identity; separate Issue and
    Pull Request High-Water Marks; last successful Reconciliation time; any

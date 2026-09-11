@@ -33,7 +33,7 @@ fresh Issues. There were no concurrent latency experiments; no sample was
 discarded for being slow. Minima and maxima below describe the observed tails;
 four samples per state/variant cannot estimate a reliable population p95.
 
-The retained [profiling command](../scripts/profile_github_startup.py) builds the
+The retained [profiling command](https://github.com/ned2/dashpot/blob/bf4c026585dc7270021781a80b75cc8c38fba91f/scripts/profile_github_startup.py) builds the
 real coordinator, validates the Repository Anchor live, and runs the real
 headless Textual event loop. It measures collector setup, `on_ready`, each
 observation, publication, and the first actual Issue table row. Its GitHub
@@ -67,7 +67,7 @@ temporary store. `pending` retains the previous live settled timestamp as the
 candidate and clears the settled mark, forcing an inclusive all-state prefix.
 `future-pr` places both persisted Pull Request marks in 2099.
 
-The network-free [startup tests](../tests/test_github_startup.py) assign 600 ms
+The network-free [startup tests](https://github.com/ned2/dashpot/blob/bf4c026585dc7270021781a80b75cc8c38fba91f/tests/test_github_startup.py) assign 600 ms
 to each serial request or concurrent identity wave, pin the exact request
 order, and require all four identity requests to be in flight together. For
 94 Issues, settled startup falls from three serial stages/six requests to two

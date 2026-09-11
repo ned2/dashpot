@@ -17,6 +17,7 @@ from .glyphs import Glyph
 from .issue_cells import relative_age
 from .model import ProjectObservation
 from .observation_store import WorkspaceObservationStore
+from .source_queries import QueryPage, ResourceKind
 
 AlertSeverity = Literal["error", "warning", "info"]
 
@@ -79,6 +80,7 @@ def summarize_alerts(
     refreshing: Iterable[ObservationKey] = (),
     fetching: Iterable[str] = (),
     now: Callable[[], datetime] | None = None,
+    source_pages: Mapping[ResourceKind, QueryPage] | None = None,
 ) -> Alert | None:
     """Summarize the impact of exceptional state, most severe first.
 
@@ -112,18 +114,48 @@ def summarize_alerts(
         if snapshot is None:
             unavailable_projects.append(label)
             continue
-        if snapshot.issue_source_status == "unavailable":
+        issue_page = source_pages.get("issues") if source_pages is not None else None
+        pull_page = (
+            source_pages.get("pull-requests") if source_pages is not None else None
+        )
+        issue_status = (
+            (issue_page.status if issue_page else "unavailable")
+            if source_pages is not None
+            else snapshot.issue_source_status
+        )
+        pull_status = (
+            (pull_page.status if pull_page else "unavailable")
+            if source_pages is not None
+            else snapshot.pull_request_status
+        )
+        if issue_status == "unavailable":
             unavailable_issues.append(label)
-        elif snapshot.issue_source_status == "stale":
-            stale_issues.append((label, snapshot.issue_source_last_good_at))
+        elif issue_status == "stale":
+            stale_issues.append(
+                (
+                    label,
+                    issue_page.last_good_at
+                    if issue_page
+                    else snapshot.issue_source_last_good_at,
+                )
+            )
         pull_requests_configured = not any(
             diagnostic.code == "pull-requests-not-configured"
             for diagnostic in snapshot.diagnostics
         )
-        if pull_requests_configured and snapshot.pull_request_status == "unavailable":
+        if pull_page is not None and pull_page.context.source == "local-markdown":
+            pull_requests_configured = False
+        if pull_requests_configured and pull_status == "unavailable":
             unavailable_pull_requests.append(label)
-        elif pull_requests_configured and snapshot.pull_request_status == "stale":
-            stale_pull_requests.append((label, snapshot.pull_request_last_good_at))
+        elif pull_requests_configured and pull_status == "stale":
+            stale_pull_requests.append(
+                (
+                    label,
+                    pull_page.last_good_at
+                    if pull_page
+                    else snapshot.pull_request_last_good_at,
+                )
+            )
         if snapshot.target_status == "unavailable":
             unavailable_scans.append(label)
         elif snapshot.target_status == "stale":

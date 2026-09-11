@@ -1,7 +1,7 @@
 ---
-status: amended
+status: superseded
 date: 2026-09-04
-amended-by: 0025-observe-linked-pull-requests-from-pull-request-changes.md, 0026-run-fallback-sweeps-under-their-own-refresh-budget.md, 0027-keep-the-graphql-change-probe-authoritative.md, 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md
+superseded-by: 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Refresh GitHub Issues incrementally between Reconciliations

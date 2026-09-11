@@ -181,20 +181,31 @@ def issue_metadata_items(
         DetailItem(_timestamp(issue.closed_at, current), "Closed"),
     ]
 
-    activity = issue_activity(issue, context.project)
-    items.append(DetailItem(str(activity.comment_count), "Comments"))
-    items.append(DetailItem("Pull requests", kind="section"))
-    if activity.linked_pull_requests:
-        items.extend(
-            DetailItem(f"#{pull.number} {pull.state} {pull.url}", kind="list")
-            for pull in activity.linked_pull_requests
-        )
+    activity = (
+        (context.auxiliary.activity if context.auxiliary else None)
+        if context.queried
+        else issue_activity(issue, context.project)
+    )
+    if activity is None:
+        availability = "unavailable" if context.auxiliary else "not fetched"
+        items.append(DetailItem(availability, "Comments"))
+        items.append(DetailItem(availability, "Linked Pull Requests"))
     else:
-        items.append(DetailItem("-", kind="list"))
-    if activity.unlisted_pull_request_count:
-        items.append(
-            DetailItem(f"and {activity.unlisted_pull_request_count} more", kind="list")
-        )
+        items.append(DetailItem(str(activity.comment_count), "Comments"))
+        items.append(DetailItem("Pull requests", kind="section"))
+        if activity.linked_pull_requests:
+            items.extend(
+                DetailItem(f"#{pull.number} {pull.state} {pull.url}", kind="list")
+                for pull in activity.linked_pull_requests
+            )
+        else:
+            items.append(DetailItem("-", kind="list"))
+        if activity.unlisted_pull_request_count:
+            items.append(
+                DetailItem(
+                    f"and {activity.unlisted_pull_request_count} more", kind="list"
+                )
+            )
 
     relationships = issue.relationships
     items.append(DetailItem("Relationships", kind="section"))
@@ -210,7 +221,7 @@ def issue_metadata_items(
         for issue_id in ids:
             items.append(
                 DetailItem(
-                    f"{label}: {_describe_related(issue_id, context.project)}",
+                    f"{label}: {_describe_related(issue_id, context.project, context.related_issues)}",
                     kind="list",
                 )
             )
@@ -237,9 +248,14 @@ def _timestamp(value: str | None, now: datetime) -> str:
     return f"{day} ({age})" if age else day
 
 
-def _describe_related(issue_id: str, project: ProjectObservation) -> str:
+def _describe_related(
+    issue_id: str, project: ProjectObservation, related: tuple[IssueProfile, ...] = ()
+) -> str:
     """Name a related Issue by number and title when it is in the same
     Project, otherwise fall back to its opaque identity."""
+    for candidate in related:
+        if candidate.id == issue_id:
+            return f"#{candidate.number} {candidate.title}"
     if project.snapshot is not None:
         for candidate in project.snapshot.issues:
             if candidate.id == issue_id:

@@ -102,19 +102,13 @@ def test_github_config_model_rejects_non_finite_reconciliation_period(
         GitHubIssueSourceConfig(kind="github", reconciliation_seconds=value)
 
 
-def test_rejects_reconciliation_period_shorter_than_polling_interval(
+def test_deprecated_reconciliation_period_does_not_constrain_polling(
     tmp_path: Path,
 ) -> None:
     write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 14.5})
-
-    with pytest.raises(
-        RuntimeError,
-        match=(
-            r"issueSource\.reconciliationSeconds must be at least the polling "
-            "interval of 15 seconds"
-        ),
-    ):
-        load_project_config(tmp_path, polling_seconds=15)
+    config = load_project_config(tmp_path, polling_seconds=15)
+    assert isinstance(config.issue_source, GitHubIssueSourceConfig)
+    assert config.issue_source.reconciliation_seconds == pytest.approx(14.5)
 
 
 def test_accepts_short_reconciliation_period_without_a_polling_schedule(

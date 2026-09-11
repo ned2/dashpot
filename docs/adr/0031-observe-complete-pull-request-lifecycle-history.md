@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-06
-amended-by: 0032-submit-pull-request-queries-to-github-advanced-search.md
+amended-by: 0032-submit-pull-request-queries-to-github-advanced-search.md, 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Observe complete Pull Request lifecycle history
@@ -49,3 +49,10 @@ no Issue relationship evidence and cannot affect Issue Source freshness.
 the draft selector with submitted GitHub searches and shared state blocks.
 The complete background collection and headless contract remain unchanged;
 interactive search has its own result collection and freshness.
+
+[ADR 0033](0033-query-pages-and-independent-issue-resolution.md) replaces complete dashboard histories with Query Pages,
+source lifecycle constraints and independently observed Project Totals. Complete
+repository enumeration remains applicable only to explicit Workspace Snapshot
+export. The lifecycle record shapes and state Glyphs above remain applicable;
+filter-scoped counters, background collection and exhaustive interactive searches
+are superseded.

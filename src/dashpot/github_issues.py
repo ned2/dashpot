@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-import contextlib
 import copy
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
 from typing_extensions import override
 
 from .commands import CommandRunner, run_command
 from .github import (
     DEFAULT_REFRESH_BUDGET,
-    MAX_IN_FLIGHT,
     NOT_FOUND,
     RATE_LIMIT_SELECTION,
     CursorTrail,
@@ -26,18 +22,9 @@ from .github import (
     RefreshBudget,
     RefreshMeter,
 )
-from .github_issue_snapshot import (
-    GITHUB_ISSUE_SNAPSHOT_VERSION,
-    GitHubIssueActivityRecord,
-    GitHubIssueSnapshotRecord,
-    GitHubIssueSnapshotStore,
-    GitHubObservedIssueRecord,
-    GitHubPullRequestMarksRecord,
-)
 from .issue_profile import (
     IssueProfile,
     IssueProfileError,
-    IssueRelationships,
     conform_issue,
 )
 from .issue_sources import (
@@ -51,6 +38,13 @@ from .issue_sources import (
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
 from .project_config import DEFAULT_RECONCILIATION_SECONDS
 
+_PAGE_SIZE = 100
+_PULL_REQUEST_STATES: dict[str, PullRequestState] = {
+    "OPEN": "open",
+    "CLOSED": "closed",
+    "MERGED": "merged",
+}
+
 _STATE_REASONS = {
     "COMPLETED": "completed",
     "DUPLICATE": "duplicate",
@@ -58,17 +52,10 @@ _STATE_REASONS = {
     "REOPENED": "reopened",
 }
 
-_PAGE_SIZE = 100
-# The widest batch of complete Issue nodes GitHub charges one rate-limit point
-# for, and well under the width at which nested connections were seen to
-# truncate silently (docs/github-api-batching-research.md).
-_BATCH_SIZE = 24
-_PULL_REQUEST_PAGE_SIZE = 24
-# How long a snapshot is refreshed incrementally before every Issue is
-# observed afresh to close what a delta cannot see (ADR 0022).
+
 DEFAULT_RECONCILE_SECONDS = DEFAULT_RECONCILIATION_SECONDS
-_RECONCILIATION_OVERDUE = "github-reconciliation-overdue"
-_ISSUE_COUNT = "github-issue-count"
+
+
 _CONNECTION_FIELDS = {
     "labels": "name",
     "assignees": "login",
@@ -76,12 +63,14 @@ _CONNECTION_FIELDS = {
     "blockedBy": "id",
     "blocking": "id",
 }
-# Extra node fields fetched alongside the identifying field when paginating.
+
+
 _CONNECTION_EXTRA_FIELDS = {"labels": ("color",)}
+
+
 _LABEL_COLOR = re.compile(r"[0-9a-fA-F]{6}")
 
-# The complete Issue node both queries fetch, so a single-Issue lookup
-# normalizes through exactly the same profile pipeline as a full collection.
+
 _ISSUE_NODE_FIELDS = """
           id
           number
@@ -126,6 +115,7 @@ _ISSUE_NODE_FIELDS = """
           repository { id nameWithOwner }
 """.strip("\n")
 
+
 _ISSUES_QUERY = f"""
 query DashpotIssues($repositoryId: ID!, $cursor: String) {{
   {RATE_LIMIT_SELECTION}
@@ -144,17 +134,12 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {{
         }}
         pageInfo {{ hasNextPage endCursor }}
       }}
-      pullRequests(
-        first: 1
-        states: [OPEN, CLOSED, MERGED]
-        orderBy: {{field: UPDATED_AT, direction: DESC}}
-      ) {{
-        nodes {{ updatedAt }}
-      }}
+
     }}
   }}
 }}
 """.strip()
+
 
 _ISSUE_QUERY = f"""
 query DashpotIssue($repositoryId: ID!, $number: Int!) {{
@@ -171,142 +156,6 @@ query DashpotIssue($repositoryId: ID!, $number: Int!) {{
 }}
 """.strip()
 
-# The Issues updated at or after the snapshot's High-Water Mark, oldest
-# change first so the mark advances monotonically through the pages. The
-# boundary is inclusive, so the Issue at the mark is observed again: that
-# overlap is what makes the boundary safe without any clock arithmetic.
-_ISSUES_SINCE_QUERY = f"""
-query DashpotIssuesSince($repositoryId: ID!, $since: DateTime!, $cursor: String) {{
-  {RATE_LIMIT_SELECTION}
-  node(id: $repositoryId) {{
-    ... on Repository {{
-      id
-      nameWithOwner
-      issues(
-        first: {_BATCH_SIZE}
-        after: $cursor
-        states: [OPEN, CLOSED]
-        filterBy: {{since: $since}}
-        orderBy: {{field: UPDATED_AT, direction: ASC}}
-      ) {{
-        nodes {{
-{_ISSUE_NODE_FIELDS}
-        }}
-        pageInfo {{ hasNextPage endCursor }}
-      }}
-    }}
-  }}
-}}
-""".strip()
-
-# The change probe: the newest update and the Issue count, one point.
-_ISSUE_PROBE_QUERY = f"""
-query DashpotIssueProbe($repositoryId: ID!) {{
-  {RATE_LIMIT_SELECTION}
-  node(id: $repositoryId) {{
-    ... on Repository {{
-      id
-      nameWithOwner
-      issues(
-        first: 1
-        states: [OPEN, CLOSED]
-        orderBy: {{field: UPDATED_AT, direction: DESC}}
-      ) {{
-        totalCount
-        nodes {{ updatedAt }}
-      }}
-      pullRequests(
-        first: 1
-        states: [OPEN, CLOSED, MERGED]
-        orderBy: {{field: UPDATED_AT, direction: DESC}}
-      ) {{
-        nodes {{ updatedAt }}
-      }}
-    }}
-  }}
-}}
-""".strip()
-
-_PULL_REQUEST_CHANGES_QUERY = f"""
-query DashpotPullRequestChanges($repositoryId: ID!, $cursor: String) {{
-  {RATE_LIMIT_SELECTION}
-  node(id: $repositoryId) {{
-    ... on Repository {{
-      id
-      nameWithOwner
-      pullRequests(
-        first: {_PULL_REQUEST_PAGE_SIZE}
-        after: $cursor
-        states: [OPEN, CLOSED, MERGED]
-        orderBy: {{field: UPDATED_AT, direction: DESC}}
-      ) {{
-        nodes {{
-          id
-          number
-          updatedAt
-          closingIssuesReferences(first: 100) {{
-            nodes {{ id }}
-            pageInfo {{ hasNextPage endCursor }}
-          }}
-        }}
-        pageInfo {{ hasNextPage endCursor }}
-      }}
-    }}
-  }}
-}}
-""".strip()
-
-# A pending startup must read this page regardless of its untrusted cursors.
-_PULL_REQUEST_STARTUP_QUERY = _PULL_REQUEST_CHANGES_QUERY.replace(
-    "DashpotPullRequestChanges", "DashpotPullRequestStartup"
-).replace(
-    "      pullRequests(",
-    """      issues(
-        first: 1
-        states: [OPEN, CLOSED]
-        orderBy: {field: UPDATED_AT, direction: DESC}
-      ) {
-        totalCount
-        nodes { updatedAt }
-      }
-      pullRequests(""",
-)
-
-_ISSUES_STARTUP_QUERY = _ISSUES_SINCE_QUERY.replace(
-    "DashpotIssuesSince", "DashpotIssuesStartup"
-).replace(
-    "      issues(",
-    """      probeIssues: issues(
-        first: 1
-        states: [OPEN, CLOSED]
-        orderBy: {field: UPDATED_AT, direction: DESC}
-      ) {
-        totalCount
-        nodes { updatedAt }
-      }
-      pullRequests(
-        first: 1
-        states: [OPEN, CLOSED, MERGED]
-        orderBy: {field: UPDATED_AT, direction: DESC}
-      ) {
-        nodes { updatedAt }
-      }
-      issues(""",
-)
-
-_PULL_REQUEST_CLOSING_ISSUES_QUERY = f"""
-query DashpotPullRequestClosingIssues($id: ID!, $cursor: String!) {{
-  {RATE_LIMIT_SELECTION}
-  node(id: $id) {{
-    ... on PullRequest {{
-      closingIssuesReferences(first: 100, after: $cursor) {{
-        nodes {{ id }}
-        pageInfo {{ hasNextPage endCursor }}
-      }}
-    }}
-  }}
-}}
-""".strip()
 
 _ISSUE_LINKED_PULL_REQUESTS_QUERY = f"""
 query DashpotIssueLinkedPullRequests($id: ID!, $cursor: String!) {{
@@ -326,24 +175,10 @@ query DashpotIssueLinkedPullRequests($id: ID!, $cursor: String!) {{
 }}
 """.strip()
 
-# Issues by identity: each answers independently, a missing one as null.
-_ISSUES_BY_ID_QUERY = f"""
-query DashpotIssuesById($ids: [ID!]!) {{
-  {RATE_LIMIT_SELECTION}
-  nodes(ids: $ids) {{
-    __typename
-    ... on Issue {{
-{_ISSUE_NODE_FIELDS}
-    }}
-  }}
-}}
-""".strip()
 
-
-# The two ways a collection cycle goes wrong, told apart by diagnostic code:
-# GitHub answered well-formed data but an Issue does not conform to the Issue
-# profile, versus a response whose shape is not the GraphQL contract at all.
 _PROFILE_CODE = "github-profile"
+
+
 _RESPONSE_CODE = "github-malformed-response"
 
 
@@ -354,76 +189,11 @@ class _ObservedIssue:
     issue: IssueProfile
     updated_at: str
     activity: IssueActivity
-    linked_pull_request_numbers: frozenset[int]
     label_colors: Mapping[str, str]
 
 
-@dataclass(frozen=True, slots=True)
-class _PullRequestMarks:
-    """Keep the settled Pull Request mark and its candidate together."""
-
-    settled: str | None
-    candidate: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _Snapshot:
-    """Retain the complete Issue collection and its observation marks."""
-
-    issues: Mapping[str, _ObservedIssue]
-    high_water: str | None
-    pull_request_marks: _PullRequestMarks
-    reconciled_at: float
-    reported_count: int | None = None
-    sweep_due: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class _Probe:
-    """Report the Issue count and newest Issue and Pull Request changes."""
-
-    total_count: int
-    newest_updated_at: str | None
-    pull_request_newest_updated_at: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class _Delta:
-    """Carry the Issues observed since a High-Water Mark."""
-
-    issues: Mapping[str, _ObservedIssue]
-    high_water: str
-
-
-@dataclass(frozen=True, slots=True)
-class _IssuePages:
-    """Carry Issue pages and the newest Pull Request observed beside them."""
-
-    records: tuple[dict[str, Any], ...]
-    pull_request_newest_updated_at: str | None
-    probe: _Probe | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _PullRequestChange:
-    """Identify one changed Pull Request and its current closing targets."""
-
-    id: str
-    number: int
-    updated_at: str
-    closing_issue_ids: frozenset[str]
-
-
-@dataclass(frozen=True, slots=True)
-class _PullRequestDelta:
-    """Carry the Pull Requests observed through an inclusive boundary."""
-
-    pull_requests: tuple[_PullRequestChange, ...]
-    high_water: str | None
-
-
 class GitHubIssuesSource(IssueSource):
-    """Observe GitHub Issues incrementally from complete profile snapshots."""
+    """Resolve Issue Hints and explicitly enumerate complete GitHub collections."""
 
     def __init__(
         self,
@@ -437,7 +207,6 @@ class GitHubIssuesSource(IssueSource):
         budget: RefreshBudget = DEFAULT_REFRESH_BUDGET,
         reconcile_seconds: float = DEFAULT_RECONCILE_SECONDS,
         monotonic: Callable[[], float] | None = None,
-        snapshot_store: GitHubIssueSnapshotStore | None = None,
     ) -> None:
         super().__init__(clock=clock)
         self.root = root
@@ -449,10 +218,6 @@ class GitHubIssuesSource(IssueSource):
         self.reconcile_seconds = reconcile_seconds
         self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
         self._monotonic = monotonic or time.monotonic
-        self._snapshot_store = snapshot_store
-        self._snapshot: _Snapshot | None = None
-        self._snapshot_seed = self._load_snapshot_seed()
-        self._reconcile_attempted_at: float | None = None
 
     @property
     @override
@@ -464,626 +229,8 @@ class GitHubIssuesSource(IssueSource):
     def code_prefix(self) -> str:
         return "github"
 
-    @override
-    def _collect(self) -> CollectedIssues:
-        try:
-            return self._collect_from_github()
-        except GitHubRequestError as exc:
-            raise IssueSourceRefreshError(exc.code, str(exc)) from exc
-
-    def _collect_from_github(self) -> CollectedIssues:
-        meter = self._start_meter()
-        now = meter.started
-        snapshot = self._snapshot
-        previous_snapshot = snapshot
-        seed = self._snapshot_seed
-        if (
-            snapshot is None
-            and seed is not None
-            and seed.pull_request_marks.candidate is None
-        ):
-            snapshot = self._reconcile_settled_seed(seed, meter, now)
-        elif snapshot is None and seed is not None:
-            snapshot = self._reconcile_pending_seed(seed, meter, now)
-        elif snapshot is not None and snapshot.sweep_due:
-            # Clearing before the attempt prevents a sweep that exhausts its
-            # own budget from being retried on every polling tick.
-            snapshot = replace(snapshot, sweep_due=False)
-            self._snapshot = snapshot
-            self._reconcile_attempted_at = now
-            snapshot = self._sweep(
-                meter, now, previous_marks=snapshot.pull_request_marks
-            )
-        elif snapshot is None or snapshot.high_water is None:
-            snapshot = self._reconcile(snapshot, meter, now)
-        else:
-            probe = self._probe(meter)
-            if self.reconcile_requested or self._reconciliation_due(now):
-                snapshot = self._reconcile(snapshot, meter, now, probe=probe)
-            else:
-                snapshot = self._refresh_incrementally(snapshot, meter, now, probe)
-            snapshot = self._refresh_linked_pull_requests(snapshot, probe, meter)
-        collected = self._collected(snapshot, now)
-        # The merge is the one place two listings meet, so the snapshot is
-        # kept only once the collection it makes has passed the invariants.
-        self._check_collection_invariants(collected)
-        self._snapshot = snapshot
-        self._snapshot_seed = None
-        if snapshot is not previous_snapshot:
-            self._persist_snapshot(snapshot)
-        return collected
-
     def _start_meter(self) -> RefreshMeter:
         return self.budget.start(self._monotonic)
-
-    def _reconcile_settled_seed(
-        self, seed: _Snapshot, meter: RefreshMeter, now: float
-    ) -> _Snapshot:
-        """Reconcile a settled seed with live probe evidence beside its later delta."""
-        self._reconcile_attempted_at = now
-        assert seed.high_water is not None
-        observed = self._reobserve_identities(sorted(seed.issues), meter)
-        pages = self._collect_issue_pages(
-            _ISSUES_STARTUP_QUERY,
-            {"since": seed.high_water},
-            meter,
-            "startup Issue delta",
-            observe_probe=True,
-        )
-        probe = pages.probe
-        assert probe is not None
-        newest = probe.newest_updated_at
-        if newest is not None and _is_later(seed.high_water, newest):
-            # Only the live response can establish that the persisted cursor
-            # skipped changes. Repeat the inclusive delta at its safe boundary.
-            changed = self._changes_since(newest, newest, meter).issues
-        else:
-            changed = self._changed_records(pages.records, meter)
-        previous = dict(observed)
-        observed.update(changed)
-        high_water = newest
-        for entry in observed.values():
-            high_water = _later(high_water, entry.updated_at)
-        self._observe_counterparts(observed, changed, previous, meter)
-        snapshot = self._finish_reconciliation(
-            seed, observed, high_water, probe, meter, now, untrusted_cursors=True
-        )
-        return self._refresh_linked_pull_requests(snapshot, probe, meter)
-
-    def _reconcile_pending_seed(
-        self, seed: _Snapshot, meter: RefreshMeter, now: float
-    ) -> _Snapshot:
-        """Confirm a pending prefix before observing every seed and closing target."""
-        meter.next_request("the startup Pull Request prefix and change probe")
-        first_prefix = self._own_repository(
-            self._repository_query(
-                _PULL_REQUEST_STARTUP_QUERY, {"repositoryId": self.repository_id}
-            )
-        )
-        probe = self._read_probe(first_prefix)
-        marks = _startup_pull_request_marks(seed.pull_request_marks, probe)
-        delta = (
-            self._pull_request_changes_since(
-                marks.settled, meter, first_page=first_prefix
-            )
-            if _pull_requests_changed(marks, probe)
-            else None
-        )
-        closing_ids = {
-            issue_id
-            for change in (delta.pull_requests if delta else ())
-            for issue_id in change.closing_issue_ids
-        }
-        snapshot = self._reconcile(
-            seed,
-            meter,
-            now,
-            probe=probe,
-            untrusted_cursors=True,
-            additional_ids=closing_ids,
-        )
-        return (
-            replace(
-                snapshot, pull_request_marks=_confirmed_pull_request_marks(marks, delta)
-            )
-            if delta is not None
-            else snapshot
-        )
-
-    def _reobserve_identities(
-        self, ids: Sequence[str], meter: RefreshMeter
-    ) -> dict[str, _ObservedIssue]:
-        """Retain only complete live Issue nodes belonging to this Repository."""
-        observed: dict[str, _ObservedIssue] = {}
-        for issue_id, record in self._fetch_by_identity(
-            ids, meter, "Issues of the collection"
-        ).items():
-            entry = self._own_issue(record, meter)
-            if entry is not None:
-                observed[issue_id] = entry
-        return observed
-
-    def _load_snapshot_seed(self) -> _Snapshot | None:
-        """Load a valid persisted seed without making it observed state."""
-
-        store = self._snapshot_store
-        if store is None:
-            return None
-        record = store.load(
-            repository_id=self.repository_id, project_id=self.project_id
-        )
-        if record is None:
-            return None
-        return _Snapshot(
-            issues={
-                entry.issue.id: _ObservedIssue(
-                    issue=entry.issue,
-                    updated_at=entry.updated_at,
-                    activity=entry.activity.issue_activity(),
-                    linked_pull_request_numbers=frozenset(
-                        entry.linked_pull_request_numbers
-                    ),
-                    label_colors=entry.label_colors,
-                )
-                for entry in record.issues
-            },
-            high_water=record.high_water,
-            pull_request_marks=_PullRequestMarks(
-                settled=record.pull_request_marks.settled,
-                candidate=record.pull_request_marks.candidate,
-            ),
-            # The seed is never published with this placeholder. Its mandatory
-            # live Reconciliation replaces it with this process's monotonic time.
-            reconciled_at=0.0,
-        )
-
-    def _persist_snapshot(self, snapshot: _Snapshot) -> None:
-        """Persist a useful complete snapshot without affecting observation."""
-
-        store = self._snapshot_store
-        if store is None or snapshot.high_water is None:
-            return
-        # Persistence is only a restart optimization. A local persistence
-        # failure cannot turn a complete live GitHub observation into a failed
-        # one, including if this model is ever stricter than valid source state.
-        with contextlib.suppress(OSError, ValidationError):
-            record = GitHubIssueSnapshotRecord(
-                version=GITHUB_ISSUE_SNAPSHOT_VERSION,
-                project_id=self.project_id,
-                repository_id=self.repository_id,
-                issues=[
-                    GitHubObservedIssueRecord(
-                        issue=entry.issue,
-                        updated_at=entry.updated_at,
-                        activity=GitHubIssueActivityRecord.of(entry.activity),
-                        linked_pull_request_numbers=sorted(
-                            entry.linked_pull_request_numbers
-                        ),
-                        label_colors=dict(entry.label_colors),
-                    )
-                    for entry in sorted(
-                        snapshot.issues.values(), key=lambda item: item.issue.number
-                    )
-                ],
-                high_water=snapshot.high_water,
-                pull_request_marks=GitHubPullRequestMarksRecord(
-                    settled=snapshot.pull_request_marks.settled,
-                    candidate=snapshot.pull_request_marks.candidate,
-                ),
-            )
-            store.replace(record)
-
-    def _reconciliation_due(self, now: float) -> bool:
-        attempted_at = self._reconcile_attempted_at
-        return attempted_at is None or now - attempted_at >= self.reconcile_seconds
-
-    def _reconciliation_failed_this_period(
-        self, snapshot: _Snapshot, now: float
-    ) -> bool:
-        attempted_at = self._reconcile_attempted_at
-        return (
-            attempted_at is not None
-            and attempted_at > snapshot.reconciled_at
-            and now - attempted_at < self.reconcile_seconds
-        )
-
-    def _reconcile(
-        self,
-        snapshot: _Snapshot | None,
-        meter: RefreshMeter,
-        now: float,
-        probe: _Probe | None = None,
-        delta: _Delta | None = None,
-        *,
-        untrusted_cursors: bool = False,
-        additional_ids: frozenset[str] | set[str] = frozenset(),
-    ) -> _Snapshot:
-        """Observe every Issue afresh."""
-        # Attempted rather than completed: a Reconciliation the budget
-        # abandons is retried after a period, while the ticks in between
-        # keep refreshing incrementally instead of failing the same way.
-        self._reconcile_attempted_at = now
-        if snapshot is None or snapshot.high_water is None:
-            return self._sweep(
-                meter,
-                now,
-                previous_marks=(snapshot.pull_request_marks if snapshot else None),
-            )
-        if probe is None:
-            probe = self._probe(meter)
-        observed = self._reobserve_identities(
-            sorted(snapshot.issues.keys() | additional_ids), meter
-        )
-        if additional_ids:
-            # The later identity reads cover every previous closing target too.
-            # A new target can name a counterpart absent from the seed.
-            self._observe_counterparts(observed, observed, snapshot.issues, meter)
-        high_water = (
-            probe.newest_updated_at if untrusted_cursors else snapshot.high_water
-        )
-        for entry in observed.values():
-            high_water = _later(high_water, entry.updated_at)
-        previous = dict(observed)
-        if delta is None and untrusted_cursors and probe.newest_updated_at is None:
-            # An empty live collection offers no safe timestamp cursor. Keeping
-            # the persisted value could hide an Issue created before a future
-            # seed mark, so the next non-empty observation starts with a sweep.
-            applied: Mapping[str, _ObservedIssue] = dict[str, _ObservedIssue]()
-        elif delta is None:
-            since = snapshot.high_water
-            if (
-                untrusted_cursors
-                and probe.newest_updated_at is not None
-                and _is_later(since, probe.newest_updated_at)
-            ):
-                since = probe.newest_updated_at
-            delta = self._changes_since(since, high_water or since, meter)
-            # This delta was observed after the identities, so it wins a tie.
-            observed.update(delta.issues)
-            applied = delta.issues
-        else:
-            # This delta preceded the identities, so only a newer value wins.
-            reused: dict[str, _ObservedIssue] = {}
-            for issue_id, entry in delta.issues.items():
-                identity_entry = observed.get(issue_id)
-                if identity_entry is None or _is_later(
-                    entry.updated_at, identity_entry.updated_at
-                ):
-                    observed[issue_id] = entry
-                    reused[issue_id] = entry
-            applied = reused
-        if delta is not None:
-            high_water = _later(high_water, delta.high_water)
-        self._observe_counterparts(observed, applied, previous, meter)
-        return self._finish_reconciliation(
-            snapshot,
-            observed,
-            high_water,
-            probe,
-            meter,
-            now,
-            untrusted_cursors=untrusted_cursors,
-        )
-
-    def _finish_reconciliation(
-        self,
-        snapshot: _Snapshot,
-        observed: Mapping[str, _ObservedIssue],
-        high_water: str | None,
-        probe: _Probe,
-        meter: RefreshMeter,
-        now: float,
-        *,
-        untrusted_cursors: bool = False,
-    ) -> _Snapshot:
-        """Check the live count and schedule any fallback under its own budget."""
-        if len(observed) != probe.total_count:
-            # An Issue created or deleted while the identities were in flight
-            # moved the count after the probe: one more probe says whether
-            # the collection now agrees with GitHub.
-            probe = self._probe(meter)
-        if len(observed) != probe.total_count:
-            # An Issue transferred in carries its old updatedAt and no known
-            # identity: only a sweep under a fresh Refresh Budget lists it.
-            return _Snapshot(
-                issues=observed,
-                high_water=high_water,
-                pull_request_marks=(
-                    _startup_pull_request_marks(snapshot.pull_request_marks, probe)
-                    if untrusted_cursors
-                    else snapshot.pull_request_marks
-                ),
-                reconciled_at=now,
-                reported_count=probe.total_count,
-                sweep_due=True,
-            )
-        return _Snapshot(
-            issues=observed,
-            high_water=high_water,
-            pull_request_marks=(
-                _startup_pull_request_marks(snapshot.pull_request_marks, probe)
-                if untrusted_cursors
-                else snapshot.pull_request_marks
-            ),
-            reconciled_at=now,
-        )
-
-    def _sweep(
-        self,
-        meter: RefreshMeter,
-        now: float,
-        *,
-        previous_marks: _PullRequestMarks | None = None,
-    ) -> _Snapshot:
-        """Observe the whole collection page by page, the ground truth."""
-        pages = self._collect_issue_pages(
-            _ISSUES_QUERY, {}, meter, "Issue collection", observe_pull_request=True
-        )
-        entries = self._observe_records(pages.records, meter)
-        high_water: str | None = None
-        for entry in entries:
-            high_water = _later(high_water, entry.updated_at)
-        marks = previous_marks or _PullRequestMarks(settled=None)
-        newest_pull_request = pages.pull_request_newest_updated_at
-        if newest_pull_request is not None and (
-            marks.settled is None or _is_later(newest_pull_request, marks.settled)
-        ):
-            marks = _PullRequestMarks(
-                settled=marks.settled,
-                candidate=newest_pull_request,
-            )
-        return _Snapshot(
-            issues={entry.issue.id: entry for entry in entries},
-            high_water=high_water,
-            pull_request_marks=marks,
-            reconciled_at=now,
-        )
-
-    def _refresh_incrementally(
-        self, snapshot: _Snapshot, meter: RefreshMeter, now: float, probe: _Probe
-    ) -> _Snapshot:
-        """Bring the snapshot up to date with what changed since its mark."""
-        if snapshot.high_water is None:
-            # An empty collection has no mark to observe since.
-            return self._reconcile(snapshot, meter, now, probe=probe)
-        if (
-            probe.newest_updated_at is not None
-            and not _is_later(probe.newest_updated_at, snapshot.high_water)
-            and probe.total_count == len(snapshot.issues)
-        ):
-            return snapshot
-        delta = self._changes_since(snapshot.high_water, snapshot.high_water, meter)
-        observed = dict(snapshot.issues)
-        observed.update(delta.issues)
-        self._observe_counterparts(observed, delta.issues, snapshot.issues, meter)
-        reported_count: int | None = None
-        if len(observed) != probe.total_count:
-            # Something left without a trace a delta can see — a deletion, a
-            # transfer — and only observing everything afresh can say what.
-            # But a Reconciliation the budget already abandoned this period
-            # would fail the same way on every tick, so the disagreement is
-            # reported beside what is known until the next attempt is due.
-            if not self._reconciliation_failed_this_period(snapshot, now):
-                return self._reconcile(snapshot, meter, now, probe=probe, delta=delta)
-            reported_count = probe.total_count
-        return _Snapshot(
-            issues=observed,
-            high_water=delta.high_water,
-            pull_request_marks=snapshot.pull_request_marks,
-            reconciled_at=snapshot.reconciled_at,
-            reported_count=reported_count,
-        )
-
-    def _changes_since(
-        self, since: str, high_water: str, meter: RefreshMeter
-    ) -> _Delta:
-        """List the Issues updated at or after ``since`` and advance the mark."""
-        pages = self._collect_issue_pages(
-            _ISSUES_SINCE_QUERY, {"since": since}, meter, "Issue delta"
-        )
-        changed = self._changed_records(pages.records, meter)
-        for entry in changed.values():
-            high_water = _later(high_water, entry.updated_at)
-        return _Delta(issues=changed, high_water=high_water)
-
-    def _changed_records(
-        self, records: Sequence[Mapping[str, Any]], meter: RefreshMeter
-    ) -> dict[str, _ObservedIssue]:
-        """Keep the latest complete observation of each Issue in a delta."""
-        changed: dict[str, _ObservedIssue] = {}
-        for record in records:
-            entry = self._observe_record(record, meter)
-            # An Issue updated again while the delta paged moves past the
-            # cursor and is listed once more; the later observation wins.
-            previous = changed.get(entry.issue.id)
-            if previous is None or not _is_later(previous.updated_at, entry.updated_at):
-                changed[entry.issue.id] = entry
-        return changed
-
-    def _refresh_linked_pull_requests(
-        self, snapshot: _Snapshot, probe: _Probe, meter: RefreshMeter
-    ) -> _Snapshot:
-        """Re-observe Issues named since the Pull Request High-Water Mark."""
-        marks = snapshot.pull_request_marks
-        mark = marks.settled
-        if not _pull_requests_changed(marks, probe):
-            return snapshot
-        delta = self._pull_request_changes_since(mark, meter)
-        changed_numbers = {pull_request.number for pull_request in delta.pull_requests}
-        affected = {
-            issue_id
-            for issue_id, entry in snapshot.issues.items()
-            if changed_numbers & entry.linked_pull_request_numbers
-        }
-        for pull_request in delta.pull_requests:
-            affected.update(pull_request.closing_issue_ids)
-        observed = dict(snapshot.issues)
-        changed: dict[str, _ObservedIssue] = {}
-        for issue_id, record in self._fetch_by_identity(
-            sorted(affected), meter, "Issues named by changed Pull Requests"
-        ).items():
-            entry = self._own_issue(record, meter)
-            if entry is None:
-                observed.pop(issue_id, None)
-            else:
-                observed[issue_id] = entry
-                changed[issue_id] = entry
-        self._observe_counterparts(observed, changed, snapshot.issues, meter)
-        return _Snapshot(
-            issues=observed,
-            high_water=snapshot.high_water,
-            pull_request_marks=_confirmed_pull_request_marks(marks, delta),
-            reconciled_at=snapshot.reconciled_at,
-            reported_count=snapshot.reported_count,
-            sweep_due=snapshot.sweep_due,
-        )
-
-    def _pull_request_changes_since(
-        self,
-        since: str | None,
-        meter: RefreshMeter,
-        *,
-        first_page: Mapping[str, Any] | None = None,
-    ) -> _PullRequestDelta:
-        """Scan through the inclusive Pull Request High-Water Mark."""
-        changed: dict[str, _PullRequestChange] = {}
-        high_water = since
-        cursor: str | None = None
-        trail = CursorTrail("Pull Request changes")
-        while True:
-            variables: dict[str, str | int | Sequence[str]] = {
-                "repositoryId": self.repository_id
-            }
-            if cursor is not None:
-                variables["cursor"] = cursor
-            if first_page is not None:
-                repository, first_page = first_page, None
-            else:
-                meter.next_request(f"{len(changed)} changed Pull Requests")
-                data = self._repository_query(_PULL_REQUEST_CHANGES_QUERY, variables)
-                repository = self._own_repository(data)
-            connection = _object(
-                repository, "pullRequests", "data.repository", _RESPONSE_CODE
-            )
-            nodes, has_next, end_cursor = _connection_page(
-                connection, "data.repository.pullRequests", _RESPONSE_CODE
-            )
-            crossed_boundary = False
-            for record in nodes:
-                pull_request = self._pull_request_change(record, meter)
-                if since is not None and _is_later(since, pull_request.updated_at):
-                    crossed_boundary = True
-                    continue
-                previous = changed.get(pull_request.id)
-                if previous is None or not _is_later(
-                    previous.updated_at, pull_request.updated_at
-                ):
-                    changed[pull_request.id] = pull_request
-                high_water = _later(high_water, pull_request.updated_at)
-            if crossed_boundary or not has_next:
-                return _PullRequestDelta(
-                    pull_requests=tuple(changed.values()), high_water=high_water
-                )
-            cursor = trail.follow(end_cursor)
-
-    def _pull_request_change(
-        self, record: Mapping[str, Any], meter: RefreshMeter
-    ) -> _PullRequestChange:
-        """Validate one Pull Request change and complete its closing targets."""
-        pull_request_id = _fetched_string(record, "id", "pull request", _RESPONSE_CODE)
-        number = _fetched(record, "number", "pull request", _RESPONSE_CODE)
-        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
-            raise IssueSourceRefreshError(
-                _RESPONSE_CODE, "pull request.number must be a positive Int"
-            )
-        updated_at = _fetched_string(
-            record, "updatedAt", "pull request", _RESPONSE_CODE
-        )
-        connection = _object(
-            record, "closingIssuesReferences", "pull request", _RESPONSE_CODE
-        )
-        nodes, has_next, end_cursor = _connection_page(
-            connection, "pull request.closingIssuesReferences", _RESPONSE_CODE
-        )
-        closing_issue_ids = {
-            _fetched_string(
-                node,
-                "id",
-                "pull request.closingIssuesReferences.nodes[]",
-                _RESPONSE_CODE,
-            )
-            for node in nodes
-        }
-        trail = CursorTrail(f"Pull Request {pull_request_id} closing Issues")
-        while has_next:
-            cursor = trail.follow(end_cursor)
-            meter.next_request(
-                f"{len(closing_issue_ids)} closing Issues of Pull Request #{number}"
-            )
-            data = self.gateway.graphql(
-                _PULL_REQUEST_CLOSING_ISSUES_QUERY,
-                {"id": pull_request_id, "cursor": cursor},
-            )
-            node = _object(data, "node", "data", _RESPONSE_CODE)
-            connection = _object(
-                node, "closingIssuesReferences", "data.node", _RESPONSE_CODE
-            )
-            nodes, has_next, end_cursor = _connection_page(
-                connection, "data.node.closingIssuesReferences", _RESPONSE_CODE
-            )
-            closing_issue_ids.update(
-                _fetched_string(
-                    item,
-                    "id",
-                    "data.node.closingIssuesReferences.nodes[]",
-                    _RESPONSE_CODE,
-                )
-                for item in nodes
-            )
-        return _PullRequestChange(
-            id=pull_request_id,
-            number=number,
-            updated_at=updated_at,
-            closing_issue_ids=frozenset(closing_issue_ids),
-        )
-
-    def _observe_counterparts(
-        self,
-        observed: dict[str, _ObservedIssue],
-        changed: Mapping[str, _ObservedIssue],
-        previous: Mapping[str, _ObservedIssue],
-        meter: RefreshMeter,
-    ) -> None:
-        """Observe the other end of every relationship ``changed`` added or removed.
-
-        A relationship is observed at both its ends and a change may bump
-        only one of them, so the other ends are observed by identity too.
-        """
-        counterparts = _relationship_counterparts(changed, previous)
-        for issue_id, record in self._fetch_by_identity(
-            counterparts, meter, "related Issues"
-        ).items():
-            entry = self._own_issue(record, meter)
-            if entry is None:
-                observed.pop(issue_id, None)
-            else:
-                observed[issue_id] = entry
-
-    def _collected(self, snapshot: _Snapshot, now: float) -> CollectedIssues:
-        entries = sorted(snapshot.issues.values(), key=lambda entry: entry.issue.number)
-        label_colors: dict[str, str] = {}
-        # The most recently updated Issue carries the latest colour of a label.
-        for entry in sorted(entries, key=lambda entry: _timestamp(entry.updated_at)):
-            label_colors.update(entry.label_colors)
-        return CollectedIssues(
-            issues=tuple(entry.issue for entry in entries),
-            label_colors=label_colors,
-            issue_activity={entry.issue.id: entry.activity for entry in entries},
-            diagnostics=(
-                *self._rate_limit_diagnostics(),
-                *self._reconciliation_diagnostics(snapshot, now),
-            ),
-        )
 
     def _rate_limit_diagnostics(self) -> tuple[IssueSourceDiagnostic, ...]:
         """Warn while the hour's GraphQL points run low; never fail for it."""
@@ -1102,45 +249,6 @@ class GitHubIssuesSource(IssueSource):
                 ),
             ),
         )
-
-    def _reconciliation_diagnostics(
-        self, snapshot: _Snapshot, now: float
-    ) -> tuple[IssueSourceDiagnostic, ...]:
-        """Warn while a Reconciliation is overdue or the Issue count disagrees."""
-        diagnostics: list[IssueSourceDiagnostic] = []
-        if snapshot.reported_count is not None:
-            diagnostics.append(
-                IssueSourceDiagnostic(
-                    source=self.name,
-                    code=_ISSUE_COUNT,
-                    severity="warning",
-                    message=(
-                        f"GitHub reports {snapshot.reported_count} Issues but "
-                        f"{len(snapshot.issues)} are known; a deleted or "
-                        "transferred Issue may be shown until the fallback "
-                        "sweep succeeds"
-                    ),
-                )
-            )
-        age = now - snapshot.reconciled_at
-        period = self.reconcile_seconds
-        if age > 2 * period:
-            diagnostics.append(
-                IssueSourceDiagnostic(
-                    source=self.name,
-                    code=_RECONCILIATION_OVERDUE,
-                    severity="warning",
-                    message=(
-                        f"GitHub Issues were last observed in full {age:.0f}s ago "
-                        f"against a Reconciliation period of {period:g}s; a "
-                        "Linked Pull Request whose derived targets remain "
-                        "unindexed, a blocker's dependency, a parent/sub-Issue "
-                        "relationship or a deleted or transferred Issue may be "
-                        "out of date until one succeeds"
-                    ),
-                )
-            )
-        return tuple(diagnostics)
 
     @override
     def find(self, hint: IssueHint) -> IssueProfile | None:
@@ -1189,151 +297,6 @@ class GitHubIssuesSource(IssueSource):
             return None
         return issue
 
-    def _probe(self, meter: RefreshMeter) -> _Probe:
-        meter.next_request("the change probe")
-        data = self._repository_query(
-            _ISSUE_PROBE_QUERY, {"repositoryId": self.repository_id}
-        )
-        repository = self._own_repository(data)
-        return self._read_probe(repository)
-
-    def _read_probe(
-        self, repository: Mapping[str, Any], *, issues_field: str = "issues"
-    ) -> _Probe:
-        """Read live Issue count and both change signals from one Repository."""
-        issues = _object(repository, issues_field, "data.repository", _RESPONSE_CODE)
-        total_count = _fetched(
-            issues, "totalCount", "data.repository.issues", _RESPONSE_CODE
-        )
-        if not isinstance(total_count, int) or isinstance(total_count, bool):
-            raise IssueSourceRefreshError(
-                _RESPONSE_CODE, "data.repository.issues.totalCount must be an Int"
-            )
-        newest_updated_at = _connection_newest_updated_at(
-            issues, "data.repository.issues"
-        )
-        pull_requests = _object(
-            repository, "pullRequests", "data.repository", _RESPONSE_CODE
-        )
-        return _Probe(
-            total_count=total_count,
-            newest_updated_at=newest_updated_at,
-            pull_request_newest_updated_at=_connection_newest_updated_at(
-                pull_requests, "data.repository.pullRequests"
-            ),
-        )
-
-    def _collect_issue_pages(
-        self,
-        query: str,
-        variables: GraphQLVariables,
-        meter: RefreshMeter,
-        subject: str,
-        *,
-        observe_pull_request: bool = False,
-        observe_probe: bool = False,
-    ) -> _IssuePages:
-        nodes: list[dict[str, Any]] = []
-        pull_request_newest_updated_at: str | None = None
-        cursor: str | None = None
-        trail = CursorTrail(subject)
-        probe = None
-        while True:
-            page_variables: dict[str, str | int | Sequence[str]] = {
-                "repositoryId": self.repository_id,
-                **variables,
-            }
-            if cursor is not None:
-                page_variables["cursor"] = cursor
-            meter.next_request(f"{len(nodes)} Issues")
-            data = self._repository_query(query, page_variables)
-            repository = self._own_repository(data)
-            if observe_probe and probe is None:
-                probe = self._read_probe(repository, issues_field="probeIssues")
-            if observe_pull_request:
-                pull_requests = _object(
-                    repository, "pullRequests", "data.repository", _RESPONSE_CODE
-                )
-                newest = _connection_newest_updated_at(
-                    pull_requests, "data.repository.pullRequests"
-                )
-                if newest is not None:
-                    pull_request_newest_updated_at = _later(
-                        pull_request_newest_updated_at, newest
-                    )
-            issues = _object(repository, "issues", "data.repository", _RESPONSE_CODE)
-            page_nodes, has_next, end_cursor = _connection_page(
-                issues, "data.repository.issues", _RESPONSE_CODE
-            )
-            nodes.extend(page_nodes)
-            if not has_next:
-                return _IssuePages(
-                    records=tuple(nodes),
-                    pull_request_newest_updated_at=pull_request_newest_updated_at,
-                    probe=probe,
-                )
-            cursor = trail.follow(end_cursor)
-
-    def _fetch_by_identity(
-        self, ids: Sequence[str], meter: RefreshMeter, subject: str
-    ) -> dict[str, dict[str, Any] | None]:
-        """Observe Issues by identity, a missing one answered as ``None``.
-
-        Identities go in batches of the size GitHub charges one point for,
-        and the batches in waves of MAX_IN_FLIGHT, each wave spent against
-        the budget before it is sent.
-        """
-        batches = [
-            list(ids[start : start + _BATCH_SIZE])
-            for start in range(0, len(ids), _BATCH_SIZE)
-        ]
-        records: dict[str, dict[str, Any] | None] = {}
-        for wave_start in range(0, len(batches), MAX_IN_FLIGHT):
-            wave = batches[wave_start : wave_start + MAX_IN_FLIGHT]
-            for _ in wave:
-                meter.next_request(f"{len(records)} of {len(ids)} {subject}")
-            answers = self.gateway.graphql_many(
-                _ISSUES_BY_ID_QUERY,
-                [{"ids": batch} for batch in wave],
-                tolerated=frozenset({"NOT_FOUND"}),
-            )
-            for batch, data in zip(wave, answers, strict=True):
-                nodes = _fetched(data, "nodes", "data", _RESPONSE_CODE)
-                if not isinstance(nodes, list) or len(nodes) != len(batch):
-                    raise IssueSourceRefreshError(
-                        _RESPONSE_CODE, "data.nodes must answer one node per identity"
-                    )
-                for issue_id, node in zip(batch, nodes, strict=True):
-                    if node is not None and not isinstance(node, dict):
-                        raise IssueSourceRefreshError(
-                            _RESPONSE_CODE, "data.nodes must hold objects or nulls"
-                        )
-                    records[issue_id] = node
-        return records
-
-    def _own_issue(
-        self, record: dict[str, Any] | None, meter: RefreshMeter
-    ) -> _ObservedIssue | None:
-        """An Issue of the configured repository, or ``None`` when it is not one.
-
-        A missing node, another kind of node, and an Issue of another
-        repository (a transfer, or a relationship across repositories) are
-        each positive evidence that no Issue of this collection is there.
-        """
-        if record is None:
-            return None
-        if _fetched_string(record, "__typename", "data.nodes[]", _RESPONSE_CODE) != (
-            "Issue"
-        ):
-            return None
-        repository = _object(record, "repository", "issue", _RESPONSE_CODE)
-        if (
-            _fetched_string(repository, "id", "issue.repository", _RESPONSE_CODE)
-            != self.repository_id
-        ):
-            return None
-        return self._observe_record(record, meter)
-
     def _observe_records(
         self, records: Sequence[Mapping[str, Any]], meter: RefreshMeter
     ) -> list[_ObservedIssue]:
@@ -1360,9 +323,6 @@ class GitHubIssuesSource(IssueSource):
             issue=issue,
             updated_at=_fetched_string(complete, "updatedAt", "issue", _RESPONSE_CODE),
             activity=_issue_activity(complete),
-            linked_pull_request_numbers=frozenset(
-                _all_linked_pull_request_numbers(complete)
-            ),
             label_colors=_label_colors(complete),
         )
 
@@ -1494,97 +454,44 @@ class GitHubIssuesSource(IssueSource):
             )
         return data
 
-
-def _relationship_counterparts(
-    changed: Mapping[str, _ObservedIssue], previous: Mapping[str, _ObservedIssue]
-) -> list[str]:
-    """The Issues whose relationship to a changed Issue was added or removed."""
-    counterparts: set[str] = set()
-    for issue_id, entry in changed.items():
-        before = previous.get(issue_id)
-        related_before = _related_ids(before.issue.relationships) if before else set()
-        counterparts |= related_before ^ _related_ids(entry.issue.relationships)
-    counterparts -= changed.keys()
-    return sorted(counterparts)
-
-
-def _related_ids(relationships: IssueRelationships) -> set[str]:
-    related = {
-        *relationships.sub_issues,
-        *relationships.blocked_by,
-        *relationships.blocking,
-    }
-    if relationships.parent is not None:
-        related.add(relationships.parent)
-    return related
-
-
-def _connection_newest_updated_at(
-    connection: Mapping[str, Any], path: str
-) -> str | None:
-    """Read the optional first `updatedAt` node of a change probe."""
-    nodes = _fetched(connection, "nodes", path, _RESPONSE_CODE)
-    if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):
-        raise IssueSourceRefreshError(
-            _RESPONSE_CODE, f"{path}.nodes must be an object array"
+    @override
+    def _collect(self) -> CollectedIssues:
+        """Enumerate one complete Issue collection under a single Refresh Budget."""
+        meter = self._start_meter()
+        cursor: str | None = None
+        trail = CursorTrail("Issue collection")
+        entries: list[_ObservedIssue] = []
+        try:
+            while True:
+                variables: GraphQLVariables = {"repositoryId": self.repository_id}
+                if cursor is not None:
+                    variables["cursor"] = cursor
+                meter.next_request(f"{len(entries)} Issues")
+                repository = self._own_repository(
+                    self._repository_query(_ISSUES_QUERY, variables)
+                )
+                connection = _object(
+                    repository, "issues", "data.repository", _RESPONSE_CODE
+                )
+                nodes, has_next, end_cursor = _connection_page(
+                    connection, "data.repository.issues", _RESPONSE_CODE
+                )
+                entries.extend(self._observe_records(nodes, meter))
+                if not has_next:
+                    break
+                cursor = trail.follow(end_cursor)
+        except GitHubRequestError as exc:
+            raise IssueSourceRefreshError(exc.code, str(exc)) from exc
+        entries.sort(key=lambda entry: entry.issue.number)
+        colors: dict[str, str] = {}
+        for entry in sorted(entries, key=lambda entry: entry.updated_at):
+            colors.update(entry.label_colors)
+        return CollectedIssues(
+            issues=tuple(entry.issue for entry in entries),
+            label_colors=colors,
+            issue_activity={entry.issue.id: entry.activity for entry in entries},
+            diagnostics=self._rate_limit_diagnostics(),
         )
-    return (
-        _fetched_string(nodes[0], "updatedAt", f"{path}.nodes[0]", _RESPONSE_CODE)
-        if nodes
-        else None
-    )
-
-
-def _timestamp(value: str) -> datetime:
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise IssueSourceRefreshError(
-            _RESPONSE_CODE, f"issue.updatedAt {value!r} is not an ISO 8601 timestamp"
-        ) from exc
-
-
-def _is_later(value: str, than: str) -> bool:
-    return _timestamp(value) > _timestamp(than)
-
-
-def _later(mark: str | None, value: str) -> str:
-    return value if mark is None or _is_later(value, mark) else mark
-
-
-def _pull_requests_changed(marks: _PullRequestMarks, probe: _Probe) -> bool:
-    """Identify a Pull Request signal requiring an inclusive prefix scan."""
-    newest = probe.pull_request_newest_updated_at
-    return newest is not None and (
-        marks.settled is None or _is_later(newest, marks.settled)
-    )
-
-
-def _confirmed_pull_request_marks(
-    marks: _PullRequestMarks, delta: _PullRequestDelta
-) -> _PullRequestMarks:
-    """Settle only a candidate repeated by a complete inclusive prefix scan."""
-    settled = delta.high_water is not None and delta.high_water == marks.candidate
-    return _PullRequestMarks(
-        settled=delta.high_water if settled else marks.settled,
-        candidate=None if settled else delta.high_water,
-    )
-
-
-def _startup_pull_request_marks(
-    marks: _PullRequestMarks, probe: _Probe
-) -> _PullRequestMarks:
-    """Bound persisted Pull Request cursors by the live startup probe."""
-    newest = probe.pull_request_newest_updated_at
-    if newest is None:
-        return _PullRequestMarks(settled=None)
-    settled = marks.settled
-    candidate = marks.candidate
-    if settled is not None and _is_later(settled, newest):
-        settled = None
-    if candidate is not None and _is_later(candidate, newest):
-        candidate = None
-    return _PullRequestMarks(settled=settled, candidate=candidate)
 
 
 def normalize_github_issue(
@@ -1730,29 +637,6 @@ def _label_colors(record: Mapping[str, Any]) -> dict[str, str]:
     return colors
 
 
-_PULL_REQUEST_STATES: dict[str, PullRequestState] = {
-    "OPEN": "open",
-    "CLOSED": "closed",
-    "MERGED": "merged",
-}
-
-
-def _all_linked_pull_request_numbers(record: Mapping[str, Any]) -> set[int]:
-    """Identify every valid Linked Pull Request in the completed connection."""
-    references = record.get("closedByPullRequestsReferences")
-    nodes = references.get("nodes") if isinstance(references, Mapping) else None
-    if not isinstance(nodes, list):
-        return set()
-    numbers: set[int] = set()
-    for node in nodes:
-        if not isinstance(node, Mapping):
-            continue
-        number = node.get("number")
-        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
-            numbers.add(number)
-    return numbers
-
-
 def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
     """Read comment count and linked pull requests from a GraphQL Issue node.
 
@@ -1823,10 +707,6 @@ def _optional_string_field(record: Mapping[str, Any], field: str) -> str | None:
     return _string(value, f"issue.{field}", _PROFILE_CODE)
 
 
-# The one validator family over raw GitHub JSON: each validator narrows one
-# value and refuses with the caller's diagnostic code — ``github-profile``
-# when a well-formed response carries an Issue that does not conform,
-# ``github-malformed-response`` when the response shape itself is wrong.
 def _fetched(record: Mapping[str, Any], field: str, path: str, code: str) -> Any:  # ruff: ignore[any-type]
     if field not in record:
         raise IssueSourceRefreshError(

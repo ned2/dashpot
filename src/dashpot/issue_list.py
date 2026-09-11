@@ -10,6 +10,7 @@ from typing import Literal
 from .issue_profile import IssueProfile
 from .model import AgentRun, ProjectObservation, RunState, WorkspaceSnapshot
 from .search import parse_search
+from .source_queries import AuxiliaryObservation
 
 IssueState = Literal["open", "closed"]
 RowKind = Literal["issue"]
@@ -65,6 +66,9 @@ class IssueListRow:
     observed_runs: tuple[AgentRun, ...] = ()
     project_runs: tuple[AgentRun, ...] = ()
     session_states: tuple[RunState, ...] = ()
+    queried: bool = False
+    auxiliary: AuxiliaryObservation | None = None
+    related_issues: tuple[IssueProfile, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

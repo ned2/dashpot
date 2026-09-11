@@ -345,7 +345,13 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         "author": optional_text_cell(issue.author),
         "milestone": optional_text_cell(issue.milestone),
         "type": optional_text_cell(issue.issue_type),
-        "comments": comments_cell(issue_activity(issue, project)),
+        "comments": (
+            comments_cell(row.auxiliary.activity)
+            if row.auxiliary and row.auxiliary.activity
+            else text_cell("unavailable" if row.auxiliary else "not fetched")
+        )
+        if row.queried
+        else comments_cell(issue_activity(issue, project)),
         "created": date_cell(issue.created_at),
         "last_action": date_cell(issue.updated_at),
     }

@@ -1,7 +1,7 @@
 ---
-status: amended
+status: superseded
 date: 2026-09-05
-amended-by: 0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md
+superseded-by: 0033-query-pages-and-independent-issue-resolution.md
 ---
 
 # Run fallback sweeps under their own Refresh Budget
