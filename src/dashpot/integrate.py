@@ -182,7 +182,7 @@ def install_integration(
         )
     handler = {
         "type": "command",
-        "command": str(command),
+        "command": shlex.quote(str(command)),
         "timeout": HOOK_TIMEOUT,
     }
     # One event may carry several subscriptions (a matcher per relocation
@@ -297,7 +297,7 @@ def integration_status(
                     f"{spec.harness}' to repair): {', '.join(missing)}"
                 )
             for command in sorted({c for cs in commands.values() for c in cs}):
-                executable = Path(command)
+                executable = _hook_executable(command)
                 if not executable.is_file():
                     messages.append(
                         f"hook publisher missing at {command}; run "
@@ -600,9 +600,8 @@ def _is_dashpot_handler(handler: object) -> bool:
         command = command[0]
     if not isinstance(command, str):
         return False
-    # The installer writes the publisher path as one unquoted string, so a
-    # path containing spaces must match whole before it is read as a shell
-    # command line whose first word is the executable.
+    # Older installers wrote paths without shell quoting; recognise those
+    # whole so rerunning integration can repair their command lines.
     candidates = [command]
     try:
         words = shlex.split(command)
@@ -611,6 +610,18 @@ def _is_dashpot_handler(handler: object) -> bool:
     if words:
         candidates.append(words[0])
     return any(Path(candidate).name in HOOK_COMMAND_NAMES for candidate in candidates)
+
+
+def _hook_executable(command: str) -> Path:
+    """Locate the executable in a current or older installed hook command."""
+    raw = Path(command)
+    if raw.is_file():
+        return raw
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return raw
+    return Path(words[0]) if words else raw
 
 
 def _installed_commands(document: dict[str, Any]) -> dict[str, list[str]]:

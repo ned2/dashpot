@@ -2,7 +2,7 @@
 name = "dashpot"
 version = "0.1.0"
 description = "Useful damping for agent-driven projects"
-readme = "README.md"
+readme = "README-pypi.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Ned Letcher" }]
@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
   "cyclopts>=4.23.3,<5",
   "pydantic>=2.13.5,<3",
+  # The application relies on tested DataTable/layout behavior; tool installs isolate it.
   "textual==8.2.8",
   "typing-extensions>=4.15.0",
 ]
@@ -58,6 +59,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dashpot"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/.codex", "/.dashpot"]
 
 [tool.ruff]
 # Everything Ruff sees is Python 3.11+ (from requires-python). `src` lets isort

@@ -96,7 +96,8 @@ def run_quality_gates(*, include_tests: bool = True) -> None:
     with TemporaryDirectory(prefix="dashpot-quality-") as temporary_directory:
         distributions = Path(temporary_directory) / "dist"
         run_gate(
-            "Build distributions", ["uv", "build", "--out-dir", str(distributions)]
+            "Build distributions",
+            ["uv", "build", "--no-sources", "--out-dir", str(distributions)],
         )
         archives = sorted(distributions.iterdir())
         wheels = [archive for archive in archives if archive.suffix == ".whl"]
@@ -105,6 +106,10 @@ def run_quality_gates(*, include_tests: bool = True) -> None:
         ]
         if len(wheels) != 1 or len(source_distributions) != 1:
             raise RuntimeError("Expected exactly one wheel and one source distribution")
+        run_gate(
+            "Inspect distributions",
+            uv_run("python", "scripts/check_distributions.py", str(distributions)),
+        )
 
 
 def parse_include_tests(arguments: Sequence[str] | None = None) -> bool:
