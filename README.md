@@ -22,8 +22,10 @@ read-only preview and confirmed
 ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
 
 > [!NOTE]
-> Dashpot is an early implementation extracted from a successful research spike.
-> Its interfaces and packaging are not yet stable.
+> Dashpot 0.1.0 is being prepared as its first alpha release. Publication and
+> real-host acceptance are tracked in [#5](https://github.com/ned2/dashpot/issues/5).
+> The [release policy](docs/adr/0033-publish-an-alpha-with-patch-compatible-interfaces.md)
+> preserves documented interfaces within 0.1.x.
 
 ## What it observes
 
@@ -44,16 +46,35 @@ healthy Issue Source or hiding repository facts. A Local Issue Markdown
 Project reports Pull Requests as not configured rather than inferring a host
 from its Git remotes.
 
+## Installation
+
+Once the first release is published, install Dashpot in an isolated tool environment:
+
+```bash
+uv tool install --python 3.14 dashpot
+```
+
+The release targets CPython 3.11–3.14 on Linux x86-64 and Apple Silicon macOS,
+Git 2.38+, and gh 2.100.0+ for GitHub-backed Projects. See
+[installation and support](docs/installation.md) for current host-validation
+status, candidate installation before publication, PATH setup, harness setup,
+diagnosis, upgrades, and uninstall instructions.
+
+For a repository with a GitHub `origin`, authenticate `gh`, run `dashpot init`
+and add `.dashpot/state/` to `.gitignore`, then run `dashpot`. For a Project
+without GitHub, create an `issues` directory and use `dashpot init --markdown
+issues`; that source uses the [Local Issue Markdown grammar](conformance/issue/local-markdown.md).
+
 ## Usage
 
 Open the TUI for a Project — Dashpot observes exactly one Project per run:
 
 ```bash
 cd /path/to/configured/project
-uv run dashpot
+dashpot
 
-uv run dashpot --workspace personal=/path/to/project
-uv run dashpot --workspace personal=/path/first-clone \
+dashpot --workspace personal=/path/to/project
+dashpot --workspace personal=/path/first-clone \
   --workspace personal=/path/second-clone
 ```
 
@@ -209,7 +230,7 @@ collected exactly once from the authoritative anchor.
 The same collector has a headless JSON interface:
 
 ```bash
-uv run dashpot --workspace my-project=/path/to/project --json
+dashpot --workspace my-project=/path/to/project --json
 ```
 
 The TUI uses each Project's mutable display label. Headless snapshots also
@@ -263,7 +284,7 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
   lockfile, Ruff lint and formatting, ty, the documents, and the distribution
   build for the exact revision being pushed, in a temporary detached worktree. The test suite
-  runs in CI across every supported operating-system and Python-version pair.
+  runs in CI across the documented platform matrix.
 
 Run the commit hooks across every tracked file:
 
@@ -305,7 +326,10 @@ network access.
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests
 targeting `main`, pushes to `main`, and manual dispatch. It runs the all-files
 pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
-and macOS under Python 3.11 and 3.14, and builds the package once per run. No
+and macOS under Python 3.11 and 3.14, adds Python 3.12/3.13 on Ubuntu,
+exercises Git 2.38, and builds the package once per run. Installed-artifact jobs
+install the wheel and source distribution
+independently on the Python/OS matrix, including TUI and hook-publisher checks. No
 credentials are provided and no live GitHub collection happens in CI; the test
 suite exercises Issue collection against fakes.
 
@@ -326,6 +350,17 @@ uv run pytest -q
 
 # Build the wheel and source distribution into dist/
 uv build
+```
+
+The [release workflow](.github/workflows/release.yml) reuses CI at the exact
+release revision and publishes its verified artifacts only after environment
+approval. [Releasing](docs/releasing.md) documents setup, rehearsal, real-host
+acceptance, and recovery. The local artifact checks are:
+
+```bash
+uv run python scripts/check_distributions.py dist
+uvx --from twine==7.0.0 twine check --strict dist/*
+uv run python scripts/smoke_install.py dist/*.whl dist/*.tar.gz
 ```
 
 ## Project configuration
@@ -574,8 +609,11 @@ on agents themselves are in [`AGENTS.md`](AGENTS.md).
 
 ## Documentation map
 
-Three `living` documents carry the detail this README points at:
+These `living` documents carry the detail this README points at:
 
+- [`docs/installation.md`](docs/installation.md) covers installation, support,
+  configuration, diagnosis, upgrades, and removal.
+- [`docs/releasing.md`](docs/releasing.md) covers release gates, publishing, and recovery.
 - [`docs/domain-language.md`](docs/domain-language.md) defines the terms used in
   the interface, code, and documentation, including the phrasings to avoid.
 - [`docs/agent-sessions.md`](docs/agent-sessions.md) documents `dashpot
@@ -587,6 +625,8 @@ Three `living` documents carry the detail this README points at:
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
 decision. The other files in [`docs/`](docs/) are research, audits, and
 proposals that informed decisions and implementation.
+[`CHANGELOG.md`](CHANGELOG.md) records release notes;
+[`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
 [AGENTS.md](AGENTS.md) is the working guidance for coding agents.
 

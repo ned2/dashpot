@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: amended
+amended-by: 0004-observe-one-project-per-run.md
 date: 2026-08-28
 ---
 
@@ -9,18 +10,17 @@ Dashpot's proven primary workflow is observing the current one-repository
 Project, while evidence for routinely operating several unrelated Projects in
 one Workspace is weak. Dashpot will therefore make the relevant repository
 checkout the owner and discovery point for its configuration and mutable local
-work state. Tracked configuration will move from `.dashpot.json` to
-`.dashpot/config.json`; ignored runtime state will live beneath
-`.dashpot/state/`. This records an accepted direction, not the as-yet
-unimplemented migration or state schema. The supporting evidence is captured in
+work state. Tracked configuration lives in `.dashpot/config.json`; ignored
+runtime state lives beneath `.dashpot/state/`. Issues #18 and #19 implemented
+this ownership model before the first release. The supporting evidence is captured in
 [the multi-repository Workspace audit](../multi-repository-workspace-evidence.md).
 
 A Project remains rooted in exactly one Git Repository. Running Dashpot from a
-configured checkout is the primary experience. A Workspace may still compose
-several Projects and aggregate the state found at their configured anchors and
-discovered worktrees, but it is an optional secondary view and never owns their
-configuration or work state. Machine-wide agent integrations locate the
-relevant checkout from observed working-directory and repository facts rather
+configured checkout is the primary experience. As amended by
+[ADR 0004](0004-observe-one-project-per-run.md), a Workspace
+resolves to exactly one Project and may aggregate its configured anchors and
+discovered Worktrees. It never owns configuration or work state. Machine-wide
+agent integrations locate the relevant checkout from observed working-directory and repository facts rather
 than publishing to a Workspace-global state authority.
 
 ## Considered options
@@ -47,7 +47,8 @@ than publishing to a Workspace-global state authority.
   treating one copy as a global authority or synchronizing them implicitly.
 - Removing a checkout naturally removes its local state. Moved or missing
   locations become explicit diagnostics instead of silently transferring state.
-- Existing `.dashpot.json`, Workspace inventory, and global agent-record paths
-  require an explicit migration when this decision is implemented.
+- The first published release establishes the current configuration and state
+  baseline. There are no external users requiring migration from unreleased
+  formats; the older path is not a supported release interface.
 - Projects spanning multiple Git repositories remain unsupported; that is a
   separate deferred domain decision.

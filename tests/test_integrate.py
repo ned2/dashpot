@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
+import subprocess
 import sysconfig
 from importlib.metadata import version
 from pathlib import Path
@@ -147,27 +149,42 @@ def test_install_refuses_to_overwrite_an_unmanaged_skill(tmp_path: Path) -> None
     assert (skill / "SKILL.md").read_text().endswith("Mine.\n")
 
 
-def test_a_publisher_path_containing_spaces_is_recognised(tmp_path: Path) -> None:
-    # Ordinary on macOS: the publisher lives under a home directory with a
-    # space, and the installer writes that path unquoted.
+@pytest.mark.parametrize("harness", ["codex", "claude-code"])
+def test_a_publisher_path_containing_spaces_is_executable(
+    tmp_path: Path, harness: str
+) -> None:
     home = codex_home(tmp_path)
-    command = publisher(tmp_path / "My User")
+    spec = integration(harness)
+    command = publisher(tmp_path / "My User's tools $(false)").with_name(
+        spec.command_name
+    )
+    command.write_text("#!/bin/sh\nprintf 'publisher executed'\n")
+    command.chmod(0o755)
     assert " " in str(command)
-    install_codex_integration(home, command_path=command)
-    before = (home / "hooks.json").read_text()
+    install_integration(harness, home, command_path=command)
+    settings = home / spec.hooks_file
+    before = settings.read_text()
 
-    messages = install_codex_integration(home, command_path=command)
+    messages = install_integration(harness, home, command_path=command)
 
-    assert (home / "hooks.json").read_text() == before
+    assert settings.read_text() == before
     assert any("already installed" in message for message in messages)
-    stop_groups = read_hooks(home)["hooks"]["Stop"]
+    stop_groups = json.loads(settings.read_text())["hooks"]["Stop"]
     assert [
         handler["command"] for group in stop_groups for handler in group["hooks"]
-    ] == [str(command)]
-    status = "\n".join(codex_integration_status(home, current=tmp_path))
-    assert f"installed in {home / 'hooks.json'}" in status
-    remove_codex_integration(home)
-    assert not (home / "hooks.json").exists()
+    ] == [shlex.quote(str(command))]
+    result = subprocess.run(
+        ["/bin/sh", "-c", stop_groups[0]["hooks"][0]["command"]],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout == "publisher executed"
+    status = "\n".join(integration_status(harness, home, current=tmp_path))
+    assert "publisher missing" not in status
+    assert "not executable" not in status
+    remove_integration(harness, home)
+    assert not settings.exists()
 
 
 def test_a_command_line_with_arguments_is_recognised_by_its_executable(
