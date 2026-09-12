@@ -965,8 +965,13 @@ async def test_long_worktree_identity_and_all_ignored_paths_are_accessible(size)
         assert str(inventory.render()).splitlines() == list(ignored)
         body = screen.query_one("#cleanup-body")
         body.scroll_end(animate=False)
-        await pilot.pause()
-        assert inventory.region.bottom <= body.region.bottom
+        # Scrolling is deferred until layout, even with animation disabled.
+        await wait_until(
+            lambda: (
+                inventory.region.height == len(ignored)
+                and inventory.region.bottom <= body.region.bottom
+            )
+        )
         assert screen.query_one("#cleanup-confirm").region.bottom <= size[1]
 
 
