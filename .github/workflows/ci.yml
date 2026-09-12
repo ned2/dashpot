@@ -74,15 +74,17 @@ jobs:
       - name: Install locked environment
         run: uv sync --locked --group dev
 
-      # One leg measures coverage so the report shows up in the log and job
-      # summary; there is deliberately no threshold — the report finds gaps,
-      # it does not gate (issue #81).
+      # Python 3.14 uses coverage's lower-overhead sys.monitoring core.
+      # The report finds gaps without a percentage threshold (issue #81);
+      # tests and report generation must still pass.
       - name: Run tests
-        if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.11'
+        if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.14'
         run: uv run pytest -q
 
       - name: Run tests with a coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        env:
+          COVERAGE_DEBUG: sys
         run: |
           uv run pytest -q --cov --cov-report=term-missing
           uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"

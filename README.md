@@ -397,7 +397,9 @@ the package once per run. Installed-artifact jobs
 install the wheel and source distribution
 independently on the Python/OS matrix, including TUI and hook-publisher checks. No
 credentials are provided and no live GitHub collection happens in CI; the test
-suite exercises Issue collection against fakes.
+suite exercises Issue collection against fakes. Ubuntu/Python 3.14 collects
+line coverage during its test run and writes the report to the job summary.
+Coverage has no percentage threshold; tests and report generation must pass.
 
 Every CI verification step has an exact local equivalent:
 
