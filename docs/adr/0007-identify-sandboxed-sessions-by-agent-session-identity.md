@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-08-30
+amended-by: 0038-isolate-native-agent-session-identities.md
 ---
 
 # Identify sandboxed Agent Sessions by Agent Session Identity
@@ -24,6 +25,12 @@ record of the same harness at this Worktree confirms it and still describes a
 session that is not ended or gone. The record is then keyed by the host
 process that hook published, so one session has one record whichever route
 found it, and liveness and orphan detection keep following the host process.
+
+[ADR 0038](0038-isolate-native-agent-session-identities.md) amends the
+process-primary and identity-or-process matching described above. Confirmed
+harness-scoped native identity is now required for Issue-work authorization;
+process evidence corroborates lifecycle and never unifies named sessions.
+Unnamed legacy runs require explicit targeted recovery.
 
 ## Considered options
 

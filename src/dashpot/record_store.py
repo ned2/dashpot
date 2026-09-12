@@ -49,6 +49,7 @@ class LockedRecordStore:
     @contextmanager
     def locked(self, key: str) -> Iterator[None]:
         """Hold the key's lock, creating the store directory when absent."""
+        self.record_path(key)
         self.directory.mkdir(parents=True, exist_ok=True)
         with locked_path(self.lock_path(key)):
             yield

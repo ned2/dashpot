@@ -342,6 +342,7 @@ class WorkObserverTests(unittest.TestCase):
             started_at="2026-08-24T14:00:00Z",
             working_directory=str(worktree),
             branch="feature",
+            session_id="session-a",
         )
         WorkStore(worktree).start(work)
         return work
@@ -363,7 +364,7 @@ class WorkObserverTests(unittest.TestCase):
     def targets(self) -> dict[str, list[ObservationTarget]]:
         return {"project:example": [observation_target(str(self.worktree))]}
 
-    def test_work_run_correlates_hook_session_state_by_process(self) -> None:
+    def test_work_run_correlates_hook_session_state_by_native_identity(self) -> None:
         work = self.record_work(self.worktree)
         self.write_hook("session-a", "waiting", str(self.worktree))
 
@@ -461,7 +462,7 @@ class WorkObserverTests(unittest.TestCase):
         ):
             with self.subTest(reason=reason):
                 work = self.record_work(self.worktree)
-                self.write_hook("session-c", "running", str(self.worktree))
+                self.write_hook("session-a", "running", str(self.worktree))
 
                 runs, diagnostics = observe_agent_runs(
                     self.targets(),
@@ -700,7 +701,7 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         # The resumed session was not consumed and stays listed on its own.
         self.assertIn("codex-session:thread-3-resumed", by_id)
 
-    def test_ambiguous_process_key_adopts_the_freshest_and_is_reported(
+    def test_unnamed_run_does_not_adopt_shared_process_activity(
         self,
     ) -> None:
         # A resumed session reuses its host process, so two hook records
@@ -719,18 +720,10 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         )
 
         by_id = {run.id: run for run in runs}
-        self.assertEqual("running", by_id[work.run_id].state)
-        self.assertEqual("2026-08-24T16:00:00Z", by_id[work.run_id].last_activity_at)
-        # The freshest session was consumed by the run; the stale one stays
-        # listed as its own unbound session.
+        self.assertEqual("unknown", by_id[work.run_id].state)
+        self.assertIsNone(by_id[work.run_id].last_activity_at)
         self.assertIn("codex-session:thread-4", by_id)
-        self.assertNotIn("codex-session:thread-4-resumed", by_id)
-        ambiguity = [
-            diagnostic
-            for diagnostic in diagnostics
-            if diagnostic.code == "agent-session-process-ambiguous"
-        ]
-        self.assertEqual(1, len(ambiguity))
-        self.assertEqual("warning", ambiguity[0].severity)
-        self.assertEqual("agent-sessions", ambiguity[0].source)
-        self.assertIn("thread-4-resumed", ambiguity[0].message)
+        self.assertIn("codex-session:thread-4-resumed", by_id)
+        unresolved = [d for d in diagnostics if d.code == "work-session-unresolved"]
+        self.assertEqual(1, len(unresolved))
+        self.assertIn("work stop --session", unresolved[0].message)

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-12
+date: 2026-09-13
 ---
 
 # Domain language
@@ -270,9 +270,12 @@ _Avoid_: treating a planned path as an Observation Location
 
 **Agent Session Identity**:
 The stable, opaque identity a harness gives one Agent Session, as its
-lifecycle hooks publish it. It identifies the session where its host process
-cannot be observed, such as from a sandbox's isolated process namespace, and
-is only ever accepted when the harness's own hook record confirms it.
+lifecycle hooks publish it, scoped to that harness. The confirmed pair
+`(harness, native session ID)` identifies the session on both visible and
+sandboxed process routes. Distinct native identities never become one session
+because they share a host process. Process evidence corroborates lifecycle and
+location; it cannot authorize Issue work without a confirmed native identity
+([ADR 0038](adr/0038-isolate-native-agent-session-identities.md)).
 _Avoid_: session key, which is the Work Store's record name, and process
 identity, which is evidence of Session Liveness
 

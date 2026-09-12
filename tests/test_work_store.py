@@ -43,7 +43,10 @@ def test_started_work_survives_a_reread(tmp_path: Path) -> None:
 def test_switching_replaces_the_sessions_active_run(tmp_path: Path) -> None:
     store = WorkStore(tmp_path)
     store.start(work(issue_id="I_one", started_at="2026-08-28T01:00:00Z"))
-    store.start(work(issue_id="I_two", started_at="2026-08-28T02:00:00Z"))
+    (previous,) = store.active()[0]
+    assert store.replace_current(
+        previous, work(issue_id="I_two", started_at="2026-08-28T02:00:00Z")
+    )
 
     active, _ = store.active()
 
@@ -125,14 +128,18 @@ def test_concurrent_writers_never_partially_write_state(tmp_path: Path) -> None:
     def writer(index: int) -> None:
         barrier.wait()
         try:
+            previous = None
             for turn in range(5):
-                store.start(
-                    work(
-                        session_key=f"codex-{index}-aa",
-                        issue_id=f"I_{turn}",
-                        started_at=f"2026-08-28T0{turn}:00:00Z",
-                    )
+                replacement = work(
+                    session_key=f"codex-{index}-aa",
+                    issue_id=f"I_{turn}",
+                    started_at=f"2026-08-28T0{turn}:00:00Z",
                 )
+                if previous is None:
+                    store.start(replacement)
+                else:
+                    assert store.replace_current(previous, replacement)
+                previous = replacement
         except Exception as exc:  # pragma: no cover - asserted below.
             failures.append(exc)
 

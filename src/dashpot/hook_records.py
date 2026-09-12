@@ -34,6 +34,7 @@ from .processes import (
 )
 from .record_store import LockedRecordStore
 from .repository import repository_worktrees
+from .session_matching import SessionEvidence
 from .work_store import ActiveWork, SessionProcess, WorkStore, end_session_runs
 
 EVENT_STATES: dict[str, str] = {
@@ -304,22 +305,50 @@ class HookRecordStore(LockedRecordStore):
         )
 
     def write(self, record: dict[str, Any]) -> Path:
+        """Publish one native identity without overwriting another harness."""
         session_id = require_string(record.get("sessionId"), "sessionId")
-        destination = self.record_path(session_id)
-        if record.get("state") == "ended":
-            # A graceful SessionEnd ends the Agent Session; a tombstone would
-            # only be an active-looking record that observers have to skip.
-            with self.locked(session_id):
+        harness = require_string(record.get("harness"), "harness")
+        identity = SessionEvidence(harness, session_id)
+        scoped_key = identity.storage_key()
+        with ExitStack() as stack:
+            for key in sorted((session_id, scoped_key)):
+                stack.enter_context(self.locked(key))
+            scoped = self._read(self.record_path(scoped_key))
+            legacy = self._read(self.record_path(session_id))
+            if scoped is not None:
+                key, previous = scoped_key, scoped
+            elif (
+                legacy is None
+                or (legacy.get("harness"), legacy.get("sessionId"))
+                == identity.native_key
+            ):
+                key, previous = session_id, legacy
+            else:
+                key, previous = scoped_key, None
+            if (
+                previous is not None
+                and (previous.get("harness"), previous.get("sessionId"))
+                != identity.native_key
+            ):
+                raise ValueError(
+                    "hook destination is occupied by another Agent Session Identity"
+                )
+            destination = self.record_path(key)
+            if record.get("state") == "ended":
+                if previous is not None and (
+                    previous.get("sessionProcess") != record.get("sessionProcess")
+                    or observed_instant(previous.get("lastActivityAt"))
+                    > observed_instant(record.get("lastActivityAt"))
+                ):
+                    return destination
                 destination.unlink(missing_ok=True)
-            return destination
-        current = dict(record)
-        with self.locked(session_id):
-            previous = self._read(destination)
+                return destination
+            current = dict(record)
             current["liveSubagents"] = live_subagents(current, previous)
             current["turnStartedAt"] = turn_started_at(current, previous)
             current["state"] = observed_state(current)
-            self.replace(session_id, current)
-        return destination
+            self.replace(key, current)
+            return destination
 
     def prune(self, session_id: str, observed: Mapping[str, Any]) -> bool:
         """Delete a stale record only if it still equals ``observed``.
@@ -435,6 +464,7 @@ def end_session_work(
         require_string(record.get("harness"), "harness"),
         require_string(record.get("sessionId"), "sessionId"),
         process.key if process else None,
+        ended_at=optional_string(record.get("lastActivityAt")),
     )
 
 
@@ -496,11 +526,14 @@ def complete_session_work_relocation(
                 return False
             if diagnostics:
                 return False
-            matching.extend(
-                (worktree, store, work)
-                for work in active
-                if work.harness == "codex" and work.session_id == session_id
-            )
+            for candidate in active:
+                relation = SessionEvidence("codex", session_id).match(
+                    SessionEvidence(candidate.harness, candidate.session_id)
+                )
+                if relation == "unresolved":
+                    return False
+                if relation == "same":
+                    matching.append((worktree, store, candidate))
         pending_matches = [
             item
             for item in matching
@@ -512,6 +545,7 @@ def complete_session_work_relocation(
         source_worktree, source, work = pending_matches[0]
         if any(
             not _resolves_to(candidate_worktree, target)
+            or candidate.session_key != work.session_key
             for candidate_worktree, _store, candidate in matching
             if candidate != work
         ):
@@ -556,7 +590,7 @@ def _sequential_target_is_confirmed(
     unreadable = False
 
     def named(path: Path) -> bool:
-        return path.stem == session_id
+        return session_record_named(path, session_id, "codex")
 
     def reject_unreadable(_path: Path, _exc: Exception) -> None:
         nonlocal unreadable
@@ -566,8 +600,13 @@ def _sequential_target_is_confirmed(
     for scanned in scan_hook_stores(
         stores, probe, select=named, on_unreadable=reject_unreadable
     ):
-        if scanned.record.harness != "codex":
-            return False
+        if (
+            SessionEvidence("codex", session_id).match(
+                SessionEvidence(scanned.record.harness, scanned.record.session_id)
+            )
+            != "same"
+        ):
+            continue
         location = Path(scanned.record.repository_root or scanned.record.cwd)
         if not _resolves_to(location, target) and scanned.record.outcome not in {
             "ended",
@@ -717,7 +756,10 @@ def classify_hook_record(
         record, degraded = validate_degrading(HookRecord, raw, fatal=HOOK_RECORD_FATAL)
     except ValidationError as exc:
         raise ValueError(describe_validation_error(exc)) from exc
-    if expected_session_id is not None and record.session_id != expected_session_id:
+    if expected_session_id is not None and expected_session_id not in {
+        record.session_id,
+        SessionEvidence(record.harness, record.session_id).storage_key(),
+    }:
         raise ValueError("record sessionId does not match its filename")
     process = record.session_process.identity if record.session_process else None
     if record.state == "ended":
@@ -784,30 +826,38 @@ def scan_hook_stores(
             yield ScannedRecord(store, path, raw, record)
 
 
+def session_record_named(
+    path: Path, session_id: str, harness: str | None = None
+) -> bool:
+    """Select legacy and harness-scoped filenames for full record validation."""
+    if path.stem == session_id:
+        return True
+    harnesses = (harness,) if harness is not None else tuple(HARNESS_DISPLAY)
+    return any(
+        path.stem == SessionEvidence(candidate, session_id).storage_key()
+        for candidate in harnesses
+    )
+
+
 def locate_agent_session(
     stores: Sequence[Path],
     lookup: ProcessLookup = host_process_lookup,
     *,
     session_id: str | None = None,
+    harness: str | None = None,
     process_key: ProcessKey | None = None,
 ) -> SessionLocation | None:
-    """Place an Agent Session by its freshest hook record across ``stores``.
-
-    A record is the session's when it carries its Agent Session Identity or
-    was published for its host process; the freshest by ``lastActivityAt``
-    wins, so a record left behind at a Worktree the session moved away from
-    never places it. A record named by ``session_id`` that cannot be read
-    raises ``ValueError``; other unreadable records are not evidence and are
-    skipped.
-    """
+    """Place a scoped native identity by its freshest validated hook record."""
     if session_id is None and process_key is None:
         raise ValueError("a session is located by its identity or its process")
 
     def named(path: Path) -> bool:
-        return session_id is not None and path.stem == session_id
+        return session_id is not None and session_record_named(
+            path, session_id, harness
+        )
 
     def worth_reading(path: Path) -> bool:
-        return named(path) or process_key is not None
+        return named(path) if session_id is not None else process_key is not None
 
     def refuse_named(path: Path, exc: Exception) -> None:
         if named(path):
@@ -818,8 +868,26 @@ def locate_agent_session(
     for scanned in scan_hook_stores(
         stores, probe, select=worth_reading, on_unreadable=refuse_named
     ):
-        if not named(scanned.path) and scanned.record.process_key != process_key:
+        record = scanned.record
+        if harness is not None and record.harness != harness:
             continue
+        if session_id is not None:
+            if (
+                SessionEvidence(harness or record.harness, session_id).match(
+                    SessionEvidence(record.harness, record.session_id)
+                )
+                != "same"
+            ):
+                continue
+        elif record.process_key != process_key:
+            continue
+        if freshest is not None and (
+            freshest.record.harness,
+            freshest.record.session_id,
+        ) != (record.harness, record.session_id):
+            raise ValueError(
+                "a process or unscoped identity names multiple Agent Sessions"
+            )
         if freshest is None or observed_instant(
             scanned.record.last_activity_at
         ) > observed_instant(freshest.record.last_activity_at):
@@ -839,15 +907,14 @@ def sessions_at_worktree(
     """
     probe = LivenessProbe(lookup)
     target = worktree.resolve()
-    freshest: dict[str, SessionLocation] = {}
+    freshest: dict[tuple[str, str], SessionLocation] = {}
     for scanned in scan_hook_stores(stores, probe):
-        previous = freshest.get(scanned.record.session_id)
+        identity = (scanned.record.harness, scanned.record.session_id)
+        previous = freshest.get(identity)
         if previous is None or observed_instant(
             scanned.record.last_activity_at
         ) > observed_instant(previous.record.last_activity_at):
-            freshest[scanned.record.session_id] = SessionLocation(
-                scanned.record, scanned.store
-            )
+            freshest[identity] = SessionLocation(scanned.record, scanned.store)
     return [
         location
         for _session_id, location in sorted(freshest.items())
@@ -938,7 +1005,9 @@ def validate_session_claim(
     if stores is None:
         stores = reachable_hook_stores(repository_worktrees(worktree))
     try:
-        location = locate_agent_session(stores, lookup, session_id=claim.session_id)
+        location = locate_agent_session(
+            stores, lookup, harness=claim.harness, session_id=claim.session_id
+        )
     except ValueError as exc:
         raise RuntimeError(
             f"the lifecycle hook record for {name} cannot be read: {exc}; "

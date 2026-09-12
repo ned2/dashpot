@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-05
+date: 2026-09-13
 ---
 
 # Agent sessions
@@ -104,9 +104,10 @@ is where to look when lifecycle events seem not to be delivered.
 Every hook record carries the harness's own Agent Session Identity (its hook
 `session_id`) beside the host process the hook observed from outside any
 sandbox. Observation joins a Work Store record to its hook record by that
-identity when the record carries one, and by host process identity otherwise,
-so a run opted in from a sandbox adopts the same running/waiting state, and
-is listed once in the Sessions pane, as one opted in from a plain shell.
+harness-scoped native identity, with compatible process evidence. Missing named
+evidence produces unknown activity; another conversation on the same backend
+cannot supply its state. Legacy unnamed runs remain unresolved and do not
+consume a named hook observation.
 Liveness and orphan detection still follow the host process: a session's
 hooks always run on the host, so its record names the harness process even
 when the session's own commands cannot see it.
@@ -182,32 +183,34 @@ instead.
 `dashpot work start`, `work relocate`, and `work stop` identify the enclosing
 Agent Session through one harness-neutral seam with a
 [Harness Adapter](domain-language.md) per supported harness
-(`src/dashpot/harnesses.py`), by two routes:
+(`src/dashpot/harnesses.py`). Both visible and sandboxed commands require a
+native identity claim confirmed by its freshest hook record of the same
+harness across the Repository's reachable hook stores. The record must describe
+a live or unknown session. Visible host ancestry corroborates the harness and
+full PID/start-time pair; a sandbox helper never stands in for the host.
+Claude Code's claimed host PID must also agree when present. Process evidence
+alone cannot authorize starting, switching, stopping, or relocating Issue work,
+even if only one session hook is currently visible.
 
-1. **Host process ancestry.** The command walks up its parent processes to
-   the nearest Codex or Claude Code process, as it always has. A sandbox
-   helper such as `codex-linux-sandbox` or `bwrap` is never taken for the
-   harness. This route is authoritative whenever it works; the record is keyed
-   by that process, and the harness's Agent Session Identity is recorded
-   beside it when the environment names one that the hook record corroborates.
-2. **Agent Session Identity.** When the ancestry is hidden — Codex's
-   `codex-linux-sandbox` and Claude Code's bubblewrap sandbox each run the
-   command as PID 2 of a fresh PID namespace — each adapter reads the identity
-   its harness exposes to commands (Codex its thread identifier, Claude Code
-   its session identifier and host PID). Neither harness documents these as
-   stable, so a claim is never trusted on its own: its freshest lifecycle
-   hook record for the same harness across the Repository's hook stores
-   (each Worktree's `.dashpot/state/sessions/` and the global store) must
-   still describe a live or unknown session, and for Claude Code the record's
-   host PID must agree; a stale record left at a Worktree the session moved
-   away from never confirms a `start` there. The record
-   is then keyed by the host process the hook published, so the same session
-   gets the same record whether or not its commands are sandboxed, and
-   liveness and orphan detection work as before; a record whose hook never saw
-   a host process is keyed by the identity's digest instead. `start`, switching
-   Issues, and `stop` all resolve the session the same way, and a record
-   written before this identity existed is adopted by the same session rather
-   than duplicated.
+New Agent Runs use a deterministic harness-prefixed SHA-256 digest of the native
+session ID as their storage key. Full stored identity remains authoritative:
+a conflicting or unreadable destination is refused. Existing process-keyed
+records carrying native IDs remain selectable without passive renaming;
+observation and continuing relocation preserve their run identity, `startedAt`,
+Issue Binding, and Relocation Intent. Explicit `work start` retains the selected
+storage key and keeps its documented new-run/switch semantics.
+
+An unnamed legacy record cannot prove ownership, even when its process differs
+from the current runtime: a resumed conversation can change processes. Any such
+record of the same harness in a linked Worktree blocks implicit adoption or new
+work beside it. Inspect `dashpot work show` at that Worktree. Once its recorded
+process is proved gone, use `dashpot work stop --session KEY` there to end exactly
+that run, then declare fresh work from the intended named session. A live or
+unobservable recorded process refuses external stop; for a legacy record with
+neither native identity nor process evidence, the explicit key is the supported
+recovery selection. Never reconstruct its Issue Binding from a Branch, Worktree,
+or conversation history. These intentional legacy restrictions are documented in
+[ADR 0038](adr/0038-isolate-native-agent-session-identities.md).
 
 A missing, unreadable, ended, gone, cross-harness, or PID-mismatched hook
 record refuses the opt-in with a message naming the record and the
@@ -223,7 +226,7 @@ confirms or rejects it, which is the first thing to check when a sandboxed
 
 The Work Store is the sole authority for Issue association. Collection
 correlates each recorded run with the hook's lifecycle observations by Agent
-Session Identity or process identity (see
+Session Identity (see
 [Agent session observation](#agent-session-observation)); a hook record
 that carries a global Issue binding (the retired
 `DASHPOT_ISSUE_ID`/`DASHPOT_ISSUE_REF` environment convention) is rejected with
@@ -234,6 +237,8 @@ actionable `work-session-orphaned` diagnostic naming the Issue and the
 `dashpot work stop --session <key>` command that ends it. Dashpot never
 reassigns Issue work. It ends a run on its own only when the harness delivers
 its session's graceful `SessionEnd`, except that a declared Codex relocation
-retains the run until verified resume or explicit cleanup. A killed session
+retains the run until verified resume or explicit stop. Ending evidence must
+match the recorded runtime, and conditional deletion rechecks the complete run
+under its record lock so delayed evidence cannot clear replacement work. A killed session
 without a valid target continuation still leaves visible work for a person to
 end.

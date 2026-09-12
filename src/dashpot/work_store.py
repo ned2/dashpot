@@ -7,6 +7,7 @@ import re
 from collections.abc import Iterable
 from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 
@@ -22,6 +23,7 @@ from .models import (
 )
 from .processes import ProcessKey
 from .record_store import LockedRecordStore
+from .session_matching import SessionEvidence
 
 WORK_STORE_VERSION = 2
 SUPPORTED_WORK_STORE_VERSIONS = frozenset({1, WORK_STORE_VERSION})
@@ -171,12 +173,27 @@ class WorkStore(LockedRecordStore):
         )
 
     def start(self, work: ActiveWork) -> Path:
-        """Start or switch Issue work for one Agent Session."""
-        destination = self.record_path(work.session_key)
-        record = WorkStoreRecord.of(work).model_dump(by_alias=True)
+        """Create a run without replacing occupied or unreadable state."""
         with self.locked(work.session_key):
-            self.replace(work.session_key, record)
-        return destination
+            current = self._active_record(work.session_key)
+            if current is not None:
+                if current == work:
+                    return self.record_path(work.session_key)
+                raise RuntimeError(
+                    "the destination is occupied; use conditional replacement"
+                )
+            self.replace(
+                work.session_key, WorkStoreRecord.of(work).model_dump(by_alias=True)
+            )
+        return self.record_path(work.session_key)
+
+    def stop_current(self, expected: ActiveWork) -> bool:
+        """End a run only while its complete previously read state is current."""
+        with self.locked(expected.session_key):
+            if self._active_record(expected.session_key) != expected:
+                return False
+            self.record_path(expected.session_key).unlink()
+            return True
 
     def stop(self, session_key: str) -> bool:
         """End the session's active Agent Run; the session itself stays alive.
@@ -198,6 +215,11 @@ class WorkStore(LockedRecordStore):
         """Replace one run only while its previously read state is current."""
         if replacement.session_key != expected.session_key:
             raise ValueError("replacement must retain the Agent Run's session key")
+        if (expected.harness, expected.session_id) != (
+            replacement.harness,
+            replacement.session_id,
+        ):
+            raise ValueError("replacement must retain the Agent Session Identity")
         with self.locked(expected.session_key):
             if self._active_record(expected.session_key) != expected:
                 return False
@@ -292,16 +314,10 @@ def end_session_runs(
     harness: str,
     session_id: str,
     process_key: ProcessKey | None,
+    *,
+    ended_at: str | None = None,
 ) -> list[tuple[Path, ActiveWork]]:
-    """Reconcile an ended Agent Session's runs across its Repository.
-
-    The session is matched the way observation joins it: by the Agent Session
-    Identity its hooks published, or by the host process the hook observed.
-    A declared Codex Relocation Intent remains pending; every other matching
-    run ends. A Worktree whose Work Store cannot be read is skipped rather
-    than raised: the caller is the SessionEnd hook, which must never break its
-    harness, and an unreadable record stays for observation to diagnose.
-    """
+    """End unchanged runs owned by the named session and ending runtime."""
     ended: list[tuple[Path, ActiveWork]] = []
     for worktree in worktrees:
         store = WorkStore(worktree)
@@ -310,19 +326,29 @@ def end_session_runs(
         except OSError:
             continue
         for work in active:
-            if work.harness != harness:
-                continue
-            by_identity = work.session_id == session_id
-            by_process = (
-                process_key is not None
-                and work.session_process is not None
-                and work.session_process.key == process_key
+            identity = SessionEvidence(harness, session_id, process_key)
+            recorded = SessionEvidence(
+                work.harness,
+                work.session_id,
+                work.session_process.key if work.session_process else None,
             )
-            if by_identity and work.harness == "codex" and work.relocation is not None:
-                # The explicit Relocation Intent says this process boundary is
-                # not yet the end of the harness conversation. The next hook
-                # at the named Worktree must still prove the continuation.
+            if identity.match(recorded) != "same":
                 continue
-            if (by_identity or by_process) and store.stop(work.session_key):
-                ended.append((worktree, work))
+            if recorded.process_key is not None and recorded.process_key != process_key:
+                continue
+            if ended_at is not None:
+                try:
+                    if datetime.fromisoformat(work.started_at) > datetime.fromisoformat(
+                        ended_at
+                    ):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            if work.harness == "codex" and work.relocation is not None:
+                continue
+            try:
+                if store.stop_current(work):
+                    ended.append((worktree, work))
+            except (OSError, ValueError):
+                continue
     return ended

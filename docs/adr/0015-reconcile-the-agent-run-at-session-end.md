@@ -50,6 +50,12 @@ the boundary of
 [ADR 0008](0008-let-management-commands-mutate-on-explicit-invocation.md):
 it never reassigns Issue work and never ends another session's run.
 
+[ADR 0038](0038-isolate-native-agent-session-identities.md) amends the
+process-primary and identity-or-process matching described above. Confirmed
+harness-scoped native identity is now required for Issue-work authorization;
+process evidence corroborates lifecycle and never unifies named sessions.
+Unnamed legacy runs require explicit targeted recovery.
+
 ## Considered options
 
 - **Keep the run and rely on orphan detection:** rejected; it is the status
