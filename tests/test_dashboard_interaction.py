@@ -699,7 +699,11 @@ async def test_entering_each_pane_selects_and_reveals_its_first_row(entry: str) 
         tables = app.dashboard.focus_tables()
         for index, table in enumerate(tables):
             table.focus()
-            await pilot.pause()
+            await wait_until(
+                lambda table=table: (
+                    table.has_focus and table.show_cursor and table.cursor_row == 0
+                )
+            )
             await pilot.press("down")
             assert table.cursor_row == 1
             table.move_cursor(row=29, animate=False)
@@ -707,7 +711,11 @@ async def test_entering_each_pane_selects_and_reveals_its_first_row(entry: str) 
             step = -1 if entry in {"shift+tab", "up"} else 1
             source = tables[(index - step) % len(tables)]
             source.focus()
-            await pilot.pause()
+            await wait_until(
+                lambda source=source: (
+                    source.has_focus and source.show_cursor and source.cursor_row == 0
+                )
+            )
             if entry == "down":
                 source.move_cursor(row=source.row_count - 1, animate=False)
             elif entry == "up":
