@@ -761,6 +761,8 @@ These `living` documents carry the detail this README points at:
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
 decision. The other files in [`docs/`](docs/) are research, audits, and
 proposals that informed decisions and implementation.
+The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycle-spike.md)
+records the reproducible evidence for a possible OpenCode integration.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
