@@ -1150,6 +1150,12 @@ class DashpotApp(App[None]):
         # until the modal is dismissed or the report is in; a fetch there
         # is refused meanwhile, and a Cleanup while a fetch is in flight.
         self.cleaning: dict[str, str] = {}
+        self.cleanup_previews: dict[str, tuple[CleanupScreen, Path | None]] = {}
+        self._cleanup_refresh_waiters: list[
+            tuple[dict[ObservationKey, int], asyncio.Future[None]]
+        ] = []
+        self.cleanup_refresh_timeout = 30.0
+
         # The explicit fetch seam (``f``); without one the key is refused,
         # so no observation-only construction can ever fetch.
         self.fetcher = fetcher
@@ -1507,9 +1513,16 @@ class DashpotApp(App[None]):
             self.post_message(FetchFinished(project_id, report=report))
 
     def on_fetch_finished(self, message: FetchFinished) -> None:
+        self.record_fetch_result(message)
+
+    def record_fetch_result(
+        self, message: FetchFinished, *, release: bool = True, observe: bool = True
+    ) -> None:
+        """Report a Remote Fetch and optionally release its Project reservation."""
         if self._closing or self._closed or not self.screen_stack:
             return
-        self.fetching.pop(message.project_id, None)
+        if release:
+            self.fetching.pop(message.project_id, None)
         dashboard = self.dashboard
         label = self.project_display_label(message.project_id)
         report = message.report
@@ -1528,7 +1541,7 @@ class DashpotApp(App[None]):
         # Whatever a remote changed is observed the passive way: the Git state
         # is re-observed rather than inferred from the fetch, and a fetch
         # that reached no remote leaves the last good observation as it is.
-        if report is not None and report.fetched:
+        if observe and report is not None and report.fetched:
             self.schedule_observations(
                 [
                     key
@@ -1645,23 +1658,212 @@ class DashpotApp(App[None]):
             return
         if message.preview is None:
             self.cleaning.pop(message.project_id, None)
+            self.cleanup_previews.pop(message.project_id, None)
             self.notify(
                 f"{self.project_display_label(message.project_id)}: {message.error}",
                 severity="error",
                 title="Dashpot cleanup",
             )
             return
-        self.push_screen(
-            CleanupScreen(message.request, message.preview),
-            partial(self.confirm_cleanup, message.project_id),
+        self.show_cleanup_preview(message.project_id, message.request, message.preview)
+
+    def show_cleanup_preview(
+        self,
+        project_id: str,
+        request: CleanupRequest,
+        preview: CleanupPreview,
+        *,
+        changed: bool = False,
+    ) -> None:
+        """Capture the preview's Project and Remote Fetch anchor once."""
+        project = self.store.project(project_id)
+        screen = CleanupScreen(
+            request,
+            preview,
+            changed=changed,
+            fetched_at=project.snapshot.fetched_at
+            if project and project.snapshot
+            else None,
         )
+        anchor = (
+            project.snapshot.branch_anchor if project and project.snapshot else None
+        )
+        captured_anchor = Path(anchor) if anchor else None
+        previous = self.cleanup_previews.get(project_id)
+        if changed and previous is not None:
+            screen.primary_identity = previous[0].primary_identity
+            captured_anchor = previous[1]
+        self.cleanup_previews[project_id] = (screen, captured_anchor)
+        self.push_screen(screen, partial(self.confirm_cleanup, project_id))
+
+    def on_cleanup_screen_fetch_requested(
+        self, message: CleanupScreen.FetchRequested
+    ) -> None:
+        screen = message.screen
+        owner = next(
+            (
+                (project_id, anchor)
+                for project_id, (current, anchor) in self.cleanup_previews.items()
+                if current is screen
+            ),
+            None,
+        )
+        if owner is None or self.screen is not screen or screen.busy:
+            return
+        project_id, anchor = owner
+        if self.fetcher is None or anchor is None:
+            screen.fetch_status = (
+                "Remote Fetch is unavailable in this view."
+                if self.fetcher is None
+                else "No Repository Anchor supplies this Project's Branch facts. Refresh and reopen the preview."
+            )
+            screen.refresh_state()
+            return
+        if project_id in self.fetching:
+            screen.fetch_status = "A Remote Fetch is already running for this Project."
+            screen.refresh_state()
+            return
+        if project_id not in self.cleaning:
+            return
+        screen.begin_fetch()
+        self.fetching[project_id] = str(anchor)
+        self.run_worker(
+            partial(self.fetch_cleanup_preview, project_id, anchor, screen),
+            name=f"fetch cleanup preview {project_id}",
+            group=f"fetch:{project_id}",
+            exit_on_error=False,
+        )
+        self.dashboard.update_alert()
+
+    async def fetch_cleanup_preview(
+        self, project_id: str, anchor: Path, screen: CleanupScreen
+    ) -> None:
+        """Fetch, observe, and re-inspect one captured Cleanup without confirming it."""
+        fetcher, cleaner = self.fetcher, self.cleaner
+        assert fetcher is not None and cleaner is not None
+        worker = get_current_worker()
+        preview = None
+        report = None
+        error = None
+        try:
+            try:
+                report = await asyncio.get_running_loop().run_in_executor(
+                    self.refresh_executor, fetcher, anchor
+                )
+            except Exception as exc:
+                error = str(exc)
+            if worker.is_cancelled or self._closing or self._closed:
+                return
+            status = (
+                report.summary() if report is not None else f"Fetch failed: {error}"
+            )
+            screen.verified_remotes = frozenset(
+                report.fetched if report is not None else ()
+            )
+            self.record_fetch_result(
+                FetchFinished(project_id, report=report, error=error),
+                release=False,
+                observe=False,
+            )
+            screen.fetch_status = (
+                status + "\nRefreshing Git facts and Cleanup evidence…"
+            )
+            if screen in self.screen_stack:
+                screen.refresh_state()
+            try:
+                await self.observe_cleanup_fetch(project_id)
+                project = self.store.project(project_id)
+                screen.fetched_at = (
+                    project.snapshot.fetched_at
+                    if project and project.snapshot
+                    else None
+                )
+                if self.cleanup_previews.get(project_id, (None, None))[0] is screen:
+                    preview = await asyncio.get_running_loop().run_in_executor(
+                        self.refresh_executor,
+                        partial(
+                            cleaner.inspect,
+                            screen.request,
+                            protected=self.cleanup_protection(project_id),
+                        ),
+                    )
+            except Exception as exc:
+                detail = str(exc) or "Refresh timed out; retry or cancel."
+                status += f"\nCould not refresh the preview: {detail}"
+            if (
+                self.cleanup_previews.get(project_id, (None, None))[0] is screen
+                and screen in self.screen_stack
+            ):
+                await screen.replace_preview(preview, status)
+        finally:
+            self.fetching.pop(project_id, None)
+            if not (self._closing or self._closed):
+                self.dashboard.update_alert()
+
+    async def observe_cleanup_fetch(self, project_id: str) -> None:
+        """Wait for post-fetch Git observations before accepting refreshed evidence."""
+        keys = [
+            key
+            for key in self.scheduler.keys(project_id)
+            if key.kind in ("targets", "workspace")
+        ]
+        if not keys:
+            raise RuntimeError(
+                "No Git observation is available; refresh and reopen the preview."
+            )
+        pending = {key: self.in_flight.get(key, 0) for key in keys}
+        future = asyncio.Future[None]()
+        waiter = (pending, future)
+        self._cleanup_refresh_waiters.append(waiter)
+        try:
+            self.schedule_observations(keys, "fetch", rerun_in_flight=True)
+            await asyncio.wait_for(future, self.cleanup_refresh_timeout)
+        finally:
+            self._cleanup_refresh_waiters.remove(waiter)
+        project = self.store.project(project_id)
+        if (
+            project is None
+            or project.snapshot is None
+            or project.snapshot.target_status != "fresh"
+        ):
+            raise RuntimeError(
+                "Git observation is unavailable or stale; inspect Diagnostics and retry."
+            )
+
+    def finish_cleanup_observation(self, message: ObservationFinished) -> None:
+        """Resolve only post-fetch observation completions after publication."""
+        key = message.ticket.key
+        for pending, future in self._cleanup_refresh_waiters:
+            if (
+                future.done()
+                or key not in pending
+                or message.ticket.generation <= pending[key]
+            ):
+                continue
+            if message.error or message.outcome is None or not message.outcome.accepted:
+                future.set_exception(
+                    RuntimeError(message.error or "Git refresh was not accepted.")
+                )
+            else:
+                del pending[key]
+                if not pending:
+                    future.set_result(None)
 
     def confirm_cleanup(
         self, project_id: str, confirmation: CleanupConfirmation | None
     ) -> None:
         """Perform what the modal confirmed, or release the Project on cancel."""
         if confirmation is None:
+            self.cleanup_previews.pop(project_id, None)
             self.cleaning.pop(project_id, None)
+            return
+        if project_id in self.fetching:
+            self.cleanup_previews.pop(project_id, None)
+            self.cleaning.pop(project_id, None)
+            self.notify(
+                "Remote Fetch is still running; reopen Cleanup after it finishes.",
+                severity="warning",
+            )
             return
         self.run_worker(
             partial(self.perform_cleanup, project_id, confirmation),
@@ -1699,6 +1901,7 @@ class DashpotApp(App[None]):
         report = message.report
         if report is None:
             self.cleaning.pop(message.project_id, None)
+            self.cleanup_previews.pop(message.project_id, None)
             self.notify(
                 f"{label}: {message.error}", severity="error", title="Dashpot cleanup"
             )
@@ -1713,14 +1916,15 @@ class DashpotApp(App[None]):
                 severity="warning",
                 title="Dashpot cleanup",
             )
-            self.push_screen(
-                CleanupScreen(
-                    message.confirmation.request, report.preview, changed=True
-                ),
-                partial(self.confirm_cleanup, message.project_id),
+            self.show_cleanup_preview(
+                message.project_id,
+                message.confirmation.request,
+                report.preview,
+                changed=True,
             )
             return
         self.cleaning.pop(message.project_id, None)
+        self.cleanup_previews.pop(message.project_id, None)
         self.notify(
             cleanup_summary(report),
             severity="information" if report.succeeded else "error",
@@ -1852,6 +2056,7 @@ class DashpotApp(App[None]):
         self._finish_in_flight(message.ticket)
         try:
             self._accept_observation(message)
+            self.finish_cleanup_observation(message)
         finally:
             # After acceptance, so the finished ticket is still the current
             # generation while its outcome is judged.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 
@@ -9,10 +10,12 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import DescendantFocus
+from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Collapsible, Static
+from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 from typing_extensions import override
 
+from .branch_list import fetch_age_text
 from .cleanup import (
     CHANGED_SINCE_PREVIEW,
     CleanupBlocker,
@@ -23,6 +26,7 @@ from .cleanup import (
     CleanupTarget,
     describe_cleanup_report,
 )
+from .cleanup_selection import primary_target, retained_choices
 from .marked_widgets import MarkedCheckbox
 
 CHANGED_HELP = (
@@ -110,7 +114,9 @@ def target_evidence(target: CleanupTarget) -> str:
     """Retain full target identity, recovery commands, and blocker evidence."""
     lines = [f"{target.path or target.ref}", f"Commit: {target.expected}"]
     if target.observed_at:
-        lines.append(f"Last fetched: {target.observed_at}")
+        lines.append(
+            f"Repository fetch timestamp: {target.observed_at} (not per-remote verification)"
+        )
     for blocker in target.blockers:
         lines.append(f"Blocked: {blocker.detail}")
         if blocker.command:
@@ -137,22 +143,33 @@ class CleanupTargetView(Vertical):
     """Group one Cleanup choice with its availability and consequences."""
 
     def __init__(
-        self, preview: CleanupPreview, target: CleanupTarget, index: int
+        self,
+        preview: CleanupPreview,
+        target: CleanupTarget,
+        index: int,
+        *,
+        primary: bool = False,
+        unverified_remote: bool = False,
     ) -> None:
         super().__init__(classes="cleanup-target")
         self.preview = preview
         self.target = target
         self.index = index
+        self.primary = primary
+        self.unverified_remote = unverified_remote
 
     @override
     def compose(self) -> ComposeResult:
         target = self.target
         with Horizontal(classes="cleanup-target-heading"):
-            yield CleanupChoice(
-                target.label,
-                id=f"cleanup-target-{self.index}",
-                disabled=not target.available,
-            )
+            if self.primary:
+                yield Static(target.label, markup=False, classes="cleanup-primary")
+            else:
+                yield CleanupChoice(
+                    target.label,
+                    id=f"cleanup-target-{self.index}",
+                    disabled=not target.available,
+                )
             yield Static(
                 "AVAILABLE" if target.available else "BLOCKED",
                 classes="cleanup-availability"
@@ -161,6 +178,12 @@ class CleanupTargetView(Vertical):
         for blocker in target.blockers:
             yield Static(
                 blocker_summary(blocker, target),
+                markup=False,
+                classes="cleanup-blocker",
+            )
+        if self.unverified_remote:
+            yield Static(
+                f"The latest fetch did not verify {target.remote}; these are retained Remote-Tracking facts.",
                 markup=False,
                 classes="cleanup-blocker",
             )
@@ -188,22 +211,61 @@ class CleanupTargetView(Vertical):
             # rather than scrolling only its checkbox above the fixed footer.
             self.scroll_visible(animate=False)
 
-    def choice(self) -> CleanupChoice:
-        return self.query_one(CleanupChoice)
+    def choice(self) -> CleanupChoice | None:
+        return None if self.primary else self.query_one(CleanupChoice)
 
 
 class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     """Preview a Cleanup and collect the selection a person confirms."""
 
-    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("escape", "cancel", "Cancel"),
+        ("f", "fetch", "Fetch & prune remotes"),
+    ]
+
+    class FetchRequested(Message):
+        """Request Remote Fetch for the captured Cleanup preview."""
+
+        def __init__(self, screen: CleanupScreen) -> None:
+            super().__init__()
+            self.screen = screen
 
     def __init__(
-        self, request: CleanupRequest, preview: CleanupPreview, *, changed: bool = False
+        self,
+        request: CleanupRequest,
+        preview: CleanupPreview,
+        *,
+        changed: bool = False,
+        fetched_at: str | None = None,
     ) -> None:
         super().__init__()
         self.request = request
         self.preview = preview
         self.changed = changed
+        self.fetched_at = fetched_at
+        self.verified_remotes: frozenset[str] | None = None
+        primary = primary_target(preview)
+        self.primary_identity = primary.identity if primary is not None else None
+        self.busy = False
+        self.preview_valid = True
+        self.fetch_status = ""
+        self._rebuilding = False
+
+    @property
+    def primary(self) -> CleanupTarget | None:
+        return (
+            self.preview.target(self.primary_identity)
+            if self.primary_identity
+            else None
+        )
+
+    @property
+    def can_confirm(self) -> bool:
+        if self.preview.refusals:
+            return False
+        if self.primary_identity is not None:
+            return self.primary is not None and self.primary.available
+        return self.preview.kind == "branch" and bool(self.preview.selectable)
 
     @override
     def compose(self) -> ComposeResult:
@@ -229,7 +291,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                     yield Static(
                         f"Blocked: {refusal}", markup=False, classes="cleanup-blocker"
                     )
-                if any(
+                if preview.kind == "worktree" or any(
                     target.kind == "remote-branch"
                     or (
                         target.integration
@@ -239,13 +301,46 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                     )
                     for target in preview.targets
                 ):
-                    yield Static(
-                        "Uses last fetched state. Close and press f to fetch again.",
-                        id="cleanup-freshness",
+                    fetched_at = self.fetched_at or next(
+                        (
+                            target.observed_at
+                            for target in preview.targets
+                            if target.observed_at
+                        ),
+                        None,
                     )
+                    freshness = "Uses last fetched state. Press f here to fetch and prune remotes."
+                    if fetched_at:
+                        freshness += "\nRepository fetch timestamp: " + fetched_at
+                        freshness += (
+                            " ("
+                            + fetch_age_text(
+                                fetched_at, datetime.now(UTC)
+                            ).removeprefix("remote last fetched ")
+                            + "; not per-remote verification)"
+                        )
+                    yield Static(freshness, id="cleanup-freshness")
+                if preview.kind == "branch" and self.primary_identity is None:
+                    yield Static(
+                        "Select each concrete Branch to delete below; unselected targets are retained.",
+                        classes="cleanup-summary",
+                    )
+                yield Static(self.fetch_status, markup=False, id="cleanup-fetch-status")
                 with Vertical(id="cleanup-targets"):
                     for index, target in enumerate(preview.targets):
-                        yield CleanupTargetView(preview, target, index)
+                        if index and preview.kind == "worktree":
+                            yield Static("Also remove", classes="cleanup-summary")
+                        yield CleanupTargetView(
+                            preview,
+                            target,
+                            index,
+                            primary=target.identity == self.primary_identity,
+                            unverified_remote=(
+                                target.kind == "remote-branch"
+                                and self.verified_remotes is not None
+                                and target.remote not in self.verified_remotes
+                            ),
+                        )
             with Vertical(id="cleanup-footer"):
                 if preview.ignored:
                     yield MarkedCheckbox(
@@ -254,36 +349,72 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 yield Static("", id="cleanup-problem")
                 with Horizontal(id="cleanup-actions"):
                     yield Button(
-                        "Cancel" if preview.selectable else "Close", id="cleanup-cancel"
+                        "Cancel" if self.can_confirm else "Close", id="cleanup-cancel"
                     )
-                    if preview.selectable:
+                    if self.can_confirm:
                         yield Button(
-                            "Remove selected"
-                            if preview.kind == "worktree"
-                            else "Delete selected",
+                            self.confirmation_label(),
                             id="cleanup-confirm",
                         )
+                yield Footer()
 
     def on_mount(self) -> None:
         self.refresh_state()
         self.focus_choice()
+
+    @override
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        return None if action == "fetch" and self.busy else True
 
     def targets(self) -> tuple[CleanupTargetView, ...]:
         return tuple(self.query(CleanupTargetView))
 
     def focus_choice(self) -> None:
         choice = next(
-            (one.choice() for one in self.targets() if one.target.available), None
+            (
+                choice
+                for one in self.targets()
+                if (choice := one.choice()) is not None and not choice.disabled
+            ),
+            None,
         )
-        (choice or self.query_one("#cleanup-cancel", Button)).focus()
+        if choice is not None:
+            choice.focus()
+        elif self.acknowledgement_missing():
+            self.query_one("#cleanup-ignored", Checkbox).focus()
+        elif self.can_confirm:
+            self.query_one("#cleanup-confirm", Button).focus()
+        else:
+            self.query_one("#cleanup-cancel", Button).focus()
 
     def selected(self) -> tuple[str, ...]:
-        """Return only explicitly selected, available target identities."""
+        """Include the fixed subject and explicitly selected additional targets."""
+        if not self.can_confirm:
+            return ()
         return tuple(
             one.target.identity
             for one in self.targets()
-            if one.target.available and one.choice().value
+            if one.target.available
+            and (one.primary or ((choice := one.choice()) is not None and choice.value))
         )
+
+    def confirmation_label(self) -> str:
+        if self.preview.kind == "worktree":
+            return (
+                "Remove Worktree and Branch"
+                if any(
+                    target.kind == "local-branch" and target.identity in self.selected()
+                    for target in self.preview.targets
+                )
+                else "Remove Worktree"
+            )
+        if self.primary is not None:
+            return (
+                "Delete Branch"
+                if len(self.selected()) <= 1
+                else "Delete selected Branches"
+            )
+        return "Delete selected Branches"
 
     def worktree_selected(self) -> bool:
         return any(
@@ -308,8 +439,12 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
 
     def selection_problem(self) -> str | None:
         """Explain why the current selection cannot be confirmed."""
+        if self.busy:
+            return "Fetching and rebuilding this preview; wait before confirming."
+        if not self.preview_valid:
+            return "The preview could not be refreshed. Press f to retry or cancel."
         selected = self.selected()
-        if not self.preview.selectable:
+        if not self.can_confirm:
             return "Nothing here can be deleted."
         if not selected:
             return (
@@ -327,25 +462,82 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         return None
 
     def refresh_state(self) -> None:
+        if self._rebuilding or not self.query("#cleanup-problem"):
+            return
         for one in self.targets():
-            if not one.target.available and one.choice().value:
-                one.choice().value = False
+            choice = one.choice()
+            if choice is None:
+                continue
+            choice.disabled = (
+                self.busy or not self.can_confirm or not one.target.available
+            )
+            if not one.target.available and choice.value:
+                choice.value = False
         if self.preview.ignored:
             acknowledgement = self.query_one("#cleanup-ignored", Checkbox)
             acknowledgement.display = self.worktree_selected()
+            acknowledgement.disabled = self.busy
             if not acknowledgement.display:
                 acknowledgement.value = False
         problem = self.selection_problem()
         self.query_one("#cleanup-problem", Static).update(problem or "")
-        if self.preview.selectable:
-            # A premature press still explains what is missing rather than
-            # silently swallowing the click on a disabled button.
-            self.query_one("#cleanup-confirm", Button).variant = (
-                "error" if problem is None else "default"
-            )
+        self.query_one("#cleanup-fetch-status", Static).update(self.fetch_status)
+        if self.can_confirm:
+            button = self.query_one("#cleanup-confirm", Button)
+            button.label = self.confirmation_label()
+            button.disabled = self.busy or not self.preview_valid
+            button.variant = "error" if problem is None else "default"
+        self.refresh_bindings()
 
     def on_checkbox_changed(self, _event: Checkbox.Changed) -> None:
         self.refresh_state()
+
+    def action_fetch(self) -> None:
+        if not self.busy:
+            self.post_message(self.FetchRequested(self))
+
+    def begin_fetch(self) -> None:
+        """Hold destructive confirmation while this preview is refreshed."""
+        self.busy = True
+        self.fetch_status = "Fetching and pruning remotes…"
+        self.refresh_state()
+
+    async def replace_preview(
+        self, preview: CleanupPreview | None, status: str
+    ) -> None:
+        """Refresh evidence without silently widening the confirmed removal scope."""
+        choices = (
+            retained_choices(self.preview, preview, self.selected()) if preview else ()
+        )
+        changed = preview is not None and preview != self.preview
+        self.preview_valid = preview is not None
+        self.fetch_status = status
+        if preview is not None:
+            self.preview = preview
+            if changed:
+                self.fetch_status += (
+                    "\nPreview updated. Review its current facts before confirming."
+                )
+            if preview.ignored:
+                self.fetch_status += "\nReview and acknowledge ignored content again."
+            self._rebuilding = True
+            try:
+                await self.recompose()
+            finally:
+                self._rebuilding = False
+            if (
+                not self.is_mounted
+                or not self.is_attached
+                or self not in self.app.screen_stack
+            ):
+                return
+            for one in self.targets():
+                choice = one.choice()
+                if choice is not None:
+                    choice.value = one.target.identity in choices
+        self.busy = False
+        self.refresh_state()
+        self.focus_choice()
 
     def action_cancel(self) -> None:
         self.dismiss(None)

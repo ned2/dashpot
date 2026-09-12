@@ -339,22 +339,13 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_notifies() -> Non
             "Delete Branch"
         )
         targets = choices(app)
-        assert len(targets) == 2
+        assert targets[LOCAL.identity] is None
         assert targets[REMOTE.identity].disabled is True
-        assert targets[LOCAL.identity].disabled is False
-        assert confirm_button(app).variant == "default"
-        assert problem_text(app) == "Select what to delete."
-        # Every target starts unselected, and the mark alone says so: no X
-        # until space selects, as in the column editor.
-        assert marks(targets) == ["▐ ▌", "▐ ▌"]
-
-        # The highlighted option is the available one; space selects it.
-        await pilot.press("space")
-        await pilot.pause()
         assert screen.selected() == (LOCAL.identity,)
         assert confirm_button(app).variant == "error"
         assert problem_text(app) == ""
-        assert marks(targets) == ["▐X▌", "▐ ▌"]
+        assert not screen.query("#cleanup-target-0")
+        assert marks({REMOTE.identity: targets[REMOTE.identity]}) == ["▐ ▌"]
 
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: app.store.revision == 2)
@@ -414,8 +405,8 @@ async def test_an_unavailable_target_can_never_stay_selected() -> None:
         targets[REMOTE.identity].value = True
         await pilot.pause()
 
-        assert cleanup_screen(app).selected() == ()
-        assert confirm_button(app).variant == "default"
+        assert cleanup_screen(app).selected() == (LOCAL.identity,)
+        assert confirm_button(app).variant == "error"
 
 
 @pytest.mark.asyncio
@@ -480,7 +471,7 @@ async def test_a_changed_preview_reopens_for_another_confirmation() -> None:
         help_text = str(cleanup_screen(app).query_one("#cleanup-help", Static).render())
         assert help_text.startswith("The observed state changed since the preview")
         assert cleanup_screen(app).preview.fingerprint == "fedcba9876543210"
-        assert cleanup_screen(app).selected() == ()
+        assert cleanup_screen(app).selected() == (LOCAL.identity,)
         assert toasts(app)[-1].startswith(
             "Test Repository: the observed state changed since the preview"
         )
@@ -523,15 +514,12 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         assert str(acknowledgement.label) == ("Delete ignored content too")
         assert acknowledgement.render().plain.startswith("▐ ▌")
 
-        # The Branch alone: it stays checked out until the Worktree goes.
+        # The Branch is additional to the fixed Worktree subject.
         targets[ATTACHED.identity].value = True
         await pilot.pause()
         assert confirm_button(app).variant == "default"
-        assert problem_text(app) == ("Local Branch requires removing Worktree.")
-
-        targets[TREE.identity].value = True
-        await pilot.pause()
-        assert confirm_button(app).variant == "default"
+        assert targets[TREE.identity] is None
+        assert screen.selected() == (TREE.identity, ATTACHED.identity)
         assert problem_text(app) == (
             "Acknowledge removal of 2 ignored paths and their contents."
         )
@@ -595,8 +583,8 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         screen = cleanup_screen(app)
         targets = choices(app)
         assert len(targets) == 2
-        for option in (BLOCKED_TREE, HELD):
-            assert targets[option.identity].disabled is True
+        assert targets[BLOCKED_TREE.identity] is None
+        assert targets[HELD.identity].disabled is True
         shown = details(app)
         assert "1 changed path" in shown
         assert (
@@ -606,7 +594,7 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         assert not screen.query("#cleanup-confirm")
         assert app.focused is not None
         assert app.focused.id == "cleanup-cancel"
-        assert marks(targets) == ["▐ ▌", "▐ ▌"]
+        assert marks({HELD.identity: targets[HELD.identity]}) == ["▐ ▌"]
         assert cleaner.confirmations == []
         await pilot.press("enter")
         await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
@@ -782,13 +770,13 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         # The list has focus, and the reason and the buttons are on screen
         # however much the preview above them scrolls.
         assert app.focused is not None
-        assert app.focused.id == "cleanup-target-0"
+        assert app.focused.id == "cleanup-target-1"
         for selector in ("#cleanup-problem", "#cleanup-cancel", "#cleanup-confirm"):
             region = app.screen.query_one(selector).region
             assert region.right <= 80 and region.bottom <= 24, selector
-        assert problem_text(app) == "Select what to remove."
+        assert "Acknowledge removal" in problem_text(app)
 
-        await pilot.press("space", "down", "space")  # the Worktree, then its Branch
+        await pilot.press("space")  # Include the optional Branch.
         await pilot.pause()
         assert problem_text(app) == (
             "Acknowledge removal of 2 ignored paths and their contents."
@@ -839,11 +827,13 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
         await pilot.pause()
         assert isinstance(app.screen, CleanupScreen)
         assert cleaner.confirmations == []
-        assert toasts(app) == ["Select what to remove."]
+        assert toasts(app) == [
+            "Acknowledge removal of 2 ignored paths and their contents."
+        ]
         assert app.focused is not None
-        assert app.focused.id == "cleanup-target-0"
+        assert app.focused.id == "cleanup-ignored"
 
-        await pilot.press("space", "down", "space")
+        choices(app)[ATTACHED.identity].value = True
         await pilot.click("#cleanup-confirm")
         await pilot.pause()
         assert cleaner.confirmations == []
@@ -870,25 +860,20 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
 
 
 @pytest.mark.asyncio
-async def test_deselecting_the_worktree_resets_ignored_content_acknowledgement():
+async def test_fixed_worktree_acknowledgement_is_independent_of_optional_branch():
     app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, WORKTREE_PREVIEW))
         await pilot.pause()
         screen = cleanup_screen(app)
         acknowledgement = screen.query_one("#cleanup-ignored", Checkbox)
-        assert not acknowledgement.display
-        await pilot.press("space")
-        assert acknowledgement.display
+        assert acknowledgement.display and not acknowledgement.value
+        assert not screen.query("#cleanup-target-0")
         acknowledgement.value = True
         await pilot.pause()
+        await pilot.press("space")
         assert screen.ignored_acknowledged()
-        await pilot.press("space")
-        assert not acknowledgement.display
-        assert not acknowledgement.value
-        await pilot.press("space")
-        assert screen.acknowledgement_missing()
-        assert not acknowledgement.value
+        assert TREE.identity in screen.selected()
 
 
 @pytest.mark.asyncio
@@ -958,8 +943,13 @@ async def test_long_worktree_identity_and_all_ignored_paths_are_accessible(size)
         assert str(subject.render()) == Path(long_path).name
         assert subject.region.height > 1
         assert long_path in details(app)
-        await pilot.press("tab", "tab", "enter")
         paths = screen.query_one("#cleanup-paths", Collapsible)
+        for _ in range(12):
+            if app.focused is not None and app.focused.parent is paths:
+                break
+            await pilot.press("tab")
+        assert app.focused is not None and app.focused.parent is paths
+        await pilot.press("enter")
         assert not paths.collapsed
         inventory = screen.query_one("#cleanup-path-list", Static)
         assert str(inventory.render()).splitlines() == list(ignored)
@@ -1002,7 +992,7 @@ async def test_content_integration_and_changed_preview_keep_consequences_explici
         assert "Nothing was deleted. Select and confirm again." in str(
             screen.query_one("#cleanup-help", Static).render()
         )
-        assert screen.selected() == ()
+        assert screen.selected() == (TREE.identity,)
         assert not screen.ignored_acknowledged()
         await pilot.press("space", "down")
         await pilot.pause()

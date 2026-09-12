@@ -50,7 +50,7 @@ LOCAL_PRESENCE_NOTE = "a local ref under refs/heads"
 REMOTE_PRESENCE_NOTE = (
     "a Remote-Tracking Branch as of the last fetch, which can outlive the "
     "Branch at the remote until pruned; the pane border carries the fetch age "
-    "and f fetches and prunes"
+    "and f fetches and prunes, including inside either Cleanup dialog"
 )
 # The gate x applies is the column's own vocabulary: the Legend says which
 # states let a Branch be deleted from the preview and which never do.
@@ -62,7 +62,8 @@ INTEGRATION_NOTE = (
 WORKTREE_SESSIONS_NOTE = (
     f"{SESSIONS_COUNT_NOTE}; x removes a linked Worktree only when it is clean, "
     "unlocked, and no Agent Session or Agent Run is here, and retains its Branch "
-    "unless that is selected too; Enter opens the selected Worktree in tmux or a "
+    "unless that is selected too; the primary Worktree needs no checkbox, and f "
+    "fetches and rebuilds the preview before confirmation; Enter opens the selected Worktree in tmux or a "
     "custom launcher, and y sends its full path to the terminal clipboard"
 )
 

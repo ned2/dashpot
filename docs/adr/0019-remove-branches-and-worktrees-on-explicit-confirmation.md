@@ -5,6 +5,11 @@ date: 2026-09-02
 
 # Remove Branches and Worktrees on explicit confirmation
 
+Amended by [ADR 0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md): Cleanup dialogs keep their concrete
+primary subject fixed and permit explicit Remote Fetch while the preview is idle.
+The fetch, observation, and re-inspection finish before confirmation is available.
+
+
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),
 [ADR 0017](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md),

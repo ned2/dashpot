@@ -113,8 +113,8 @@ the management commands `init`, `integrate`,
 | `r` | Restart both submitted queries from page one, refresh Project Totals, relevant Issue identities and local observations |
 | `Enter` in Worktrees | Open the selected Worktree in a new tmux pane or through the configured launcher |
 | `y` in Worktrees | Send the full Worktree path to the terminal clipboard |
-| `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
-| `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; success returns directly to the dashboard with one toast line per outcome, while a refused or unknown outcome opens its detailed report; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
+| `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane; also available inside both Cleanup dialogs |
+| `x` | Preview removing the highlighted Worktree or deleting the highlighted Branch, then confirm; `Escape` cancels. Optional additional targets start unchecked ([ADR 0036](docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
 | `/` | Focus the Pull Request search when its table has focus; otherwise focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
@@ -122,6 +122,27 @@ the management commands `init`, `integrate`,
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, while each list keeps its row cursor |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
 | `q` | Quit |
+
+Cleanup previews show the concrete primary target without a redundant checkbox.
+Removing a Worktree retains its attached local Branch unless you select that
+option; selecting it changes the button to `Remove Worktree and Branch`.
+Ignored paths and their contents still need acknowledgement. Occupied, dirty,
+locked, protected, and otherwise blocked Worktrees remain unavailable.
+
+For a Branch row, the local Branch is primary when present, otherwise the sole
+remote Branch. A remote-only row with several remotes, or a blocked local Branch
+with an available remote target, keeps explicit concrete choices. Additional
+remote deletion is never automatic.
+
+Press `f` in either dialog to fetch and prune without leaving it. The dialog
+shows progress and per-remote outcomes. Repository fetch timestamps are labelled
+as repository-wide evidence; failed remotes retain last-known facts. Confirmation waits for fresh Git
+observation and re-inspection of the same subject. Unchanged optional choices
+may survive; changed or new targets are unchecked, and ignored content must be
+acknowledged again. A missing primary never becomes another Branch implicitly.
+Fetch completion after cancellation only updates observation. Confirmed Cleanup
+and Remote Fetch remain mutually exclusive for a Project; every deletion still
+re-inspects and requires the ordinary explicit confirmation.
 
 Both source queries submit on `Enter`; typing leaves the submitted query intact.
 Lifecycle changes use the submitted expression and start at page one. GitHub

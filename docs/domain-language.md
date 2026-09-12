@@ -150,6 +150,9 @@ of every configured remote, one remote at a time, at the single Repository
 Anchor whose refs supplied the Branch observation. It is bounded by the Git
 timeout, non-interactive, reported remote by remote, and followed by a
 passive re-observation of that Project's Git state; a refresh never fetches.
+The same explicit `f` invocation is available in an idle Cleanup preview at
+its captured Repository Anchor. Confirmation waits for post-fetch observation
+and re-inspection; fetching never continues into Cleanup.
 _Avoid_: refresh for a fetch, or fetch for a refresh
 
 **Cleanup**:
@@ -162,6 +165,9 @@ mutation is never rolled back, and the Project is re-observed afterwards
 ([ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
 Invoked from the dashboard's `x` key on a Branches or Worktrees row and from
 the `branch delete` and `worktree remove` commands.
+The dashboard keeps its concrete primary target fixed; optional additional
+targets require selection. A Worktree preview cannot authorize Branch-only
+deletion when its primary removal is blocked.
 _Avoid_: prune for a Cleanup, which is the Remote Fetch's removal of gone
 Remote-Tracking Branches; cleanup for anything observation does
 

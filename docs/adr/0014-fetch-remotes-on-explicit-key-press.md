@@ -5,6 +5,11 @@ date: 2026-09-02
 
 # Fetch remotes on an explicit key press
 
+Amended by [ADR 0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md): Cleanup dialogs keep their concrete
+primary subject fixed and permit explicit Remote Fetch while the preview is idle.
+The fetch, observation, and re-inspection finish before confirmation is available.
+
+
 The Branches pane lists local Branches and Remote-Tracking Branches as of
 the Repository's last fetch, and its border reports that fetch age
 ([ADR 0005](0005-observe-branches-without-fetching.md)). Bringing those

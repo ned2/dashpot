@@ -117,7 +117,7 @@ class IntegrationFact(PublishedModel):
 
 
 class CleanupTarget(PublishedModel):
-    """One concrete thing a Cleanup could remove, starting unselected.
+    """Describe one concrete Cleanup target and its deletion evidence.
 
     ``expected`` is the value confirmation must observe again — a ref's
     commit, or a Worktree's HEAD — before anything is performed. A target
@@ -133,8 +133,7 @@ class CleanupTarget(PublishedModel):
     remote: str | None = None
     path: str | None = None
     integration: IntegrationFact | None = None
-    # When the facts about a remote were last fetched; a Remote Branch is only
-    # ever known through its Remote-Tracking Branch.
+    # Repository FETCH_HEAD time does not prove success at any particular remote.
     observed_at: str | None = None
     requires: str | None = None
     blockers: LaxSequence[CleanupBlocker] = ()
@@ -347,10 +346,9 @@ def _remote_branch_target(
     )
     blockers.extend(_remote_blockers(git, remote))
     blockers.extend(_integration_blockers(fact, tracking))
-    observed = f" as of the last fetch at {fetched}" if fetched else ""
     consequences = [
         f"deletes {name} at {remote}, leased on {tracking} at {commit[:7]}"
-        f"{observed}; recreate with: git push {remote} {commit}:refs/heads/{name}",
+        f"; recreate with: git push {remote} {commit}:refs/heads/{name}",
         f"Git drops {tracking} itself once the deletion is accepted",
     ]
     consequences.extend(_content_consequence(fact))
@@ -671,6 +669,10 @@ def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
             lines.append(f"      {INTEGRATION_WORDS[target.integration.state]}")
         if target.requires is not None:
             lines.append(f"      only together with {target.requires}")
+        if target.observed_at:
+            lines.append(
+                f"      repository fetch timestamp: {target.observed_at} (not per-remote verification)"
+            )
         for blocker in target.blockers:
             lines.append(f"      blocked: {blocker.kind}: {blocker.detail}")
             if blocker.command:

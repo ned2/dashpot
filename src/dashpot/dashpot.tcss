@@ -503,6 +503,22 @@ CleanupScreen, CleanupReportScreen {
     height: auto;
 }
 
+.cleanup-primary {
+    height: auto;
+    width: 1fr;
+    text-style: bold;
+}
+
+#cleanup-fetch-status {
+    height: auto;
+    color: $text;
+}
+
+#cleanup-footer Footer {
+    dock: none;
+    height: 1;
+}
+
 .cleanup-target CleanupChoice {
     width: 1fr;
     height: auto;
