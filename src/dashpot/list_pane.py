@@ -85,6 +85,7 @@ class ListPane(Vertical):
         empty_message: str,
         id: str,
         table_id: str,
+        table_type: type[FocusCursorTable[ListCell]] = FocusCursorTable,
         controls: Widget | None = None,
         controls_height: int = 0,
     ) -> None:
@@ -95,6 +96,7 @@ class ListPane(Vertical):
         self.columns = tuple(columns)
         self.empty_message = empty_message
         self.table_id = table_id
+        self.table_type = table_type
         self.rows_by_key: dict[str, ListRow] = {}
         self.row_cap = DEFAULT_ROW_CAP
         self.controls = controls
@@ -104,7 +106,7 @@ class ListPane(Vertical):
     def compose(self) -> ComposeResult:
         if self.controls is not None:
             yield self.controls
-        yield FocusCursorTable(id=self.table_id, cursor_type="row", zebra_stripes=False)
+        yield self.table_type(id=self.table_id, cursor_type="row", zebra_stripes=False)
         yield Static(self.empty_message, classes="list-pane-empty", markup=False)
 
     def on_mount(self) -> None:

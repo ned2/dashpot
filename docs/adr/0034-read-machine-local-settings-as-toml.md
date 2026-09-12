@@ -43,4 +43,5 @@ rewrites settings or discovers the old JSON file.
   public JSON, and external harness configuration retain their contracts.
 - The [migration investigation](../toml-settings-migration-research.md) is
   superseded for the settings migration. Dashboard loading and launcher
-  behavior remain future work under #146.
+  behavior are defined separately in
+  [ADR 0035](0035-open-worktrees-on-explicit-key-press.md).

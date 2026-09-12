@@ -111,6 +111,8 @@ the management commands `init`, `integrate`,
 | Key | Action |
 |---|---|
 | `r` | Restart both submitted queries from page one, refresh Project Totals, relevant Issue identities and local observations |
+| `Enter` in Worktrees | Open the selected Worktree in a new tmux pane or through the configured launcher |
+| `y` in Worktrees | Send the full Worktree path to the terminal clipboard |
 | `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane, then re-observe its Git state |
 | `x` | Preview deleting the highlighted Branch (local, and at each remote) or removing the highlighted Worktree: every target starts unselected, an unavailable one says why, `Delete selected` performs the selection, `Escape` cancels, and a preview that changed in between reopens for another confirmation; success returns directly to the dashboard with one toast line per outcome, while a refused or unknown outcome opens its detailed report; refused while the Project fetches, as `f` is refused while it cleans up ([ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)) |
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
@@ -538,6 +540,11 @@ same facts (`issueId`, `issueReference`, `path`, `branch`, `baseRef`,
 mode. `warnings` carries non-fatal observations, such as unknown fields in
 the machine-local settings file, which are ignored rather than fatal so a
 settings file written by a newer Dashpot never stops this one.
+
+Worktrees supports `Enter` to open a terminal and `y` to copy its full path.
+See [Open Worktrees and copy paths](docs/installation.md#open-worktrees-and-copy-paths)
+for custom launchers, tmux behavior, and clipboard requirements. Opening a
+Worktree does not create or relocate an Agent Session or establish Issue work.
 
 Machine-local settings use flat snake_case TOML keys. See the
 [settings guide](docs/installation.md#machine-local-settings) for syntax and

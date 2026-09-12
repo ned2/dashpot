@@ -23,7 +23,7 @@ class LocalOnlyCollector:
         raise AssertionError("dashboard must not enumerate Pull Requests")
 
 
-def application(tmp_path):
+def application(tmp_path, *, launcher_configuration=None, collector=None):
     source = markdown(tmp_path)
     context = source.context
     project = ResolvedProject(
@@ -37,7 +37,7 @@ def application(tmp_path):
     coordinator = ObservationCoordinator(
         [project],
         local_only=True,
-        factory=lambda *args, **kwargs: LocalOnlyCollector(),
+        factory=lambda *args, **kwargs: collector or LocalOnlyCollector(),
         agent_observer=lambda targets: ([], []),
     )
     sources = {
@@ -50,7 +50,12 @@ def application(tmp_path):
             "identities",
         )
     }
-    app = PagedDashpotApp(coordinator, sources=sources, refresh_seconds=0)
+    app = PagedDashpotApp(
+        coordinator,
+        sources=sources,
+        refresh_seconds=0,
+        launcher_configuration=launcher_configuration,
+    )
     app.navigation["issues"].request = QueryRequest(page_size=1)
     return app
 

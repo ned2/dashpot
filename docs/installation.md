@@ -112,19 +112,16 @@ environment overrides, so those overrides do not hide malformed configuration.
 
 Use TOML 1.0 syntax: `#` begins a comment outside strings; single-quoted literal
 strings preserve backslashes, while double-quoted strings interpret escapes
-(for example, `"C:\\worktrees"`). TOML also supports multiline arrays. The
-launcher proposed in [#146](https://github.com/ned2/dashpot/issues/146) will use:
+(for example, `"C:\\worktrees"`). TOML also supports multiline arrays. Configure a custom Worktree launcher with an argument array:
 
 ```toml
-# Future launcher setting; not implemented yet.
 worktree_open_command = [
   '/absolute/path/to/my-launcher',
   '{path}',
 ]
 ```
 
-The current reader warns that this future field is unknown. Parsing never
-performs shell or environment-variable expansion. For `worktree_root`, Dashpot
+Parsing never performs shell or environment-variable expansion. For `worktree_root`, Dashpot
 strips surrounding whitespace, expands `~`, and resolves relative paths against
 the settings file's parent directory. Precedence remains `--worktree-root`,
 then `DASHPOT_WORKTREE_ROOT`, then `worktree_root`, then the sibling default in
@@ -142,6 +139,60 @@ This file contains machine-local preferences only. Workspace inventory remains
 `workspaces.json`, selected by `--config`; tracked Project configuration remains
 `.dashpot/config.json`. Work Store records, public JSON output, and external
 harness configuration retain their formats.
+
+## Open Worktrees and copy paths
+
+With the Worktrees table focused, `Enter` opens the selected Worktree and `y`
+sends its full absolute path to the terminal clipboard. Mouse selection alone
+does not open anything. The same actions apply to main and linked Worktrees.
+
+A configured `worktree_open_command` takes precedence inside and outside tmux.
+It must be a nonempty argument array with a nonblank executable first. Bare
+executables use PATH; explicit executable paths must be absolute. Each standalone
+`{path}` argument is replaced with the complete path; zero or repeated occurrences
+are allowed. Other arguments are literal, including empty arguments. There is no
+shell evaluation, environment expansion, or interpolation inside `--dir={path}`.
+The selected Worktree is also the command's working directory. The command runs
+on Dashpot's host with its normal environment; Dashpot does not load ignored
+Worktree configuration or translate remote paths.
+
+For example, an executable wrapper at `/absolute/path/to/open-terminal` can
+request a persistent terminal and return promptly:
+
+```sh
+#!/bin/sh
+# Install kitty separately, or substitute your terminal's command.
+nohup kitty --directory "$PWD" </dev/null >/dev/null 2>&1 &
+```
+
+Configure `worktree_open_command = ['/absolute/path/to/open-terminal']`.
+Redirect all three streams and detach persistent children: a background child
+that retains captured pipes can keep the request pending after its parent exits.
+A zero exit reports that the request completed, not that a shell is ready.
+Requests use Dashpot's command timeout. A timeout may follow an already-opened
+terminal; Dashpot does not retry or undo terminal actions automatically.
+
+Omitting the setting uses automatic tmux behavior: when Dashpot runs inside
+tmux, `Enter` splits its originating pane below, approximately in half, and
+focuses the new pane with the selected directory requested through `-c`. tmux's
+shell/default-command configuration still applies. Paths are passed literally,
+including format-like `#{...}` or `#(...)` text and trailing semicolons. If the
+directory disappears after validation, tmux can fall back to home or `/`; shell
+startup can also change directory. Dashpot does not track or reuse panes.
+Outside tmux, configure a launcher or press `y` to copy the path.
+
+Settings are read at dashboard startup; restart Dashpot after editing them.
+Read/validation failures disable Open Worktree and show a Diagnostic, while
+observation and Copy path remain available. A failed custom launcher never falls
+back to tmux. Unknown fields alone warn without disabling a valid launcher.
+
+Copy path sends an OSC 52 clipboard request using the same transport as existing
+text-selection copying. Terminal/tmux support determines delivery; Dashpot cannot
+acknowledge host clipboard success. Inside tmux, applications need
+`set -g set-clipboard on` and an outer terminal with clipboard support.
+`set-clipboard external` ignores application requests. Enabling `on` permits
+applications inside tmux to request clipboard writes; set it yourself if desired.
+Text-selection copying uses this same transport and cannot bypass a blocked one.
 
 ## Observe agent sessions
 

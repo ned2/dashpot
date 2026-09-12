@@ -7,13 +7,19 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import ConfigDict, ValidationError
+from pydantic import ConfigDict, ValidationError, field_validator
 
 from .model import Diagnostic
-from .models import NonBlankString, PublishedModel, translate_validation_error
+from .models import (
+    LaxSequence,
+    NonBlankString,
+    PublishedModel,
+    translate_validation_error,
+)
 
 SETTINGS_FILE_NAME = "config.toml"
 WORKTREE_ROOT_VARIABLE = "DASHPOT_WORKTREE_ROOT"
+WORKTREE_PATH_ARGUMENT = "{path}"
 
 
 class SettingsFile(PublishedModel):
@@ -27,6 +33,27 @@ class SettingsFile(PublishedModel):
     model_config = ConfigDict(extra="allow", alias_generator=None)
 
     worktree_root: NonBlankString | None = None
+    worktree_open_command: LaxSequence[str] | None = None
+
+    @field_validator("worktree_open_command")
+    @classmethod
+    def validate_open_command(
+        cls, value: LaxSequence[str] | None
+    ) -> LaxSequence[str] | None:
+        """Validate a literal launcher argument list with an executable first."""
+        if value is None:
+            return value
+        if not value or not value[0].strip():
+            raise ValueError(
+                "must be a nonempty argument array with a nonblank executable"
+            )
+        if value[0] == WORKTREE_PATH_ARGUMENT:
+            raise ValueError("cannot use {path} as the executable")
+        if any("\0" in arg for arg in value):
+            raise ValueError("must not contain NUL characters")
+        if ("/" in value[0] or "\\" in value[0]) and not Path(value[0]).is_absolute():
+            raise ValueError("explicit executable paths must be absolute")
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +62,7 @@ class Settings:
 
     worktree_root: Path | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
+    worktree_open_command: tuple[str, ...] | None = None
 
 
 def default_settings_path() -> Path:
@@ -76,11 +104,18 @@ def load_settings(path: Path | None = None) -> Settings:
         if unexpected
         else ()
     )
+    command = (
+        tuple(file.worktree_open_command)
+        if file.worktree_open_command is not None
+        else None
+    )
     if file.worktree_root is None:
-        return Settings(diagnostics=diagnostics)
+        return Settings(diagnostics=diagnostics, worktree_open_command=command)
     # Path resolution is policy, not validation: ``~`` expands, and a relative
     # root is anchored at the settings file's own directory.
     root = Path(file.worktree_root).expanduser()
     if not root.is_absolute():
         root = settings_path.parent / root
-    return Settings(worktree_root=root, diagnostics=diagnostics)
+    return Settings(
+        worktree_root=root, diagnostics=diagnostics, worktree_open_command=command
+    )

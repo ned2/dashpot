@@ -55,7 +55,8 @@ INTEGRATION_NOTE = (
 WORKTREE_SESSIONS_NOTE = (
     f"{SESSIONS_COUNT_NOTE}; x removes a linked Worktree only when it is clean, "
     "unlocked, and no Agent Session or Agent Run is here, and retains its Branch "
-    "unless that is selected too"
+    "unless that is selected too; Enter opens the selected Worktree in tmux or a "
+    "custom launcher, and y sends its full path to the terminal clipboard"
 )
 
 LEGEND: tuple[LegendSection, ...] = (

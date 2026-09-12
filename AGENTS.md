@@ -27,6 +27,11 @@ The shared context for humans and agents is the README:
   [Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)
 - [Design](docs/design.md) and the [Documentation map](README.md#documentation-map)
 
+The Worktrees pane also supports explicit terminal/clipboard actions: `Enter`
+opens the selected Worktree and `y` copies its path. These actions do not
+establish Issue work or relocate an Agent Session
+([launcher contract](docs/installation.md#open-worktrees-and-copy-paths)).
+
 ## Issue work lifecycle
 
 Use the model-invoked `dashpot-issue-work` skill whenever work belongs to an

@@ -86,6 +86,7 @@ from .list_pane import (
     PULL_REQUESTS_PANE_LABEL,
     SESSIONS_PANE_LABEL,
     WORKTREES_PANE_LABEL,
+    ListCell,
     ListColumn,
     ListPane,
     ListRow,
@@ -108,7 +109,9 @@ from .pull_request_search import parse_pull_request_search
 from .search import SearchSort, parse_search
 from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
+from .worktree_launcher import LauncherConfiguration
 from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
+from .worktree_table import WorktreeTable
 
 # Observation triggers a person asked for, whose outcome earns a toast.
 MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
@@ -160,6 +163,7 @@ class PaneSpec:
     columns: tuple[ListColumn, ...]
     empty_message: str
     rows: PaneRowsSource
+    table_type: type[FocusCursorTable[ListCell]] = FocusCursorTable
 
 
 def session_pane_rows(
@@ -224,6 +228,7 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         WORKTREE_COLUMNS,
         "no worktrees observed yet",
         worktree_pane_rows,
+        table_type=WorktreeTable,
     ),
     PaneSpec(
         "branches-pane",
@@ -418,6 +423,7 @@ class DashboardScreen(Screen[None]):
                         empty_message=spec.empty_message,
                         id=spec.pane_id,
                         table_id=spec.table_id,
+                        table_type=spec.table_type,
                         controls=(
                             self.pull_request_filter_bar
                             if spec.pane_id == "pull-requests-pane"
@@ -774,6 +780,7 @@ class DashboardScreen(Screen[None]):
         # records refits them all.
         if not self.is_mounted or not self._update_widgets_mounted():
             return
+        self.refresh_bindings()
         self.fit_list_panes(self.query_one("#body").size)
 
     def fit_list_panes(self, body: Size) -> None:
@@ -907,8 +914,23 @@ class DashboardScreen(Screen[None]):
             return
 
     def action_open_issue(self) -> None:
-        if self.selected_row_key is not None:
+        if self.queue_table().has_focus and self.selected_row_key is not None:
             self.open_issue(self.selected_row_key)
+
+    def on_worktree_table_open_requested(
+        self, event: WorktreeTable.OpenRequested
+    ) -> None:
+        """Launch the Worktree captured by keyboard activation."""
+        self.dashpot.request_worktree_open(event.key)
+
+    def on_worktree_table_copy_requested(
+        self, event: WorktreeTable.CopyRequested
+    ) -> None:
+        """Send the complete observed Worktree path to the terminal clipboard."""
+        path = self.dashpot.worktree_path(event.key)
+        if path is not None:
+            self.app.copy_to_clipboard(str(path))
+            self.app.notify("Path sent to clipboard")
 
     def open_issue(self, key: str) -> None:
         """Read the Issue full-screen; nothing happens without an Issue row."""
@@ -942,6 +964,10 @@ class DashboardScreen(Screen[None]):
         entries: list[tuple[AlertSeverity, str]] = [
             ("error", message) for message in self.dashpot.observation_errors.values()
         ]
+        entries.extend(
+            (diagnostic.severity, diagnostic.message)
+            for diagnostic in self.dashpot.launcher_configuration.diagnostics
+        )
         entries.extend(
             ("error", message) for message in self.dashpot.fetch_errors.values()
         )
@@ -1052,8 +1078,10 @@ class DashpotApp(App[None]):
         fetcher: RemoteFetcher | None = None,
         cleaner: CleanupAdapter | None = None,
         pull_request_searcher: PullRequestSearcher | None = None,
+        launcher_configuration: LauncherConfiguration | None = None,
     ) -> None:
         super().__init__()
+        self.launcher_configuration = launcher_configuration or LauncherConfiguration()
         self.pull_request_searcher = pull_request_searcher
         self.pull_request_search_generation = 0
         self.pull_request_search_running = False
@@ -1183,6 +1211,9 @@ class DashpotApp(App[None]):
 
     def on_ready(self) -> None:
         dashboard = self.dashboard
+        dashboard.query_one(WorktreeTable).launch_available = (
+            self.launcher_configuration.opener is not None
+        )
         if self.pull_request_searcher is not None:
             dashboard.pull_request_filter_bar.search.placeholder = (
                 "Search Pull Requests (Enter)"
@@ -1204,6 +1235,47 @@ class DashpotApp(App[None]):
 
     def on_unmount(self) -> None:
         self.refresh_executor.shutdown(wait=False, cancel_futures=True)
+
+    def worktree_path(self, key: str) -> Path | None:
+        """Resolve a visible Worktree row against its accepted observation."""
+        if self.dashboard.worktrees_pane().row(key) is None:
+            return None
+        row = next(
+            (row for row in self.store.query_worktrees().rows if row.key == key), None
+        )
+        return Path(row.target.path) if row is not None else None
+
+    def request_worktree_open(self, key: str) -> None:
+        """Capture one Worktree launch and exclude duplicate dispatch."""
+        table = self.dashboard.query_one(WorktreeTable)
+        opener = self.launcher_configuration.opener
+        path = self.worktree_path(key)
+        if table.opening or opener is None or path is None:
+            return
+        table.opening = True
+        self.notify(f"Opening Worktree: {path}")
+        self.run_worker(
+            self.open_worktree(path),
+            name="open Worktree",
+            group="worktree-launch",
+            exit_on_error=False,
+        )
+
+    async def open_worktree(self, path: Path) -> None:
+        """Run the captured launch without blocking dashboard interaction."""
+        opener = self.launcher_configuration.opener
+        assert opener is not None
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                self.refresh_executor, opener, path
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.notify(str(exc), title="Open Worktree", severity="error")
+        else:
+            self.notify("Worktree launch request completed")
+        finally:
+            if self.dashboard.is_mounted:
+                self.dashboard.query_one(WorktreeTable).opening = False
 
     def action_refresh(self) -> None:
         """Refresh every observation in the Workspace."""

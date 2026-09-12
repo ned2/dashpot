@@ -51,6 +51,7 @@ from .source_queries import (
     ResolvedIssue,
     ResourceKind,
 )
+from .worktree_launcher import LauncherConfiguration
 
 
 class QueryFinished(Message):
@@ -309,6 +310,7 @@ class PagedDashpotApp(DashpotApp):
         refresh_seconds: float = 15,
         fetcher: RemoteFetcher | None = None,
         cleaner: CleanupAdapter | None = None,
+        launcher_configuration: LauncherConfiguration | None = None,
     ) -> None:
         self.paged_store = PagedObservationStore()
         collector.publish(self.paged_store)
@@ -351,6 +353,7 @@ class PagedDashpotApp(DashpotApp):
             issue_view=IssueTableViewState(sort=()),
             fetcher=fetcher,
             cleaner=cleaner,
+            launcher_configuration=launcher_configuration,
         )
 
     @override

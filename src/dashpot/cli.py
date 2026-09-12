@@ -55,6 +55,7 @@ from .workspace import (
     merge_workspaces,
     resolve_workspace_projects,
 )
+from .worktree_launcher import configure_worktree_launcher
 from .worktrees import (
     check_worktree,
     create_issue_worktree,
@@ -199,6 +200,7 @@ def observe(
             refresh_seconds=refresh_seconds,
             fetcher=remote_fetcher(timeout),
             cleaner=GitCleanupAdapter(timeout),
+            launcher_configuration=configure_worktree_launcher(timeout),
         ).run()
     return 0
 
