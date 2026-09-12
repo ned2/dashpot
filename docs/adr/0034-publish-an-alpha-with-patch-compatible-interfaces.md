@@ -32,7 +32,8 @@ resolve the runtime dependencies an application user receives.
 
 The target is CPython 3.11–3.14, Linux x86-64 and Apple Silicon macOS, with both
 Codex and Claude Code. CI covers both Python endpoints on both platforms,
-intermediate versions on Linux, and Git 2.38 as the proposed minimum. gh 2.100.0
+intermediate versions on Linux, and maintained Git 2.39.x from Debian 12 as
+the minimum compatibility baseline. gh 2.100.0
 is the first release's tested baseline for GitHub-backed Projects; it is not
 needed for Local Issue Markdown. Exact host/harness evidence is a publication
 gate, recorded in [Issue #5](https://github.com/ned2/dashpot/issues/5), including
@@ -55,3 +56,15 @@ Published files are immutable. Retain archives, checksums, release notes, and
 build context for recovery rather than rebuilding a partially published version.
 This costs an explicit publisher setup and a separate artifact handoff, but
 ties the published bytes to the ones that passed the release gates.
+
+## Git baseline clarification
+
+Before publication, [Issue #150](https://github.com/ned2/dashpot/issues/150)
+raises the proposed Git minimum from 2.38 to 2.39 with current vendor patches.
+The compatibility job installs Debian 12's maintained package and runs the full
+suite, replacing the upstream 2.38.0 source build. This follows a concrete
+vendor-supported environment and removes compilation from each CI run; it does
+not establish compatibility with unpatched upstream 2.39.0 or promise upstream
+maintenance for the whole Git 2.x major version. The
+[support policy](../installation.md#supported-environments) records when to
+revisit this baseline. Other release targets and interface guarantees stand.

@@ -68,7 +68,8 @@ description; its links are absolute so they work on the package index. Preview
 that page after TestPyPI publication as well as checking metadata locally.
 
 CI runs the source suite on both endpoint Python versions for Ubuntu/macOS,
-the intermediate Python versions on Ubuntu, and Git 2.38. The build job creates
+the intermediate Python versions on Ubuntu, and Debian 12’s maintained Git
+2.39.x package. The build job creates
 the source distribution and its wheel with `uv build --no-sources`, checks
 metadata, and uploads one `distributions` artifact containing:
 
@@ -102,7 +103,8 @@ package build as well as the installed-candidate checks below. Verify BSD
 - [ ] Collect Local Issue Markdown without gh. Exercise missing Git and missing
   or unauthenticated gh; verify the actionable failure rather than empty data.
 - [ ] Verify main/linked Worktree configuration discovery and ignored state
-  cleanliness. Exercise Branch integration with Git 2.38 or the validated CI leg.
+  cleanliness. Exercise Branch integration with Debian 12’s maintained Git 2.39.x package
+  or the validated CI leg.
 - [ ] Open compact and wide terminals; navigate Issues, Pull Requests, Legend,
   and configuration controls, then quit cleanly.
 - [ ] For each supported harness, install and diagnose integration, verify hook

@@ -17,7 +17,7 @@ with `uv tool install /absolute/path/to/dashpot-0.1.0-py3-none-any.whl`.
 | Python | CPython 3.11–3.14. CI tests 3.11/3.14 on Linux and macOS, and 3.12/3.13 on Linux. Later Python versions remain unvalidated. |
 | Linux | x86-64; Ubuntu CI plus a real-host checklist before publication. |
 | macOS | Apple Silicon; macOS CI plus real-host acceptance on `omar` in [#5](https://github.com/ned2/dashpot/issues/5). Host acceptance is pending. |
-| Git | 2.38 or newer. The minimum-version CI leg exercises the full suite with 2.38.0, including content-based Branch integration. |
+| Git | 2.39 or newer, with current vendor patches. The minimum-version CI leg exercises the full suite with Debian 12’s packaged Git 2.39.x, including content-based Branch integration. |
 | GitHub CLI | gh 2.100.0 or newer for GitHub-backed Projects. 2.100.0 passed live collection during release planning; older versions are outside the initial support promise. |
 | Codex | Candidate baseline 0.154.0, subject to the per-host lifecycle checklist. |
 | Claude Code | Candidate baseline 2.1.261, subject to the per-host lifecycle checklist. |
@@ -27,6 +27,14 @@ the initial release target. A passing automated TUI test does not establish
 real-host process identity or lifecycle-hook compatibility. Final evidence
 belongs in [#5](https://github.com/ned2/dashpot/issues/5); complete the
 [host checklist](releasing.md#host-acceptance) before publication.
+
+The Git baseline is the maintained Debian 12 (Bookworm) package, rather than
+unpatched upstream 2.39.0. CI installs current Bookworm updates and checks the
+2.39.x series; ordinary Linux and macOS jobs exercise newer Git versions.
+Git has [no guaranteed upstream long-term support policy](https://github.com/git/git/security/policy)
+for older feature series. Vendor maintenance supplies the baseline's security
+updates. Revisit this baseline by [Debian 12 LTS end, 30 June 2028](https://www.debian.org/releases/bookworm/),
+or sooner if support for its Git package changes.
 
 ## Install
 
@@ -219,7 +227,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | --- | --- |
 | `dashpot` is not found | Run `uv tool list` and `uv tool update-shell`, then reopen the shell. |
 | A different Dashpot version runs | Inspect `command -v dashpot` and `uv tool list`; select the intended tool installation before integrating. |
-| Git is missing or an option is unsupported | Check `git --version`, install Git 2.38+, and ensure that version is on PATH. Content-based integration requires `merge-tree --write-tree`. |
+| Git is missing or an option is unsupported | Check `git --version`, install Git 2.39+, and ensure that version is on PATH. Content-based integration requires `merge-tree --write-tree`. |
 | GitHub collection fails | Check `gh --version` and `gh auth status`, repository access, network connectivity, and the reported Diagnostic. Authentication failures remain distinct from an empty Issue collection. |
 | The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and ignore `.dashpot/state/`. |
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |

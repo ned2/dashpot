@@ -55,7 +55,7 @@ uv tool install --python 3.14 dashpot
 ```
 
 The release targets CPython 3.11–3.14 on Linux x86-64 and Apple Silicon macOS,
-Git 2.38+, and gh 2.100.0+ for GitHub-backed Projects. See
+Git 2.39+, and gh 2.100.0+ for GitHub-backed Projects. See
 [installation and support](docs/installation.md) for current host-validation
 status, candidate installation before publication, PATH setup, harness setup,
 diagnosis, upgrades, and uninstall instructions.
@@ -392,7 +392,8 @@ network access.
 targeting `main`, pushes to `main`, and manual dispatch. It runs the all-files
 pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
 and macOS under Python 3.11 and 3.14, adds Python 3.12/3.13 on Ubuntu,
-exercises Git 2.38, and builds the package once per run. Installed-artifact jobs
+exercises Debian 12’s maintained Git 2.39.x package in a container, and builds
+the package once per run. Installed-artifact jobs
 install the wheel and source distribution
 independently on the Python/OS matrix, including TUI and hook-publisher checks. No
 credentials are provided and no live GitHub collection happens in CI; the test

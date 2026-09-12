@@ -165,10 +165,21 @@ jobs:
           python scripts/smoke_install.py release-artifacts/dist/*.whl release-artifacts/dist/*.tar.gz
 
   minimum-git:
-    name: Git 2.38 compatibility
+    name: Git 2.39 compatibility (Debian 12)
     runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
+      # Install Git before checkout so it uses Git instead of its archive fallback.
+      # Keep Bookworm's security updates even though the base image is pinned.
+      - name: Install Debian Git and test prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends git ca-certificates procps zstd
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
@@ -176,18 +187,19 @@ jobs:
         with:
           version: "0.12.10"
           python-version: "3.11"
-      - name: Install Git build dependencies
+      - name: Install locked environment
+        run: uv sync --locked --group dev
+      - name: Verify packaged Git 2.39
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes libcurl4-openssl-dev libexpat1-dev libssl-dev zlib1g-dev
-      - name: Build the minimum supported Git from its verified release commit
-        run: |
-          git clone --depth 1 --branch v2.38.0 https://github.com/git/git.git "$RUNNER_TEMP/git-source"
-          test "$(git -C "$RUNNER_TEMP/git-source" rev-parse HEAD)" = 3dcec76d9df911ed8321007b1d197c1a206dc164
-          make -C "$RUNNER_TEMP/git-source" -j2 prefix="$RUNNER_TEMP/git-minimum" NO_GETTEXT=YesPlease NO_TCLTK=YesPlease install > "$RUNNER_TEMP/git-build.log" 2>&1 || { cat "$RUNNER_TEMP/git-build.log"; exit 1; }
-          echo "$RUNNER_TEMP/git-minimum/bin" >> "$GITHUB_PATH"
-      - name: Test against Git 2.38
-        run: |
-          test "$(git --version)" = 'git version 2.38.0'
-          uv sync --locked --group dev
-          uv run pytest -q
+          uv run python - <<'PYGIT'
+          import re, shutil, subprocess
+          executable = shutil.which("git")
+          print(f"Git executable: {executable}", flush=True)
+          assert executable == "/usr/bin/git", executable
+          version = subprocess.check_output([executable, "--version"], text=True).strip()
+          print(version, flush=True)
+          assert re.fullmatch(r"git version 2\.39\.[0-9]+", version), version
+          PYGIT
+          dpkg-query --show --showformat='${Package} ${Version}\n' git
+      - name: Test against Debian Git 2.39
+        run: uv run pytest -q
