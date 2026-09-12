@@ -755,6 +755,9 @@ These `living` documents carry the detail this README points at:
 - [`docs/agent-sessions.md`](docs/agent-sessions.md) documents `dashpot
   integrate` and `dashpot work`, the Work Store, and how a session is
   identified.
+- [`docs/agent-harness-server-client-reference.md`](docs/agent-harness-server-client-reference.md)
+  compares Claude Code, Codex CLI, and OpenCode hosting, clients, conversation
+  identity, and lifecycle, with source and experiment boundaries.
 - [`docs/design.md`](docs/design.md) describes how the pieces fit — the
   observation pipeline, the read model, and the seams beneath the interface.
 

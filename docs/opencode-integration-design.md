@@ -27,8 +27,10 @@ evidence. This satisfies the spike's failed-bootstrap requirement without a
 persisted receipt, expiry policy or capacity limit for every command. A stronger
 independent audit of each exact bootstrap would be an additional requirement.
 
-These are reviewed recommendations. Only explicit Issue-work restart after
-backend restart has been agreed; production implementation has not begun.
+These are reviewed recommendations. Explicit Issue-work restart after backend
+restart and the [cross-harness delivery sequence](#cross-harness-compatibility-questions)
+have been agreed; production implementation has not begun. Other lifecycle
+and publication choices remain proposals.
 
 ## Working scope
 
@@ -592,3 +594,120 @@ supporting any relocation. V2 and remote backends remain outside this proposal's
 verified scope. If independently persisted command receipts are later required,
 verify which completion callbacks cover every `shell.env` invocation before
 relying on them for reclamation.
+
+## Cross-harness compatibility questions
+
+The maintained [server and client reference](agent-harness-server-client-reference.md)
+consolidates the upstream contracts for Codex, Claude Code and OpenCode. Keep
+product behavior there; the following are proposals for Dashpot rather than
+additional harness guarantees.
+
+Codex App Server makes native conversation matching a shared concern. Review
+the process-derived storage key in `work._session_identity`, process fallback
+in `_session_work` and `ObservedActivityIndex.adopt`, the native-or-process
+location selection in `locate_agent_session`, and the native-or-process stop
+in `end_session_runs`. Each can join distinct conversations if the selected
+process is shared. [P1 Issue #159](https://github.com/ned2/dashpot/issues/159)
+now records a reported live Codex collision during #156/#151 and the full
+disposable regression source. Rerunning it against this checkout produced four
+failures and two passing controls: wrong location, identical Work Store keys,
+cross-session start cleanup, and cross-session SessionEnd cleanup. The specific
+operation behind a later live binding disappearance remains untraced; no Claude
+runtime collision has been reproduced.
+
+Claude's background supervisor documents a separate worker for each session.
+Identify the executing worker before deciding whether a process association is
+ambiguous. Supervisor restart with workers retained is a different boundary
+from worker replacement. Claude Remote Control and in-process teammates still
+need their own hook and shell identity evidence.
+
+The domain language and [ADR 0015](adr/0015-reconcile-the-agent-run-at-session-end.md)
+already distinguish conversation lifetime from process lifetime, including
+Claude `/clear` and `/resume`. The gap is validating concurrent conversations
+and additional hosting modes throughout the implementation. Shared identity
+and liveness infrastructure with harness-specific evidence adapters is a
+recommendation; OpenCode's publisher generation protocol is not automatically
+required for the other harnesses.
+
+Before changing compatibility behavior, run bounded, isolated experiments for
+Codex roots, forks and children sharing one server, and Claude Remote Control,
+supervised workers, SDK clients and teammates. Verify native/shell/hook IDs,
+working directories, command and hook process ancestry, disconnect, eviction,
+restart and ending one conversation while another remains active. Use fake
+process lookup to test work, location, activity and ending isolation through
+Dashpot's public seams. Keep unverified remote/cloud modes out of any claim of
+support; a loopback SDK fixture does not establish Remote Control behavior.
+
+The agreed explicit `work start` policy remains scoped to OpenCode backend
+restart. Applying it to a Codex runtime or Claude worker replacement requires
+a separate decision; restarting only a supervisor must not silently become
+an equivalent trigger. No cross-harness implementation change is made here.
+
+The agreed delivery sequence is:
+
+| Issue | Deliverable | Dependencies |
+| --- | --- | --- |
+| [#159](https://github.com/ned2/dashpot/issues/159) | P1 identity correction for existing integrations | Independently deliverable |
+| [#160](https://github.com/ned2/dashpot/issues/160) | Shared lifecycle contract, designed against all three harnesses with focused experiments | Can proceed alongside #159 |
+| [#161](https://github.com/ned2/dashpot/issues/161) | Shared runtime implementation with Codex support | #159 and #160 |
+| [#162](https://github.com/ned2/dashpot/issues/162) | Claude clients and supervised workers through the shared model | #161 |
+| [#163](https://github.com/ned2/dashpot/issues/163) | Local OpenCode integration vertical slice | #162 |
+
+Use the OpenCode spike to check assumptions early. Codex's shared runtime and
+Claude's supervised per-session workers provide concrete cases for the shared
+implementation; OpenCode's installer and plugin publication protocol remain
+separately reviewable. The first slices cover verified local modes, without
+waiting for every cloud, SDK or editor variant. Sequencing does not accept the
+remaining lifecycle policies in this proposal. Completing #151's spike and
+reference delivery does not depend on implementing those later stages.
+
+## Installation and shared skill ownership
+
+The earlier `docs/opencode-harness-support-research.md`, inspected in the main
+checkout, audited Dashpot at `19b235273b5e7c8b66cea59c1ed540e6c977fa18` before
+the live spike. Its identity, location and lifecycle questions are covered by
+the experiment and this proposal. These additional installation concerns remain
+recommendations to resolve before implementing support:
+
+- Resolve effective OpenCode configuration and plugin discovery locations,
+  including overrides and XDG paths, rather than hard-coding the documentation's
+  example directory. The discovery facts are in the
+  [harness reference](agent-harness-server-client-reference.md#configuration-and-connection-ownership).
+- OpenCode can discover skills from Claude and `.agents` directories. Define
+  duplicate detection, installation ownership and removal behavior before
+  choosing a destination: removing one harness integration must not delete a
+  skill another integration still uses. An ownership marker alone does not
+  answer which integrations depend on that file.
+- Retain a small install/status/remove interface while adapting its publisher
+  artifact to JSON hooks or an OpenCode plugin. Share atomic replacement,
+  ownership checks, repair and version diagnostics. Test roundtrips with
+  unrelated files, shared skills, stale paths and unsupported runtime modes.
+- Registration is repeated in [harnesses.py](../src/dashpot/harnesses.py),
+  [integrate.py](../src/dashpot/integrate.py), the
+  [CLI harness union](../src/dashpot/cli.py), and
+  [session labels](../src/dashpot/session_list.py). A registry could connect
+  narrow identity, publisher, installer and display concerns; evaluate that
+  consolidation without turning `HarnessAdapter` into a large framework.
+
+These are design questions, not authorization to install into an existing
+harness environment or to broaden the initial runtime support scope.
+
+## Pi as a later design cross-check
+
+The earlier static investigation also inspected Pi commit
+`71dca871bc80b6bc97be37f0ca3189399d651fff`, dated 2026-09-11. Preserve it as a
+candidate for testing the proposed seams, separately from OpenCode acceptance.
+Its [extension documentation](https://github.com/badlogic/pi-mono/blob/71dca871bc80b6bc97be37f0ca3189399d651fff/packages/coding-agent/docs/extensions.md)
+describes `ctx.sessionManager.getSessionId()`, `ctx.cwd`, and start/shutdown
+reasons covering reload, new, resume and fork. It distinguishes `agent_settled`
+after automatic follow-up work from individual `turn_end` events. Those are
+useful vocabulary checks for identity, runtime replacement and activity; they
+are not installed Pi measurements.
+
+Pi's documented global extension path is `~/.pi/agent/extensions/`, and its
+[skill discovery](https://github.com/badlogic/pi-mono/blob/71dca871bc80b6bc97be37f0ca3189399d651fff/packages/coding-agent/docs/skills.md)
+includes both `~/.pi/agent/skills/` and `~/.agents/skills/`. The same shared-file
+ownership question therefore deserves attention before adding another installer.
+Verify command identity injection independently; do not assume OpenCode's
+`shell.env` exists in Pi. Pi support, relocation and release acceptance remain
+separate work, and are outside the three-harness reference.
