@@ -476,7 +476,9 @@ class DashboardScreen(Screen[None]):
         """Report whether dashboard updates can still reach every surface."""
         try:
             self.queue_table()
-            self.list_panes()
+            for pane in self.list_panes():
+                if not pane.table.is_mounted:
+                    return False
             self.query_one("#alert", Static)
             self.query_one("#diagnostics", Static)
         except NoMatches:
@@ -973,7 +975,7 @@ class DashboardScreen(Screen[None]):
 
     def update_related_rows(self, *, clear: bool = False) -> None:
         """Emphasize accepted relationships of the visible Sessions cursor."""
-        if not self.is_mounted:
+        if not self.is_mounted or not self._update_widgets_mounted():
             return
         sessions = self.sessions_pane()
         key, _ = sessions.highlighted()

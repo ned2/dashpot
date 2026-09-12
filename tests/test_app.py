@@ -9,6 +9,7 @@ from unittest import mock
 
 import pytest
 from rich.text import Text
+from textual import events
 from textual.widgets import DataTable, Footer, Static
 
 from app_harness import (
@@ -820,13 +821,33 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
 
 
 @pytest.mark.asyncio
-async def test_late_observation_is_dropped_after_dashboard_children_unmount() -> None:
+@pytest.mark.parametrize(
+    "removed",
+    (
+        "#body",
+        "#sessions-pane",
+        "#sessions-pane FocusCursorTable",
+        "#worktrees-pane FocusCursorTable",
+        "#branches-pane FocusCursorTable",
+        "#queue",
+    ),
+)
+async def test_late_observation_is_dropped_after_dashboard_children_unmount(
+    removed: str,
+) -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: app.store.revision == 1)
-        await app.query_one("#body").remove()
+        await app.query_one(removed).remove()
+        assert app.dashboard.is_mounted
+
+        # A resume callback can outlive the dashboard's child panes.
+        resumed = asyncio.Event()
+        app.dashboard.post_message(events.ScreenResume())
+        app.dashboard.call_later(lambda: app.dashboard.call_after_refresh(resumed.set))
+        await wait_until(resumed.is_set)
 
         ticket = ObservationTicket(ObservationKey("issues", "project:test-repo"), 99)
         app.on_observation_finished(
