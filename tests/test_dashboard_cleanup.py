@@ -13,6 +13,7 @@ from threading import Event
 from typing import Literal
 
 import pytest
+from textual.pilot import Pilot
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 from textual.widgets._footer import FooterKey
 
@@ -274,10 +275,13 @@ def toast_titles(app: DashpotApp) -> list[str]:
     return [notification.title for notification in app._notifications]
 
 
-async def focus_row(app: DashpotApp, pilot: object, pane_id: str, key: str) -> None:
+async def focus_row(
+    app: DashpotApp, pilot: Pilot[None], pane_id: str, key: str
+) -> None:
     """Focus a list pane and put its cursor on the row with ``key``."""
     pane = app.query_one(f"#{pane_id}", ListPane)
     pane.table.focus()
+    await pilot.pause()
     pane.table.move_cursor(row=pane.table.get_row_index(key), animate=False)
     await app.workers.wait_for_complete()
 

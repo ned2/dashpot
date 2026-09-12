@@ -69,10 +69,13 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
         await wait_until(lambda: not any(emphasis(app)))
         await pilot.press("escape")
         await wait_until(lambda: emphasis(app) == expected(app, "one"))
+        await pilot.press("down")
+        await wait_until(lambda: emphasis(app) == expected(app, "two"))
         destinations[0].focus()
         await wait_until(lambda: not any(emphasis(app)))
         sessions.focus()
         await wait_until(lambda: emphasis(app) == expected(app, "one"))
+        assert sessions.cursor_row == 0
 
 
 @pytest.mark.asyncio

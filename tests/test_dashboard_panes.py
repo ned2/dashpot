@@ -84,10 +84,11 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
             "MERGE",
             "UPDATED",
         ]
-        pane.table.move_cursor(row=1)
+        pane.table.focus()
+        await pilot.pause()
+        await pilot.press("down")
         selected_key, _index = pane.highlighted()
         assert selected_key is not None and "PR_two" in selected_key
-        pane.table.focus()
 
         # Enter is intentionally unbound for Pull Requests in the first cut.
         await pilot.press("enter")

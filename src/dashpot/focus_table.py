@@ -91,6 +91,8 @@ class FocusCursorTable(DataTable[CellType]):
 
     def on_focus(self, _: events.Focus) -> None:
         self.show_cursor = True
+        if self.row_count:
+            self.move_cursor(row=0, animate=False)
         self.post_message(self.FocusChanged())
 
     def on_blur(self, _: events.Blur) -> None:
@@ -104,9 +106,10 @@ class FocusCursorTable(DataTable[CellType]):
             and self.cursor_type in {"cell", "row"}
             and (not self.row_count or self.cursor_row == 0)
         )
-        super().action_cursor_up()
         if at_start:
             self.post_message(self.RowBoundaryReached(self, -1))
+        else:
+            super().action_cursor_up()
 
     @override
     def action_cursor_down(self) -> None:
@@ -115,6 +118,7 @@ class FocusCursorTable(DataTable[CellType]):
             and self.cursor_type in {"cell", "row"}
             and (not self.row_count or self.cursor_row == self.row_count - 1)
         )
-        super().action_cursor_down()
         if at_end:
             self.post_message(self.RowBoundaryReached(self, 1))
+        else:
+            super().action_cursor_down()

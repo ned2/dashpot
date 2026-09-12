@@ -677,10 +677,6 @@ async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
 
         await pilot.press("up")
         assert sessions.table.has_focus
-        assert sessions.highlighted() == ("last", 1)
-
-        await pilot.press("up")
-        assert sessions.table.has_focus
         assert sessions.highlighted() == ("first", 0)
 
         await pilot.press("up")
@@ -688,9 +684,47 @@ async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["tab", "shift+tab", "up", "down", "mouse"])
+async def test_entering_each_pane_selects_and_reveals_its_first_row(entry: str) -> None:
+    snapshot = workspace_snapshot(
+        *(issue(f"test/repo#{number}", f"Issue {number}") for number in range(1, 31))
+    )
+    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    async with app.run_test(size=(120, 55)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        for pane in app.dashboard.list_panes():
+            prepare_pane(app, pane.id).show_rows(
+                tuple(ListRow(str(index), (str(index), "-")) for index in range(30))
+            )
+        tables = app.dashboard.focus_tables()
+        for index, table in enumerate(tables):
+            table.focus()
+            await pilot.pause()
+            await pilot.press("down")
+            assert table.cursor_row == 1
+            table.move_cursor(row=29, animate=False)
+            await wait_until(lambda table=table: table.scroll_y > 0)
+            step = -1 if entry in {"shift+tab", "up"} else 1
+            source = tables[(index - step) % len(tables)]
+            source.focus()
+            await pilot.pause()
+            if entry == "down":
+                source.move_cursor(row=source.row_count - 1, animate=False)
+            elif entry == "up":
+                source.move_cursor(row=0, animate=False)
+            if entry == "mouse":
+                assert await pilot.click(table, offset=(1, 0))
+            else:
+                await pilot.press(entry)
+            assert table.has_focus
+            assert table.cursor_row == 0
+            await wait_until(lambda table=table: table.scroll_y == 0)
+
+
+@pytest.mark.asyncio
 async def test_arrows_cross_empty_lists_in_composed_order() -> None:
     app = DashpotApp(
-        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        SequenceCollector(workspace_snapshot()),
         refresh_seconds=0,
     )
 
@@ -708,6 +742,7 @@ async def test_arrows_cross_empty_lists_in_composed_order() -> None:
         for pane in app.dashboard.list_panes():
             pane.show_rows(())
         await pilot.pause()
+        assert all(table.row_count == 0 for table in tables)
 
         for table in tables[1:] + tables[:1]:
             await pilot.press("down")

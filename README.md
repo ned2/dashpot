@@ -119,9 +119,12 @@ the management commands `init`, `integrate`,
 | `/` | Focus the Pull Request search when its table has focus; otherwise focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
 | `c` | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
-| Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, while each list keeps its row cursor |
+| Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, highlighting the first row in the newly focused pane |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
 | `q` | Quit |
+
+Entering a pane highlights its first row and scrolls it into view. Passive
+refreshes preserve the selected row while you remain in that pane.
 
 Cleanup previews show the concrete primary target without a redundant checkbox.
 Removing a Worktree retains its attached local Branch unless you select that

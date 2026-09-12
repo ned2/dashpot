@@ -391,6 +391,8 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         table = app.query_one("#queue", DataTable)
         search = app.query_one("#issue-search", Input)
         selected_key = row_key("issue", second.id)
+        table.focus()
+        await pilot.pause()
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
         search.value = "s"
