@@ -183,10 +183,17 @@ async def test_paged_launch_keeps_path_through_refresh_and_empty_footer(tmp_path
             await wait_until(lambda: table.row_count == 0)
             assert not app.screen.active_bindings["enter"].enabled
             assert not app.screen.active_bindings["y"].enabled
-            await pilot.pause()
-            footer_actions = {widget.key: widget for widget in app.query("FooterKey")}
-            assert footer_actions["enter"].has_class("-disabled")
-            assert footer_actions["y"].has_class("-disabled")
+
+            def footer_actions_disabled():
+                footer_actions = {
+                    widget.key: widget for widget in app.query("FooterKey")
+                }
+                return all(
+                    key in footer_actions and footer_actions[key].has_class("-disabled")
+                    for key in ("enter", "y")
+                )
+
+            await wait_until(footer_actions_disabled)
             await pilot.press("enter", "y")
             assert captured == [first] and clipboard.call_count == 1
     finally:
