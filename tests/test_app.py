@@ -922,6 +922,66 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("delivery", ("shutdown-start", "dashboard-removed", "closed"))
+async def test_queued_refresh_indicator_is_harmless_during_shutdown(
+    delivery: str,
+) -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    started = Event()
+    release = Event()
+
+    def collect() -> WorkspaceSnapshot:
+        started.set()
+        release.wait()
+        return snapshot
+
+    collector = SequenceCollector(snapshot)
+    app = DashpotApp(collector, refresh_seconds=0, refresh_indicator_seconds=0.01)
+    delayed_indicator = app.show_refreshing
+    close_all = app._close_all
+    delivered = False
+
+    def deliver() -> None:
+        nonlocal delivered
+        assert app.in_flight
+        assert not app.is_running
+        delayed_indicator()
+        assert not app.refreshing_visible
+        assert app.refresh_indicator_timer is None
+        delivered = True
+
+    async def close_dashboard() -> None:
+        # Textual has no public hook between shutdown starting and screen removal.
+        if delivery == "shutdown-start":
+            assert app.screen_stack
+            deliver()
+        await close_all()
+        if delivery == "dashboard-removed":
+            assert not app.screen_stack
+            deliver()
+
+    try:
+        # Hold delivery after the real timer fires, even if shutdown stops it.
+        with (
+            mock.patch.object(collector, "refresh", side_effect=collect),
+            mock.patch.object(app, "show_refreshing") as queued_indicator,
+            mock.patch.object(app, "_close_all", side_effect=close_dashboard),
+        ):
+            async with app.run_test(size=(80, 24)):
+                await wait_until(started.is_set)
+                await wait_until(lambda: queued_indicator.call_count == 1)
+                assert app.in_flight
+                assert not app.refreshing_visible
+
+            assert not app.screen_stack
+            if delivery == "closed":
+                deliver()
+            assert delivered
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
 async def test_quick_refresh_never_flickers_the_indicator(tmp_path: Path) -> None:
     coordinator, _collectors = coordinated_workspace(tmp_path)
     app = DashpotApp(coordinator, refresh_seconds=0, refresh_indicator_seconds=1.0)

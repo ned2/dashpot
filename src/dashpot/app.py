@@ -2012,6 +2012,15 @@ class DashpotApp(App[None]):
 
     def show_refreshing(self) -> None:
         self.refresh_indicator_timer = None
+        # A stopped timer can already have queued this callback; shutdown marks
+        # the app not running before it removes screens or closes messages.
+        if (
+            not self.is_running
+            or self._closing
+            or self._closed
+            or not self.screen_stack
+        ):
+            return
         if self.in_flight:
             self.refreshing_visible = True
             self.dashboard.update_alert()
