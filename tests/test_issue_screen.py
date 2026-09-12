@@ -232,8 +232,8 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         await pilot.pause()
 
         assert app.dashboard.issue_view.columns == (
-            "issue_state",
             "agent_state",
+            "issue_state",
             "number",
             "title",
             "priority",
@@ -694,7 +694,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         headings = [
             str(heading.render()) for heading in screen.query(".legend-heading")
         ]
-        assert headings[0] == "SESSIONS · STATE"
+        assert headings[0] == "SESSIONS · ◈"
         assert headings[-1] == "KEYS"
         assert headings[:-1] == [section_heading(section) for section in LEGEND]
         rendered = "\n".join(

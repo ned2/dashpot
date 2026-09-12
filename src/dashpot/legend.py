@@ -21,7 +21,7 @@ from textual.widgets import Static
 from typing_extensions import override
 
 from . import alerts, branch_list, issue_cells, pull_request_list, session_list
-from .glyphs import Glyph, LegendSection
+from .glyphs import ACTIVITY_COLUMN_GLYPH, Glyph, LegendSection
 from .list_pane import (
     BRANCHES_PANE_LABEL,
     ISSUE_PANE_LABEL,
@@ -33,9 +33,16 @@ from .list_pane import (
 DIAGNOSTICS_LABEL = "ALERT · DIAGNOSTICS"
 KEYS_LABEL = "KEYS"
 SESSIONS_COUNT_NOTE = (
-    "followed by how many Agent Sessions are located here, led by the liveliest state"
+    "the activity Glyph shows the liveliest located Agent Session; the next "
+    "SESSIONS column counts all located sessions, or - when none"
 )
-AGENT_STATE_NOTE = "blank when no Agent Run is on the Issue"
+AGENT_STATE_NOTE = "the liveliest explicitly bound Agent Run; blank when none"
+RELATED_ROWS_NOTE = (
+    "While Sessions has focus, its cursor emphasizes related Worktree, Branch, "
+    "and bound Issue rows with a background and bold identifying cells; "
+    "other cursors, filters, and scroll positions stay where they are"
+)
+ACTIVITY_LEGEND = (ACTIVITY_COLUMN_GLYPH, *session_list.LEGEND)
 LOCAL_PRESENCE_NOTE = "a local ref under refs/heads"
 # The check is the Repository's copy, not the remote itself: a
 # Remote-Tracking Branch can outlive the Branch at the remote until a fetch
@@ -60,9 +67,17 @@ WORKTREE_SESSIONS_NOTE = (
 )
 
 LEGEND: tuple[LegendSection, ...] = (
-    LegendSection(SESSIONS_PANE_LABEL, "STATE", session_list.LEGEND),
     LegendSection(
-        WORKTREES_PANE_LABEL, "SESSIONS", session_list.LEGEND, WORKTREE_SESSIONS_NOTE
+        SESSIONS_PANE_LABEL,
+        ACTIVITY_COLUMN_GLYPH.symbol,
+        ACTIVITY_LEGEND,
+        RELATED_ROWS_NOTE,
+    ),
+    LegendSection(
+        WORKTREES_PANE_LABEL,
+        ACTIVITY_COLUMN_GLYPH.symbol,
+        ACTIVITY_LEGEND,
+        WORKTREE_SESSIONS_NOTE,
     ),
     LegendSection(
         BRANCHES_PANE_LABEL, "LOCAL", branch_list.PRESENCE_LEGEND, LOCAL_PRESENCE_NOTE
@@ -81,7 +96,10 @@ LEGEND: tuple[LegendSection, ...] = (
         INTEGRATION_NOTE,
     ),
     LegendSection(
-        BRANCHES_PANE_LABEL, "SESSIONS", session_list.LEGEND, SESSIONS_COUNT_NOTE
+        BRANCHES_PANE_LABEL,
+        ACTIVITY_COLUMN_GLYPH.symbol,
+        ACTIVITY_LEGEND,
+        SESSIONS_COUNT_NOTE,
     ),
     LegendSection(PULL_REQUESTS_PANE_LABEL, "STATE", pull_request_list.STATE_LEGEND),
     LegendSection(PULL_REQUESTS_PANE_LABEL, "REVIEW", pull_request_list.REVIEW_LEGEND),

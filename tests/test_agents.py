@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from typing_extensions import override
@@ -60,6 +61,7 @@ class HookObserverTests(unittest.TestCase):
         )
 
         self.assertEqual("waiting", runs[0].state)
+        self.assertEqual("live", runs[0].session_id)
         self.assertIsNone(runs[0].issue_reference_hint)
         self.assertEqual([], diagnostics)
 
@@ -378,6 +380,17 @@ class WorkObserverTests(unittest.TestCase):
         self.assertEqual("waiting", runs[0].state)
         self.assertEqual("2026-08-24T15:00:00Z", runs[0].last_activity_at)
         self.assertEqual("feature", runs[0].branch)
+
+    def test_work_run_retains_confirmed_session_identity(self) -> None:
+        work = replace(self.record_work(self.worktree), session_id="session-a")
+        WorkStore(self.worktree).start(work)
+        self.write_hook("session-a", "waiting", str(self.worktree))
+        runs, diagnostics = observe_agent_runs(
+            self.targets(), self.state_dir, lookup=present(self.process)
+        )
+        self.assertEqual([], diagnostics)
+        self.assertEqual(work.run_id, runs[0].id)
+        self.assertEqual("session-a", runs[0].session_id)
 
     def test_work_run_without_hook_session_has_unknown_state(self) -> None:
         work = self.record_work(self.worktree)

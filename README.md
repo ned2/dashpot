@@ -118,7 +118,7 @@ the management commands `init`, `integrate`,
 | `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
 | `/` | Focus the Pull Request search when its table has focus; otherwise focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
-| `c` | Open the column editor: toggle the visible Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
+| `c` | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, while each list keeps its row cursor |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
 | `q` | Quit |
@@ -146,8 +146,23 @@ competing header sorts. Other GitHub header sorts are unavailable. Markdown sort
 its complete local query result before pagination, defaulting to latest action,
 and retains local `sort:created` / `sort:updated` qualifiers.
 
-The Issue table's columns are `◉`
-(Issue state) and `◈` (agent state), which are unsortable, then `#`, `TITLE`,
+Sessions, Worktrees, Branches, and Issues share a fixed first `◈` column:
+`●` running, `◐` waiting, and `○` unknown. It stays visible when scrolling
+horizontally. Worktrees and Branches summarize the liveliest located Agent
+Session and show the total in the next `SESSIONS` column (`-` when none).
+Issues summarizes explicitly bound Agent Runs, without a count. An empty
+aggregate has a blank Glyph. The Issue column editor always keeps agent
+activity first and preserves the order of your other choices.
+
+While Sessions has keyboard focus, the row under its cursor emphasizes its
+related Worktree, Branch, and bound Issue with a subtle background and bold
+identifying cells. Arrow keys and mouse selection update this cue; leaving
+Sessions or opening a modal clears it. This does not move another pane's cursor,
+change filters, or scroll to a match. An unbound session can still highlight
+its observed Worktree and Branch. Issue Hints do not establish a relationship.
+
+The Issue table's columns are `◈` (agent activity), `◉`
+(Issue state), both unsortable, then `#`, `TITLE`,
 `PRIORITY`, `LABELS`, `PROJECT`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
 `COMMENTS`, `CREATED`, and `LAST ACTION`. Clicking a sortable column's
 header sorts by it, and clicking it again reverses the sort. `TITLE` keeps the first 70

@@ -38,6 +38,7 @@ class SpreadTable(FocusCursorTable[CellType]):
     # use rather than in ``__init__``, whose long DataTable signature would
     # have to be repeated.
     _spread_weights: dict[ColumnKey, int] | None = None
+    _fixed_widths: dict[ColumnKey, int] | None = None
     _header_tooltips: dict[ColumnKey, str] | None = None
 
     @override
@@ -52,6 +53,10 @@ class SpreadTable(FocusCursorTable[CellType]):
         tooltip: str | None = None,
     ) -> ColumnKey:
         column_key = super().add_column(label, width=width, key=key, default=default)
+        if width is not None:
+            if self._fixed_widths is None:
+                self._fixed_widths = {}
+            self._fixed_widths[column_key] = width
         if spread_weight is not None:
             if self._spread_weights is None:
                 self._spread_weights = {}
@@ -67,6 +72,7 @@ class SpreadTable(FocusCursorTable[CellType]):
         super().clear(columns)
         if columns:
             self._spread_weights = None
+            self._fixed_widths = None
             self._header_tooltips = None
         else:
             # Textual only ever widens a column, so a cleared table would keep
@@ -113,17 +119,28 @@ class SpreadTable(FocusCursorTable[CellType]):
         if not columns:
             return
         weights = self._spread_weights or {}
+        fixed = self._fixed_widths or {}
         available = self.scrollable_content_region.width - self._row_label_column_width
+        flexible = [column for column in columns if column.key not in fixed]
+        available -= sum(
+            fixed[column.key] + 2 * self.cell_padding
+            for column in columns
+            if column.key in fixed
+        )
         widths = spread_widths(
             available,
-            [column.content_width for column in columns],
-            [weights.get(column.key, column.content_width) for column in columns],
+            [column.content_width for column in flexible],
+            [weights.get(column.key, column.content_width) for column in flexible],
             padding=2 * self.cell_padding,
+        )
+        flexible_widths = dict(
+            zip((column.key for column in flexible), widths, strict=True)
         )
         previous = [
             (column.auto_width, column.get_render_width(self)) for column in columns
         ]
-        for column, width in zip(columns, widths, strict=True):
+        for column in columns:
+            width = fixed.get(column.key, flexible_widths.get(column.key))
             column.auto_width = width is None
             if width is not None:
                 column.width = width

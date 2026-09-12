@@ -274,7 +274,7 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
         labels = [str(column.label) for column in table.columns.values()]
         # Every session is in the one Worktree, so TARGET says nothing.
         assert labels == [
-            "STATE",
+            "◈",
             "HARNESS",
             "BRANCH",
             "ISSUE",
@@ -282,14 +282,14 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
             "ACTIVITY",
         ]
         first = [str(cell) for cell in table.get_row_at(0)]
-        assert first[:2] == ["● running", "Claude Code"]
+        assert first[:2] == ["●", "Claude Code"]
         assert first[3] == "no active Issue work"
         # With TARGET dropped, DIRECTORY locates itself in full.
         assert first[4] == "/repo/src"
         second = [str(cell) for cell in table.get_row_at(1)]
-        assert second[0] == "◐ waiting"
+        assert second[0] == "◐"
         assert second[3] == "#2 Second"
-        assert str(table.get_row_at(2)[0]) == "○ unknown"
+        assert str(table.get_row_at(2)[0]) == "○"
         assert str(table.get_row_at(2)[5]) == "-"
         assert not app.query_one("#sessions-pane .list-pane-empty").display
 
@@ -462,19 +462,20 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         columns = list(pane.table.columns.values())
         labels = [str(column.label) for column in columns]
-        assert labels == ["PATH", "KIND", "BRANCH", "TREE", "SESSIONS"]
-        sessions_header = columns[-1].label
+        assert labels == ["◈", "SESSIONS", "PATH", "KIND", "BRANCH", "TREE"]
+        sessions_header = columns[1].label
         assert isinstance(sessions_header, Text)
         assert sessions_header.justify == "center"
         main_cells = [str(cell) for cell in pane.table.get_row_at(0)]
         assert main_cells == [
+            "",
+            "-",
             "/repo",
             "main",
             "main",
             "clean",
-            "-",
         ]
-        sessions_value = pane.table.get_row_at(0)[-1]
+        sessions_value = pane.table.get_row_at(0)[1]
         assert isinstance(sessions_value, Text)
         assert sessions_value.justify == "center"
 
@@ -491,11 +492,12 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         )
         linked_cells = [str(cell) for cell in pane.table.get_row_at(1)]
         assert linked_cells == [
+            "",
+            "-",
             "/repo-linked · unavailable",
             "linked",
             "detached @ def4567",
             "unknown",
-            "-",
         ]
         # Highlighting a worktree leaves the Issue-driven panes alone.
         assert selected_title(app) == "#1: First"
@@ -509,7 +511,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         await wait_until(lambda: app.store.revision == 3)
         await pilot.pause()
         stale_cells = [str(cell) for cell in pane.table.get_row_at(1)]
-        assert stale_cells[0] == "/repo-linked · stale"
+        assert stale_cells[2] == "/repo-linked · stale"
 
         # The linked worktree is removed: the cursor moves to a neighbour.
         app.request_refresh("manual")

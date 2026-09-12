@@ -273,7 +273,7 @@ def test_session_cells_carry_every_scan_level_fact_and_truncate_honestly() -> No
     assert len(row.cells) == len(SESSION_COLUMNS)
     state, harness, target_cell, branch, issue_cell, directory, age = row.cells
     assert isinstance(state, Text)
-    assert state.plain == "● running"
+    assert state.plain == "●"
     assert isinstance(target_cell, str)
     assert isinstance(branch, str)
     assert harness == "Claude Code"
@@ -304,7 +304,7 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
 
     state, _harness, branch, issue_cell, directory, age = row.cells
     assert isinstance(state, Text)
-    assert state.plain == "○ unknown"
+    assert state.plain == "○"
     assert branch == "detached"
     assert isinstance(issue_cell, Text)
     assert issue_cell.plain == UNBOUND_ISSUE_TEXT

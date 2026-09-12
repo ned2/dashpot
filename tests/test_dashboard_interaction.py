@@ -519,7 +519,7 @@ async def test_sorting_and_column_visibility_leave_both_counts_alone() -> None:
         await pilot.pause()
 
         assert app.dashboard.issue_view.sort != DEFAULT_SORT
-        assert app.dashboard.issue_view.columns == ("title", "number")
+        assert app.dashboard.issue_view.columns == ("agent_state", "title", "number")
         assert table.row_count == 2
         assert str(count.render()) == "2 issues"
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
@@ -549,14 +549,14 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
             return [str(column.label) for column in table.columns.values()]
 
         assert app.dashboard.issue_view.columns == DEFAULT_COLUMNS
-        assert headers() == ["◉", "◈", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
+        assert headers() == ["◈", "◉", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
 
         await app.run_action("refresh")
         await wait_until(lambda: app.store.revision == 2)
         await wait_until(lambda: "PRIORITY ↕" in headers())
         assert headers() == [
-            "◉",
             "◈",
+            "◉",
             "# ↕",
             "TITLE",
             "PRIORITY ↕",
@@ -577,7 +577,7 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
 
         search.value = "alpha"
         await wait_until(lambda: table.row_count == 1)
-        assert headers() == ["◉", "◈", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
+        assert headers() == ["◈", "◉", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↓"]
         await select_header(app, pilot, "number")
         assert app.dashboard.issue_view.sort == (SortTerm("number"),)
         assert headers()[2] == "# ↑"
@@ -735,7 +735,7 @@ async def test_hovering_a_glyph_header_shows_its_meaning() -> None:
         table = app.query_one("#queue", DataTable)
         tooltip = app.screen.query_one(Tooltip)
         widths = [column.get_render_width(table) for column in table.columns.values()]
-        agent_state_x = widths[0]
+        issue_state_x = widths[0]
         number_x = widths[0] + widths[1]
 
         async def hover_table(x: int, y: int) -> None:
@@ -749,11 +749,11 @@ async def test_hovering_a_glyph_header_shows_its_meaning() -> None:
 
         await hover_table(0, 0)
         await wait_until(lambda: tooltip.display)
-        assert str(tooltip.content) == ISSUE_STATE_COLUMN_GLYPH.meaning
-
-        await hover_table(agent_state_x, 0)
-        await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == AGENT_STATE_COLUMN_GLYPH.meaning
+
+        await hover_table(issue_state_x, 0)
+        await wait_until(lambda: tooltip.display)
+        assert str(tooltip.content) == ISSUE_STATE_COLUMN_GLYPH.meaning
 
         # Other headers and the cells beneath carry no tooltip.
         await hover_table(number_x, 0)

@@ -438,14 +438,15 @@ async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
         await pilot.pause()
         for table_id in ("sessions", "worktrees", "branches"):
             table = app.query_one(f"#{table_id}", DataTable)
-            assert all(column.auto_width for column in table.columns.values())
+            assert not table.ordered_columns[0].auto_width
+            assert all(column.auto_width for column in table.ordered_columns[1:])
             assert sum(column_widths(table)) < table.scrollable_content_region.width
 
         # Too narrow to spread: the columns are their content and the table
         # scrolls sideways instead of squeezing anything.
         await pilot.resize_terminal(30, 50)
         await wait_until(
-            lambda: all(column.auto_width for column in queue.columns.values())
+            lambda: all(column.auto_width for column in queue.ordered_columns[1:])
         )
         assert sum(column_widths(queue)) > queue.scrollable_content_region.width
 

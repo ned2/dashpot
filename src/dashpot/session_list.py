@@ -9,6 +9,7 @@ the sole authority for it), never a second row.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,7 +17,12 @@ from pathlib import Path
 
 from rich.text import Text
 
-from .glyphs import Glyph
+from .glyphs import (
+    ACTIVITY_COLUMN_GLYPH,
+    ACTIVITY_WIDTH,
+    SESSION_STATE_GLYPHS,
+    SESSION_STATE_ORDER,
+)
 from .issue_cells import relative_age
 from .issue_list import row_key
 from .issue_profile import IssueProfile
@@ -24,17 +30,8 @@ from .list_pane import ListCell, ListColumn, ListRow, truncate_end, truncate_sta
 from .model import AgentRun, ProjectObservation, RunState, WorkspaceSnapshot
 
 HARNESS_LABELS = {"codex": "Codex", "claude-code": "Claude Code"}
-STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
-# GitHub Primer emphasis colours: running is success, waiting is attention,
-# unknown is muted; each pair is (light theme, dark theme). The fill of the
-# circle is the liveliness, which is why the family reads as one.
-STATE_GLYPHS: dict[RunState, Glyph] = {
-    "running": Glyph("●", "an Agent Session is running", ("#1a7f37", "#3fb950")),
-    "waiting": Glyph("◐", "an Agent Session is waiting", ("#9a6700", "#d29922")),
-    "unknown": Glyph(
-        "○", "an Agent Session in an unknown state", ("#59636e", "#8b949e")
-    ),
-}
+STATE_ORDER = SESSION_STATE_ORDER
+STATE_GLYPHS = SESSION_STATE_GLYPHS
 LEGEND = tuple(STATE_GLYPHS[state] for state in STATE_ORDER)
 OUTSIDE_PROJECT_TEXT = "outside Project"
 UNBOUND_ISSUE_TEXT = "no active Issue work"
@@ -45,7 +42,9 @@ BRANCH_LIMIT = 24
 ISSUE_LIMIT = 36
 
 SESSION_COLUMNS: tuple[ListColumn, ...] = (
-    ListColumn("state", "STATE"),
+    ListColumn(
+        "state", ACTIVITY_COLUMN_GLYPH.symbol, width=ACTIVITY_WIDTH, frozen=True
+    ),
     ListColumn("harness", "HARNESS"),
     ListColumn("target", "TARGET"),
     ListColumn("branch", "BRANCH"),
@@ -124,6 +123,11 @@ def _query_indexed_session_list(
         for issue_id, run_ids in issue_runs.items()
         for run_id in run_ids
     }
+    identities = Counter(
+        (run.harness, run.session_id)
+        for run in agent_runs.values()
+        if run.session_id is not None
+    )
     rows = []
     for run in agent_runs.values():
         project = projects.get(run.observation_project_id)
@@ -133,7 +137,15 @@ def _query_indexed_session_list(
             if issue_id is not None
             else None
         )
-        rows.append(SessionListRow(row_key("session", run.id), run, project, issue))
+        # Agent Runs change on Issue work switches; the enclosing conversation
+        # keeps its cursor. Conflicting records still need separately visible rows.
+        key = (
+            row_key("session", run.harness, run.session_id)
+            if run.session_id is not None
+            and identities[run.harness, run.session_id] == 1
+            else row_key("session", run.id)
+        )
+        rows.append(SessionListRow(key, run, project, issue))
     rows.sort(key=_sort_key)
     return SessionListResult(tuple(rows), revision)
 
@@ -263,7 +275,7 @@ def session_target_cell(row: SessionListRow, *, home: Path | None = None) -> Lis
 
 def session_state_cell(state: RunState, *, dark: bool) -> Text:
     glyph = STATE_GLYPHS[state]
-    return Text(f"{glyph.symbol} {state}", style=glyph.style(dark=dark))
+    return Text(glyph.symbol, style=glyph.style(dark=dark))
 
 
 def session_issue_cell(row: SessionListRow) -> ListCell:

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Literal, Self, TypeAlias, cast
 
 from rich.text import Text
 
-from .glyphs import Glyph
+from .glyphs import ACTIVITY_COLUMN_GLYPH, SESSION_STATE_GLYPHS, Glyph
 from .issue_profile import IssueProfile
 from .model import IssueActivity, ProjectObservation, RunState
 
@@ -44,14 +44,8 @@ ISSUE_STATE_GLYPHS: dict[IssueStateKind, Glyph] = {
     for kind, colors in GITHUB_ISSUE_STATE_COLORS.items()
 }
 ISSUE_STATE_COLUMN_GLYPH = Glyph("◉", "the Issue state column")
-AGENT_STATE_COLUMN_GLYPH = Glyph("◈", "the Agent Run state column")
-# The column summarizes Issue work without exposing the number of Agent
-# Runs: the liveliest state wins, ranked by the order here.
-AGENT_STATE_GLYPHS: dict[RunState, Glyph] = {
-    "running": Glyph("▶", "an Agent Run on this Issue is running"),
-    "waiting": Glyph("Ⅱ", "an Agent Run on this Issue is waiting"),
-    "unknown": Glyph("?", "an Agent Run on this Issue is in an unknown state"),
-}
+AGENT_STATE_COLUMN_GLYPH = ACTIVITY_COLUMN_GLYPH
+AGENT_STATE_GLYPHS = SESSION_STATE_GLYPHS
 SORT_GLYPHS: dict[bool | None, Glyph] = {
     None: Glyph("↕", "a sortable column"),
     False: Glyph("↑", "sorted ascending"),
@@ -71,6 +65,23 @@ class IssueTableCell(str):
         cell = super().__new__(cls, text)
         cell.sort_value = sort_value
         return cell
+
+
+class AgentStateCell(Text):
+    """Retain the aggregate Agent Run state alongside its shared Glyph."""
+
+    __slots__ = ("sort_value",)
+    sort_value: SortValue
+
+    def __init__(self, state: RunState | None, *, dark: bool) -> None:
+        glyph = AGENT_STATE_GLYPHS[state] if state is not None else None
+        super().__init__(
+            glyph.symbol if glyph is not None else "",
+            style=glyph.style(dark=dark) if glyph is not None else "",
+        )
+        self.sort_value = (
+            ("unknown", "waiting", "running").index(state) + 1 if state else 0
+        )
 
 
 class IssueStateCell(Text):
@@ -213,7 +224,12 @@ def chip_foreground(background: str) -> str:
 
 
 TableCell = (
-    IssueTableCell | IssueStateCell | IssueNumberCell | LabelsCell | PriorityCell
+    IssueTableCell
+    | AgentStateCell
+    | IssueStateCell
+    | IssueNumberCell
+    | LabelsCell
+    | PriorityCell
 )
 
 
@@ -221,13 +237,26 @@ def cell_sort_value(value: object) -> SortValue:
     """The domain value a rendered cell orders by; other values compare as-is."""
     if isinstance(
         value,
-        (IssueTableCell, IssueStateCell, IssueNumberCell, LabelsCell, PriorityCell),
+        (
+            IssueTableCell,
+            AgentStateCell,
+            IssueStateCell,
+            IssueNumberCell,
+            LabelsCell,
+            PriorityCell,
+        ),
     ):
         return value.sort_value
     return cast("SortValue", value)
 
 
 def cells_match(left: TableCell, right: TableCell) -> bool:
+    if isinstance(left, AgentStateCell) and isinstance(right, AgentStateCell):
+        return (
+            left == right
+            and left.style == right.style
+            and left.sort_value == right.sort_value
+        )
     if isinstance(left, LabelsCell) and isinstance(right, LabelsCell):
         return left.labels == right.labels and left == right
     if isinstance(left, PriorityCell) and isinstance(right, PriorityCell):
@@ -332,12 +361,12 @@ def issue_state_cell(issue: IssueProfile, *, dark: bool) -> IssueStateCell:
     return IssueStateCell(issue_state_kind(issue), dark=dark)
 
 
-def agent_state_cell(states: tuple[RunState, ...]) -> IssueTableCell:
-    """Summarize Issue work without exposing the number of Agent Runs."""
-    for index, (state, glyph) in enumerate(AGENT_STATE_GLYPHS.items()):
-        if state in states:
-            return IssueTableCell(glyph.symbol, len(AGENT_STATE_GLYPHS) - index)
-    return IssueTableCell("", 0)
+def agent_state_cell(
+    states: tuple[RunState, ...], *, dark: bool = True
+) -> AgentStateCell:
+    """Summarize bound Agent Runs with the shared Agent Session state Glyphs."""
+    state = next((state for state in AGENT_STATE_GLYPHS if state in states), None)
+    return AgentStateCell(state, dark=dark)
 
 
 PRIORITY_BY_LABEL: dict[str, PriorityLevel] = {

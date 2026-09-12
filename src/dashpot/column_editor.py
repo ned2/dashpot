@@ -24,8 +24,13 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
 
     def __init__(self, visible_columns: tuple[ColumnKey, ...]) -> None:
         super().__init__()
+        visible_columns = tuple(
+            column for column in visible_columns if column != "agent_state"
+        )
         hidden_columns = tuple(
-            column for column in COLUMN_KEYS if column not in visible_columns
+            column
+            for column in COLUMN_KEYS
+            if column not in visible_columns and column != "agent_state"
         )
         self.column_order = [*visible_columns, *hidden_columns]
         self.initially_visible = frozenset(visible_columns)
@@ -35,7 +40,7 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
         with Vertical(id="column-editor-dialog"):
             yield Static("ISSUE TABLE COLUMNS", id="column-editor-title")
             yield Static(
-                "Select visible columns; move the highlighted column to reorder it.",
+                "Agent activity stays first. Select and reorder the other columns.",
                 id="column-editor-help",
             )
             yield MarkedSelectionList[ColumnKey](
@@ -94,12 +99,7 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
         selections = self.query_one("#column-editor-list", SelectionList)
         selected = {cast(ColumnKey, column) for column in selections.selected}
         columns = tuple(column for column in self.column_order if column in selected)
-        if not columns:
-            self.query_one("#column-editor-error", Static).update(
-                "Choose at least one visible column."
-            )
-            return
-        self.dismiss(columns)
+        self.dismiss(("agent_state", *columns))
 
     def action_cancel(self) -> None:
         self.dismiss(None)

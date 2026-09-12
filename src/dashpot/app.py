@@ -54,6 +54,7 @@ from .column_editor import IssueColumnEditor
 from .fetch import FetchReport, RemoteFetcher
 from .focus_table import FocusCursorTable
 from .github_pull_request_search import PullRequestSearcher
+from .glyphs import ACTIVITY_WIDTH
 from .issue_cells import TableCell, cells_match, issue_state_colors
 from .issue_list import (
     IssueListQuery,
@@ -106,6 +107,7 @@ from .pull_request_list import (
     query_pull_request_search_results,
 )
 from .pull_request_search import parse_pull_request_search
+from .related_rows import query_related_rows
 from .search import SearchSort, parse_search
 from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
@@ -590,10 +592,12 @@ class DashboardScreen(Screen[None]):
             return
         table.clear(columns=True)
         self.rendered_cells = {}
+        table.fixed_columns = 1
         for column in column_specs(columns):
             table.add_column(
                 column_header(column, self.issue_view.sort),
                 key=column.key,
+                width=ACTIVITY_WIDTH if column.key == "agent_state" else None,
                 spread_weight=column.spread_weight,
                 tooltip=column.tooltip,
             )
@@ -825,6 +829,8 @@ class DashboardScreen(Screen[None]):
                     pull_request_result_count_text(len(view.rows))
                 )
 
+        self.update_related_rows()
+
     def reconcile_rows(self) -> IssueListResult:
         """Rebuild the table from the store and return the query result."""
         table = self.queue_table()
@@ -880,6 +886,7 @@ class DashboardScreen(Screen[None]):
 
         self.rows_by_key = desired_contexts
         self.rendered_cells = desired_cells
+        self.update_related_rows()
         selected_key = restore_selection(
             table, prior_key, prior_index, desired_contexts
         )
@@ -945,11 +952,54 @@ class DashboardScreen(Screen[None]):
         # screen and its panes have been unmounted.
         if not self.is_mounted:
             return
+        if event.data_table.id == "sessions":
+            self.update_related_rows()
         # Only the Issue table drives the Issue selection; a session or worktree
         # cursor is for scrolling, copying and refresh scope alone.
         if event.data_table.id != "queue":
             return
         self.show_row(str(event.row_key.value))
+
+    def on_focus_cursor_table_focus_changed(
+        self, event: FocusCursorTable.FocusChanged
+    ) -> None:
+        self.update_related_rows()
+
+    def on_screen_suspend(self, _: events.ScreenSuspend) -> None:
+        self.update_related_rows(clear=True)
+
+    def on_screen_resume(self, _: events.ScreenResume) -> None:
+        self.call_after_refresh(self.update_related_rows)
+
+    def update_related_rows(self, *, clear: bool = False) -> None:
+        """Emphasize accepted relationships of the visible Sessions cursor."""
+        if not self.is_mounted:
+            return
+        sessions = self.sessions_pane()
+        key, _ = sessions.highlighted()
+        run_id = None
+        if not clear and self.app.screen is self and sessions.table.has_focus:
+            run_id = next(
+                (
+                    row.session.id
+                    for row in self.dashpot.store.query_sessions().rows
+                    if row.key == key
+                ),
+                None,
+            )
+        related = query_related_rows(
+            run_id,
+            worktrees=self.dashpot.store.query_worktrees().rows,
+            branches=self.dashpot.store.query_branches().rows,
+            issues=tuple(self.rows_by_key.values()),
+        )
+        for table, keys, columns in (
+            (self.worktrees_pane().table, related.worktrees, frozenset({"path"})),
+            (self.branches_pane().table, related.branches, frozenset({"name"})),
+            (self.queue_table(), related.issues, frozenset({"number", "title"})),
+        ):
+            assert isinstance(table, FocusCursorTable)
+            table.set_related_rows(keys, columns)
 
     def show_row(self, key: str) -> None:
         row = self.rows_by_key.get(key)

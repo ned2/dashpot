@@ -335,6 +335,13 @@ colours it, its light and dark colour. Every pane renders from `Glyph`
 values, so a symbol is never separated from its meaning. A symbol has one
 meaning wherever it is seen, except the shared Issue and Pull Request state
 block, whose colours distinguish its states.
+The shared agent-activity column (`◈`) uses `●` running, `◐` waiting, and
+`○` unknown. Sessions shows one Agent Session; Worktrees and Branches summarize
+located Agent Sessions; Issues summarizes explicitly bound Agent Runs. The
+liveliest state wins and an absent aggregate is blank. While Sessions has focus,
+related-row emphasis follows accepted observation relationships and Issue
+Bindings, without changing another pane’s selection or inventing Issue work.
+
 _Avoid_: icon or symbol for the value; the symbol is one field of a Glyph
 
 **Legend**:

@@ -135,12 +135,11 @@ def test_active_sessions_join_the_target_they_are_located_at() -> None:
     assert [run.id for run in rows["/project:alpha/linked"].sessions] == ["one", "two"]
     assert [run.id for run in rows["/project:alpha"].sessions] == ["three"]
     cells = worktree_cells(rows["/project:alpha/linked"], dark=True)
-    sessions_cell = cells[4]
-    assert isinstance(sessions_cell, Text)
-    assert sessions_cell.plain == "● 2"
+    assert str(cells[0]) == "●"
+    assert cells[1] == "2"
     main_cells = worktree_cells(rows["/project:alpha"], dark=True)
-    assert isinstance(main_cells[4], Text)
-    assert main_cells[4].plain == "○ 1"
+    assert str(main_cells[0]) == "○"
+    assert main_cells[1] == "1"
 
 
 def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
@@ -154,12 +153,12 @@ def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
     assert fresh["/project:alpha/missing"].freshness == "unavailable"
     assert fresh["/project:alpha"].freshness == "available"
     missing_cells = worktree_cells(fresh["/project:alpha/missing"], dark=False)
-    assert missing_cells[1] == "linked"
-    assert missing_cells[2] == "main"
-    assert isinstance(missing_cells[3], Text) and missing_cells[3].plain == "unknown"
-    assert isinstance(missing_cells[0], Text)
-    assert missing_cells[0].plain == "/project:alpha/missing · unavailable"
-    assert missing_cells[0].spans[0].style == "#cf222e"
+    assert missing_cells[3] == "linked"
+    assert missing_cells[4] == "main"
+    assert isinstance(missing_cells[5], Text) and missing_cells[5].plain == "unknown"
+    assert isinstance(missing_cells[2], Text)
+    assert missing_cells[2].plain == "/project:alpha/missing · unavailable"
+    assert missing_cells[2].spans[0].style == "#cf222e"
 
     # A failed topology refresh retains the last good targets as stale; the
     # Project's other rows are not blanked.
@@ -176,7 +175,7 @@ def test_unavailable_and_stale_targets_stay_listed_with_honest_state() -> None:
     rows = {row.target.path: row for row in store.query_worktrees().rows}
     assert rows["/project:alpha"].freshness == "stale"
     assert rows["/project:alpha/missing"].freshness == "stale"
-    path_cell = worktree_cells(rows["/project:alpha"], dark=True)[0]
+    path_cell = worktree_cells(rows["/project:alpha"], dark=True)[2]
     assert isinstance(path_cell, Text)
     assert path_cell.plain == "/project:alpha · stale"
     assert path_cell.spans[0].style == "#d29922"
@@ -237,26 +236,26 @@ def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> 
         "worktree", "project:alpha", "/home/agent/projects/alpha"
     )
     assert main_row.issue_id is None
-    path, kind, branch, tree, sessions = main_row.cells
+    activity, sessions, path, kind, branch, tree = main_row.cells
     assert path == "~/projects/alpha"
     assert kind == "main"
     assert branch == "main"
     assert isinstance(tree, Text) and tree.plain == "dirty"
     assert sessions == "-"
 
-    path, kind, branch, tree, sessions = linked_row.cells
+    activity, sessions, path, kind, branch, tree = linked_row.cells
     assert path == "~/projects/very/deeply/nested/linked/worktree/checkout"
     assert kind == "linked"
     assert isinstance(branch, str)
     assert branch.endswith("…") and len(branch) == 24
     assert tree == "clean"
-    assert isinstance(sessions, Text) and sessions.plain == "● 1"
+    assert str(activity) == "●" and sessions == "1"
 
 
 def test_detached_targets_say_so() -> None:
     alpha = project("project:alpha", target("/project:alpha", role="main", branch=None))
     (row,) = build_worktree_rows(query_worktree_list(workspace(alpha)), dark=False)
-    assert row.cells[2] == "detached @ abcdef1"
+    assert row.cells[4] == "detached @ abcdef1"
 
     without_head = project(
         "project:alpha",
@@ -265,4 +264,4 @@ def test_detached_targets_say_so() -> None:
     (row,) = build_worktree_rows(
         query_worktree_list(workspace(without_head)), dark=False
     )
-    assert row.cells[2] == "detached"
+    assert row.cells[4] == "detached"

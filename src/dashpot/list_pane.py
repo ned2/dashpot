@@ -12,7 +12,7 @@ from textual.containers import Vertical
 from textual.content import Content
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import Static
 from typing_extensions import override
 
 from .focus_table import FocusCursorTable
@@ -33,6 +33,8 @@ ELLIPSIS = "…"
 class ListColumn:
     key: str
     label: str
+    width: int | None = None
+    frozen: bool = False
     justify: Literal["left", "center", "right", "full"] | None = None
 
 
@@ -114,9 +116,9 @@ class ListPane(Vertical):
         self.show_rows(())
 
     @property
-    def table(self) -> DataTable[ListCell]:
+    def table(self) -> FocusCursorTable[ListCell]:
         """The pane's table; `query_one` cannot name the cell type itself."""
-        return cast("DataTable[ListCell]", self.query_one(DataTable))
+        return cast("FocusCursorTable[ListCell]", self.query_one(FocusCursorTable))
 
     @property
     def count(self) -> int:
@@ -132,13 +134,16 @@ class ListPane(Vertical):
         table = self.table
         self.columns = tuple(columns)
         table.clear(columns=True)
-        for column in self.columns:
+        table.fixed_columns = 0
+        for index, column in enumerate(self.columns):
+            if index == table.fixed_columns and column.frozen:
+                table.fixed_columns += 1
             label = (
                 column.label
                 if column.justify is None
                 else Text(column.label, justify=column.justify)
             )
-            table.add_column(label, key=column.key)
+            table.add_column(label, key=column.key, width=column.width)
 
     def show_rows(
         self,

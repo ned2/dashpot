@@ -59,8 +59,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert table.row_count == 2
         assert not hasattr(app, "snapshot")
         assert COLUMN_KEYS == (
-            "issue_state",
             "agent_state",
+            "issue_state",
             "number",
             "title",
             "priority",
@@ -75,8 +75,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "last_action",
         )
         assert DEFAULT_COLUMNS == (
-            "issue_state",
             "agent_state",
+            "issue_state",
             "number",
             "title",
             "priority",
@@ -86,8 +86,8 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert (SortTerm("last_action", descending=True),) == DEFAULT_SORT
         # Both fixtures carry a priority label, so the conditional column shows.
         assert [str(column.label) for column in table.columns.values()] == [
-            "◉",
             "◈",
+            "◉",
             "# ↕",
             "TITLE",
             "PRIORITY ↕",
@@ -320,7 +320,9 @@ async def test_unavailable_issue_source_keeps_store_owned_last_good_rows() -> No
         assert "GitHub unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
-        assert "Ⅱ" in app.query_one("#queue", DataTable).get_row_at(0)
+        assert "◐" in [
+            str(cell) for cell in app.query_one("#queue", DataTable).get_row_at(0)
+        ]
 
 
 @pytest.mark.asyncio

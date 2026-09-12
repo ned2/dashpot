@@ -136,6 +136,8 @@ class AgentRun(ObservationModel):
     id: str
     harness: str
     process_or_session: str
+    # Live cursor continuity does not extend the headless snapshot contract.
+    session_id: str | None = Field(default=None, exclude=True)
     state: RunState
     observation_target: str | None
     observation_project_id: str

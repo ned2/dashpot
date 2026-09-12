@@ -215,51 +215,55 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
 
     main = branch_cells(by_name["main"], dark=True, now=CLOCK)
     assert plain(main) == [
+        "◐",
+        "1",
         "main",
         "✓",
         "✓",
         "=",
         "⊆",
-        "◐ 1",
         "1h ago",
     ]
     drifted = branch_cells(by_name["ahead-behind"], dark=True, now=CLOCK)
-    assert isinstance(drifted[3], Text)
-    assert drifted[3].plain == "↑3 ↓2"
-    assert str(drifted[3].style) == "#d29922"
-    assert isinstance(drifted[4], Text)
-    assert drifted[4].plain == "↑3"
-    assert str(drifted[4].style) == "#d29922"
+    assert isinstance(drifted[5], Text)
+    assert drifted[5].plain == "↑3 ↓2"
+    assert str(drifted[5].style) == "#d29922"
+    assert isinstance(drifted[6], Text)
+    assert drifted[6].plain == "↑3"
+    assert str(drifted[6].style) == "#d29922"
     gone = branch_cells(by_name["gone"], dark=False, now=CLOCK)
-    assert isinstance(gone[3], Text)
-    assert (gone[3].plain, str(gone[3].style)) == ("✗", "#cf222e")
-    assert isinstance(gone[4], Text)
-    assert (gone[4].plain, str(gone[4].style)) == ("⊘", "#cf222e")
+    assert isinstance(gone[5], Text)
+    assert (gone[5].plain, str(gone[5].style)) == ("✗", "#cf222e")
+    assert isinstance(gone[6], Text)
+    assert (gone[6].plain, str(gone[6].style)) == ("⊘", "#cf222e")
     no_upstream = branch_cells(by_name[long_name], dark=True, now=CLOCK)
-    assert str(no_upstream[0]) == "feature/" + "x" * 39 + "…"
-    assert isinstance(no_upstream[3], Text)
-    assert no_upstream[3].plain == "∅"
-    assert no_upstream[4] == "⊆"
-    assert str(no_upstream[5]) == "-"
+    assert str(no_upstream[2]) == "feature/" + "x" * 39 + "…"
+    assert isinstance(no_upstream[5], Text)
+    assert no_upstream[5].plain == "∅"
+    assert no_upstream[6] == "⊆"
+    assert str(no_upstream[1]) == "-"
     remote_only = branch_cells(by_name["remote-only"], dark=True, now=CLOCK)
-    assert plain(remote_only[:5]) == ["remote-only", "", "✓", "-", "≡"]
-    assert plain(remote_only[5:]) == ["-", "1h ago"]
+    assert plain(remote_only[2:7]) == ["remote-only", "", "✓", "-", "≡"]
+    assert plain(remote_only[:2]) == ["", "-"]
+    assert plain(remote_only[7:]) == ["1h ago"]
 
     rows = build_branch_rows(result, dark=True, now=CLOCK)
     assert [row.key for row in rows] == [row.key for row in result.rows]
     assert len(rows[0].cells) == len(BRANCH_COLUMNS)
     assert [column.label for column in BRANCH_COLUMNS] == [
+        "◈",
+        "SESSIONS",
         "BRANCH",
         "LOCAL",
         "REMOTE",
         "UPSTREAM",
         "INTEGRATED",
-        "SESSIONS",
         "LAST COMMIT",
     ]
     assert [column.justify for column in BRANCH_COLUMNS] == [
         None,
         "center",
+        None,
         "center",
         "center",
         "center",
@@ -287,13 +291,13 @@ def test_remote_only_integration_requires_remote_tracking_branches_to_agree() ->
     )
     rows = {row.name: row for row in query_branch_list(workspace(observation)).rows}
 
-    assert str(branch_cells(rows["reachable"], dark=True, now=CLOCK)[4]) == "⊆"
-    assert str(branch_cells(rows["squashed"], dark=True, now=CLOCK)[4]) == "≡"
-    pending = branch_cells(rows["pending"], dark=True, now=CLOCK)[4]
+    assert str(branch_cells(rows["reachable"], dark=True, now=CLOCK)[6]) == "⊆"
+    assert str(branch_cells(rows["squashed"], dark=True, now=CLOCK)[6]) == "≡"
+    pending = branch_cells(rows["pending"], dark=True, now=CLOCK)[6]
     assert isinstance(pending, Text)
     assert pending.plain == "↑3"
-    assert str(branch_cells(rows["mirrored"], dark=True, now=CLOCK)[4]) == "⊆"
-    diverged = branch_cells(rows["diverged"], dark=True, now=CLOCK)[4]
+    assert str(branch_cells(rows["mirrored"], dark=True, now=CLOCK)[6]) == "⊆"
+    diverged = branch_cells(rows["diverged"], dark=True, now=CLOCK)[6]
     assert isinstance(diverged, Text)
     assert diverged.plain == "⊘"
 

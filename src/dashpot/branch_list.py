@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 
 from rich.text import Text
 
-from .glyphs import Glyph
+from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_WIDTH, Glyph
 from .issue_cells import relative_age
 from .issue_list import row_key
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end
@@ -29,6 +29,7 @@ from .model import (
 from .worktree_list import (
     DIRTY_COLORS,
     UNAVAILABLE_COLORS,
+    activity_cell,
     sessions_cell,
 )
 
@@ -75,12 +76,15 @@ INTEGRATION_LEGEND = (
 LEGEND = PRESENCE_LEGEND + UPSTREAM_LEGEND + INTEGRATION_LEGEND
 
 BRANCH_COLUMNS: tuple[ListColumn, ...] = (
+    ListColumn(
+        "activity", ACTIVITY_COLUMN_GLYPH.symbol, width=ACTIVITY_WIDTH, frozen=True
+    ),
+    ListColumn("sessions", "SESSIONS", justify="center"),
     ListColumn("name", "BRANCH"),
     ListColumn("local", "LOCAL", justify="center"),
     ListColumn("remote", "REMOTE", justify="center"),
     ListColumn("upstream", "UPSTREAM", justify="center"),
     ListColumn("integrated", "INTEGRATED", justify="center"),
-    ListColumn("sessions", "SESSIONS", justify="center"),
     ListColumn("commit", "LAST COMMIT"),
 )
 
@@ -258,12 +262,13 @@ def branch_cells(
     now: datetime,
 ) -> tuple[ListCell, ...]:
     return (
+        activity_cell(tuple(session.state for session in row.sessions), dark=dark),
+        sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
         truncate_end(row.name, NAME_LIMIT),
         REF_PRESENT_GLYPH.symbol if row.local is not None else "",
         REF_PRESENT_GLYPH.symbol if row.remotes else "",
         sync_cell(row.local, dark=dark),
         integration_cell(integration_subject(row), dark=dark),
-        sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
         relative_age(row.committed_at, now) or "-",
     )
 

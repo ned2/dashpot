@@ -2,6 +2,10 @@ Screen {
     layout: vertical;
 }
 
+FocusCursorTable > .datatable--related-row {
+    background: #d99a2b 30%;
+}
+
 #body {
     height: 1fr;
     layout: vertical;

@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .model import RunState
+
 
 @dataclass(frozen=True, slots=True)
 class Glyph:
@@ -43,3 +45,15 @@ class LegendSection:
     # What the column shows around the Glyph, when the symbol is not the
     # whole cell.
     note: str | None = None
+
+
+ACTIVITY_COLUMN_GLYPH = Glyph("◈", "the agent activity column")
+ACTIVITY_WIDTH = 1
+SESSION_STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
+SESSION_STATE_GLYPHS: dict[RunState, Glyph] = {
+    "running": Glyph("●", "an Agent Session is running", ("#1a7f37", "#3fb950")),
+    "waiting": Glyph("◐", "an Agent Session is waiting", ("#9a6700", "#d29922")),
+    "unknown": Glyph(
+        "○", "an Agent Session in an unknown state", ("#59636e", "#8b949e")
+    ),
+}

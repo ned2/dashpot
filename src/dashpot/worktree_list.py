@@ -14,6 +14,7 @@ from pathlib import Path
 
 from rich.text import Text
 
+from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_WIDTH
 from .issue_list import row_key
 from .list_pane import ListCell, ListColumn, ListRow, truncate_end
 from .model import (
@@ -36,11 +37,14 @@ UNAVAILABLE_COLORS = ("#cf222e", "#f85149")
 STALE_COLORS = ("#9a6700", "#d29922")
 
 WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
+    ListColumn(
+        "activity", ACTIVITY_COLUMN_GLYPH.symbol, width=ACTIVITY_WIDTH, frozen=True
+    ),
+    ListColumn("sessions", "SESSIONS", justify="center"),
     ListColumn("path", "PATH"),
     ListColumn("kind", "KIND"),
     ListColumn("branch", "BRANCH"),
     ListColumn("tree", "TREE"),
-    ListColumn("sessions", "SESSIONS", justify="center"),
 )
 
 
@@ -159,11 +163,12 @@ def worktree_cells(
 ) -> tuple[ListCell, ...]:
     target = row.target
     return (
+        activity_cell(tuple(session.state for session in row.sessions), dark=dark),
+        sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
         path_cell(row, dark=dark, home=home),
         target.role,
         branch_cell(target),
         tree_cell(target.dirty, dark=dark),
-        sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
     )
 
 
@@ -204,9 +209,13 @@ def freshness_color(freshness: str, *, dark: bool) -> str:
 
 
 def sessions_cell(states: Sequence[RunState], *, dark: bool) -> ListCell:
-    """How many sessions are located here, led by the liveliest state."""
+    """Report the total number of located Agent Sessions."""
+    return str(len(states)) if states else "-"
+
+
+def activity_cell(states: Sequence[RunState], *, dark: bool) -> Text:
+    """Render the liveliest Agent Session state, or blank when absent."""
     if not states:
-        return "-"
-    state = min(states, key=lambda item: STATE_ORDER[item])
-    glyph = STATE_GLYPHS[state]
-    return Text(f"{glyph.symbol} {len(states)}", style=glyph.style(dark=dark))
+        return Text("")
+    glyph = STATE_GLYPHS[min(states, key=lambda item: STATE_ORDER[item])]
+    return Text(glyph.symbol, style=glyph.style(dark=dark))

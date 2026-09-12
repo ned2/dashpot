@@ -149,7 +149,7 @@ def test_the_cleanup_gate_is_stated_where_x_reads_it() -> None:
     """The INTEGRATED and Worktree SESSIONS notes say what x can and cannot delete."""
     sections = {(section.pane, section.column): section for section in legend.LEGEND}
     integrated = sections["BRANCHES", "INTEGRATED"]
-    worktrees = sections["WORKTREES", "SESSIONS"]
+    worktrees = sections["WORKTREES", "◈"]
 
     assert integrated.glyphs == branch_list.INTEGRATION_LEGEND
     assert integrated.note == legend.INTEGRATION_NOTE
@@ -177,8 +177,8 @@ def test_section_text_renders_symbols_in_their_colour() -> None:
     text = legend.section_text(section, dark=True)
     lines = text.plain.splitlines()
 
-    assert lines[0].startswith(session_list.STATE_GLYPHS["running"].symbol)
-    assert lines[0].endswith(session_list.STATE_GLYPHS["running"].meaning)
+    assert lines[1].startswith(session_list.STATE_GLYPHS["running"].symbol)
+    assert lines[1].endswith(session_list.STATE_GLYPHS["running"].meaning)
     assert str(text.spans[0].style) == session_list.STATE_GLYPHS["running"].style(
         dark=True
     )

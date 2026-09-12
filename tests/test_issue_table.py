@@ -416,8 +416,7 @@ def test_icon_and_title_columns_are_not_sortable() -> None:
 def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
     view = IssueTableViewState()
 
-    with pytest.raises(ValueError, match="at least one"):
-        view.with_columns(())
+    assert view.with_columns(()).columns == ("agent_state",)
     with pytest.raises(ValueError, match="duplicates"):
         view.with_columns(("title", "title"))
 
@@ -444,10 +443,10 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
 
     ordered = sorted(agent_states, key=column_sort_key("agent_state"))
 
-    assert ordered == ["", "?", "Ⅱ", "▶"]
-    assert agent_state_cell(("running", "running")) == "▶"
-    assert agent_state_cell(("waiting", "running", "unknown")) == "▶"
-    assert agent_state_cell(("unknown", "waiting")) == "Ⅱ"
+    assert [str(cell) for cell in ordered] == ["", "○", "◐", "●"]
+    assert str(agent_state_cell(("running", "running"))) == "●"
+    assert str(agent_state_cell(("waiting", "running", "unknown"))) == "●"
+    assert str(agent_state_cell(("unknown", "waiting"))) == "◐"
     numbers = [IssueNumberCell(10), IssueNumberCell(2)]
 
     assert sorted(numbers, key=column_sort_key("number")) == [
@@ -497,7 +496,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     assert str(number_cell) == "1"
     assert isinstance(number_cell, IssueNumberCell)
     assert number_cell.justify == "right"
-    assert cells[selected_key][DEFAULT_COLUMNS.index("agent_state")] == "Ⅱ"
+    assert str(cells[selected_key][DEFAULT_COLUMNS.index("agent_state")]) == "◐"
     detail = issue_metadata_text(contexts[selected_key])
     assert "Assignees: ned2" in detail
     assert "codex-session:42 (waiting, issue/1)" in detail

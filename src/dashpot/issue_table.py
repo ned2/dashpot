@@ -95,18 +95,18 @@ def _has_priority(row: IssueListRow) -> bool:
 
 COLUMN_SPECS = (
     ColumnSpec(
-        "issue_state",
-        ISSUE_STATE_COLUMN_GLYPH.symbol,
-        sortable=False,
-        spread_weight=0,
-        tooltip=ISSUE_STATE_COLUMN_GLYPH.meaning,
-    ),
-    ColumnSpec(
         "agent_state",
         AGENT_STATE_COLUMN_GLYPH.symbol,
         sortable=False,
         spread_weight=0,
         tooltip=AGENT_STATE_COLUMN_GLYPH.meaning,
+    ),
+    ColumnSpec(
+        "issue_state",
+        ISSUE_STATE_COLUMN_GLYPH.symbol,
+        sortable=False,
+        spread_weight=0,
+        tooltip=ISSUE_STATE_COLUMN_GLYPH.meaning,
     ),
     ColumnSpec(
         "number",
@@ -200,7 +200,9 @@ class IssueTableViewState:
     sort: tuple[SortTerm, ...] = DEFAULT_SORT
 
     def __post_init__(self) -> None:
-        _validate_columns(self.columns)
+        others = tuple(column for column in self.columns if column != "agent_state")
+        _validate_columns(("agent_state", *others))
+        object.__setattr__(self, "columns", ("agent_state", *others))
 
     def toggle_sort(self, column: ColumnKey) -> IssueTableViewState:
         if not COLUMNS_BY_KEY[column].sortable:
@@ -333,7 +335,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     assignees = tuple(assignee.casefold() for assignee in issue.assignees)
     return {
         "issue_state": issue_state_cell(issue, dark=dark),
-        "agent_state": agent_state_cell(row.session_states),
+        "agent_state": agent_state_cell(row.session_states, dark=dark),
         "number": IssueNumberCell(issue.number),
         "title": text_cell(truncate_end(issue.title, TITLE_LIMIT)),
         "labels": labels_cell(issue, project),
