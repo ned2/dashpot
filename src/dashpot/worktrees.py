@@ -214,7 +214,7 @@ def resolve_worktree_root(
     """The directory new Worktrees go under, and which source chose it.
 
     Precedence is ``--worktree-root``, then ``DASHPOT_WORKTREE_ROOT``, then
-    the machine-local ``worktreeRoot`` setting, then the sibling directory
+    the machine-local ``worktree_root`` setting, then the sibling directory
     ``<anchor parent>/<anchor name>.worktrees``. The result is the real path.
     """
     if option is not None:

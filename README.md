@@ -502,7 +502,7 @@ moves anything. Its conventions are recorded in
 [ADR 0011](docs/adr/0011-prepare-issue-worktrees-by-convention.md):
 
 - **Worktree Root:** `--worktree-root DIR`, else `DASHPOT_WORKTREE_ROOT`,
-  else `worktreeRoot` in the machine-local `~/.config/dashpot/settings.json`
+  else `worktree_root` in the machine-local `~/.config/dashpot/config.toml`
   (`XDG_CONFIG_HOME` respected), else the sibling directory
   `<anchor parent>/<anchor name>.worktrees/`. The root is real-path
   normalised, refused inside any Worktree of the Project, and reported with
@@ -538,6 +538,11 @@ same facts (`issueId`, `issueReference`, `path`, `branch`, `baseRef`,
 mode. `warnings` carries non-fatal observations, such as unknown fields in
 the machine-local settings file, which are ignored rather than fatal so a
 settings file written by a newer Dashpot never stops this one.
+
+Machine-local settings use flat snake_case TOML keys. See the
+[settings guide](docs/installation.md#machine-local-settings) for syntax and
+one-time setup when replacing `settings.json`. Workspace `--config` and public
+JSON fields such as `worktreeRoot` retain their existing meanings.
 
 `worktree check [path]` is read-only. With no path it reports every linked
 Worktree of the Repository, one after another (`--json` gives a list). It

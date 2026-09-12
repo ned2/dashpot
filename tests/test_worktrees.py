@@ -457,7 +457,7 @@ def test_settings_diagnostics_ride_the_plan_as_warnings(tmp_path: Path) -> None:
     machine = Settings(
         diagnostics=(
             Diagnostic(
-                source="settings:/tmp/settings.json",
+                source="settings:/tmp/config.toml",
                 severity="warning",
                 message="Ignoring unknown Dashpot settings fields: bogus",
                 code="settings-unknown-field",
@@ -843,3 +843,29 @@ def test_linked_worktrees_lists_every_linked_worktree_but_the_main(
 
     listed = worktrees.linked_worktrees(Path(second.path))
     assert listed == sorted([Path(first.path).resolve(), Path(second.path).resolve()])
+
+
+@pytest.mark.parametrize("override", ["option", "environment"])
+def test_malformed_settings_fail_before_root_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str
+) -> None:
+    root = sim(tmp_path)
+    directory = tmp_path / "machine" / "dashpot"
+    directory.mkdir(parents=True)
+    path = directory / "config.toml"
+    path.write_text("worktree_root = [\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(directory.parent))
+    with pytest.raises(RuntimeError, match="cannot read Dashpot settings") as error:
+        create_issue_worktree(
+            root,
+            "35",
+            dry_run=True,
+            worktree_root_option=tmp_path / "override"
+            if override == "option"
+            else None,
+            environ={"DASHPOT_WORKTREE_ROOT": str(tmp_path / "override")}
+            if override == "environment"
+            else {},
+        )
+    assert str(path) in str(error.value)
+    assert worktree_paths(root) == [str(root)]

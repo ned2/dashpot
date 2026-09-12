@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import os
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from pydantic import ConfigDict, ValidationError
 
 from .model import Diagnostic
 from .models import NonBlankString, PublishedModel, translate_validation_error
 
-SETTINGS_FILE_NAME = "settings.json"
+SETTINGS_FILE_NAME = "config.toml"
 WORKTREE_ROOT_VARIABLE = "DASHPOT_WORKTREE_ROOT"
 
 
@@ -25,7 +24,7 @@ class SettingsFile(PublishedModel):
     unknown fields are retained here and diagnosed by the loader.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", alias_generator=None)
 
     worktree_root: NonBlankString | None = None
 
@@ -39,25 +38,24 @@ class Settings:
 
 
 def default_settings_path() -> Path:
-    """Where this machine's settings live: ``~/.config/dashpot/settings.json``."""
+    """Locate this machine's settings at ``~/.config/dashpot/config.toml``."""
     config_home = os.environ.get("XDG_CONFIG_HOME")
     base = Path(config_home).expanduser() if config_home else Path.home() / ".config"
     return base / "dashpot" / SETTINGS_FILE_NAME
 
 
 def load_settings(path: Path | None = None) -> Settings:
-    """Read the machine-local settings; an absent file is the default settings."""
+    """Read machine-local TOML settings, using defaults for an absent file."""
     settings_path = path if path is not None else default_settings_path()
     try:
-        raw: Any = json.loads(settings_path.read_text(encoding="utf-8"))
+        with settings_path.open("rb") as stream:
+            raw = tomllib.load(stream)
     except FileNotFoundError:
         return Settings()
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise RuntimeError(
             f"cannot read Dashpot settings {settings_path}: {exc}"
         ) from exc
-    if not isinstance(raw, dict):
-        raise RuntimeError(f"{settings_path} must contain a JSON object")
     try:
         file = SettingsFile.model_validate(raw)
     except ValidationError as exc:

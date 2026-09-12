@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-11
+date: 2026-09-12
 ---
 
 # Domain language
@@ -323,8 +323,8 @@ _Avoid_: "the" Worktree of an Issue; reading a Worktree or Branch as Issue work
 
 **Worktree Root**:
 The machine-local directory new Issue Worktrees are created under:
-`--worktree-root`, else `DASHPOT_WORKTREE_ROOT`, else the `worktreeRoot`
-setting, else the sibling `<anchor name>.worktrees/` of the Repository
+`--worktree-root`, else `DASHPOT_WORKTREE_ROOT`, else the `worktree_root`
+setting in machine-local `config.toml`, else the sibling `<anchor name>.worktrees/` of the Repository
 Anchor. It is never part of the tracked Project configuration.
 
 ## Presentation

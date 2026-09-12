@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-11
+date: 2026-09-12
 ---
 
 # Install and maintain Dashpot
@@ -92,6 +92,56 @@ declared Issue work and is not a user-edited file format. Machine-local Workspac
 inventory and settings remain outside Project configuration. See
 [Project configuration](../README.md#project-configuration) for full discovery
 and ownership rules.
+
+## Machine-local settings
+
+Edit `$XDG_CONFIG_HOME/dashpot/config.toml`, or
+`~/.config/dashpot/config.toml` when `XDG_CONFIG_HOME` is unset:
+
+```toml
+# Where newly prepared Issue Worktrees go.
+worktree_root = '~/projects/.worktrees/dashpot'
+```
+
+An absent, empty, or comment-only file selects defaults. Omit an optional key
+for its default; TOML has no null value. Unknown keys produce a warning and do
+not override recognized keys. Use `worktree_root`, not `worktreeRoot`.
+Invalid TOML, unreadable files, and invalid known values produce an error naming
+the file. Worktree preparation reads settings before applying command-line or
+environment overrides, so those overrides do not hide malformed configuration.
+
+Use TOML 1.0 syntax: `#` begins a comment outside strings; single-quoted literal
+strings preserve backslashes, while double-quoted strings interpret escapes
+(for example, `"C:\\worktrees"`). TOML also supports multiline arrays. The
+launcher proposed in [#146](https://github.com/ned2/dashpot/issues/146) will use:
+
+```toml
+# Future launcher setting; not implemented yet.
+worktree_open_command = [
+  '/absolute/path/to/my-launcher',
+  '{path}',
+]
+```
+
+The current reader warns that this future field is unknown. Parsing never
+performs shell or environment-variable expansion. For `worktree_root`, Dashpot
+strips surrounding whitespace, expands `~`, and resolves relative paths against
+the settings file's parent directory. Precedence remains `--worktree-root`,
+then `DASHPOT_WORKTREE_ROOT`, then `worktree_root`, then the sibling default in
+[Issue Worktrees](../README.md#issue-worktrees).
+
+For the one-time cutover, recreate an old setting such as
+`{"worktreeRoot": "~/projects/.worktrees/dashpot"}` using the TOML example above.
+Simply renaming the old JSON file is insufficient. Replace a previous null value
+by omitting the key. Dashpot ignores `settings.json` entirely, even if malformed;
+leaving only that file selects defaults and can change where new Worktrees go.
+Remove the old file manually when convenient. Dashpot never rewrites or deletes
+personal settings.
+
+This file contains machine-local preferences only. Workspace inventory remains
+`workspaces.json`, selected by `--config`; tracked Project configuration remains
+`.dashpot/config.json`. Work Store records, public JSON output, and external
+harness configuration retain their formats.
 
 ## Observe agent sessions
 
