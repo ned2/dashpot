@@ -63,9 +63,38 @@ decision as a new ADR in `docs/adr/`.
 
 ## Quality and code conventions
 
-The gate is `uv run pre-commit run --all-files` and `uv run pytest -q`, both
-clean, before every commit; the pre-push hook then runs the full gate for the
-pushed revision.
+Before every commit, run the README's [local review gate](README.md#local-review-gate):
+all-files pre-commit checks and the full suite with coverage, both clean.
+Coverage replaces ordinary pytest for that gate. Pre-push checks the pushed
+revision's lockfile, lint, formatting, types, documentation, and distributions;
+it skips pytest. These are Dashpot development rules, not rules for Projects
+observed by the application.
+
+### Independent review before integration
+
+The agent implementing an Issue dispatches a review subagent using the
+`code-review` skill before opening its integration PR. Supply the Issue and
+acceptance criteria, a fixed base commit and the complete diff including new
+files, applicable repository standards/domain language/ADRs, local validation
+results, and verified coverage evidence from the local review gate. The skill
+owns the review procedure and may delegate its Standards and Spec axes.
+An unavailable skill is a reported blocker, not an implicit review exemption.
+
+Review can start while checks run; its final decision waits for successful
+validation and considers uncovered changed code, relevant failure paths, and
+the tests' assertions. Line coverage measures execution, not assertion quality
+or every branch outcome. Record review results, finding dispositions, and
+source identity in the PR's validation section. An exception to independent
+review requires explicit user direction and a recorded reason.
+
+Address findings, refresh validation for changed sources, and request focused
+follow-up review of the fixes. Changed tests, conflict resolutions, or
+CI-driven fixes can invalidate approval too. Verify the coverage source digest
+after hooks and before push; a content-preserving commit does not invalidate
+review. Changes to the reviewed diff/base need appropriate follow-up review.
+Green CI on unchanged reviewed code finishes verification without another
+routine review. Follow the README's [integration sequence](README.md#contributing)
+and keep the Issue Binding through all delegated work and green PR CI.
 
 Under Codex on Linux, use the per-command sandbox-escalation mechanism for a
 full gate only when its matching condition applies:
@@ -73,7 +102,7 @@ full gate only when its matching condition applies:
 - `uv run pre-commit run --all-files`: the sandbox protects the tracked
   `.codex/config.toml`, while `end-of-file-fixer` opens every selected file for
   writing before deciding whether it needs a change.
-- `uv run pytest -q` on Python 3.14: when the command runs under the
+- The local coverage command or `uv run pytest -q` on Python 3.14: when it runs under the
   restricted, network-disabled sandbox profile, its seccomp policy blocks the
   asyncio self-pipe wakeup
   ([openai/codex#15053](https://github.com/openai/codex/issues/15053)) and can

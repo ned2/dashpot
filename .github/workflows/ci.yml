@@ -3,20 +3,18 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
   workflow_call:
 
 permissions:
   contents: read
 
-# Rapid successive pushes or PR updates cancel superseded runs so only the
+# Rapid successive PR updates cancel superseded runs so only the
 # newest cumulative commit completes. Future release/tag workflows must define
 # their own concurrency policy without cancel-in-progress.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
-  cancel-in-progress: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) || github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality:
@@ -25,6 +23,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
@@ -43,8 +44,34 @@ jobs:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
+      - name: Verify the PR integration candidate
+        if: github.event_name == 'pull_request'
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          git merge-base --is-ancestor "$PR_BASE_SHA" "$PR_HEAD_SHA"
+          python - <<'PYREVISION'
+          import json, os
+          from pathlib import Path
+          record = {name: os.environ[name] for name in (
+              "PR_HEAD_SHA", "PR_BASE_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"
+          )}
+          Path("ci-revision.json").write_text(json.dumps(record, indent=2) + "\n")
+          PYREVISION
+
       - name: Run the all-files quality gate
         run: uv run pre-commit run --all-files --show-diff-on-failure
+
+      - name: Publish the validated PR revision
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ci-revision-${{ github.run_attempt }}
+          path: ci-revision.json
+          if-no-files-found: error
+          retention-days: 30
 
   test:
     name: test (${{ matrix.os }}, py${{ matrix.python-version }})
@@ -62,6 +89,8 @@ jobs:
             python-version: "3.13"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
@@ -99,6 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -153,6 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
@@ -187,6 +218,7 @@ jobs:
           apt-get install --yes --no-install-recommends git ca-certificates procps zstd
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       # The container user differs from the host owner of this bind mount;
       # checkout's temporary Git config does not persist into ordinary steps.
@@ -214,3 +246,22 @@ jobs:
           dpkg-query --show --showformat='${Package} ${Version}\n' git
       - name: Test against Debian Git 2.39
         run: uv run pytest -q
+
+  ci-required:
+    name: CI required
+    if: ${{ always() }}
+    needs: [quality, test, build, install, minimum-git]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PYRESULTS'
+          import json, os
+          results = json.loads(os.environ["RESULTS"])
+          expected = {"quality", "test", "build", "install", "minimum-git"}
+          assert set(results) == expected, results
+          assert all(job["result"] == "success" for job in results.values()), results
+          PYRESULTS

@@ -360,20 +360,50 @@ Run the commit hooks across every tracked file:
 uv run pre-commit run --all-files
 ```
 
-The gate before every commit is both of these, clean:
+#### Local review gate
+
+Before every commit, run the all-files checks and the full suite with coverage:
 
 ```bash
+review_base=$(git rev-parse origin/main)
 uv run pre-commit run --all-files
-uv run pytest -q
+uv run --locked python scripts/review_coverage.py --base "$review_base"
 ```
 
-The pushed-revision gate can also be run directly against the working tree; it
-covers the lockfile, Ruff, ty, the documents and the distribution build, but
-not the hygiene hooks or the test suite, so it does not replace the two
-commands above:
+Pin the review base for the engagement and include it in the review request.
+The helper runs pytest once, replacing ordinary pytest in this gate. It prints
+missing lines and writes `.review-coverage/coverage.json` plus `evidence.json`.
+Evidence records the base, source content digest, coverage report digest,
+command, Python/coverage versions, platform, and completion time. A failed run
+removes prior success evidence; changes during the run prevent new evidence.
+Generated files are ignored. Use the checkout's locked environment; Python
+3.14 is preferred for its lower-overhead coverage backend. Other supported
+versions remain usable, and targeted `uv run pytest ...` development runs
+remain uninstrumented.
+
+Before completing review and after commit hooks, verify the evidence without
+running the suite again:
 
 ```bash
-uv run python scripts/check_quality.py
+uv run --locked python scripts/review_coverage.py --base "$review_base" --check
+```
+
+The source digest includes tracked and non-ignored new files, including modes
+and symlink targets. Staging and committing the same files preserves it; source
+edits, a different review base, or a replaced report require fresh evidence.
+Ignored local state is excluded. This verifies freshness, not reviewer approval.
+Keep one writer and one coverage run per Worktree. Supply both reports to the
+reviewer and record useful conclusions in the PR; generated evidence is not
+committed. Coverage has no percentage threshold and does not establish the
+quality of assertions or coverage of every branch outcome.
+
+The pushed-revision gate can also run against the working tree. Its default
+includes ordinary pytest; `--skip-tests` uses already completed local coverage
+and avoids another test run. It covers the lockfile, Ruff, ty, documentation,
+and distributions, but omits hygiene hooks and coverage collection:
+
+```bash
+uv run --locked python scripts/check_quality.py --skip-tests
 ```
 
 Ruff fixes and formatting are idempotent: a second `--all-files` run after the
@@ -392,7 +422,8 @@ network access.
 ### Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests
-targeting `main`, pushes to `main`, and manual dispatch. It runs the all-files
+targeting `main` and on manual dispatch. Integration into `main` does not
+trigger a duplicate run. It runs the all-files
 pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
 and macOS under Python 3.11 and 3.14, adds Python 3.12/3.13 on Ubuntu,
 exercises Debian 12’s maintained Git 2.39.x package in a container, and builds
@@ -403,6 +434,15 @@ credentials are provided and no live GitHub collection happens in CI; the test
 suite exercises Issue collection against fakes. Ubuntu/Python 3.14 collects
 line coverage during its test run and writes the report to the job summary.
 Coverage has no percentage threshold; tests and report generation must pass.
+The CI report is additional diagnostic evidence; unchanged reviewed code does
+not need another review when that report becomes available.
+
+PR jobs check out the exact head commit and verify that the event's base is
+its ancestor. The quality job publishes those commits and the run identity in
+the `ci-revision-<attempt>` artifact. `CI required` succeeds only when every
+quality, test, build, installation, and minimum-Git job succeeds. It is the
+required-check context to configure for `main`; repository administration
+setup is described in [development integration](docs/development-integration.md).
 
 Every CI verification step has an exact local equivalent:
 
@@ -668,16 +708,33 @@ Every change lands on `main` the same way, whether a human or an agent makes
 it:
 
 1. Branch from `main` for the change.
-2. Commit with the commit hooks installed. A commit message line `Closes #N`
+2. Complete the [local review gate](#local-review-gate) and independent review
+   as specified in [AGENTS.md](AGENTS.md#independent-review-before-integration).
+   Address findings and refresh affected validation and review. Commit with
+   the commit hooks installed, then verify coverage evidence still matches.
+   A commit message line `Closes #N`
    is what closes the Issue on GitHub once the commit reaches `main`.
-3. Fast-forward `main` onto the branch and `git push origin main`. The
-   pre-push hook runs the pushed-revision gate in
+3. Push the branch and open a pull request targeting `main` after local
+   validation and review. The pre-push hook runs the pushed-revision gate in
    [`scripts/check_quality.py`](scripts/check_quality.py) against the pushed
    revision in a detached worktree, so a red gate stops the push. That gate
-   deliberately skips the test suite; run `uv run pytest -q` before pushing
-   and let CI confirm it across every platform.
-4. Watch CI to completion with `gh run watch <id> --exit-status`; the change
-   is done when the run is green.
+   deliberately skips the test suite; local coverage has already run it and
+   pull-request CI confirms it across every platform. Fill in the PR template
+   with the review base, source digest, final commit, checks, coverage
+   observations, and review findings/dispositions.
+4. Watch the latest pull-request CI run to completion with
+   `gh run watch <id> --exit-status`. Every required job must pass before
+   integration. If the branch changes, validate and review the changes and
+   wait for its new CI run. If `main` advances beyond the branch's base,
+   update the branch and repeat those checks before integration.
+5. Use the [validated fast-forward procedure](docs/development-integration.md#integrate-a-verified-pr)
+   to update remote `main` to the reviewed commit. It verifies the current PR,
+   successful CI, and recorded head/base under exclusive PR-branch ownership,
+   then uses an explicit expected remote base to reject concurrent base
+   changes. Verify remote `main` points to that
+   commit; this push does not trigger another CI run. Synchronize the local
+   main checkout only through an authorized fast-forward, and leave Worktree
+   cleanup separate.
 
 Agent sessions use the `dashpot-issue-work` skill to declare and verify the
 Issue they are working on (see
@@ -691,6 +748,8 @@ These `living` documents carry the detail this README points at:
 - [`docs/installation.md`](docs/installation.md) covers installation, support,
   configuration, diagnosis, upgrades, and removal.
 - [`docs/releasing.md`](docs/releasing.md) covers release gates, publishing, and recovery.
+- [`docs/development-integration.md`](docs/development-integration.md) covers
+  Dashpot's required CI setup and validated fast-forward integration.
 - [`docs/domain-language.md`](docs/domain-language.md) defines the terms used in
   the interface, code, and documentation, including the phrasings to avoid.
 - [`docs/agent-sessions.md`](docs/agent-sessions.md) documents `dashpot

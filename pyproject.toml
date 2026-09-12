@@ -143,8 +143,8 @@ asyncio_default_fixture_loop_scope = "function"
 xfail_strict = true
 
 [tool.coverage.run]
-# Coverage is opt-in (`uv run pytest --cov`): the default `pytest -q` loop
-# stays uninstrumented, and CI reports coverage on one leg without gating.
+# Targeted pytest runs stay uninstrumented. The local review gate collects
+# coverage, and CI reports it on one leg, both without a percentage threshold.
 source = ["dashpot"]
 
 [tool.coverage.report]
