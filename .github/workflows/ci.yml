@@ -85,8 +85,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
         env:
           COVERAGE_DEBUG: sys
+          # pytest captures startup stderr on passing tests; preserve core evidence.
+          COVERAGE_DEBUG_FILE: coverage-debug.log
         run: |
           uv run pytest -q --cov --cov-report=term-missing
+          grep -E 'coverage_version:|core:' coverage-debug.log
           uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
   build:
