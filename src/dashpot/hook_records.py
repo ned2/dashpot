@@ -45,7 +45,7 @@ EVENT_STATES: dict[str, str] = {
     "Stop": "waiting",
     "Interrupt": "waiting",
     "SessionEnd": "ended",
-    # A sub-agent's boundaries are the session's too: the store settles
+    # A sub-agent's boundaries are the session's too: the store reconciles
     # these base states against the sub-agents it knows to be alive.
     "SubagentStart": "running",
     "SubagentStop": "waiting",
@@ -423,7 +423,7 @@ def publish_hook_event(
 def end_session_work(
     record: Mapping[str, Any], process: ProcessIdentity | None
 ) -> list[tuple[Path, ActiveWork]]:
-    """Settle the Agent Run of a gracefully ended client session.
+    """Reconcile the Agent Run of a gracefully ended client session.
 
     An undeclared end is the session's own state, so ending its run is the
     same housekeeping as removing the hook record (ADR 0015).
@@ -431,7 +431,7 @@ def end_session_work(
     in, since a session holds one run across them (ADR 0009). A declared Codex
     Relocation Intent instead preserves the run for target verification (ADR
     0029); a client that ends outside any Repository has no Work Store to
-    settle.
+    reconcile.
     """
     root = optional_string(record.get("repositoryRoot"))
     if root is None:
@@ -612,7 +612,7 @@ HookRecordOutcome = SessionLiveness | Literal["ended"]
 
 @dataclass(frozen=True, slots=True)
 class HookRecordClassification:
-    """One validated hook Agent Session record and its settled outcome."""
+    """One validated hook Agent Session record and its reconciled outcome."""
 
     session_id: str
     harness: str

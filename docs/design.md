@@ -167,8 +167,8 @@ accepted bindings, an `outside Project` marker in place of a target the
 observed Project does not own, an intentional `no active Issue work` value
 when unbound, its working directory relative to its Observation Target, and
 long paths, branches and titles clipped with an ellipsis. Its columns are
-the `◈` state glyph, `HARNESS`, `TARGET`, `BRANCH`, `ISSUE`, `DIRECTORY`, and
-`ACTIVITY`. `TARGET` is dropped
+the agent-activity column (`◈`), `HARNESS`, `TARGET`, `BRANCH`, `ISSUE`,
+`DIRECTORY`, and `ACTIVITY`. `TARGET` is dropped
 altogether while every listed session shares one Observation Target, which is
 the usual shape of a Project with no linked Worktrees; it returns as soon as a
 session sits in another Worktree or outside the Project. Exactly one column
@@ -187,8 +187,9 @@ is likewise its own read model ([`worktree_list.py`](../src/dashpot/worktree_lis
 Target of the Project, identified by `(Project Identity, target path)`
 and sorted main before linked, then path, with its Git topology kind (`main` or
 `linked`) reported in its own column,
-and exceptional `stale` or `unavailable` state. Its columns are the `◈`
-activity glyph, `SESSIONS`, `PATH`, `KIND`, `BRANCH`, and `TREE`: `SESSIONS`
+and exceptional `stale` or `unavailable` state. Its columns are the
+agent-activity column (`◈`), `SESSIONS`, `PATH`, `KIND`, `BRANCH`, and
+`TREE`: `SESSIONS`
 counts the active Agent Sessions located there, `KIND` distinguishes Git's
 `main` and `linked` Worktrees, normal Branches omit HEAD, detached checkouts
 include their short HEAD, and the working tree remains clean/dirty/unknown.
@@ -217,8 +218,9 @@ result is followed by the active sessions on the Branch and
 the age of its last commit. The pane subtitle names the Integration Branch
 and the age of the Remote-Tracking Branches. The Worktrees pane names the
 Branch checked out at every Worktree. Rows are sorted checked-out first, then
-most recent commit. Its columns are the `◈` activity glyph, `SESSIONS`,
-`BRANCH`, `LOCAL`, `REMOTE`, `UPSTREAM`, `INTEGRATED`, and `LAST COMMIT`. The
+most recent commit. Its columns are the agent-activity column (`◈`),
+`SESSIONS`, `BRANCH`, `LOCAL`, `REMOTE`, `UPSTREAM`, `INTEGRATED`, and
+`LAST COMMIT`. The
 refs are read with `git for-each-ref` from the first answering Repository
 Anchor; observation never runs `git fetch`, so the lower-right pane border
 carries the age of the last fetch (`remote last fetched 3h ago`, or

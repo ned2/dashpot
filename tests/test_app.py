@@ -634,10 +634,8 @@ async def test_a_key_press_observes_the_issue_source_again(tmp_path: Path) -> No
         app.schedule_observations([ObservationKey("issues", "beta")], "timer")
         await wait_until(lambda: beta.calls == 2 and not app.in_flight)
         await pilot.press("r")
+        # The press's own observation, after the initial one and the tick.
         await wait_until(lambda: beta.calls == 3 and not app.in_flight)
-
-    # The initial observation, the tick, and the press.
-    assert beta.calls == 3
 
 
 @pytest.mark.asyncio

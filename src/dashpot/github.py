@@ -31,7 +31,7 @@ GraphQLVariables = Mapping[str, str | int | Sequence[str]]
 # How many requests one refresh may have in flight at once. GitHub asks
 # clients to avoid concurrency and caps GraphQL at sixty seconds of CPU time
 # a minute; four batches of a second or two each stay well inside that
-# while a Reconciliation of thousands of Issues finishes within its budget.
+# while a Source Enumeration of thousands of Issues finishes within its budget.
 MAX_IN_FLIGHT = 4
 
 MALFORMED_RESPONSE = "github-malformed-response"
@@ -87,7 +87,7 @@ class RefreshBudget:
 
     Both bounds are checked before each request, so a refresh overruns by at
     most the requests in flight plus the command timeout. The default covers
-    a Reconciliation of about two and a half thousand Issues in batches of
+    a Source Enumeration of about two and a half thousand Issues in batches of
     twenty-four beside the probe, the delta and the nested pages.
     """
 

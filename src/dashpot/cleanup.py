@@ -656,7 +656,7 @@ INTEGRATION_WORDS: Mapping[IntegrationState, str] = {
 def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
     """Render a preview as lines for a person: each target, its gate, and what follows."""
     verb = "Delete Branch" if preview.kind == "branch" else "Remove Worktree"
-    lines = [f"{verb:<16}{preview.subject}", f"{'Repository':<16}{preview.anchor}"]
+    lines = [f"{verb:<16}{preview.subject}", f"{'Anchor':<16}{preview.anchor}"]
     for refusal in preview.refusals:
         lines.append(f"{'Refused':<16}{refusal}")
     if preview.targets:
@@ -1091,7 +1091,7 @@ def _last_line(stderr: str) -> str:
 def describe_cleanup_report(report: CleanupReport) -> list[str]:
     """Render a report as lines for a person: what happened to each target."""
     verb = "Delete Branch" if report.kind == "branch" else "Remove Worktree"
-    lines = [f"{verb:<16}{report.subject}", f"{'Repository':<16}{report.anchor}"]
+    lines = [f"{verb:<16}{report.subject}", f"{'Anchor':<16}{report.anchor}"]
     if report.changed:
         lines.append(f"{'Changed':<16}{CHANGED_SINCE_PREVIEW}")
         lines.extend(describe_cleanup_preview(report.preview)[2:])
