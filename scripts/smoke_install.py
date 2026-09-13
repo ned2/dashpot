@@ -32,7 +32,12 @@ async def check_tui(root: Path) -> None:
     """Collect and quit the installed TUI at compact and wide sizes."""
     from textual.widgets import DataTable
 
-    from dashpot.cli import DashpotApp, ObservationOptions, create_collector
+    from dashpot.cli import (
+        DashpotApp,
+        ObservationOptions,
+        create_collector,
+        create_query_sources,
+    )
     from dashpot.model import RepositoryAnchor, Workspace
 
     for size in ((60, 20), (120, 40)):
@@ -43,7 +48,9 @@ async def check_tui(root: Path) -> None:
             ),
             recurring=False,
         )
-        app = DashpotApp(collector, refresh_seconds=0)
+        app = DashpotApp(
+            collector, sources=create_query_sources(collector), refresh_seconds=0
+        )
         async with app.run_test(size=size) as pilot:
             async with asyncio.timeout(30):
                 while app.query_one("#queue", DataTable).row_count != 1:

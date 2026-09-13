@@ -248,11 +248,15 @@ def test_json_mode_prints_snapshot() -> None:
 
 def test_tui_mode_constructs_a_recurring_collector() -> None:
     collector = mock.Mock()
+    sources = {key: mock.Mock() for key in cli.QUERY_SOURCE_KEYS}
 
     with (
         mock.patch.object(
             cli, "create_collector", return_value=collector
         ) as create_collector,
+        mock.patch.object(
+            cli, "create_query_sources", return_value=sources
+        ) as create_query_sources,
         mock.patch.object(cli, "DashpotApp") as app,
     ):
         result = cli.main(["--workspace", "/repo"])
@@ -264,7 +268,58 @@ def test_tui_mode_constructs_a_recurring_collector() -> None:
         ),
         recurring=True,
     )
+    create_query_sources.assert_called_once_with(collector)
+    assert app.call_args.args == (collector,)
+    assert app.call_args.kwargs["sources"] is sources
     app.return_value.run.assert_called_once_with()
+
+
+def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dashpot import query_source
+
+    built: list[tuple[Path, float]] = []
+
+    def configured(root: Path, *, timeout: float) -> object:
+        built.append((root, timeout))
+        return object()
+
+    monkeypatch.setattr(query_source, "configured_query_source", configured)
+    project = ResolvedProject(
+        "project:example",
+        "Example",
+        "repository:example",
+        ("test",),
+        ("/clone-one", "/clone-two"),
+        "/clone-one",
+    )
+    collector = mock.Mock(projects=[project], timeout=7.5)
+
+    sources = cli.create_query_sources(collector)
+
+    # One source per dashboard query, each its own instance, so concurrent
+    # queries never share a source's caches across executor threads.
+    assert tuple(sources) == cli.QUERY_SOURCE_KEYS
+    assert len({id(source) for source in sources.values()}) == len(sources)
+    assert built == [(Path("/clone-one"), 7.5)] * len(cli.QUERY_SOURCE_KEYS)
+
+
+def test_query_sources_fall_back_to_the_current_directory_without_projects(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from dashpot import query_source
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        query_source,
+        "configured_query_source",
+        lambda root, *, timeout: (root, timeout),
+    )
+
+    sources = cli.create_query_sources(mock.Mock(projects=[], timeout=3.0))
+
+    assert set(sources.values()) == {(tmp_path.resolve(), 3.0)}
 
 
 def test_compact_json_mode_has_no_recurring_polling_schedule() -> None:

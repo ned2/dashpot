@@ -9,7 +9,7 @@ from dataclasses import replace
 from typing_extensions import override
 
 from .issue_list import IssueListQuery, IssueListResult, IssueListRow, row_key
-from .model import Diagnostic, ProjectObservation
+from .model import Diagnostic, ProjectObservation, WorkspaceSnapshot
 from .observation_store import (
     IssueContext,
     ObservedDiagnostic,
@@ -26,8 +26,8 @@ from .source_queries import (
 
 
 class PagedObservationStore(WorkspaceObservationStore):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, snapshot: WorkspaceSnapshot | None = None) -> None:
+        super().__init__(snapshot)
         self.pages: dict[ResourceKind, QueryPage] = {}
         self.totals: dict[ResourceKind, ProjectTotals] = {}
         self.resolved: OrderedDict[str, ResolvedIssue] = OrderedDict()

@@ -32,6 +32,7 @@ from .integrate import (
 )
 from .issue_resolution import describe_issue, show_issue
 from .model import Diagnostic, RepositoryAnchor, Workspace
+from .paged_app import QUERY_SOURCE_KEYS
 from .paged_app import PagedDashpotApp as DashpotApp
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
@@ -43,6 +44,7 @@ from .serialization import (
     snapshot_document,
     worktree_plan_document,
 )
+from .source_queries import QuerySource
 from .work import (
     relocate_issue_work,
     show_issue_work,
@@ -197,6 +199,7 @@ def observe(
     else:
         DashpotApp(
             collector,
+            sources=create_query_sources(collector),
             refresh_seconds=refresh_seconds,
             fetcher=remote_fetcher(timeout),
             cleaner=GitCleanupAdapter(timeout),
@@ -834,6 +837,19 @@ def create_collector(
         polling_seconds=polling_seconds,
         local_only=recurring,
     )
+
+
+def create_query_sources(collector: ObservationCoordinator) -> dict[str, QuerySource]:
+    """Build the configured Query Source behind each of the dashboard's queries."""
+    from .query_source import configured_query_source
+
+    root = (
+        Path(collector.projects[0].primary_anchor) if collector.projects else Path.cwd()
+    )
+    return {
+        key: configured_query_source(root, timeout=collector.timeout)
+        for key in QUERY_SOURCE_KEYS
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:

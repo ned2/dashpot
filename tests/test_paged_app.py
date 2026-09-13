@@ -6,10 +6,17 @@ import pytest
 from textual.binding import Binding
 from textual.widgets import Static
 
+from app_harness import (
+    SequenceCollector,
+    dashboard_app,
+    first_load_landed,
+    issue,
+    workspace_snapshot,
+)
 from dashpot.collect import ObservationCoordinator
 from dashpot.legend import LegendScreen
 from dashpot.model import RepositoryStateInventory, ResolvedProject
-from dashpot.paged_app import PagedDashpotApp
+from dashpot.paged_app import QUERY_SOURCE_KEYS, PagedDashpotApp
 from dashpot.source_queries import QueryRequest
 from helpers import wait_until
 from test_source_queries import markdown
@@ -43,16 +50,7 @@ def application(tmp_path, *, launcher_configuration=None, collector=None):
         factory=lambda *args, **kwargs: collector or LocalOnlyCollector(),
         agent_observer=lambda targets: ([], []),
     )
-    sources = {
-        key: markdown(tmp_path)
-        for key in (
-            "issues",
-            "pull-requests",
-            "totals:issues",
-            "totals:pull-requests",
-            "identities",
-        )
-    }
+    sources = {key: markdown(tmp_path) for key in QUERY_SOURCE_KEYS}
     app = PagedDashpotApp(
         coordinator,
         sources=sources,
@@ -196,3 +194,20 @@ async def test_slow_user_query_outlasting_ticks_is_accepted(tmp_path):
             assert app.navigation["issues"].page.issues[0].number == 1
     finally:
         release.set()
+
+
+@pytest.mark.asyncio
+async def test_startup_observes_a_snapshot_collector_exactly_once():
+    # Textual dispatches ``on_ready`` on the paged app and then on its base;
+    # one initial observation must come out of the two, or a second lands on
+    # a collector with nothing more to give and fails the refresh.
+    collector = SequenceCollector(workspace_snapshot(issue("test/repo#1", "First")))
+    app = dashboard_app(collector, refresh_seconds=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await pilot.pause()
+        assert collector.calls == 1
+        assert not app.pending_rerun
+        assert app.observation_errors == {}
+        assert app.dashboard.queue_table().row_count == 1
+        assert app.store.query_issues().rows[0].issue.reference == "test/repo#1"

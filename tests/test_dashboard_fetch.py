@@ -17,6 +17,8 @@ from textual.widgets._footer import FooterKey
 
 from app_harness import (
     SequenceCollector,
+    dashboard_app,
+    first_load_landed,
     footer_keys,
     issue,
     pane_subtitle,
@@ -24,11 +26,11 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
 from dashpot.fetch import FetchReport, RemoteFetch, fetch_remotes
 from dashpot.git import Git
 from dashpot.legend import LegendScreen
 from dashpot.model import Branch, WorkspaceSnapshot
+from dashpot.paged_app import PagedDashpotApp
 from factories import SequenceRunner, completed
 from helpers import wait_until
 
@@ -106,19 +108,19 @@ def success(anchor: Path, *remotes: str) -> FetchReport:
     )
 
 
-def branch_names(app: DashpotApp) -> list[str]:
+def branch_names(app: PagedDashpotApp) -> list[str]:
     return sorted(row.name for row in app.store.query_branches().rows)
 
 
-def remote_branch_names(app: DashpotApp) -> list[str]:
+def remote_branch_names(app: PagedDashpotApp) -> list[str]:
     return sorted(row.name for row in app.store.query_branches().rows if row.remotes)
 
 
-def diagnostics_text(app: DashpotApp) -> str:
+def diagnostics_text(app: PagedDashpotApp) -> str:
     return str(app.query_one("#diagnostics", Static).render())
 
 
-def toasts(app: DashpotApp) -> list[str]:
+def toasts(app: PagedDashpotApp) -> list[str]:
     return [notification.message for notification in app._notifications]
 
 
@@ -132,14 +134,14 @@ async def test_f_fetches_and_prunes_every_remote_then_observes_the_result() -> N
     )
     git = Git(Path("/unused"), runner=runner)
     collector = SequenceCollector(BEFORE, freshly_fetched())
-    app = DashpotApp(
+    app = dashboard_app(
         collector,
         refresh_seconds=0,
         fetcher=lambda anchor: fetch_remotes(anchor, git=git),
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         assert remote_branch_names(app) == ["feature", "main"]
         assert pane_subtitle(app, "#branches-pane").endswith(
@@ -176,12 +178,12 @@ async def test_only_the_clone_that_supplied_the_branches_is_fetched() -> None:
         branch_anchor="/clones/second",
         anchors=("/clones/first", "/clones/second"),
     )
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(before, before), refresh_seconds=0, fetcher=fetcher
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
         await wait_until(lambda: app.store.revision == 2)
 
@@ -193,14 +195,14 @@ async def test_no_remote_is_refused_visibly_and_nothing_is_re_observed() -> None
     runner = SequenceRunner(completed(""))
     git = Git(Path("/unused"), runner=runner)
     collector = SequenceCollector(BEFORE)
-    app = DashpotApp(
+    app = dashboard_app(
         collector,
         refresh_seconds=0,
         fetcher=lambda anchor: fetch_remotes(anchor, git=git),
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
         await wait_until(lambda: bool(app.fetch_errors))
         await pilot.pause()
@@ -230,14 +232,14 @@ async def test_a_failed_remote_keeps_the_last_good_observation_and_says_why() ->
     )
     git = Git(Path("/unused"), runner=runner)
     collector = SequenceCollector(BEFORE)
-    app = DashpotApp(
+    app = dashboard_app(
         collector,
         refresh_seconds=0,
         fetcher=lambda anchor: fetch_remotes(anchor, git=git),
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
         await wait_until(lambda: bool(app.fetch_errors))
         await pilot.pause()
@@ -264,10 +266,10 @@ async def test_a_partial_fetch_is_reported_as_a_failure_but_still_observed() -> 
         )
     )
     collector = SequenceCollector(BEFORE, freshly_fetched())
-    app = DashpotApp(collector, refresh_seconds=0, fetcher=fetcher)
+    app = dashboard_app(collector, refresh_seconds=0, fetcher=fetcher)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
         await wait_until(lambda: app.store.revision == 2)
         await pilot.pause()
@@ -294,11 +296,11 @@ async def test_repeated_presses_do_not_overlap_and_the_fetch_is_visible() -> Non
     fetcher = RecordingFetcher()
     fetcher.release.clear()
     collector = SequenceCollector(BEFORE, freshly_fetched())
-    app = DashpotApp(collector, refresh_seconds=0, fetcher=fetcher)
+    app = dashboard_app(collector, refresh_seconds=0, fetcher=fetcher)
 
     try:
         async with app.run_test(size=(120, 40)) as pilot:
-            await wait_until(lambda: app.store.revision == 1)
+            await wait_until(lambda: first_load_landed(app))
             await pilot.press("f")
             await wait_until(lambda: len(fetcher.anchors) == 1)
             await pilot.pause()
@@ -323,10 +325,10 @@ async def test_repeated_presses_do_not_overlap_and_the_fetch_is_visible() -> Non
 @pytest.mark.asyncio
 async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
     fetcher = RecordingFetcher(OSError("git vanished"))
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0, fetcher=fetcher)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, fetcher=fetcher)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
         await wait_until(lambda: bool(app.fetch_errors))
 
@@ -339,14 +341,14 @@ async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
 @pytest.mark.asyncio
 async def test_f_is_refused_until_a_branch_observation_names_an_anchor() -> None:
     fetcher = RecordingFetcher()
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(observed(local("main"), branch_anchor=None)),
         refresh_seconds=0,
         fetcher=fetcher,
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
         await pilot.pause()
 
@@ -358,10 +360,10 @@ async def test_f_is_refused_until_a_branch_observation_names_an_anchor() -> None
 
 @pytest.mark.asyncio
 async def test_a_view_without_a_fetcher_refuses_the_key() -> None:
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
         await pilot.pause()
 
@@ -372,10 +374,10 @@ async def test_a_view_without_a_fetcher_refuses_the_key() -> None:
 async def test_startup_and_refresh_never_fetch() -> None:
     fetcher = RecordingFetcher()
     collector = SequenceCollector(BEFORE, BEFORE, BEFORE)
-    app = DashpotApp(collector, refresh_seconds=0.05, fetcher=fetcher)
+    app = dashboard_app(collector, refresh_seconds=0.05, fetcher=fetcher)
 
     async with app.run_test(size=(120, 40)):
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await app.run_action("refresh")
         await wait_until(lambda: collector.calls >= 3)
 
@@ -384,12 +386,12 @@ async def test_startup_and_refresh_never_fetch() -> None:
 
 @pytest.mark.asyncio
 async def test_f_is_listed_in_the_footer_and_the_legend() -> None:
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE), refresh_seconds=0, fetcher=RecordingFetcher()
     )
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
 
         assert "f" in footer_keys(app)

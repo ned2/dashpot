@@ -6,8 +6,12 @@ import pytest
 from textual.widgets import Button, Checkbox, Footer, Static
 from typing_extensions import override
 
-from app_harness import SequenceCollector, with_first_project_snapshot
-from dashpot.app import DashpotApp
+from app_harness import (
+    SequenceCollector,
+    dashboard_app,
+    first_load_landed,
+    with_first_project_snapshot,
+)
 from dashpot.cleanup_view import CleanupScreen
 from dashpot.fetch import FetchReport, RemoteFetch
 from helpers import wait_until
@@ -32,7 +36,7 @@ from test_dashboard_fetch import RecordingFetcher
 
 
 async def open_preview(app, pilot, kind):
-    await wait_until(lambda: app.store.revision == 1)
+    await wait_until(lambda: first_load_landed(app))
     await focus_row(
         app,
         pilot,
@@ -52,7 +56,7 @@ async def test_fetch_stays_in_same_dialog_and_holds_confirmation(kind):
     cleaner = FakeCleaner(preview, preview)
     fetcher = RecordingFetcher()
     fetcher.release.clear()
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -90,7 +94,7 @@ async def test_fetch_stays_in_same_dialog_and_holds_confirmation(kind):
 @pytest.mark.asyncio
 async def test_fetch_preserves_unchanged_optional_choice_and_resets_acknowledgement():
     cleaner = FakeCleaner(WORKTREE_PREVIEW, WORKTREE_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -129,7 +133,7 @@ async def test_fetch_drops_changed_optional_tip_and_never_selects_new_targets():
         update={"targets": (LOCAL, changed, extra), "fingerprint": "new"}
     )
     cleaner = FakeCleaner(initial, updated)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -154,7 +158,7 @@ async def test_fetch_dismissal_never_reopens_or_performs_cleanup():
     fetcher = RecordingFetcher()
     fetcher.release.clear()
     collector = SequenceCollector(BEFORE, BEFORE)
-    app = DashpotApp(collector, refresh_seconds=0, cleaner=cleaner, fetcher=fetcher)
+    app = dashboard_app(collector, refresh_seconds=0, cleaner=cleaner, fetcher=fetcher)
     try:
         async with app.run_test(size=(100, 40)) as pilot:
             screen = await open_preview(app, pilot, "branch")
@@ -188,7 +192,7 @@ async def test_fetch_dismissal_never_reopens_or_performs_cleanup():
 )
 async def test_failure_or_partial_fetch_stays_visible_with_fresh_inspection(answer):
     cleaner = FakeCleaner(BRANCH_PREVIEW, BRANCH_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -210,7 +214,7 @@ async def test_reinspection_failure_disables_confirmation_until_retry():
     cleaner = FakeCleaner(
         BRANCH_PREVIEW, RuntimeError("inspection denied"), BRANCH_PREVIEW
     )
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -232,7 +236,7 @@ async def test_reinspection_failure_disables_confirmation_until_retry():
 async def test_stale_post_fetch_observation_keeps_confirmation_unavailable():
     stale = with_first_project_snapshot(BEFORE, target_status="stale")
     cleaner = FakeCleaner(BRANCH_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, stale),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -272,7 +276,7 @@ async def test_prefetch_observation_cannot_release_the_confirmation_barrier():
 
     collector = GatedCollector()
     cleaner = FakeCleaner(BRANCH_PREVIEW, BRANCH_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         collector, refresh_seconds=0, cleaner=cleaner, fetcher=RecordingFetcher()
     )
     try:
@@ -310,7 +314,7 @@ async def test_fetch_can_unblock_the_fixed_primary(kind):
     )
     initial = ready.model_copy(update={"targets": (blocked,)})
     cleaner = FakeCleaner(initial, ready)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -338,7 +342,7 @@ async def test_missing_fetch_support_leaves_preview_available(missing):
     )
     cleaner = FakeCleaner(WORKTREE_PREVIEW)
     fetcher = RecordingFetcher()
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(snapshot),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -363,7 +367,7 @@ async def test_missing_primary_never_promotes_remaining_remote():
     initial = BRANCH_PREVIEW.model_copy(update={"targets": (LOCAL, remote)})
     refreshed = initial.model_copy(update={"targets": (remote,)})
     cleaner = FakeCleaner(initial, refreshed)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -401,7 +405,7 @@ async def test_grouped_branch_targets_require_explicit_concrete_choices(blocked_
     targets = (local, remote) if blocked_local else (remote, other)
     preview = BRANCH_PREVIEW.model_copy(update={"targets": targets})
     cleaner = FakeCleaner(preview, preview)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -434,7 +438,7 @@ async def test_partial_fetch_labels_repository_age_and_retained_remote_facts():
     report = FetchReport(
         ANCHOR, (RemoteFetch("origin", True), RemoteFetch("upstream", False, "denied"))
     )
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -478,7 +482,7 @@ async def test_worktree_fetch_age_covers_detached_and_independent_branch_blocker
         BEFORE, fetched_at="2026-09-11T00:00:00+00:00"
     )
     cleaner = FakeCleaner(preview)
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
+    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
     async with app.run_test(size=(80, 24)) as pilot:
         screen = await open_preview(app, pilot, "worktree")
         guidance = str(screen.query_one("#cleanup-freshness", Static).render())
@@ -499,7 +503,7 @@ async def test_fetch_resets_acknowledgement_when_ignored_inventory_changes():
         update={"ignored": ("new-secret/",), "fingerprint": "changed"}
     )
     cleaner = FakeCleaner(WORKTREE_PREVIEW, updated)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
@@ -537,7 +541,7 @@ async def test_post_fetch_observation_failure_never_reenables_old_preview(failur
 
     collector = FailingCollector()
     cleaner = FakeCleaner(BRANCH_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         collector, refresh_seconds=0, cleaner=cleaner, fetcher=RecordingFetcher()
     )
     app.cleanup_refresh_timeout = 0.05
@@ -562,7 +566,7 @@ async def test_dismissal_during_recomposition_does_not_reopen_preview(monkeypatc
     import asyncio
 
     cleaner = FakeCleaner(BRANCH_PREVIEW, BRANCH_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
         refresh_seconds=0,
         cleaner=cleaner,
