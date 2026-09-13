@@ -12,8 +12,9 @@ that serve it, and to choose the right upstream interface without repeating
 three separate investigations.
 
 Dashpot's proposed integration behavior belongs in the
-[OpenCode integration design](opencode-integration-design.md), not in this
-reference. The [domain language](domain-language.md#observation) defines
+[OpenCode integration design](opencode-integration-design.md) and the
+[Codex relocation and handoff design](codex-relocation-handoff-design.md), not
+in this reference. The [domain language](domain-language.md#observation) defines
 Dashpot's Agent Session and Agent Run; upstream products' terms are preserved
 below where their meanings differ.
 
@@ -21,7 +22,7 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Local CLI help/version `0.154.0`; current official documentation | No live server, hook-mapping, or restart experiment |
+| Codex | Local CLI help/version `0.154.0`; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | No live server, hook-mapping, or restart experiment; hook ordering is derived from the call graph, not timed |
 | Claude Code | Local CLI version `2.1.261`; current official docs and Python SDK source | No live server or SDK experiment; Remote Control worker ancestry unverified |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
@@ -103,7 +104,9 @@ This is local command-surface evidence from `codex --help` and
 App Server multiplexes threads with separate turns and tool items. Its
 bidirectional JSON-RPC wire format omits the `jsonrpc` field; initialize each
 connection. `thread.id` identifies a conversation, whereas `thread.sessionId`
-identifies its live session-tree root and can be shared by forks.
+identifies its live session-tree root; the documentation says forks share it,
+but the pinned `0.154.0` code and fork test give a forked root thread its own
+(see [Transport, execution host, and identity boundaries](#transport-execution-host-and-identity-boundaries)).
 [App Server protocol][server]
 
 | Operation or field | Meaning |
@@ -116,8 +119,10 @@ identifies its live session-tree root and can be shared by forks.
 | `thread/closed` | Unload runtime |
 | Thread/turn cwd | Conversation execution context, distinct from one command's cwd |
 
-Subscriptions are connection-scoped. After the last subscriber leaves, a thread
-can remain loaded until thirty minutes without subscribers or activity.
+Subscriptions are connection-scoped. After the last subscriber leaves, the
+documentation says a thread can remain loaded until thirty minutes without
+subscribers or activity; the pinned `0.154.0` code default is sixty seconds
+(see [Loaded threads, overrides, and unload](#loaded-threads-overrides-and-unload)).
 Ephemeral threads have different persistence. These are current protocol
 contracts, not local measurements. [App Server lifecycle][server]
 
@@ -216,9 +221,161 @@ the exact remote configuration and hook execution mapping remains unmeasured.
 
 Shell `CODEX_THREAD_ID`, hook `session_id`, per-conversation `thread.id`,
 shared `thread.sessionId`, and delegated `agent_id` must not be assumed
-interchangeable. The exact mapping across roots, forks, children and remote
-execution remains unverified by the local work recorded here. Subagent hooks
-use a parent session identity. [Hook fields][hooks]
+interchangeable across every mode. At `rust-v0.154.0` the pinned source
+establishes the root-thread mapping: hook `session_id` is the session's
+`SessionId`, which equals `thread.sessionId`; a new or forked root thread
+takes `SessionId::from(thread_id)`, so for root threads hook `session_id`,
+`thread.id`, `thread.sessionId`, and shell `CODEX_THREAD_ID` carry the same
+UUID, and the fork test asserts `thread.session_id == thread.id`. A non-root
+delegated agent reuses its parent's session ID. The documentation sentence
+that forked threads keep the root's session ID does not match this code. The
+mapping across remote execution hosts remains unverified.
+[Identity source][identity-source] [Fork test][fork-test]
+
+### Thread ownership and competing resume
+
+Evidence in this subsection is static reading of `rust-v0.154.0`, which
+includes [PR #43253][pr-43253]; no lock or client was exercised.
+
+The local thread store takes one advisory OS lock per thread,
+`<CODEX_HOME>/thread-writer-locks/<thread_id>.lock`, when a `Session` is
+constructed for a new or resumed thread. A second process's `try_lock`
+receives `WouldBlock` and the resume fails with `thread <id> already has an
+active writer` (JSON-RPC `-32600`). The lock carries no PID, heartbeat, or
+expiry; it is released when the guard drops at thread shutdown or when the
+process exits, and a leftover file after an abrupt exit is reclaimed by the
+next acquisition's stale sweep. Ownership persists while the owner is idle:
+the regression tests complete a turn in the first app-server, still receive
+the conflict from a second app-server on the same `CODEX_HOME` (even with a
+different SQLite directory), and succeed only after the first shuts down.
+Different `CODEX_HOME`s never conflict. [Writer lock][writer-lock]
+[Ownership tests][ownership-tests]
+
+The interactive TUI at this tag is backed by an embedded app-server, so bare
+`codex resume <id>` takes the same lock. On conflict the TUI falls back to a
+`thread/read` snapshot: it shows the transcript read-only with a notice that
+the conversation is open in another app, disables the composer, preserves a
+draft or positional prompt, and offers `R` to retry, `Esc`/`q`/`Ctrl-C` to
+exit. Retry sends a fresh `thread/resume`; there is no polling. `-C`/`--cd`
+does not interact with the lock; on a successful resume the override wins
+over the stored rollout cwd, so the resumed session's `turn_context.cwd` is
+the new directory. [Read-only startup][read-only-startup]
+[External-writer view][external-writer] [Retry keys][retry-keys]
+[Resume cwd override][resume-cwd]
+
+Hook consequences follow from where hooks live. Every Codex hook is dispatched
+from a core `Session` (the `codex_hooks` feature must be enabled): the lock is
+acquired inside `Session::new`, `SessionStart` is queued there and run at the
+start of the next turn, `UserPromptSubmit` runs in the turn input path,
+`Stop` at turn end, and `SessionEnd` from the shutdown handler. A read-only
+competing client therefore has no `Session`, runs no `SessionStart`,
+`UserPromptSubmit`, or `SessionEnd`, and publishes no `cwd` evidence; after a
+successful retry the new `Session`'s `SessionStart` (`source: resume`) fires
+on the first turn submitted, not at retry time. On the owning client's
+graceful exit, `SessionEnd` is awaited inside the shutdown handler before the
+live thread releases the lock, so the hook completes before a competitor can
+acquire ownership; shutdown timeouts (ten seconds per thread) can let the
+process exit with the hook unfinished, after which process exit releases the
+lock. An abrupt kill releases the lock with no `SessionEnd`.
+[Session construction][session-new] [Hook dispatch][hook-runtime]
+[Shutdown ordering][shutdown-order]
+
+### Working-directory change and worktree commands
+
+`/cd <path>` is a human-only TUI command; no tool or app-server method changes
+a live thread's cwd. Its target must be an existing, trusted directory; there
+is no Git or same-repository check, so an arbitrary pre-existing linked
+worktree is a valid target. When the current thread has a saved rollout, `/cd`
+forks it with `thread/fork` at the new cwd: core allocates a fresh thread ID,
+copies the history into the child's rollout, and records
+`forked_from_thread_id` in the store. The TUI then only unsubscribes from the
+old thread. The child's hooks carry the new `session_id` and cwd, and its
+`SessionStart` reports `source: startup` at this tag (the payload schema has
+no parent or fork field). The old thread's `SessionEnd`, with the old ID and
+cwd, runs when the subscriber-less thread unloads after the unload delay or
+when the client exits. Shell subprocesses of the child export the new
+`CODEX_THREAD_ID`. Preconditions: an idle primary thread with no queued input,
+pending steers, active background terminals, running side agent, loading MCP
+inventory, named profile, or untrusted destination, otherwise the user sees
+`Changing directories requires an idle primary session without queued input.`
+or the specific blocker. [Directory change][cd-impl] [Idle conditions][cd-idle]
+[Fork identity][fork-identity] [Session start source][start-source]
+
+`/worktree` (feature `worktrees`, experimental and off by default at this tag)
+creates a managed checkout with `git worktree add --detach` under
+`~/.codex/worktrees/<hex>/<repo>` (or `desktop.git-worktree-root`), on a
+detached HEAD with no branch, then forks or starts a thread there through the
+same directory-change path and records the owner thread beside the checkout.
+Its browser lists only managed checkouts and offers resuming their owner
+threads; it cannot carry the current conversation into an existing worktree.
+[Worktree creation][worktree-create] [Worktree picker][worktree-picker]
+
+### Loaded threads, overrides, and unload
+
+`thread/resume` on a thread already loaded in the app-server subscribes the
+caller to the existing runtime. Overrides in that request, including `cwd`,
+are honoured only when the thread has no subscribers, is idle, and is not
+running; then the cached runtime is shut down and a cold resume applies them.
+Otherwise the server logs that the overrides were ignored. `turn/start` may
+override `cwd` for that turn and subsequent turns; the override becomes the
+thread's sticky environment, is persisted per turn, and later hooks report it
+as their `cwd`, while the original `SessionMeta.cwd` is not rewritten. There
+is no `thread/unload` or `thread/close` request; `thread/unsubscribe` and a
+dropped connection only remove the subscription. A thread with no subscribers
+and no activity is unloaded after `thread_unload_delay_secs`, whose code
+default is sixty seconds at this tag although the documentation says thirty
+minutes; unload, archive, delete, resume-with-overrides of an idle
+unsubscribed thread, and server exit each run `SessionEnd` before
+`thread/closed`. Per-thread state is held in maps keyed by thread ID, and every
+request resolves its own thread, which is the isolation evidence for sibling
+conversations on one server. `codex --remote` attaches as a subscriber and
+closes its connection on exit, so the thread ends only after the unload delay
+unless another subscriber remains. [Loaded-thread resume][loaded-resume]
+[Turn cwd override][turn-cwd] [Unload lifecycle][unload]
+
+### Changes on `main` after `rust-v0.154.0`
+
+As of 2026-09-13 the newest stable release is `rust-v0.154.0` (published
+2026-09-09) and the newest prerelease is `rust-v0.155.0-alpha.3.10`
+(2026-09-11), whose notes are stubs. Merged PRs relevant to the mechanisms
+above, none yet in a stable release: [#44349][pr-44349] adds `fork` as a
+`SessionStart` source and reports supplied-history resumes as `resume`;
+[#44870][pr-44870] enables `worktrees` by default and blocks worktree creation
+and `/cd` when the local daemon lacks `thread/backgroundTerminals/list`;
+[#44711][pr-44711] and [#44969][pr-44969] extend the read-only snapshot and
+explicit retry to the command center and to tasks owned by another app
+server; [#44183][pr-44183] releases the writer when a resume is cancelled
+during startup; [#43848][pr-43848] preserves runtime workspace roots across
+resume and retargets the old cwd root when cwd changes. No PR changes the
+`codex resume` flags. Revalidate these against the release that ships them.
+
+[identity-source]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/session/session.rs#L776-L797
+[fork-test]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/tests/suite/v2/thread_fork.rs#L204-L206
+[pr-43253]: https://github.com/openai/codex/pull/43253
+[writer-lock]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/thread-store/src/local/writer_lock.rs
+[ownership-tests]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/tests/suite/v2/thread_resume.rs#L311-L407
+[read-only-startup]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/tui/src/app/startup.rs#L451-L473
+[external-writer]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/tui/src/chatwidget.rs#L1749-L1796
+[retry-keys]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/tui/src/app/input.rs#L236-L272
+[resume-cwd]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/src/request_processors/thread_processor.rs#L3793-L3806
+[session-new]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/session/session.rs#L911-L931
+[hook-runtime]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/hook_runtime.rs#L124-L181
+[shutdown-order]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/session/handlers.rs#L402-L486
+[cd-impl]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/tui/src/app/working_directory.rs#L332-L418
+[cd-idle]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/tui/src/chatwidget/working_directory.rs#L7-L40
+[fork-identity]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/thread_manager.rs#L1399-L1441
+[start-source]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/session/session.rs#L1616-L1622
+[worktree-create]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/worktree/src/lib.rs#L61-L165
+[worktree-picker]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/tui/src/chatwidget/worktree_picker.rs#L93-L133
+[loaded-resume]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/src/request_processors/thread_processor.rs#L4170-L4290
+[turn-cwd]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server-protocol/src/protocol/v2/turn.rs#L189-L191
+[unload]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs#L22-L125
+[pr-44349]: https://github.com/openai/codex/pull/44349
+[pr-44870]: https://github.com/openai/codex/pull/44870
+[pr-44711]: https://github.com/openai/codex/pull/44711
+[pr-44969]: https://github.com/openai/codex/pull/44969
+[pr-44183]: https://github.com/openai/codex/pull/44183
+[pr-43848]: https://github.com/openai/codex/pull/43848
 
 ## Claude Code
 
@@ -505,14 +662,14 @@ available, preserving release and mode boundaries.
 | Question | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- |
 | Does one selected host PID distinguish conversations? | App Server hosts multiple threads | Explicit background workers are separate; other modes need ancestry verification | No in the tested backend |
-| Does client disconnect stop execution? | Unsubscription has an inactivity grace period | Remote attachment and background workers can survive disconnect; SDK transport exit differs | Attached CLI exit did not stop its command |
+| Does client disconnect stop execution? | Unsubscription starts an unload delay (sixty seconds by code default at `0.154.0`); the embedded TUI shuts its thread down on exit | Remote attachment and background workers can survive disconnect; SDK transport exit differs | Attached CLI exit did not stop its command |
 | Does process restart erase history? | Stored thread resume documented; crash behavior unmeasured | Background workers resume retained conversations; Remote Control recovery is conditional | Same native ID resumed after backend replacement |
-| Are hook/command IDs fully mapped? | Root/fork/child and execution-host mapping unverified | Remote/job/native/child and shell claim mapping unverified | Native shell ID measured for legacy Bash; PTY can lack ID |
-| Is native parentage equivalent to fork origin? | Separate API fields; hook normalization unverified | Several fork and delegation forms; mapping unverified | No: measured fork lacked child `parentID` |
+| Are hook/command IDs fully mapped? | Root and fork mapping read from `0.154.0` source (hook `session_id` = thread ID; a fork gets its own); child and execution-host mapping unverified | Remote/job/native/child and shell claim mapping unverified | Native shell ID measured for legacy Bash; PTY can lack ID |
+| Is native parentage equivalent to fork origin? | No at `0.154.0`: the store records `forked_from_thread_id`, but the `SessionStart` payload has no parent field and reports `startup` for a fork (`fork` source lands after this tag) | Several fork and delegation forms; mapping unverified | No: measured fork lacked child `parentID` |
 
 Remaining reference gaps include exact mode-specific hook delivery on eviction,
 restart and abrupt exit; worker process ancestry in Claude Remote Control;
-Codex thread-to-hook identity mapping; OpenCode interactive/ACP shutdown and V2
+Codex child-thread and remote-execution hook identity mapping; OpenCode interactive/ACP shutdown and V2
 behavior; and the precise configuration/hook mapping across remote execution
 hosts. Do not turn a documented ability to subscribe into a guarantee of
 concurrent mutation safety for one conversation.

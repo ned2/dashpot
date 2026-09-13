@@ -45,8 +45,9 @@ For this Repository, invoke Dashpot through `uv run dashpot` in the Worktree
 where work happens. Hold the Issue Binding through the whole engagement,
 including every delegated task, final push, and CI run. A plain tool-call
 `cd`, or a sub-agent's shell elsewhere, does not relocate an Agent Session.
-Codex relocation uses sequential `codex resume <session-id> -C <path>` with the
-old client exited first; an active run declares its target with `work relocate`
+Codex relocation uses sequential `codex resume <session-id> -C <path>`, and
+the old client must exit to release the thread before the resumed client can
+continue it; an active run declares its target with `work relocate`
 before exit, and the resumed turn verifies the preserved run with `work show`
 before using `work start`. Claude Code uses `EnterWorktree`. Leave the Worktree
 in place unless the user explicitly requests Cleanup.

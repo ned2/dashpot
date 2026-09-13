@@ -68,8 +68,9 @@ resume, use the exact `work stop --session <session-key>` command from the
 
 ## Failed Codex resume
 
-Keep the prepared Worktree. If the old client is still running, exit it before
-retrying. If the installed Codex cannot resume the confirmed identity with
+Keep the prepared Worktree. If the old client is still running, the target
+client stays read-only: exit the old client, then press `R` there or run the
+resume command again. If the installed Codex cannot resume the confirmed identity with
 `-C`, use the fresh-session fallback from [dispatch](dispatch.md) and disclose
 that it starts a new Agent Session. A fresh session cannot complete a Relocation
 Intent for another Agent Session; end the old run explicitly, then run `work
