@@ -742,10 +742,15 @@ async def test_x_is_listed_in_the_footer_and_the_legend() -> None:
         await pilot.pause()
 
         assert "x" in footer_keys(app)
+        # The Footer recomposes its keys after the bindings settle, so wait
+        # for the entry rather than for one pause.
         footer = app.query_one(Footer)
-        assert ("x", "Delete Branch/Worktree") in [
-            (key.key, key.description) for key in footer.query(FooterKey)
-        ]
+        await wait_until(
+            lambda: (
+                ("x", "Delete Branch/Worktree")
+                in [(key.key, key.description) for key in footer.query(FooterKey)]
+            )
+        )
 
         await pilot.press("question_mark")
         await pilot.pause()
