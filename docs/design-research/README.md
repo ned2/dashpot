@@ -3,18 +3,36 @@ status: living
 date: 2026-09-13
 ---
 
-# Cognitive debt: research index
+# Design research
 
-Breadth-first research into *cognitive debt* — the loss of a developer's
-conceptual model of a codebase as agents author more of it — and into the
-ideas, evidence, and tooling that engage with keeping or rebuilding that
-model. This is the exploration phase of a design effort; nothing here
-assesses fit for Dashpot or for any particular flavour of agentic
-engineering. Each note is a dated `research` document: true as of its date,
+The research and analysis behind Dashpot's direction. Three themes run
+through it: *cognitive debt* — the loss of a developer's conceptual model
+of a codebase as agents author more of it — and the ideas, evidence, and
+tooling that engage with keeping or rebuilding that model; the intentional
+friction that keeps it, and where in a development lifecycle it belongs;
+and the shift from understanding held by a team, in the work, to
+understanding held by one person, in a session. The research notes are the
+exploration phase of a design effort and assess no fit for Dashpot or for
+any particular flavour of agentic engineering; only the
+[analysis](analysis.md) takes a position. Each research note is a dated
+`research` document: true as of its date,
 corrections marked inline as `(corrected 2026-09-13: …)`, and every claim
 cited to a primary source, with dead ends recorded so a later pass does not
 repeat them. Notes cite one another with relative links rather than
 repeating material.
+
+## How this was produced
+
+This is agent-driven research and summarisation, not directly
+human-authored research. The questions, the scope of each pass, the
+corrections to apply, and the framing of the analysis were set by a
+person; the searching, reading, and writing were done by coding agents
+(Claude Code sessions dispatching background research agents), with a
+later agent pass verifying claims against primary sources and marking
+corrections inline. Read every claim as a machine summary of a cited
+source: the citation is the authority, and a claim without one should be
+treated as unverified. The [synthesis](synthesis.md#provenance-of-this-corpus) records the
+provenance of each pass.
 
 ## Phase A: seed inputs
 
@@ -77,6 +95,17 @@ repeating material.
   "prove you understand it" tools, company policies, 2025–2026 conference
   talks, 2026 essays and threads, provenance and attestation tooling, and
   manual-trigger defaults in editors and agent CLIs.
+
+## The team lens
+
+- [Chat-centric agents versus team development](chat-centric-agents-vs-team-sdlc.md)
+  — who is writing about the mismatch between a private session as the
+  unit of work and a team's shared Issues, Branches, Pull Requests, and
+  review: Linear's and GitHub's issue-centric responses, the first
+  measurement of single-human supervision of agent pull requests (78.9%),
+  and the pre-agent history of the same fault line. Researched separately
+  from the passes above; it supplies the individual-against-team tension
+  with an AI-era measurement the corpus lacked.
 
 ## Synthesis and analysis
 

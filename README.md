@@ -791,13 +791,10 @@ development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
 a point-in-time survey of clean-code uplifts, package boundaries, and
 decomposition seams for the largest modules.
-The [cognitive-debt research](docs/cognitive-debt/README.md) is a breadth-first
-survey of the ideas, evidence, and tooling for keeping a developer's model of
-a codebase as agents author more of it.
-The [chat-centric agents versus team development](docs/chat-centric-coding-agents-vs-team-sdlc.md)
-note surveys who is writing about the mismatch between a private session as
-the unit of work and a team's shared Issues, Branches, Pull Requests, and
-review.
+The [design research](docs/design-research/README.md) is the research and
+analysis behind Dashpot's direction: keeping understanding of a codebase —
+held by a person and by a team — as agents author more of it, the friction
+that keeps it, and the work rather than the session as the unit.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

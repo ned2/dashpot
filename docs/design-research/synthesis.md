@@ -5,13 +5,15 @@ date: 2026-09-13
 
 # Cognitive debt: synthesis
 
-A documentary map of the sixteen notes in this directory: what the sources
-say the loss is, where each remedy sits, what each demands of the person,
-how much evidence stands behind each cell of that map, the tensions the
-sources state without resolving, and the gaps every pass left. It ranks
-nothing and judges fit for nothing; those questions belong to a separate
-analysis, which has not been written. Every claim below is a summary of a
-cited note; the note carries the primary source.
+A documentary map of the sixteen cognitive-debt notes in this directory
+(the [team lens](README.md#the-team-lens) note was researched separately
+and is cited where it bears on a tension): what the sources say the loss
+is, where each remedy sits, what each demands of the person, how much
+evidence stands behind each cell of that map, the tensions the sources
+state without resolving, and the gaps every pass left. It ranks nothing and
+judges fit for nothing; those questions belong to the separate
+[analysis](analysis.md). Every claim below is a summary of a cited note;
+the note carries the primary source.
 
 ## Finding
 
@@ -267,6 +269,11 @@ Recorded as the sources leave them, unresolved.
   (ρ = .38), and the one longitudinal software-team study found models did
   not converge
   ([unfamiliar code, shared model](unfamiliar-code-and-shared-models.md#how-a-team-holds-a-shared-model)).
+  (added 2026-09-14: a separately researched note supplies the AI-era
+  measurement this tension lacked — one person both reviewed and modified
+  the agent's contribution in 78.9% of 25,264 agentic pull requests,
+  multi-human patterns 11.3% — and the product responses to it
+  ([chat-centric agents](chat-centric-agents-vs-team-sdlc.md#bottom-line)).)
 
 ## Gaps every pass left
 
