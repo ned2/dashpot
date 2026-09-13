@@ -250,10 +250,6 @@ IssueColumnEditor {
 #column-editor-list > .selection-list--button-selected,
 #column-editor-list > .selection-list--button-highlighted,
 #column-editor-list > .selection-list--button-selected-highlighted,
-#cleanup-targets > .selection-list--button,
-#cleanup-targets > .selection-list--button-selected,
-#cleanup-targets > .selection-list--button-highlighted,
-#cleanup-targets > .selection-list--button-selected-highlighted,
 #cleanup-ignored > .toggle--button,
 #cleanup-ignored.-on > .toggle--button {
     color: $text;

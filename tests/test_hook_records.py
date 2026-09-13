@@ -239,13 +239,12 @@ class HookRecordStoreTests(unittest.TestCase):
 
     def test_graceful_session_end_removes_the_record(self) -> None:
         event = {"session_id": "graceful", "cwd": "/repo", "hook_event_name": "Stop"}
-        publish_hook_event(event, self.state_dir, environ={}, process=self.process)
+        publish_hook_event(event, self.state_dir, process=self.process)
         self.assertTrue((self.state_dir / "graceful.json").exists())
 
         publish_hook_event(
             {**event, "hook_event_name": "SessionEnd"},
             self.state_dir,
-            environ={},
             process=self.process,
         )
 
@@ -360,7 +359,6 @@ class HookRecordStoreTests(unittest.TestCase):
             publish_hook_event(
                 {"session_id": "sandboxed", "cwd": "/repo", "hook_event_name": "Stop"},
                 self.state_dir,
-                environ={},
             )
 
         record = json.loads((self.state_dir / "sandboxed.json").read_text())
@@ -375,7 +373,6 @@ class HookRecordStoreTests(unittest.TestCase):
                 "hook_event_name": "Interrupt",
             },
             self.state_dir,
-            environ={},
             process=self.process,
         )
 
@@ -424,7 +421,6 @@ class HookRoutingTests(unittest.TestCase):
                 "cwd": str(self.worktree),
                 "hook_event_name": "Stop",
             },
-            environ={},
             process=self.process,
         )
 
@@ -444,7 +440,6 @@ class HookRoutingTests(unittest.TestCase):
                     "cwd": str(self.worktree),
                     "hook_event_name": "Stop",
                 },
-                environ={},
                 process=self.process,
             )
 
@@ -514,7 +509,6 @@ class SubagentBoundaryTests(unittest.TestCase):
         publish_hook_event(
             event,
             self.state_dir,
-            environ={},
             process=self.process,
             harness="claude-code",
         )

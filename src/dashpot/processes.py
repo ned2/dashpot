@@ -185,12 +185,6 @@ def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobse
     return result.stdout
 
 
-def nearest_codex_process(
-    lookup: ProcessLookup = host_process_lookup,
-) -> ProcessIdentity | None:
-    return nearest_harness_process("codex", lookup)
-
-
 HARNESS_HOSTS: dict[str, Callable[[ProcessIdentity], bool]] = {
     adapter.harness: adapter.is_host_process for adapter in ADAPTERS.values()
 }
@@ -238,21 +232,6 @@ def observe_agent_ancestry(
                 return AgentAncestry((name, info))
         pid = info.parent_pid
     return AgentAncestry(None)
-
-
-def nearest_agent_process(
-    lookup: ProcessLookup = host_process_lookup,
-) -> tuple[str, ProcessIdentity] | None:
-    """Find the nearest enclosing supported harness process, if any."""
-    return observe_agent_ancestry(lookup).located
-
-
-def nearest_harness_process(
-    harness: str, lookup: ProcessLookup = host_process_lookup
-) -> ProcessIdentity | None:
-    """Find the nearest enclosing process of one named harness, if any."""
-    located = observe_agent_ancestry(lookup, harness=harness).located
-    return None if located is None else located[1]
 
 
 # Sandbox helpers that run a command as PID 2 of a fresh PID namespace: the

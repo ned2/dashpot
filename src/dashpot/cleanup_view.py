@@ -281,7 +281,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 yield Static(verb, id="cleanup-title")
                 yield Static(subject, markup=False, id="cleanup-subject")
                 yield Static(
-                    f"Repository: {preview.anchor}", markup=False, id="cleanup-context"
+                    f"Anchor: {preview.anchor}", markup=False, id="cleanup-context"
                 )
                 if self.changed:
                     yield Static(

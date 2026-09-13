@@ -36,7 +36,6 @@ from .issue_sources import (
     IssueSourceRefreshError,
 )
 from .model import IssueActivity, LinkedPullRequest, PullRequestState
-from .project_config import DEFAULT_RECONCILIATION_SECONDS
 
 _PAGE_SIZE = 100
 _PULL_REQUEST_STATES: dict[str, PullRequestState] = {
@@ -51,9 +50,6 @@ _STATE_REASONS = {
     "NOT_PLANNED": "not-planned",
     "REOPENED": "reopened",
 }
-
-
-DEFAULT_RECONCILE_SECONDS = DEFAULT_RECONCILIATION_SECONDS
 
 
 _CONNECTION_FIELDS = {
@@ -205,7 +201,6 @@ class GitHubIssuesSource(IssueSource):
         runner: CommandRunner = run_command,
         clock: Clock | None = None,
         budget: RefreshBudget = DEFAULT_REFRESH_BUDGET,
-        reconcile_seconds: float = DEFAULT_RECONCILE_SECONDS,
         monotonic: Callable[[], float] | None = None,
     ) -> None:
         super().__init__(clock=clock)
@@ -215,7 +210,6 @@ class GitHubIssuesSource(IssueSource):
         self.timeout = timeout
         self.runner = runner
         self.budget = budget
-        self.reconcile_seconds = reconcile_seconds
         self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
         self._monotonic = monotonic or time.monotonic
 

@@ -236,9 +236,5 @@ class ListPane(Vertical):
         """The highlighted row's key and index, or nothing when the pane is empty."""
         return capture_selection(self.table)
 
-    def highlighted_row(self) -> ListRow | None:
-        key, _index = self.highlighted()
-        return self.rows_by_key.get(key) if key is not None else None
-
     def row(self, key: str) -> ListRow | None:
         return self.rows_by_key.get(key)

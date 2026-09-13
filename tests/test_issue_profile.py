@@ -13,9 +13,8 @@ from dashpot.issue_profile import (
     IssueProfileError,
     MarkdownIssueLocation,
     conform_issue,
-    semantic_projection,
-    semantically_equivalent,
 )
+from helpers import semantic_projection, semantically_equivalent
 
 ROOT = Path(__file__).parents[1]
 FIXTURES = ROOT / "conformance" / "issue" / "fixtures"

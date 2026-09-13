@@ -16,26 +16,24 @@ from dashpot.processes import (
     ProcessUnobservable,
     host_process_lookup,
     namespace_is_isolated,
-    nearest_agent_process,
-    nearest_codex_process,
     observe_agent_ancestry,
 )
 from helpers import absent, table_lookup, unobservable
 
 
 class ProcessLookupTests(unittest.TestCase):
-    def test_nearest_agent_process_prefers_the_nearest_harness(self) -> None:
+    def test_an_unfiltered_walk_locates_the_nearest_harness(self) -> None:
         shell = ProcessIdentity(10, 20, "bash", "Tue Aug 25 01:00:00 2026")
         claude = ProcessIdentity(20, 30, "claude", "Tue Aug 25 00:59:00 2026")
         codex = ProcessIdentity(30, 1, "codex", "Tue Aug 25 00:58:00 2026")
         chain = {10: shell, 20: claude, 30: codex}
 
         with mock.patch("dashpot.processes.os.getppid", return_value=10):
-            result = nearest_agent_process(lookup=table_lookup(chain))
+            result = observe_agent_ancestry(table_lookup(chain))
 
-        self.assertEqual(("claude-code", claude), result)
+        self.assertEqual(AgentAncestry(("claude-code", claude)), result)
 
-    def test_nearest_codex_process_skips_sandbox_helper(self) -> None:
+    def test_a_codex_walk_skips_the_sandbox_helper(self) -> None:
         sandbox = ProcessIdentity(
             10,
             20,
@@ -52,9 +50,11 @@ class ProcessLookupTests(unittest.TestCase):
         )
 
         with mock.patch("dashpot.processes.os.getppid", return_value=10):
-            result = nearest_codex_process(lookup=table_lookup({10: sandbox, 20: host}))
+            result = observe_agent_ancestry(
+                table_lookup({10: sandbox, 20: host}), harness="codex"
+            )
 
-        self.assertEqual(host, result)
+        self.assertEqual(AgentAncestry(("codex", host)), result)
 
     def test_host_process_lookup_parses_portable_ps_fields_and_arguments(
         self,
@@ -254,10 +254,8 @@ class AgentAncestryTests(unittest.TestCase):
             filtered = observe_agent_ancestry(
                 unobservable("isolated-namespace"), harness="codex"
             )
-            wrapped = nearest_codex_process(lookup=unobservable("isolated-namespace"))
 
         self.assertEqual(AgentAncestry(None, "isolated-namespace"), filtered)
-        self.assertIsNone(wrapped)
 
     def test_ancestry_reports_why_the_walk_stopped_short(self) -> None:
         with mock.patch("dashpot.processes.os.getppid", return_value=10):

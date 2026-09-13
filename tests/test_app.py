@@ -24,7 +24,7 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp, ObservationFinished, project_label
+from dashpot.app import DashpotApp, ObservationFinished
 from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
 from dashpot.issue_list import IssueListQuery, row_key
 from dashpot.issue_table import (
@@ -226,7 +226,7 @@ async def test_failed_refresh_keeps_last_good_rows_and_shows_diagnostic() -> Non
 
     async with app.run_test(size=(80, 24)):
         await app.run_action("refresh")
-        await wait_until(lambda: app.ui_error is not None)
+        await wait_until(lambda: bool(app.observation_errors))
 
         assert app.store.revision == 1
         assert app.store.checkpoint() == snapshot
@@ -467,22 +467,6 @@ async def test_unbound_agent_is_counted_on_the_project_not_listed_as_work() -> N
         assert selected_title(app) == "#1: First"
 
 
-def test_project_uses_display_label_independent_of_workspace_and_anchor() -> None:
-    project = (
-        workspace_snapshot()
-        .projects[0]
-        .model_copy(
-            update={
-                "display_label": "Portable Project",
-                "workspaces": ("personal", "client"),
-                "primary_anchor": "/moved/checkout",
-            }
-        )
-    )
-
-    assert project_label(project) == "Portable Project"
-
-
 @pytest.mark.asyncio
 async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     transferred = issue("old/repository#7", "Transfer me")
@@ -640,9 +624,7 @@ async def test_only_a_timer_tick_coalesces_without_a_rerun(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_a_key_press_asks_for_a_reconciliation_and_a_tick_does_not(
-    tmp_path: Path,
-) -> None:
+async def test_a_key_press_observes_the_issue_source_again(tmp_path: Path) -> None:
     coordinator, collectors = coordinated_workspace(tmp_path)
     app = DashpotApp(coordinator, refresh_seconds=0)
     beta = collectors["beta"].source
@@ -655,7 +637,7 @@ async def test_a_key_press_asks_for_a_reconciliation_and_a_tick_does_not(
         await wait_until(lambda: beta.calls == 3 and not app.in_flight)
 
     # The initial observation, the tick, and the press.
-    assert beta.reconcile_requests == [False, False, True]
+    assert beta.calls == 3
 
 
 @pytest.mark.asyncio
@@ -688,7 +670,7 @@ async def test_a_timer_tick_failure_never_toasts() -> None:
             )
         )
         assert len(app._notifications) == 1
-        assert "forbidden" in (app.ui_error or "")
+        assert any("forbidden" in error for error in app.observation_errors.values())
 
 
 def coordinated_workspace(tmp_path: Path):
@@ -817,7 +799,7 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
         )
         assert alpha_snapshot().target_status == "fresh"
         assert table.row_count == 2
-        assert app.ui_error is None
+        assert not app.observation_errors
 
 
 @pytest.mark.asyncio
@@ -1042,7 +1024,7 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
         await app.run_action("refresh")
         await wait_until(lambda: not alert(app).display)
 
-        assert app.ui_error is None
+        assert not app.observation_errors
         assert "GitHub is unavailable" not in str(
             app.query_one("#diagnostics", Static).render()
         )

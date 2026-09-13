@@ -279,7 +279,6 @@ def test_project_collector_builds_github_source_for_github_anchor(
     assert isinstance(collector.source, GitHubIssuesSource)
     assert collector.source.project_id == PROJECT_ID
     assert collector.source.repository_id == "R_dashpot"
-    assert collector.source.reconcile_seconds == 45
     assert isinstance(collector.pull_request_source, GitHubPullRequestsSource)
     assert collector.pull_request_source.repository_id == "R_dashpot"
 
@@ -309,7 +308,6 @@ def test_build_issue_source_builds_the_configured_github_source(
     assert source.project_id == PROJECT_ID
     assert source.repository_id == "R_dashpot"
     assert source.timeout == 7
-    assert source.reconcile_seconds == 90
 
 
 def test_build_issue_source_requires_github_repository_anchor(tmp_path: Path) -> None:

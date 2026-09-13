@@ -3,8 +3,11 @@
 import threading
 
 import pytest
+from textual.binding import Binding
+from textual.widgets import Static
 
 from dashpot.collect import ObservationCoordinator
+from dashpot.legend import LegendScreen
 from dashpot.model import RepositoryStateInventory, ResolvedProject
 from dashpot.paged_app import PagedDashpotApp
 from dashpot.source_queries import QueryRequest
@@ -84,6 +87,35 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
             ),
         )
         assert not app.paged_store.checkpoint().projects[0].snapshot.issues
+
+
+@pytest.mark.asyncio
+async def test_the_legend_lists_the_shipped_screen_and_worktree_keys(tmp_path):
+    app = application(tmp_path)
+    async with app.run_test(size=(150, 55)) as pilot:
+        await wait_until(lambda: app.dashboard.queue_table().row_count == 1)
+        await pilot.press("question_mark")
+        await pilot.pause()
+
+        legend = app.screen
+        assert isinstance(legend, LegendScreen)
+        rendered = str(legend.query_one("#legend-keys", Static).render())
+        listed = {
+            binding.key: binding.description
+            for binding in Binding.make_bindings(legend.legend_bindings)
+        }
+
+    # The paging keys belong to the screen that actually runs, and the
+    # Worktrees table binds its own; the Legend must omit neither.
+    for key, description in (
+        ("n", "Next page"),
+        ("p", "Previous page"),
+        ("home", "First page"),
+        ("enter", "Open Worktree"),
+        ("y", "Copy path"),
+    ):
+        assert listed[key] == description
+        assert description in rendered
 
 
 @pytest.mark.asyncio

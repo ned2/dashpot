@@ -48,9 +48,12 @@ unavailable ones (a Worktree's Branch among them while the Worktree cannot be
 removed), asks for the Worktree's ignored content to be acknowledged,
 and answers a premature press of the destructive button by deleting nothing,
 saying why beneath the list and in a toast, and moving focus to what is
-missing; the button is never disabled, since Textual would still light it
-under the mouse and swallow the click silently, and it turns red once the
-selection is one the performer accepts. `Escape` cancels. Confirmation performs off the
+missing; the button stays pressable while the preview is idle and turns red
+once the selection is one the performer accepts, and is disabled only through
+a Remote Fetch, the post-fetch observation, and the re-inspection of the same
+Cleanup request, or while that re-inspection has failed
+([ADR 0036](adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)).
+`Escape` cancels. Confirmation performs off the
 event loop through the injected cleanup adapter (a construction without one
 refuses `x`, as one without a fetcher refuses `f`), one mutation per Project
 at a time: a Cleanup and a Remote Fetch of the same Project exclude each
@@ -164,7 +167,7 @@ accepted bindings, an `outside Project` marker in place of a target the
 observed Project does not own, an intentional `no active Issue work` value
 when unbound, its working directory relative to its Observation Target, and
 long paths, branches and titles clipped with an ellipsis. Its columns are
-`STATE`, `HARNESS`, `TARGET`, `BRANCH`, `ISSUE`, `DIRECTORY`, and
+the `◈` state glyph, `HARNESS`, `TARGET`, `BRANCH`, `ISSUE`, `DIRECTORY`, and
 `ACTIVITY`. `TARGET` is dropped
 altogether while every listed session shares one Observation Target, which is
 the usual shape of a Project with no linked Worktrees; it returns as soon as a
@@ -184,11 +187,12 @@ is likewise its own read model ([`worktree_list.py`](../src/dashpot/worktree_lis
 Target of the Project, identified by `(Project Identity, target path)`
 and sorted main before linked, then path, with its Git topology kind (`main` or
 `linked`) reported in its own column,
-and exceptional `stale` or `unavailable` state. Its five columns are `PATH`,
-`KIND`, `BRANCH`, `TREE`, and `SESSIONS`: `KIND` distinguishes Git's `main`
-and `linked` Worktrees, normal Branches omit HEAD, detached checkouts
-include their short HEAD, the working tree remains clean/dirty/unknown, and
-the last column counts the active Agent Sessions located there. `PATH` keeps
+and exceptional `stale` or `unavailable` state. Its columns are the `◈`
+activity glyph, `SESSIONS`, `PATH`, `KIND`, `BRANCH`, and `TREE`: `SESSIONS`
+counts the active Agent Sessions located there, `KIND` distinguishes Git's
+`main` and `linked` Worktrees, normal Branches omit HEAD, detached checkouts
+include their short HEAD, and the working tree remains clean/dirty/unknown.
+`PATH` keeps
 the full home-abbreviated path and the table scrolls horizontally when its
 content is wider than the pane. Healthy rows
 do not repeat `available`. Target-specific diagnostics stay in Diagnostics
@@ -213,8 +217,8 @@ result is followed by the active sessions on the Branch and
 the age of its last commit. The pane subtitle names the Integration Branch
 and the age of the Remote-Tracking Branches. The Worktrees pane names the
 Branch checked out at every Worktree. Rows are sorted checked-out first, then
-most recent commit. Its seven columns are `BRANCH`, `LOCAL`, `REMOTE`,
-`UPSTREAM`, `INTEGRATED`, `SESSIONS`, and `LAST COMMIT`. The
+most recent commit. Its columns are the `◈` activity glyph, `SESSIONS`,
+`BRANCH`, `LOCAL`, `REMOTE`, `UPSTREAM`, `INTEGRATED`, and `LAST COMMIT`. The
 refs are read with `git for-each-ref` from the first answering Repository
 Anchor; observation never runs `git fetch`, so the lower-right pane border
 carries the age of the last fetch (`remote last fetched 3h ago`, or

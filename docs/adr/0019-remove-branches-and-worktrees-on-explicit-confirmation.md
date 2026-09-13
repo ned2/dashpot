@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-02
+amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md
 ---
 
 # Remove Branches and Worktrees on explicit confirmation

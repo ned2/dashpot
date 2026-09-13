@@ -12,6 +12,7 @@ from dashpot.agents import observe_agent_runs
 from dashpot.hook_records import (
     HookRecordStore,
     locate_agent_session,
+    read_hook_record,
     session_directory,
     sessions_at_worktree,
 )
@@ -445,11 +446,11 @@ def test_hook_end_preserves_a_replacement_runtime_record(tmp_path):
     resumed = replace(CODEX, pid=5252)
     hook_record(tmp_path, A, "codex", resumed, at=LATER)
     store = HookRecordStore(session_directory(tmp_path))
-    before = store.read(A)
+    before = read_hook_record(store.record_path(A))
     store.write(
         hook_record_document(tmp_path, A, "codex", CODEX, state="ended", at=EARLIER)
     )
-    assert store.read(A) == before
+    assert read_hook_record(store.record_path(A)) == before
 
 
 def test_same_native_identity_does_not_authorize_a_live_runtime_takeover(roots):
