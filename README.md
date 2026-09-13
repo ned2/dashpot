@@ -791,6 +791,9 @@ development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
 a point-in-time survey of clean-code uplifts, package boundaries, and
 decomposition seams for the largest modules.
+The [cognitive-debt research](docs/cognitive-debt/README.md) is a breadth-first
+survey of the ideas, evidence, and tooling for keeping a developer's model of
+a codebase as agents author more of it.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
