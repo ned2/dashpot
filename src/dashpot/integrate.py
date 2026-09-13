@@ -27,7 +27,7 @@ from .hook_records import (
     validate_session_claim,
 )
 from .processes import ProcessLookup, host_process_lookup
-from .repository import worktree_root
+from .repository import main_worktree, worktree_records, worktree_root
 
 HOOK_TIMEOUT = 3
 # Inline hook definitions live under ``[hooks]`` or ``[[hooks.<Event>]]``.
@@ -155,6 +155,54 @@ def resolve_hook_command(spec: HarnessIntegration) -> Path:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class LinkedWorktreeBinding:
+    """A hook publisher that a linked Worktree's lifetime would take away."""
+
+    worktree: Path
+    # None when the Repository is bare: every checkout is then a linked
+    # Worktree and there is no main working tree to run the command from.
+    main_worktree: Path | None
+
+
+def linked_worktree_binding(command: Path) -> LinkedWorktreeBinding | None:
+    """Name the linked Worktree holding a hook publisher, if one does.
+
+    A publisher inside a linked Worktree — its ``.venv`` — is removed with
+    that Worktree when its Issue is finished, and every hook event fails
+    from then on. One in the main working tree, or outside any Git working
+    tree such as a tool installation, has no such lifetime.
+    """
+    # When Git cannot answer — no Repository holds the publisher, or Git
+    # itself is unavailable — the binding is not refused: the refusal names
+    # the one lifetime it can see, and ordinary installation does not wait
+    # on Git to prove a negative.
+    try:
+        root = worktree_root(command.parent)
+        records = worktree_records(root)
+    except RuntimeError:
+        return None
+    main = main_worktree(records)
+    if root == main:
+        return None
+    return LinkedWorktreeBinding(
+        worktree=root, main_worktree=None if "bare" in records[0] else main
+    )
+
+
+def _linked_worktree_consequence(
+    spec: HarnessIntegration, binding: LinkedWorktreeBinding
+) -> str:
+    rerun = f"run 'dashpot integrate {spec.harness}' from "
+    if binding.main_worktree is not None:
+        rerun += f"the main working tree {binding.main_worktree} or from "
+    return (
+        f"that publisher lives in the linked Worktree {binding.worktree}, which "
+        "is removed when its Issue is finished, and every hook event would fail "
+        f"from then on; {rerun}an installed tool environment"
+    )
+
+
 def install_integration(
     harness: str,
     home: Path | None = None,
@@ -172,6 +220,14 @@ def install_integration(
     skill = issue_work_skill_directory(spec, home)
     _validate_skill_destination(skill)
     command = command_path or resolve_hook_command(spec)
+    # Refuse before anything is loaded or written: the binding would outlive
+    # the environment it names, so the file is left exactly as it was.
+    binding = linked_worktree_binding(command)
+    if binding is not None:
+        raise RuntimeError(
+            f"cannot bind the {spec.display} hooks to {command}: "
+            f"{_linked_worktree_consequence(spec, binding)}"
+        )
     path = home / spec.hooks_file
     document = _load_hooks_document(spec, path)
     original = json.dumps(document, sort_keys=True)
@@ -307,6 +363,13 @@ def integration_status(
                     messages.append(f"hook publisher at {command} is not executable")
                 else:
                     messages.append(f"hook publisher: {command}")
+                    # While the file still exists the binding only looks
+                    # healthy; say now what removing its Worktree will do.
+                    binding = linked_worktree_binding(executable)
+                    if binding is not None:
+                        messages.append(
+                            f"warning: {_linked_worktree_consequence(spec, binding)}"
+                        )
     messages.append(
         _issue_work_skill_status(
             issue_work_skill_directory(spec, home), harness=spec.harness

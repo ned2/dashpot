@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import stat
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -69,6 +69,22 @@ def worktree_records(
     """
     adapter = git if git is not None else Git(root, timeout)
     return adapter.at(root).worktree_records()
+
+
+def main_worktree(records: Sequence[Mapping[str, str]]) -> Path:
+    """Return the Repository's main working tree, which Git always lists first.
+
+    What belongs to the Repository rather than to one checkout — the default
+    Worktree Root, the environment a hook binding may live in — anchors here,
+    never on the linked Worktree a command happens to run in. A bare
+    Repository has no main working tree; its first record is the bare
+    directory, and a caller that must tell the two apart reads its ``bare``
+    key.
+    """
+    # ``git worktree list`` always opens with the main working tree — or the
+    # bare repository when there is none — and the listing checkout itself is
+    # listed, so the first record exists.
+    return Path(records[0]["worktree"]).resolve()
 
 
 # Whether the process holding a Worktree lock is still running. Dashpot asks

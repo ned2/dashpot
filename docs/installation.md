@@ -214,8 +214,11 @@ dashpot integrate claude-code
 dashpot integrate claude-code --status
 ```
 
-Register only the harnesses you use. Review any hook-trust prompt in the
-harness, and start or resume a session in the configured Project. The
+Register only the harnesses you use, from the environment you mean to keep:
+a tool installation or the Repository's main working tree, never a linked
+Issue Worktree, whose `.venv` is removed with it. Review any hook-trust
+prompt in the harness, and start or resume a session in the configured
+Project. The
 integration installs lifecycle hooks and the managed `dashpot-issue-work`
 skill. It preserves unrelated settings; repeated installation refreshes its
 own entries. An Agent Session declares Issue work with `dashpot work start`
@@ -232,6 +235,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and ignore `.dashpot/state/`. |
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |
 | Sessions are missing or Issue opt-in is refused | Run `dashpot integrate <harness> --status` inside the session's Worktree; inspect hook trust, publisher path, skill version, and the confirmed Agent Session Identity. |
+| Every hook event fails after a Worktree was removed, or `--status` warns that the publisher lives in a linked Worktree | The hooks were bound to a publisher in that Worktree's `.venv`, which the Cleanup removed. Rerun `dashpot integrate <harness>` from the Repository's main working tree or from an installed tool environment; `integrate` refuses to bind a linked Worktree's publisher in the first place. |
 | Session liveness is unknown | Read the Diagnostic: an isolated process namespace can hide a live process. Unknown does not mean the Agent Session ended. |
 
 ## Upgrade and uninstall

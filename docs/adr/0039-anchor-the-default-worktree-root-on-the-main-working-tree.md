@@ -58,3 +58,13 @@ is not beside them.
   sibling, which lies outside every Worktree of the Project.
 - The domain language's *Worktree Root* names the main working tree, and
   *Repository Anchor* notes that an anchor may be a linked Worktree.
+- The same anchoring governs the environment a management command binds.
+  `dashpot integrate` writes the absolute path of the invoking environment's
+  hook publisher; run from a linked Worktree, that path lies in the
+  Worktree's `.venv` and is removed with it, after which every hook event
+  fails ([#195](https://github.com/ned2/dashpot/issues/195)). `integrate`
+  refuses such a binding and names the main working tree to run from, and
+  `--status` warns about an existing one while its file still exists. The
+  durable environment — the main working tree's `.venv` or a tool
+  installation — is the person's to choose; the command re-anchors nothing
+  ([ADR 0008](0008-let-management-commands-mutate-on-explicit-invocation.md)).

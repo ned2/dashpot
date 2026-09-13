@@ -39,6 +39,7 @@ from .repository import (
     choose_integration_ref,
     is_within,
     lock_holder,
+    main_worktree,
     worktree_root,
 )
 from .settings import WORKTREE_ROOT_VARIABLE, Settings, load_settings
@@ -162,10 +163,10 @@ def create_issue_worktree(
         for record in records
         if record.get("worktree") and "bare" not in record
     ]
-    main_worktree = _main_worktree(records)
+    main = main_worktree(records)
 
     root, root_source = resolve_worktree_root(
-        main_worktree, worktree_root_option, environment, machine
+        main, worktree_root_option, environment, machine
     )
     refusals.extend(_check_worktree_root(root, worktrees))
 
@@ -198,7 +199,7 @@ def create_issue_worktree(
         base_commit=resolution.commit,
         worktree_root=str(root),
         worktree_root_source=root_source,
-        main_worktree=str(main_worktree),
+        main_worktree=str(main),
         dry_run=dry_run,
         refusals=tuple(refusals),
         hints=tuple(hints),
@@ -210,14 +211,6 @@ def create_issue_worktree(
     # Hints named other Worktrees that looked like this Issue's; once this one
     # exists they have served their purpose and are not restated.
     return plan.model_copy(update={"dry_run": False, "created": True, "hints": ()})
-
-
-def _main_worktree(records: Sequence[Mapping[str, str]]) -> Path:
-    """The Repository's main working tree, which Git always lists first."""
-    # ``git worktree list`` always opens with the main working tree — or the
-    # bare repository when there is none — and the anchor itself is listed,
-    # so the first record exists; a bare Repository's pool sits beside it.
-    return Path(records[0]["worktree"]).resolve()
 
 
 def resolve_worktree_root(

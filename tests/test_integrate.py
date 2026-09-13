@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sysconfig
+from collections.abc import Callable
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,13 @@ from dashpot.integrate import (
     remove_integration,
     resolve_hook_command,
 )
-from factories import CODEX, git, hook_record_document, write_config_marker
+from factories import (
+    CODEX,
+    git,
+    hook_record_document,
+    init_repository,
+    write_config_marker,
+)
 from helpers import absent, present, unobservable
 
 
@@ -829,3 +836,171 @@ def test_resolve_hook_command_reports_a_missing_publisher(
 
     with pytest.raises(RuntimeError, match="reinstall Dashpot"):
         resolve_hook_command(spec)
+
+
+# --- Bindings a linked Worktree's lifetime would break ------------------------
+
+
+HARNESS_HOMES = [
+    pytest.param("codex", codex_home, "hooks.json", id="codex"),
+    pytest.param("claude-code", claude_home, "settings.json", id="claude-code"),
+]
+
+
+def linked_worktree(root: Path) -> tuple[Path, Path]:
+    """A committed Repository at ``root/repo`` and one linked Worktree beside it."""
+    main = init_repository(root / "repo")
+    git(main, "config", "user.email", "sim@example.invalid")
+    git(main, "config", "user.name", "Sim")
+    (main / "README.md").write_text("Sim\n")
+    git(main, "add", "-A")
+    git(main, "commit", "-q", "-m", "first")
+    linked = root / "repo.worktrees" / "157-issue"
+    git(main, "worktree", "add", "-q", "-b", "157-issue", str(linked))
+    return main.resolve(), linked.resolve()
+
+
+def environment_publisher(tree: Path, harness: str) -> Path:
+    """The publisher a ``.venv`` inside ``tree`` would install."""
+    command = tree / ".venv" / "bin" / integration(harness).command_name
+    command.parent.mkdir(parents=True)
+    command.write_text("#!/bin/sh\n")
+    command.chmod(0o755)
+    return command
+
+
+@pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
+def test_install_refuses_a_publisher_inside_a_linked_worktree(
+    tmp_path: Path,
+    harness: str,
+    make_home: Callable[[Path], Path],
+    hooks_file: str,
+) -> None:
+    home = make_home(tmp_path)
+    before = json.dumps({"hooks": {"Stop": [{"hooks": [{"command": "notify"}]}]}})
+    (home / hooks_file).write_text(before)
+    main, linked = linked_worktree(tmp_path)
+    command = environment_publisher(linked, harness)
+
+    with pytest.raises(RuntimeError) as refusal:
+        install_integration(harness, home, command_path=command)
+
+    message = str(refusal.value)
+    assert message.startswith(
+        f"cannot bind the {integration(harness).display} hooks to {command}: "
+    )
+    assert f"lives in the linked Worktree {linked}" in message
+    assert (
+        f"run 'dashpot integrate {harness}' from the main working tree {main}"
+        in message
+    )
+    assert (home / hooks_file).read_text() == before
+    assert not installed_skill(home, harness).exists()
+
+
+@pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
+def test_install_binds_a_publisher_in_the_main_working_tree(
+    tmp_path: Path,
+    harness: str,
+    make_home: Callable[[Path], Path],
+    hooks_file: str,
+) -> None:
+    home = make_home(tmp_path)
+    main, _linked = linked_worktree(tmp_path)
+    command = environment_publisher(main, harness)
+
+    messages = install_integration(harness, home, command_path=command)
+
+    assert f"hook publisher: {command}" in messages
+    assert (home / hooks_file).is_file()
+    status = integration_status(
+        harness, home, state_dir=tmp_path / "state", current=tmp_path
+    )
+    joined = "\n".join(status)
+    assert f"hook publisher: {command}" in joined
+    assert "linked Worktree" not in joined
+
+
+@pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
+def test_install_binds_a_publisher_outside_any_git_working_tree(
+    tmp_path: Path,
+    harness: str,
+    make_home: Callable[[Path], Path],
+    hooks_file: str,
+) -> None:
+    home = make_home(tmp_path)
+    # A tool installation: an environment no Repository contains.
+    command = environment_publisher(tmp_path / "tools" / "dashpot", harness)
+    outside = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=tmp_path, capture_output=True
+    )
+    assert outside.returncode != 0
+
+    messages = install_integration(harness, home, command_path=command)
+
+    assert f"hook publisher: {command}" in messages
+    assert (home / hooks_file).is_file()
+    status = integration_status(
+        harness, home, state_dir=tmp_path / "state", current=tmp_path
+    )
+    assert "linked Worktree" not in "\n".join(status)
+
+
+def test_a_bare_repository_names_no_main_working_tree_to_run_from(
+    tmp_path: Path,
+) -> None:
+    main, _linked = linked_worktree(tmp_path)
+    bare = tmp_path / "bare.git"
+    git(tmp_path, "clone", "-q", "--bare", str(main), str(bare))
+    checkout = tmp_path / "bare.worktrees" / "157-issue"
+    git(bare, "worktree", "add", "-q", str(checkout), "157-issue")
+    home = codex_home(tmp_path)
+    command = environment_publisher(checkout.resolve(), "codex")
+
+    with pytest.raises(RuntimeError) as refusal:
+        install_integration("codex", home, command_path=command)
+
+    message = str(refusal.value)
+    assert f"lives in the linked Worktree {checkout.resolve()}" in message
+    assert message.endswith(
+        "run 'dashpot integrate codex' from an installed tool environment"
+    )
+    assert "main working tree" not in message
+    assert not (home / "hooks.json").exists()
+
+
+@pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
+def test_status_warns_about_a_linked_worktree_binding_until_its_file_is_gone(
+    tmp_path: Path,
+    harness: str,
+    make_home: Callable[[Path], Path],
+    hooks_file: str,
+) -> None:
+    home = make_home(tmp_path)
+    main, linked = linked_worktree(tmp_path)
+    command = environment_publisher(linked, harness)
+    handler = {"type": "command", "command": shlex.quote(str(command)), "timeout": 3}
+    (home / hooks_file).write_text(
+        json.dumps({"hooks": {"Stop": [{"hooks": [handler]}]}})
+    )
+
+    messages = integration_status(
+        harness, home, state_dir=tmp_path / "state", current=tmp_path
+    )
+
+    publisher_line = messages.index(f"hook publisher: {handler['command']}")
+    warning = messages[publisher_line + 1]
+    assert warning.startswith(
+        f"warning: that publisher lives in the linked Worktree {linked}, which is "
+        "removed when its Issue is finished, and every hook event would fail"
+    )
+    assert f"from the main working tree {main}" in warning
+
+    git(main, "worktree", "remove", "--force", str(linked))
+    messages = integration_status(
+        harness, home, state_dir=tmp_path / "state", current=tmp_path
+    )
+
+    joined = "\n".join(messages)
+    assert f"hook publisher missing at {handler['command']}" in joined
+    assert "linked Worktree" not in joined
