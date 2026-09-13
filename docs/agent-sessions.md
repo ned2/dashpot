@@ -27,7 +27,12 @@ Installation performs a surgical merge of the harness's user-level hook file:
 existing hooks and unrelated settings are preserved, the registered command is
 the absolute path of this environment's publisher (so hook and observer
 versions stay in lock-step), and rerunning `integrate` is idempotent and
-repairs stale paths. The same command installs Dashpot's model-invoked
+repairs stale paths. Because that path must outlive the Issue work it
+observes, run `integrate` from the Repository's main working tree or an
+installed tool environment: a publisher inside a linked Worktree's `.venv`
+disappears with the Worktree, so `integrate` refuses to bind one and
+`--status` warns about an existing binding while the file still exists.
+The same command installs Dashpot's model-invoked
 `dashpot-issue-work` skill from that installed version. Removal deletes only
 the Dashpot handlers and files marked as its managed skill; a different skill
 at the same path is reported and left untouched. If Codex hooks are also

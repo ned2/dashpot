@@ -123,4 +123,7 @@ conventions the command owns, so that no agent skill re-derives them.
   Repository's main working tree from every checkout, and the consequence
   above that a command run from `.claude/worktrees/` must name a root
   explicitly no longer applies. Precedence of the explicit sources is
-  unchanged.
+  unchanged. ADR 0039's consequences extend the same anchoring to
+  `dashpot integrate`, which refuses an environment-level binding — a hook
+  publisher inside a linked Worktree's `.venv` — that the Worktree's
+  lifetime would break.

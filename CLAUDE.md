@@ -14,6 +14,13 @@ The Dashpot hook publisher is installed user-wide for Claude Code (check with
 as live automatically. Observation is not Issue opt-in: the `dashpot work start` / `stop`
 lifecycle in [AGENTS.md](AGENTS.md#issue-work-lifecycle) still applies.
 
+Run `dashpot integrate claude-code` only from the main checkout (`~/projects/dashpot`),
+never from an Issue Worktree: the hooks bind the absolute path of the invoking
+environment's publisher, and a linked Worktree's `.venv` is removed with the Worktree,
+which would break every hook event on the machine. `integrate` refuses such a binding and
+`--status` warns about one that already exists
+([diagnosis](docs/installation.md#diagnose-an-installation)).
+
 ## Sub-agents share the session's Agent Run
 
 Verified against a real session: a Claude Code sub-agent's shell is a child of the same

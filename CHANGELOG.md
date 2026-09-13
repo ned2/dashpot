@@ -13,7 +13,9 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   through a Project-local Work Store and the bundled Issue-work skill.
 - Install as an isolated Python application with `uv tool install dashpot`.
   Hook publishers work when their installation path contains spaces or shell
-  metacharacters.
+  metacharacters. `dashpot integrate` refuses to bind the hooks to a publisher
+  inside a linked Worktree, whose removal would break every hook event, and
+  `--status` warns about such a binding while its file still exists.
 
 This release establishes the first compatibility baseline. Documented commands,
 JSON key sets and semantics, Local Issue Markdown, and `.dashpot/config.json`
