@@ -781,6 +781,9 @@ The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycl
 records the reproducible evidence for a possible OpenCode integration.
 The [test-duration measurements](docs/test-duration-measurements.md) record the
 development-suite baseline and a focused synchronization improvement.
+The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
+a point-in-time survey of clean-code uplifts, package boundaries, and
+decomposition seams for the largest modules.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
