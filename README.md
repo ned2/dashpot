@@ -766,6 +766,8 @@ decision. The other files in [`docs/`](docs/) are research, audits, and
 proposals that informed decisions and implementation.
 The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycle-spike.md)
 records the reproducible evidence for a possible OpenCode integration.
+The [test-duration measurements](docs/test-duration-measurements.md) record the
+development-suite baseline and a focused synchronization improvement.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

@@ -96,6 +96,7 @@ def collect(root: Path, base: str) -> Evidence:
         "-m",
         "pytest",
         "-q",
+        "--durations=0",
         "--cov",
         "--cov-report=term-missing",
         f"--cov-report=json:{REPORT_DIRECTORY}/coverage.json",

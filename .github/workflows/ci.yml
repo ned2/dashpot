@@ -108,7 +108,7 @@ jobs:
       # tests and report generation must still pass.
       - name: Run tests
         if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.14'
-        run: uv run pytest -q
+        run: uv run pytest -q --durations=30
 
       - name: Run tests with a coverage report
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
@@ -117,7 +117,7 @@ jobs:
           # pytest captures startup stderr on passing tests; preserve core evidence.
           COVERAGE_DEBUG_FILE: coverage-debug.log
         run: |
-          uv run pytest -q --cov --cov-report=term-missing
+          uv run pytest -q --durations=30 --cov --cov-report=term-missing
           grep -E 'coverage_version:|core:' coverage-debug.log
           uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
@@ -245,7 +245,7 @@ jobs:
           PYGIT
           dpkg-query --show --showformat='${Package} ${Version}\n' git
       - name: Test against Debian Git 2.39
-        run: uv run pytest -q
+        run: uv run pytest -q --durations=30
 
   ci-required:
     name: CI required
