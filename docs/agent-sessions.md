@@ -74,8 +74,11 @@ When work needs another Worktree, the skill delegates path, Branch, base,
 collision, and rollback policy to `issue show` and `worktree create`. Claude
 Code relocates the running session with `EnterWorktree`. Codex prefers a
 sequential resume of the same Agent Session with `codex resume <session-id> -C
-<path>`: the old client exits first, and the resumed turn must publish fresh
-lifecycle evidence. An active run first declares its exact target with `work
+<path>`: the old client releases the thread by exiting, and the resumed turn
+must publish fresh lifecycle evidence. Codex itself keeps a competing client
+read-only until the owner exits, and that client publishes no hooks
+([thread ownership](agent-harness-server-client-reference.md#thread-ownership-and-competing-resume)).
+An active run first declares its exact target with `work
 relocate <path>`; the resumed hook moves that same run only after the old client
 is no longer live, and `work show` verifies the preserved binding. An unbound
 session still runs `work start` after arrival. Codex versions that cannot
