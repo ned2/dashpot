@@ -78,8 +78,21 @@ repeating material.
   talks, 2026 essays and threads, provenance and attestation tooling, and
   manual-trigger defaults in editors and agent CLIs.
 
+## Synthesis and analysis
+
+- [Synthesis](synthesis.md) — the documentary reading of the whole corpus:
+  the loss as the sources define it, a three-axis map (where the friction
+  lives × what it demands × how it is enforced) with evidence levels, the
+  tensions the sources leave unresolved, and the gaps every pass left.
+- [Analysis](analysis.md) — the evaluative counterpart, and the only note
+  here that takes a position: Dashpot as an instrument for a flexible,
+  AI-heavy but AI-optional lifecycle; the lifecycle in two layers against
+  the demand axis; the principles the evidence supports; and the method
+  for the candidates that follow.
+
 ## Reading order
 
 The evidence note and the landscape sweep are the shared vocabulary; the
 track notes assume both. The gap notes are best read after the tracks, since
-each ends in a mapping of its claims to where the tracks touch them.
+each ends in a mapping of its claims to where the tracks touch them. The
+synthesis assumes all of them; the analysis assumes the synthesis.
