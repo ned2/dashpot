@@ -83,7 +83,13 @@ relocate <path>`; the resumed hook moves that same run only after the old client
 is no longer live, and `work show` verifies the preserved binding. An unbound
 session still runs `work start` after arrival. Codex versions that cannot
 perform that resume use a disclosed fresh-session fallback, which creates a
-new Agent Session and cannot preserve the old run. A shell tool's `cd` remains
+new Agent Session and cannot preserve the old run. A person may instead run
+`/cd <path>` in the live Codex client to keep the model's context: Codex forks
+the conversation into a new thread there, so Dashpot observes a new Agent
+Session with its own hook `session_id`, which declares its own Issue work
+with `work start` after the old session ends its run with `work stop`
+([working-directory change](agent-harness-server-client-reference.md#working-directory-change-and-worktree-commands)).
+A shell tool's `cd` remains
 repository preparation rather than session relocation.
 
 Each refresh checks that a session's recorded process is still the one that

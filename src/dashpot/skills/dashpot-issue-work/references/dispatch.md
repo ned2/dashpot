@@ -61,4 +61,29 @@ codex -C <worktree-path> 'Continue Issue <reference>. First run <dashpot> work s
 This fallback creates a new Agent Session. It is compatibility behavior, not
 the preferred path. It cannot preserve an active Agent Run: end the old run
 explicitly once its session and agents are finished, then let the new session
-establish its own run with `work start`.
+establish its own run with `work start`. When the user wants to keep the
+model's context instead, offer the `/cd` handoff below.
+
+## Hand off a Codex session with `/cd`
+
+When the user prefers to keep the model's context without preserving the
+Agent Session, they may run `/cd <worktree-path>` in the live Codex client.
+Codex forks the conversation into a new thread at that directory: Dashpot
+observes a new Agent Session with a new hook `session_id`, whose
+`SessionStart` reports `startup` and names no parent thread (Codex 0.154.0).
+The old session's Agent Run cannot move with it. Only a person can run `/cd`;
+the model cannot invoke it.
+
+1. Finish delegated work and let the turn end. At Codex 0.154.0, `/cd` needs
+   an idle primary session with no queued input, active background terminals,
+   or running side agent, and a trusted target directory.
+2. If `<dashpot> work show` reports an active Agent Run for this session, run
+   `<dashpot> work stop` first. Do not run `work relocate`: a forked thread
+   cannot complete a Relocation Intent.
+3. Tell the user to run `/cd <worktree-path>`, then send the quoted prompt
+   from the fallback command above as the first turn there.
+4. In the new session, declare Issue work only with `work start`. Never infer
+   it from the inherited history or the destination path.
+
+`/worktree` does not apply: it creates a managed detached checkout instead of
+entering a prepared Issue Worktree.
