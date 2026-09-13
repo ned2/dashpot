@@ -14,12 +14,14 @@ from .hook_records import (
     observed_instant,
     scan_hook_stores,
     session_directory,
+    session_record_named,
     state_directory,
 )
 from .liveness import LivenessObservation, LivenessProbe
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .processes import ProcessKey, ProcessLookup, host_process_lookup
 from .repository import is_within
+from .session_matching import SessionEvidence
 from .work_store import ActiveWork, WorkStore
 
 # Diagnostics about hook Agent Session records are harness-neutral.
@@ -72,22 +74,13 @@ def observe_agent_runs(
 
 
 class ObservedActivityIndex:
-    """Join Work Store runs to hook Agent Sessions by either identity.
-
-    A run correlates by the harness's Agent Session Identity when the record
-    carries one, else by host process identity; a hook session joined to a
-    run is consumed so the pane lists the session once.
-    """
+    """Join Agent Runs to their own native identity's hook activity."""
 
     def __init__(self, sessions: Sequence[HookSessionObservation]) -> None:
         self._by_session: dict[SessionIdentityKey, HookSessionObservation] = {}
-        self._by_process: dict[ProcessKey, list[HookSessionObservation]] = {}
         for session in sessions:
             self._by_session[session.run.harness, session.session_id] = session
-            if session.process_key is not None:
-                self._by_process.setdefault(session.process_key, []).append(session)
         self._consumed: set[SessionIdentityKey] = set()
-        self._reported: set[ProcessKey] = set()
         self.diagnostics: list[Diagnostic] = []
 
     def adopt(
@@ -97,10 +90,15 @@ class ObservedActivityIndex:
         process_key: ProcessKey | None,
     ) -> ObservedActivity | None:
         session = None
-        if session_id is not None:
-            session = self._by_session.get((harness, session_id))
-        if session is None and process_key is not None:
-            session = self._freshest_by_process(process_key)
+        identity = SessionEvidence(harness, session_id, process_key)
+        if identity.native_key is not None:
+            session = self._by_session.get(identity.native_key)
+        if (
+            session is not None
+            and process_key is not None
+            and (session.process_key is not None and session.process_key != process_key)
+        ):
+            return None
         if session is None:
             return None
         self._consumed.add((session.run.harness, session.session_id))
@@ -109,42 +107,6 @@ class ObservedActivityIndex:
             session.run.last_activity_at,
             session.run.turn_started_at,
         )
-
-    def _freshest_by_process(
-        self, process_key: ProcessKey
-    ) -> HookSessionObservation | None:
-        """Resolve a process key to one session, reporting any ambiguity.
-
-        A resumed session reuses its host process, so two hook records can
-        share one key; the freshest is adopted and the tie is reported rather
-        than silently resolved. A Work Store record that carries an Agent
-        Session Identity never reaches this route.
-        """
-        candidates = self._by_process.get(process_key)
-        if not candidates:
-            return None
-        # ``max`` keeps the first-scanned candidate on an equal instant, which
-        # is deterministic because stores and records are scanned in sorted
-        # order; the per-session fold prefers the last-scanned instead.
-        freshest = max(
-            candidates,
-            key=lambda candidate: observed_instant(candidate.run.last_activity_at),
-        )
-        if len(candidates) > 1 and process_key not in self._reported:
-            self._reported.add(process_key)
-            self.diagnostics.append(
-                Diagnostic(
-                    source=SESSION_DIAGNOSTIC_SOURCE,
-                    severity="warning",
-                    message=f"{len(candidates)} Agent Sessions share host process "
-                    f"{process_key[0]}; adopting the freshest "
-                    f"({freshest.session_id}). A resumed session keeps its host "
-                    f"process; run 'dashpot work start' from the session to "
-                    f"record its Agent Session Identity",
-                    code="agent-session-process-ambiguous",
-                )
-            )
-        return freshest
 
     def consumed(self, session: HookSessionObservation) -> bool:
         return (session.run.harness, session.session_id) in self._consumed
@@ -167,6 +129,18 @@ def observe_work_runs(
         sweep_work_store(store)
         for work in active:
             process_key = work_process_key(work)
+            if work.session_id is None:
+                diagnostics.append(
+                    Diagnostic(
+                        source=work.run_id,
+                        severity="warning",
+                        code="work-session-unresolved",
+                        message=f"Agent Run {work.session_key} has no confirmed Agent Session "
+                        "Identity; process evidence cannot establish ownership. After its "
+                        "recorded process is proved gone, run "
+                        f"'dashpot work stop --session {work.session_key}' at {target.path}",
+                    )
+                )
             if work.relocation is None and work.session_process is not None:
                 liveness = probe.observe(work.session_process.key)
                 if liveness.liveness == "gone":
@@ -258,7 +232,9 @@ def relocation_diagnostic(
         for scanned in scan_hook_stores(
             unique_stores,
             probe,
-            select=lambda path: path.stem == work.session_id,
+            select=lambda path: session_record_named(
+                path, work.session_id or "", work.harness
+            ),
         ):
             if (
                 scanned.record.harness == work.harness
@@ -322,18 +298,11 @@ def relocation_diagnostic(
 def run_identities(
     work: ActiveWork, process_key: ProcessKey | None
 ) -> set[tuple[str, ...]]:
-    """Every identity one Work Store run is known by across its routes.
-
-    One session may be recorded by its process at one Worktree and by its
-    Agent Session Identity at another (the sandboxed route), so a run is
-    known by every identity it carries.
-    """
-    identities: set[tuple[str, ...]] = set()
-    if process_key is not None:
-        identities.add(("process", str(process_key[0]), process_key[1]))
-    if work.session_id is not None:
-        identities.add(("session", work.harness, work.session_id))
-    return identities
+    """Identify a named run for harness-scoped conflict detection."""
+    identity = SessionEvidence(work.harness, work.session_id, process_key)
+    if identity.native_key is None:
+        return set()
+    return {("session", *identity.native_key)}
 
 
 def conflicting_run_diagnostic(work: ActiveWork) -> Diagnostic:
@@ -414,7 +383,7 @@ def observe_hook_sessions(
                 # A gone session's Issue work, if any, is reported by the
                 # Work Store pass; cleanup failures are not observations.
                 with contextlib.suppress(OSError):
-                    store.prune(record.session_id, scanned.raw)
+                    store.prune(scanned.path.stem, scanned.raw)
                 continue
             diagnostics.extend(
                 Diagnostic(

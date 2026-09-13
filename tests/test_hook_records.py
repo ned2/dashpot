@@ -267,6 +267,9 @@ class HookRecordStoreTests(unittest.TestCase):
             {
                 "version": 2,
                 "sessionId": "ending",
+                "harness": "codex",
+                "sessionProcess": self.process.as_record(),
+                "lastActivityAt": "2026-08-25T16:00:00Z",
                 "state": "ended",
                 "issueId": "not an id",
             },
@@ -283,7 +286,7 @@ class HookRecordStoreTests(unittest.TestCase):
         self.assertTrue((self.state_dir / ".live.lock").exists())
 
         (self.state_dir / "live.json").unlink()
-        self.assertEqual(["live"], store.orphaned_locks())
+        self.assertIn("live", store.orphaned_locks())
         self.assertTrue(store.prune_lock("live"))
         self.assertFalse((self.state_dir / ".live.lock").exists())
 

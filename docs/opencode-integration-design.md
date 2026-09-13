@@ -60,7 +60,7 @@ activity adoption, duplicate detection, location lookup and end reconciliation:
 | Both records name native identities | Require equal harness and equal native ID; mismatches never fall back to process |
 | OpenCode claim lacks native identity | Refuse Issue-work mutation; a PTY's backend ancestry is insufficient |
 | OpenCode identity is named but corroboration is missing | Refuse mutation; report unknown activity instead of borrowing another conversation's evidence |
-| Legacy record lacks native identity | Retain only the explicitly supported legacy process route, scoped to the harness; it cannot match a different named session |
+| Legacy record lacks native identity | Keep ownership unresolved and activity unknown under ADR 0038; require explicit targeted recovery before same-harness Issue work |
 | Conflicting native records or multiple eligible legacy candidates | Diagnose conflict; do not choose the freshest conversation to authorize a mutation |
 
 New OpenCode Work Store record names must distinguish native identities sharing
@@ -70,10 +70,10 @@ not silently alias another identity. Do not migrate existing record names merely
 by observing them: `ActiveWork.run_id` currently includes the record name, so a
 rename can also change an Agent Run's identity.
 
-Initially preserve existing Codex and Claude Code record formats and filenames.
-Their normalized native identities should obey strict matching too. Migration
-of identity-less records needs explicit compatibility tests and an opt-in path;
-OpenCode support does not require a bulk rewrite of legacy Work Stores.
+Preserve existing Codex and Claude Code records and their storage names.
+ADR 0038 supplies strict native matching, new named-run digest keys, and explicit
+recovery for unnamed records. OpenCode support must retain that compatibility
+boundary and does not require a bulk rewrite of legacy Work Stores.
 
 ## Put evidence reconciliation behind one interface
 
@@ -267,8 +267,10 @@ assignment alone cannot reconstruct an undelivered callback's original order.
 The conditional removal must durably unlink the Work Store record before the
 pending effect is durably cleared. An already-absent record also needs its
 directory persistence barrier before acknowledging reconciliation. Existing
-`WorkStore.stop(key)` neither compares the exact current run nor fsyncs the
-directory after unlink, so it is insufficient for this protocol. Whether conversation
+`WorkStore.stop_current(expected)` now compares the exact current run under its
+lock; the proposed durable protocol additionally needs directory fsync after
+unlink. `WorkStore.stop(key)` supplies neither guarantee and is insufficient
+for this protocol. Whether conversation
 deletion should end Issue work remains a recommended policy, unlike the agreed
 backend restart policy.
 
@@ -439,9 +441,10 @@ If the old backend is live or unknown, refuse the restart until that conflict
 is resolved. Refuse a surviving record in another Worktree while relocation
 remains outside scope. An explicit stop can reconcile a specifically selected
 Orphaned Agent Run under the existing management authority; for OpenCode it must
-require positive gone evidence. The current external-stop helper tests only
-whether a recorded process is live, so its unknown case needs explicit attention
-rather than being assumed safe. Observation cannot perform this recovery.
+require positive gone evidence. ADR 0038 now enforces that boundary for recorded
+processes: the external-stop helper refuses both live and unknown liveness.
+Preserve that behavior when adding OpenCode. Observation cannot perform this
+recovery.
 
 | Scenario | Expected outcome |
 | --- | --- |
@@ -505,17 +508,23 @@ explicit relocation contract is designed.
 
 ## Concrete code changes to plan
 
-| Existing seam | Why it needs attention |
+[Issue #159](https://github.com/ned2/dashpot/issues/159) implements native identity
+isolation for Codex and Claude Code under
+[ADR 0038](adr/0038-isolate-native-agent-session-identities.md). The OpenCode
+publication, generation, and acknowledgment contracts in this design remain
+proposed. The following separates the completed correction from that future work.
+
+| Existing seam | Current behavior and remaining work |
 | --- | --- |
-| [work.py](../src/dashpot/work.py): `identify_agent_session`, `_session_identity` | Host ancestry is currently primary; even a confirmed native identity becomes a process-keyed record when a process is known |
-| [work.py](../src/dashpot/work.py): `_session_work`, `start_issue_work`, `stop_issue_work` | Exclude process fallback after native mismatch; revalidate acknowledged command facts inside the final mutation context; require gone evidence before replacing an old backend association or externally stopping its run |
-| [agents.py](../src/dashpot/agents.py): `ObservedActivityIndex.adopt` | A missing named session currently falls through to another session on the same process; OpenCode also requires the recorded backend association when joining new observation to old work |
-| [agents.py](../src/dashpot/agents.py): `run_identities` | Shared process identity can mark distinct native sessions as conflicting Agent Runs |
-| [hook_records.py](../src/dashpot/hook_records.py): `locate_agent_session`, `HookRecordStore` | Lookup admits process matches; record naming is native-ID-only and writes have no generation ordering contract |
-| [work_store.py](../src/dashpot/work_store.py): `end_session_runs`, `replace_current`, `stop` | Native identity OR process matching can end another conversation's work; add exact-current conditional stop for retryable end reconciliation |
-| [record_store.py](../src/dashpot/record_store.py): `LockedRecordStore.replace`, `locked` | One-file durable replacement is reusable; repository coordination and deadline-aware acquisition are additional requirements |
+| [work.py](../src/dashpot/work.py): `identify_agent_session`, `_session_identity` | Hook-confirmed native identity is required on visible and sandboxed routes; new named runs use harness-scoped digest keys. Add OpenCode command corroboration under its proposed publication contract |
+| [work.py](../src/dashpot/work.py): `_session_work`, `start_issue_work`, `stop_issue_work` | Native mismatch never falls back to process; unresolved legacy ownership refuses mutation, and runtime takeover requires gone evidence. OpenCode acknowledgment revalidation remains proposed |
+| [agents.py](../src/dashpot/agents.py): `ObservedActivityIndex.adopt` | Missing named evidence produces unknown activity; unnamed legacy runs do not adopt process activity. OpenCode must additionally validate its recorded backend association |
+| [agents.py](../src/dashpot/agents.py): `run_identities` | Conflict detection uses harness-scoped native identity; shared processes do not make named runs duplicates |
+| [hook_records.py](../src/dashpot/hook_records.py): `locate_agent_session`, `HookRecordStore` | Named lookup validates full identity; colliding native labels across harnesses use separate checked filenames. A publisher generation ordering contract remains proposed |
+| [work_store.py](../src/dashpot/work_store.py): `end_session_runs`, `replace_current`, `stop_current` | SessionEnd matches native identity and runtime; replacement and deletion compare expected state under lock. Reuse this conditional mutation seam for future retryable end reconciliation |
+| [record_store.py](../src/dashpot/record_store.py): `LockedRecordStore.replace`, `locked` | One-file durable replacement is reusable; repository coordination and deadline-aware acquisition remain additional requirements |
 | [liveness.py](../src/dashpot/liveness.py): `session_liveness`, `LivenessProbe` | Reuse PID/start-time proof and per-pass memoization; unknown never authorizes takeover or orphan recovery |
-| [harnesses.py](../src/dashpot/harnesses.py) | Express native-identity requirements without treating backend recognition as session identification |
+| [harnesses.py](../src/dashpot/harnesses.py) | Reuse native-identity requirements without treating backend recognition as session identification |
 | [integrate.py](../src/dashpot/integrate.py) | Add managed OpenCode plugin installation/status/removal without assuming every harness uses hook JSON |
 
 Use Pydantic models on the shared base for new publication and persisted shapes;
@@ -525,15 +534,14 @@ contracts are settled. Leave existing record formats readable throughout.
 
 ## Implementation sequence and decisions to resolve
 
-1. Establish strict native matching through `identify_agent_session`, the
-   Issue-work commands, `WorkStore` and `observe_agent_runs` using fake process
-   lookup. Cover missing A evidence with busy B on the same process, two named
-   runs sharing a backend, cross-harness native-ID collisions, and ending A
-   without affecting B. Existing tests cover named-A preference when A exists,
-   and end isolation across different processes; neither proves these cases.
-   Preserve legacy identity-less freshest-process observation with its diagnostic
-   where currently supported; that observation rule does not authorize ambiguous
-   Issue-work mutation.
+1. **Completed by #159:** strict native matching through `identify_agent_session`,
+   Issue-work commands, `WorkStore`, and `observe_agent_runs`, tested with fake
+   process lookup. Regressions cover missing A evidence with busy B, shared
+   backends, cross-harness native-ID collisions, and ending A without affecting
+   B. ADR 0038 intentionally replaces unnamed freshest-process observation with
+   unknown activity and explicit targeted recovery; an unresolved legacy run
+   cannot authorize mutation or be silently adopted. Preserve these invariants
+   when introducing OpenCode publication evidence.
 2. Implement the publication module with temporary Project-local stores, an
    injected process lookup and controllable clock. Exercise registration races,
    retirement-before-init, exact duplicates, altered duplicate payloads, stale
@@ -602,18 +610,16 @@ consolidates the upstream contracts for Codex, Claude Code and OpenCode. Keep
 product behavior there; the following are proposals for Dashpot rather than
 additional harness guarantees.
 
-Codex App Server makes native conversation matching a shared concern. Review
-the process-derived storage key in `work._session_identity`, process fallback
-in `_session_work` and `ObservedActivityIndex.adopt`, the native-or-process
-location selection in `locate_agent_session`, and the native-or-process stop
-in `end_session_runs`. Each can join distinct conversations if the selected
-process is shared. [P1 Issue #159](https://github.com/ned2/dashpot/issues/159)
-now records a reported live Codex collision during #156/#151 and the full
-disposable regression source. Rerunning it against this checkout produced four
-failures and two passing controls: wrong location, identical Work Store keys,
-cross-session start cleanup, and cross-session SessionEnd cleanup. The specific
-operation behind a later live binding disappearance remains untraced; no Claude
-runtime collision has been reproduced.
+Codex App Server made native conversation matching a shared concern.
+[P1 Issue #159](https://github.com/ned2/dashpot/issues/159) records a reported live
+Codex collision during #156/#151 and the disposable regressions. Before the fix,
+they produced four failures and two passing controls: wrong location, identical
+Work Store keys, cross-session start cleanup, and cross-session SessionEnd
+cleanup. The regressions now pass with native matching, separate named storage,
+and conditional mutation under ADR 0038. The specific operation behind a later
+live binding disappearance remains untraced; no Claude runtime collision was
+reproduced. These corrections do not establish the broader hosting-mode contracts
+proposed below.
 
 Claude's background supervisor documents a separate worker for each session.
 Identify the executing worker before deciding whether a process association is
@@ -623,13 +629,13 @@ need their own hook and shell identity evidence.
 
 The domain language and [ADR 0015](adr/0015-reconcile-the-agent-run-at-session-end.md)
 already distinguish conversation lifetime from process lifetime, including
-Claude `/clear` and `/resume`. The gap is validating concurrent conversations
+Claude `/clear` and `/resume`. The remaining hosting-mode work is validating concurrent conversations
 and additional hosting modes throughout the implementation. Shared identity
 and liveness infrastructure with harness-specific evidence adapters is a
 recommendation; OpenCode's publisher generation protocol is not automatically
 required for the other harnesses.
 
-Before changing compatibility behavior, run bounded, isolated experiments for
+Before extending hosting-mode compatibility beyond ADR 0038, run bounded, isolated experiments for
 Codex roots, forks and children sharing one server, and Claude Remote Control,
 supervised workers, SDK clients and teammates. Verify native/shell/hook IDs,
 working directories, command and hook process ancestry, disconnect, eviction,
@@ -641,13 +647,13 @@ support; a loopback SDK fixture does not establish Remote Control behavior.
 The agreed explicit `work start` policy remains scoped to OpenCode backend
 restart. Applying it to a Codex runtime or Claude worker replacement requires
 a separate decision; restarting only a supervisor must not silently become
-an equivalent trigger. No cross-harness implementation change is made here.
+an equivalent trigger. The broader runtime contract remains proposed; #159 supplies the completed identity correction.
 
 The agreed delivery sequence is:
 
 | Issue | Deliverable | Dependencies |
 | --- | --- | --- |
-| [#159](https://github.com/ned2/dashpot/issues/159) | P1 identity correction for existing integrations | Independently deliverable |
+| [#159](https://github.com/ned2/dashpot/issues/159) | Completed identity correction for existing integrations (ADR 0038) | Independently delivered |
 | [#160](https://github.com/ned2/dashpot/issues/160) | Shared lifecycle contract, designed against all three harnesses with focused experiments | Can proceed alongside #159 |
 | [#161](https://github.com/ned2/dashpot/issues/161) | Shared runtime implementation with Codex support | #159 and #160 |
 | [#162](https://github.com/ned2/dashpot/issues/162) | Claude clients and supervised workers through the shared model | #161 |

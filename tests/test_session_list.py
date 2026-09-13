@@ -193,6 +193,7 @@ def test_correlated_hook_and_work_records_are_one_session_row() -> None:
         WorkStore(worktree).start(
             ActiveWork(
                 session_key="codex-42-abcd1234",
+                session_id="session-a",
                 harness="codex",
                 session_label="codex pid 42",
                 session_process=SessionProcess(
