@@ -7,7 +7,6 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
-from pathlib import Path
 from typing import ClassVar, cast
 
 from rich.text import Text
@@ -21,7 +20,7 @@ from typing_extensions import override
 from .alerts import summarize_alerts
 from .app import DashboardScreen, DashpotApp, ObservationFinished, PaneRows
 from .cleanup import CleanupAdapter
-from .collect import ObservationCoordinator
+from .collect import ObservationScheduler, SnapshotCollector
 from .fetch import RemoteFetcher
 from .issue_list import IssueListQuery, IssueListResult, row_key
 from .issue_table import (
@@ -42,7 +41,6 @@ from .pull_request_list import (
     PullRequestListResult,
     PullRequestListRow,
 )
-from .query_source import configured_query_source
 from .source_queries import (
     ProjectTotals,
     QueryPage,
@@ -301,42 +299,34 @@ class PagedDashboardScreen(DashboardScreen):
         self.dashpot.request_identities()
 
 
+# The Query Sources the shipped app consults, one per concurrent consumer:
+# each key runs on its own executor thread against its own source instance.
+QUERY_SOURCE_KEYS: tuple[str, ...] = (
+    "issues",
+    "pull-requests",
+    "totals:issues",
+    "totals:pull-requests",
+    "identities",
+)
+
+
 class PagedDashpotApp(DashpotApp):
     def __init__(
         self,
-        collector: ObservationCoordinator,
+        collector: SnapshotCollector | ObservationScheduler,
         *,
-        sources: Mapping[str, QuerySource] | None = None,
+        sources: Mapping[str, QuerySource],
         refresh_seconds: float = 15,
         fetcher: RemoteFetcher | None = None,
         cleaner: CleanupAdapter | None = None,
         launcher_configuration: LauncherConfiguration | None = None,
     ) -> None:
         self.paged_store = PagedObservationStore()
-        collector.publish(self.paged_store)
         self.navigation: dict[ResourceKind, PageNavigation] = {
             kind: PageNavigation(QueryRequest(kind=kind))
             for kind in ("issues", "pull-requests")
         }
-        root = (
-            Path(collector.projects[0].primary_anchor)
-            if collector.projects
-            else Path.cwd()
-        )
-        self.sources = (
-            dict(sources)
-            if sources is not None
-            else {
-                key: configured_query_source(root, timeout=collector.timeout)
-                for key in (
-                    "issues",
-                    "pull-requests",
-                    "totals:issues",
-                    "totals:pull-requests",
-                    "identities",
-                )
-            }
-        )
+        self.sources = dict(sources)
         self.query_executor = ThreadPoolExecutor(
             max_workers=5, thread_name_prefix="dashpot-query"
         )
@@ -355,6 +345,10 @@ class PagedDashpotApp(DashpotApp):
             cleaner=cleaner,
             launcher_configuration=launcher_configuration,
         )
+        # A local-only coordinator composes a placeholder for every Project
+        # at construction; publishing it now names the Projects before their
+        # first observation lands.
+        self.scheduler.publish(self.paged_store)
 
     @override
     def get_default_screen(self) -> PagedDashboardScreen:
@@ -362,15 +356,21 @@ class PagedDashpotApp(DashpotApp):
             self.initial_issue_view, (), self.initial_pull_request_query, ()
         )
 
+    # Textual dispatches a message handler on every class of the MRO that
+    # defines one, subclass first, so the handlers below never call super():
+    # the base handler runs once, after this one, on its own.
+
     @override
     def on_ready(self) -> None:
-        super().on_ready()
         for kind, prefix in (("issues", "issue"), ("pull-requests", "pull-request")):
             source = self.sources[kind]
             self.dashboard.query_one(
                 f"#{prefix}-search", Input
             ).placeholder = source.search_prompt
-        self.request_refresh("initial")
+        if self.store.has_observations:
+            # The base handler requests nothing over a seeded store, and the
+            # placeholders published at construction are such a seed.
+            self.request_refresh("initial")
 
     @override
     def request_refresh(self, trigger: str) -> None:
@@ -502,12 +502,12 @@ class PagedDashpotApp(DashpotApp):
                 screen.refresh(recompose=True)
 
     @override
-    def on_observation_finished(self, message: ObservationFinished) -> None:
-        super().on_observation_finished(message)
+    def _accept_observation(self, message: ObservationFinished) -> None:
+        super()._accept_observation(message)
+        # Identities are resolved against the Agent Runs just published.
         if message.ticket.key.kind == "agent-runs":
             self.request_identities()
 
     @override
     def on_unmount(self) -> None:
         self.query_executor.shutdown(wait=False, cancel_futures=True)
-        super().on_unmount()

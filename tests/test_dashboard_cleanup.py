@@ -20,13 +20,14 @@ from textual.widgets._footer import FooterKey
 import factories
 from app_harness import (
     SequenceCollector,
+    dashboard_app,
+    first_load_landed,
     footer_keys,
     issue,
     with_first_project,
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
 from dashpot.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,
@@ -46,6 +47,7 @@ from dashpot.issue_list import row_key
 from dashpot.legend import LegendScreen
 from dashpot.list_pane import ListPane
 from dashpot.model import Branch, WorkspaceSnapshot
+from dashpot.paged_app import PagedDashpotApp
 from helpers import wait_until
 
 ANCHOR = "/repo"
@@ -267,16 +269,16 @@ class FakeCleaner:
         return answer
 
 
-def toasts(app: DashpotApp) -> list[str]:
+def toasts(app: PagedDashpotApp) -> list[str]:
     return [notification.message for notification in app._notifications]
 
 
-def toast_titles(app: DashpotApp) -> list[str]:
+def toast_titles(app: PagedDashpotApp) -> list[str]:
     return [notification.title for notification in app._notifications]
 
 
 async def focus_row(
-    app: DashpotApp, pilot: Pilot[None], pane_id: str, key: str
+    app: PagedDashpotApp, pilot: Pilot[None], pane_id: str, key: str
 ) -> None:
     """Focus a list pane and put its cursor on the row with ``key``."""
     pane = app.query_one(f"#{pane_id}", ListPane)
@@ -286,12 +288,12 @@ async def focus_row(
     await app.workers.wait_for_complete()
 
 
-def cleanup_screen(app: DashpotApp) -> CleanupScreen:
+def cleanup_screen(app: PagedDashpotApp) -> CleanupScreen:
     assert isinstance(app.screen, CleanupScreen)
     return app.screen
 
 
-def confirm_button(app: DashpotApp) -> Button:
+def confirm_button(app: PagedDashpotApp) -> Button:
     return cleanup_screen(app).query_one("#cleanup-confirm", Button)
 
 
@@ -310,7 +312,7 @@ def details(app):
     )
 
 
-def problem_text(app: DashpotApp) -> str:
+def problem_text(app: PagedDashpotApp) -> str:
     return str(cleanup_screen(app).query_one("#cleanup-problem", Static).render())
 
 
@@ -324,10 +326,10 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_notifies() -> Non
         BRANCH_PREVIEW, reports=[report(BRANCH_PREVIEW, deleted(LOCAL))]
     )
     collector = SequenceCollector(BEFORE, AFTER)
-    app = DashpotApp(collector, refresh_seconds=0, cleaner=cleaner)
+    app = dashboard_app(collector, refresh_seconds=0, cleaner=cleaner)
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
 
@@ -375,10 +377,10 @@ async def test_a_refused_cleanup_keeps_its_detailed_report() -> None:
     cleaner = FakeCleaner(
         BRANCH_PREVIEW, reports=[report(BRANCH_PREVIEW, refused(LOCAL))]
     )
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -396,10 +398,10 @@ async def test_a_refused_cleanup_keeps_its_detailed_report() -> None:
 @pytest.mark.asyncio
 async def test_an_unavailable_target_can_never_stay_selected() -> None:
     cleaner = FakeCleaner(BRANCH_PREVIEW)
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -417,10 +419,10 @@ async def test_an_unavailable_target_can_never_stay_selected() -> None:
 async def test_escape_cancels_and_performs_nothing() -> None:
     cleaner = FakeCleaner(BRANCH_PREVIEW)
     collector = SequenceCollector(BEFORE)
-    app = DashpotApp(collector, refresh_seconds=0, cleaner=cleaner)
+    app = dashboard_app(collector, refresh_seconds=0, cleaner=cleaner)
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -452,12 +454,12 @@ async def test_a_changed_preview_reopens_for_another_confirmation() -> None:
             report(revised, deleted(LOCAL)),
         ],
     )
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
     )
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -494,12 +496,12 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         WORKTREE_PREVIEW,
         reports=[report(WORKTREE_PREVIEW, deleted(TREE), deleted(ATTACHED))],
     )
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
     )
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -573,12 +575,12 @@ BLOCKED_WORKTREE_PREVIEW = preview("worktree", WORKTREE, BLOCKED_TREE, HELD)
 @pytest.mark.asyncio
 async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
     cleaner = FakeCleaner(BLOCKED_WORKTREE_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
     )
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -608,10 +610,10 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
 @pytest.mark.asyncio
 async def test_x_is_refused_where_no_deletable_row_has_focus() -> None:
     cleaner = FakeCleaner(BRANCH_PREVIEW)
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         await pilot.press("x")
         await pilot.pause()
@@ -623,10 +625,10 @@ async def test_x_is_refused_where_no_deletable_row_has_focus() -> None:
 
 @pytest.mark.asyncio
 async def test_a_view_without_a_cleaner_refuses_the_key() -> None:
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
         await pilot.pause()
@@ -637,10 +639,10 @@ async def test_a_view_without_a_cleaner_refuses_the_key() -> None:
 @pytest.mark.asyncio
 async def test_an_inspection_failure_is_a_toast_and_releases_the_project() -> None:
     cleaner = FakeCleaner(OSError("git vanished"))
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
         await wait_until(lambda: bool(toasts(app)))
@@ -663,7 +665,7 @@ async def test_cleanup_and_fetch_exclude_each_other_per_project() -> None:
         fetched.set()
         raise AssertionError("never fetched")
 
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, AFTER),
         refresh_seconds=0,
         fetcher=fetcher,
@@ -672,7 +674,7 @@ async def test_cleanup_and_fetch_exclude_each_other_per_project() -> None:
 
     try:
         async with app.run_test(size=(140, 50)) as pilot:
-            await wait_until(lambda: app.store.revision == 1)
+            await wait_until(lambda: first_load_landed(app))
             await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
             await pilot.press("x")
             await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -705,7 +707,7 @@ async def test_a_fetch_in_flight_refuses_the_key() -> None:
         raise OSError("stopped")
 
     cleaner = FakeCleaner(BRANCH_PREVIEW)
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE),
         refresh_seconds=0,
         fetcher=fetcher,
@@ -714,7 +716,7 @@ async def test_a_fetch_in_flight_refuses_the_key() -> None:
 
     try:
         async with app.run_test(size=(140, 50)) as pilot:
-            await wait_until(lambda: app.store.revision == 1)
+            await wait_until(lambda: first_load_landed(app))
             await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
             await pilot.press("f")
             await wait_until(lambda: bool(app.fetching))
@@ -731,19 +733,24 @@ async def test_a_fetch_in_flight_refuses_the_key() -> None:
 
 @pytest.mark.asyncio
 async def test_x_is_listed_in_the_footer_and_the_legend() -> None:
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE), refresh_seconds=0, cleaner=FakeCleaner()
     )
 
     async with app.run_test(size=(160, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
 
         assert "x" in footer_keys(app)
+        # The Footer recomposes its keys after the bindings settle, so wait
+        # for the entry rather than for one pause.
         footer = app.query_one(Footer)
-        assert ("x", "Delete Branch/Worktree") in [
-            (key.key, key.description) for key in footer.query(FooterKey)
-        ]
+        await wait_until(
+            lambda: (
+                ("x", "Delete Branch/Worktree")
+                in [(key.key, key.description) for key in footer.query(FooterKey)]
+            )
+        )
 
         await pilot.press("question_mark")
         await pilot.pause()
@@ -760,12 +767,12 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         WORKTREE_PREVIEW,
         reports=[report(WORKTREE_PREVIEW, deleted(TREE), deleted(ATTACHED))],
     )
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
     )
 
     async with app.run_test(size=(80, 24)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -815,12 +822,12 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
         WORKTREE_PREVIEW,
         reports=[report(WORKTREE_PREVIEW, deleted(TREE), deleted(ATTACHED))],
     )
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
     )
 
     async with app.run_test(size=(140, 50)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
@@ -865,7 +872,7 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
 
 @pytest.mark.asyncio
 async def test_fixed_worktree_acknowledgement_is_independent_of_optional_branch():
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, WORKTREE_PREVIEW))
         await pilot.pause()
@@ -904,7 +911,7 @@ async def test_blocked_choices_keep_all_reasons_and_keyboard_access_to_full_evid
         }
     )
     shown = preview("branch", "feat", blocked)
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(CleanupScreen(BRANCH_REQUEST, shown))
         await pilot.pause()
@@ -938,7 +945,7 @@ async def test_long_worktree_identity_and_all_ignored_paths_are_accessible(size)
     tree = TREE.model_copy(update={"path": long_path})
     ignored = tuple(f"ignored-{number}/" for number in range(30))
     shown = preview("worktree", long_path, tree, ignored=ignored)
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=size) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, shown))
         await pilot.pause()
@@ -981,7 +988,7 @@ async def test_content_integration_and_changed_preview_keep_consequences_explici
         }
     )
     shown = preview("worktree", WORKTREE, TREE, integrated, ignored=(".venv/",))
-    app = DashpotApp(SequenceCollector(BEFORE), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, shown, changed=True))
         await pilot.pause()

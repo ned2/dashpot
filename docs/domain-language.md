@@ -404,6 +404,13 @@ presentation of the Column Description
 
 ## Source queries
 
+**Query Source**:
+The configured adapter that observes one Project's Query Pages, Project Totals,
+Resolved Issues and Source Enumeration on demand. The dashboard is built from
+one Query Source per query it runs; the command line constructs them beside
+the collector. _Avoid_: treating a Query Source as a collector — it never
+publishes a Workspace Snapshot.
+
 **Query Page**:
 A bounded ordered observation of complete Issues or Pull Requests matching one
 submitted source query and lifecycle constraint. It reports matching count,

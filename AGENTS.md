@@ -133,14 +133,22 @@ The conventions the tooling enforces or the code assumes:
   `MarkedCheckbox` in `src/dashpot/marked_widgets.py`, not from Textual's
   stock `SelectionList` or `Checkbox`, whose `X` is always drawn and only
   recoloured, and give its button states one colour in `dashpot.tcss`.
+- Textual runs a message handler (`on_ready`, `on_observation_finished`, …)
+  on every class of the MRO that defines it, subclass first, so an override
+  never calls `super()` — that would run the base handler twice. Work that
+  must follow the base handler goes in an override of the plain method it
+  calls, as `PagedDashpotApp._accept_observation` does.
 - Docstrings are one imperative line in the voice of the shared domain language
   (`"""Identify the supported Agent Session enclosing this command."""`);
   comments explain why, not what.
 - Tests drive public seams: `observe_agent_runs` with a fake process lookup
   rather than the process adapter, the `WorkStore` rather than its files,
   Textual screens through `App.run_test` / `pilot` and the `wait_until`
-  helper in `tests/helpers.py`. Fakes stand in for GitHub; nothing in the
-  suite talks to the network.
+  helper in `tests/helpers.py`. A test of the shipped dashboard builds it with
+  `dashboard_app` in `tests/app_harness.py`, whose `SnapshotQuerySource`
+  serves the snapshot the collector observes, and waits on
+  `first_load_landed` before reading a pane. Fakes stand in for GitHub;
+  nothing in the suite talks to the network.
 - Every document under `docs/` declares `status` and `date` in frontmatter,
   and every in-repo Markdown link resolves — path and heading anchor.
   `scripts/check_docs.py` fails the gate on either. When you move or rename a
