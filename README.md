@@ -755,12 +755,17 @@ These `living` documents carry the detail this README points at:
 - [`docs/agent-sessions.md`](docs/agent-sessions.md) documents `dashpot
   integrate` and `dashpot work`, the Work Store, and how a session is
   identified.
+- [`docs/agent-harness-server-client-reference.md`](docs/agent-harness-server-client-reference.md)
+  compares Claude Code, Codex CLI, and OpenCode hosting, clients, conversation
+  identity, and lifecycle, with source and experiment boundaries.
 - [`docs/design.md`](docs/design.md) describes how the pieces fit — the
   observation pipeline, the read model, and the seams beneath the interface.
 
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
 decision. The other files in [`docs/`](docs/) are research, audits, and
 proposals that informed decisions and implementation.
+The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycle-spike.md)
+records the reproducible evidence for a possible OpenCode integration.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
