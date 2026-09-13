@@ -856,6 +856,10 @@ state.
 The [cognitive-debt research](docs/cognitive-debt/README.md) is a breadth-first
 survey of the ideas, evidence, and tooling for keeping a developer's model of
 a codebase as agents author more of it.
+The [chat-centric agents versus team development](docs/chat-centric-coding-agents-vs-team-sdlc.md)
+note surveys who is writing about the mismatch between a private session as
+the unit of work and a team's shared Issues, Branches, Pull Requests, and
+review.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
