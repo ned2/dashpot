@@ -9,11 +9,11 @@ from unittest.mock import patch
 from dashpot.issue_profile import (
     IssueProfile,
     conform_issue,
-    semantically_equivalent,
 )
 from dashpot.issue_sources import IssueSourceRefreshError, parse_issue_hint
 from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
 from factories import local_issue_document
+from helpers import semantically_equivalent
 from issue_source_conformance import (
     assert_duplicate_identity_is_refused,
     assert_duplicate_number_is_refused,

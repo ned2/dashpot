@@ -328,9 +328,13 @@ needs a selection and a confirmation:
   sorts after the buttons in the `Tab` order, which Textual computes from
   screen position, whenever it starts out scrolled under the docked footer.
   Everything focusable except the list therefore lives in the footer.
-- Never gate the destructive `Button` with `disabled`: a disabled button
-  still lights up under the mouse and swallows the click without a word, and
-  `Tab` skips it, which reads as a broken button. Keep it pressable, recompute
+- Gate the destructive `Button` with `disabled` only while the preview is
+  busy — a Remote Fetch, the post-fetch observation, and the re-inspection
+  of the same Cleanup request — or while that re-inspection has failed
+  ([ADR 0036](adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)).
+  A disabled button still lights up under the mouse and swallows the click
+  without a word, and `Tab` skips it, so an idle preview never uses it to
+  express an incomplete selection. Keep it pressable, recompute
   the reason on every `SelectionList.SelectedChanged` and `Checkbox.Changed`,
   show it beneath the list, switch the variant to `error` only once a press
   would delete, and answer a premature press with a toast and focus on what is

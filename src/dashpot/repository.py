@@ -347,7 +347,7 @@ def _unavailable(
     )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class BranchObservation:
     """Every Branch of a repository plus the age of its remote facts."""
 

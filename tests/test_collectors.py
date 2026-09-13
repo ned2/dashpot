@@ -463,7 +463,7 @@ class FakeProjectCollector:
     def __init__(self, snapshot: ProjectSnapshot) -> None:
         self.snapshot = snapshot
 
-    def observe_issues(self, *, reconcile: bool = False) -> IssueSourceObservation:
+    def observe_issues(self) -> IssueSourceObservation:
         return IssueSourceObservation(
             status=self.snapshot.issue_source_status,
             attempted_at=self.snapshot.issue_source_attempted_at,
@@ -670,9 +670,7 @@ class ObservationCoordinatorTests(unittest.TestCase):
 
         class GatedCollector(FakeProjectCollector):
             @override
-            def observe_issues(
-                self, *, reconcile: bool = False
-            ) -> IssueSourceObservation:
+            def observe_issues(self) -> IssueSourceObservation:
                 nonlocal active, maximum_active
                 with counter_lock:
                     active += 1

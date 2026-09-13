@@ -167,7 +167,6 @@ HOOK_RECORD_FATAL = frozenset({"version", "sessionId", "harness", "state", "cwd"
 
 def build_hook_record(
     event: dict[str, Any],
-    environ: Mapping[str, str] | None = None,
     process: ProcessIdentity | None = None,
     harness: str = "codex",
     process_unobservable: str | None = None,
@@ -180,10 +179,6 @@ def build_hook_record(
     if state is None:
         raise RuntimeError(f"unsupported hook event: {event_name}")
     cwd = Path(require_string(event.get("cwd"), "cwd")).expanduser().resolve()
-    # ``environ`` stays in the signature for its callers even though records
-    # no longer read anything from the environment: the retired
-    # DASHPOT_ISSUE_ID/DASHPOT_ISSUE_REF global-binding convention was the
-    # last such read, and the Work Store is the sole binding authority now.
     # Each answer stands alone: a detached HEAD has no symbolic ref but is
     # still inside a Worktree whose root routes the record. A hook must never
     # break its harness, so a Git that cannot answer at all — a vanished cwd,
@@ -369,18 +364,6 @@ class HookRecordStore(LockedRecordStore):
             destination.unlink(missing_ok=True)
             return True
 
-    def read(self, session_id: str) -> dict[str, Any] | None:
-        """Read one session's current record, or ``None`` when it has none.
-
-        Raises ``ValueError`` when the record exists but cannot be interpreted.
-        """
-        try:
-            return read_hook_record(self.record_path(session_id))
-        except FileNotFoundError:
-            return None
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(str(exc)) from exc
-
     @staticmethod
     def _read(path: Path) -> dict[str, Any] | None:
         try:
@@ -408,7 +391,6 @@ def route_record_directory(record: Mapping[str, Any]) -> Path:
 def publish_hook_event(
     event: dict[str, Any],
     directory: Path | None = None,
-    environ: Mapping[str, str] | None = None,
     process: ProcessIdentity | None = None,
     harness: str = "codex",
     lookup: ProcessLookup = host_process_lookup,
@@ -421,7 +403,6 @@ def publish_hook_event(
         process_unobservable = ancestry.unobservable_reason
     record = build_hook_record(
         event,
-        environ=environ,
         process=identity,
         harness=harness,
         process_unobservable=process_unobservable,

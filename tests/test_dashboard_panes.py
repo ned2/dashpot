@@ -207,7 +207,6 @@ async def test_pane_selection_survives_refresh_by_identity_or_moves_to_a_neighbo
         pane.show_rows(())
         await pilot.pause()
         assert pane.highlighted() == (None, 0)
-        assert pane.highlighted_row() is None
 
 
 def session_run(

@@ -271,7 +271,7 @@ Cross-cutting inside `app.py`:
 | 2 | **Verified.** The headless coordinator transitively imports Textual (see Structure). | Textual implementation notes. |
 | 3 | **Verified.** The Legend omits shipped keys. [`app.py:1267`](../src/dashpot/app.py#L1267) builds it from `DashboardScreen.BINDINGS`, but production runs `PagedDashboardScreen` (`n`, `p`, `home` at `paged_app.py:94-105`) and `WorktreeTable` binds `enter` and `y` (`worktree_table.py:18`). | Domain language: the Legend lists the keys; `design.md`. |
 | 4 | **Verified.** [`design.md`](design.md) and [`textual-implementation-notes.md`](textual-implementation-notes.md) say the Cleanup confirm button "is never disabled", while [`cleanup_view.py:488`](../src/dashpot/cleanup_view.py#L488) sets `button.disabled = self.busy or not self.preview_valid`. The code follows [ADR 0036](adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) ("Confirmation stays disabled through fetching"), which post-dates the rejected alternative in [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md); the premature-press case is still handled without disabling. The two documents are stale and ADR 0019 wants `amended-by` 0036. | `design.md`; AGENTS.md documentation-currency rule. |
-| 5 | **Verified.** Two inert lint directives: [`github_issues.py:710`](../src/dashpot/github_issues.py#L710) `# ruff: ignore[any-type]` and [`app.py:1111`](../src/dashpot/app.py#L1111) `# ruff: ignore[mutable-class-default]` are not Ruff syntax (`# noqa: ANN401`, `# noqa: RUF012` are), so they suppress nothing and mislead. | AGENTS.md: an ignore names its rule. |
+| 5 | **Withdrawn** (see the erratum below). Two lint directives, [`github_issues.py:710`](../src/dashpot/github_issues.py#L710) `# ruff: ignore[any-type]` and [`app.py:1111`](../src/dashpot/app.py#L1111) `# ruff: ignore[mutable-class-default]`, were reported as not Ruff syntax and therefore inert. | AGENTS.md: an ignore names its rule. |
 | 6 | **Verified.** Retired vocabulary is still threaded. The domain language retires *Reconciliation* ([ADR 0033](adr/0033-query-pages-and-independent-issue-resolution.md)), yet `reconcile=` is set at `app.py:1983`, carried through `ObservationTicket.reconcile` (`collect.py:103`), `ObservationScheduler.request`, `ProjectCollector.observe_issues`, and `IssueSource.refresh(reconcile=)` into `_reconcile_requested` (`issue_sources.py:140-165`), which nothing outside that class reads. `GitHubIssuesSource.reconcile_seconds` (`github_issues.py:218`) is stored and never read. | Domain language; AGENTS.md vocabulary rule. |
 | 7 | Wrong Pydantic base for the seam. `ConfigModel` (`models.py:202`, "a configuration file whose key set is a closed contract") carries published observations in `source_queries.py:29-173` and GraphQL wire shapes in `github_queries.py:73-95`, `github_pull_request_search.py:62-83`, `github_pull_requests.py:100-136`. GitHub responses are hand-validated in `github_issues.py:690-760` (the idiom ADR 0013 records as retained) but Pydantic-validated in the three newer modules — two idioms for one seam with no recorded decision. | [ADR 0013](adr/0013-adopt-pydantic-models-by-seam.md) per-seam variants. |
 | 8 | **Verified.** [`errors.py:9-13`](../src/dashpot/errors.py#L9-L13) states that every error reaching `cli.main` derives from `DashpotError`; `src/` has 93 bare `raise RuntimeError` sites against 17 `DashpotError` ones, and `PullRequestSourceRefreshError(RuntimeError)` (`pull_request_sources.py:42`) is off the base while its sibling `IssueSourceRefreshError` is on it. | `errors.py` contract. |
@@ -279,6 +279,14 @@ Cross-cutting inside `app.py`:
 | 10 | Domain-language *Avoid* notes: `cleanup_view.py:284` labels a checkout path "Repository:"; `spread_table.py:32` says "icon". | Domain language. |
 | 11 | `design.md` pane column lists are stale: Sessions (first column is now `◈`), Worktrees ("five", now six), Branches ("seven", now eight). | AGENTS.md documentation-currency rule. |
 | 12 | Trusted enumerations as bare `str`: the observation `trigger` (`app.py:113-122` frozensets), `PaneSpec.pane_id` / `table_id`, `paged_app.py:329-339` sources keyed by `"totals:issues"` strings, `QueryFinished.value: object` re-typed by `isinstance` / `cast` at `:430-448`; harness is `str` everywhere with ad-hoc validators (`hook_records._supported_harness`, `harnesses.adapter`); session state is `str` plus `cast(RunState, …)` at `agents.py:460`. | AGENTS.md: `Literal` unions. |
+
+**Erratum (2026-09-13, #174).** Finding 5's premise was wrong for the pinned
+toolchain. Ruff 0.16 with this repository's `preview = true` recognises
+`# ruff: ignore[<rule>]` as its native suppression syntax, accepting the rule
+name (`any-type`) as well as the code (`ANN401`): removing either comment makes
+`any-type` and `mutable-class-default` fire, and the preview rule
+`noqa-comments` flags a legacy `# noqa: ANN401` and auto-fixes it *to*
+`# ruff: ignore[ANN401]`. Both directives are correct as written and were kept.
 
 ### Judgement findings
 
@@ -452,7 +460,7 @@ Ordered by value over risk. Each of 2–7 is an Issue-sized task and, per the
 rather than in this document; nothing below has been filed or started.
 
 1. **Quick wins with no design decision**: Legend bindings (`app.py:1267`),
-   freeze `BranchObservation`, replace the two inert `ruff: ignore` comments,
+   freeze `BranchObservation`,
    delete the dead `reconcile` thread and the listed dead code, refresh the
    `design.md` column lists, and resolve the Cleanup-button doc/code drift.
 2. **Break `observation -> ui`**: move `ListRow` / `ListColumn` / `ListCell`

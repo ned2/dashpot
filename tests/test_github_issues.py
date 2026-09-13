@@ -381,7 +381,6 @@ def source(
     *,
     budget: RefreshBudget | None = None,
     monotonic: Any = None,
-    reconcile_seconds: float = 300.0,
     root: Path = Path("/repo"),
 ) -> GitHubIssuesSource:
     stamps = timestamps or ["2026-08-26T10:00:00Z"]
@@ -395,7 +394,6 @@ def source(
         clock=lambda: next(times, stamps[-1]),
         budget=budget or RefreshBudget(),
         monotonic=monotonic,
-        reconcile_seconds=reconcile_seconds,
     )
 
 
@@ -1156,7 +1154,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             budget=RefreshBudget(seconds=60, requests=2),
         )
         github.refresh()
-        stale = github.refresh(reconcile=True)
+        stale = github.refresh()
         assert_stale_observation(
             self,
             stale,

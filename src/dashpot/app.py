@@ -122,9 +122,6 @@ MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
 # press, a Remote Fetch or Cleanup that changed the Repository, a follow-up
 # of a publish) still observes once more after the running one lands.
 COALESCED_TRIGGERS = frozenset({"timer"})
-# Triggers that ask an Issue Source observing incrementally to re-observe
-# every Issue: a person's `r` wants the whole truth now, not the next delta.
-RECONCILING_TRIGGERS = frozenset({"manual"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +153,7 @@ class PaneSpec:
     """Everything one list pane varies by, declared once.
 
     The one tuple of these drives composition, the accessors, the focus
-    cycle and the store reconcile, so adding a pane is adding a spec.
+    cycle and ``reconcile_rows``, so adding a pane is adding a spec.
     """
 
     pane_id: str
@@ -1231,13 +1228,6 @@ class DashpotApp(App[None]):
         """The dashboard screen, whatever is stacked above it."""
         return cast("DashboardScreen", self.screen_stack[0])
 
-    @property
-    def ui_error(self) -> str | None:
-        """The current observation failures, newest last, or None."""
-        if not self.observation_errors:
-            return None
-        return "\n".join(self.observation_errors.values())
-
     @override
     def get_css_variables(self) -> dict[str, str]:
         """Add the Issue state colours for the current theme's brightness."""
@@ -1271,10 +1261,17 @@ class DashpotApp(App[None]):
         """Explain every Glyph on screen; a second ``?`` is absorbed by the Legend."""
         if isinstance(self.screen, LegendScreen):
             return
-        # The Legend lists the dashboard's keys alongside the app's, wherever
-        # it was opened from.
+        # The Legend lists the app's keys, the keys of whichever dashboard
+        # screen is running, and the Worktrees table's own, wherever it was
+        # opened from.
         self.push_screen(
-            LegendScreen(bindings=[*self.BINDINGS, *DashboardScreen.BINDINGS])
+            LegendScreen(
+                bindings=[
+                    *self.BINDINGS,
+                    *type(self.dashboard).BINDINGS,
+                    *WorktreeTable.BINDINGS,
+                ]
+            )
         )
 
     def on_ready(self) -> None:
@@ -1989,11 +1986,7 @@ class DashpotApp(App[None]):
             elif rerun_in_flight:
                 self.pending_rerun[key] = trigger
                 coalesced = True
-        tickets = (
-            self.scheduler.request(wanted, reconcile=trigger in RECONCILING_TRIGGERS)
-            if wanted
-            else ()
-        )
+        tickets = self.scheduler.request(wanted) if wanted else ()
         for ticket in tickets:
             self.in_flight[ticket.key] = ticket.generation
             # A partial rather than a coroutine object, so a worker cancelled
@@ -2138,10 +2131,6 @@ def issue_search_sort_terms(
         return None
     column: ColumnKey = "created" if search_sort.field == "created" else "last_action"
     return (SortTerm(column, descending=search_sort.descending),)
-
-
-def project_label(project: ProjectObservation) -> str:
-    return project.display_label
 
 
 def issue_state_filter_value(query: IssueListQuery) -> str:

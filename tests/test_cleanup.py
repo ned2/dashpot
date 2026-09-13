@@ -588,7 +588,7 @@ def test_describe_renders_each_target_with_its_gate(tmp_path: Path) -> None:
     tip = git(root, "rev-parse", "feat")
 
     assert lines[0] == "Delete Branch   feat"
-    assert lines[1] == f"Repository      {root.resolve()}"
+    assert lines[1] == f"Anchor          {root.resolve()}"
     assert lines[2] == "Targets"
     assert lines[3] == f"  [ ] Local Branch refs/heads/feat @ {tip[:7]} — unavailable"
     assert lines[4] == "      ↑ commits are not reachable from the Integration Branch"
@@ -1126,7 +1126,7 @@ def test_report_json_key_sets_and_description_are_stable(tmp_path: Path) -> None
 
     lines = describe_cleanup_report(report)
     assert lines[0] == "Delete Branch   feat"
-    assert lines[1] == f"Repository      {root.resolve()}"
+    assert lines[1] == f"Anchor          {root.resolve()}"
     assert lines[2] == "Results"
     assert lines[3] == f"  deleted        Local Branch refs/heads/feat @ {tip[:7]}"
     assert lines[4] == f"      deleted refs/heads/feat at {tip[:7]}"

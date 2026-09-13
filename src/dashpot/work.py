@@ -4,7 +4,6 @@ import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
 
 from .errors import DashpotError
 from .git import Git
@@ -43,8 +42,6 @@ from .work_store import (
     WorkStore,
 )
 
-IdentityRoute = Literal["process", "session"]
-
 
 @dataclass(frozen=True, slots=True)
 class AgentSessionIdentity:
@@ -55,7 +52,6 @@ class AgentSessionIdentity:
     session_label: str
     process: ProcessIdentity | None
     session_id: str | None = None
-    route: IdentityRoute = "process"
 
     @property
     def session_process(self) -> SessionProcess | None:
@@ -160,7 +156,6 @@ def _process_identity(
         session_label=f"{harness} pid {process.pid}",
         process=process,
         session_id=session_id,
-        route="process",
     )
 
 
@@ -178,7 +173,6 @@ def _session_identity(confirmed: ValidatedSessionIdentity) -> AgentSessionIdenti
         ),
         process=confirmed.process,
         session_id=confirmed.session_id,
-        route="session",
     )
 
 
@@ -279,18 +273,17 @@ def start_issue_work(
         raise RuntimeError(
             "this Agent Run changed before replacement; nothing was overwritten"
         )
+    # The hooks place the session here, so a run recorded at another Worktree
+    # of the Repository is where it used to be, and nobody is left behind
+    # there.
     elsewhere: list[tuple[Path, ActiveWork]] = []
-    if location is not None:
-        # The hooks place the session here, so a run recorded at another
-        # Worktree of the Repository is where it used to be, and nobody is
-        # left behind there.
-        for candidate, expected in selected_elsewhere:
-            if not WorkStore(candidate).stop_current(expected):
-                raise RuntimeError(
-                    f"this session's earlier Agent Run at {candidate} changed; "
-                    "it was not removed. Inspect 'dashpot work show' at both Worktrees"
-                )
-            elsewhere.append((candidate, expected))
+    for candidate, expected in selected_elsewhere:
+        if not WorkStore(candidate).stop_current(expected):
+            raise RuntimeError(
+                f"this session's earlier Agent Run at {candidate} changed; "
+                "it was not removed. Inspect 'dashpot work show' at both Worktrees"
+            )
+        elsewhere.append((candidate, expected))
     if previous is None and elsewhere:
         (former_worktree, former), *rest = elsewhere
         messages = [

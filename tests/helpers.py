@@ -55,6 +55,16 @@ def snapshot_of(project: ProjectObservation | None) -> ProjectSnapshot:
     return required(required(project).snapshot)
 
 
+def semantic_projection(issue: IssueProfile) -> dict[str, Any]:
+    """Project the source-neutral facts the conformance contract compares."""
+    return issue.model_dump(mode="json", by_alias=True, exclude={"origin", "location"})
+
+
+def semantically_equivalent(left: IssueProfile, right: IssueProfile) -> bool:
+    """Compare complete Issues after excluding provenance and location."""
+    return semantic_projection(left) == semantic_projection(right)
+
+
 def issue_payload(**overrides: object) -> dict[str, Any]:
     """Build a complete Issue wire payload from the conformance fixture."""
     payload = copy.deepcopy(_GITHUB_FIXTURE)

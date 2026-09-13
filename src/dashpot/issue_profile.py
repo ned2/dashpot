@@ -237,18 +237,6 @@ def issue_location(issue: IssueProfile) -> str:
     return f"{location.path}:{location.line}"
 
 
-def semantic_projection(issue: IssueProfile) -> dict[str, Any]:
-    """Return the source-neutral facts used for semantic equivalence."""
-
-    return issue.model_dump(mode="json", by_alias=True, exclude={"origin", "location"})
-
-
-def semantically_equivalent(left: IssueProfile, right: IssueProfile) -> bool:
-    """Compare complete Issues after excluding provenance and location."""
-
-    return semantic_projection(left) == semantic_projection(right)
-
-
 # The old hand validator's check order, which keeps the reported message
 # stable for callers pinning error text.
 _FIELD_ORDER = (

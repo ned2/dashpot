@@ -31,7 +31,7 @@ def test_a_detached_head_still_records_the_repository_root(tmp_path: Path) -> No
     git(root, "checkout", "-q", "--detach")
     event = {"session_id": "s1", "hook_event_name": "Stop", "cwd": str(root)}
 
-    record = build_hook_record(event, environ={})
+    record = build_hook_record(event)
 
     # The root routes the record to the Project's own store; only the
     # branch name is genuinely unavailable.

@@ -29,7 +29,7 @@ class SpreadTable(FocusCursorTable[CellType]):
     browser lays out an auto table, so the columns reach the pane's edge at
     any size and the long columns take most of the room. A column added with
     an explicit ``spread_weight`` uses that weight instead; ``0`` pins it to its
-    content, as for a one-glyph icon. When the content alone is wider than
+    content, as for a one-Glyph column. When the content alone is wider than
     the pane the columns fall back to their content widths and the table
     scrolls horizontally, as before.
     """

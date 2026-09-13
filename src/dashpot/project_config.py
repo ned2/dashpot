@@ -25,6 +25,8 @@ class GitHubIssueSourceConfig(ConfigModel):
     """Issues come from the GitHub repository at the Worktree's origin."""
 
     kind: Literal["github"]
+    # Retired with Reconciliation (ADR 0033): still parsed, never read, so a
+    # config written for an earlier alpha keeps loading (ADR 0034).
     reconciliation_seconds: Annotated[FiniteFloat, Field(gt=0)] = (
         DEFAULT_RECONCILIATION_SECONDS
     )

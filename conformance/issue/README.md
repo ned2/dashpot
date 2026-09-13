@@ -2,8 +2,8 @@
 
 This contract defines the complete, source-neutral Issue snapshot that every
 Dashpot Issue Source must produce. The JSON Schema describes its shape;
-`dashpot.issue_profile` owns validation, collection canonicalization, and
-semantic equivalence.
+`dashpot.issue_profile` owns validation and collection canonicalization, and
+the test suite checks semantic equivalence against the fixtures.
 
 ## Complete snapshots
 
