@@ -21,18 +21,20 @@ from textual.theme import Theme
 from textual.widgets import Footer, Markdown, Static
 from typing_extensions import override
 
+from .ages import relative_age
 from .detail_fields import DetailFields, DetailItem
 from .issue_cells import (
-    is_priority_label,
-    issue_activity,
-    issue_priority,
     issue_state_chip,
     issue_state_kind,
     label_chips,
     label_colors,
-    relative_age,
 )
-from .issue_list import IssueListRow
+from .issue_list import (
+    IssueListRow,
+    is_priority_label,
+    issue_activity,
+    issue_priority,
+)
 from .issue_profile import IssueProfile, issue_location
 from .model import ProjectObservation
 

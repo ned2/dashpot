@@ -21,7 +21,7 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot import session_list
+from dashpot import session_cells
 from dashpot.app import DashpotApp
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
@@ -713,7 +713,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
             line.startswith("o") and line.endswith("Open/Closed/All") for line in keys
         )
         # A colour-bearing Glyph shows the swatch the cell would.
-        running = session_list.STATE_GLYPHS["running"]
+        running = session_cells.STATE_GLYPHS["running"]
         sessions = screen.query_one("#legend-section-0", Static)
         content = sessions.render()
         assert isinstance(content, Content)

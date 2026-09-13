@@ -5,14 +5,14 @@ from datetime import UTC, datetime
 from rich.text import Text
 
 import factories
-from dashpot.branch_list import (
+from dashpot.branch_cells import (
     BRANCH_COLUMNS,
     branch_cells,
     branch_note,
     build_branch_rows,
     fetch_age_text,
-    query_branch_list,
 )
+from dashpot.branch_list import query_branch_list
 from dashpot.issue_list import row_key
 from dashpot.model import Branch, ObservationTarget, ProjectObservation
 from dashpot.observation_store import WorkspaceObservationStore

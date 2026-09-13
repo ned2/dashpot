@@ -13,7 +13,7 @@ from dashpot.agents import observe_agent_runs
 from dashpot.hook_records import write_hook_record
 from dashpot.issue_list import row_key
 from dashpot.issue_profile import IssueProfile
-from dashpot.list_pane import truncate_end, truncate_start
+from dashpot.list_rows import truncate_end, truncate_start
 from dashpot.model import (
     AgentRun,
     ObservationTarget,
@@ -22,15 +22,17 @@ from dashpot.model import (
 )
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.processes import ProcessIdentity
-from dashpot.session_list import (
-    OUTSIDE_PROJECT_TEXT,
+from dashpot.session_cells import (
     SESSION_COLUMNS,
-    UNBOUND_ISSUE_TEXT,
-    SessionListRow,
     build_session_rows,
-    query_session_list,
     session_cells,
     session_columns,
+)
+from dashpot.session_list import (
+    OUTSIDE_PROJECT_TEXT,
+    UNBOUND_ISSUE_TEXT,
+    SessionListRow,
+    query_session_list,
 )
 from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import workspace

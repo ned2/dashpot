@@ -1,23 +1,34 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
+from typing import get_args
 
 import pytest
 
 import factories
+from app_harness import with_first_project_snapshot
 from dashpot.issue_list import (
+    ISSUE_SORT_COLUMNS,
     IssueListQuery,
+    IssueSortColumn,
     empty_issue_message,
+    is_issue_sort_column,
     issue_inventory_text,
     issue_result_count_text,
+    issue_sort_value,
     next_issue_states,
     query_issue_list,
+    sort_issue_rows,
 )
 from dashpot.issue_profile import IssueProfile
+from dashpot.issue_table import COLUMN_SPECS, SortTerm, build_rows
 from dashpot.model import (
     AgentRun,
+    IssueActivity,
     WorkspaceSnapshot,
 )
+from dashpot.source_queries import AuxiliaryObservation
 from helpers import make_issue
 
 NOW = "2026-08-27T00:00:00Z"
@@ -328,3 +339,122 @@ def agent_run(session_id: str, *, issue_id: str | None) -> AgentRun:
         last_activity_at=None,
         process_or_session=session_id,
     )
+
+
+def varied_issues() -> tuple[IssueProfile, ...]:
+    """Issues whose every sortable fact differs, is missing, or ties."""
+    return (
+        issue(
+            "issue:a",
+            "open",
+            number=3,
+            labels=["priority/p2", "bug"],
+            assignees=["Zed"],
+            author="Mia",
+            milestone="v2",
+            issueType="Task",
+            createdAt="2026-08-20T00:00:00Z",
+            updatedAt="2026-08-26T00:00:00Z",
+        ),
+        issue(
+            "issue:b",
+            "open",
+            number=1,
+            labels=["enhancement", "Bug"],
+            assignees=[],
+            author=None,
+            milestone=None,
+            issueType=None,
+            createdAt="2026-08-25T00:00:00Z",
+            updatedAt=None,
+        ),
+        issue(
+            "issue:c",
+            "open",
+            number=2,
+            labels=["critical"],
+            assignees=["amy", "bob"],
+            author="ada",
+            milestone="v1",
+            issueType="Bug",
+            createdAt="2026-08-25T00:00:00Z",
+            updatedAt="2026-08-01T00:00:00Z",
+        ),
+        issue(
+            "issue:d",
+            "open",
+            number=4,
+            labels=[],
+            assignees=["amy"],
+            author="mia",
+            milestone="v2",
+            issueType="task",
+            createdAt=None,
+            updatedAt="2026-08-26T00:00:00Z",
+        ),
+    )
+
+
+@pytest.mark.parametrize("column", ISSUE_SORT_COLUMNS)
+@pytest.mark.parametrize("descending", [False, True])
+def test_sort_issue_rows_orders_like_the_issue_table(
+    column: IssueSortColumn, *, descending: bool
+) -> None:
+    """A query page sorted by the read model lists what the table would."""
+    issues = varied_issues()
+    snapshot = with_first_project_snapshot(
+        workspace(*issues),
+        issue_activity={
+            issues[0].id: IssueActivity(comment_count=2),
+            issues[2].id: IssueActivity(comment_count=7),
+        },
+    )
+    result = query_issue_list(snapshot)
+
+    contexts, _cells = build_rows(
+        result, sort=(SortTerm(column, descending=descending),)
+    )
+    ordered = sort_issue_rows(result.rows, column, descending=descending)
+
+    assert [row.key for row in ordered] == list(contexts)
+    assert len(ordered) == len(issues)
+
+
+def test_sort_columns_are_the_sortable_table_columns() -> None:
+    assert set(ISSUE_SORT_COLUMNS) == set(get_args(IssueSortColumn))
+    assert set(ISSUE_SORT_COLUMNS) == {
+        spec.key for spec in COLUMN_SPECS if spec.sortable
+    }
+    assert is_issue_sort_column("number")
+    assert not is_issue_sort_column("title")
+
+
+def test_missing_sort_values_rank_last_in_either_direction() -> None:
+    result = query_issue_list(workspace(*varied_issues()))
+
+    ascending = sort_issue_rows(result.rows, "author")
+    descending = sort_issue_rows(result.rows, "author", descending=True)
+
+    assert [row.issue.author for row in ascending] == ["ada", "Mia", "mia", None]
+    assert [row.issue.author for row in descending] == ["Mia", "mia", "ada", None]
+
+
+def test_queried_comment_activity_sorts_by_count_or_ranks_last() -> None:
+    result = query_issue_list(workspace(*varied_issues()[:2]))
+    fetched, unfetched = (
+        replace(
+            row,
+            queried=True,
+            auxiliary=AuxiliaryObservation(
+                status="fresh",
+                attempted_at=NOW,
+                last_good_at=NOW,
+                activity=None if count is None else IssueActivity(comment_count=count),
+            ),
+        )
+        for row, count in zip(result.rows, (5, None), strict=True)
+    )
+
+    assert issue_sort_value(fetched, "comments") == 5
+    assert issue_sort_value(unfetched, "comments") is None
+    assert sort_issue_rows([unfetched, fetched], "comments") == [fetched, unfetched]

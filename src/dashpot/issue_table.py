@@ -19,14 +19,11 @@ from .issue_cells import (
     SORT_GLYPHS,
     IssueNumberCell,
     IssueTableCell,
-    SortValue,
     TableCell,
     agent_state_cell,
     cell_sort_value,
     comments_cell,
     date_cell,
-    issue_activity,
-    issue_priority,
     issue_state_cell,
     labels_cell,
     optional_text_cell,
@@ -38,8 +35,13 @@ from .issue_list import (
     IssueListResult,
     IssueListRow,
     IssueSearchField,
+    SortValue,
+    issue_activity,
+    issue_priority,
+    rank_missing_last,
+    row_tie_break,
 )
-from .list_pane import truncate_end
+from .list_rows import truncate_end
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
@@ -277,10 +279,7 @@ def _term_sort_value(
     if not spec.nulls_last:
         # Columns without nulls_last never render a missing sort value.
         return cast("SupportsRichComparison", value)
-    missing = value is None
-    if term.descending:
-        return (0 if missing else 1, 0 if missing else value)
-    return (1 if missing else 0, 0 if missing else value)
+    return rank_missing_last(value, descending=term.descending)
 
 
 def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
@@ -309,7 +308,7 @@ def build_rows(
         directions = {term.descending for term in sort}
         if len(directions) != 1:
             raise ValueError("Issue table sort terms must share one direction")
-        projected.sort(key=lambda item: _row_tie_break(item[0]))
+        projected.sort(key=lambda item: row_tie_break(item[0]))
         projected.sort(
             key=lambda item: sort_key_for_terms(sort)(
                 tuple(item[1][term.column] for term in sort)
@@ -323,10 +322,6 @@ def build_rows(
         contexts[row.key] = row
         cells_by_key[row.key] = tuple(values[column] for column in columns)
     return contexts, cells_by_key
-
-
-def _row_tie_break(row: IssueListRow) -> tuple[str, int, str]:
-    return row.project.project_id.casefold(), row.issue.number, row.key
 
 
 def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:

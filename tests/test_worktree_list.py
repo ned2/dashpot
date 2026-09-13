@@ -15,12 +15,12 @@ from dashpot.model import (
     TargetRole,
 )
 from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.worktree_list import (
+from dashpot.worktree_cells import (
     WORKTREE_COLUMNS,
     build_worktree_rows,
-    query_worktree_list,
     worktree_cells,
 )
+from dashpot.worktree_list import query_worktree_list
 from factories import session, workspace
 from helpers import required
 

@@ -21,7 +21,7 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot import session_list
+from dashpot import session_cells
 from dashpot.app import DashpotApp
 from dashpot.issue_list import row_key
 from dashpot.issue_profile import IssueProfile
@@ -335,7 +335,7 @@ async def test_a_theme_change_repaints_the_list_panes() -> None:
         session_run("codex-session:busy", state="running"), issues=issues
     )
     app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
-    running = session_list.STATE_GLYPHS["running"]
+    running = session_cells.STATE_GLYPHS["running"]
 
     def state_color() -> str:
         cell = app.dashboard.sessions_pane().table.get_row_at(0)[0]

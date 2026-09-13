@@ -170,6 +170,16 @@ def test_markdown_cross_process_continuation_and_global_sort(tmp_path):
     assert source.query_page(QueryRequest(kind="pull-requests")).status == "unavailable"
 
 
+def test_markdown_orders_only_by_a_sortable_issue_fact(tmp_path):
+    source = markdown(tmp_path)
+
+    assert source.supports_sort(QueryRequest(), "created")
+    assert not source.supports_sort(QueryRequest(), "title")
+    page = source.query_page(QueryRequest(page_size=1, ordering="title:asc"))
+    assert page.status == "unavailable"
+    assert "Unsupported local column ordering" in page.diagnostics[0].message
+
+
 @pytest.mark.parametrize("change", ["edit", "rename", "insert", "delete"])
 def test_markdown_revision_invalidates_continuation(tmp_path, change):
     source = markdown(tmp_path)

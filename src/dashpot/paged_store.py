@@ -15,7 +15,7 @@ from .observation_store import (
     ObservedDiagnostic,
     WorkspaceObservationStore,
 )
-from .session_list import SessionListResult, _query_indexed_session_list
+from .session_list import SessionListResult, query_indexed_session_list
 from .source_queries import (
     AuxiliaryObservation,
     ProjectTotals,
@@ -120,7 +120,7 @@ class PagedObservationStore(WorkspaceObservationStore):
             for result in self.resolved.values()
             if result.issue
         }
-        return _query_indexed_session_list(
+        return query_indexed_session_list(
             projects=self._state.projects,
             issues=issues,
             agent_runs=self._state.agent_runs,

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import get_args
 
 import dashpot
-from dashpot import alerts, branch_list, issue_cells, legend, session_list
+from dashpot import alerts, branch_cells, issue_cells, legend, session_cells
 from dashpot.alerts import AlertSeverity
 from dashpot.glyphs import Glyph, LegendSection
 from dashpot.issue_cells import IssueStateKind
@@ -37,19 +37,19 @@ def test_glyph_style_follows_the_theme() -> None:
 def test_every_rendered_glyph_map_is_in_the_legend() -> None:
     symbols = legend_symbols()
 
-    assert set(session_list.STATE_GLYPHS) == set(get_args(RunState))
+    assert set(session_cells.STATE_GLYPHS) == set(get_args(RunState))
     assert set(issue_cells.AGENT_STATE_GLYPHS) == set(get_args(RunState))
     assert set(issue_cells.ISSUE_STATE_GLYPHS) == set(get_args(IssueStateKind))
     assert set(alerts.SEVERITY_GLYPH) == set(get_args(AlertSeverity))
     for mapping in (
-        session_list.STATE_GLYPHS,
+        session_cells.STATE_GLYPHS,
         issue_cells.AGENT_STATE_GLYPHS,
         issue_cells.ISSUE_STATE_GLYPHS,
         issue_cells.SORT_GLYPHS,
         alerts.SEVERITY_GLYPH,
     ):
         assert {glyph.symbol for glyph in mapping.values()} <= symbols
-    assert {glyph.symbol for glyph in branch_list.LEGEND} <= symbols
+    assert {glyph.symbol for glyph in branch_cells.LEGEND} <= symbols
     assert issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol in symbols
     assert issue_cells.AGENT_STATE_COLUMN_GLYPH.symbol in symbols
 
@@ -67,8 +67,8 @@ def test_a_symbol_carries_one_meaning() -> None:
         if len(found) > 1 and symbol != issue_cells.ISSUE_STATE_GLYPHS["open"].symbol
     }
     assert collisions == {}
-    assert session_list.STATE_GLYPHS["unknown"].symbol != (
-        branch_list.NO_UPSTREAM_GLYPH.symbol
+    assert session_cells.STATE_GLYPHS["unknown"].symbol != (
+        branch_cells.NO_UPSTREAM_GLYPH.symbol
     )
 
 
@@ -136,7 +136,7 @@ def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
     }
     local, remote = by_column["LOCAL"], by_column["REMOTE"]
 
-    assert local.glyphs == remote.glyphs == branch_list.PRESENCE_LEGEND
+    assert local.glyphs == remote.glyphs == branch_cells.PRESENCE_LEGEND
     assert local.note == legend.LOCAL_PRESENCE_NOTE
     assert remote.note == legend.REMOTE_PRESENCE_NOTE
     rendered = legend.section_text(remote, dark=False).plain
@@ -151,7 +151,7 @@ def test_the_cleanup_gate_is_stated_where_x_reads_it() -> None:
     integrated = sections["BRANCHES", "INTEGRATED"]
     worktrees = sections["WORKTREES", "◈"]
 
-    assert integrated.glyphs == branch_list.INTEGRATION_LEGEND
+    assert integrated.glyphs == branch_cells.INTEGRATION_LEGEND
     assert integrated.note == legend.INTEGRATION_NOTE
     assert worktrees.note == legend.WORKTREE_SESSIONS_NOTE
     assert worktrees.note.startswith(legend.SESSIONS_COUNT_NOTE)
@@ -177,9 +177,9 @@ def test_section_text_renders_symbols_in_their_colour() -> None:
     text = legend.section_text(section, dark=True)
     lines = text.plain.splitlines()
 
-    assert lines[1].startswith(session_list.STATE_GLYPHS["running"].symbol)
-    assert lines[1].endswith(session_list.STATE_GLYPHS["running"].meaning)
-    assert str(text.spans[0].style) == session_list.STATE_GLYPHS["running"].style(
+    assert lines[1].startswith(session_cells.STATE_GLYPHS["running"].symbol)
+    assert lines[1].endswith(session_cells.STATE_GLYPHS["running"].meaning)
+    assert str(text.spans[0].style) == session_cells.STATE_GLYPHS["running"].style(
         dark=True
     )
 

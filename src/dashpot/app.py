@@ -30,7 +30,7 @@ from .alerts import (
     AlertSeverity,
     summarize_alerts,
 )
-from .branch_list import BRANCH_COLUMNS, branch_note, build_branch_rows
+from .branch_cells import BRANCH_COLUMNS, branch_note, build_branch_rows
 from .cleanup import (
     BranchCleanupRequest,
     CleanupAdapter,
@@ -95,24 +95,26 @@ from .list_pane import (
 from .model import ProjectObservation, PullRequest, SourceStatus
 from .observation_store import WorkspaceObservationStore
 from .pane_layout import fit_panes, pane_wish
+from .pull_request_cells import (
+    PULL_REQUEST_COLUMNS,
+    build_pull_request_rows,
+    pull_request_note,
+)
 from .pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,
-    PULL_REQUEST_COLUMNS,
     PullRequestListQuery,
-    build_pull_request_rows,
     pull_request_empty_message,
     pull_request_inventory_text,
-    pull_request_note,
     pull_request_result_count_text,
     query_pull_request_search_results,
 )
 from .pull_request_search import parse_pull_request_search
 from .related_rows import FocusedSource, query_related_rows
 from .search import SearchSort, parse_search
-from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
+from .session_cells import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
+from .worktree_cells import WORKTREE_COLUMNS, build_worktree_rows
 from .worktree_launcher import LauncherConfiguration
-from .worktree_list import WORKTREE_COLUMNS, build_worktree_rows
 from .worktree_table import WorktreeTable
 
 # Observation triggers a person asked for, whose outcome earns a toast.
