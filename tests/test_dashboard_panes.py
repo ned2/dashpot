@@ -11,28 +11,33 @@ from textual.widgets import DataTable
 
 import factories
 from app_harness import (
+    UNAVAILABLE_PAGE_SUMMARY,
     SequenceCollector,
+    await_resolved_identities,
+    dashboard_app,
+    first_load_landed,
     issue,
     list_rows,
+    observation_landed,
     pane_subtitle,
     pane_title,
     prepare_pane,
     selected_title,
+    serve_snapshot,
     with_first_project_snapshot,
     workspace_snapshot,
 )
 from dashpot import session_cells
-from dashpot.app import DashpotApp
 from dashpot.issue_list import row_key
 from dashpot.issue_profile import IssueProfile
 from dashpot.issue_view import IssueScreen
-from dashpot.list_pane import ListRow
 from dashpot.model import (
     AgentRun,
     ObservationTarget,
     RunState,
     WorkspaceSnapshot,
 )
+from dashpot.paged_app import PagedDashpotApp
 from helpers import snapshot_of, wait_until
 
 
@@ -62,10 +67,10 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
         issue("test/repo#1", "Issue"),
         pull_requests=(refreshed_pull_request, first_pull_request),
     )
-    app = DashpotApp(SequenceCollector(first, second), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(first, second))
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         pane = app.dashboard.pull_requests_pane()
         await pilot.pause()
         assert (
@@ -96,18 +101,23 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
         assert not isinstance(app.screen, IssueScreen)
         assert pane.table.has_focus
 
-        await pilot.press("r")
-        await wait_until(lambda: app.store.revision == 2)
-        await pilot.pause()
+        # A timer refresh repeats the shown page, so the cursor can follow
+        # its Pull Request to the top; a manual one restarts the page instead
+        # and loses the cursor, the same restart test_app's expected failure
+        # test_manual_refresh_preserves_selection_by_stable_row_key holds
+        # for the Issue table (#206).
+        serve_snapshot(app, second)
+        app.timer_refresh()
+        await wait_until(lambda: observation_landed(app, 2))
+        await wait_until(
+            lambda: "Selected and refreshed" in str(pane.table.get_row_at(0)[2])
+        )
 
         assert pane.highlighted() == (selected_key, 0)
-        assert "Selected and refreshed" in str(pane.table.get_row_at(0)[2])
 
 
 @pytest.mark.asyncio
-async def test_pull_requests_pane_distinguishes_stale_and_unavailable_empty_states() -> (
-    None
-):
+async def test_an_empty_pull_request_page_names_its_status_in_the_summary() -> None:
     stale = with_first_project_snapshot(
         workspace_snapshot(issue("test/repo#1", "Issue")),
         pull_request_status="stale",
@@ -118,75 +128,41 @@ async def test_pull_requests_pane_distinguishes_stale_and_unavailable_empty_stat
         pull_request_status="unavailable",
         pull_request_last_good_at=None,
     )
-    app = DashpotApp(SequenceCollector(stale), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(stale))
 
     async with app.run_test(size=(120, 32)):
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
+        # The empty message only tells fresh from not; the page summary is
+        # where a stale page keeps its last good observation apart from an
+        # unavailable one.
         empty = app.query_one("#pull-requests-pane .list-pane-empty")
-        assert str(empty.render()) == "no pull requests when last observed"
-        assert pane_subtitle(app, "#pull-requests-pane").startswith("stale")
-
-    unavailable_app = DashpotApp(SequenceCollector(unavailable), refresh_seconds=0)
-    async with unavailable_app.run_test(size=(120, 32)):
-        await wait_until(lambda: unavailable_app.store.revision == 1)
-        empty = unavailable_app.query_one("#pull-requests-pane .list-pane-empty")
-        assert str(empty.render()) == "pull requests unavailable"
-        assert pane_subtitle(unavailable_app, "#pull-requests-pane") == "unavailable"
-
-
-@pytest.mark.asyncio
-async def test_pane_cursor_leaves_the_issue_selection_alone_and_enter_finds_it() -> (
-    None
-):
-    snapshot = workspace_snapshot(
-        issue("test/repo#1", "First"), issue("test/repo#2", "Second")
-    )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
-
-    async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
-        await pilot.pause()
-        assert selected_title(app) == "#1: First"
-        pane = prepare_pane(app, "sessions-pane")
-        pane.show_rows(
-            (
-                ListRow("bound", ("bound", "-"), issue_id="I_test/repo#2"),
-                ListRow("unbound", ("unbound", "-")),
-            )
+        assert str(empty.render()) == "Pull Requests unavailable"
+        assert (
+            pane_subtitle(app, "#pull-requests-pane")
+            == "0 shown · 0 matches · stale · observed 2026-08-25T00:00:00Z"
         )
-        await pilot.pause()
 
-        await pilot.press("down")
-        await pilot.pause()
-        assert pane.highlighted() == ("unbound", 1)
-        assert selected_title(app) == "#1: First"
-
-        await pilot.press("enter")
-        await pilot.pause()
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
-        assert not isinstance(app.screen, IssueScreen)
-
-        await pilot.press("up")
-        await pilot.press("enter")
-        await pilot.pause()
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#2")
-        assert selected_title(app) == "#2: Second"
-        assert app.query_one("#queue", DataTable).cursor_row == 1
-        assert not isinstance(app.screen, IssueScreen)
-        assert pane.table.has_focus
+    unavailable_app = dashboard_app(SequenceCollector(unavailable))
+    async with unavailable_app.run_test(size=(120, 32)):
+        await wait_until(lambda: first_load_landed(unavailable_app))
+        empty = unavailable_app.query_one("#pull-requests-pane .list-pane-empty")
+        assert str(empty.render()) == "Pull Requests unavailable"
+        assert (
+            pane_subtitle(unavailable_app, "#pull-requests-pane")
+            == UNAVAILABLE_PAGE_SUMMARY
+        )
 
 
 @pytest.mark.asyncio
 async def test_pane_selection_survives_refresh_by_identity_or_moves_to_a_neighbour() -> (
     None
 ):
-    app = DashpotApp(
-        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
-        refresh_seconds=0,
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First")))
     )
 
     async with app.run_test(size=(120, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         pane = prepare_pane(app, "worktrees-pane")
         rows = list_rows(4)
@@ -241,7 +217,7 @@ def sessions_snapshot(
     return snapshot.model_copy(update={"issue_runs": issue_runs})
 
 
-def session_pane_keys(app: DashpotApp) -> list[str]:
+def session_pane_keys(app: PagedDashpotApp) -> list[str]:
     table = app.dashboard.sessions_pane().table
     return [
         str(table.coordinate_to_cell_key(Coordinate(index, 0)).row_key.value)
@@ -258,10 +234,12 @@ async def test_sessions_pane_lists_every_active_session_from_observations() -> N
         session_run("codex-session:lost", state="unknown", last_activity_at=None),
         issues=issues,
     )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(snapshot))
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
+        # A bound Issue is named once the Issue Source resolves its identity.
+        await await_resolved_identities(app, "I_test/repo#2")
         await pilot.pause()
 
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
@@ -303,10 +281,10 @@ async def test_sessions_target_column_follows_the_worktrees_in_view() -> None:
         issues=issues,
     )
     together = sessions_snapshot(session_run("codex-session:main"), issues=issues)
-    app = DashpotApp(SequenceCollector(spread, together), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(spread, together))
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
 
         table = app.dashboard.sessions_pane().table
@@ -318,7 +296,7 @@ async def test_sessions_target_column_follows_the_worktrees_in_view() -> None:
         # The linked Worktree's session ends, and the column stops earning
         # its width without waiting for a restart.
         await pilot.press("r")
-        await wait_until(lambda: app.store.revision == 2)
+        await wait_until(lambda: observation_landed(app, 2))
         await pilot.pause()
 
         table = app.dashboard.sessions_pane().table
@@ -334,7 +312,7 @@ async def test_a_theme_change_repaints_the_list_panes() -> None:
     snapshot = sessions_snapshot(
         session_run("codex-session:busy", state="running"), issues=issues
     )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(snapshot))
     running = session_cells.STATE_GLYPHS["running"]
 
     def state_color() -> str:
@@ -343,7 +321,7 @@ async def test_a_theme_change_repaints_the_list_panes() -> None:
         return str(cell.style).casefold()
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         assert state_color() == running.style(dark=True)
 
@@ -353,35 +331,84 @@ async def test_a_theme_change_repaints_the_list_panes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_enter_on_a_bound_session_highlights_its_issue_and_unbound_is_safe() -> (
-    None
-):
+async def test_enter_on_a_bound_session_opens_its_issue_and_unbound_is_safe() -> None:
     issues = (issue("test/repo#1", "First"), issue("test/repo#2", "Second"))
     snapshot = sessions_snapshot(
         session_run("work:codex:bound", state="running", issue_id="I_test/repo#2"),
         session_run("codex-session:free", state="waiting"),
         issues=issues,
     )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(snapshot))
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
+        await await_resolved_identities(app, "I_test/repo#2")
         await pilot.pause()
         assert selected_title(app) == "#1: First"
+        table = app.dashboard.sessions_pane().table
+        assert str(table.get_row_at(0)[3]) == "#2 Second"
 
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
         assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
         assert selected_title(app) == "#1: First"
+        assert not isinstance(app.screen, IssueScreen)
 
         await pilot.press("up")
         await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+        details = app.screen
+        assert isinstance(details, IssueScreen)
+        assert details.issue.id == "I_test/repo#2"
+        # The Issue table keeps its own selection; the details came by identity.
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+
+
+@pytest.mark.asyncio
+async def test_enter_resolves_a_bound_issue_off_the_page_before_opening_it() -> None:
+    closed_issue = issue(
+        "test/repo#2",
+        "Second",
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-24T00:00:00Z",
+    )
+    snapshot = sessions_snapshot(
+        session_run("work:codex:closed", state="running", issue_id="I_test/repo#2"),
+        session_run("work:codex:gone", state="waiting", issue_id="I_gone"),
+        issues=(issue("test/repo#1", "First"), closed_issue),
+    )
+    app = dashboard_app(SequenceCollector(snapshot))
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#2")
-        assert selected_title(app) == "#2: Second"
+        assert selected_title(app) == "#1: First"
+        pane = app.dashboard.sessions_pane()
+        keys = session_pane_keys(app)
+
+        # A bound Issue the Issue Source no longer knows is reported, not opened.
+        pane.table.move_cursor(row=keys.index(row_key("session", "work:codex:gone")))
+        await pilot.press("enter")
+        await wait_until(lambda: "I_gone" in app.paged_store.resolved)
+        await pilot.pause()
+        assert [notification.message for notification in app._notifications] == [
+            "Resolving bound Issue details",
+            "Bound Issue details are unavailable",
+        ]
         assert not isinstance(app.screen, IssueScreen)
-        assert app.dashboard.sessions_pane().table.has_focus
+
+        # A closed Issue is off the open page, so Enter resolves it by identity
+        # and opens its details once they are in; the Issue table's cursor stays.
+        pane.table.move_cursor(row=keys.index(row_key("session", "work:codex:closed")))
+        await pilot.press("enter")
+        await wait_until(lambda: isinstance(app.screen, IssueScreen))
+        details = app.screen
+        assert isinstance(details, IssueScreen)
+        assert details.issue.id == "I_test/repo#2"
+        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.query_one("#queue", DataTable).cursor_row == 0
 
 
 @pytest.mark.asyncio
@@ -405,10 +432,10 @@ async def test_session_selection_survives_refresh_by_identity_or_moves_on() -> N
         session_run("c", state="waiting"),
         issues=issues,
     )
-    app = DashpotApp(SequenceCollector(first, reordered, without_b), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(first, reordered, without_b))
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         pane = app.dashboard.sessions_pane()
         await pilot.press("down")
@@ -416,12 +443,12 @@ async def test_session_selection_survives_refresh_by_identity_or_moves_on() -> N
         assert pane.highlighted() == (row_key("session", "b"), 1)
 
         app.request_refresh("manual")
-        await wait_until(lambda: app.store.revision == 2)
+        await wait_until(lambda: observation_landed(app, 2))
         await pilot.pause()
         assert pane.highlighted() == (row_key("session", "b"), 0)
 
         app.request_refresh("manual")
-        await wait_until(lambda: app.store.revision == 3)
+        await wait_until(lambda: observation_landed(app, 3))
         await pilot.pause()
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 2"
         assert pane.highlighted() == (row_key("session", "a"), 0)
@@ -450,13 +477,10 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         ),
     )
     stale_with_linked = with_first_project_snapshot(with_linked, target_status="stale")
-    app = DashpotApp(
-        SequenceCollector(first, with_linked, stale_with_linked, first),
-        refresh_seconds=0,
-    )
+    app = dashboard_app(SequenceCollector(first, with_linked, stale_with_linked, first))
 
     async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         pane = app.dashboard.worktrees_pane()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
@@ -480,7 +504,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert sessions_value.justify == "center"
 
         app.request_refresh("manual")
-        await wait_until(lambda: app.store.revision == 2)
+        await wait_until(lambda: observation_landed(app, 2))
         await pilot.pause()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 2"
         await pilot.press("tab")
@@ -508,14 +532,14 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
 
         # A retained topology names stale explicitly without restoring STATE.
         app.request_refresh("manual")
-        await wait_until(lambda: app.store.revision == 3)
+        await wait_until(lambda: observation_landed(app, 3))
         await pilot.pause()
         stale_cells = [str(cell) for cell in pane.table.get_row_at(1)]
         assert stale_cells[2] == "/repo-linked · stale"
 
         # The linked worktree is removed: the cursor moves to a neighbour.
         app.request_refresh("manual")
-        await wait_until(lambda: app.store.revision == 4)
+        await wait_until(lambda: observation_landed(app, 4))
         await pilot.pause()
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         assert pane.highlighted() == (
