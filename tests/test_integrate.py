@@ -114,6 +114,9 @@ def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> N
     dispatch = (skill / "references" / "dispatch.md").read_text()
     assert "codex resume <session-id> -C <worktree-path>" in dispatch
     assert "work relocate <worktree-path>" in dispatch
+    assert "/cd <worktree-path>" in dispatch
+    assert "cannot complete a Relocation Intent" in dispatch
+    assert "the model cannot invoke it" in dispatch
     assert (skill / "references" / "recovery.md").is_file()
     assert version("dashpot") == ISSUE_WORK_SKILL_VERSION
     assert any(f"installed Dashpot Issue work skill in {skill}" in m for m in messages)

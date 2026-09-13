@@ -702,7 +702,9 @@ run only when it proves the same Agent Session Identity at that target and no
 client remains live or unobservable elsewhere. The resumed session verifies
 the preserved binding with `work show`; an unbound session uses `work start`.
 A fresh `codex -C <path>` session is the disclosed compatibility fallback and
-cannot preserve another session's Agent Run
+cannot preserve another session's Agent Run; a person's `/cd <path>` in the
+live Codex client likewise starts a new Agent Session, keeping the model's
+context but not the run
 ([Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)). Claude Code's
 own `--worktree` is not used because it places, names, bases, and may reset
 Worktrees by its own rules. Each Worktree owns its own `.venv` and
