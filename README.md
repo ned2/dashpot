@@ -853,6 +853,9 @@ the Legend, and
 [ADR 0051](docs/adr/0051-adopt-long-lived-peer-dashboard-screens.md)
 why the dashboard adopts two long-lived peer screens over shared application
 state.
+The [cognitive-debt research](docs/cognitive-debt/README.md) is a breadth-first
+survey of the ideas, evidence, and tooling for keeping a developer's model of
+a codebase as agents author more of it.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
