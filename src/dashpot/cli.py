@@ -467,7 +467,7 @@ def worktree_create(
             help=(
                 "DIR: the parent directory for the Worktree; defaults to "
                 "DASHPOT_WORKTREE_ROOT, then the worktree_root setting, then "
-                "the sibling <checkout>.worktrees/"
+                "the main working tree's sibling <main>.worktrees/"
             )
         ),
     ] = None,

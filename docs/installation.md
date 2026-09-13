@@ -132,8 +132,8 @@ worktree_open_command = [
 Parsing never performs shell or environment-variable expansion. For `worktree_root`, Dashpot
 strips surrounding whitespace, expands `~`, and resolves relative paths against
 the settings file's parent directory. Precedence remains `--worktree-root`,
-then `DASHPOT_WORKTREE_ROOT`, then `worktree_root`, then the sibling default in
-[Issue Worktrees](../README.md#issue-worktrees).
+then `DASHPOT_WORKTREE_ROOT`, then `worktree_root`, then the main working
+tree's sibling default in [Issue Worktrees](../README.md#issue-worktrees).
 
 For the one-time cutover, recreate an old setting such as
 `{"worktreeRoot": "~/projects/.worktrees/dashpot"}` using the TOML example above.

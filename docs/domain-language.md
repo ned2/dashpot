@@ -115,6 +115,9 @@ Project are refused before observation starts.
 **Repository Anchor**:
 A configured local checkout through which Dashpot locates a Project and asks Git
 for its linked worktrees. It is also the authoritative checkout for Local Issues.
+An anchor may itself be a linked Worktree; what belongs to the Repository rather
+than to one checkout — the main working tree, and the default Worktree Root
+beside it — is asked of Git, not read from the anchor's path.
 
 **Worktree**:
 A local working tree of a Project's Git Repository, including its main working
@@ -333,8 +336,12 @@ _Avoid_: "the" Worktree of an Issue; reading a Worktree or Branch as Issue work
 **Worktree Root**:
 The machine-local directory new Issue Worktrees are created under:
 `--worktree-root`, else `DASHPOT_WORKTREE_ROOT`, else the `worktree_root`
-setting in machine-local `config.toml`, else the sibling `<anchor name>.worktrees/` of the Repository
-Anchor. It is never part of the tracked Project configuration.
+setting in machine-local `config.toml`, else the sibling
+`<main name>.worktrees/` of the Repository's main working tree, so every
+checkout of one Repository shares one default pool
+([ADR 0039](adr/0039-anchor-the-default-worktree-root-on-the-main-working-tree.md)).
+It is never part of the tracked Project configuration.
+_Avoid_: deriving the default from the Worktree the command runs in
 
 ## Presentation
 

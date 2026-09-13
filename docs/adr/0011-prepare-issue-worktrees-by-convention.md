@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-05
-amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0034-read-machine-local-settings-as-toml.md
+amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0034-read-machine-local-settings-as-toml.md, 0039-anchor-the-default-worktree-root-on-the-main-working-tree.md
 ---
 
 # Prepare Issue Worktrees by convention, and only report their removability
@@ -115,3 +115,12 @@ conventions the command owns, so that no agent skill re-derives them.
 - Amended by [ADR 0034](0034-read-machine-local-settings-as-toml.md): machine-local
   settings now use `config.toml` and the `worktree_root` key. Root precedence
   and path resolution remain unchanged; the former `settings.json` is ignored.
+- Amended by [ADR 0039](0039-anchor-the-default-worktree-root-on-the-main-working-tree.md):
+  the sibling default in the Worktree root bullet above anchored on the
+  checkout the command runs in, so a linked Worktree that prepared the next
+  Issue's Worktree started a `<linked name>.worktrees/` pool beside itself.
+  The default is now `<main parent>/<main name>.worktrees/` of the
+  Repository's main working tree from every checkout, and the consequence
+  above that a command run from `.claude/worktrees/` must name a root
+  explicitly no longer applies. Precedence of the explicit sources is
+  unchanged.

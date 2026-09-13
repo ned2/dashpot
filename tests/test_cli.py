@@ -572,6 +572,7 @@ PLAN = WorktreePlan(
     base_commit="e319d3c",
     worktree_root="/w/dashpot.worktrees",
     worktree_root_source="default-sibling",
+    main_worktree="/w/dashpot",
     dry_run=False,
     created=True,
 )
@@ -616,7 +617,10 @@ def test_worktree_create_dispatches_every_option_and_prints_the_plan(
     out = capsys.readouterr().out
     assert out.startswith("created Worktree /w/dashpot.worktrees/35-worktree-protocol")
     assert "base: refs/remotes/origin/main at e319d3c (from origin/HEAD)" in out
-    assert "worktree root: /w/dashpot.worktrees (from default-sibling)" in out
+    assert (
+        "worktree root: /w/dashpot.worktrees "
+        "(from default-sibling, beside the main working tree /w/dashpot)"
+    ) in out
 
 
 def test_worktree_create_refusal_exits_2_in_both_output_modes(

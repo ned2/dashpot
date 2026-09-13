@@ -74,6 +74,7 @@ class WorktreePlan(PublishedModel):
     base_commit: str | None
     worktree_root: str
     worktree_root_source: WorktreeRootSource
+    main_worktree: str
     dry_run: bool
     created: bool = False
     refusals: LaxSequence[str] = ()
@@ -136,9 +137,13 @@ def create_issue_worktree(
 ) -> WorktreePlan:
     """Create a linked Worktree for an Issue, or report why it is refused.
 
-    The Repository Anchor is the checkout the command runs in. Every rule is
-    applied before Git mutates anything; a plan with refusals creates
-    nothing. With ``dry_run`` the plan is reported and Git is not called.
+    The Repository Anchor is the checkout the command runs in: it supplies the
+    Project configuration, the Issue Source, and the base. The default
+    Worktree Root is a property of the Git Repository instead, taken from its
+    main working tree, so every checkout of one Repository shares one pool.
+    Every rule is applied before Git mutates anything; a plan with refusals
+    creates nothing. With ``dry_run`` the plan is reported and Git is not
+    called.
     """
     anchor = worktree_root(current, git)
     git = (git if git is not None else Git(anchor, timeout)).at(anchor)
@@ -157,9 +162,10 @@ def create_issue_worktree(
         for record in records
         if record.get("worktree") and "bare" not in record
     ]
+    main_worktree = _main_worktree(records)
 
     root, root_source = resolve_worktree_root(
-        anchor, worktree_root_option, environment, machine
+        main_worktree, worktree_root_option, environment, machine
     )
     refusals.extend(_check_worktree_root(root, worktrees))
 
@@ -192,6 +198,7 @@ def create_issue_worktree(
         base_commit=resolution.commit,
         worktree_root=str(root),
         worktree_root_source=root_source,
+        main_worktree=str(main_worktree),
         dry_run=dry_run,
         refusals=tuple(refusals),
         hints=tuple(hints),
@@ -205,8 +212,13 @@ def create_issue_worktree(
     return plan.model_copy(update={"dry_run": False, "created": True, "hints": ()})
 
 
+def _main_worktree(records: Sequence[Mapping[str, str]]) -> Path:
+    """The Repository's main working tree, which Git always lists first."""
+    return Path(records[0]["worktree"]).resolve()
+
+
 def resolve_worktree_root(
-    anchor: Path,
+    main_worktree: Path,
     option: Path | None,
     environment: Mapping[str, str],
     settings: Settings,
@@ -215,7 +227,9 @@ def resolve_worktree_root(
 
     Precedence is ``--worktree-root``, then ``DASHPOT_WORKTREE_ROOT``, then
     the machine-local ``worktree_root`` setting, then the sibling directory
-    ``<anchor parent>/<anchor name>.worktrees``. The result is the real path.
+    ``<main parent>/<main name>.worktrees`` of the Repository's main working
+    tree — never of the linked Worktree the command happens to run in, so
+    one Repository has one default pool. The result is the real path.
     """
     if option is not None:
         return option.expanduser().resolve(), "--worktree-root"
@@ -224,7 +238,7 @@ def resolve_worktree_root(
         return Path(variable).expanduser().resolve(), "DASHPOT_WORKTREE_ROOT"
     if settings.worktree_root is not None:
         return settings.worktree_root.resolve(), "settings"
-    sibling = anchor.parent / f"{anchor.name}{WORKTREE_ROOT_SUFFIX}"
+    sibling = main_worktree.parent / f"{main_worktree.name}{WORKTREE_ROOT_SUFFIX}"
     return sibling.resolve(), "default-sibling"
 
 
@@ -624,9 +638,12 @@ def describe_worktree_plan(plan: WorktreePlan) -> list[str]:
         lines.append(
             f"base: {plan.base_ref} at {plan.base_commit} (from {plan.base_source})"
         )
-    lines.append(
-        f"worktree root: {plan.worktree_root} (from {plan.worktree_root_source})"
-    )
+    chosen_by = plan.worktree_root_source
+    if chosen_by == "default-sibling":
+        # The default is derived, so say from what: a person reading the line
+        # from a linked Worktree would otherwise expect its own sibling.
+        chosen_by += f", beside the main working tree {plan.main_worktree}"
+    lines.append(f"worktree root: {plan.worktree_root} (from {chosen_by})")
     lines.extend(f"existing Worktree hint: {item}" for item in plan.hints)
     lines.extend(f"warning: {item}" for item in plan.warnings)
     # Refusals are the CLI's to render from the structured ``plan.refusals``:

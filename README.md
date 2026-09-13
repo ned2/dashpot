@@ -601,9 +601,13 @@ moves anything. Its conventions are recorded in
 - **Worktree Root:** `--worktree-root DIR`, else `DASHPOT_WORKTREE_ROOT`,
   else `worktree_root` in the machine-local `~/.config/dashpot/config.toml`
   (`XDG_CONFIG_HOME` respected), else the sibling directory
-  `<anchor parent>/<anchor name>.worktrees/`. The root is real-path
-  normalised, refused inside any Worktree of the Project, and reported with
-  its source.
+  `<main parent>/<main name>.worktrees/` of the Repository's main working
+  tree — the same pool whether the command runs in the main checkout or in
+  a linked Worktree
+  ([ADR 0039](docs/adr/0039-anchor-the-default-worktree-root-on-the-main-working-tree.md)).
+  The root is real-path normalised, refused inside any Worktree of the
+  Project, and reported with its source; the default names the main working
+  tree it sits beside.
 - **Base:** `--base REF`, else `origin/HEAD`, else the one local `main` or
   `master` when exactly one exists, else a refusal naming `--base`; resolved
   to an exact commit, never fetched, and reported with its source. The base

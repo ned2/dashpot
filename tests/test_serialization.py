@@ -156,6 +156,7 @@ WORKTREE_PLAN_KEYS = {
     "baseCommit",
     "worktreeRoot",
     "worktreeRootSource",
+    "mainWorktree",
     "dryRun",
     "created",
     "refusals",
@@ -298,6 +299,7 @@ def test_the_worktree_plan_document_keeps_its_keys_and_nulls() -> None:
         base_commit=None,
         worktree_root="/w",
         worktree_root_source="default-sibling",
+        main_worktree="/w/x-main",
         dry_run=True,
         refusals=["no base"],
     )

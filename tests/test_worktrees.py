@@ -159,6 +159,7 @@ def test_json_shape_names_every_source(tmp_path: Path) -> None:
         "baseCommit",
         "worktreeRoot",
         "worktreeRootSource",
+        "mainWorktree",
         "dryRun",
         "created",
         "refusals",
@@ -237,22 +238,22 @@ def test_unknown_base_is_refused(tmp_path: Path) -> None:
 
 
 def test_worktree_root_precedence(tmp_path: Path) -> None:
-    anchor = tmp_path / "p" / "sim"
+    main = tmp_path / "p" / "sim"
     settings = Settings(worktree_root=tmp_path / "from-settings")
     environment = {"DASHPOT_WORKTREE_ROOT": str(tmp_path / "from-env")}
 
     assert resolve_worktree_root(
-        anchor, tmp_path / "from-option", environment, settings
+        main, tmp_path / "from-option", environment, settings
     ) == (tmp_path / "from-option", "--worktree-root")
-    assert resolve_worktree_root(anchor, None, environment, settings) == (
+    assert resolve_worktree_root(main, None, environment, settings) == (
         tmp_path / "from-env",
         "DASHPOT_WORKTREE_ROOT",
     )
-    assert resolve_worktree_root(anchor, None, {}, settings) == (
+    assert resolve_worktree_root(main, None, {}, settings) == (
         tmp_path / "from-settings",
         "settings",
     )
-    assert resolve_worktree_root(anchor, None, {}, Settings()) == (
+    assert resolve_worktree_root(main, None, {}, Settings()) == (
         tmp_path / "p" / "sim.worktrees",
         "default-sibling",
     )
@@ -281,6 +282,137 @@ def test_root_inside_a_worktree_of_the_project_is_refused(tmp_path: Path) -> Non
     assert any("inside the Worktree" in item for item in plan.refusals)
     assert not (root / ".claude").exists()
     assert_main_unchanged(root, branches)
+
+
+def linked(root: Path, path: Path, branch: str) -> Path:
+    """A linked Worktree of ``root`` at ``path`` on a new ``branch``."""
+    git(root, "worktree", "add", "-q", "-b", branch, str(path))
+    return path
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["p/sim.worktrees/first", "elsewhere/first", "p/sim/.claude/worktrees/first"],
+)
+def test_default_root_from_a_linked_worktree_is_the_main_trees_sibling(
+    tmp_path: Path, location: str
+) -> None:
+    """The default pool belongs to the Repository, not to the Worktree run in.
+
+    A linked Worktree inside the pool would previously have started a
+    nested ``first.worktrees/`` pool beside itself; one inside the main
+    working tree would have needed an explicit root.
+    """
+    root = sim(tmp_path)
+    first = linked(root, tmp_path / location, "first")
+
+    from_linked = create(first, "36", dry_run=True)
+    from_main = create(root, "36", dry_run=True)
+
+    assert from_linked.worktree_root == str(tmp_path / "p" / "sim.worktrees")
+    assert from_linked.worktree_root_source == "default-sibling"
+    assert from_linked.main_worktree == str(root)
+    assert from_linked.path == str(tmp_path / "p" / "sim.worktrees" / "other")
+    assert from_linked.refusals == ()
+    assert (from_linked.worktree_root, from_linked.worktree_root_source) == (
+        from_main.worktree_root,
+        from_main.worktree_root_source,
+    )
+    assert not (first.parent / "first.worktrees").exists()
+
+
+def test_creation_from_a_linked_worktree_lands_in_the_shared_pool(
+    tmp_path: Path,
+) -> None:
+    root = sim(tmp_path)
+    first = linked(root, tmp_path / "p" / "sim.worktrees" / "first", "first")
+
+    plan = create(first, "36")
+
+    expected = tmp_path / "p" / "sim.worktrees" / "other"
+    assert plan.created is True
+    assert plan.path == str(expected)
+    assert expected in [Path(item) for item in worktree_paths(root)]
+    assert sorted(worktree_paths(first)) == sorted(
+        [str(root), str(first), str(expected)]
+    )
+    assert git(root, "status", "--porcelain") == ""
+
+
+def test_explicit_roots_keep_precedence_from_a_linked_worktree(
+    tmp_path: Path,
+) -> None:
+    root = sim(tmp_path)
+    first = linked(root, tmp_path / "p" / "sim.worktrees" / "first", "first")
+    settings = Settings(worktree_root=tmp_path / "from-settings")
+    environment = {"DASHPOT_WORKTREE_ROOT": str(tmp_path / "from-env")}
+
+    def plan_from(
+        option: Path | None, environ: dict[str, str], machine: Settings
+    ) -> tuple[str, str]:
+        plan = create_issue_worktree(
+            first,
+            "36",
+            worktree_root_option=option,
+            dry_run=True,
+            environ=environ,
+            settings=machine,
+        )
+        return plan.worktree_root, plan.worktree_root_source
+
+    assert plan_from(tmp_path / "from-option", environment, settings) == (
+        str(tmp_path / "from-option"),
+        "--worktree-root",
+    )
+    assert plan_from(None, environment, settings) == (
+        str(tmp_path / "from-env"),
+        "DASHPOT_WORKTREE_ROOT",
+    )
+    assert plan_from(None, {}, settings) == (
+        str(tmp_path / "from-settings"),
+        "settings",
+    )
+    assert plan_from(None, {}, Settings()) == (
+        str(tmp_path / "p" / "sim.worktrees"),
+        "default-sibling",
+    )
+
+
+def test_default_root_follows_the_main_tree_git_reports(tmp_path: Path) -> None:
+    """The main working tree is read from Git's listing, not from the anchor."""
+    root = sim(tmp_path)
+    elsewhere = tmp_path / "reported" / "main"
+
+    def reporting_main(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        result = run_command(args, cwd, timeout)
+        if list(args[:3]) == ["git", "worktree", "list"]:
+            listing = f"worktree {elsewhere}\0HEAD {git(root, 'rev-parse', 'HEAD')}\0"
+            return CommandResult(
+                list(args), 0, listing + "branch refs/heads/main\0\0", ""
+            )
+        return result
+
+    plan = create(root, dry_run=True, git_adapter=Git(root, runner=reporting_main))
+
+    assert plan.main_worktree == str(elsewhere)
+    assert plan.worktree_root == str(tmp_path / "reported" / "main.worktrees")
+    assert plan.worktree_root_source == "default-sibling"
+
+
+def test_the_default_root_line_names_the_main_working_tree(tmp_path: Path) -> None:
+    root = sim(tmp_path)
+    first = linked(root, tmp_path / "p" / "sim.worktrees" / "first", "first")
+
+    lines = describe_worktree_plan(create(first, "36", dry_run=True))
+
+    assert (
+        f"worktree root: {tmp_path / 'p' / 'sim.worktrees'} "
+        f"(from default-sibling, beside the main working tree {root})"
+    ) in lines
+    explicit = describe_worktree_plan(
+        create(first, "36", dry_run=True, worktree_root_option=tmp_path / "chosen")
+    )
+    assert f"worktree root: {tmp_path / 'chosen'} (from --worktree-root)" in explicit
 
 
 # --- Base predating configuration ---------------------------------------------
