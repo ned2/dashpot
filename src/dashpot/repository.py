@@ -7,11 +7,8 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
 
-from .commands import CommandRunner, run_command
 from .git import Git, GitError
-from .github import NOT_FOUND, GitHubGateway, GitHubRequestError
 from .model import (
     Branch,
     Diagnostic,
@@ -19,6 +16,7 @@ from .model import (
     RepositoryStateInventory,
     TargetRole,
 )
+from .processes import LockHolder
 
 # The fields `git for-each-ref` reports per ref; the Git adapter's records()
 # separates them with NUL so a value can never be mistaken for a separator.
@@ -88,9 +86,9 @@ def main_worktree(records: Sequence[Mapping[str, str]]) -> Path:
 
 
 # Whether the process holding a Worktree lock is still running. Dashpot asks
-# the process adapter through this seam; observing processes is not this
-# module's job, and a lock Git reports is only a fact about one.
-LockHolder = Literal["live", "gone", "unknown"]
+# the process adapter through this seam, which answers with its ``LockHolder``;
+# observing processes is not this module's job, and a lock Git reports is only
+# a fact about one.
 LockHolderProbe = Callable[[int], LockHolder]
 # Every harness that locks a Worktree names the holding process the same way.
 LOCK_HOLDER_PID = re.compile(r"\bpid (\d+)\b")
@@ -759,42 +757,6 @@ def last_fetched_at(anchor: Path, git: Git) -> str | None:
         .isoformat()
         .replace("+00:00", "Z")
     )
-
-
-def github_repo_from_remote(root: Path, git: Git | None = None) -> str | None:
-    """The ``owner/name`` GitHub reference of ``origin``, or None without one."""
-    adapter = git if git is not None else Git(root)
-    remote = adapter.at(root).maybe("remote", "get-url", "origin")
-    if remote is None:
-        return None
-    match = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$", remote)
-    return None if match is None else str(match.group(1))
-
-
-def observe_github_repository_identity(
-    root: Path,
-    reference: str,
-    timeout: float = 10,
-    runner: CommandRunner = run_command,
-) -> tuple[str, str]:
-    """Resolve a mutable GitHub reference to its durable Repository identity."""
-    gateway = GitHubGateway(root, timeout=timeout, runner=runner)
-    try:
-        payload = gateway.rest(f"repos/{reference}")
-    except GitHubRequestError as exc:
-        # The one thing asked for by name is the repository, so a not-found
-        # answer is the repository's; every other code is passed on as read.
-        code = "github-repository" if exc.code == NOT_FOUND else exc.code
-        raise GitHubRequestError(
-            code, f"cannot resolve GitHub repository {reference}: {exc}"
-        ) from exc
-    repository_id = payload.get("node_id")
-    observed_reference = payload.get("full_name")
-    if not isinstance(repository_id, str) or not repository_id:
-        raise RuntimeError(f"GitHub repository {reference} has no durable identity")
-    if not isinstance(observed_reference, str) or not observed_reference:
-        raise RuntimeError(f"GitHub repository {reference} has no full name")
-    return repository_id, observed_reference
 
 
 def is_within(path: Path, parent: Path) -> bool:

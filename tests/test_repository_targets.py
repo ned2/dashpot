@@ -7,7 +7,8 @@ from unittest import mock
 
 from dashpot.git import Git
 from dashpot.model import Diagnostic
-from dashpot.repository import LockHolder, observe_observation_targets
+from dashpot.processes import LockHolder
+from dashpot.repository import observe_observation_targets
 from factories import SequenceRunner, completed, git
 
 

@@ -14,6 +14,7 @@ from typing_extensions import override
 
 from dashpot.collect import ObservationCoordinator, ProjectCollector
 from dashpot.commands import CommandResult
+from dashpot.github_repository import observe_github_repository_identity
 from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_sources import (
     CollectedIssues,
@@ -33,7 +34,7 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from dashpot.pull_request_sources import PullRequestSourceObservation
-from dashpot.repository import BranchObservation, observe_github_repository_identity
+from dashpot.repository import BranchObservation
 from factories import observation_target
 from helpers import jsonable
 
@@ -202,6 +203,19 @@ class RepositoryTests(unittest.TestCase):
                     )
                 self.assertEqual(code, getattr(caught.exception, "code", None))
                 self.assertEqual(message, str(caught.exception))
+
+    def test_an_answer_missing_its_identity_or_name_is_refused(self) -> None:
+        cases = [
+            ({"full_name": "ned2/dashpot"}, "no durable identity"),
+            ({"node_id": "R_dashpot", "full_name": ""}, "no full name"),
+        ]
+        for payload, reason in cases:
+            with self.subTest(reason=reason):
+                runner = FixedRunner(CommandResult([], 0, json.dumps(payload), ""))
+                with self.assertRaisesRegex(RuntimeError, reason):
+                    observe_github_repository_identity(
+                        Path("/repo"), "ned2/dashpot", 7, runner
+                    )
 
 
 class FixedRunner:

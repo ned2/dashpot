@@ -14,6 +14,10 @@ from pydantic import AfterValidator, ConfigDict, ValidationError
 
 from .errors import DashpotError
 from .git import Git
+from .github_repository import (
+    github_repo_from_remote,
+    observe_github_repository_identity,
+)
 from .model import (
     Diagnostic,
     RepositoryAnchor,
@@ -31,11 +35,7 @@ from .project_config import (
     ProjectConfig,
     load_project_config,
 )
-from .repository import (
-    github_repo_from_remote,
-    observe_github_repository_identity,
-    worktree_root,
-)
+from .repository import worktree_root
 
 RootObserver = Callable[[Path], Path]
 GitHubIdentityObserver = Callable[[Path, str, float], tuple[str, str]]

@@ -8,15 +8,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
 
 from .harnesses import ADAPTERS
 from .models import PublishedModel
-from .repository import LockHolder
 
 ProcessKey = tuple[int, str]
+# Whether the process holding a Worktree lock is still running: the answer the
+# process adapter gives the Git observation of a lock Git reports.
+LockHolder = Literal["live", "gone", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
