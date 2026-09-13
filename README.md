@@ -634,9 +634,9 @@ moves anything. Its conventions are recorded in
 `--dry-run` reports the path, Branch, base commit and source, root and
 source, and every refusal, without creating anything. `--json` prints the
 same facts (`issueId`, `issueReference`, `path`, `branch`, `baseRef`,
-`baseSource`, `baseCommit`, `worktreeRoot`, `worktreeRootSource`, `dryRun`,
-`created`, `refusals`, `hints`, `warnings`); a refusal exits 2 in either
-mode. `warnings` carries non-fatal observations, such as unknown fields in
+`baseSource`, `baseCommit`, `worktreeRoot`, `worktreeRootSource`,
+`mainWorktree`, `dryRun`, `created`, `refusals`, `hints`, `warnings`); a
+refusal exits 2 in either mode. `warnings` carries non-fatal observations, such as unknown fields in
 the machine-local settings file, which are ignored rather than fatal so a
 settings file written by a newer Dashpot never stops this one.
 

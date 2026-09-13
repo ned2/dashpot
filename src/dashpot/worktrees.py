@@ -214,6 +214,9 @@ def create_issue_worktree(
 
 def _main_worktree(records: Sequence[Mapping[str, str]]) -> Path:
     """The Repository's main working tree, which Git always lists first."""
+    # ``git worktree list`` always opens with the main working tree — or the
+    # bare repository when there is none — and the anchor itself is listed,
+    # so the first record exists; a bare Repository's pool sits beside it.
     return Path(records[0]["worktree"]).resolve()
 
 

@@ -379,24 +379,30 @@ def test_explicit_roots_keep_precedence_from_a_linked_worktree(
 
 
 def test_default_root_follows_the_main_tree_git_reports(tmp_path: Path) -> None:
-    """The main working tree is read from Git's listing, not from the anchor."""
+    """The main working tree is read from Git's listing, not from the anchor.
+
+    The fake lists a main tree elsewhere and the anchor as a linked tree of
+    it, so the anchor's own sibling is never the answer.
+    """
     root = sim(tmp_path)
     elsewhere = tmp_path / "reported" / "main"
+    head = git(root, "rev-parse", "HEAD")
+    listing = (
+        f"worktree {elsewhere}\0HEAD {head}\0branch refs/heads/main\0\0"
+        f"worktree {root}\0HEAD {head}\0branch refs/heads/linked\0\0"
+    )
 
     def reporting_main(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
-        result = run_command(args, cwd, timeout)
         if list(args[:3]) == ["git", "worktree", "list"]:
-            listing = f"worktree {elsewhere}\0HEAD {git(root, 'rev-parse', 'HEAD')}\0"
-            return CommandResult(
-                list(args), 0, listing + "branch refs/heads/main\0\0", ""
-            )
-        return result
+            return CommandResult(list(args), 0, listing, "")
+        return run_command(args, cwd, timeout)
 
     plan = create(root, dry_run=True, git_adapter=Git(root, runner=reporting_main))
 
     assert plan.main_worktree == str(elsewhere)
     assert plan.worktree_root == str(tmp_path / "reported" / "main.worktrees")
     assert plan.worktree_root_source == "default-sibling"
+    assert plan.refusals == ()
 
 
 def test_the_default_root_line_names_the_main_working_tree(tmp_path: Path) -> None:
