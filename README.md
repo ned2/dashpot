@@ -178,12 +178,25 @@ Issues summarizes explicitly bound Agent Runs, without a count. An empty
 aggregate has a blank Glyph. The Issue column editor always keeps agent
 activity first and preserves the order of your other choices.
 
-While Sessions has keyboard focus, the row under its cursor emphasizes its
-related Worktree, Branch, and bound Issue with a subtle background and bold
-identifying cells. Arrow keys and mouse selection update this cue; leaving
-Sessions or opening a modal clears it. This does not move another pane's cursor,
-change filters, or scroll to a match. An unbound session can still highlight
-its observed Worktree and Branch. Issue Hints do not establish a relationship.
+While Sessions, Worktrees, Branches, or Issues has keyboard focus, the row under
+its cursor emphasizes direct relationships in the other supported panes with a
+subtle background and bold identifying cells (HARNESS and TARGET for Sessions).
+Sessions emphasizes its observed Worktree, Branch, and bound Issue. Worktrees
+emphasizes its located Sessions, checked-out Branch, and those Sessions' bound
+Issues. Branches emphasizes its Worktrees, directly associated Sessions, and
+their bound Issues. Issues emphasizes only its explicitly bound Sessions and
+their observed Worktrees and Branches. Worktree–Branch topology also works
+without Sessions; shared locations never recursively add unrelated Sessions.
+
+Arrow keys and mouse selection update this cue. Entering or re-entering a pane
+selects and reveals its first row; refresh preserves a surviving cursor key.
+Search/filter controls, Pull Requests, and modals clear emphasis. Pull Requests
+are never sources or destinations. Other cursors, filters, pagination, scroll
+positions, activity Glyphs, and counts stay unchanged. Selection performs no
+observation or mutation. Paths and Branch names are scoped to Project Identity;
+Issues match opaque Issue Identity through accepted Agent Run memberships.
+Distinct native Agent Session identities remain separate even on a shared
+backend. Issue Hints and process identities do not establish relationships.
 
 The Issue table's columns are `◈` (agent activity), `◉`
 (Issue state), both unsortable, then `#`, `TITLE`,

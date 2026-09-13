@@ -347,9 +347,21 @@ block, whose colours distinguish its states.
 The shared agent-activity column (`◈`) uses `●` running, `◐` waiting, and
 `○` unknown. Sessions shows one Agent Session; Worktrees and Branches summarize
 located Agent Sessions; Issues summarizes explicitly bound Agent Runs. The
-liveliest state wins and an absent aggregate is blank. While Sessions has focus,
-related-row emphasis follows accepted observation relationships and Issue
-Bindings, without changing another pane’s selection or inventing Issue work.
+liveliest state wins and an absent aggregate is blank. While Sessions, Worktrees,
+Branches, or Issues has focus, related-row emphasis follows only direct accepted
+relationships. Sessions links its observed Worktree, Branch, and bound Issue;
+Worktrees and Branches link checked-out topology, their directly associated
+Sessions, and those Sessions' bound Issues; Issues links its bound Sessions and
+their locations. Worktree–Branch topology needs no Session. Shared locations
+never recursively expand membership. Joins use Project-scoped paths and Branch
+names, opaque Issue Identity, and accepted Agent Run membership, never Issue
+Hints or shared backend processes; distinct native Agent Session identities stay
+separate. Pane entry selects the first row, while refresh preserves a surviving
+cursor key. Unsupported controls and modals clear emphasis; Pull Requests are
+excluded as sources and destinations. Background and bold identifying cells
+(HARNESS and TARGET for Sessions) preserve Glyph colours, activity, and counts.
+Emphasis never changes destination cursors or scroll positions, submits queries,
+or mutates Issue work.
 
 _Avoid_: icon or symbol for the value; the symbol is one field of a Glyph
 

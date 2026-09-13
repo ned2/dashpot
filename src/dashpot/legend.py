@@ -38,9 +38,17 @@ SESSIONS_COUNT_NOTE = (
 )
 AGENT_STATE_NOTE = "the liveliest explicitly bound Agent Run; blank when none"
 RELATED_ROWS_NOTE = (
-    "While Sessions has focus, its cursor emphasizes related Worktree, Branch, "
-    "and bound Issue rows with a background and bold identifying cells; "
-    "other cursors, filters, and scroll positions stay where they are"
+    "Sessions, Worktrees, Branches, and Issues emphasize direct relationships "
+    "from the focused cursor with a background and bold identifying cells "
+    "(HARNESS and TARGET for Sessions). Sessions links its location and bound "
+    "Issue; Worktrees and Branches link checked-out topology, directly located "
+    "Sessions, and their bound Issues; Issues links bound Sessions and their "
+    "locations. No recursive expansion: Project-scoped locations and accepted "
+    "Agent Run memberships establish links, never Issue Hints or shared backend "
+    "processes. Pane entry selects the first row; refresh preserves surviving "
+    "cursor keys. Controls and modals clear emphasis; Pull Requests are excluded. "
+    "Other cursors, filters, scroll positions, activity Glyphs, and counts stay "
+    "unchanged; selection performs no observation or mutation"
 )
 ACTIVITY_LEGEND = (ACTIVITY_COLUMN_GLYPH, *session_list.LEGEND)
 LOCAL_PRESENCE_NOTE = "a local ref under refs/heads"

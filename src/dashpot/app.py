@@ -107,7 +107,7 @@ from .pull_request_list import (
     query_pull_request_search_results,
 )
 from .pull_request_search import parse_pull_request_search
-from .related_rows import query_related_rows
+from .related_rows import FocusedSource, query_related_rows
 from .search import SearchSort, parse_search
 from .session_list import SESSION_COLUMNS, build_session_rows, session_columns
 from .spread_table import SpreadTable
@@ -888,10 +888,10 @@ class DashboardScreen(Screen[None]):
 
         self.rows_by_key = desired_contexts
         self.rendered_cells = desired_cells
-        self.update_related_rows()
         selected_key = restore_selection(
             table, prior_key, prior_index, desired_contexts
         )
+        self.update_related_rows()
         if selected_key is None:
             self.selected_row_key = None
             return result
@@ -954,7 +954,7 @@ class DashboardScreen(Screen[None]):
         # screen and its panes have been unmounted.
         if not self.is_mounted:
             return
-        if event.data_table.id == "sessions":
+        if event.data_table.has_focus:
             self.update_related_rows()
         # Only the Issue table drives the Issue selection; a session or worktree
         # cursor is for scrolling, copying and refresh scope alone.
@@ -974,28 +974,38 @@ class DashboardScreen(Screen[None]):
         self.call_after_refresh(self.update_related_rows)
 
     def update_related_rows(self, *, clear: bool = False) -> None:
-        """Emphasize accepted relationships of the visible Sessions cursor."""
+        """Emphasize direct relationships of the visible focused cursor."""
         if not self.is_mounted or not self._update_widgets_mounted():
             return
-        sessions = self.sessions_pane()
-        key, _ = sessions.highlighted()
-        run_id = None
-        if not clear and self.app.screen is self and sessions.table.has_focus:
-            run_id = next(
-                (
-                    row.session.id
-                    for row in self.dashpot.store.query_sessions().rows
-                    if row.key == key
-                ),
-                None,
-            )
+        sessions = self.dashpot.store.query_sessions().rows
+        worktrees = self.dashpot.store.query_worktrees().rows
+        branches = self.dashpot.store.query_branches().rows
+        issues = tuple(self.rows_by_key.values())
+        source: FocusedSource | None = None
+        if not clear and self.app.screen is self:
+            for table, rows in (
+                (self.sessions_pane().table, sessions),
+                (self.worktrees_pane().table, worktrees),
+                (self.branches_pane().table, branches),
+                (self.queue_table(), issues),
+            ):
+                if table.has_focus:
+                    key, _ = capture_selection(table)
+                    source = next((row for row in rows if row.key == key), None)
+                    break
         related = query_related_rows(
-            run_id,
-            worktrees=self.dashpot.store.query_worktrees().rows,
-            branches=self.dashpot.store.query_branches().rows,
-            issues=tuple(self.rows_by_key.values()),
+            source,
+            sessions=sessions,
+            worktrees=worktrees,
+            branches=branches,
+            issues=issues,
         )
         for table, keys, columns in (
+            (
+                self.sessions_pane().table,
+                related.sessions,
+                frozenset({"harness", "target"}),
+            ),
             (self.worktrees_pane().table, related.worktrees, frozenset({"path"})),
             (self.branches_pane().table, related.branches, frozenset({"name"})),
             (self.queue_table(), related.issues, frozenset({"number", "title"})),

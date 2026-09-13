@@ -11,6 +11,151 @@ from factories import agent_run, project, target, workspace
 from test_branch_list import local
 
 
+def query_source(store, source, *, issues=None):
+    return query_related_rows(
+        source,
+        sessions=store.query_sessions().rows,
+        worktrees=store.query_worktrees().rows,
+        branches=store.query_branches().rows,
+        issues=store.query_issues().rows if issues is None else issues,
+    )
+
+
+def test_every_source_uses_direct_membership_without_recursive_expansion():
+    runs = [
+        agent_run("one", target_path="/alpha"),
+        agent_run("two", target_path="/alpha"),
+        agent_run("three", target_path="/linked", branch="main"),
+    ]
+    store = WorkspaceObservationStore(
+        related_snapshot(
+            runs=runs, bindings={"I_alpha#1": ["one"], "I_alpha#2": ["three"]}
+        )
+    )
+    sessions = {row.session.id: row for row in store.query_sessions().rows}
+    worktrees = {
+        row.target.path: row
+        for row in store.query_worktrees().rows
+        if row.project.project_id == "project:alpha"
+    }
+    branches = {
+        row.name: row
+        for row in store.query_branches().rows
+        if row.project.project_id == "project:alpha"
+    }
+    issues = {row.issue.number: row for row in store.query_issues().rows}
+    selected = query_source(store, worktrees["/alpha"])
+    assert selected.sessions == {sessions["one"].key, sessions["two"].key}
+    assert selected.branches == {branches["main"].key}
+    assert selected.issues == {issues[1].key}
+    assert not selected.worktrees
+    selected = query_source(store, branches["main"])
+    assert selected.sessions == {row.key for row in sessions.values()}
+    assert selected.worktrees == {worktrees["/alpha"].key}
+    assert selected.issues == {row.key for row in issues.values()}
+    assert not selected.branches
+    selected = query_source(store, issues[1])
+    assert selected.sessions == {sessions["one"].key}
+    assert selected.worktrees == {worktrees["/alpha"].key}
+    assert selected.branches == {branches["main"].key}
+    assert not selected.issues
+    selected = query_source(store, worktrees["/alpha"], issues=())
+    assert selected.sessions == {sessions["one"].key, sessions["two"].key}
+    assert selected.branches == {branches["main"].key}
+    assert not selected.issues
+
+
+def test_unoccupied_topology_is_scoped_and_excludes_detached_unavailable_locations():
+    store = WorkspaceObservationStore(related_snapshot(runs=[], bindings={}))
+    for worktree in store.query_worktrees().rows:
+        selected = query_source(store, worktree)
+        branch = next(
+            row
+            for row in store.query_branches().rows
+            if row.project.project_id == worktree.project.project_id
+            and row.name == worktree.target.branch
+        )
+        assert selected.branches == {branch.key}
+        assert not selected.sessions and not selected.issues
+        assert worktree.key in query_source(store, branch).worktrees
+        unavailable = replace(
+            worktree,
+            target=worktree.target.model_copy(update={"availability": "unavailable"}),
+        )
+        assert not query_source(store, unavailable).branches
+        detached = replace(
+            worktree,
+            target=worktree.target.model_copy(
+                update={"detached": True, "branch": None}
+            ),
+        )
+        assert not query_source(store, detached).branches
+    for issue_row in store.query_issues().rows:
+        result = query_source(store, issue_row)
+        assert not result.sessions and not result.worktrees and not result.branches
+
+
+def test_distinct_native_sessions_sharing_backend_do_not_leak_issue_context():
+    runs = [
+        agent_run("one", target_path="/alpha", process_or_session="4242").model_copy(
+            update={"session_id": "native-one"}
+        ),
+        agent_run("two", target_path="/alpha", process_or_session="4242").model_copy(
+            update={"session_id": "native-two"}
+        ),
+    ]
+    store = WorkspaceObservationStore(
+        related_snapshot(
+            runs=runs, bindings={"I_alpha#1": ["one"], "I_alpha#2": ["two"]}
+        )
+    )
+    sessions = store.query_sessions().rows
+    assert len({row.key for row in sessions}) == 2
+    for issue_row in store.query_issues().rows:
+        result = query_source(store, issue_row)
+        expected_run = "one" if issue_row.issue.number == 1 else "two"
+        assert result.sessions == {
+            row.key for row in sessions if row.session.id == expected_run
+        }
+        assert len(result.worktrees) == len(result.branches) == 1
+        session = next(row for row in sessions if row.session.id == expected_run)
+        assert query_source(store, session).issues == {issue_row.key}
+
+
+def test_branch_highlights_all_checked_out_worktrees_without_sessions():
+    snapshot = related_snapshot(runs=[], bindings={})
+    alpha = snapshot.projects[0]
+    alpha = alpha.model_copy(
+        update={
+            "snapshot": alpha.snapshot.model_copy(
+                update={
+                    "observation_targets": (
+                        target("/alpha", branch="main"),
+                        target("/other", branch="main"),
+                        target("/detached", branch=None),
+                    )
+                }
+            )
+        }
+    )
+    store = WorkspaceObservationStore(
+        snapshot.model_copy(update={"projects": (alpha, snapshot.projects[1])})
+    )
+    branch = next(
+        row
+        for row in store.query_branches().rows
+        if row.project.project_id == "project:alpha" and row.name == "main"
+    )
+    result = query_source(store, branch)
+    assert result.worktrees == {
+        row.key
+        for row in store.query_worktrees().rows
+        if row.project.project_id == "project:alpha"
+        and row.target.path in {"/alpha", "/other"}
+    }
+    assert not result.sessions and not result.issues
+
+
 def related_snapshot(*, runs=None, bindings=None):
     first = issue("alpha#1", "First", projectId="project:alpha")
     second = issue("alpha#2", "Second", projectId="project:alpha")
@@ -43,7 +188,11 @@ def related_snapshot(*, runs=None, bindings=None):
 
 def related(store, run_id, query=IssueListQuery()):
     return query_related_rows(
-        run_id,
+        next(
+            (row for row in store.query_sessions().rows if row.session.id == run_id),
+            None,
+        ),
+        sessions=store.query_sessions().rows,
         worktrees=store.query_worktrees().rows,
         branches=store.query_branches().rows,
         issues=store.query_issues(query).rows,
@@ -105,9 +254,13 @@ def test_shared_rows_and_only_current_page_issue_membership_are_highlighted():
     store = WorkspaceObservationStore(related_snapshot(runs=runs))
     assert related(store, "one").worktrees == related(store, "two").worktrees
     assert related(store, "one").branches == related(store, "two").branches
-    assert not query_related_rows("one", worktrees=(), branches=(), issues=()).issues
+    source = store.query_sessions().rows[0]
     assert not query_related_rows(
-        "one",
+        source, sessions=(), worktrees=(), branches=(), issues=()
+    ).issues
+    assert not query_related_rows(
+        source,
+        sessions=(),
         worktrees=(),
         branches=(),
         issues=(replace(store.query_issues().rows[0], observed_runs=()),),
