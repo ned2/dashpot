@@ -1,28 +1,30 @@
 """The Issue table's rendered values: cell types, Glyphs and chip formatting.
 
 Everything here turns an Issue Profile fact into what a cell shows — a
-coloured state block, a label chip, a relative age — while retaining the
-domain value the cell sorts by. The column catalogue and the view-state
-machine that arrange these cells live in ``issue_table``.
+coloured state block, a label chip, a date — while retaining the domain
+value the cell sorts by, which ``issue_list`` derives the same way for a
+query. The column catalogue and the view-state machine that arrange these
+cells live in ``issue_table``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal, Self, TypeAlias, cast
+from datetime import datetime
+from typing import Literal, Self, cast
 
 from rich.text import Text
 
 from .glyphs import ACTIVITY_COLUMN_GLYPH, SESSION_STATE_GLYPHS, Glyph
+from .issue_list import (
+    PRIORITY_BY_LABEL,
+    PriorityLevel,
+    SortValue,
+    is_priority_label,
+    issue_priority_label,
+)
 from .issue_profile import IssueProfile
 from .model import IssueActivity, ProjectObservation, RunState
-
-if TYPE_CHECKING:
-    from _typeshed import SupportsRichComparison
-
-# What a column yields for ordering: something Python can compare, or nothing.
-SortValue: TypeAlias = "SupportsRichComparison | None"
 
 IssueStateKind = Literal[
     "open",
@@ -117,9 +119,6 @@ class IssueNumberCell(Text):
 
 # Chip colour for labels whose tracker supplies no palette.
 NEUTRAL_LABEL_COLOR = "6e7781"
-
-# The compact P-level a recognized priority label stands for.
-PriorityLevel = Literal["P0", "P1", "P2", "P3"]
 
 
 class PriorityCell(Text):
@@ -278,12 +277,6 @@ def text_cell(value: str) -> IssueTableCell:
     return IssueTableCell(value, value.casefold())
 
 
-def issue_activity(issue: IssueProfile, project: ProjectObservation) -> IssueActivity:
-    if project.snapshot is None:
-        return IssueActivity()
-    return project.snapshot.issue_activity.get(issue.id, IssueActivity())
-
-
 def comments_cell(activity: IssueActivity) -> IssueTableCell:
     count = activity.comment_count
     return IssueTableCell(str(count) if count else "-", count)
@@ -314,26 +307,6 @@ def optional_text_cell(value: str | None) -> IssueTableCell:
     if value is None:
         return IssueTableCell("-", None)
     return text_cell(value)
-
-
-def relative_age(timestamp: str | None, now: datetime) -> str | None:
-    """A tracker-feed style age such as ``just now``, ``5m ago`` or ``3d ago``."""
-    if not timestamp:
-        return None
-    try:
-        then = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if then.tzinfo is None:
-        then = then.replace(tzinfo=UTC)
-    seconds = max(0, int((now - then).total_seconds()))
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{seconds // 60}m ago"
-    if seconds < 86400:
-        return f"{seconds // 3600}h ago"
-    return f"{seconds // 86400}d ago"
 
 
 def date_cell(timestamp: str | None) -> IssueTableCell:
@@ -367,33 +340,3 @@ def agent_state_cell(
     """Summarize bound Agent Runs with the shared Agent Session state Glyphs."""
     state = next((state for state in AGENT_STATE_GLYPHS if state in states), None)
     return AgentStateCell(state, dark=dark)
-
-
-PRIORITY_BY_LABEL: dict[str, PriorityLevel] = {
-    "priority/p0": "P0",
-    "priority/p1": "P1",
-    "priority/p2": "P2",
-    "priority/p3": "P3",
-    "critical": "P0",
-    "high": "P1",
-    "medium": "P2",
-    "low": "P3",
-}
-
-
-def is_priority_label(label: str) -> bool:
-    return label.casefold() in PRIORITY_BY_LABEL
-
-
-def issue_priority_label(issue: IssueProfile) -> str | None:
-    """The recognized label that sets the Issue's priority: the most urgent one."""
-    labels = [label for label in issue.labels if is_priority_label(label)]
-    if not labels:
-        return None
-    return min(labels, key=lambda label: PRIORITY_BY_LABEL[label.casefold()])
-
-
-def issue_priority(issue: IssueProfile) -> PriorityLevel | None:
-    """The Issue's compact priority, or nothing when no label declares one."""
-    label = issue_priority_label(issue)
-    return None if label is None else PRIORITY_BY_LABEL[label.casefold()]

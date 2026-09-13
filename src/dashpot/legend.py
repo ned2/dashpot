@@ -20,7 +20,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 from typing_extensions import override
 
-from . import alerts, branch_list, issue_cells, pull_request_list, session_list
+from . import alerts, branch_cells, issue_cells, pull_request_cells, session_cells
 from .glyphs import ACTIVITY_COLUMN_GLYPH, Glyph, LegendSection
 from .list_pane import (
     BRANCHES_PANE_LABEL,
@@ -50,7 +50,7 @@ RELATED_ROWS_NOTE = (
     "Other cursors, filters, scroll positions, activity Glyphs, and counts stay "
     "unchanged; selection performs no observation or mutation"
 )
-ACTIVITY_LEGEND = (ACTIVITY_COLUMN_GLYPH, *session_list.LEGEND)
+ACTIVITY_LEGEND = (ACTIVITY_COLUMN_GLYPH, *session_cells.LEGEND)
 LOCAL_PRESENCE_NOTE = "a local ref under refs/heads"
 # The check is the Repository's copy, not the remote itself: a
 # Remote-Tracking Branch can outlive the Branch at the remote until a fetch
@@ -89,19 +89,19 @@ LEGEND: tuple[LegendSection, ...] = (
         WORKTREE_SESSIONS_NOTE,
     ),
     LegendSection(
-        BRANCHES_PANE_LABEL, "LOCAL", branch_list.PRESENCE_LEGEND, LOCAL_PRESENCE_NOTE
+        BRANCHES_PANE_LABEL, "LOCAL", branch_cells.PRESENCE_LEGEND, LOCAL_PRESENCE_NOTE
     ),
     LegendSection(
         BRANCHES_PANE_LABEL,
         "REMOTE",
-        branch_list.PRESENCE_LEGEND,
+        branch_cells.PRESENCE_LEGEND,
         REMOTE_PRESENCE_NOTE,
     ),
-    LegendSection(BRANCHES_PANE_LABEL, "UPSTREAM", branch_list.UPSTREAM_LEGEND),
+    LegendSection(BRANCHES_PANE_LABEL, "UPSTREAM", branch_cells.UPSTREAM_LEGEND),
     LegendSection(
         BRANCHES_PANE_LABEL,
         "INTEGRATED",
-        branch_list.INTEGRATION_LEGEND,
+        branch_cells.INTEGRATION_LEGEND,
         INTEGRATION_NOTE,
     ),
     LegendSection(
@@ -110,10 +110,10 @@ LEGEND: tuple[LegendSection, ...] = (
         ACTIVITY_LEGEND,
         SESSIONS_COUNT_NOTE,
     ),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "STATE", pull_request_list.STATE_LEGEND),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "REVIEW", pull_request_list.REVIEW_LEGEND),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "CHECKS", pull_request_list.CHECKS_LEGEND),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "MERGE", pull_request_list.MERGE_LEGEND),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "STATE", pull_request_cells.STATE_LEGEND),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "REVIEW", pull_request_cells.REVIEW_LEGEND),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "CHECKS", pull_request_cells.CHECKS_LEGEND),
+    LegendSection(PULL_REQUESTS_PANE_LABEL, "MERGE", pull_request_cells.MERGE_LEGEND),
     LegendSection(
         ISSUE_PANE_LABEL,
         issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol,

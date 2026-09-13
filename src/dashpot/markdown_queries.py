@@ -5,19 +5,18 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from pathlib import Path
-from typing import cast
 
 from typing_extensions import override
 
 from .issue_list import (
-    IssueListResult,
     IssueListRow,
     IssueSearchField,
-    _matches_search,
+    is_issue_sort_column,
+    matches_issue_search,
     row_key,
+    sort_issue_rows,
 )
 from .issue_profile import IssueProfile
-from .issue_table import COLUMNS_BY_KEY, ColumnKey, SortTerm, build_rows
 from .local_markdown_issues import LocalMarkdownIssuesSource, parse_local_markdown_issue
 from .model import Diagnostic, ProjectObservation
 from .project_config import (
@@ -69,11 +68,7 @@ class MarkdownQuerySource(CachedQuerySource):
 
     @override
     def supports_sort(self, request: QueryRequest, column: str) -> bool:
-        return (
-            column in COLUMNS_BY_KEY
-            and COLUMNS_BY_KEY[cast("ColumnKey", column)].sortable
-            and parse_search(request.query).sort is None
-        )
+        return is_issue_sort_column(column) and parse_search(request.query).sort is None
 
     @override
     def observe_context(self) -> SourceContext:
@@ -151,7 +146,7 @@ class MarkdownQuerySource(CachedQuerySource):
             issue
             for issue in self.records
             if (request.state == "all" or issue.state == request.state)
-            and _matches_search(issue, project, frozenset(IssueSearchField), terms)
+            and matches_issue_search(issue, project, frozenset(IssueSearchField), terms)
         ]
         ordering = (
             "last_action:desc"
@@ -163,20 +158,17 @@ class MarkdownQuerySource(CachedQuerySource):
             ordering = column + (":desc" if parsed.sort.descending else ":asc")
         if ordering != "provider-default":
             column, _, direction = ordering.rpartition(":")
-            if column not in COLUMNS_BY_KEY or direction not in {"asc", "desc"}:
+            if not is_issue_sort_column(column) or direction not in {"asc", "desc"}:
                 raise ValueError("Unsupported local column ordering")
-            result = IssueListResult(
-                tuple(
+            rows = sort_issue_rows(
+                (
                     IssueListRow(row_key("issue", issue.id), "issue", project, issue)
                     for issue in records
                 ),
-                len(records),
-                len(self.records),
+                column,
+                descending=direction == "desc",
             )
-            contexts, _ = build_rows(
-                result, sort=(SortTerm(cast("ColumnKey", column), direction == "desc"),)
-            )
-            records = [row.issue for row in contexts.values()]
+            records = [row.issue for row in rows]
         offset = token.offset if token else 0
         if token and offset >= len(records):
             raise InvalidContinuation(

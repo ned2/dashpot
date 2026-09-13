@@ -1,19 +1,78 @@
+"""The Issues pane read model: every visible Issue of the Project, once.
+
+A row is one Issue joined to its Project, its bound Agent Runs and their
+states. The Issue facts a row sorts by — priority, comment activity, dates —
+are derived here so the query and the rendered table order alike; the
+rendered values themselves live in ``issue_cells``.
+"""
+
 from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypeGuard
 
 from .issue_profile import IssueProfile
-from .model import AgentRun, ProjectObservation, RunState, WorkspaceSnapshot
+from .model import (
+    AgentRun,
+    IssueActivity,
+    ProjectObservation,
+    RunState,
+    WorkspaceSnapshot,
+)
 from .search import parse_search
 from .source_queries import AuxiliaryObservation
 
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparison
+
 IssueState = Literal["open", "closed"]
 RowKind = Literal["issue"]
+# What a column yields for ordering: something Python can compare, or nothing.
+SortValue: TypeAlias = "SupportsRichComparison | None"
+# The compact P-level a recognized priority label stands for.
+PriorityLevel = Literal["P0", "P1", "P2", "P3"]
+PRIORITY_BY_LABEL: dict[str, PriorityLevel] = {
+    "priority/p0": "P0",
+    "priority/p1": "P1",
+    "priority/p2": "P2",
+    "priority/p3": "P3",
+    "critical": "P0",
+    "high": "P1",
+    "medium": "P2",
+    "low": "P3",
+}
+# The Issue facts a list can be ordered by, named as the table's columns.
+IssueSortColumn = Literal[
+    "number",
+    "priority",
+    "labels",
+    "project",
+    "assignees",
+    "author",
+    "milestone",
+    "type",
+    "comments",
+    "created",
+    "last_action",
+]
+ISSUE_SORT_COLUMNS: tuple[IssueSortColumn, ...] = (
+    "number",
+    "priority",
+    "labels",
+    "project",
+    "assignees",
+    "author",
+    "milestone",
+    "type",
+    "comments",
+    "created",
+    "last_action",
+)
 
 
 class IssueSearchField(StrEnum):
@@ -111,7 +170,7 @@ def query_issue_list(
         if run.id in agent_runs:
             raise ValueError(f"Duplicate Agent Run Identity {run.id}")
         agent_runs[run.id] = run
-    return _query_indexed_issue_list(
+    return query_indexed_issue_list(
         projects=projects,
         issues=issues,
         agent_runs=agent_runs,
@@ -121,7 +180,7 @@ def query_issue_list(
     )
 
 
-def _query_indexed_issue_list(
+def query_indexed_issue_list(
     *,
     projects: Mapping[str, ProjectObservation],
     issues: Mapping[tuple[str, str], IssueProfile],
@@ -158,7 +217,7 @@ def _query_indexed_issue_list(
             issue
             for issue in project_issues
             if issue.state in query.states
-            and _matches_search(issue, project, query.search_fields, search_terms)
+            and matches_issue_search(issue, project, query.search_fields, search_terms)
         ]
         # Only Issues are rows, like an Issue tracker's feed: a Project with
         # nothing visible contributes no placeholder.
@@ -261,7 +320,7 @@ def _searchable_issue_text(
     return "\n".join(values).casefold()
 
 
-def _matches_search(
+def matches_issue_search(
     issue: IssueProfile,
     project: ProjectObservation,
     fields: frozenset[IssueSearchField],
@@ -271,3 +330,122 @@ def _matches_search(
         return True
     searchable = _searchable_issue_text(issue, project, fields)
     return all(term in searchable for term in terms)
+
+
+def is_priority_label(label: str) -> bool:
+    """Tell whether a label declares an Issue priority."""
+    return label.casefold() in PRIORITY_BY_LABEL
+
+
+def issue_priority_label(issue: IssueProfile) -> str | None:
+    """The recognized label that sets the Issue's priority: the most urgent one."""
+    labels = [label for label in issue.labels if is_priority_label(label)]
+    if not labels:
+        return None
+    return min(labels, key=lambda label: PRIORITY_BY_LABEL[label.casefold()])
+
+
+def issue_priority(issue: IssueProfile) -> PriorityLevel | None:
+    """The Issue's compact priority, or nothing when no label declares one."""
+    label = issue_priority_label(issue)
+    return None if label is None else PRIORITY_BY_LABEL[label.casefold()]
+
+
+def issue_activity(issue: IssueProfile, project: ProjectObservation) -> IssueActivity:
+    """The Issue's observed comment and linked Pull Request activity, if any."""
+    if project.snapshot is None:
+        return IssueActivity()
+    return project.snapshot.issue_activity.get(issue.id, IssueActivity())
+
+
+def is_issue_sort_column(column: str) -> TypeGuard[IssueSortColumn]:
+    """Tell whether a submitted ordering names an Issue fact a list sorts by."""
+    return column in ISSUE_SORT_COLUMNS
+
+
+def issue_sort_value(row: IssueListRow, column: IssueSortColumn) -> SortValue:
+    """Derive the value ``column`` orders the row by, or nothing when it has none."""
+    issue = row.issue
+    if column == "number":
+        return issue.number
+    if column == "priority":
+        priority = issue_priority(issue)
+        return None if priority is None else int(priority[1:])
+    if column == "labels":
+        labels = tuple(
+            label.casefold() for label in issue.labels if not is_priority_label(label)
+        )
+        return labels or None
+    if column == "project":
+        return row.project.display_label.casefold()
+    if column == "assignees":
+        return tuple(assignee.casefold() for assignee in issue.assignees)
+    if column == "author":
+        return _optional_text_value(issue.author)
+    if column == "milestone":
+        return _optional_text_value(issue.milestone)
+    if column == "type":
+        return _optional_text_value(issue.issue_type)
+    if column == "comments":
+        return _comment_count(row)
+    if column == "created":
+        return _timestamp_value(issue.created_at)
+    return _timestamp_value(issue.updated_at)
+
+
+def sort_issue_rows(
+    rows: Iterable[IssueListRow], column: IssueSortColumn, *, descending: bool = False
+) -> list[IssueListRow]:
+    """Order rows by one column, rows without a value last either way.
+
+    Ties keep Project, Issue Number and key order in both directions, so a
+    query page and the Issue table list the same Issues in the same order.
+    """
+    ordered = sorted(rows, key=row_tie_break)
+    ordered.sort(
+        key=lambda row: rank_missing_last(
+            issue_sort_value(row, column), descending=descending
+        ),
+        reverse=descending,
+    )
+    return ordered
+
+
+def row_tie_break(row: IssueListRow) -> tuple[str, int, str]:
+    """Order rows that share a sort value by Project, Issue Number and key."""
+    return row.project.project_id.casefold(), row.issue.number, row.key
+
+
+def rank_missing_last(
+    value: SortValue, *, descending: bool
+) -> tuple[int, SupportsRichComparison]:
+    """Rank a sort value so a missing one follows every present one either way.
+
+    The reversal a descending sort applies then only reorders the present
+    values; the Issue table ranks its cells with the same key.
+    """
+    missing = value is None
+    if descending:
+        return (0 if missing else 1, 0 if missing else value)
+    return (1 if missing else 0, 0 if missing else value)
+
+
+def _optional_text_value(value: str | None) -> str | None:
+    return None if value is None else value.casefold()
+
+
+def _comment_count(row: IssueListRow) -> int | None:
+    # A queried row whose activity was never fetched has no count to order
+    # by; the table shows ``not fetched`` there and, unlike this sort, would
+    # compare that text with the counts of rows that were fetched.
+    if not row.queried:
+        return issue_activity(row.issue, row.project).comment_count
+    if row.auxiliary is not None and row.auxiliary.activity is not None:
+        return row.auxiliary.activity.comment_count
+    return None
+
+
+def _timestamp_value(timestamp: str | None) -> float | None:
+    if timestamp is None:
+        return None
+    return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()

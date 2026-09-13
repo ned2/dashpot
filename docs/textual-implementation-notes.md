@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-06
+date: 2026-09-13
 ---
 
 # Textual implementation notes for Dashpot
@@ -31,7 +31,20 @@ DashpotApp
 ```
 
 Keep the headless `ObservationCoordinator` and its snapshots independent of
-Textual. Inject a scheduler into the app, compose the widget tree once, and update those
+Textual. Each pane read model is therefore two modules: the query half
+(`issue_list`, `session_list`, `branch_list`, `worktree_list`,
+`pull_request_list`) holds the row and result types, the `query_*` and
+`query_indexed_*` functions, the sort keys and the text helpers, and imports
+nothing from the widget layer; the cells half (`session_cells`,
+`branch_cells`, `worktree_cells`, `pull_request_cells`, and for the Issue
+table `issue_cells` with the column catalogue and `build_rows` in
+`issue_table`) holds the Glyphs, the columns and the `build_*_rows` /
+`*_cells` renderers, and imports the query half. `list_rows` carries the
+widget-free `ListColumn`, `ListRow` and `ListCell` shapes the cells halves
+and `list_pane` share, and `ages.relative_age` is the shared age formatter.
+The observation store, the CLI and the hook lifecycle import only query
+halves, and `tests/test_module_boundaries.py` fails when any of them loads
+Textual or reaches into a read model's private names. Inject a scheduler into the app, compose the widget tree once, and update those
 widgets in place. `compose()` is Textual's preferred startup mechanism; dynamic
 `mount()` is asynchronous and is only guaranteed complete by the next message
 handler unless explicitly awaited. The first slice has no need for that extra

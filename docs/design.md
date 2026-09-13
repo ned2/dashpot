@@ -160,7 +160,8 @@ borders in the Issue's state colour), and `Enter` on a session with an Issue
 Binding opens that Issue through targeted resolution; `Enter` is unbound on a Pull
 Request. The Sessions pane is its own read model
 ([`session_list.py`](../src/dashpot/session_list.py), queried through
-`WorkspaceObservationStore.query_sessions`): every active Agent Session of the
+`WorkspaceObservationStore.query_sessions` and rendered by
+[`session_cells.py`](../src/dashpot/session_cells.py)): every active Agent Session of the
 observed Project exactly once, sorted running → waiting → unknown and then by
 most recent activity, with any bound Issue joined from the Work Store's
 accepted bindings, an `outside Project` marker in place of a target the
@@ -183,7 +184,8 @@ observed at turn boundaries and not within a turn, which is a measured
 decision rather than an omission
 ([ADR 0006](adr/0006-observe-agent-activity-at-turn-boundaries.md)). The Worktrees pane
 is likewise its own read model ([`worktree_list.py`](../src/dashpot/worktree_list.py),
-`WorkspaceObservationStore.query_worktrees`): every observed Observation
+`WorkspaceObservationStore.query_worktrees`, rendered by
+[`worktree_cells.py`](../src/dashpot/worktree_cells.py)): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
 and sorted main before linked, then path, with its Git topology kind (`main` or
 `linked`) reported in its own column,
@@ -199,7 +201,8 @@ content is wider than the pane. Healthy rows
 do not repeat `available`. Target-specific diagnostics stay in Diagnostics
 and the alert line; the row only points there. The
 Branches pane ([`branch_list.py`](../src/dashpot/branch_list.py),
-`WorkspaceObservationStore.query_branches`) joins the local ref and the
+`WorkspaceObservationStore.query_branches`, rendered by
+[`branch_cells.py`](../src/dashpot/branch_cells.py)) joins the local ref and the
 Remote-Tracking Branches of one branch name into one row, so a branch is
 never listed twice and never needs a second pane. `LOCAL` and `REMOTE` show
 `✓` when a ref exists in that namespace: `LOCAL` is a ref under `refs/heads`,

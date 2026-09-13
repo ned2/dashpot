@@ -15,7 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 from typing_extensions import override
 
-from .branch_list import fetch_age_text
+from .branch_cells import fetch_age_text
 from .cleanup import (
     CHANGED_SINCE_PREVIEW,
     CleanupBlocker,

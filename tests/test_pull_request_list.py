@@ -9,7 +9,7 @@ from rich.text import Text
 
 import factories
 from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.pull_request_list import (
+from dashpot.pull_request_cells import (
     APPROVED_GLYPH,
     CHECKS_FAILURE_GLYPH,
     CLOSED_GLYPH,
@@ -17,10 +17,12 @@ from dashpot.pull_request_list import (
     DRAFT_GLYPH,
     MERGE_NOT_APPLICABLE_GLYPH,
     MERGED_GLYPH,
-    PullRequestListQuery,
     build_pull_request_rows,
-    pull_request_empty_message,
     pull_request_note,
+)
+from dashpot.pull_request_list import (
+    PullRequestListQuery,
+    pull_request_empty_message,
     query_pull_request_list,
 )
 from helpers import snapshot_of

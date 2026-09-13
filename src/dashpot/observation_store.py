@@ -4,12 +4,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
-from .branch_list import BranchListResult, _query_indexed_branch_list
+from .branch_list import BranchListResult, query_indexed_branch_list
 from .issue_list import (
     IssueListQuery,
     IssueListResult,
     IssueListRow,
-    _query_indexed_issue_list,
+    query_indexed_issue_list,
     row_key,
 )
 from .issue_profile import IssueProfile
@@ -26,10 +26,10 @@ from .pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,
     PullRequestListQuery,
     PullRequestListResult,
-    _query_indexed_pull_request_list,
+    query_indexed_pull_request_list,
 )
-from .session_list import SessionListResult, _query_indexed_session_list
-from .worktree_list import WorktreeListResult, _query_indexed_worktree_list
+from .session_list import SessionListResult, query_indexed_session_list
+from .worktree_list import WorktreeListResult, query_indexed_worktree_list
 
 StoreChangeKind = Literal["workspace", "projects", "agent-runs"]
 Key = TypeVar("Key")
@@ -216,7 +216,7 @@ class WorkspaceObservationStore:
 
     def query_issues(self, query: IssueListQuery = IssueListQuery()) -> IssueListResult:
         state = self._state
-        result = _query_indexed_issue_list(
+        result = query_indexed_issue_list(
             projects=state.projects,
             issues=state.issues,
             agent_runs=state.agent_runs,
@@ -229,7 +229,7 @@ class WorkspaceObservationStore:
     def query_sessions(self) -> SessionListResult:
         """Query every active Agent Session, with its Project and Issue joined."""
         state = self._state
-        result = _query_indexed_session_list(
+        result = query_indexed_session_list(
             projects=state.projects,
             issues=state.issues,
             agent_runs=state.agent_runs,
@@ -241,7 +241,7 @@ class WorkspaceObservationStore:
     def query_worktrees(self) -> WorktreeListResult:
         """Query every observed Observation Target with its located sessions."""
         state = self._state
-        result = _query_indexed_worktree_list(
+        result = query_indexed_worktree_list(
             projects=state.projects,
             observation_targets=state.observation_targets,
             agent_runs=state.agent_runs,
@@ -252,7 +252,7 @@ class WorkspaceObservationStore:
     def query_branches(self) -> BranchListResult:
         """Query every observed Branch by name, with its refs and locations joined."""
         state = self._state
-        result = _query_indexed_branch_list(
+        result = query_indexed_branch_list(
             projects=state.projects,
             branches=state.branches,
             observation_targets=state.observation_targets,
@@ -266,7 +266,7 @@ class WorkspaceObservationStore:
     ) -> PullRequestListResult:
         """Query every Pull Request with its independent freshness."""
         state = self._state
-        return _query_indexed_pull_request_list(
+        return query_indexed_pull_request_list(
             projects=state.projects,
             pull_requests=state.pull_requests,
             query=query,

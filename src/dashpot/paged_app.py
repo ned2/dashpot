@@ -36,11 +36,11 @@ from .issue_view import IssueScreen
 from .observation_store import WorkspaceObservationStore
 from .page_navigation import PageNavigation, PageTicket
 from .paged_store import PagedObservationStore
+from .pull_request_cells import build_pull_request_rows
 from .pull_request_list import (
     PullRequestListQuery,
     PullRequestListResult,
     PullRequestListRow,
-    build_pull_request_rows,
 )
 from .query_source import configured_query_source
 from .source_queries import (
