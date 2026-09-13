@@ -13,8 +13,6 @@ from pydantic import ValidationError
 from .agent_bindings import bind_issue_runs
 from .agents import observe_agent_runs
 from .git import Git
-from .github_issues import GitHubIssuesSource
-from .github_pull_requests import GitHubPullRequestsSource
 from .issue_profile import IssueProfile
 from .issue_sources import (
     IssueSource,
@@ -22,7 +20,6 @@ from .issue_sources import (
     IssueSourceObservation,
     utc_now,
 )
-from .local_markdown_issues import LocalMarkdownIssuesSource
 from .model import (
     AgentRun,
     Branch,
@@ -39,12 +36,7 @@ from .model import (
 )
 from .observation_store import StoreChange, WorkspaceObservationStore
 from .processes import lock_holder_probe
-from .project_config import (
-    GitHubIssueSourceConfig,
-    LocalMarkdownIssueSourceConfig,
-    ProjectConfig,
-    load_project_config,
-)
+from .project_config import load_project_config
 from .pull_request_sources import (
     PullRequestSource,
     PullRequestSourceDiagnostic,
@@ -54,11 +46,11 @@ from .pull_request_sources import (
 from .query_source import configured_query_source
 from .repository import (
     BranchObservation,
-    github_repo_from_remote,
     observe_branches,
     observe_observation_targets,
     worktree_root,
 )
+from .source_factories import build_issue_source, build_pull_request_source
 from .source_queries import QuerySource
 
 WorkspaceAgentObserver = Callable[
@@ -290,62 +282,6 @@ def create_project_collector(
 
     collector.query_source = configured_query_source(root, timeout=timeout)
     return collector
-
-
-def build_issue_source(
-    root: Path,
-    config: ProjectConfig,
-    *,
-    timeout: float,
-    git: Git | None = None,
-) -> IssueSource:
-    """Build the Issue Source the Project's configuration declares.
-
-    The one factory every source consumer goes through, so a configured kind
-    is interpreted the same way at every seam. ``git`` reuses a caller's
-    adapter for the origin-remote check instead of probing again.
-    """
-    if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        if not github_repo_from_remote(root, git):
-            raise RuntimeError(
-                "A GitHub Issue Source requires the Repository Anchor to have "
-                "a GitHub origin remote"
-            )
-        return GitHubIssuesSource(
-            root,
-            project_id=config.project_id,
-            repository_id=config.repository_id,
-            timeout=timeout,
-        )
-    if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
-        return LocalMarkdownIssuesSource(
-            root,
-            project_id=config.project_id,
-            issues_path=Path(config.issue_source.path),
-        )
-    raise RuntimeError(  # pragma: no cover - exhaustive guard for future kinds.
-        "unsupported configured Issue Source"
-    )
-
-
-def build_pull_request_source(
-    root: Path,
-    config: ProjectConfig,
-    *,
-    timeout: float,
-) -> PullRequestSource | UnconfiguredPullRequestSource:
-    """Build the Project's GitHub source or its honest unconfigured result."""
-    if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        return GitHubPullRequestsSource(
-            root,
-            repository_id=config.repository_id,
-            timeout=timeout,
-        )
-    if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
-        return UnconfiguredPullRequestSource()
-    raise RuntimeError(  # pragma: no cover - exhaustive guard for future kinds.
-        "unsupported configured Issue Source"
-    )
 
 
 @dataclass(frozen=True, slots=True)

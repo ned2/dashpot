@@ -12,7 +12,11 @@ publishes a changed binding input; Pull Request-only changes do not trigger
 them. An [`ObservationCoordinator`](../src/dashpot/collect.py) tracks a
 generation per key so a superseded observation can never overwrite a newer
 one, retains the last good result per key when a refresh fails, and composes
-each Project from its latest accepted parts. The Textual interface publishes
+each Project from its latest accepted parts. The Issue Source and Pull
+Request source a Project's configuration declares are built by
+[`source_factories.py`](../src/dashpot/source_factories.py), the one module
+the coordinator and Issue resolution both go through, so resolving an Issue
+Hint never loads the coordinator. The Textual interface publishes
 every accepted observation into a process-local `WorkspaceObservationStore`
 as soon as it lands, then re-queries read models carrying a store revision; a
 slow GitHub call therefore never delays branch or dirty state.

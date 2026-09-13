@@ -457,7 +457,10 @@ The axes are deliberately not ranked against each other.
 
 Ordered by value over risk. Each of 2–7 is an Issue-sized task and, per the
 [tracking policy](../AGENTS.md#tracking-and-notes), belongs in a GitHub Issue
-rather than in this document; nothing below has been filed or started.
+rather than in this document. Item 3 and the `sessions -> repository`
+edge were delivered by #175 (`source_factories.py`, `github_repository.py`,
+`LockHolder` in `processes`); the `harnesses <-> processes` cycle is kept
+type-only and documented there rather than broken.
 
 1. **Quick wins with no design decision**: Legend bindings (`app.py:1267`),
    freeze `BranchObservation`,
@@ -478,5 +481,4 @@ rather than in this document; nothing below has been filed or started.
 6. **Consolidations**: `RetainingSource[T]`, one `Diagnostic`, a generic
    `ListResult`, shared GraphQL wire models, the small-helper dedupes.
 7. **Subpackages with re-export shims**, following the layout above. Low
-   risk once 2 and 3 are done; it also resolves the
-   `processes -> repository.LockHolder` and `harnesses <-> processes` cycles.
+   risk once 2 and 3 are done.

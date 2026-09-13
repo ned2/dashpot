@@ -6,12 +6,12 @@ from pathlib import Path, PurePosixPath
 
 from .commands import CommandRunner, run_command
 from .git import Git, GitError
-from .project_config import PROJECT_CONFIG_NAME
-from .repository import (
+from .github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
-    worktree_root,
 )
+from .project_config import PROJECT_CONFIG_NAME
+from .repository import worktree_root
 
 STATE_IGNORE_RULE = ".dashpot/state/"
 

@@ -18,6 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# ``processes`` imports this module's adapters to walk a command's ancestry,
+# and each adapter's host-process predicate is typed on the ``ProcessIdentity``
+# that walk hands it. The cycle is between a leaf module and its one consumer
+# and exists only in annotations, so it is kept type-only rather than broken by
+# moving the identity dataclass out of the module that observes it.
 if TYPE_CHECKING:
     from .processes import ProcessIdentity
 

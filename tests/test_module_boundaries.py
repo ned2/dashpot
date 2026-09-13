@@ -1,4 +1,4 @@
-"""The headless observation path stays independent of the widget layer."""
+"""The headless, hook, and Issue-resolution paths load only their own layers."""
 
 from __future__ import annotations
 
@@ -31,11 +31,34 @@ HEADLESS_MODULES = (
 )
 
 
-def test_headless_modules_do_not_load_textual() -> None:
-    imports = ", ".join(HEADLESS_MODULES)
-    probe = f"import sys, {imports}; assert 'textual' not in sys.modules"
+# A lifecycle hook event runs on every prompt and tool call; resolving an
+# Issue Hint serves ``work`` and ``worktree``. Neither observes a Project, so
+# neither loads the coordinator, and the hook never loads the GitHub gateway.
+LIGHT_PATHS = (
+    ("dashpot.hook", ("dashpot.github", "dashpot.collect")),
+    ("dashpot.issue_resolution", ("dashpot.collect",)),
+)
+
+
+def assert_import_leaves_out(module: str, absent: tuple[str, ...]) -> None:
+    """Import ``module`` in a fresh interpreter and require ``absent`` unloaded."""
+    checks = " and ".join(f"{name!r} not in sys.modules" for name in absent)
+    probe = f"import sys, {module}; assert {checks}"
 
     subprocess.run([sys.executable, "-c", probe], check=True)
+
+
+def test_headless_modules_do_not_load_textual() -> None:
+    assert_import_leaves_out(", ".join(HEADLESS_MODULES), ("textual",))
+
+
+@pytest.mark.parametrize(
+    ("module", "absent"), LIGHT_PATHS, ids=[module for module, _ in LIGHT_PATHS]
+)
+def test_light_paths_do_not_load_observation_or_github(
+    module: str, absent: tuple[str, ...]
+) -> None:
+    assert_import_leaves_out(module, absent)
 
 
 def private_read_model_imports(path: Path) -> list[str]:
