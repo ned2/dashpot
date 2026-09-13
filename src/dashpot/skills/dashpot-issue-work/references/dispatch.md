@@ -23,9 +23,11 @@ Worktree. The fresh relocation hook record must confirm that location.
 
 ## Resume a Codex session
 
-Codex can resume the same Agent Session in another working directory, but the
-old interactive client must exit before the resumed client starts. Concurrent
-clients for one Agent Session are unsupported.
+Codex can resume the same Agent Session in another working directory. Exit
+the old client to release the thread before continuing the session: while another
+runtime owns the thread, a competing client only shows a read-only transcript
+with a retry key and publishes no lifecycle hooks. An idle client still owns
+its thread.
 
 1. Run `<dashpot> integrate codex --status` and capture the confirmed Agent
    Session Identity.
@@ -41,10 +43,12 @@ clients for one Agent Session are unsupported.
    codex resume <session-id> -C <worktree-path> 'Continue Issue <reference>. First run <dashpot> work show. If it reports this session already working on Issue <reference>, retain that Agent Run; otherwise run <dashpot> work start <reference> and verify it with <dashpot> work show. Then follow the repository workflow through green CI.'
    ```
 
-5. Tell the user to exit this client before running it, and do not continue in
-   the old client after handing over the command. The resumed hook completes a
-   declared relocation only after it proves the same Agent Session Identity at
-   the intended Worktree and no live or unknown client remains elsewhere.
+5. Tell the user to exit this client and then run the command. If they run
+   it first, the target client stays read-only until they exit this client
+   and press `R`. Do not continue in the old client after handing over the
+   command. The resumed client's first turn publishes the hook that completes
+   a declared relocation once it proves the same Agent Session Identity at the
+   intended Worktree with no live or unobservable client elsewhere.
 
 If session identity cannot be confirmed or this Codex version lacks compatible
 resume support, explain the limitation and give the same quoted instruction to
