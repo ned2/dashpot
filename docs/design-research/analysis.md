@@ -3,7 +3,7 @@ status: proposal
 date: 2026-09-14
 ---
 
-# Cognitive debt: analysis
+# Design analysis
 
 The evaluative counterpart to this directory's documentary corpus. The
 [synthesis](synthesis.md) records what the sources found and leaves every
@@ -29,6 +29,23 @@ are cleaned up. Every one of those is a stage a person or an agent passes
 through, and Dashpot's contribution is to make the passage observable
 without pretending to own it ([design](../design.md);
 [domain language](../domain-language.md#observation)).
+
+That lifecycle has a shape the chat-centric tools do not: **the work sits
+above the session.** In a chat-centric tool the private conversation is
+the unit of work and the identity of what was done; in Dashpot the Issue
+holds intent and ownership, Git and the Pull Request hold the proposed
+change and its history, checks hold the evidence, and the Agent Session
+is an execution record bound to an Issue for a time and released. That is
+the split Linear and GitHub have moved toward — the conversation demoted
+from the identity of the work to a shared execution log attached to it —
+and the one the first measurement of agentic pull requests says current
+adoption lacks: one person both reviewed and modified the agent's
+contribution in 78.9% of 25,264 agent PRs, and multi-human patterns were
+11.3% ([chat-centric agents, bottom line](chat-centric-agents-vs-team-sdlc.md#bottom-line);
+[chat-centric agents, synthesis](chat-centric-agents-vs-team-sdlc.md#synthesis)).
+Dashpot's distinguishing strength, against those tools, is that it is
+already built around the shared objects a team coordinates on. The feature
+family designed here should sharpen that, not dilute it.
 
 The namesake is the design brief. A dashpot resists motion in proportion
 to velocity: it does not stop the piston, it slows it, and it slows a fast
@@ -58,11 +75,20 @@ Three commitments follow from the user's framing and are taken as given:
   reason to discard a candidate. Forcing new affordances into the
   entrypoints the current feature set happens to have would straitjacket
   the design.
-- **The default developer is one experienced person working from a
-  terminal; the social form is a growth axis.** Every candidate is scored
-  on what it becomes when a second person holds part of the model, because
-  the evidence says the model was never held alone
-  ([unfamiliar code, shared model](unfamiliar-code-and-shared-models.md#how-a-team-holds-a-shared-model)).
+- **It must work well for one person and for a team, and the social lens
+  is a distinguishing principle, not a later extension.** The corpus's
+  literature sweep found the model was never held alone — Naur's theory is
+  the team's, and every practice that transferred it was social — and the
+  AI-era shift it documents is from those social workflows to one person
+  privately supervising an agent
+  ([unfamiliar code, shared model](unfamiliar-code-and-shared-models.md#how-a-team-holds-a-shared-model);
+  [chat-centric agents, the tension](chat-centric-agents-vs-team-sdlc.md#the-tension-people-identify)).
+  Dashpot's answer to that shift is the work-above-the-session shape
+  above. So a candidate is not scored "solo first, social later": it is
+  scored on whether it works for a person alone *and* on what it makes
+  visible, shareable, or transferable beyond the session, and a candidate
+  that only makes sense inside one person's session is suspect for the
+  same reason a chat-centric tool is.
 
 And one test, kept separate from the documentary work at the user's
 request, runs through everything below: **does it work for code the person
@@ -260,15 +286,24 @@ design to. A principle that goes beyond what was measured says so.
    person can see and tune — a dashpot has a damping coefficient — and to
    asking, of each candidate, whose work it relocates and onto whom.
 
-9. **The model is held socially; solo is the floor.** Naur's theory is the
-   team's; team cognition predicts performance (ρ = .38 over 65 studies);
-   review spread what a developer knew by 66–150%; every AI-era remedy is
-   for one person and the one longitudinal software-team study found models
-   did not converge
-   ([unfamiliar code, shared model](unfamiliar-code-and-shared-models.md#how-a-team-holds-a-shared-model)).
-   *Commits to:* scoring each candidate on its social form — what it
-   becomes when a reviewer, a newcomer, or a second agent holds part of the
-   model — even though the first version is for one person.
+9. **The model is held socially, and the work, not the session, is where
+   it is held.** Naur's theory is the team's; team cognition predicts
+   performance (ρ = .38 over 65 studies); review spread what a developer
+   knew by 66–150%; every AI-era remedy is for one person; the one
+   longitudinal software-team study found models did not converge; and
+   the first measurement of agentic pull requests found one person
+   privately supervising the agent in 88.7% of them
+   ([unfamiliar code, shared model](unfamiliar-code-and-shared-models.md#how-a-team-holds-a-shared-model);
+   [chat-centric agents, single-developer orchestration](chat-centric-agents-vs-team-sdlc.md#single-developer-orchestration-is-not-team-level-engineering)).
+   The products that resist the shift attach sessions to the team's
+   existing work graph rather than making the session multiplayer
+   ([chat-centric agents, two responses](chat-centric-agents-vs-team-sdlc.md#two-competing-responses)).
+   *Commits to:* every candidate attaching what it records to the shared
+   objects — the Issue, the Branch, the Pull Request, the module — and
+   never only to a session; and being scored on what it makes visible to
+   a reviewer, a newcomer, or a second agent as well as on what it does
+   for one person. This is the principle that distinguishes the family
+   from what a chat-centric tool could ship.
 
 10. **Fade for the expert.** Expertise reversal makes worked examples
     redundant or harmful for experts; Sankaranarayanan names gating experts
@@ -309,7 +344,10 @@ reasons for a shortlist are legible:
   through which channel (observation, hook publisher, skill, external
   gate).
 - **Without AI** — is it still worth having on a human-authored branch?
-- **Social form** — what it becomes with a second holder of the model.
+- **Social form** — does it work for one person alone *and* for a team;
+  what it attaches to (Issue, Branch, Pull Request, module — or only a
+  session); and what it makes visible, shareable, or transferable to a
+  reviewer, a newcomer, or a second agent.
 
 Candidates that survive become a shortlist; each shortlisted candidate is
 reduced to the assumptions it depends on and the cheapest test of each
