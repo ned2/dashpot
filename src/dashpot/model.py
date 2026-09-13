@@ -20,6 +20,24 @@ TargetAvailability = Literal["available", "unavailable"]
 # Git topology, as `git worktree list` reports it: the main working tree is
 # listed first, followed by each linked working tree.
 TargetRole = Literal["main", "linked"]
+# How one ref stands against the Integration Branch: its commits reachable,
+# its content held though its commits are not, work retained, or no answer.
+IntegrationState = Literal[
+    "integrated", "content-integrated", "unintegrated", "unknown"
+]
+
+
+def integration_state(
+    unintegrated_commits: int | None, content_integrated: bool | None
+) -> IntegrationState:
+    """Classify one ref's integration facts; missing evidence is unknown."""
+    if unintegrated_commits is None:
+        return "unknown"
+    if unintegrated_commits == 0:
+        return "integrated"
+    if content_integrated:
+        return "content-integrated"
+    return "unintegrated"
 
 
 class ObservationModel(PublishedModel):

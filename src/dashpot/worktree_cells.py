@@ -102,6 +102,16 @@ def freshness_color(freshness: str, *, dark: bool) -> str:
     return STALE_COLORS[dark]
 
 
+def activity_description(where: str) -> str:
+    """Describe the activity column for the rows located ``where``."""
+    return f"the liveliest Agent Session located {where}, or blank when none is"
+
+
+def sessions_description(where: str) -> str:
+    """Describe the SESSIONS count column for the rows located ``where``."""
+    return f"how many Agent Sessions are located {where}, or - when none"
+
+
 def sessions_cell(states: Sequence[RunState], *, dark: bool) -> ListCell:
     """Report the total number of located Agent Sessions."""
     return str(len(states)) if states else "-"

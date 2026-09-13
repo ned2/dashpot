@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-31
-amended-by: 0017-observe-branch-integration-by-content-when-commits-are-unreachable.md, 0018-assess-remote-tracking-branch-integration.md
+amended-by: 0017-observe-branch-integration-by-content-when-commits-are-unreachable.md, 0018-assess-remote-tracking-branch-integration.md, 0040-summarize-integration-across-a-branch-rows-refs.md
 ---
 
 # Observe Branch integration by commit reachability
@@ -34,7 +34,9 @@ The pane keeps synchronization and integration separate:
   row has no local ref (amended by
   [ADR 0018](0018-assess-remote-tracking-branch-integration.md): a
   remote-only row now reports its Remote-Tracking Branches' result, or `⊘`
-  when they disagree).
+  when they disagree; and by
+  [ADR 0040](0040-summarize-integration-across-a-branch-rows-refs.md): the
+  cell summarizes every ref the row represents and its `↑` is unnumbered).
 
 The Worktrees `PATH` cell also stops shortening paths to a fixed character
 limit. Home-directory abbreviation remains presentation rather than data loss;
@@ -78,3 +80,7 @@ scrolling exposes it.
   integration is assessed for every concrete local and Remote-Tracking Branch
   ref, so `unintegratedCommits` is reported on Remote-Tracking records too
   and a remote-only row renders their result.
+- Amended by [ADR 0040](0040-summarize-integration-across-a-branch-rows-refs.md):
+  the `INTEGRATED` cell summarizes every ref the row represents and renders
+  the unnumbered `↑` for retained commits; the exact count stays in the
+  Cleanup preview.

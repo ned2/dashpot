@@ -1,29 +1,89 @@
-"""A DataTable whose row cursor appears only while focused."""
+"""A DataTable whose row cursor appears only while focused, with header help."""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal
+from collections.abc import Mapping
+from typing import Any, ClassVar, Literal, Self
 
 from rich.segment import Segment
 from rich.style import Style
+from rich.text import TextType
 from textual import events
 from textual.message import Message
 from textual.widgets import DataTable
-from textual.widgets.data_table import CellType
+from textual.widgets.data_table import CellType, ColumnKey
 from typing_extensions import override
 
 
 class FocusCursorTable(DataTable[CellType]):
-    """Show the table cursor only while this table has focus."""
+    """Show the table cursor only while this table has focus.
+
+    A column added with a ``tooltip`` explains itself to a mouse resting on
+    its header; the tooltip follows the hovered header and clears over the
+    body and on leaving, so the table never offers a stale one.
+    """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = DataTable.COMPONENT_CLASSES | {
         "datatable--related-row"
     }
     related_rows: frozenset[str] = frozenset[str]()
     related_columns: frozenset[str] = frozenset[str]()
+    # Header tooltips by column key; created on first use rather than in
+    # ``__init__``, whose long DataTable signature would have to be repeated.
+    _header_tooltips: dict[ColumnKey, str] | None = None
 
     class FocusChanged(Message):
         """Recompute relationships when the visible cursor changes focus."""
+
+    @override
+    def add_column(
+        self,
+        label: TextType,
+        *,
+        width: int | None = None,
+        key: str | None = None,
+        default: CellType | None = None,
+        tooltip: str | None = None,
+    ) -> ColumnKey:
+        column_key = super().add_column(label, width=width, key=key, default=default)
+        if tooltip is not None:
+            if self._header_tooltips is None:
+                self._header_tooltips = {}
+            self._header_tooltips[column_key] = tooltip
+        return column_key
+
+    @override
+    def clear(self, columns: bool = False) -> Self:
+        super().clear(columns)
+        if columns:
+            self._header_tooltips = None
+            self.tooltip = None
+        return self
+
+    @override
+    def _on_mouse_move(self, event: events.MouseMove) -> None:
+        super()._on_mouse_move(event)
+        # Textual resolves one tooltip per widget when its hover timer fires,
+        # and the headers are painted rather than composed, so the table
+        # reads the hovered column from the segment meta the header render
+        # stamps and offers that column's tooltip as its own.
+        self.tooltip = self.header_tooltip_at(event.style.meta)
+
+    # The parameter is ``_`` because Textual's ``DataTable._on_leave`` names
+    # it so, and ty holds an override to the same parameter names.
+    @override
+    def _on_leave(self, _: events.Leave) -> None:
+        super()._on_leave(_)
+        self.tooltip = None
+
+    def header_tooltip_at(self, meta: Mapping[str, object]) -> str | None:
+        """The tooltip of the header the mouse rests on, or nothing off a header."""
+        if meta.get("row") != -1 or not self._header_tooltips:
+            return None
+        index = meta.get("column")
+        if not isinstance(index, int) or not 0 <= index < len(self.ordered_columns):
+            return None
+        return self._header_tooltips.get(self.ordered_columns[index].key)
 
     def set_related_rows(self, keys: frozenset[str], columns: frozenset[str]) -> None:
         """Emphasize related rows without changing their values or selection."""

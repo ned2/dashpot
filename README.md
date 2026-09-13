@@ -121,6 +121,7 @@ the management commands `init`, `integrate`,
 | `c` | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, highlighting the first row in the newly focused pane |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
+| `?` | Open the Legend: every Glyph, every Branches column's description, and the keys; `Escape` closes. Resting the mouse on a Branches header, or the Issues `◉` / `◈` headers, shows the same description as a tooltip |
 | `q` | Quit |
 
 Entering a pane highlights its first row and scrolls it into view. Passive

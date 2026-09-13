@@ -16,9 +16,11 @@ from .issue_list import row_key
 from .model import (
     AgentRun,
     Branch,
+    IntegrationState,
     ObservationTarget,
     ProjectObservation,
     WorkspaceSnapshot,
+    integration_state,
 )
 
 
@@ -174,21 +176,25 @@ def _is_integration_branch(row: BranchListRow) -> bool:
     )
 
 
-def integration_subject(row: BranchListRow) -> Branch | None:
-    """Choose the one ref whose integration fact can represent the row."""
-    if row.local is not None:
-        return row.local
-    if not row.remotes:
-        return None
-    candidate = row.remotes[0]
-    fact = (
-        candidate.head,
-        candidate.unintegrated_commits,
-        candidate.content_integrated,
-    )
-    if any(
-        (remote.head, remote.unintegrated_commits, remote.content_integrated) != fact
-        for remote in row.remotes[1:]
-    ):
-        return None
-    return candidate
+def integration_summary(row: BranchListRow) -> IntegrationState:
+    """Summarize whether every ref the row represents has landed.
+
+    The row stands for its local Branch and each same-name Remote-Tracking
+    Branch, so it is integrated only when each of those refs is. Retained
+    commits anywhere outrank a missing comparison, and a missing comparison
+    outranks every integrated ref, so an integrated local ref never masks
+    unintegrated or unknown remote work and missing evidence never reads as
+    integrated. Whether the refs share a tip does not matter: refs can
+    differ while all their work has landed.
+    """
+    states = {
+        integration_state(ref.unintegrated_commits, ref.content_integrated)
+        for ref in row.refs
+    }
+    if "unintegrated" in states:
+        return "unintegrated"
+    if "unknown" in states or not states:
+        return "unknown"
+    if "content-integrated" in states:
+        return "content-integrated"
+    return "integrated"

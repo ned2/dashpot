@@ -185,8 +185,17 @@ Remote-Tracking Branch's result is only as fresh as the last Remote Fetch
 ([ADR 0017](adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md),
 [ADR 0018](adr/0018-assess-remote-tracking-branch-integration.md)).
 Patch equivalence is not used, so a cherry-pick remains unintegrated until a
-person reviews it.
-_Avoid_: upstream, which is a local Branch's configured synchronization target
+person reviews it. A Branches row's `INTEGRATED` cell summarizes every ref
+the row represents — the local Branch and each
+same-name Remote-Tracking Branch — integrated only when each ref is, with
+known unintegrated work outranking a missing comparison and a missing
+comparison outranking integrated refs; it is the prerequisite for
+considering a Cleanup, while the Cleanup preview judges each concrete target
+on its own
+([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)).
+_Avoid_: upstream, which is a local Branch's configured synchronization
+target and not part of the row's integration scope unless it is one of its
+refs
 
 **Repository State**:
 The observed Git facts of one Project's Repository as one carrier: its
@@ -350,7 +359,10 @@ One rendered symbol paired with the fact it stands for and, when the cell
 colours it, its light and dark colour. Every pane renders from `Glyph`
 values, so a symbol is never separated from its meaning. A symbol has one
 meaning wherever it is seen, except the shared Issue and Pull Request state
-block, whose colours distinguish its states.
+block, whose colours distinguish its states, and the `↑` that the Branches
+`INTEGRATED` cell and the Issues header sort marker share, each read on its
+own surface
+([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)).
 The shared agent-activity column (`◈`) uses `●` running, `◐` waiting, and
 `○` unknown. Sessions shows one Agent Session; Worktrees and Branches summarize
 located Agent Sessions; Issues summarizes explicitly bound Agent Runs. The
@@ -375,9 +387,20 @@ _Avoid_: icon or symbol for the value; the symbol is one field of a Glyph
 **Legend**:
 The listing of every Glyph the main screen renders, generated from the same
 `Glyph` values the cells render, organised by the pane and column the Glyph
-appears in and reachable with `?` from inside the app.
+appears in and reachable with `?` from inside the app. Its Branches sections
+are that pane's Column Descriptions, one per column whether or not the
+column renders a Glyph.
 _Avoid_: help screen; the Legend also lists the keys, but it explains what is
 on screen rather than how to use the app
+
+**Column Description**:
+What one pane column shows, declared once on the column beside the Glyphs
+its cells render, and read by both the column's header tooltip and its
+Legend section, so the mouse and the keyboard are told the same thing from
+one source
+([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)).
+_Avoid_: tooltip text or Legend note as a separate string; each is a
+presentation of the Column Description
 
 ## Source queries
 

@@ -6,6 +6,13 @@ FocusCursorTable > .datatable--related-row {
     background: #d99a2b 30%;
 }
 
+/* A header tooltip is a column's description with its Glyph meanings, a
+   short paragraph rather than a phrase; Textual's 40-cell default wraps
+   the Branches INTEGRATED help into a box taller than many terminals. */
+Tooltip {
+    max-width: 72;
+}
+
 #body {
     height: 1fr;
     layout: vertical;

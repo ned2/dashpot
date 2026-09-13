@@ -3,7 +3,9 @@
 The Legend is generated from the Glyph values the panes render with, so it is
 never a second list to keep in step. Its sections follow the main screen top
 to bottom and name the column a Glyph appears in, because the reader's
-question is always about the cell in front of them.
+question is always about the cell in front of them. The Branches sections
+are the pane's own column definitions, whose descriptions and Glyphs the
+header tooltips read too.
 """
 
 from __future__ import annotations
@@ -20,8 +22,16 @@ from textual.screen import ModalScreen
 from textual.widgets import Static
 from typing_extensions import override
 
-from . import alerts, branch_cells, issue_cells, pull_request_cells, session_cells
-from .glyphs import ACTIVITY_COLUMN_GLYPH, Glyph, LegendSection
+from . import alerts, issue_cells, pull_request_cells
+from .branch_cells import BRANCH_COLUMNS
+from .glyphs import (
+    ACTIVITY_COLUMN_GLYPH,
+    ACTIVITY_LEGEND,
+    MEANING_GUTTER,
+    Glyph,
+    LegendSection,
+    align_symbols,
+)
 from .list_pane import (
     BRANCHES_PANE_LABEL,
     ISSUE_PANE_LABEL,
@@ -29,12 +39,13 @@ from .list_pane import (
     SESSIONS_PANE_LABEL,
     WORKTREES_PANE_LABEL,
 )
+from .worktree_cells import activity_description, sessions_description
 
 DIAGNOSTICS_LABEL = "ALERT · DIAGNOSTICS"
 KEYS_LABEL = "KEYS"
 SESSIONS_COUNT_NOTE = (
-    "the activity Glyph shows the liveliest located Agent Session; the next "
-    "SESSIONS column counts all located sessions, or - when none"
+    f"the activity Glyph shows {activity_description('here')}; the next "
+    f"SESSIONS column shows {sessions_description('here')}"
 )
 AGENT_STATE_NOTE = "the liveliest explicitly bound Agent Run; blank when none"
 RELATED_ROWS_NOTE = (
@@ -49,23 +60,6 @@ RELATED_ROWS_NOTE = (
     "cursor keys. Controls and modals clear emphasis; Pull Requests are excluded. "
     "Other cursors, filters, scroll positions, activity Glyphs, and counts stay "
     "unchanged; selection performs no observation or mutation"
-)
-ACTIVITY_LEGEND = (ACTIVITY_COLUMN_GLYPH, *session_cells.LEGEND)
-LOCAL_PRESENCE_NOTE = "a local ref under refs/heads"
-# The check is the Repository's copy, not the remote itself: a
-# Remote-Tracking Branch can outlive the Branch at the remote until a fetch
-# prunes it, so the Legend says what the check means and where its age is.
-REMOTE_PRESENCE_NOTE = (
-    "a Remote-Tracking Branch as of the last fetch, which can outlive the "
-    "Branch at the remote until pruned; the pane border carries the fetch age "
-    "and f fetches and prunes, including inside either Cleanup dialog"
-)
-# The gate x applies is the column's own vocabulary: the Legend says which
-# states let a Branch be deleted from the preview and which never do.
-INTEGRATION_NOTE = (
-    "the gate for x: a Branch the Integration Branch holds by commits or by "
-    "content can be deleted from the preview x opens; one with unreachable "
-    "commits or no comparison cannot"
 )
 WORKTREE_SESSIONS_NOTE = (
     f"{SESSIONS_COUNT_NOTE}; x removes a linked Worktree only when it is clean, "
@@ -88,27 +82,13 @@ LEGEND: tuple[LegendSection, ...] = (
         ACTIVITY_LEGEND,
         WORKTREE_SESSIONS_NOTE,
     ),
-    LegendSection(
-        BRANCHES_PANE_LABEL, "LOCAL", branch_cells.PRESENCE_LEGEND, LOCAL_PRESENCE_NOTE
-    ),
-    LegendSection(
-        BRANCHES_PANE_LABEL,
-        "REMOTE",
-        branch_cells.PRESENCE_LEGEND,
-        REMOTE_PRESENCE_NOTE,
-    ),
-    LegendSection(BRANCHES_PANE_LABEL, "UPSTREAM", branch_cells.UPSTREAM_LEGEND),
-    LegendSection(
-        BRANCHES_PANE_LABEL,
-        "INTEGRATED",
-        branch_cells.INTEGRATION_LEGEND,
-        INTEGRATION_NOTE,
-    ),
-    LegendSection(
-        BRANCHES_PANE_LABEL,
-        ACTIVITY_COLUMN_GLYPH.symbol,
-        ACTIVITY_LEGEND,
-        SESSIONS_COUNT_NOTE,
+    # Every Branches column, Glyphs or not, in the order the pane shows them:
+    # the section is the column's own definition, as its header tooltip is.
+    *(
+        LegendSection(
+            BRANCHES_PANE_LABEL, column.label, column.glyphs, column.description
+        )
+        for column in BRANCH_COLUMNS
     ),
     LegendSection(PULL_REQUESTS_PANE_LABEL, "STATE", pull_request_cells.STATE_LEGEND),
     LegendSection(PULL_REQUESTS_PANE_LABEL, "REVIEW", pull_request_cells.REVIEW_LEGEND),
@@ -167,18 +147,22 @@ def theme_colors(variables: Mapping[str, str]) -> dict[str, str]:
 def section_text(
     section: LegendSection, *, dark: bool, theme: Mapping[str, str] | None = None
 ) -> Text:
-    """One line per Glyph, the symbol in the colour the cell shows it in."""
-    width = max(len(glyph.symbol) for glyph in section.glyphs)
+    """One line per Glyph, the symbol in the colour the cell shows it in.
+
+    A column that renders no Glyph, such as BRANCH, is its note alone.
+    """
     text = Text()
-    for index, glyph in enumerate(section.glyphs):
+    for index, (glyph, (symbol, meaning)) in enumerate(
+        zip(section.glyphs, align_symbols(section.glyphs), strict=True)
+    ):
         if index:
             text.append("\n")
-        text.append(
-            glyph.symbol.ljust(width), style=glyph.style(dark=dark, theme=theme)
-        )
-        text.append(f"  {glyph.meaning}")
+        text.append(symbol, style=glyph.style(dark=dark, theme=theme))
+        text.append(f"{MEANING_GUTTER}{meaning}")
     if section.note:
-        text.append(f"\n{section.note}", style="dim italic")
+        if section.glyphs:
+            text.append("\n")
+        text.append(section.note, style="dim italic")
     return text
 
 

@@ -12,7 +12,7 @@ from dashpot.branch_cells import (
     build_branch_rows,
     fetch_age_text,
 )
-from dashpot.branch_list import query_branch_list
+from dashpot.branch_list import integration_summary, query_branch_list
 from dashpot.issue_list import row_key
 from dashpot.model import Branch, ObservationTarget, ProjectObservation
 from dashpot.observation_store import WorkspaceObservationStore
@@ -33,6 +33,7 @@ def local(
     committed_at: str = "2026-08-27T02:00:00Z",
     checked_out_at: str | None = None,
     unintegrated_commits: int | None = None,
+    content_integrated: bool | None = None,
 ) -> Branch:
     if upstream is not None and ahead is None and not gone:
         ahead, behind = 0, 0
@@ -48,6 +49,7 @@ def local(
         upstream_gone=gone,
         checked_out_at=checked_out_at,
         unintegrated_commits=unintegrated_commits,
+        content_integrated=content_integrated,
     )
 
 
@@ -191,7 +193,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
             checked_out_at="/home/ned/project:one",
             unintegrated_commits=0,
         ),
-        remote("main"),
+        remote("main", unintegrated_commits=0),
         local(
             "ahead-behind",
             upstream="origin/ahead-behind",
@@ -229,7 +231,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     assert drifted[5].plain == "↑3 ↓2"
     assert str(drifted[5].style) == "#d29922"
     assert isinstance(drifted[6], Text)
-    assert drifted[6].plain == "↑3"
+    assert drifted[6].plain == "↑"
     assert str(drifted[6].style) == "#d29922"
     gone = branch_cells(by_name["gone"], dark=False, now=CLOCK)
     assert isinstance(gone[5], Text)
@@ -272,34 +274,167 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     ]
 
 
-def test_remote_only_integration_requires_remote_tracking_branches_to_agree() -> None:
-    observation = branchy_project(
-        "project:one",
-        remote("reachable", unintegrated_commits=0),
-        remote("squashed", unintegrated_commits=2, content_integrated=True),
-        remote("pending", unintegrated_commits=3, content_integrated=False),
-        remote("mirrored", head="same", unintegrated_commits=0),
-        remote("mirrored", remote="upstream", head="same", unintegrated_commits=0),
-        remote("diverged", head="origin", unintegrated_commits=0),
+def row_cells(*refs: Branch) -> list[str]:
+    """The cells of the one row ``refs`` join into."""
+    observation = branchy_project("project:one", *refs)
+    (row,) = query_branch_list(workspace(observation)).rows
+    return [str(cell) for cell in branch_cells(row, dark=True, now=CLOCK)]
+
+
+def integrated_cell(*refs: Branch) -> str:
+    """The INTEGRATED cell of the one row ``refs`` join into."""
+    return row_cells(*refs)[6]
+
+
+def test_integration_summarizes_every_ref_the_row_represents() -> None:
+    """The row is integrated only when its local and every same-name remote ref is."""
+    # The regression: a squash-merged local Branch four commits behind an
+    # upstream whose extra commits never landed read ≡ beside ↓4; the row
+    # must not read as integrated, while UPSTREAM keeps saying ↓4.
+    stale_local = local(
+        "feat",
+        upstream="origin/feat",
+        ahead=0,
+        behind=4,
+        unintegrated_commits=3,
+        content_integrated=True,
+    )
+    cells = row_cells(stale_local, remote("feat", unintegrated_commits=4))
+    assert cells[5] == "↓4"
+    assert cells[6] == "↑"
+    # Reversing which ref is integrated has the same aggregate outcome.
+    assert (
+        integrated_cell(
+            local("feat", unintegrated_commits=2),
+            remote("feat", unintegrated_commits=0),
+        )
+        == "↑"
+    )
+    # Every ref reachable, even at different tips, is ⊆; one squash-merged ref
+    # among reachable ones is ≡.
+    assert (
+        integrated_cell(
+            local("feat", head="aaa", unintegrated_commits=0),
+            remote("feat", head="bbb", unintegrated_commits=0),
+        )
+        == "⊆"
+    )
+    assert (
+        integrated_cell(
+            local("feat", unintegrated_commits=0),
+            remote("feat", unintegrated_commits=2, content_integrated=True),
+        )
+        == "≡"
+    )
+    # Known unintegrated work outranks an unavailable comparison, which in
+    # turn outranks integrated refs: missing evidence never reads as landed.
+    assert (
+        integrated_cell(
+            local("feat", unintegrated_commits=0),
+            remote("feat", unintegrated_commits=None),
+        )
+        == "⊘"
+    )
+    assert (
+        integrated_cell(
+            local("feat", unintegrated_commits=None),
+            remote("feat", unintegrated_commits=3, content_integrated=False),
+        )
+        == "↑"
+    )
+    assert integrated_cell(local("feat"), remote("feat")) == "⊘"
+
+
+def test_integration_follows_the_table_for_local_only_and_remote_only_rows() -> None:
+    assert integrated_cell(local("feat", unintegrated_commits=0)) == "⊆"
+    assert integrated_cell(local("feat", unintegrated_commits=3)) == "↑"
+    assert integrated_cell(local("feat")) == "⊘"
+    assert integrated_cell(remote("feat", unintegrated_commits=0)) == "⊆"
+    assert (
+        integrated_cell(remote("feat", unintegrated_commits=2, content_integrated=True))
+        == "≡"
+    )
+    assert (
+        integrated_cell(
+            remote("feat", unintegrated_commits=3, content_integrated=False)
+        )
+        == "↑"
+    )
+    assert integrated_cell(remote("feat")) == "⊘"
+    # Remotes at one tip and result, or at different tips that all landed.
+    assert (
+        integrated_cell(
+            remote("feat", head="same", unintegrated_commits=0),
+            remote("feat", remote="upstream", head="same", unintegrated_commits=0),
+        )
+        == "⊆"
+    )
+    assert (
+        integrated_cell(
+            remote("feat", head="one", unintegrated_commits=0),
+            remote(
+                "feat",
+                remote="upstream",
+                head="two",
+                unintegrated_commits=1,
+                content_integrated=True,
+            ),
+        )
+        == "≡"
+    )
+    # One unintegrated remote is not hidden by another integrated one, and
+    # an unknown remote cannot make the pair ⊆ or ≡.
+    assert (
+        integrated_cell(
+            remote("feat", unintegrated_commits=0),
+            remote(
+                "feat",
+                remote="upstream",
+                unintegrated_commits=1,
+                content_integrated=False,
+            ),
+        )
+        == "↑"
+    )
+    assert (
+        integrated_cell(
+            remote("feat", unintegrated_commits=2, content_integrated=True),
+            remote("feat", remote="upstream"),
+        )
+        == "⊘"
+    )
+
+
+def test_integration_summary_ignores_ref_order_counts_and_the_upstream() -> None:
+    refs = (
+        local(
+            "feat", upstream="origin/other", ahead=1, behind=0, unintegrated_commits=0
+        ),
+        remote("feat", unintegrated_commits=1, content_integrated=False),
         remote(
-            "diverged",
-            remote="upstream",
-            head="upstream",
-            unintegrated_commits=1,
-            content_integrated=False,
+            "feat", remote="upstream", unintegrated_commits=5, content_integrated=False
         ),
     )
-    rows = {row.name: row for row in query_branch_list(workspace(observation)).rows}
+    observation = branchy_project("project:one", *refs)
+    reversed_observation = branchy_project("project:one", *reversed(refs))
 
-    assert str(branch_cells(rows["reachable"], dark=True, now=CLOCK)[6]) == "⊆"
-    assert str(branch_cells(rows["squashed"], dark=True, now=CLOCK)[6]) == "≡"
-    pending = branch_cells(rows["pending"], dark=True, now=CLOCK)[6]
-    assert isinstance(pending, Text)
-    assert pending.plain == "↑3"
-    assert str(branch_cells(rows["mirrored"], dark=True, now=CLOCK)[6]) == "⊆"
-    diverged = branch_cells(rows["diverged"], dark=True, now=CLOCK)[6]
-    assert isinstance(diverged, Text)
-    assert diverged.plain == "⊘"
+    (row,) = query_branch_list(workspace(observation)).rows
+    (reversed_row,) = query_branch_list(workspace(reversed_observation)).rows
+
+    assert integration_summary(row) == integration_summary(reversed_row)
+    cells = branch_cells(row, dark=True, now=CLOCK)
+    # The aggregate is unnumbered: overlapping per-ref counts are neither
+    # added nor reduced to the local one. UPSTREAM keeps the local ref's
+    # relation to its differently named upstream, which is not in the
+    # integration scope.
+    assert str(cells[6]) == "↑"
+    assert str(cells[5]) == "↑1"
+    assert (
+        integrated_cell(
+            local("feat", upstream="origin/other", ahead=1, unintegrated_commits=0)
+        )
+        == "⊆"
+    )
 
 
 def test_fetch_age_is_honest() -> None:
