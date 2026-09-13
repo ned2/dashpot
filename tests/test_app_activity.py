@@ -20,7 +20,160 @@ from factories import agent_run, hook_record_document, target
 from helpers import present, wait_until
 from test_app_worktree_launcher import WorktreeCollector
 from test_paged_app import application
-from test_related_rows import related, related_snapshot
+from test_related_rows import query_source, related, related_snapshot
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_pane", ["sessions", "worktrees", "branches", "issues"])
+async def test_all_sources_navigation_reentry_and_passive_destinations(source_pane):
+    collector = SequenceCollector(related_snapshot())
+    app = DashpotApp(collector, refresh_seconds=0)
+    async with app.run_test(size=(150, 55)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        tables = {
+            "sessions": app.dashboard.sessions_pane().table,
+            "worktrees": app.dashboard.worktrees_pane().table,
+            "branches": app.dashboard.branches_pane().table,
+            "issues": app.dashboard.queue_table(),
+        }
+        source = tables[source_pane]
+        queries = {
+            "sessions": app.store.query_sessions,
+            "worktrees": app.store.query_worktrees,
+            "branches": app.store.query_branches,
+            "issues": app.store.query_issues,
+        }
+
+        def matches():
+            key = capture_selection(source)[0]
+            row = next(
+                (row for row in queries[source_pane]().rows if row.key == key), None
+            )
+            result = query_source(app.store, row)
+            return all(
+                table.related_rows == getattr(result, name)
+                for name, table in tables.items()
+            )
+
+        before = {
+            name: (capture_selection(table), table.scroll_offset, tuple(table.rows))
+            for name, table in tables.items()
+            if name != source_pane
+        }
+        source.focus()
+        await wait_until(matches)
+        await pilot.press("down")
+        await wait_until(matches)
+        assert source.cursor_row == 1
+        await pilot.click(source, offset=(2, 1))
+        await wait_until(lambda: source.cursor_row == 0 and matches())
+        assert before == {
+            name: (capture_selection(table), table.scroll_offset, tuple(table.rows))
+            for name, table in tables.items()
+            if name != source_pane
+        }
+        await pilot.press("down")
+        app.dashboard.pull_requests_pane().table.focus()
+        await wait_until(
+            lambda: not any(table.related_rows for table in tables.values())
+        )
+        source.focus()
+        await wait_until(lambda: source.cursor_row == 0 and matches())
+        await pilot.press("?")
+        await wait_until(
+            lambda: not any(table.related_rows for table in tables.values())
+        )
+        await pilot.press("escape")
+        await wait_until(matches)
+        assert collector.calls == 1
+        assert not app.dashboard.pull_requests_pane().table.related_rows
+
+
+@pytest.mark.asyncio
+async def test_session_destinations_keep_glyph_colors_and_bold_identity_in_both_themes():
+    app = DashpotApp(SequenceCollector(related_snapshot()), refresh_seconds=0)
+    async with app.run_test(size=(150, 55)) as pilot:
+        await wait_until(lambda: app.store.revision == 1)
+        table = app.dashboard.sessions_pane().table
+        for theme in ("textual-dark", "textual-light"):
+            app.theme = theme
+            app.dashboard.pull_requests_pane().table.focus()
+            await pilot.pause()
+            baseline = table.render_line(1)
+            base_glyph = next(segment for segment in baseline if "●" in segment.text)
+            app.dashboard.worktrees_pane().table.focus()
+            await wait_until(lambda: bool(table.related_rows))
+            line = table.render_line(1)
+            glyph = next(segment for segment in line if "●" in segment.text)
+            assert glyph.style is not None and base_glyph.style is not None
+            assert glyph.style.color == base_glyph.style.color
+            assert glyph.style.bgcolor != base_glyph.style.bgcolor
+            for text in ("Codex", "/alpha"):
+                segment = next(segment for segment in line if text in segment.text)
+                assert segment.style is not None
+                assert segment.style.bold
+                assert segment.style.bgcolor == glyph.style.bgcolor
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pane", ["worktrees", "branches", "issues"])
+async def test_refresh_for_each_new_source_follows_visible_key_and_clears_removed_rows(
+    pane,
+):
+    initial = related_snapshot()
+    changed_run = initial.agent_runs[0].model_copy(
+        update={"id": "new-run", "observation_target": "/linked", "branch": "feature"}
+    )
+    changed = initial.model_copy(
+        update={
+            "agent_runs": (changed_run,),
+            "issue_runs": {"I_alpha#2": (changed_run.id,)},
+        }
+    )
+    removed = initial.model_copy(
+        update={"projects": (), "agent_runs": (), "issue_runs": {}}
+    )
+    app = DashpotApp(
+        SequenceCollector(initial, changed, RuntimeError("rejected"), removed),
+        refresh_seconds=0,
+    )
+    async with app.run_test(size=(150, 55)):
+        await wait_until(lambda: app.store.revision == 1)
+        tables = {
+            "sessions": app.dashboard.sessions_pane().table,
+            "worktrees": app.dashboard.worktrees_pane().table,
+            "branches": app.dashboard.branches_pane().table,
+            "issues": app.dashboard.queue_table(),
+        }
+        queries = {
+            "worktrees": app.store.query_worktrees,
+            "branches": app.store.query_branches,
+            "issues": app.store.query_issues,
+        }
+        table = tables[pane]
+        table.focus()
+
+        def matches():
+            key = capture_selection(table)[0]
+            source = next((row for row in queries[pane]().rows if row.key == key), None)
+            result = query_source(app.store, source)
+            return all(
+                target.related_rows == getattr(result, name)
+                for name, target in tables.items()
+            )
+
+        await wait_until(matches)
+        key = capture_selection(table)[0]
+        app.request_refresh("manual")
+        await wait_until(lambda: app.store.revision == 2 and matches())
+        assert capture_selection(table)[0] == key
+        accepted = tuple(target.related_rows for target in tables.values())
+        app.request_refresh("manual")
+        await wait_until(lambda: bool(app.observation_errors))
+        assert tuple(target.related_rows for target in tables.values()) == accepted
+        app.request_refresh("manual")
+        await wait_until(lambda: table.row_count == 0 and matches())
+        assert not any(target.related_rows for target in tables.values())
 
 
 def destination_tables(app):
@@ -72,7 +225,8 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
         await pilot.press("down")
         await wait_until(lambda: emphasis(app) == expected(app, "two"))
         destinations[0].focus()
-        await wait_until(lambda: not any(emphasis(app)))
+        await wait_until(lambda: bool(sessions.related_rows))
+        assert not destinations[0].related_rows
         sessions.focus()
         await wait_until(lambda: emphasis(app) == expected(app, "one"))
         assert sessions.cursor_row == 0
@@ -198,7 +352,7 @@ async def test_related_rows_have_background_and_bold_without_losing_glyph_colors
         await wait_until(lambda: app.store.revision == 1)
         for theme in ("textual-dark", "textual-light"):
             app.theme = theme
-            app.dashboard.branches_pane().table.focus()
+            app.dashboard.pull_requests_pane().table.focus()
             await pilot.pause()
             table = app.dashboard.worktrees_pane().table
             row_key = next(
