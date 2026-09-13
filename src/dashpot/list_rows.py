@@ -12,6 +12,8 @@ from typing import Literal
 
 from rich.text import Text
 
+from .glyphs import MEANING_GUTTER, Glyph, align_symbols
+
 ListCell = str | Text
 
 ELLIPSIS = "…"
@@ -19,11 +21,38 @@ ELLIPSIS = "…"
 
 @dataclass(frozen=True, slots=True)
 class ListColumn:
+    """One pane column: its identity, heading, layout, and what it means.
+
+    ``description`` says what the column shows, and ``glyphs`` are the
+    Glyphs its cells render, in Legend order. The header tooltip and the
+    Legend's section for the column are both built from these two fields,
+    so neither can drift from the other.
+    """
+
     key: str
     label: str
     width: int | None = None
     frozen: bool = False
     justify: Literal["left", "center", "right", "full"] | None = None
+    description: str | None = None
+    glyphs: tuple[Glyph, ...] = ()
+
+
+def column_help(column: ListColumn) -> str | None:
+    """The column's description with its Glyph meanings, for a header tooltip.
+
+    Nothing when the column carries no description: a Glyph alone is
+    explained by the Legend, not by a tooltip that repeats it without
+    saying what the column is.
+    """
+    if column.description is None:
+        return None
+    lines = [column.description]
+    lines.extend(
+        f"{symbol}{MEANING_GUTTER}{meaning}"
+        for symbol, meaning in align_symbols(column.glyphs)
+    )
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)

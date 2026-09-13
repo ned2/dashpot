@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-08-30
+amended-by: 0040-summarize-integration-across-a-branch-rows-refs.md
 ---
 
 # Derive the Legend from the Glyphs the panes render
@@ -65,9 +66,14 @@ is because its fill is the liveliness.
   a new state in a `Literal` union without a Glyph fails the map-coverage
   test.
 - The Legend and the cells cannot disagree, because there is one constant.
-- A symbol has one meaning across the app. The Issue state block is the one
+- A symbol has one meaning across the app. The Issue state block was the one
   deliberate exception: four states share `■` and differ by colour alone,
   which the Legend shows as four swatches.
+- Amended by [ADR 0040](0040-summarize-integration-across-a-branch-rows-refs.md):
+  the Branches `INTEGRATED` cell's aggregate `↑` and the Issues header sort
+  marker `↑` are the one symbol the Legend lists with two meanings, read on
+  surfaces where neither can be mistaken for the other; the single-meaning
+  test names that pair as its only exemption.
 - Severity Glyphs carry no colour of their own; they name the theme variable
   the alert and Diagnostics stylesheets use, so the Legend's swatch and the
   boxes stay in step without a second hex value.

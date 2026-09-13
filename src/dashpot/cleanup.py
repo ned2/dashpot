@@ -32,6 +32,7 @@ from pydantic import computed_field
 from .commands import non_interactive_runner
 from .errors import DashpotError
 from .git import Git, GitError
+from .model import IntegrationState, integration_state
 from .models import LaxSequence, PublishedModel
 from .processes import ProcessLookup, host_process_lookup
 from .repository import (
@@ -72,9 +73,6 @@ BlockerKind = Literal[
     "work-store",
     "detached",
 ]
-IntegrationState = Literal[
-    "integrated", "content-integrated", "unintegrated", "unknown"
-]
 # The Worktree obstacles that block removing the Worktree itself; the Branch
 # ones (unpushed, unmerged) belong to the Branch target's own gate.
 _WORKTREE_BLOCKERS: Mapping[str, BlockerKind] = {
@@ -107,13 +105,7 @@ class IntegrationFact(PublishedModel):
     @computed_field
     @property
     def state(self) -> IntegrationState:
-        if self.unintegrated_commits is None:
-            return "unknown"
-        if self.unintegrated_commits == 0:
-            return "integrated"
-        if self.content_integrated:
-            return "content-integrated"
-        return "unintegrated"
+        return integration_state(self.unintegrated_commits, self.content_integrated)
 
 
 class CleanupTarget(PublishedModel):

@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0018-assess-remote-tracking-branch-integration.md
+amended-by: 0018-assess-remote-tracking-branch-integration.md, 0040-summarize-integration-across-a-branch-rows-refs.md
 ---
 
 # Observe Branch integration by content when commits are unreachable
@@ -92,3 +92,6 @@ the tip merge and the listing on every refresh.
 - Amended by [ADR 0018](0018-assess-remote-tracking-branch-integration.md):
   content integration is assessed for Remote-Tracking Branch refs as well,
   reusing the result for refs at the same commit within one observation.
+- Amended by [ADR 0040](0040-summarize-integration-across-a-branch-rows-refs.md):
+  the pane renders the unnumbered `↑` for a row with retained, unintegrated
+  work on any of its refs; the per-ref count stays in the Cleanup preview.

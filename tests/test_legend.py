@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import get_args
 
 import dashpot
-from dashpot import alerts, branch_cells, issue_cells, legend, session_cells
+from dashpot import alerts, branch_cells, glyphs, issue_cells, legend, session_cells
 from dashpot.alerts import AlertSeverity
 from dashpot.glyphs import Glyph, LegendSection
 from dashpot.issue_cells import IssueStateKind
+from dashpot.list_rows import ListColumn, column_help
 from dashpot.model import RunState
+from helpers import required
 
 SOURCE_DIR = Path(dashpot.__file__).parent
 # Typography that never stands for a fact: separators, clipping, and prose.
@@ -59,12 +61,21 @@ def test_a_symbol_carries_one_meaning() -> None:
     for glyph in legend.legend_glyphs():
         meanings.setdefault(glyph.symbol, set()).add(glyph.meaning)
 
-    # Issue and Pull Request state blocks share colour encoding; every other
-    # symbol means one thing wherever it is seen.
+    # Issue and Pull Request state blocks share colour encoding, and the
+    # Branches INTEGRATED cell's ↑ (work above the Integration Branch) is
+    # the Issues header sort marker's ↑ read on a different surface; every
+    # other symbol means one thing wherever it is seen.
+    shared = {
+        issue_cells.ISSUE_STATE_GLYPHS["open"].symbol,
+        branch_cells.UNINTEGRATED_GLYPH.symbol,
+    }
+    assert (
+        branch_cells.UNINTEGRATED_GLYPH.symbol == issue_cells.SORT_GLYPHS[False].symbol
+    )
     collisions = {
         symbol: found
         for symbol, found in meanings.items()
-        if len(found) > 1 and symbol != issue_cells.ISSUE_STATE_GLYPHS["open"].symbol
+        if len(found) > 1 and symbol not in shared
     }
     assert collisions == {}
     assert session_cells.STATE_GLYPHS["unknown"].symbol != (
@@ -127,18 +138,59 @@ def test_every_glyph_in_the_source_is_explained() -> None:
     assert unexplained == {}
 
 
-def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
-    """A REMOTE check is the Remote-Tracking Branch, never live remote presence."""
-    by_column = {
+def branches_sections() -> dict[str, LegendSection]:
+    return {
         section.column: section
         for section in legend.LEGEND
         if section.pane == "BRANCHES"
     }
+
+
+def test_every_branches_column_is_in_the_legend_from_its_own_definition() -> None:
+    """The Legend's Branches sections are the pane's columns, tooltips included."""
+    sections = [section for section in legend.LEGEND if section.pane == "BRANCHES"]
+
+    assert [section.column for section in sections] == [
+        column.label for column in branch_cells.BRANCH_COLUMNS
+    ]
+    for section, column in zip(sections, branch_cells.BRANCH_COLUMNS, strict=True):
+        assert column.description
+        assert section.note == column.description
+        assert section.glyphs == column.glyphs
+        # The header tooltip is the same description and the same Glyph
+        # meanings, formatted for a mouse rather than the modal.
+        help_text = column_help(column)
+        assert help_text is not None
+        assert help_text.startswith(column.description)
+        for glyph in column.glyphs:
+            assert glyph.symbol in help_text
+            assert glyph.meaning in help_text
+        rendered = legend.section_text(section, dark=False).plain
+        assert rendered.endswith(column.description)
+        for glyph in column.glyphs:
+            assert glyph.meaning in rendered
+    by_column = branches_sections()
+    assert by_column["◈"].glyphs == glyphs.ACTIVITY_LEGEND
+    assert by_column["LOCAL"].glyphs == branch_cells.PRESENCE_LEGEND
+    assert by_column["UPSTREAM"].glyphs == branch_cells.UPSTREAM_LEGEND
+    assert by_column["INTEGRATED"].glyphs == branch_cells.INTEGRATION_LEGEND
+    # A column that renders no Glyph is its description alone.
+    assert by_column["BRANCH"].glyphs == ()
+    assert (
+        legend.section_text(by_column["BRANCH"], dark=False).plain
+        == branch_cells.NAME_DESCRIPTION
+    )
+    assert column_help(ListColumn("bare", "BARE")) is None
+
+
+def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
+    """A REMOTE check is the Remote-Tracking Branch, never live remote presence."""
+    by_column = branches_sections()
     local, remote = by_column["LOCAL"], by_column["REMOTE"]
 
     assert local.glyphs == remote.glyphs == branch_cells.PRESENCE_LEGEND
-    assert local.note == legend.LOCAL_PRESENCE_NOTE
-    assert remote.note == legend.REMOTE_PRESENCE_NOTE
+    assert local.note == branch_cells.LOCAL_DESCRIPTION
+    assert remote.note == branch_cells.REMOTE_DESCRIPTION
     rendered = legend.section_text(remote, dark=False).plain
     assert "Remote-Tracking Branch" in rendered
     assert "last fetch" in rendered
@@ -146,17 +198,31 @@ def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
 
 
 def test_the_cleanup_gate_is_stated_where_x_reads_it() -> None:
-    """The INTEGRATED and Worktree SESSIONS notes say what x can and cannot delete."""
+    """The INTEGRATED and Worktree SESSIONS notes separate the row from x's checks."""
     sections = {(section.pane, section.column): section for section in legend.LEGEND}
     integrated = sections["BRANCHES", "INTEGRATED"]
     worktrees = sections["WORKTREES", "◈"]
 
     assert integrated.glyphs == branch_cells.INTEGRATION_LEGEND
-    assert integrated.note == legend.INTEGRATION_NOTE
+    assert integrated.note == branch_cells.INTEGRATION_DESCRIPTION
     assert worktrees.note == legend.WORKTREE_SESSIONS_NOTE
-    assert worktrees.note.startswith(legend.SESSIONS_COUNT_NOTE)
+    assert required(worktrees.note).startswith(legend.SESSIONS_COUNT_NOTE)
     for section, words in (
-        (integrated, ("the gate for x", "by commits or by content", "cannot")),
+        (
+            integrated,
+            (
+                "every ref this row represents",
+                "each same-name Remote-Tracking Branch",
+                "as of the last fetch",
+                "not a differently named upstream",
+                "Known unintegrated work outranks missing evidence",
+                "never reads as integrated",
+                "prerequisite for the Cleanup x opens",
+                "not a verdict on its targets",
+                "each target's own integration and commit count",
+                "blockers, selection, and confirmation",
+            ),
+        ),
         (
             worktrees,
             (

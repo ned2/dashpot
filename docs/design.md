@@ -216,18 +216,29 @@ qualifies the check with the fetch age the border carries and the `f` key
 that prunes. `UPSTREAM` is the local ref's
 relation to its configured upstream (`=` in sync, `↑2 ↓1`, `∅` no upstream,
 or `✗` upstream gone). `INTEGRATED` is whether the Integration Branch holds
-the Branch's work (`⊆` when every commit is reachable, `≡` when its content is
-there though its commits are not, as after a squash merge, `↑2` for two commits
-of work that never landed, or `⊘` when no comparison is available). It uses the
-local ref when present; a remote-only row uses its Remote-Tracking Branches
-when they agree on one head and result, and reports `⊘` when they diverge. The
-result is followed by the active sessions on the Branch and
-the age of its last commit. The pane subtitle names the Integration Branch
+all the work the row represents — the local Branch and every same-name
+Remote-Tracking Branch, as of the last fetch — summarized across those refs
+(`integration_summary` in `branch_list.py`,
+[ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)):
+`⊆` when every ref's commits are reachable, `≡` when every ref has landed and
+at least one only by content, as after a squash merge, `↑` when any ref has
+retained commits whose content is not found, or `⊘` when no ref is known
+unintegrated but a comparison is unavailable. Known unintegrated work
+outranks a missing comparison, which outranks integrated refs, so an
+integrated local ref never hides remote work and missing evidence never
+reads as integrated; refs at different tips can still all have landed. The
+`↑` is unnumbered because per-ref counts overlap; the Cleanup preview keeps
+the exact count per target. An integrated row is the prerequisite for
+considering a Cleanup, not a promise that each target is deletable. The
+result is followed by
+the age of the row's newest commit. The pane subtitle names the Integration Branch
 and the age of the Remote-Tracking Branches. The Worktrees pane names the
 Branch checked out at every Worktree. Rows are sorted checked-out first, then
 most recent commit. Its columns are the agent-activity column (`◈`),
 `SESSIONS`, `BRANCH`, `LOCAL`, `REMOTE`, `UPSTREAM`, `INTEGRATED`, and
-`LAST COMMIT`. The
+`LAST COMMIT`, each a `ListColumn` in `branch_cells.py` that carries its
+description and the Glyphs its cells render, from which both its header
+tooltip and its Legend section are built. The
 refs are read with `git for-each-ref` from the first answering Repository
 Anchor; observation never runs `git fetch`, so the lower-right pane border
 carries the age of the last fetch (`remote last fetched 3h ago`, or
@@ -252,11 +263,22 @@ cells render with ([`glyphs.py`](../src/dashpot/glyphs.py)), each pane owning
 its own vocabulary, and a test scans the source for any symbol the Legend
 does not explain, so a Glyph cannot be added without appearing there and no
 symbol carries two meanings
-([ADR 0010](adr/0010-derive-the-legend-from-rendered-glyphs.md)). Its
-mouse complement is a tooltip on the Issues table's `◉` and `◈` headers that
-reads the same `Glyph.meaning` the Legend shows, so the two cannot drift. The
-Legend also lists the key bindings, and the notes under the Branches
-`INTEGRATED` and Worktrees `SESSIONS` sections state the gate `x` applies,
-where the person deciding what to delete reads it. See
+([ADR 0010](adr/0010-derive-the-legend-from-rendered-glyphs.md)) — save the
+`↑` that the Branches `INTEGRATED` cell and the Issues sort marker share,
+each read on its own surface
+([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)). Its
+mouse complement is a header tooltip, offered by the shared
+`FocusCursorTable` ([`focus_table.py`](../src/dashpot/focus_table.py)) from
+the segment meta the header render stamps, so it follows the hovered header
+through scrolling and column redeclaration and clears over the body and on
+leaving: the Issues table's `◉` and `◈` headers read the same
+`Glyph.meaning` the Legend shows, and every Branches header reads its
+column's description and Glyph meanings from the same `ListColumn` the
+Legend's Branches sections are built from, so neither can drift. The Legend
+lists all eight Branches columns, Glyphs or not. It also lists the key
+bindings, and the Branches `INTEGRATED` and Worktrees `SESSIONS` notes say
+what `x` checks — the `INTEGRATED` note distinguishing the row summary from
+the Cleanup preview's per-target checks — where the person deciding what to
+delete reads it. See
 [`textual-implementation-notes.md`](textual-implementation-notes.md) for
 the framework research behind the current implementation.

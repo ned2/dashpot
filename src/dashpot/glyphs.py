@@ -8,7 +8,7 @@ Legend cannot omit one that a pane renders.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .model import RunState
@@ -57,3 +57,16 @@ SESSION_STATE_GLYPHS: dict[RunState, Glyph] = {
         "○", "an Agent Session in an unknown state", ("#59636e", "#8b949e")
     ),
 }
+# The shared agent-activity column's Legend, ranked as its cells are.
+ACTIVITY_LEGEND = (
+    ACTIVITY_COLUMN_GLYPH,
+    *(SESSION_STATE_GLYPHS[state] for state in SESSION_STATE_ORDER),
+)
+# Between a symbol and its meaning on a Legend or tooltip line.
+MEANING_GUTTER = "  "
+
+
+def align_symbols(glyphs: Sequence[Glyph]) -> list[tuple[str, str]]:
+    """Pair each symbol, padded to the widest, with its meaning."""
+    width = max((len(glyph.symbol) for glyph in glyphs), default=0)
+    return [(glyph.symbol.ljust(width), glyph.meaning) for glyph in glyphs]

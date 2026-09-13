@@ -16,7 +16,7 @@ from typing_extensions import override
 
 from .focus_table import FocusCursorTable
 from .keyed_table import capture_selection, restore_selection
-from .list_rows import ListCell, ListColumn, ListRow
+from .list_rows import ListCell, ListColumn, ListRow, column_help
 from .pane_layout import DEFAULT_ROW_CAP
 
 ISSUE_PANE_LABEL = "ISSUES"
@@ -117,7 +117,12 @@ class ListPane(Vertical):
                 if column.justify is None
                 else Text(column.label, justify=column.justify)
             )
-            table.add_column(label, key=column.key, width=column.width)
+            table.add_column(
+                label,
+                key=column.key,
+                width=column.width,
+                tooltip=column_help(column),
+            )
 
     def show_rows(
         self,

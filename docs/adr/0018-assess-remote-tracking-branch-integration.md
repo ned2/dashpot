@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-02
+amended-by: 0040-summarize-integration-across-a-branch-rows-refs.md
 ---
 
 # Assess Remote-Tracking Branch integration
@@ -64,3 +65,8 @@ claims that deleting a Branch is appropriate under a hosting workflow.
   batching the content check is the follow-up if that is ever felt.
 - This decision extends ADR 0012 and ADR 0017 where they scoped integration
   fields and assessment to local Branches.
+- Amended by [ADR 0040](0040-summarize-integration-across-a-branch-rows-refs.md):
+  the Branches pane no longer keeps its local-first meaning or requires
+  remote-only rows to agree on one commit; `INTEGRATED` summarizes every
+  ref the row represents, and known unintegrated work outranks a missing
+  comparison. The per-ref assessment this decision added is unchanged.
