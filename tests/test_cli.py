@@ -277,15 +277,13 @@ def test_tui_mode_constructs_a_recurring_collector() -> None:
 def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from dashpot import query_source
-
     built: list[tuple[Path, float]] = []
 
     def configured(root: Path, *, timeout: float) -> object:
         built.append((root, timeout))
         return object()
 
-    monkeypatch.setattr(query_source, "configured_query_source", configured)
+    monkeypatch.setattr(cli, "configured_query_source", configured)
     project = ResolvedProject(
         "project:example",
         "Example",
@@ -308,13 +306,9 @@ def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
 def test_query_sources_fall_back_to_the_current_directory_without_projects(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from dashpot import query_source
-
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        query_source,
-        "configured_query_source",
-        lambda root, *, timeout: (root, timeout),
+        cli, "configured_query_source", lambda root, *, timeout: (root, timeout)
     )
 
     sources = cli.create_query_sources(mock.Mock(projects=[], timeout=3.0))

@@ -27,6 +27,7 @@ from app_harness import (
 )
 from dashpot.item_filter import ItemFilterBar
 from dashpot.list_pane import ListColumn, ListPane, ListRow
+from dashpot.paged_app import PagedDashpotApp
 from dashpot.pane_layout import PANE_MARGIN
 from helpers import wait_until
 
@@ -67,18 +68,10 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         assert count.region.x >= search.region.right
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 1 · Closed 0"
 
-    def assert_counts_fit_in_queue_pane() -> None:
-        queue_pane = app.query_one("#queue-pane")
-        count = app.query_one("#issue-count", Static)
-        assert count.region.width >= len(page_summary)
-        assert count.region.right <= queue_pane.region.right - 1
-
     async with app.run_test(size=(60, 20)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         assert app.screen.has_class("-compact")
-        # The page summary is wider than a compact pane, so the shipped app
-        # clips it there rather than fitting it; only the wide layout fits.
         assert_counts_share_the_search_row()
 
         await pilot.resize_terminal(120, 32)
@@ -86,7 +79,39 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         assert app.screen.has_class("-wide")
         assert_panes_stack_above_full_width_queue(app)
         assert_counts_share_the_search_row()
-        assert_counts_fit_in_queue_pane()
+        assert_search_row_fits_the_queue_pane(app, page_summary)
+
+
+def assert_search_row_fits_the_queue_pane(
+    app: PagedDashpotApp, page_summary: str
+) -> None:
+    queue_pane = app.query_one("#queue-pane")
+    search = app.query_one("#issue-search", Input)
+    count = app.query_one("#issue-count", Static)
+    assert count.region.width >= len(page_summary)
+    assert count.region.right <= queue_pane.region.right - 1
+    assert search.region.width >= len(search.placeholder)
+
+
+# The shipped page summary keeps its full 59 columns in a compact pane, so it
+# overflows the pane and squeezes the search Input to a single column. The
+# base-only app's count fitted at this width; this expected failure holds the
+# invariant until the compact layout is fixed and then demands the marker go.
+@pytest.mark.xfail(
+    strict=True,
+    reason="the page summary overflows a compact Issues pane and squeezes the search",
+)
+@pytest.mark.asyncio
+async def test_compact_search_row_fits_the_queue_pane() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0)
+    page_summary = f"1 shown · 1 matches · fresh · observed {NOW}"
+
+    async with app.run_test(size=(60, 20)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await pilot.pause()
+        assert app.screen.has_class("-compact")
+        assert_search_row_fits_the_queue_pane(app, page_summary)
 
 
 @pytest.mark.asyncio

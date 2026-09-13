@@ -144,7 +144,7 @@ The conventions the tooling enforces or the code assumes:
 - Tests drive public seams: `observe_agent_runs` with a fake process lookup
   rather than the process adapter, the `WorkStore` rather than its files,
   Textual screens through `App.run_test` / `pilot` and the `wait_until`
-  helper in `tests/helpers.py`. A dashboard test builds the shipped app with
+  helper in `tests/helpers.py`. A test of the shipped dashboard builds it with
   `dashboard_app` in `tests/app_harness.py`, whose `SnapshotQuerySource`
   serves the snapshot the collector observes, and waits on
   `first_load_landed` before reading a pane. Fakes stand in for GitHub;

@@ -188,7 +188,7 @@ class SnapshotQuerySource:
         return is_issue_sort_column(column)
 
     def _freshness(self, kind: ResourceKind) -> tuple[SourceStatus, str | None]:
-        """The status and last good time the snapshot observed one kind at."""
+        """Report the status and last good time the snapshot observed one kind at."""
         snapshot = self.project.snapshot
         if snapshot is None:
             return "unavailable", None
@@ -354,23 +354,18 @@ class SnapshotQuerySource:
 def dashboard_app(
     collector: SequenceCollector,
     *,
-    snapshot: WorkspaceSnapshot | None = None,
     refresh_seconds: float = 0,
     fetcher: RemoteFetcher | None = None,
     cleaner: CleanupAdapter | None = None,
     launcher_configuration: LauncherConfiguration | None = None,
 ) -> PagedDashpotApp:
-    """The shipped app over a scripted collector, its queries served from a snapshot.
+    """Build the shipped app over a scripted collector, its queries served from a snapshot.
 
-    By default the Query Sources answer from the first snapshot the collector
-    will observe; pass ``snapshot`` when the queries should see another.
+    The Query Sources answer from the first snapshot the collector will observe.
     """
-    if snapshot is None:
-        snapshot = next(
-            result
-            for result in collector.results
-            if isinstance(result, WorkspaceSnapshot)
-        )
+    snapshot = next(
+        result for result in collector.results if isinstance(result, WorkspaceSnapshot)
+    )
     return PagedDashpotApp(
         collector,
         sources={key: SnapshotQuerySource(snapshot) for key in QUERY_SOURCE_KEYS},
@@ -382,7 +377,7 @@ def dashboard_app(
 
 
 def first_load_landed(app: PagedDashpotApp) -> bool:
-    """Whether the first observation, both first pages and both totals rendered.
+    """Report whether the first observation, both first pages and both totals rendered.
 
     The base app rendered everything from its first checkpoint; the shipped
     app also waits on its page and totals queries, so a test reads the

@@ -35,6 +35,7 @@ from .model import Diagnostic, RepositoryAnchor, Workspace
 from .paged_app import QUERY_SOURCE_KEYS
 from .paged_app import PagedDashpotApp as DashpotApp
 from .project_config import PROJECT_CONFIG_NAME
+from .query_source import configured_query_source
 from .repository import worktree_root
 from .serialization import (
     cleanup_report_document,
@@ -841,8 +842,6 @@ def create_collector(
 
 def create_query_sources(collector: ObservationCoordinator) -> dict[str, QuerySource]:
     """Build the configured Query Source behind each of the dashboard's queries."""
-    from .query_source import configured_query_source
-
     root = (
         Path(collector.projects[0].primary_anchor) if collector.projects else Path.cwd()
     )
