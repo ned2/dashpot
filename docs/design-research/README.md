@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-15
+date: 2026-09-16
 ---
 
 # Design research
@@ -183,6 +183,12 @@ takes a position.
   AI-heavy but AI-optional lifecycle; the lifecycle in two layers against
   the demand axis; the principles the evidence supports; and the method
   for the candidates that follow.
+- [Thematic analysis: plan](thematic-analysis-plan.md) — the method for
+  clustering the ideas across the whole corpus before candidates are
+  drawn: a claim inventory, replicated blind clusterings by mechanism and
+  by tension, a framed placement of every card, a mechanical clustering,
+  and a reconciliation that separates the themes the frame already names
+  from the cross-cutting ones it scatters.
 
 ## Reading order
 
