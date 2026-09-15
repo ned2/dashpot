@@ -311,6 +311,11 @@ Foucault, Falleri, and Blanc find in open source that "the relationship between 
 metrics and module faults is weak. At best, less than half of projects exhibit a significant
 correlation, and at worst, no projects at all," with no knowledge framing at all
 ([HAL via scholar.archive.org](https://scholar.archive.org/work/veyzrlolbvggdolb2rcu5umc2u/access/wayback/https://hal.archives-ouvertes.fr/hal-00976024/document)).
+(qualified 2026-09-15: the journal extension — Foucault, Teyton, Lo, Blanc,
+Falleri, *IST* 64, 2015, [doi:10.1016/j.infsof.2015.01.013](https://ink.library.smu.edu.sg/sis_research/2848)
+— "confirm[s] the existence of a relationship" while finding its "relative
+importance ... is low": weak, not null
+([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)).)
 
 **Expertise recommenders and models.** Expertise Browser counts "experience atoms," the
 atomic change, and its authors write that their studies "do not provide definitive evidence
@@ -996,7 +1001,11 @@ Stated by the sources themselves, in their words where the wording matters.
   questionnaire; JetBrains' per-field AI analytics names and its methodology page (404);
   Copilot's legacy metrics API (removed from the current OpenAPI; verified in a mid-2025
   commit only); Cursor's public "% of code written by AI" claim; the Faros 2026 report cited
-  by Wheeler; the Agent Trace GitHub repository; Kognita's founders, dates, and case studies;
+  by Wheeler (added 2026-09-15: a Faros AI 2026 report exists — "The AI
+  Engineering Report 2026: The Acceleration Whiplash", 2026-04-12, 22,000
+  developers, 4,000+ teams, ten-takeaways page public, full report behind a
+  form; whether it is the one Wheeler cites is not verified
+  ([review capacity, finding](review-capacity-and-volume.md#finding))); the Agent Trace GitHub repository; Kognita's founders, dates, and case studies;
   Jaspan and Sadowski's page (404); Pluralsight's Developer Thriving report (404); Ozkaya's
   "perceived cognitive load" article; a Thoughtworks or martinfowler.com article on "tracking
   team cognitive load" beyond the radar blip; Lehmann et al.; the Fritz 2014 TOSEM text;

@@ -354,6 +354,11 @@ comprehension measure.
   30% report little or no trust in AI-generated code while over 80% report a
   productivity gain; DORA frames a "verification tax" and AI as an amplifier
   of existing organisational strengths and weaknesses. Survey-based.
+  (qualified 2026-09-15: "amplifier" is in the 2025 report's executive
+  summary; "verification tax" does not occur in the report PDF or on its
+  landing page, whose nearest language is "a need for critical validation
+  skills" — the phrase's attribution to DORA is unverified
+  ([review capacity, corrections](review-capacity-and-volume.md#corrections-proposed)).)
 - JetBrains *State of Developer Ecosystem 2025*
   ([devecosystem-2025.jetbrains.com/artificial-intelligence](https://devecosystem-2025.jetbrains.com/artificial-intelligence)):
   24,534 respondents; 85% use AI regularly; top concerns are code quality
@@ -706,6 +711,12 @@ approving agent-written code.
   identity/accountability survey are the nearest; still no quantitative
   ownership instrument — see the
   [literature addendum](literature-addendum.md#corrections-proposed).)
+  (qualified 2026-09-15: Seo et al.'s IUI 2026 within-subjects study
+  measures possession, identity and responsibility under three autonomy
+  levels with 30 participants, and Rahman and Shihab's modification-survival
+  analysis is a behavioural proxy; the gap is now "none validated on
+  professionals", not "none"
+  ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)).)
 - Searches of CHI, ICSE, FSE, and CSCW 2025–2026 titles for "comprehension"
   with "AI-generated code" surfaced Qiao et al. (arXiv, venue unconfirmed),
   Kaufman et al. (arXiv), and grey-literature reviews of vibe coding

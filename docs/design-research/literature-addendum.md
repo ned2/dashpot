@@ -187,6 +187,11 @@ GitHub Copilot CLI"** ([arXiv:2607.01418](https://arxiv.org/abs/2607.01418), v1
 engineers over four months; adopters "merged roughly 24% more pull requests
 than they would have otherwise" (95% CI 14.5–33.7% per the search summary;
 not verified in the PDF). No skill, comprehension or ownership measure.
+(corrected 2026-09-15: the interval is verified in the arXiv HTML full text
+— "over the post-period [95% CI +14.5%, +33.7%]" — so the read level is
+now HTML full text; the same source carries a seniority gradient, IC2/IC3
+−13%/−14% odds of trying against IC4 and a larger PR lift for junior ICs
+([apprenticeship, finding](apprenticeship-under-agents.md#finding)).)
 
 **Sergeyuk et al., "Evolving with AI: A Longitudinal Analysis of Developer
 Logs"** ([arXiv:2601.10258](https://arxiv.org/abs/2601.10258), v2 2026-03-30;
@@ -234,7 +239,13 @@ associated it with arXiv:2609.09022, but that identifier is Camargo's
 research note "It Is Not My Code Anymore"
 ([arXiv:2609.09022](https://arxiv.org/abs/2609.09022), 2026-09-08; abstract
 read), which "reports no new empirical results". Seo et al.'s design and
-sample are therefore unknown here.
+sample are therefore unknown here. (added 2026-09-15: the OpenAlex record
+of [doi:10.1145/3742413.3789121](https://api.openalex.org/works/https://doi.org/10.1145/3742413.3789121)
+carries the abstract — within-subjects, High/Medium/Low autonomy;
+possession, identity, responsibility, attribution, disclosure — and
+Camargo's [arXiv:2609.09022](https://arxiv.org/html/2609.09022) reports
+"a study with 30 participants"; whether they were professionals is not
+readable ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)).)
 
 **Anthropic, "How AI is transforming work at Anthropic"**
 ([anthropic.com](https://www.anthropic.com/research/how-ai-is-transforming-work-at-anthropic),
@@ -754,6 +765,13 @@ is a proposal; the notes are not edited here.
    supplement is proposed: Shukla and Sharma's eleven-interview thesis (not
    peer reviewed) and Choudhuri et al.'s 448-developer identity/accountability
    survey (Target 1); still no quantitative ownership instrument.
+   (qualified 2026-09-15: Seo et al. (IUI 2026) is a quantitative
+   within-subjects measurement of possession, identity and responsibility
+   under three autonomy levels, 30 participants of unstated profession,
+   and Rahman and Shihab ([arXiv:2601.16809](https://arxiv.org/html/2601.16809))
+   is a behavioural proxy — modification survival — with an explicit,
+   untested ownership hypothesis; "on professionals" may stand, the
+   unqualified sentence does not ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)).)
 8. **track-in-loop-friction.md, Claude Code**: the section quotes the
    best-practices page's "After the tenth approval you're clicking through" —
    a supplement is proposed with the vendor's own telemetry (97% approval, 39%
