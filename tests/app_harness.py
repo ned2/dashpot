@@ -637,8 +637,12 @@ def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
 
 def selected_title(app: DashpotApp) -> str:
     """The compact label of the Issue the table cursor is on."""
-    assert app.dashboard.selected_row_key is not None
-    return selection_title(app.dashboard.rows_by_key[app.dashboard.selected_row_key])
+    assert app.dashboard.issue_table.selected_row_key is not None
+    return selection_title(
+        app.dashboard.issue_table.rows_by_key[
+            app.dashboard.issue_table.selected_row_key
+        ]
+    )
 
 
 def pane_title(app: DashpotApp, selector: str) -> str:

@@ -280,13 +280,15 @@ async def test_a_header_click_preserves_the_selected_issue() -> None:
         table = app.query_one("#queue", DataTable)
         selected_key = row_key("issue", "I_test/repo#1")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
+        await wait_until(
+            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+        )
 
         await select_header(app, pilot, "number")
         await select_header(app, pilot, "number")
         await wait_until(lambda: titles(app) == ["Alpha", "Zebra"])
 
-        assert app.dashboard.selected_row_key == selected_key
+        assert app.dashboard.issue_table.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
 
@@ -347,8 +349,8 @@ async def test_a_submitted_sort_qualifier_owns_the_order_until_it_is_cleared() -
         await wait_until(lambda: titles(app) == ["Newly created", "Recently active"])
 
         # The qualifier orders the page, so no header offers to.
-        assert "created" not in app.dashboard.issue_view.columns
-        assert app.dashboard.issue_view.query.text == "sort:created-desc"
+        assert "created" not in app.dashboard.issue_table.issue_view.columns
+        assert app.dashboard.issue_table.issue_view.query.text == "sort:created-desc"
         assert headers(app) == [
             "◈",
             "◉",
@@ -426,7 +428,10 @@ async def test_visible_filters_update_the_page_summary_but_not_the_totals() -> N
 
         state.value = "closed"
         await wait_until(
-            lambda: app.dashboard.selected_row_key == row_key("issue", closed_issue.id)
+            lambda: (
+                app.dashboard.issue_table.selected_row_key
+                == row_key("issue", closed_issue.id)
+            )
         )
         assert app.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
@@ -462,9 +467,14 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         await pilot.press("o")
         await wait_until(lambda: state.value == "closed")
         await wait_until(
-            lambda: app.dashboard.selected_row_key == row_key("issue", closed_issue.id)
+            lambda: (
+                app.dashboard.issue_table.selected_row_key
+                == row_key("issue", closed_issue.id)
+            )
         )
-        assert app.dashboard.issue_view.query.states == frozenset({"closed"})
+        assert app.dashboard.issue_table.issue_view.query.states == frozenset(
+            {"closed"}
+        )
         assert app.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
         assert pane_title(app, "#queue-pane") == inventory
@@ -507,11 +517,15 @@ async def test_ordering_and_column_visibility_leave_both_counts_alone() -> None:
 
         await select_header(app, pilot, "number")
         await wait_until(lambda: headers(app)[2] == "# ↑")
-        app.dashboard.apply_issue_columns(("title", "number"))
+        app.dashboard.issue_table.apply_issue_columns(("title", "number"))
         await pilot.pause()
 
         assert app.navigation["issues"].request.ordering == "number:asc"
-        assert app.dashboard.issue_view.columns == ("agent_state", "title", "number")
+        assert app.dashboard.issue_table.issue_view.columns == (
+            "agent_state",
+            "title",
+            "number",
+        )
         assert table.row_count == 2
         assert str(count.render()) == page_summary(2)
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
@@ -533,7 +547,7 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
         await wait_until(lambda: first_load_landed(app))
         table = app.query_one("#queue", DataTable)
 
-        assert app.dashboard.issue_view.columns == DEFAULT_COLUMNS
+        assert app.dashboard.issue_table.issue_view.columns == DEFAULT_COLUMNS
         assert headers(app) == ["◈", "◉", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↕"]
 
         serve_snapshot(app, second)
@@ -796,13 +810,15 @@ async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.issue_table.selected_row_key == row_key(
+            "issue", "I_test/repo#1"
+        )
 
-        app.dashboard.show_row(row_key("issue", "I_gone"))
+        app.dashboard.issue_table.show_row(row_key("issue", "I_gone"))
 
         # Nothing is selected, so the Open Issue binding opens nothing rather
         # than the previously selected Issue.
-        assert app.dashboard.selected_row_key is None
+        assert app.dashboard.issue_table.selected_row_key is None
         app.dashboard.action_open_issue()
         await pilot.pause()
         assert not isinstance(app.screen, IssueScreen)

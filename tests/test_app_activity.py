@@ -194,7 +194,7 @@ def emphasis(app):
 
 
 def expected(app, run_id):
-    rows = related(app.store, run_id, app.dashboard.issue_view.query)
+    rows = related(app.store, run_id, app.dashboard.issue_table.issue_view.query)
     return rows.worktrees, rows.branches, rows.issues
 
 
@@ -210,7 +210,10 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
             (capture_selection(table), table.scroll_offset, tuple(table.rows))
             for table in destinations
         ]
-        queries = (app.dashboard.issue_view, app.dashboard.pull_request_query)
+        queries = (
+            app.dashboard.issue_table.issue_view,
+            app.dashboard.pull_request_query,
+        )
         sessions.focus()
         await wait_until(lambda: emphasis(app) == expected(app, "one"))
         await pilot.press("down")
@@ -221,7 +224,10 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
             (capture_selection(table), table.scroll_offset, tuple(table.rows))
             for table in destinations
         ]
-        assert queries == (app.dashboard.issue_view, app.dashboard.pull_request_query)
+        assert queries == (
+            app.dashboard.issue_table.issue_view,
+            app.dashboard.pull_request_query,
+        )
         assert collector.calls == 1
         await pilot.press("?")
         await wait_until(lambda: not any(emphasis(app)))
@@ -342,14 +348,16 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
                 dark=app.current_theme.dark
             )
         # Two zero-weight columns used to let the activity Glyph take spare width.
-        app.dashboard.issue_view = replace(
-            app.dashboard.issue_view, columns=("issue_state",)
+        app.dashboard.issue_table.issue_view = replace(
+            app.dashboard.issue_table.issue_view, columns=("issue_state",)
         )
-        app.dashboard.reconcile_rows()
+        app.dashboard.issue_table.reconcile_rows()
         await pilot.pause()
         assert app.dashboard.queue_table().ordered_columns[0].width == 1
-        app.dashboard.issue_view = replace(app.dashboard.issue_view, columns=())
-        app.dashboard.reconcile_rows()
+        app.dashboard.issue_table.issue_view = replace(
+            app.dashboard.issue_table.issue_view, columns=()
+        )
+        app.dashboard.issue_table.reconcile_rows()
         await pilot.pause()
         assert app.dashboard.queue_table().ordered_columns[0].width == 1
 
@@ -404,7 +412,7 @@ async def test_column_editor_normalizes_old_choices_and_keeps_activity_fixed():
         await wait_until(lambda: first_load_landed(app))
         # The shipped app takes no view of its own, so an old choice arrives
         # as apply_issue_columns would deliver it: set on the mounted dashboard.
-        app.dashboard.issue_view = view
+        app.dashboard.issue_table.issue_view = view
         await pilot.pause()
         await pilot.press("c")
         editor = app.screen
@@ -414,7 +422,7 @@ async def test_column_editor_normalizes_old_choices_and_keeps_activity_fixed():
         editor.query_one(MarkedSelectionList).deselect_all()
         await pilot.click("#column-apply")
         await wait_until(lambda: app.screen is app.dashboard)
-        assert app.dashboard.issue_view.columns == ("agent_state",)
+        assert app.dashboard.issue_table.issue_view.columns == ("agent_state",)
 
 
 @pytest.mark.asyncio

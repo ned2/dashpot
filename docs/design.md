@@ -162,7 +162,15 @@ on an Issue opens it in the full-screen Issue view (its location on the left
 of the heading line, `opened 3d ago by ned2` on the right, and both panes'
 borders in the Issue's state colour), and `Enter` on a session with an Issue
 Binding opens that Issue through targeted resolution; `Enter` is unbound on a Pull
-Request. The Sessions pane is its own read model
+Request. Each list pane is declared once as a spec in
+[`panes.py`](../src/dashpot/panes.py) — its columns, empty state, the read
+model it lists, its filtering controls, and how its rows take part in
+relationship emphasis — so the dashboard composes, refreshes and cycles the
+panes from that one tuple; the Issue table's query state and rows belong to
+[`issue_table_controller.py`](../src/dashpot/issue_table_controller.py), and
+the messages the dashboard posts to itself — the outcomes of off-loop work
+and the body's layout — are the dataclass messages of
+[`messages.py`](../src/dashpot/messages.py). The Sessions pane is its own read model
 ([`session_list.py`](../src/dashpot/session_list.py), queried through
 `WorkspaceObservationStore.query_sessions` and rendered by
 [`session_cells.py`](../src/dashpot/session_cells.py)): every active Agent Session of the

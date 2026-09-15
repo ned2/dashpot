@@ -32,7 +32,7 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp, ObservationFinished
+from dashpot.app import DashpotApp
 from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
 from dashpot.issue_list import row_key
 from dashpot.issue_table import (
@@ -42,6 +42,7 @@ from dashpot.issue_table import (
     SortTerm,
 )
 from dashpot.issue_view import selection_title
+from dashpot.messages import ObservationFinished
 from dashpot.model import AgentRun, Diagnostic, WorkspaceSnapshot
 from helpers import snapshot_of, wait_until
 
@@ -112,7 +113,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         number_header = table.columns[number_key].label
         assert isinstance(number_header, Text)
         assert number_header.justify == "right"
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.issue_table.selected_row_key == row_key(
+            "issue", "I_test/repo#1"
+        )
         assert selected_title(app) == "#1: First"
         # No Header: the panes start on the first row of the screen.
         assert app.title == "Dashpot"
@@ -182,7 +185,7 @@ async def refresh_over_a_grown_page(app: DashpotApp, trigger: str) -> None:
     selected_key = row_key("issue", "I_test/repo#2")
     await wait_until(lambda: first_load_landed(app))
     table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-    await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
+    await wait_until(lambda: app.dashboard.issue_table.selected_row_key == selected_key)
 
     serve_snapshot(app, second)
     app.request_refresh(trigger)
@@ -190,7 +193,7 @@ async def refresh_over_a_grown_page(app: DashpotApp, trigger: str) -> None:
 
     selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
     assert selected == selected_key
-    assert app.dashboard.selected_row_key == selected_key
+    assert app.dashboard.issue_table.selected_row_key == selected_key
 
 
 @pytest.mark.asyncio
@@ -479,7 +482,9 @@ async def test_unbound_agent_is_counted_on_the_project_not_listed_as_work() -> N
 
         table = app.query_one("#queue", DataTable)
         assert table.row_count == 1
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.issue_table.selected_row_key == row_key(
+            "issue", "I_test/repo#1"
+        )
         assert selected_title(app) == "#1: First"
 
 
@@ -524,7 +529,7 @@ async def test_issue_transfer_follows_the_issue_to_its_new_project() -> None:
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
         table = app.query_one("#queue", DataTable)
-        assert selection_title(app.dashboard.rows_by_key[selected_key]) == (
+        assert selection_title(app.dashboard.issue_table.rows_by_key[selected_key]) == (
             "#7: Transfer me"
         )
 
@@ -534,11 +539,11 @@ async def test_issue_transfer_follows_the_issue_to_its_new_project() -> None:
             lambda: (
                 observation_landed(app, 2)
                 and table.row_count == 2
-                and selected_key in app.dashboard.rows_by_key
+                and selected_key in app.dashboard.issue_table.rows_by_key
             )
         )
 
-        assert selection_title(app.dashboard.rows_by_key[selected_key]) == (
+        assert selection_title(app.dashboard.issue_table.rows_by_key[selected_key]) == (
             "#70: Transfer me"
         )
 
@@ -561,7 +566,9 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
         await wait_until(lambda: first_load_landed(app))
         table = app.query_one("#queue", DataTable)
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
+        await wait_until(
+            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+        )
         assert selected_title(app) == "#7: Transfer me"
 
         # The order is pinned so the outcome is: the Project lands, then the
@@ -573,7 +580,7 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
         gate.set()
         await wait_until(lambda: observation_landed(app, 2) and table.row_count == 2)
 
-        assert app.dashboard.selected_row_key == selected_key
+        assert app.dashboard.issue_table.selected_row_key == selected_key
         assert selected_title(app) == "#70: Transfer me"
 
 
@@ -805,7 +812,9 @@ async def test_first_published_project_renders_before_a_slow_one(
             )
 
             assert not table.loading
-            assert row_key("issue", "I_alpha#1") in app.dashboard.rows_by_key
+            assert (
+                row_key("issue", "I_alpha#1") in app.dashboard.issue_table.rows_by_key
+            )
 
             collectors["beta"].source.release.set()
             await wait_until(
@@ -835,7 +844,9 @@ async def test_refresh_fans_out_to_every_project(
         await wait_until(lambda: table.row_count == 1)
         await wait_until(lambda: not app.in_flight)
         alpha_key = row_key("issue", "I_alpha#1")
-        await wait_until(lambda: app.dashboard.selected_row_key == alpha_key)
+        await wait_until(
+            lambda: app.dashboard.issue_table.selected_row_key == alpha_key
+        )
         calls = {name: c.source.calls for name, c in collectors.items()}
         pull_request_calls = {
             name: collector.pull_request_calls for name, collector in collectors.items()
@@ -857,7 +868,7 @@ async def test_refresh_fans_out_to_every_project(
 
         assert collectors["alpha"].target_calls == 2
         assert collectors["beta"].target_calls == 2
-        assert app.dashboard.selected_row_key == alpha_key
+        assert app.dashboard.issue_table.selected_row_key == alpha_key
 
 
 @pytest.mark.asyncio

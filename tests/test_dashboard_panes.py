@@ -351,7 +351,9 @@ async def test_enter_on_a_bound_session_opens_its_issue_and_unbound_is_safe() ->
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.issue_table.selected_row_key == row_key(
+            "issue", "I_test/repo#1"
+        )
         assert selected_title(app) == "#1: First"
         assert not isinstance(app.screen, IssueScreen)
 
@@ -362,7 +364,9 @@ async def test_enter_on_a_bound_session_opens_its_issue_and_unbound_is_safe() ->
         assert isinstance(details, IssueScreen)
         assert details.issue.id == "I_test/repo#2"
         # The Issue table keeps its own selection; the details came by identity.
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.issue_table.selected_row_key == row_key(
+            "issue", "I_test/repo#1"
+        )
 
 
 @pytest.mark.asyncio
@@ -407,7 +411,9 @@ async def test_enter_resolves_a_bound_issue_off_the_page_before_opening_it() -> 
         details = app.screen
         assert isinstance(details, IssueScreen)
         assert details.issue.id == "I_test/repo#2"
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.issue_table.selected_row_key == row_key(
+            "issue", "I_test/repo#1"
+        )
         assert app.query_one("#queue", DataTable).cursor_row == 0
 
 
@@ -527,7 +533,9 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert selected_title(app) == "#1: First"
         await pilot.press("enter")
         await pilot.pause()
-        assert app.dashboard.selected_row_key == row_key("issue", "I_test/repo#1")
+        assert app.dashboard.issue_table.selected_row_key == row_key(
+            "issue", "I_test/repo#1"
+        )
         assert not isinstance(app.screen, IssueScreen)
 
         # A retained topology names stale explicitly without restoring STATE.

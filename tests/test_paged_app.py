@@ -14,12 +14,12 @@ from app_harness import (
     issue,
     workspace_snapshot,
 )
-from dashpot.app import QUERY_SOURCE_KEYS, DashpotApp, page_text, totals_text
+from dashpot.app import QUERY_SOURCE_KEYS, DashpotApp
 from dashpot.collect import ObservationCoordinator
 from dashpot.legend import LegendScreen
 from dashpot.model import RepositoryStateInventory, ResolvedProject, WorkspaceSnapshot
 from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.page_navigation import PageNavigation
+from dashpot.page_navigation import PageNavigation, page_text, totals_text
 from dashpot.source_queries import QueryRequest
 from helpers import wait_until
 from test_source_queries import markdown

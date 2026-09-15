@@ -1,6 +1,6 @@
 """Select visible relationships from accepted pane read models."""
 
-from collections.abc import Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from .branch_list import BranchListRow
@@ -21,14 +21,26 @@ FocusedSource = SessionListRow | WorktreeListRow | BranchListRow | IssueListRow
 
 
 def query_related_rows(
-    source: FocusedSource | None,
-    *,
-    worktrees: Sequence[WorktreeListRow],
-    branches: Sequence[BranchListRow],
-    issues: Sequence[IssueListRow],
-    sessions: Sequence[SessionListRow],
+    source: FocusedSource | None, records: Iterable[FocusedSource]
 ) -> RelatedRows:
-    """Identify direct destinations of the focused row within one accepted checkpoint."""
+    """Identify direct destinations of the focused row within one accepted checkpoint.
+
+    ``records`` are the rows of every pane, in any order; each is judged by
+    its own kind.
+    """
+    sessions: list[SessionListRow] = []
+    worktrees: list[WorktreeListRow] = []
+    branches: list[BranchListRow] = []
+    issues: list[IssueListRow] = []
+    for record in records:
+        if isinstance(record, SessionListRow):
+            sessions.append(record)
+        elif isinstance(record, WorktreeListRow):
+            worktrees.append(record)
+        elif isinstance(record, BranchListRow):
+            branches.append(record)
+        elif isinstance(record, IssueListRow):
+            issues.append(record)
     if isinstance(source, SessionListRow):
         runs = (source.session,)
     elif isinstance(source, (WorktreeListRow, BranchListRow)):
