@@ -68,6 +68,7 @@ from .messages import (
     FetchFinished,
     IdentitiesFinished,
     ObservationFinished,
+    ObservationTrigger,
     PageFinished,
     TotalsFinished,
 )
@@ -76,9 +77,8 @@ from .observation_runner import (
     DroppedObservation,
     FailedObservation,
     ObservationRunner,
-    ObservationTrigger,
 )
-from .page_navigation import PageTicket, totals_text
+from .page_navigation import totals_text
 from .page_runner import PageRunner
 from .paged_store import PagedObservationStore
 from .pane_layout import fit_panes, pane_wish
@@ -158,19 +158,16 @@ class DashboardScreen(Screen[None]):
         )
 
     def action_next_page(self) -> None:
-        kind = self.page_kind()
-        ticket = self.dashpot.pages.navigation[kind].next()
-        if ticket:
-            self.dashpot.request_page(kind, ticket)
+        self.dashpot.queries.next_page(self.page_kind())
         self.dashpot.render_pages()
 
     def action_previous_page(self) -> None:
-        self.dashpot.pages.navigation[self.page_kind()].previous()
+        self.dashpot.queries.previous_page(self.page_kind())
         self.dashpot.render_pages()
 
     def action_restart_page(self) -> None:
-        kind = self.page_kind()
-        self.dashpot.request_page(kind, self.dashpot.pages.navigation[kind].restart())
+        self.dashpot.queries.restart_page(self.page_kind())
+        self.dashpot.render_pages()
 
     @override
     def compose(self) -> ComposeResult:
@@ -313,9 +310,8 @@ class DashboardScreen(Screen[None]):
 
     def order_issues_by(self, column: str) -> None:
         """Submit the column's ordering to the source, or reverse it."""
-        navigation = self.dashpot.pages.navigation["issues"]
-        source = self.dashpot.pages.sources["issues"]
-        if not source.supports_sort(navigation.request, column):
+        queries = self.dashpot.queries
+        if not queries.supports_sort("issues", column):
             self.notify(
                 "This column cannot order the submitted source query",
                 severity="information",
@@ -326,7 +322,8 @@ class DashboardScreen(Screen[None]):
             or not COLUMNS_BY_KEY[cast("ColumnKey", column)].sortable
         ):
             return
-        direction = "desc" if navigation.request.ordering == f"{column}:asc" else "asc"
+        ordering = queries.navigation["issues"].request.ordering
+        direction = "desc" if ordering == f"{column}:asc" else "asc"
         self.dashpot.submit_page("issues", ordering=f"{column}:{direction}")
 
     @on(Input.Submitted, "#issue-search")
@@ -423,7 +420,7 @@ class DashboardScreen(Screen[None]):
         """Re-list every observed record from the store."""
         context = PaneContext(
             self.dashpot.store,
-            self.dashpot.pages.navigation,
+            self.dashpot.queries.navigation,
             dark=self.app.current_theme.dark,
             now=datetime.now(UTC),
         )
@@ -669,11 +666,12 @@ class DashpotApp(App[None]):
         self.refresh_timer: Timer | None = None
         self.store = PagedObservationStore()
         # The observations in flight, their reruns and their indicator, and
-        # the source queries behind the pages, totals and identities.
+        # the page runner: the source queries behind the pages, totals and
+        # identities, and each paged kind's navigation.
         self.observations = ObservationRunner(
             scheduler, self.store, self, indicator_seconds=refresh_indicator_seconds
         )
-        self.pages = PageRunner(sources, self.store, self)
+        self.queries = PageRunner(sources, self.store, self)
         self.selected_identity: str | None = None
         self.open_when_resolved: str | None = None
         # A local-only coordinator composes a placeholder for every Project
@@ -745,7 +743,7 @@ class DashpotApp(App[None]):
             ("issues", dashboard.issue_filter_bar),
             ("pull-requests", dashboard.pull_request_filter_bar),
         ):
-            bar.search.placeholder = self.pages.sources[kind].search_prompt
+            bar.search.placeholder = self.queries.sources[kind].search_prompt
         if not self.store.has_observations:
             dashboard.queue_table().loading = True
         # The first pages render whatever the store already holds, so a
@@ -760,16 +758,14 @@ class DashpotApp(App[None]):
 
     def on_unmount(self) -> None:
         self.observations.shutdown()
-        self.pages.shutdown()
+        self.queries.shutdown()
 
     async def off_loop(
         self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
     ) -> T:
-        """Run one blocking operation on an executor thread and return its value.
-
-        Fetches, Cleanups and Worktree launches share the observation pool
-        until they have flows of their own.
-        """
+        """Run one blocking operation on an executor thread and return its value."""
+        # Fetches, Cleanups and Worktree launches share the observation pool
+        # until they have flows of their own.
         return await asyncio.get_running_loop().run_in_executor(
             executor or self.observations.executor, operation
         )
@@ -884,18 +880,13 @@ class DashpotApp(App[None]):
         trigger repeats the displayed page unless its query is still running.
         """
         self.observations.refresh(trigger)
-        self.pages.refresh(restart=trigger == "manual")
+        self.queries.refresh(restart=trigger == "manual")
         self.request_identities()
         self.render_pages()
 
     def submit_page(self, kind: ResourceKind, **updates: str) -> None:
         """Submit a new query context, which redraws the pages as loading."""
-        self.pages.submit(kind, **updates)
-        self.render_pages()
-
-    def request_page(self, kind: ResourceKind, ticket: PageTicket) -> None:
-        """Query the page a ticket names and redraw the pages meanwhile."""
-        self.pages.request_page(kind, ticket)
+        self.queries.submit(kind, **updates)
         self.render_pages()
 
     def request_identities(self) -> None:
@@ -919,18 +910,18 @@ class DashpotApp(App[None]):
                     ids.append(relationships.parent)
         requested = tuple(dict.fromkeys(ids))
         if requested:
-            self.pages.request_identities(requested)
+            self.queries.request_identities(requested)
 
     def on_page_finished(self, message: PageFinished) -> None:
-        self.pages.accept_page(message)
+        self.queries.finish_page(message)
         self.render_pages()
 
     def on_totals_finished(self, message: TotalsFinished) -> None:
-        self.pages.accept_totals(message)
+        self.queries.finish_totals(message)
         self.render_pages()
 
     def on_identities_finished(self, message: IdentitiesFinished) -> None:
-        self.pages.accept_identities(message)
+        self.queries.finish_identities(message)
         if message.outcomes is not None:
             self.open_resolved_issue(message.outcomes)
         self.render_pages()
@@ -950,7 +941,7 @@ class DashpotApp(App[None]):
 
     def render_pages(self) -> None:
         """Publish each navigation's page to the store and redraw the dashboard."""
-        self.pages.publish()
+        self.queries.publish()
         if not self.is_running or not self.dashboard.is_mounted:
             return
         self.dashboard.queue_table().loading = False
@@ -1049,7 +1040,9 @@ class DashpotApp(App[None]):
         # is re-observed rather than inferred from the fetch, and a fetch
         # that reached no remote leaves the last good observation as it is.
         if observe and report is not None and report.fetched:
-            self.observations.schedule(self.git_keys(message.project_id), "fetch")
+            self.observations.schedule(
+                self.observations.git_keys(message.project_id), "fetch"
+            )
         self.update_alert()
 
     def request_cleanup(self, selection: CleanupSelection | None) -> None:
@@ -1283,7 +1276,7 @@ class DashpotApp(App[None]):
 
     async def observe_cleanup_fetch(self, project_id: str) -> None:
         """Wait for post-fetch Git observations before accepting refreshed evidence."""
-        keys = self.git_keys(project_id)
+        keys = self.observations.git_keys(project_id)
         if not keys:
             raise RuntimeError(
                 "No Git observation is available; refresh and reopen the preview."
@@ -1402,15 +1395,7 @@ class DashpotApp(App[None]):
 
     def reobserve_after_cleanup(self, project_id: str) -> None:
         """Observe what a Cleanup changed the passive way, never inferring it."""
-        self.observations.schedule(self.git_keys(project_id), "cleanup")
-
-    def git_keys(self, project_id: str) -> list[ObservationKey]:
-        """The keys that observe a Project's Git state, which a mutation changes."""
-        return [
-            key
-            for key in self.observations.scheduler.keys(project_id)
-            if key.kind in ("targets", "workspace")
-        ]
+        self.observations.schedule(self.observations.git_keys(project_id), "cleanup")
 
     def project_display_label(self, project_id: str) -> str:
         project = self.store.project(project_id)

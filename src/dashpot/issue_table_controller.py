@@ -111,12 +111,11 @@ class IssueTableController:
 
     def column_label(self, name: ColumnKey) -> Text:
         """Head a column for the submitted request and what its source can order."""
-        app = self.screen.dashpot
-        request = app.pages.navigation["issues"].request
+        queries = self.screen.dashpot.queries
         return issue_column_label(
             name,
-            request,
-            orderable=app.pages.sources["issues"].supports_sort(request, name),
+            queries.navigation["issues"].request,
+            orderable=queries.supports_sort("issues", name),
         )
 
     def update_sort_headers(self) -> None:
@@ -152,7 +151,7 @@ class IssueTableController:
         query = replace(self.issue_view.query, search_fields=searchable_columns())
         result = app.store.query_issues(query)
         self.screen.issue_filter_bar.count.update(
-            page_text(app.pages.navigation["issues"])
+            page_text(app.queries.navigation["issues"])
         )
         shown = shown_columns(self.issue_view.columns, result.rows)
         self.show_table_columns(shown)

@@ -2,9 +2,11 @@
 
 The accepted observations advance the inherited ``revision``; the accepted
 source results — pages, totals, identities — advance ``source_revision``.
-Every write moves exactly one of them by one, so their sum advances with
-every write, and it is what this store's read models report as their
-``revision``: the joined state each was built from.
+A write that changes what the store holds moves exactly one of them by one,
+so their sum advances with every change, and it is what this store's read
+models report as their ``revision``: the joined state each was built from.
+A write that repeats what is held — a page published on every redraw, a
+total or identity resolved again unchanged — moves neither.
 """
 
 from __future__ import annotations
@@ -47,8 +49,8 @@ class PagedObservationStore(WorkspaceObservationStore):
         """Identify the joined state a read model was built from."""
         return self.revision + self.source_revision
 
-    def accept_page(self, kind: ResourceKind, page: QueryPage | None) -> bool:
-        """Show ``page`` as the kind's current page, or none; report a change."""
+    def accept_page(self, kind: ResourceKind, page: QueryPage | None) -> None:
+        """Show ``page`` as the kind's current page, or none."""
         if page is None:
             changed = self.pages.pop(kind, None) is not None
         else:
@@ -56,21 +58,24 @@ class PagedObservationStore(WorkspaceObservationStore):
             self.pages[kind] = page
         if changed:
             self.source_revision += 1
-        return changed
 
     def accept_totals(self, totals: ProjectTotals) -> None:
         """Accept a kind's Project Totals."""
-        self.totals[totals.kind] = totals
-        self.source_revision += 1
+        if self.totals.get(totals.kind) != totals:
+            self.totals[totals.kind] = totals
+            self.source_revision += 1
 
     def accept_identities(self, outcomes: Sequence[ResolvedIssue]) -> None:
         """Retain bounded identity evidence independently of navigation history."""
+        changed = False
         for outcome in outcomes:
+            changed = changed or self.resolved.get(outcome.issue_id) != outcome
             self.resolved[outcome.issue_id] = outcome
             self.resolved.move_to_end(outcome.issue_id)
         while len(self.resolved) > 256:
             self.resolved.popitem(last=False)
-        self.source_revision += 1
+        if changed:
+            self.source_revision += 1
 
     def _row(self, issue_id: str) -> IssueListRow | None:
         outcome = self.resolved.get(issue_id)

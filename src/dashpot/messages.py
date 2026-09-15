@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import Literal, Protocol, TypeVar
 
 from textual.geometry import Size
 from textual.message import Message
@@ -31,10 +31,11 @@ from .fetch import FetchReport
 from .page_navigation import PageTicket
 from .source_queries import ProjectTotals, QueryPage, ResolvedIssue, ResourceKind
 
-if TYPE_CHECKING:
-    from .observation_runner import ObservationTrigger
-
 T = TypeVar("T")
+
+# What asked for an observation: the first load, a person's key press, an
+# automatic tick, or a Remote Fetch or Cleanup that changed the Repository.
+ObservationTrigger = Literal["initial", "manual", "timer", "fetch", "cleanup"]
 
 
 class OffLoopHost(Protocol):

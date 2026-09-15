@@ -94,9 +94,10 @@ key at a time and keeps each paged kind's navigation, and the observation
 runner ([observation_runner.py](../src/dashpot/observation_runner.py)) observes
 each key at most once at a time, coalescing requests onto the observation in
 flight ([ADR 0020](adr/0020-coalesce-requests-onto-the-observation-in-flight.md)).
-Both drive the app through a narrow host protocol — run work off the loop,
-start a timer, redraw the alert — so their scheduling is tested without a
-running app. Configured Projects are published before remote work.
+Each drives the app through a narrow host protocol — run work off the loop
+and, for the observation runner, start a timer and redraw the alert — so
+their scheduling is tested without a running app. Configured Projects are
+published before remote work.
 The page store ([paged_store.py](../src/dashpot/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total or
 identity goes through a method that advances its `source_revision`, so a read

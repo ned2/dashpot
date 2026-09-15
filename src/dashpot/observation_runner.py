@@ -14,15 +14,11 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
-from typing import Literal, Protocol
+from typing import Protocol
 
 from .collect import ObservationKey, ObservationScheduler, ObservationTicket
-from .messages import ObservationFinished, OffLoopHost
+from .messages import ObservationFinished, ObservationTrigger, OffLoopHost
 from .observation_store import StoreChange, WorkspaceObservationStore
-
-# What asked for an observation: the first load, a person's key press, an
-# automatic tick, or a Remote Fetch or Cleanup that changed the Repository.
-ObservationTrigger = Literal["initial", "manual", "timer", "fetch", "cleanup"]
 
 # Observation triggers a person asked for, whose outcome earns a toast.
 MANUAL_TRIGGERS: frozenset[ObservationTrigger] = frozenset({"manual", "fetch"})
@@ -31,6 +27,11 @@ MANUAL_TRIGGERS: frozenset[ObservationTrigger] = frozenset({"manual", "fetch"})
 # press, a Remote Fetch or Cleanup that changed the Repository, a follow-up
 # of a publish) still observes once more after the running one lands.
 COALESCED_TRIGGERS: frozenset[ObservationTrigger] = frozenset({"timer"})
+
+
+def refresh_pool_size(key_count: int) -> int:
+    """Size the refresh pool to the keys, between two and eight threads."""
+    return max(2, min(8, key_count))
 
 
 class TimerHandle(Protocol):
@@ -117,14 +118,22 @@ class ObservationRunner:
         # keys lets every key run concurrently and a slow Issue Source never
         # holds a thread the Git or Agent Run observation needs.
         self.executor = ThreadPoolExecutor(
-            max_workers=max(2, min(8, len(scheduler.keys()))),
+            max_workers=refresh_pool_size(len(scheduler.keys())),
             thread_name_prefix="dashpot-refresh",
         )
 
     @property
     def refreshing(self) -> tuple[ObservationKey, ...]:
-        """The keys in flight, once they have been long enough to show."""
+        """Name the keys in flight once they have been for long enough to show."""
         return tuple(self.in_flight) if self.refreshing_visible else ()
+
+    def git_keys(self, project_id: str) -> list[ObservationKey]:
+        """Name the keys that observe a Project's Git state, which a mutation changes."""
+        return [
+            key
+            for key in self.scheduler.keys(project_id)
+            if key.kind in ("targets", "workspace")
+        ]
 
     def shutdown(self) -> None:
         """Release the pool without waiting for observations still running."""
@@ -219,6 +228,8 @@ class ObservationRunner:
             self.refreshing_visible = False
 
     def _rerun(self, key: ObservationKey) -> None:
+        # The host lands nothing once it is shutting down, so a rerun never
+        # starts on a closed app.
         trigger = self.pending_rerun.pop(key, None)
         if trigger is not None:
             self.schedule([key], trigger)

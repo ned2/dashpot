@@ -28,16 +28,21 @@ from .source_queries import QueryRequest, QuerySource, ResourceKind
 if TYPE_CHECKING:
     from textual.message import Message
 
+PAGED_KINDS: tuple[ResourceKind, ...] = ("issues", "pull-requests")
+
+
+def totals_key(kind: ResourceKind) -> str:
+    """Name the query key of a kind's Project Totals."""
+    return f"totals:{kind}"
+
+
 # The Query Sources the shipped app consults, one per concurrent consumer:
 # each key runs on its own executor thread against its own source instance.
 QUERY_SOURCE_KEYS: tuple[str, ...] = (
-    "issues",
-    "pull-requests",
-    "totals:issues",
-    "totals:pull-requests",
+    *PAGED_KINDS,
+    *(totals_key(kind) for kind in PAGED_KINDS),
     "identities",
 )
-PAGED_KINDS: tuple[ResourceKind, ...] = ("issues", "pull-requests")
 
 T = TypeVar("T")
 
@@ -61,7 +66,8 @@ class PageRunner:
             max_workers=len(QUERY_SOURCE_KEYS), thread_name_prefix="dashpot-query"
         )
         self.busy: set[str] = set()
-        # The latest request for each busy key, launched once the key is free.
+        # Only the latest request for a busy key is worth running once the
+        # key is free; an earlier one would answer a superseded ticket.
         self.queued: dict[str, Callable[[], None]] = {}
 
     def shutdown(self) -> None:
@@ -80,7 +86,7 @@ class PageRunner:
                 self.request_page(kind, navigation.restart())
             elif kind not in self.busy:
                 self.request_page(kind, navigation.refresh())
-            if f"totals:{kind}" not in self.busy:
+            if totals_key(kind) not in self.busy:
                 self.request_totals(kind)
 
     def submit(self, kind: ResourceKind, **updates: str) -> None:
@@ -90,31 +96,48 @@ class PageRunner:
             kind, navigation.restart(navigation.request.model_copy(update=updates))
         )
 
+    def next_page(self, kind: ResourceKind) -> None:
+        """Move a kind's navigation on, querying the page when none is retained."""
+        ticket = self.navigation[kind].next()
+        if ticket:
+            self.request_page(kind, ticket)
+
+    def previous_page(self, kind: ResourceKind) -> None:
+        """Move a kind's navigation back to the page it retained."""
+        self.navigation[kind].previous()
+
+    def restart_page(self, kind: ResourceKind) -> None:
+        """Begin a kind's navigation again at page one."""
+        self.request_page(kind, self.navigation[kind].restart())
+
+    def supports_sort(self, kind: ResourceKind, column: str) -> bool:
+        """Report whether a kind's source can order its submitted request by a column."""
+        return self.sources[kind].supports_sort(self.navigation[kind].request, column)
+
     def request_page(self, kind: ResourceKind, ticket: PageTicket) -> None:
-        """Query the page a ticket names and publish the navigation's state."""
-        self.launch(
+        """Query the page a ticket names."""
+        self._launch(
             kind,
             lambda: self.sources[kind].query_page(ticket.request),
             partial(PageFinished, kind, ticket),
         )
-        self.publish()
 
     def request_totals(self, kind: ResourceKind) -> None:
         """Query a kind's Project Totals."""
-        key = f"totals:{kind}"
-        self.launch(
+        key = totals_key(kind)
+        self._launch(
             key, lambda: self.sources[key].totals(kind), partial(TotalsFinished, kind)
         )
 
     def request_identities(self, identities: tuple[str, ...]) -> None:
         """Resolve the named Issue Identities."""
-        self.launch(
+        self._launch(
             "identities",
             lambda: self.sources["identities"].resolve_identities(identities),
             IdentitiesFinished,
         )
 
-    def launch(
+    def _launch(
         self,
         key: str,
         operation: Callable[[], T],
@@ -122,38 +145,38 @@ class PageRunner:
     ) -> None:
         """Run one query per key at a time; the latest request waits its turn."""
         if key in self.busy:
-            self.queued[key] = partial(self.launch, key, operation, on_done)
+            self.queued[key] = partial(self._launch, key, operation, on_done)
             return
         self.busy.add(key)
         self.host.run_off_loop(
             f"query {key}", f"query:{key}", operation, on_done, executor=self.executor
         )
 
-    def finish(self, key: str) -> None:
+    def _release(self, key: str) -> None:
         """Free a key whose query answered, then run the request that waited."""
         self.busy.discard(key)
         queued = self.queued.pop(key, None)
         if queued is not None:
             queued()
 
-    def accept_page(self, message: PageFinished) -> None:
+    def finish_page(self, message: PageFinished) -> None:
         """Land a page on its navigation, which rejects a superseded ticket."""
         self.navigation[message.kind].accept(
             message.ticket, message.page, message.error
         )
-        self.finish(message.kind)
+        self._release(message.kind)
 
-    def accept_totals(self, message: TotalsFinished) -> None:
+    def finish_totals(self, message: TotalsFinished) -> None:
         """Land a kind's totals in the store."""
         if message.totals is not None:
             self.store.accept_totals(message.totals)
-        self.finish(f"totals:{message.kind}")
+        self._release(totals_key(message.kind))
 
-    def accept_identities(self, message: IdentitiesFinished) -> None:
+    def finish_identities(self, message: IdentitiesFinished) -> None:
         """Land the resolved identities in the store."""
         if message.outcomes is not None:
             self.store.accept_identities(message.outcomes)
-        self.finish("identities")
+        self._release("identities")
 
     def publish(self) -> None:
         """Show each navigation's page in the store."""

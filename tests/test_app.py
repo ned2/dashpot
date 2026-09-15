@@ -42,9 +42,8 @@ from dashpot.issue_table import (
     SortTerm,
 )
 from dashpot.issue_view import selection_title
-from dashpot.messages import ObservationFinished
+from dashpot.messages import ObservationFinished, ObservationTrigger
 from dashpot.model import AgentRun, Diagnostic, WorkspaceSnapshot
-from dashpot.observation_runner import ObservationTrigger
 from helpers import snapshot_of, wait_until
 
 

@@ -434,7 +434,7 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         assert app.dashboard.issue_table.selected_row_key == selected_key
         # Typed but unsubmitted text is still there to submit or clear.
         assert app.query_one("#issue-search", Input).value == "s"
-        assert app.pages.navigation["issues"].request.query == ""
+        assert app.queries.navigation["issues"].request.query == ""
         assert table.cursor_row == table.get_row_index(selected_key)
         assert table.has_focus
 

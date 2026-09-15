@@ -80,8 +80,9 @@ def test_a_page_landing_changes_the_revision_the_read_models_report() -> None:
     }
     message = host.pop_call("issues").land()
     assert isinstance(message, PageFinished)
-    pages.accept_page(message)
+    pages.finish_page(message)
     pages.publish()
+    assert store.totals == {}
 
     assert "issues" not in pages.busy
     assert store.pages["issues"] is pages.navigation["issues"].page
@@ -100,17 +101,21 @@ def test_totals_and_identities_land_with_a_revision_bump() -> None:
     pages.request_totals("issues")
     totals = host.pop_call("totals:issues").land()
     assert isinstance(totals, TotalsFinished)
-    pages.accept_totals(totals)
+    pages.finish_totals(totals)
     assert store.totals["issues"].open_count == 2
     assert store.source_revision == 1
 
     pages.request_identities(("I_test/repo#1",))
     identities = host.pop_call("identities").land()
     assert isinstance(identities, IdentitiesFinished)
-    pages.accept_identities(identities)
+    pages.finish_identities(identities)
     assert "I_test/repo#1" in store.resolved
     assert store.source_revision == 2
     assert store.query_sessions().revision == store.revision + 2
+    # Landing the same totals and identities again changes nothing.
+    store.accept_totals(store.totals["issues"])
+    store.accept_identities(tuple(store.resolved.values()))
+    assert store.source_revision == 2
 
 
 def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
@@ -119,15 +124,15 @@ def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
     pages.request_identities(("I_test/repo#1",))
     host.pop_call("totals:issues")
     host.pop_call("identities")
-    pages.accept_totals(TotalsFinished("issues", error="boom"))
-    pages.accept_identities(IdentitiesFinished(error="boom"))
+    pages.finish_totals(TotalsFinished("issues", error="boom"))
+    pages.finish_identities(IdentitiesFinished(error="boom"))
     assert pages.busy == set()
     assert store.source_revision == 0
 
     pages.submit("issues", query="Second")
     failed = host.pop_call("issues").land(error="Issue Source exploded")
     assert isinstance(failed, PageFinished)
-    pages.accept_page(failed)
+    pages.finish_page(failed)
     assert pages.navigation["issues"].error == "Issue Source exploded"
     assert pages.navigation["issues"].page is None
 
@@ -143,13 +148,13 @@ def test_a_request_for_a_busy_key_waits_and_only_the_latest_runs() -> None:
 
     superseded = running.land()
     assert isinstance(superseded, PageFinished)
-    pages.accept_page(superseded)
+    pages.finish_page(superseded)
     # The stale ticket's page is rejected; the latest submission runs next.
     assert pages.navigation["issues"].page is None
     latest = host.pop_call("issues").land()
     assert isinstance(latest, PageFinished)
     assert latest.ticket.request.query == "Sec"
-    pages.accept_page(latest)
+    pages.finish_page(latest)
     assert pages.navigation["issues"].page is not None
     assert pages.navigation["issues"].page.issues[0].title == "Second"
     assert pages.queued == {}

@@ -61,7 +61,7 @@ def application(tmp_path, *, launcher_configuration=None, collector=None):
         refresh_seconds=0,
         launcher_configuration=launcher_configuration,
     )
-    app.pages.navigation["issues"].request = QueryRequest(page_size=1)
+    app.queries.navigation["issues"].request = QueryRequest(page_size=1)
     return app
 
 
@@ -70,11 +70,11 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
     app = application(tmp_path)
     async with app.run_test(size=(150, 55)) as pilot:
         await wait_until(lambda: app.dashboard.queue_table().row_count == 1)
-        assert app.pages.navigation["issues"].page.issues[0].number == 1
+        assert app.queries.navigation["issues"].page.issues[0].number == 1
         app.dashboard.queue_table().focus()
         await pilot.press("n")
         await wait_until(
-            lambda: app.pages.navigation["issues"].page.issues[0].number == 2
+            lambda: app.queries.navigation["issues"].page.issues[0].number == 2
         )
         # Restarting begins a new generation at page one instead of stepping back
         # through history. (The focused table binds Home itself, so the action is
@@ -82,18 +82,18 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
         app.dashboard.action_restart_page()
         await wait_until(
             lambda: (
-                app.pages.navigation["issues"].page is not None
-                and app.pages.navigation["issues"].page.issues[0].number == 1
+                app.queries.navigation["issues"].page is not None
+                and app.queries.navigation["issues"].page.issues[0].number == 1
             ),
         )
-        assert len(app.pages.navigation["issues"].history) == 1
+        assert len(app.queries.navigation["issues"].history) == 1
         await pilot.press("n")
         await wait_until(
-            lambda: app.pages.navigation["issues"].page.issues[0].number == 2
+            lambda: app.queries.navigation["issues"].page.issues[0].number == 2
         )
         await pilot.press("p")
         await wait_until(
-            lambda: app.pages.navigation["issues"].page.issues[0].number == 1
+            lambda: app.queries.navigation["issues"].page.issues[0].number == 1
         )
         await pilot.press("p")
         await wait_until(
@@ -105,13 +105,13 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
         search = app.dashboard.issue_filter_bar.search
         search.value = "Issue 3"
         await pilot.pause()
-        assert app.pages.navigation["issues"].request.query == ""
+        assert app.queries.navigation["issues"].request.query == ""
         search.focus()
         await pilot.press("enter")
         await wait_until(
             lambda: (
-                app.pages.navigation["issues"].page is not None
-                and app.pages.navigation["issues"].page.issues[0].number == 3
+                app.queries.navigation["issues"].page is not None
+                and app.queries.navigation["issues"].page.issues[0].number == 3
             ),
         )
         assert not app.store.checkpoint().projects[0].snapshot.issues
@@ -172,7 +172,7 @@ async def test_the_legend_lists_the_shipped_screen_and_worktree_keys(tmp_path):
 async def test_page_publishes_while_totals_are_delayed(tmp_path):
     app = application(tmp_path)
     started, release = threading.Event(), threading.Event()
-    source = app.pages.sources["totals:issues"]
+    source = app.queries.sources["totals:issues"]
     totals = source.totals
 
     def delayed(kind):
@@ -199,7 +199,7 @@ async def test_bound_issue_remains_visible_outside_query_and_opens_details(tmp_p
     from factories import agent_run
 
     app = application(tmp_path)
-    project_id = app.pages.sources["issues"].context.project_id
+    project_id = app.queries.sources["issues"].context.project_id
     run = agent_run(
         "run-140", project_id, issue_id="I_3", hint="issue-3", target_path=str(tmp_path)
     )
@@ -208,10 +208,10 @@ async def test_bound_issue_remains_visible_outside_query_and_opens_details(tmp_p
         await wait_until(
             lambda: (
                 "I_3" in app.store.resolved
-                and app.pages.navigation["issues"].page is not None
+                and app.queries.navigation["issues"].page is not None
             )
         )
-        assert app.pages.navigation["issues"].page.issues[0].id == "I_1"
+        assert app.queries.navigation["issues"].page.issues[0].id == "I_1"
         assert app.store.query_sessions().rows[0].issue.id == "I_3"
         app.dashboard.open_bound_issue("I_3")
         await pilot.pause()
@@ -226,7 +226,7 @@ async def test_bound_issue_off_the_page_opens_once_its_identity_resolves(tmp_pat
     from factories import agent_run
 
     app = application(tmp_path)
-    source = app.pages.sources["identities"]
+    source = app.queries.sources["identities"]
     project_id = source.context.project_id
     run = agent_run(
         "run-141", project_id, issue_id="I_3", hint="issue-3", target_path=str(tmp_path)
@@ -244,7 +244,7 @@ async def test_bound_issue_off_the_page_opens_once_its_identity_resolves(tmp_pat
     source.resolve_identities = delayed
     try:
         async with app.run_test(size=(150, 55)) as pilot:
-            await wait_until(lambda: app.pages.navigation["issues"].page is not None)
+            await wait_until(lambda: app.queries.navigation["issues"].page is not None)
             assert "I_3" not in app.store.resolved
             app.dashboard.open_bound_issue("I_3")
             await pilot.pause()
@@ -266,7 +266,7 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
     tmp_path,
 ):
     app = application(tmp_path)
-    source = app.pages.sources["issues"]
+    source = app.queries.sources["issues"]
 
     def failing(request):
         raise RuntimeError("Issue Source exploded")
@@ -276,11 +276,11 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
         source.query_page = failing
         app.dashboard.action_restart_page()
         await wait_until(
-            lambda: app.pages.navigation["issues"].error == "Issue Source exploded"
+            lambda: app.queries.navigation["issues"].error == "Issue Source exploded"
         )
         await pilot.pause()
         assert app.is_running
-        assert app.pages.navigation["issues"].page is None
+        assert app.queries.navigation["issues"].page is None
         assert (
             str(app.dashboard.query_one("#issue-count", Static).render())
             == "Issue Source exploded"
@@ -290,7 +290,7 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
 @pytest.mark.asyncio
 async def test_slow_user_query_outlasting_ticks_is_accepted(tmp_path):
     app = application(tmp_path)
-    source = app.pages.sources["issues"]
+    source = app.queries.sources["issues"]
     query_page = source.query_page
     started, release = threading.Event(), threading.Event()
 
@@ -303,14 +303,14 @@ async def test_slow_user_query_outlasting_ticks_is_accepted(tmp_path):
     try:
         async with app.run_test(size=(150, 55)):
             await wait_until(started.is_set)
-            generation = app.pages.navigation["issues"].generation
+            generation = app.queries.navigation["issues"].generation
             for _ in range(3):
                 app.timer_refresh()
-            assert app.pages.navigation["issues"].generation == generation
+            assert app.queries.navigation["issues"].generation == generation
             release.set()
-            await wait_until(lambda: app.pages.navigation["issues"].page is not None)
-            assert app.pages.navigation["issues"].page.status == "fresh"
-            assert app.pages.navigation["issues"].page.issues[0].number == 1
+            await wait_until(lambda: app.queries.navigation["issues"].page is not None)
+            assert app.queries.navigation["issues"].page.status == "fresh"
+            assert app.queries.navigation["issues"].page.issues[0].number == 1
     finally:
         release.set()
 

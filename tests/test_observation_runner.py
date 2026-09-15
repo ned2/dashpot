@@ -15,15 +15,15 @@ from dashpot.collect import (
     ObservationOutcome,
     ObservationTicket,
 )
-from dashpot.messages import ObservationFinished
+from dashpot.messages import ObservationFinished, ObservationTrigger
 from dashpot.observation_runner import (
     COALESCED_TRIGGERS,
     Acceptance,
     DroppedObservation,
     FailedObservation,
     ObservationRunner,
-    ObservationTrigger,
     PublishedObservation,
+    refresh_pool_size,
 )
 from dashpot.observation_store import StoreChange, WorkspaceObservationStore
 from dashpot.paged_store import PagedObservationStore
@@ -380,16 +380,11 @@ def test_the_rerun_is_scheduled_even_when_presenting_fails() -> None:
     assert host.pop_call(ALPHA).land().trigger == "manual"
 
 
-def test_the_pool_is_sized_to_the_keys() -> None:
-    observations, _scheduler, _host = runner(FakeScheduler(all_keys=(ALPHA,)))
-    assert observations.executor._max_workers == 2
-    observations.shutdown()
-    many = FakeScheduler(
-        all_keys=tuple(ObservationKey("issues", str(n)) for n in range(12))
-    )
-    observations, _scheduler, _host = runner(many)
-    assert observations.executor._max_workers == 8
-    observations.shutdown()
+@pytest.mark.parametrize(
+    ("key_count", "threads"), [(0, 2), (1, 2), (5, 5), (8, 8), (12, 8)]
+)
+def test_the_pool_is_sized_to_the_keys(key_count: int, threads: int) -> None:
+    assert refresh_pool_size(key_count) == threads
 
 
 def test_refresh_observes_every_key() -> None:
