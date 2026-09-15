@@ -10,6 +10,32 @@ from textual.containers import Horizontal
 from textual.widgets import Input, Select, Static
 from typing_extensions import override
 
+# The lifecycle choices every item-list filter offers, in display order.
+LIFECYCLE_STATUSES: tuple[tuple[str, str], ...] = (
+    ("Open", "open"),
+    ("Closed", "closed"),
+    ("All", "all"),
+)
+_LIFECYCLE_STATES: dict[str, frozenset[str]] = {
+    "open": frozenset({"open"}),
+    "closed": frozenset({"closed"}),
+    "all": frozenset({"open", "closed"}),
+}
+
+
+def lifecycle_value(states: frozenset[str]) -> str:
+    """Name the lifecycle a query's states select, as the filter and the source say it."""
+    if states == frozenset({"open"}):
+        return "open"
+    if states == frozenset({"closed"}):
+        return "closed"
+    return "all"
+
+
+def lifecycle_states(value: object) -> frozenset[str] | None:
+    """The states a lifecycle choice selects; nothing for a value the filter never offers."""
+    return _LIFECYCLE_STATES.get(str(value))
+
 
 class ItemFilterBar(Horizontal):
     """Keep one item list's filtering controls together under stable identities."""

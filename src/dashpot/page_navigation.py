@@ -1,10 +1,14 @@
-"""Retain bounded accepted pages without reconstructing evicted history."""
+"""Retain bounded accepted pages without reconstructing evicted history.
+
+The two ``*_text`` functions say where a navigation stands and what a
+Project's totals are, in the words the panes' titles and notes use.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .source_queries import QueryPage, QueryRequest
+from .source_queries import ProjectTotals, QueryPage, QueryRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,3 +111,31 @@ class PageNavigation:
             self.index -= 1
             self.evicted = True
         return True
+
+
+def totals_text(totals: ProjectTotals | None) -> str:
+    """Report Project totals without substituting page length or zero."""
+    if totals is None or totals.open_count is None or totals.closed_count is None:
+        return "Open ? · Closed ? · totals unavailable"
+    return f"Open {totals.open_count} · Closed {totals.closed_count}" + (
+        " · stale totals" if totals.status == "stale" else ""
+    )
+
+
+def page_text(navigation: PageNavigation) -> str:
+    """Describe matching scope, coverage and the accepted page's own age."""
+    page = navigation.page
+    if page is None:
+        return navigation.error or "Loading page"
+    text = f"{page.returned_count} shown · {page.matched_count if page.matched_count is not None else '?'} matches · {page.status}"
+    if page.last_good_at:
+        text += f" · observed {page.last_good_at}"
+    if (
+        page.result_limit
+        and page.matched_count
+        and page.matched_count > page.result_limit
+    ):
+        text += f" · first {page.result_limit:,} accessible; narrow query"
+    if navigation.error:
+        text += f" · {navigation.error}"
+    return text

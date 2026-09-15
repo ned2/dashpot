@@ -206,7 +206,9 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         table = app.query_one("#queue", DataTable)
         selected_key = row_key("issue", "I_test/repo#2")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
+        await wait_until(
+            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+        )
 
         await pilot.press("c")
         editor = app.screen
@@ -226,7 +228,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         assert await pilot.click("#column-apply")
         await pilot.pause()
 
-        assert app.dashboard.issue_view.columns == (
+        assert app.dashboard.issue_table.issue_view.columns == (
             "agent_state",
             "issue_state",
             "number",
@@ -237,9 +239,9 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "project",
         )
         assert [key.value for key in table.columns] == list(
-            app.dashboard.issue_view.columns
+            app.dashboard.issue_table.issue_view.columns
         )
-        assert app.dashboard.selected_row_key == selected_key
+        assert app.dashboard.issue_table.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
 
@@ -338,9 +340,11 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
 
     async with app.run_test(size=(80, 24)) as pilot:
         selected_key = row_key("issue", selected_issue.id)
-        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
+        await wait_until(
+            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+        )
         await pilot.pause()
-        stale_row = app.dashboard.rows_by_key[selected_key]
+        stale_row = app.dashboard.issue_table.rows_by_key[selected_key]
         assert stale_row.project_runs == ()
 
         app.store.replace_agent_runs(
@@ -382,7 +386,9 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         table.focus()
         await pilot.pause()
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
-        await wait_until(lambda: app.dashboard.selected_row_key == selected_key)
+        await wait_until(
+            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+        )
         search.value = "s"
         await pilot.pause()
         table.focus()
@@ -425,7 +431,7 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        assert app.dashboard.selected_row_key == selected_key
+        assert app.dashboard.issue_table.selected_row_key == selected_key
         # Typed but unsubmitted text is still there to submit or clear.
         assert app.query_one("#issue-search", Input).value == "s"
         assert app.navigation["issues"].request.query == ""
@@ -448,7 +454,7 @@ async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() ->
     app = _issue_view_app(issue("test/repo#1", "First"))
 
     async with app.run_test(size=(70, 30)) as pilot:
-        await wait_until(lambda: app.dashboard.selected_row_key is not None)
+        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
         view = await open_issue_view(app, pilot)
         body = view.query_one("#issue-view-body")
         metadata = view.query_one("#issue-view-metadata")
@@ -478,7 +484,7 @@ async def test_the_issue_view_stacks_its_details_when_the_terminal_narrows() -> 
     app = _issue_view_app(issue("test/repo#1", "Compact"))
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.dashboard.selected_row_key is not None)
+        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
         view = await open_issue_view(app, pilot)
         body = view.query_one("#issue-view-body")
         metadata = view.query_one("#issue-view-metadata")
@@ -505,7 +511,9 @@ async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() ->
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
-            lambda: app.dashboard.selected_row_key == row_key("issue", blank.id)
+            lambda: (
+                app.dashboard.issue_table.selected_row_key == row_key("issue", blank.id)
+            )
         )
         view = await open_issue_view(app, pilot)
         assert not view.query("#issue-view-markdown")
@@ -522,7 +530,7 @@ async def test_issue_view_does_nothing_without_an_issue_row() -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
-        assert app.dashboard.selected_row_key is None
+        assert app.dashboard.issue_table.selected_row_key is None
         app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await pilot.pause()
@@ -540,7 +548,7 @@ async def test_refresh_while_the_issue_view_is_open_reaches_both_screens() -> No
     app = dashboard_app(SequenceCollector(before, after))
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.dashboard.selected_row_key is not None)
+        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
         view = await open_issue_view(app, pilot)
         assert view.issue.title == "Before"
 
@@ -754,8 +762,8 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
-        sort = app.dashboard.issue_view.sort
-        states = app.dashboard.issue_view.query.states
+        sort = app.dashboard.issue_table.issue_view.sort
+        states = app.dashboard.issue_table.issue_view.query.states
         app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
@@ -770,8 +778,8 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         # focused, its sort and state filter unchanged.
         assert isinstance(app.screen, IssueScreen)
         assert not app.dashboard.query_one("#issue-search", Input).has_focus
-        assert app.dashboard.issue_view.sort == sort
-        assert app.dashboard.issue_view.query.states == states
+        assert app.dashboard.issue_table.issue_view.sort == sort
+        assert app.dashboard.issue_table.issue_view.query.states == states
         assert len(app.screen_stack) == 2
 
 

@@ -7,10 +7,9 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, cast
+from typing import Any, ClassVar, Literal, TypeVar, cast
 
-from rich.text import Text
-from textual import events, work
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, Vertical
@@ -31,7 +30,6 @@ from .alerts import (
     AlertSeverity,
     summarize_alerts,
 )
-from .branch_cells import BRANCH_COLUMNS, branch_note, build_branch_rows
 from .cleanup import (
     BranchCleanupRequest,
     CleanupAdapter,
@@ -45,63 +43,41 @@ from .cleanup import (
 from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .collect import (
     ObservationKey,
-    ObservationOutcome,
     ObservationScheduler,
     ObservationTicket,
 )
 from .column_editor import IssueColumnEditor
-from .fetch import FetchReport, RemoteFetcher
+from .fetch import RemoteFetcher
 from .focus_table import FocusCursorTable
-from .glyphs import ACTIVITY_WIDTH
 from .issue_cells import TableCell, issue_state_colors
 from .issue_list import (
-    IssueListQuery,
-    IssueListResult,
-    IssueListRow,
     issue_result_count_text,
     next_issue_states,
-    row_key,
 )
-from .issue_table import (
-    COLUMNS_BY_KEY,
-    ColumnKey,
-    IssueTableViewState,
-    SortTerm,
-    build_rows,
-    column_header,
-    column_specs,
-    searchable_columns,
-    shown_columns,
-)
+from .issue_table import COLUMNS_BY_KEY, ColumnKey, shown_columns
+from .issue_table_controller import IssueTableController
 from .issue_view import IssueScreen
-from .item_filter import ItemFilterBar
-from .keyed_table import capture_selection, restore_selection
-from .legend import LegendScreen
-from .list_pane import (
-    BRANCHES_PANE_LABEL,
-    ISSUE_PANE_LABEL,
-    PULL_REQUESTS_PANE_LABEL,
-    SESSIONS_PANE_LABEL,
-    WORKTREES_PANE_LABEL,
-    ListCell,
-    ListColumn,
-    ListPane,
-    ListRow,
+from .item_filter import (
+    LIFECYCLE_STATUSES,
+    ItemFilterBar,
+    lifecycle_states,
+    lifecycle_value,
 )
-from .observation_store import WorkspaceObservationStore
-from .page_navigation import PageNavigation, PageTicket
+from .legend import LegendScreen
+from .list_pane import ISSUE_PANE_LABEL, ListPane
+from .messages import (
+    BodyResized,
+    CleanupFinished,
+    CleanupInspected,
+    FetchFinished,
+    ObservationFinished,
+    QueryFinished,
+)
+from .page_navigation import PageNavigation, PageTicket, totals_text
 from .paged_store import PagedObservationStore
 from .pane_layout import fit_panes, pane_wish
-from .pull_request_cells import PULL_REQUEST_COLUMNS, build_pull_request_rows
-from .pull_request_list import (
-    DEFAULT_PULL_REQUEST_QUERY,
-    PullRequestListQuery,
-    PullRequestListResult,
-    PullRequestListRow,
-    pull_request_result_count_text,
-)
-from .related_rows import FocusedSource, query_related_rows
-from .session_cells import SESSION_COLUMNS, build_session_rows, session_columns
+from .panes import LIST_PANE_SPECS, PaneContext
+from .pull_request_list import DEFAULT_PULL_REQUEST_QUERY, PullRequestListQuery
 from .source_queries import (
     ProjectTotals,
     QueryPage,
@@ -111,9 +87,10 @@ from .source_queries import (
     ResourceKind,
 )
 from .spread_table import SpreadTable
-from .worktree_cells import WORKTREE_COLUMNS, build_worktree_rows
 from .worktree_launcher import LauncherConfiguration
 from .worktree_table import WorktreeTable
+
+T = TypeVar("T")
 
 # Observation triggers a person asked for, whose outcome earns a toast.
 MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
@@ -122,115 +99,6 @@ MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
 # press, a Remote Fetch or Cleanup that changed the Repository, a follow-up
 # of a publish) still observes once more after the running one lands.
 COALESCED_TRIGGERS = frozenset({"timer"})
-
-
-@dataclass(frozen=True, slots=True)
-class PaneRows:
-    """What one refresh hands a list pane: records and the per-refresh extras.
-
-    ``columns`` re-declares the pane's columns when the read model varies
-    them; ``note`` is a pane-level fact for the frame's subtitle.
-    """
-
-    rows: tuple[ListRow, ...]
-    columns: tuple[ListColumn, ...] | None = None
-    note: str | None = None
-    empty_message: str | None = None
-    title_count: int | None = None
-    title_summary: str | None = None
-
-
-class PaneRowsSource(Protocol):
-    """Derive one pane's records from the store for the current theme and time."""
-
-    def __call__(
-        self, store: WorkspaceObservationStore, *, dark: bool, now: datetime
-    ) -> PaneRows: ...
-
-
-@dataclass(frozen=True, slots=True)
-class PaneSpec:
-    """Everything one list pane varies by, declared once.
-
-    The one tuple of these drives composition, the accessors, the focus
-    cycle and ``reconcile_rows``, so adding a pane is adding a spec.
-    """
-
-    pane_id: str
-    table_id: str
-    label: str
-    columns: tuple[ListColumn, ...]
-    empty_message: str
-    # ``None`` when the screen supplies the source: the Pull Requests pane
-    # reads the accepted page and its navigation, which live on the app.
-    rows: PaneRowsSource | None = None
-    table_type: type[FocusCursorTable[ListCell]] = FocusCursorTable
-
-
-def session_pane_rows(
-    store: WorkspaceObservationStore, *, dark: bool, now: datetime
-) -> PaneRows:
-    """List every active Agent Session, with the columns its result shows."""
-    sessions = store.query_sessions()
-    return PaneRows(
-        build_session_rows(sessions, dark=dark), columns=session_columns(sessions)
-    )
-
-
-def branch_pane_rows(
-    store: WorkspaceObservationStore, *, dark: bool, now: datetime
-) -> PaneRows:
-    """List every observed Branch, noting when the remotes were last fetched."""
-    branches = store.query_branches()
-    return PaneRows(
-        build_branch_rows(branches, dark=dark, now=now),
-        note=branch_note(branches.integration_refs, branches.fetched_at, now),
-    )
-
-
-def worktree_pane_rows(
-    store: WorkspaceObservationStore, *, dark: bool, now: datetime
-) -> PaneRows:
-    """List every observed Worktree in the Repository's topology order."""
-    return PaneRows(build_worktree_rows(store.query_worktrees(), dark=dark))
-
-
-# The list panes in reading order, each declared once.
-LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
-    PaneSpec(
-        "sessions-pane",
-        "sessions",
-        SESSIONS_PANE_LABEL,
-        SESSION_COLUMNS,
-        "no active sessions",
-        session_pane_rows,
-    ),
-    PaneSpec(
-        "worktrees-pane",
-        "worktrees",
-        WORKTREES_PANE_LABEL,
-        WORKTREE_COLUMNS,
-        "no worktrees observed yet",
-        worktree_pane_rows,
-        table_type=WorktreeTable,
-    ),
-    PaneSpec(
-        "branches-pane",
-        "branches",
-        BRANCHES_PANE_LABEL,
-        BRANCH_COLUMNS,
-        "no branches observed yet",
-        branch_pane_rows,
-    ),
-    PaneSpec(
-        "pull-requests-pane",
-        "pull-requests",
-        PULL_REQUESTS_PANE_LABEL,
-        PULL_REQUEST_COLUMNS,
-        "pull requests unavailable",
-    ),
-)
-
 
 # The Query Sources the shipped app consults, one per concurrent consumer:
 # each key runs on its own executor thread against its own source instance.
@@ -241,126 +109,6 @@ QUERY_SOURCE_KEYS: tuple[str, ...] = (
     "totals:pull-requests",
     "identities",
 )
-
-
-def totals_text(totals: ProjectTotals | None) -> str:
-    """Report Project totals without substituting page length or zero."""
-    if totals is None or totals.open_count is None or totals.closed_count is None:
-        return "Open ? · Closed ? · totals unavailable"
-    return f"Open {totals.open_count} · Closed {totals.closed_count}" + (
-        " · stale totals" if totals.status == "stale" else ""
-    )
-
-
-def lifecycle_state(states: frozenset[str]) -> str:
-    """Name the lifecycle a list query's states select for a source query."""
-    return "all" if len(states) == 2 else next(iter(states))
-
-
-def page_text(navigation: PageNavigation) -> str:
-    """Describe matching scope, coverage and the accepted page's own age."""
-    page = navigation.page
-    if page is None:
-        return navigation.error or "Loading page"
-    text = f"{page.returned_count} shown · {page.matched_count if page.matched_count is not None else '?'} matches · {page.status}"
-    if page.last_good_at:
-        text += f" · observed {page.last_good_at}"
-    if (
-        page.result_limit
-        and page.matched_count
-        and page.matched_count > page.result_limit
-    ):
-        text += f" · first {page.result_limit:,} accessible; narrow query"
-    if navigation.error:
-        text += f" · {navigation.error}"
-    return text
-
-
-class QueryFinished(Message):
-    """One keyed source query answered, or failed; a page carries its ticket."""
-
-    def __init__(
-        self, key: str, ticket: PageTicket | None, value: object, error: str | None
-    ) -> None:
-        super().__init__()
-        self.key = key
-        self.ticket = ticket
-        self.value = value
-        self.error = error
-
-
-class ObservationFinished(Message):
-    """One keyed observation ran; the outcome says whether it was accepted."""
-
-    def __init__(
-        self,
-        ticket: ObservationTicket,
-        trigger: str,
-        outcome: ObservationOutcome | None = None,
-        error: str | None = None,
-    ) -> None:
-        super().__init__()
-        self.ticket = ticket
-        self.trigger = trigger
-        self.outcome = outcome
-        self.error = error
-
-
-class CleanupInspected(Message):
-    """One Cleanup's preview was taken off the event loop, or failed."""
-
-    def __init__(
-        self,
-        project_id: str,
-        request: CleanupRequest,
-        preview: CleanupPreview | None = None,
-        error: str | None = None,
-    ) -> None:
-        super().__init__()
-        self.project_id = project_id
-        self.request = request
-        self.preview = preview
-        self.error = error
-
-
-class CleanupFinished(Message):
-    """One confirmed Cleanup was performed, or the adapter failed."""
-
-    def __init__(
-        self,
-        project_id: str,
-        confirmation: CleanupConfirmation,
-        report: CleanupReport | None = None,
-        error: str | None = None,
-    ) -> None:
-        super().__init__()
-        self.project_id = project_id
-        self.confirmation = confirmation
-        self.report = report
-        self.error = error
-
-
-class FetchFinished(Message):
-    """One Project's explicit remote fetch ran; ``error`` is a fetcher failure."""
-
-    def __init__(
-        self,
-        project_id: str,
-        report: FetchReport | None = None,
-        error: str | None = None,
-    ) -> None:
-        super().__init__()
-        self.project_id = project_id
-        self.report = report
-        self.error = error
-
-
-class BodyResized(Message):
-    """The dashboard body was laid out at a new size."""
-
-    def __init__(self, size: Size) -> None:
-        super().__init__()
-        self.size = size
 
 
 class DashboardBody(Container):
@@ -379,7 +127,7 @@ class CleanupSelection:
 
 
 class DashboardScreen(Screen[None]):
-    """Own the dashboard: composition, the panes, view state and their keys."""
+    """Own the dashboard: composition, the panes, their keys, and the Issue table's controller."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("enter", "open_issue", "Open Issue"),
@@ -395,27 +143,23 @@ class DashboardScreen(Screen[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        # The source orders every page, so the view never sorts locally.
-        self.issue_view = IssueTableViewState(sort=())
-        self.selected_row_key: str | None = None
-        self.rows_by_key: dict[str, IssueListRow] = {}
+        self.issue_table = IssueTableController(self)
         self.pull_request_query = DEFAULT_PULL_REQUEST_QUERY
+        query = self.issue_table.issue_view.query
         self.issue_filter_bar = ItemFilterBar(
             "issue",
-            statuses=(("Open", "open"), ("Closed", "closed"), ("All", "all")),
-            status=issue_state_filter_value(self.issue_view.query),
-            query=self.issue_view.query.text,
+            statuses=LIFECYCLE_STATUSES,
+            status=lifecycle_value(query.states),
+            query=query.text,
             placeholder="Search Issues",
             count=issue_result_count_text(0),
         )
-        self.pull_request_filter_bar = ItemFilterBar(
-            "pull-request",
-            statuses=(("Open", "open"), ("Closed", "closed"), ("All", "all")),
-            status=pull_request_status_filter_value(self.pull_request_query),
-            query=self.pull_request_query.text,
-            placeholder="Search Pull Requests",
-            count=pull_request_result_count_text(0),
-        )
+        # Each pane's controls, composed once from its spec.
+        self.pane_controls: dict[str, ItemFilterBar] = {
+            spec.pane_id: spec.controls()
+            for spec in LIST_PANE_SPECS
+            if spec.controls is not None
+        }
 
     @property
     def dashpot(self) -> DashpotApp:
@@ -459,16 +203,8 @@ class DashboardScreen(Screen[None]):
                         id=spec.pane_id,
                         table_id=spec.table_id,
                         table_type=spec.table_type,
-                        controls=(
-                            self.pull_request_filter_bar
-                            if spec.pane_id == "pull-requests-pane"
-                            else None
-                        ),
-                        controls_height=(
-                            ItemFilterBar.HEIGHT
-                            if spec.pane_id == "pull-requests-pane"
-                            else 0
-                        ),
+                        controls=self.pane_controls.get(spec.pane_id),
+                        controls_height=spec.controls_height,
                     )
             with Vertical(id="queue-pane"):
                 yield self.issue_filter_bar
@@ -497,6 +233,11 @@ class DashboardScreen(Screen[None]):
     def pull_requests_pane(self) -> ListPane:
         return self.list_pane("pull-requests-pane")
 
+    @property
+    def pull_request_filter_bar(self) -> ItemFilterBar:
+        """The Pull Requests pane's controls, which its spec always composes."""
+        return self.pane_controls["pull-requests-pane"]
+
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
         return tuple(self.list_pane(spec.pane_id) for spec in LIST_PANE_SPECS)
@@ -519,45 +260,12 @@ class DashboardScreen(Screen[None]):
         return True
 
     def action_focus_search(self) -> None:
-        if self.pull_requests_pane().table.has_focus:
-            self.pull_request_filter_bar.search.focus()
-            return
+        """Focus the search of the focused pane's controls, else the Issue search."""
+        for pane in self.list_panes():
+            if pane.table.has_focus and pane.controls is not None:
+                pane.controls.search.focus()
+                return
         self.issue_filter_bar.search.focus()
-
-    def _pull_request_pane_rows(
-        self, store: WorkspaceObservationStore, *, dark: bool, now: datetime
-    ) -> PaneRows:
-        """List the accepted Pull Request page with the Project's totals."""
-        app = self.dashpot
-        page = app.store.pages.get("pull-requests")
-        projects = store.projects()
-        if page is None or not projects:
-            return PaneRows(
-                (),
-                title_summary=totals_text(app.store.totals.get("pull-requests")),
-                empty_message="Loading page",
-            )
-        result = PullRequestListResult(
-            tuple(
-                PullRequestListRow(row_key("pull-request", pr.id), projects[0], pr)
-                for pr in page.pull_requests
-            ),
-            page.matched_count or 0,
-            page.returned_count,
-            page.status,
-            page.attempted_at,
-            page.last_good_at,
-            0,
-            0,
-        )
-        return PaneRows(
-            build_pull_request_rows(result, dark=dark, now=now),
-            title_summary=totals_text(app.store.totals.get("pull-requests")),
-            note=page_text(app.navigation["pull-requests"]),
-            empty_message="No matching Pull Requests"
-            if page.status == "fresh"
-            else "Pull Requests unavailable",
-        )
 
     def action_fetch(self) -> None:
         """Fetch the remotes behind the Branches pane, on this explicit key."""
@@ -596,8 +304,9 @@ class DashboardScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.query_one("#queue-pane").border_title = Content(ISSUE_PANE_LABEL)
-        table = self.queue_table()
-        self.show_table_columns(table, shown_columns(self.issue_view.columns, ()))
+        self.issue_table.show_table_columns(
+            shown_columns(self.issue_table.issue_view.columns, ())
+        )
         self.sessions_pane().table.focus()
         self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
 
@@ -605,53 +314,24 @@ class DashboardScreen(Screen[None]):
         """Re-render semantic table colors for the new theme brightness."""
 
         if self.dashpot.store.has_observations:
-            self.reconcile_rows()
+            self.issue_table.reconcile_rows()
             # The list panes render their glyphs in explicit colours chosen
             # for the theme's brightness, so they repaint with the table.
             self.reconcile_list_panes()
 
-    def table_columns(self, table: DataTable[TableCell]) -> tuple[ColumnKey, ...]:
-        """The columns the table shows now: the chosen ones a conditional column may leave."""
-        return tuple(cast(ColumnKey, str(key.value)) for key in table.columns)
-
-    def show_table_columns(
-        self, table: SpreadTable[TableCell], columns: tuple[ColumnKey, ...]
-    ) -> None:
-        """Rebuild the table's columns when they differ from ``columns``."""
-        if columns == self.table_columns(table):
-            return
-        table.clear(columns=True)
-        table.fixed_columns = 1
-        for column in column_specs(columns):
-            table.add_column(
-                self.column_label(column.key),
-                key=column.key,
-                width=ACTIVITY_WIDTH if column.key == "agent_state" else None,
-                spread_weight=column.spread_weight,
-                tooltip=column.tooltip,
-            )
-
     def action_columns(self) -> None:
         self.app.push_screen(
-            IssueColumnEditor(self.issue_view.columns),
-            self.apply_issue_columns,
+            IssueColumnEditor(self.issue_table.issue_view.columns),
+            self.issue_table.apply_issue_columns,
         )
 
-    def apply_issue_columns(self, columns: tuple[ColumnKey, ...] | None) -> None:
-        if columns is None or columns == self.issue_view.columns:
-            return
-        self.issue_view = self.issue_view.with_columns(columns)
-        table = self.queue_table()
-        if self.dashpot.store.has_observations:
-            self.reconcile_rows()
-            return
-        self.show_table_columns(table, shown_columns(columns, ()))
+    @on(DataTable.HeaderSelected, "#queue")
+    def submit_column_ordering(self, event: DataTable.HeaderSelected) -> None:
+        """Order the Issue table by the selected column."""
+        self.order_issues_by(str(event.column_key.value))
 
-    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+    def order_issues_by(self, column: str) -> None:
         """Submit the column's ordering to the source, or reverse it."""
-        if event.data_table.id != "queue":
-            return
-        column = str(event.column_key.value)
         navigation = self.dashpot.navigation["issues"]
         source = self.dashpot.sources["issues"]
         if not source.supports_sort(navigation.request, column):
@@ -668,55 +348,42 @@ class DashboardScreen(Screen[None]):
         direction = "desc" if navigation.request.ordering == f"{column}:asc" else "asc"
         self.dashpot.submit_page("issues", ordering=f"{column}:{direction}")
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    @on(Input.Submitted, "#issue-search")
+    def submit_issue_search(self, event: Input.Submitted) -> None:
         """Submit a search on Enter; editing the text alone changes nothing."""
-        if event.input.id == "issue-search":
-            event.stop()
-            self.set_issue_query(replace(self.issue_view.query, text=event.value))
-            self.dashpot.submit_page("issues", query=event.value)
-        elif event.input.id == "pull-request-search":
-            event.stop()
-            self.set_pull_request_query(
-                replace(self.pull_request_query, text=event.value)
-            )
-            self.dashpot.submit_page("pull-requests", query=event.value)
+        event.stop()
+        self.issue_table.set_issue_query(
+            replace(self.issue_table.issue_view.query, text=event.value)
+        )
+        self.dashpot.submit_page("issues", query=event.value)
+
+    @on(Input.Submitted, "#pull-request-search")
+    def submit_pull_request_search(self, event: Input.Submitted) -> None:
+        """Submit a Pull Request search on Enter, as the Issue search does."""
+        event.stop()
+        self.set_pull_request_query(replace(self.pull_request_query, text=event.value))
+        self.dashpot.submit_page("pull-requests", query=event.value)
 
     def action_cycle_issue_state(self) -> None:
-        states = next_issue_states(self.issue_view.query.states)
+        states = next_issue_states(self.issue_table.issue_view.query.states)
         # Drive the control so the header, the query, and the Select agree.
-        self.query_one("#issue-state", Select).value = issue_state_filter_value(
-            replace(self.issue_view.query, states=states)
-        )
+        self.issue_filter_bar.state.value = lifecycle_value(states)
 
-    def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "pull-request-state":
-            states = {
-                "open": frozenset({"open"}),
-                "closed": frozenset({"closed"}),
-                "all": frozenset({"open", "closed"}),
-            }.get(str(event.value))
-            if states is not None:
-                self.set_pull_request_query(
-                    replace(self.pull_request_query, states=states)
-                )
-            return
-        if event.select.id != "issue-state":
-            return
-        states = {
-            "open": frozenset({"open"}),
-            "closed": frozenset({"closed"}),
-            "all": frozenset({"open", "closed"}),
-        }.get(str(event.value))
-        if states is None:
-            return
-        self.set_issue_query(replace(self.issue_view.query, states=states))
+    @on(Select.Changed, "#issue-state")
+    def change_issue_lifecycle(self, event: Select.Changed) -> None:
+        """Record the chosen Issue lifecycle, which submits a page."""
+        states = lifecycle_states(event.value)
+        if states is not None:
+            self.issue_table.set_issue_query(
+                replace(self.issue_table.issue_view.query, states=states)
+            )
 
-    def set_issue_query(self, query: IssueListQuery) -> None:
-        """Record the submitted Issue query; a lifecycle change submits a page."""
-        previous = self.issue_view.query
-        self.issue_view = replace(self.issue_view, query=query)
-        if query.states != previous.states:
-            self.dashpot.submit_page("issues", state=lifecycle_state(query.states))
+    @on(Select.Changed, "#pull-request-state")
+    def change_pull_request_lifecycle(self, event: Select.Changed) -> None:
+        """Record the chosen Pull Request lifecycle, which submits a page."""
+        states = lifecycle_states(event.value)
+        if states is not None:
+            self.set_pull_request_query(replace(self.pull_request_query, states=states))
 
     def set_pull_request_query(self, query: PullRequestListQuery) -> None:
         """Record the submitted Pull Request query; a lifecycle change submits a page."""
@@ -724,26 +391,8 @@ class DashboardScreen(Screen[None]):
         self.pull_request_query = query
         if query.states != previous.states:
             self.dashpot.submit_page(
-                "pull-requests", state=lifecycle_state(query.states)
+                "pull-requests", state=lifecycle_value(query.states)
             )
-
-    def column_label(self, name: ColumnKey) -> Text:
-        """Head a column with the submitted ordering when the source can order by it."""
-        request = self.dashpot.navigation["issues"].request
-        spec = COLUMNS_BY_KEY[name]
-        if not self.dashpot.sources["issues"].supports_sort(request, name):
-            return Text(spec.label)
-        term = (
-            (SortTerm(name, request.ordering.endswith(":desc")),)
-            if request.ordering.startswith(name + ":")
-            else ()
-        )
-        return column_header(spec, term)
-
-    def update_sort_headers(self, table: DataTable[TableCell]) -> None:
-        for key, column in table.columns.items():
-            column.label = self.column_label(cast("ColumnKey", str(key.value)))
-        table.refresh()
 
     def update_issue_inventory(self) -> None:
         """Title the Issue pane with the Project's totals, never the page's length."""
@@ -791,11 +440,15 @@ class DashboardScreen(Screen[None]):
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed record from the store."""
-        dark = self.app.current_theme.dark
-        now = datetime.now(UTC)
+        context = PaneContext(
+            self.dashpot.store,
+            self.dashpot.navigation,
+            dark=self.app.current_theme.dark,
+            now=datetime.now(UTC),
+        )
         for spec in LIST_PANE_SPECS:
-            rows = spec.rows or self._pull_request_pane_rows
-            view = rows(self.dashpot.store, dark=dark, now=now)
+            view = spec.rows(context)
+            self.issue_table.pane_records[spec.pane_id] = view.records
             self.list_pane(spec.pane_id).show_rows(
                 view.rows,
                 columns=view.columns,
@@ -803,54 +456,21 @@ class DashboardScreen(Screen[None]):
                 empty_message=view.empty_message,
                 title_count=view.title_count,
                 title_summary=view.title_summary,
+                filter_count=view.filter_count,
             )
-            if spec.pane_id == "pull-requests-pane":
-                self.pull_request_filter_bar.count.update(
-                    pull_request_result_count_text(len(view.rows))
-                )
+        self.issue_table.update_related_rows()
 
-        self.update_related_rows()
+    @on(DataTable.RowSelected, "#queue")
+    def open_selected_issue(self, event: DataTable.RowSelected) -> None:
+        """Open the Issue a person selected in the Issue table."""
+        self.open_issue(str(event.row_key.value))
 
-    def reconcile_rows(self) -> IssueListResult:
-        """Rebuild the table from the accepted page and return the query result."""
-        table = self.queue_table()
-        query = replace(
-            self.issue_view.query,
-            search_fields=searchable_columns(),
-        )
-        result = self.dashpot.store.query_issues(query)
-        self.query_one("#issue-count", Static).update(
-            page_text(self.dashpot.navigation["issues"])
-        )
-        shown = shown_columns(self.issue_view.columns, result.rows)
-        self.show_table_columns(table, shown)
-        contexts, cells_by_key = build_rows(
-            result, columns=shown, dark=self.app.current_theme.dark
-        )
-        # Provider order can change with identical row identities. Rebuild the
-        # small page so keyed-table insertion history never becomes ordering;
-        # the cursor returns to its Issue by key, else to the first row.
-        with self.app.batch_update():
-            table.clear()
-            for key, cells in cells_by_key.items():
-                table.add_row(*cells, key=key)
-        self.update_sort_headers(table)
-        self.rows_by_key = contexts
-        selected_key = restore_selection(table, self.selected_row_key, 0, contexts)
-        self.update_related_rows()
-        if selected_key is None:
-            self.selected_row_key = None
-            return result
-        self.show_row(selected_key)
-        return result
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        if event.data_table.id == "queue":
-            self.open_issue(str(event.row_key.value))
-        elif event.data_table.id == "sessions":
-            row = self.sessions_pane().row(str(event.row_key.value))
-            if row is not None:
-                self.open_bound_issue(row.issue_id)
+    @on(DataTable.RowSelected, "#sessions")
+    def open_session_issue(self, event: DataTable.RowSelected) -> None:
+        """Open the Issue bound to the selected Agent Session, when it has one."""
+        row = self.sessions_pane().row(str(event.row_key.value))
+        if row is not None:
+            self.open_bound_issue(row.issue_id)
 
     def open_bound_issue(self, issue_id: str | None) -> None:
         """Read a bound Issue full-screen, resolving it first when the page lacks it."""
@@ -867,8 +487,9 @@ class DashboardScreen(Screen[None]):
         app.request_identities()
 
     def action_open_issue(self) -> None:
-        if self.queue_table().has_focus and self.selected_row_key is not None:
-            self.open_issue(self.selected_row_key)
+        selected = self.issue_table.selected_row_key
+        if self.queue_table().has_focus and selected is not None:
+            self.open_issue(selected)
 
     def on_worktree_table_open_requested(
         self, event: WorktreeTable.OpenRequested
@@ -887,7 +508,7 @@ class DashboardScreen(Screen[None]):
 
     def open_issue(self, key: str) -> None:
         """Read the Issue full-screen; nothing happens without an Issue row."""
-        row = self.rows_by_key.get(key)
+        row = self.issue_table.rows_by_key.get(key)
         if row is None:
             return
         context = self.dashpot.store.detail_for(row)
@@ -898,76 +519,34 @@ class DashboardScreen(Screen[None]):
         self.dashpot.selected_identity = row.issue.id
         self.dashpot.request_identities()
 
-    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+    @on(DataTable.RowHighlighted)
+    def follow_cursor(self, event: DataTable.RowHighlighted) -> None:
+        """Re-emphasise relationships when the focused table's cursor moves."""
         # A queued highlight can be dispatched during app shutdown, after the
         # screen and its panes have been unmounted.
         if not self.is_mounted:
             return
         if event.data_table.has_focus:
-            self.update_related_rows()
+            self.issue_table.update_related_rows()
+
+    @on(DataTable.RowHighlighted, "#queue")
+    def select_highlighted_issue(self, event: DataTable.RowHighlighted) -> None:
+        """Select the Issue under the cursor; other tables' cursors select nothing."""
         # Only the Issue table drives the Issue selection; a session or worktree
         # cursor is for scrolling, copying and refresh scope alone.
-        if event.data_table.id != "queue":
-            return
-        self.show_row(str(event.row_key.value))
+        if self.is_mounted:
+            self.issue_table.show_row(str(event.row_key.value))
 
     def on_focus_cursor_table_focus_changed(
         self, event: FocusCursorTable.FocusChanged
     ) -> None:
-        self.update_related_rows()
+        self.issue_table.update_related_rows()
 
     def on_screen_suspend(self, _: events.ScreenSuspend) -> None:
-        self.update_related_rows(clear=True)
+        self.issue_table.update_related_rows(clear=True)
 
     def on_screen_resume(self, _: events.ScreenResume) -> None:
-        self.call_after_refresh(self.update_related_rows)
-
-    def update_related_rows(self, *, clear: bool = False) -> None:
-        """Emphasize direct relationships of the visible focused cursor."""
-        if not self.is_mounted or not self._update_widgets_mounted():
-            return
-        sessions = self.dashpot.store.query_sessions().rows
-        worktrees = self.dashpot.store.query_worktrees().rows
-        branches = self.dashpot.store.query_branches().rows
-        issues = tuple(self.rows_by_key.values())
-        source: FocusedSource | None = None
-        if not clear and self.app.screen is self:
-            for table, rows in (
-                (self.sessions_pane().table, sessions),
-                (self.worktrees_pane().table, worktrees),
-                (self.branches_pane().table, branches),
-                (self.queue_table(), issues),
-            ):
-                if table.has_focus:
-                    key, _ = capture_selection(table)
-                    source = next((row for row in rows if row.key == key), None)
-                    break
-        related = query_related_rows(
-            source,
-            sessions=sessions,
-            worktrees=worktrees,
-            branches=branches,
-            issues=issues,
-        )
-        for table, keys, columns in (
-            (
-                self.sessions_pane().table,
-                related.sessions,
-                frozenset({"harness", "target"}),
-            ),
-            (self.worktrees_pane().table, related.worktrees, frozenset({"path"})),
-            (self.branches_pane().table, related.branches, frozenset({"name"})),
-            (self.queue_table(), related.issues, frozenset({"number", "title"})),
-        ):
-            assert isinstance(table, FocusCursorTable)
-            table.set_related_rows(keys, columns)
-
-    def show_row(self, key: str) -> None:
-        row = self.rows_by_key.get(key)
-        context = self.dashpot.store.detail_for(row) if row is not None else None
-        # A row the store can no longer detail selects nothing; keeping the
-        # previous selection would open the wrong Issue.
-        self.selected_row_key = key if context is not None else None
+        self.call_after_refresh(self.issue_table.update_related_rows)
 
     def update_diagnostics(self) -> None:
         # A refresh failure and a search error are the app's own errors; a
@@ -1207,9 +786,11 @@ class DashpotApp(App[None]):
         dashboard.query_one(WorktreeTable).launch_available = (
             self.launcher_configuration.opener is not None
         )
-        for kind, prefix in (("issues", "issue"), ("pull-requests", "pull-request")):
-            search = dashboard.query_one(f"#{prefix}-search", Input)
-            search.placeholder = self.sources[kind].search_prompt
+        for kind, bar in (
+            ("issues", dashboard.issue_filter_bar),
+            ("pull-requests", dashboard.pull_request_filter_bar),
+        ):
+            bar.search.placeholder = self.sources[kind].search_prompt
         if not self.store.has_observations:
             dashboard.queue_table().loading = True
         # The first pages render whatever the store already holds, so a
@@ -1225,6 +806,55 @@ class DashpotApp(App[None]):
     def on_unmount(self) -> None:
         self.refresh_executor.shutdown(wait=False, cancel_futures=True)
         self.query_executor.shutdown(wait=False, cancel_futures=True)
+
+    async def off_loop(
+        self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
+    ) -> T:
+        """Run one blocking operation on an executor thread and return its value."""
+        return await asyncio.get_running_loop().run_in_executor(
+            executor or self.refresh_executor, operation
+        )
+
+    def run_off_loop(
+        self,
+        name: str,
+        group: str,
+        operation: Callable[[], T],
+        on_done: Callable[[T | None, str | None], Message],
+        *,
+        executor: ThreadPoolExecutor | None = None,
+    ) -> None:
+        """Start a worker that runs ``operation`` off the loop and posts its outcome.
+
+        ``on_done`` makes the message from the value, or from the failure's
+        text: the one error boundary for off-loop work, where a failure is a
+        message and never an exit. A worker cancelled at shutdown posts
+        nothing, and every worker is a partial rather than a coroutine
+        object, so one cancelled before it starts leaves no coroutine never
+        awaited.
+        """
+        self.run_worker(
+            partial(self._post_off_loop, operation, on_done, executor),
+            name=name,
+            group=group,
+            exit_on_error=False,
+        )
+
+    async def _post_off_loop(
+        self,
+        operation: Callable[[], T],
+        on_done: Callable[[T | None, str | None], Message],
+        executor: ThreadPoolExecutor | None,
+    ) -> None:
+        worker = get_current_worker()
+        try:
+            value = await self.off_loop(operation, executor=executor)
+        except Exception as exc:  # UI boundary: an off-loop failure must not exit.
+            message = on_done(None, str(exc))
+        else:
+            message = on_done(value, None)
+        if not worker.is_cancelled:
+            self.post_message(message)
 
     def worktree_path(self, key: str) -> Path | None:
         """Resolve a visible Worktree row against its accepted observation."""
@@ -1256,9 +886,7 @@ class DashpotApp(App[None]):
         opener = self.launcher_configuration.opener
         assert opener is not None
         try:
-            await asyncio.get_running_loop().run_in_executor(
-                self.refresh_executor, opener, path
-            )
+            await self.off_loop(partial(opener, path))
         except (OSError, RuntimeError, ValueError) as exc:
             self.notify(str(exc), title="Open Worktree", severity="error")
         else:
@@ -1345,20 +973,13 @@ class DashpotApp(App[None]):
             self.query_queued[key] = (ticket, operation)
             return
         self.query_busy.add(key)
-        self.run_query(key, ticket, operation)
-
-    @work(exit_on_error=False)
-    async def run_query(
-        self, key: str, ticket: PageTicket | None, operation: Callable[[], object]
-    ) -> None:
-        try:
-            value = await asyncio.get_running_loop().run_in_executor(
-                self.query_executor, operation
-            )
-            error = None
-        except Exception as exc:  # UI boundary: source failures must not exit the app.
-            value, error = None, str(exc)
-        self.post_message(QueryFinished(key, ticket, value, error))
+        self.run_off_loop(
+            f"query {key}",
+            f"query:{key}",
+            operation,
+            partial(QueryFinished, key, ticket),
+            executor=self.query_executor,
+        )
 
     def on_query_finished(self, message: QueryFinished) -> None:
         self.query_busy.discard(message.key)
@@ -1400,7 +1021,7 @@ class DashpotApp(App[None]):
         if not self.is_running or not self.dashboard.is_mounted:
             return
         self.dashboard.queue_table().loading = False
-        self.dashboard.reconcile_rows()
+        self.dashboard.issue_table.reconcile_rows()
         self.dashboard.update_issue_inventory()
         self.dashboard.reconcile_list_panes()
         self.dashboard.update_diagnostics()
@@ -1419,7 +1040,8 @@ class DashpotApp(App[None]):
         is fetched, so independent clones sharing a Project are left alone.
         A Project already being fetched is refused rather than fetched twice.
         """
-        if self.fetcher is None:
+        fetcher = self.fetcher
+        if fetcher is None:
             self.notify(
                 "Fetching is not available in this view",
                 severity="warning",
@@ -1456,31 +1078,13 @@ class DashpotApp(App[None]):
                 )
                 continue
             self.fetching[project_id] = anchor
-            self.run_worker(
-                partial(self.fetch, project_id, Path(anchor)),
-                name=f"fetch {project_id}",
-                group=f"fetch:{project_id}",
-                exit_on_error=False,
+            self.run_off_loop(
+                f"fetch {project_id}",
+                f"fetch:{project_id}",
+                partial(fetcher, Path(anchor)),
+                partial(FetchFinished, project_id),
             )
         self.dashboard.update_alert()
-
-    async def fetch(self, project_id: str, anchor: Path) -> None:
-        fetcher = self.fetcher
-        if fetcher is None:  # pragma: no cover - request_fetch refuses first.
-            return
-        worker = get_current_worker()
-        try:
-            report = await asyncio.get_running_loop().run_in_executor(
-                self.refresh_executor, fetcher, anchor
-            )
-        except (
-            Exception
-        ) as exc:  # UI boundary: a fetcher failure must not exit the app.
-            if not worker.is_cancelled:
-                self.post_message(FetchFinished(project_id, error=str(exc)))
-            return
-        if not worker.is_cancelled:
-            self.post_message(FetchFinished(project_id, report=report))
 
     def on_fetch_finished(self, message: FetchFinished) -> None:
         self.record_fetch_result(message)
@@ -1530,7 +1134,8 @@ class DashpotApp(App[None]):
         the path belongs to (a Worktree). A Project being fetched, or already
         in a Cleanup, is refused rather than mutated twice.
         """
-        if self.cleaner is None:
+        cleaner = self.cleaner
+        if cleaner is None:
             self.notify(
                 "Deleting is not available in this view",
                 severity="warning",
@@ -1569,11 +1174,13 @@ class DashpotApp(App[None]):
             )
             return
         self.cleaning[project_id] = cleanup_subject(request)
-        self.run_worker(
-            partial(self.inspect_cleanup, project_id, request),
-            name=f"inspect cleanup {project_id}",
-            group=f"cleanup:{project_id}",
-            exit_on_error=False,
+        self.run_off_loop(
+            f"inspect cleanup {project_id}",
+            f"cleanup:{project_id}",
+            partial(
+                cleaner.inspect, request, protected=self.cleanup_protection(project_id)
+            ),
+            partial(CleanupInspected, project_id, request),
         )
 
     def resolve_cleanup_request(
@@ -1604,24 +1211,6 @@ class DashpotApp(App[None]):
         project = self.store.project(project_id)
         anchors = tuple(Path(anchor) for anchor in project.anchors) if project else ()
         return (Path.cwd().resolve(), *anchors)
-
-    async def inspect_cleanup(self, project_id: str, request: CleanupRequest) -> None:
-        cleaner = self.cleaner
-        if cleaner is None:  # pragma: no cover - request_cleanup refuses first.
-            return
-        worker = get_current_worker()
-        protected = self.cleanup_protection(project_id)
-        try:
-            preview = await asyncio.get_running_loop().run_in_executor(
-                self.refresh_executor,
-                partial(cleaner.inspect, request, protected=protected),
-            )
-        except Exception as exc:  # UI boundary: an adapter failure must not exit.
-            if not worker.is_cancelled:
-                self.post_message(CleanupInspected(project_id, request, error=str(exc)))
-            return
-        if not worker.is_cancelled:
-            self.post_message(CleanupInspected(project_id, request, preview=preview))
 
     def on_cleanup_inspected(self, message: CleanupInspected) -> None:
         if self._closing or self._closed or not self.screen_stack:
@@ -1717,9 +1306,7 @@ class DashpotApp(App[None]):
         error = None
         try:
             try:
-                report = await asyncio.get_running_loop().run_in_executor(
-                    self.refresh_executor, fetcher, anchor
-                )
+                report = await self.off_loop(partial(fetcher, anchor))
             except Exception as exc:
                 error = str(exc)
             if worker.is_cancelled or self._closing or self._closed:
@@ -1749,13 +1336,12 @@ class DashpotApp(App[None]):
                     else None
                 )
                 if self.cleanup_previews.get(project_id, (None, None))[0] is screen:
-                    preview = await asyncio.get_running_loop().run_in_executor(
-                        self.refresh_executor,
+                    preview = await self.off_loop(
                         partial(
                             cleaner.inspect,
                             screen.request,
                             protected=self.cleanup_protection(project_id),
-                        ),
+                        )
                     )
             except Exception as exc:
                 detail = str(exc) or "Refresh timed out; retry or cancel."
@@ -1835,34 +1421,19 @@ class DashpotApp(App[None]):
                 severity="warning",
             )
             return
-        self.run_worker(
-            partial(self.perform_cleanup, project_id, confirmation),
-            name=f"perform cleanup {project_id}",
-            group=f"cleanup:{project_id}",
-            exit_on_error=False,
-        )
-
-    async def perform_cleanup(
-        self, project_id: str, confirmation: CleanupConfirmation
-    ) -> None:
         cleaner = self.cleaner
         if cleaner is None:  # pragma: no cover - request_cleanup refuses first.
             return
-        worker = get_current_worker()
-        protected = self.cleanup_protection(project_id)
-        try:
-            report = await asyncio.get_running_loop().run_in_executor(
-                self.refresh_executor,
-                partial(cleaner.perform, confirmation, protected=protected),
-            )
-        except Exception as exc:  # UI boundary: an adapter failure must not exit.
-            if not worker.is_cancelled:
-                self.post_message(
-                    CleanupFinished(project_id, confirmation, error=str(exc))
-                )
-            return
-        if not worker.is_cancelled:
-            self.post_message(CleanupFinished(project_id, confirmation, report=report))
+        self.run_off_loop(
+            f"perform cleanup {project_id}",
+            f"cleanup:{project_id}",
+            partial(
+                cleaner.perform,
+                confirmation,
+                protected=self.cleanup_protection(project_id),
+            ),
+            partial(CleanupFinished, project_id, confirmation),
+        )
 
     def on_cleanup_finished(self, message: CleanupFinished) -> None:
         if self._closing or self._closed or not self.screen_stack:
@@ -1952,16 +1523,14 @@ class DashpotApp(App[None]):
         tickets = self.scheduler.request(wanted) if wanted else ()
         for ticket in tickets:
             self.in_flight[ticket.key] = ticket.generation
-            # A partial rather than a coroutine object, so a worker cancelled
-            # at shutdown before it starts leaves no coroutine never awaited.
             # Not exclusive: a worker is never cancelled by a later request,
             # so every started observation ends by posting its outcome and
             # the in-flight gate always reopens.
-            self.run_worker(
-                partial(self.observe, ticket, trigger),
-                name=f"observe {ticket.key.group}",
-                group=ticket.key.group,
-                exit_on_error=False,
+            self.run_off_loop(
+                f"observe {ticket.key.group}",
+                ticket.key.group,
+                partial(self.scheduler.observe, ticket),
+                partial(ObservationFinished, ticket, trigger),
             )
         if coalesced and not self.refreshing_visible:
             # The press did something; say so at once rather than after the
@@ -2006,19 +1575,6 @@ class DashpotApp(App[None]):
         trigger = self.pending_rerun.pop(key, None)
         if trigger is not None and not (self._closing or self._closed):
             self.schedule_observations([key], trigger)
-
-    async def observe(self, ticket: ObservationTicket, trigger: str) -> None:
-        worker = get_current_worker()
-        try:
-            outcome = await asyncio.get_running_loop().run_in_executor(
-                self.refresh_executor, self.scheduler.observe, ticket
-            )
-        except Exception as exc:  # UI boundary: source failures must not exit the app.
-            if not worker.is_cancelled:
-                self.post_message(ObservationFinished(ticket, trigger, error=str(exc)))
-            return
-        if not worker.is_cancelled:
-            self.post_message(ObservationFinished(ticket, trigger, outcome=outcome))
 
     def on_observation_finished(self, message: ObservationFinished) -> None:
         # A late completion can be dispatched during shutdown while widgets
@@ -2074,7 +1630,7 @@ class DashpotApp(App[None]):
         if not changes:
             dashboard.update_diagnostics()
             return
-        dashboard.reconcile_rows()
+        dashboard.issue_table.reconcile_rows()
         dashboard.update_issue_inventory()
         dashboard.reconcile_list_panes()
         dashboard.update_diagnostics()
@@ -2088,19 +1644,3 @@ class DashpotApp(App[None]):
             self.schedule_observations(
                 follow_ups, message.trigger, rerun_in_flight=True
             )
-
-
-def issue_state_filter_value(query: IssueListQuery) -> str:
-    if query.states == frozenset({"open"}):
-        return "open"
-    if query.states == frozenset({"closed"}):
-        return "closed"
-    return "all"
-
-
-def pull_request_status_filter_value(query: PullRequestListQuery) -> str:
-    if query.states == frozenset({"open"}):
-        return "open"
-    if query.states == frozenset({"closed"}):
-        return "closed"
-    return "all"

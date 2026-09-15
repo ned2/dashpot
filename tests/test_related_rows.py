@@ -11,14 +11,18 @@ from factories import agent_run, project, target, workspace
 from test_branch_list import local
 
 
-def query_source(store, source, *, issues=None):
-    return query_related_rows(
-        source,
-        sessions=store.query_sessions().rows,
-        worktrees=store.query_worktrees().rows,
-        branches=store.query_branches().rows,
-        issues=store.query_issues().rows if issues is None else issues,
+def records(store, query=IssueListQuery(), *, issues=None):
+    """Every pane's rows from ``store``, as the dashboard hands them over."""
+    return (
+        *store.query_sessions().rows,
+        *store.query_worktrees().rows,
+        *store.query_branches().rows,
+        *(store.query_issues(query).rows if issues is None else issues),
     )
+
+
+def query_source(store, source, *, issues=None):
+    return query_related_rows(source, records(store, issues=issues))
 
 
 def test_every_source_uses_direct_membership_without_recursive_expansion():
@@ -192,10 +196,7 @@ def related(store, run_id, query=IssueListQuery()):
             (row for row in store.query_sessions().rows if row.session.id == run_id),
             None,
         ),
-        sessions=store.query_sessions().rows,
-        worktrees=store.query_worktrees().rows,
-        branches=store.query_branches().rows,
-        issues=store.query_issues(query).rows,
+        records(store, query),
     )
 
 
@@ -255,15 +256,9 @@ def test_shared_rows_and_only_current_page_issue_membership_are_highlighted():
     assert related(store, "one").worktrees == related(store, "two").worktrees
     assert related(store, "one").branches == related(store, "two").branches
     source = store.query_sessions().rows[0]
+    assert not query_related_rows(source, ()).issues
     assert not query_related_rows(
-        source, sessions=(), worktrees=(), branches=(), issues=()
-    ).issues
-    assert not query_related_rows(
-        source,
-        sessions=(),
-        worktrees=(),
-        branches=(),
-        issues=(replace(store.query_issues().rows[0], observed_runs=()),),
+        source, (replace(store.query_issues().rows[0], observed_runs=()),)
     ).issues
 
 

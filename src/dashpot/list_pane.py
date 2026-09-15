@@ -10,11 +10,11 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.content import Content
 from textual.message import Message
-from textual.widget import Widget
 from textual.widgets import Static
 from typing_extensions import override
 
 from .focus_table import FocusCursorTable
+from .item_filter import ItemFilterBar
 from .keyed_table import capture_selection, restore_selection
 from .list_rows import ListCell, ListColumn, ListRow, column_help
 from .pane_layout import DEFAULT_ROW_CAP
@@ -62,7 +62,7 @@ class ListPane(Vertical):
         id: str,
         table_id: str,
         table_type: type[FocusCursorTable[ListCell]] = FocusCursorTable,
-        controls: Widget | None = None,
+        controls: ItemFilterBar | None = None,
         controls_height: int = 0,
     ) -> None:
         super().__init__(id=id)
@@ -133,6 +133,7 @@ class ListPane(Vertical):
         empty_message: str | None = None,
         title_count: int | None = None,
         title_summary: str | None = None,
+        filter_count: str | None = None,
     ) -> None:
         """Replace the listed records, keeping the cursor by row identity.
 
@@ -140,6 +141,7 @@ class ListPane(Vertical):
         dropped one, such as the Sessions pane's single-Observation-Target
         case. ``note`` is a separate pane-level fact, such as when the
         Branches pane's Remote-Tracking Branches were last fetched.
+        ``filter_count`` is the matched count the pane's controls show.
         """
         table = self.table
         message = empty_message or self.empty_message
@@ -165,6 +167,8 @@ class ListPane(Vertical):
             summary = str(self.count if title_count is None else title_count)
         self.border_title = Content(f"{self.label} · {summary}")
         self.border_subtitle = Content(note) if note else None
+        if self.controls is not None and filter_count is not None:
+            self.controls.count.update(filter_count)
         # The empty state is the message line alone: a header over nothing
         # would only cost the Issue table a row.
         table.show_header = bool(rows)
