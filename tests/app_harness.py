@@ -1,10 +1,10 @@
 """The Dashboard app harness the split ``test_app`` modules share.
 
-A ``DashpotApp`` under ``run_test`` needs the same scaffolding everywhere: an
-Issue built on the conformance fixture, a one-Project Workspace Snapshot with
-copy-with-update conveniences, a scriptable collector, a Query Source serving
-that snapshot to the shipped paged app, and small readers over the dashboard's
-panes.
+The shipped ``PagedDashpotApp`` under ``run_test`` needs the same scaffolding
+everywhere: an Issue built on the conformance fixture, a one-Project Workspace
+Snapshot with copy-with-update conveniences, a scriptable collector, a Query
+Source serving a snapshot to the app's page and totals queries, and small
+readers over the dashboard's panes.
 """
 
 from __future__ import annotations
@@ -15,14 +15,24 @@ from collections.abc import Sequence
 from pathlib import Path
 from threading import Event, Lock
 
+from textual.pilot import Pilot
+from textual.widgets import Select
+
 import factories
-from dashpot.app import DashpotApp
 from dashpot.cleanup import CleanupAdapter
+from dashpot.collect import ObservationScheduler, SnapshotCollector
 from dashpot.detail_fields import detail_items_text
 from dashpot.fetch import RemoteFetcher
-from dashpot.issue_list import IssueListRow, is_issue_sort_column
+from dashpot.issue_list import (
+    IssueListRow,
+    IssueSearchField,
+    is_issue_sort_column,
+    matches_issue_search,
+    row_key,
+    sort_issue_rows,
+)
 from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.issue_view import issue_metadata_items, selection_title
+from dashpot.issue_view import IssueScreen, issue_metadata_items, selection_title
 from dashpot.list_pane import ListPane, ListRow
 from dashpot.model import (
     AgentRun,
@@ -33,6 +43,12 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from dashpot.paged_app import QUERY_SOURCE_KEYS, PagedDashpotApp
+from dashpot.pull_request_list import (
+    PullRequestLifecycle,
+    PullRequestListQuery,
+    query_pull_request_list,
+)
+from dashpot.search import parse_search
 from dashpot.source_queries import (
     AuxiliaryObservation,
     Continuation,
@@ -49,7 +65,7 @@ from dashpot.source_queries import (
     verify_continuation,
 )
 from dashpot.worktree_launcher import LauncherConfiguration
-from helpers import snapshot_of
+from helpers import snapshot_of, wait_until
 
 NOW = "2026-08-25T01:00:00Z"
 
@@ -170,12 +186,25 @@ class SnapshotQuerySource:
 
     The shipped app never enumerates a Project; it asks a Query Source for
     pages. This source answers from the first Project of a Workspace Snapshot
-    so a test can drive the paged app with the snapshot it hands the collector.
+    so a test can drive the paged app with the snapshot it hands the collector,
+    and ``serve`` swaps that snapshot for the one a later observation carries.
+    An Issue page honours the submitted search text and column ordering the
+    way the local Markdown source does, and a Pull Request page the same
+    search the base list applied locally.
     """
 
     search_prompt = "Search Issues (Enter)"
 
-    def __init__(self, snapshot: WorkspaceSnapshot) -> None:
+    def __init__(
+        self, snapshot: WorkspaceSnapshot, *, release: Event | None = None
+    ) -> None:
+        # A gated source holds its page and totals until the test releases
+        # it, so what the app shows before the first result is deterministic.
+        self.release = release
+        self.serve(snapshot)
+
+    def serve(self, snapshot: WorkspaceSnapshot) -> None:
+        """Answer later queries from this snapshot's first Project."""
         self.project: ProjectObservation = snapshot.projects[0]
         self.context = SourceContext(
             project_id=self.project.project_id,
@@ -184,8 +213,12 @@ class SnapshotQuerySource:
             location=self.project.primary_anchor,
         )
 
+    def _wait_for_release(self) -> None:
+        if self.release is not None:
+            self.release.wait(timeout=2)
+
     def supports_sort(self, request: QueryRequest, column: str) -> bool:
-        return is_issue_sort_column(column)
+        return is_issue_sort_column(column) and parse_search(request.query).sort is None
 
     def _freshness(self, kind: ResourceKind) -> tuple[SourceStatus, str | None]:
         """Report the status and last good time the snapshot observed one kind at."""
@@ -212,7 +245,52 @@ class SnapshotQuerySource:
             label_colors=snapshot.label_colors,
         )
 
+    def _matching_issues(self, request: QueryRequest) -> list[IssueProfile]:
+        """The Issues the submitted state, search text and ordering select."""
+        parsed = parse_search(request.query)
+        terms = tuple(term.casefold() for term in parsed.terms)
+        found = [
+            issue
+            for issue in self._issues()
+            if (request.state == "all" or issue.state == request.state)
+            and matches_issue_search(
+                issue, self.project, frozenset(IssueSearchField), terms
+            )
+        ]
+        ordering = request.ordering
+        if parsed.sort:
+            # A sort qualifier in the submitted text owns the order.
+            column = "created" if parsed.sort.field == "created" else "last_action"
+            ordering = column + (":desc" if parsed.sort.descending else ":asc")
+        if ordering == "provider-default":
+            return found
+        column, _, direction = ordering.rpartition(":")
+        assert is_issue_sort_column(column)
+        rows = sort_issue_rows(
+            (
+                IssueListRow(row_key("issue", issue.id), "issue", self.project, issue)
+                for issue in found
+            ),
+            column,
+            descending=direction == "desc",
+        )
+        return [row.issue for row in rows]
+
+    def _matching_pull_requests(self, request: QueryRequest) -> list[PullRequest]:
+        """The Pull Requests the submitted state and search text select."""
+        states: frozenset[PullRequestLifecycle] = (
+            frozenset({"open", "closed"})
+            if request.state == "all"
+            else frozenset({request.state})
+        )
+        result = query_pull_request_list(
+            factories.workspace(self.project),
+            PullRequestListQuery(text=request.query, states=states),
+        )
+        return [row.pull_request for row in result.rows]
+
     def query_page(self, request: QueryRequest) -> QueryPage:
+        self._wait_for_release()
         status, last_good_at = self._freshness(request.kind)
         if status == "unavailable":
             return QueryPage(
@@ -235,18 +313,10 @@ class SnapshotQuerySource:
         issues: Sequence[IssueProfile] = ()
         pull_requests: Sequence[PullRequest] = ()
         if request.kind == "issues":
-            found_issues = [
-                issue
-                for issue in self._issues()
-                if request.state == "all" or issue.state == request.state
-            ]
+            found_issues = self._matching_issues(request)
             matched, issues = len(found_issues), found_issues[window]
         else:
-            found_pull_requests = [
-                pr
-                for pr in self._pull_requests()
-                if request.state == "all" or pr.state == request.state
-            ]
+            found_pull_requests = self._matching_pull_requests(request)
             matched, pull_requests = (
                 len(found_pull_requests),
                 found_pull_requests[window],
@@ -279,6 +349,7 @@ class SnapshotQuerySource:
         )
 
     def totals(self, kind: ResourceKind) -> ProjectTotals:
+        self._wait_for_release()
         status, last_good_at = self._freshness(kind)
         if status == "unavailable":
             return ProjectTotals(
@@ -352,45 +423,132 @@ class SnapshotQuerySource:
 
 
 def dashboard_app(
-    collector: SequenceCollector,
+    collector: SnapshotCollector | ObservationScheduler,
     *,
+    snapshot: WorkspaceSnapshot | None = None,
     refresh_seconds: float = 0,
+    refresh_indicator_seconds: float | None = None,
     fetcher: RemoteFetcher | None = None,
     cleaner: CleanupAdapter | None = None,
     launcher_configuration: LauncherConfiguration | None = None,
+    release: Event | None = None,
 ) -> PagedDashpotApp:
-    """Build the shipped app over a scripted collector, its queries served from a snapshot.
+    """Build the shipped app over a collector, its queries served from a snapshot.
 
-    The Query Sources answer from the first snapshot the collector will observe.
+    Without an explicit ``snapshot`` the Query Sources answer from the first
+    one a scripted collector will observe; ``serve_snapshot`` moves them on
+    when a later observation should be queried too.
     """
-    snapshot = next(
-        result for result in collector.results if isinstance(result, WorkspaceSnapshot)
-    )
-    return PagedDashpotApp(
+    if snapshot is None:
+        assert isinstance(collector, SequenceCollector)
+        snapshot = next(
+            result
+            for result in collector.results
+            if isinstance(result, WorkspaceSnapshot)
+        )
+    app = PagedDashpotApp(
         collector,
-        sources={key: SnapshotQuerySource(snapshot) for key in QUERY_SOURCE_KEYS},
+        sources={
+            key: SnapshotQuerySource(snapshot, release=release)
+            for key in QUERY_SOURCE_KEYS
+        },
         refresh_seconds=refresh_seconds,
         fetcher=fetcher,
         cleaner=cleaner,
         launcher_configuration=launcher_configuration,
     )
+    # The shipped constructor does not take the indicator delay the base app
+    # does; the app reads the attribute at each refresh, so a test sets it.
+    if refresh_indicator_seconds is not None:
+        app.refresh_indicator_seconds = refresh_indicator_seconds
+    return app
 
 
-def first_load_landed(app: PagedDashpotApp) -> bool:
-    """Report whether the first observation, both first pages and both totals rendered.
+def serve_snapshot(app: PagedDashpotApp, snapshot: WorkspaceSnapshot) -> None:
+    """Have every Query Source answer from ``snapshot`` from now on."""
+    for source in app.sources.values():
+        assert isinstance(source, SnapshotQuerySource)
+        source.serve(snapshot)
 
-    The base app rendered everything from its first checkpoint; the shipped
-    app also waits on its page and totals queries, so a test reads the
-    dashboard only once all of them are in.
+
+def hold_sources(app: PagedDashpotApp) -> Event:
+    """Hold every Query Source's next answers until the returned Event is set."""
+    gate = Event()
+    for source in app.sources.values():
+        assert isinstance(source, SnapshotQuerySource)
+        source.release = gate
+    return gate
+
+
+def page_summary(shown: int, matched: int | None = None) -> str:
+    """The Issues pane's summary of a fresh page observed at ``NOW``."""
+    matches = shown if matched is None else matched
+    return f"{shown} shown · {matches} matches · fresh · observed {NOW}"
+
+
+UNAVAILABLE_PAGE_SUMMARY = "0 shown · ? matches · unavailable"
+
+
+def observation_landed(app: PagedDashpotApp, revision: int) -> bool:
+    """Report whether observation ``revision``, both pages and both totals rendered.
+
+    The base app rendered everything from a checkpoint; the shipped app also
+    waits on its page and totals queries, and a manual refresh drops both
+    pages until their restarted queries answer, so a test reads the dashboard
+    only once all of them are in.
     """
     return (
-        app.store.revision >= 1
+        app.store.revision >= revision
         and set(app.paged_store.pages) == {"issues", "pull-requests"}
         and set(app.paged_store.totals) == {"issues", "pull-requests"}
     )
 
 
-def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
+def first_load_landed(app: PagedDashpotApp) -> bool:
+    """Report whether the first observation, both first pages and both totals rendered."""
+    return observation_landed(app, 1)
+
+
+async def show_issue_states(app: PagedDashpotApp, state: str) -> None:
+    """Choose an Issue lifecycle filter and wait for its page to land."""
+    app.query_one("#issue-state", Select).value = state
+    await wait_until(
+        lambda: (
+            (page := app.paged_store.pages.get("issues")) is not None
+            and page.request.state == state
+        )
+    )
+
+
+async def open_issue_view(app: PagedDashpotApp, pilot: Pilot[None]) -> IssueScreen:
+    """Open the selected Issue with Enter and wait for its identities to settle.
+
+    Opening an Issue resolves the identities it relates to, and the shipped
+    view recomposes once they land; a test reads the view only after that.
+    """
+    app.dashboard.queue_table().focus()
+    await pilot.press("enter")
+    await wait_until(lambda: isinstance(app.screen, IssueScreen) and not app.query_busy)
+    await pilot.pause()
+    screen = app.screen
+    assert isinstance(screen, IssueScreen)
+    return screen
+
+
+async def await_resolved_identities(app: PagedDashpotApp, *issue_ids: str) -> None:
+    """Request the Issues the observed Agent Runs are bound to and await them.
+
+    The shipped scheduler publishes Agent Runs on their own key, and the app
+    resolves the Issues they name when that key lands; a snapshot collector
+    publishes one workspace key, so a test asks for the resolution itself.
+    """
+    app.request_identities()
+    await wait_until(
+        lambda: all(issue_id in app.paged_store.resolved for issue_id in issue_ids)
+    )
+
+
+def assert_panes_stack_above_full_width_queue(app: PagedDashpotApp) -> None:
     """The list panes stack in reading order above the full-width Issue table."""
     body = app.query_one("#body")
     list_row = app.query_one("#list-row")
@@ -414,19 +572,19 @@ def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
     assert not app.query("#selection-pane")
 
 
-def selected_title(app: DashpotApp) -> str:
+def selected_title(app: PagedDashpotApp) -> str:
     """The compact label of the Issue the table cursor is on."""
     assert app.dashboard.selected_row_key is not None
     return selection_title(app.dashboard.rows_by_key[app.dashboard.selected_row_key])
 
 
-def pane_title(app: DashpotApp, selector: str) -> str:
+def pane_title(app: PagedDashpotApp, selector: str) -> str:
     title = app.query_one(selector)._border_title
     assert title is not None
     return title.plain
 
 
-def pane_subtitle(app: DashpotApp, selector: str) -> str:
+def pane_subtitle(app: PagedDashpotApp, selector: str) -> str:
     subtitle = app.query_one(selector)._border_subtitle
     assert subtitle is not None
     return subtitle.plain
@@ -446,7 +604,7 @@ def list_rows(
     )
 
 
-def prepare_pane(app: DashpotApp, pane_id: str) -> ListPane:
+def prepare_pane(app: PagedDashpotApp, pane_id: str) -> ListPane:
     """A pane with the two generic columns the shell tests fill in."""
     pane = app.query_one(f"#{pane_id}", ListPane)
     if not pane.table.columns:
@@ -460,5 +618,5 @@ def pane_chrome(pane: ListPane) -> int:
     return 2 + 1 + (1 if pane.table.show_horizontal_scrollbar else 0)
 
 
-def footer_keys(app: DashpotApp) -> set[str]:
+def footer_keys(app: PagedDashpotApp) -> set[str]:
     return {binding.key for _, binding, *_ in app.screen.active_bindings.values()}

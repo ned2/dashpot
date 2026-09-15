@@ -13,11 +13,12 @@ from typing_extensions import override
 
 from app_harness import (
     SequenceCollector,
+    dashboard_app,
+    first_load_landed,
     issue,
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
 from dashpot.branch_cells import BRANCH_COLUMNS
 from dashpot.focus_table import FocusCursorTable
 from dashpot.list_pane import ListPane
@@ -93,11 +94,11 @@ async def test_every_branches_header_shows_its_help_and_only_its_help() -> None:
         workspace_snapshot(issue("test/repo#1", "First")),
         branches=[branch("main"), branch("main", remote="origin"), branch("feat")],
     )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(snapshot))
     app.TOOLTIP_DELAY = TOOLTIP_DELAY
 
     async with app.run_test(size=(140, 40), tooltips=True) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         pane = app.query_one("#branches-pane", ListPane)
         table = pane.table

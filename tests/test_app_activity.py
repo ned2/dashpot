@@ -3,9 +3,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from app_harness import SequenceCollector
+from app_harness import (
+    SequenceCollector,
+    dashboard_app,
+    first_load_landed,
+    observation_landed,
+)
 from dashpot.agents import observe_agent_runs
-from dashpot.app import DashpotApp
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.glyphs import SESSION_STATE_GLYPHS
 from dashpot.hook_records import write_hook_record
@@ -27,9 +31,9 @@ from test_related_rows import query_source, related, related_snapshot
 @pytest.mark.parametrize("source_pane", ["sessions", "worktrees", "branches", "issues"])
 async def test_all_sources_navigation_reentry_and_passive_destinations(source_pane):
     collector = SequenceCollector(related_snapshot())
-    app = DashpotApp(collector, refresh_seconds=0)
+    app = dashboard_app(collector)
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         tables = {
             "sessions": app.dashboard.sessions_pane().table,
             "worktrees": app.dashboard.worktrees_pane().table,
@@ -91,9 +95,9 @@ async def test_all_sources_navigation_reentry_and_passive_destinations(source_pa
 
 @pytest.mark.asyncio
 async def test_session_destinations_keep_glyph_colors_and_bold_identity_in_both_themes():
-    app = DashpotApp(SequenceCollector(related_snapshot()), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(related_snapshot()))
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         table = app.dashboard.sessions_pane().table
         for theme in ("textual-dark", "textual-light"):
             app.theme = theme
@@ -133,12 +137,11 @@ async def test_refresh_for_each_new_source_follows_visible_key_and_clears_remove
     removed = initial.model_copy(
         update={"projects": (), "agent_runs": (), "issue_runs": {}}
     )
-    app = DashpotApp(
-        SequenceCollector(initial, changed, RuntimeError("rejected"), removed),
-        refresh_seconds=0,
+    app = dashboard_app(
+        SequenceCollector(initial, changed, RuntimeError("rejected"), removed)
     )
     async with app.run_test(size=(150, 55)):
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         tables = {
             "sessions": app.dashboard.sessions_pane().table,
             "worktrees": app.dashboard.worktrees_pane().table,
@@ -165,11 +168,13 @@ async def test_refresh_for_each_new_source_follows_visible_key_and_clears_remove
         await wait_until(matches)
         key = capture_selection(table)[0]
         app.request_refresh("manual")
-        await wait_until(lambda: app.store.revision == 2 and matches())
+        await wait_until(lambda: observation_landed(app, 2) and matches())
         assert capture_selection(table)[0] == key
         accepted = tuple(target.related_rows for target in tables.values())
         app.request_refresh("manual")
-        await wait_until(lambda: bool(app.observation_errors))
+        await wait_until(
+            lambda: bool(app.observation_errors) and first_load_landed(app)
+        )
         assert tuple(target.related_rows for target in tables.values()) == accepted
         app.request_refresh("manual")
         await wait_until(lambda: table.row_count == 0 and matches())
@@ -196,9 +201,9 @@ def expected(app, run_id):
 @pytest.mark.asyncio
 async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchanged():
     collector = SequenceCollector(related_snapshot())
-    app = DashpotApp(collector, refresh_seconds=0)
+    app = dashboard_app(collector)
     async with app.run_test(size=(120, 55)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         sessions = app.dashboard.sessions_pane().table
         destinations = destination_tables(app)
         before = [
@@ -254,22 +259,23 @@ async def test_refresh_switch_reorder_rejection_and_removal_follow_visible_sessi
         update={"agent_runs": (initial.agent_runs[1],), "issue_runs": {}}
     )
     empty = initial.model_copy(update={"agent_runs": (), "issue_runs": {}})
-    app = DashpotApp(
-        SequenceCollector(initial, second, RuntimeError("rejected"), removed, empty),
-        refresh_seconds=0,
+    app = dashboard_app(
+        SequenceCollector(initial, second, RuntimeError("rejected"), removed, empty)
     )
     async with app.run_test(size=(120, 55)):
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         sessions = app.dashboard.sessions_pane().table
         sessions.focus()
         await wait_until(lambda: emphasis(app) == expected(app, "one"))
         key = capture_selection(sessions)[0]
         app.request_refresh("manual")
-        await wait_until(lambda: app.store.revision == 2)
+        await wait_until(lambda: observation_landed(app, 2))
         assert capture_selection(sessions) == (key, 1)
         await wait_until(lambda: emphasis(app) == expected(app, "switched-run"))
         app.request_refresh("manual")
-        await wait_until(lambda: bool(app.observation_errors))
+        await wait_until(
+            lambda: bool(app.observation_errors) and first_load_landed(app)
+        )
         assert emphasis(app) == expected(app, "switched-run")
         app.request_refresh("manual")
         await wait_until(lambda: sessions.row_count == 1)
@@ -283,7 +289,10 @@ async def test_refresh_switch_reorder_rejection_and_removal_follow_visible_sessi
 @pytest.mark.asyncio
 @pytest.mark.parametrize("size", [(65, 55), (200, 65)])
 async def test_activity_alignment_freezing_and_theme_colors(size):
-    snapshot = related_snapshot()
+    # Bind the run to the Issue it declares, as the collector's Issue Binding
+    # validation does: the page row reads the declaration, the Sessions pane
+    # the binding, and the two only agree on an observation shaped like that.
+    snapshot = related_snapshot(bindings={"I_alpha#2": ["one"]})
     project = snapshot.projects[0]
     targets = list(project.snapshot.observation_targets)
     targets[0] = targets[0].model_copy(update={"path": "/" + "long-path-" * 35})
@@ -299,9 +308,9 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
     snapshot = snapshot.model_copy(
         update={"projects": (project, snapshot.projects[1]), "agent_runs": runs}
     )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(snapshot))
     async with app.run_test(size=size) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         tables = (app.dashboard.sessions_pane().table, *destination_tables(app))
         for theme in ("textual-dark", "textual-light"):
             app.theme = theme
@@ -326,7 +335,7 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
                 assert table.render_line(running_index + 1).text.index("●") == before
             assert len(set(positions)) == 1
             activity = app.dashboard.queue_table().get_cell(
-                row_key("issue", "I_alpha#1"), "agent_state"
+                row_key("issue", "I_alpha#2"), "agent_state"
             )
             assert isinstance(activity, AgentStateCell)
             assert str(activity.style) == SESSION_STATE_GLYPHS["running"].style(
@@ -347,9 +356,9 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
 
 @pytest.mark.asyncio
 async def test_related_rows_have_background_and_bold_without_losing_glyph_colors():
-    app = DashpotApp(SequenceCollector(related_snapshot()), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(related_snapshot()))
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         for theme in ("textual-dark", "textual-light"):
             app.theme = theme
             app.dashboard.pull_requests_pane().table.focus()
@@ -390,15 +399,18 @@ async def test_column_editor_normalizes_old_choices_and_keeps_activity_fixed():
         columns=("title", "agent_state", "number", "agent_state")
     )
     assert view.columns == ("agent_state", "title", "number")
-    app = DashpotApp(
-        SequenceCollector(related_snapshot()), refresh_seconds=0, issue_view=view
-    )
+    app = dashboard_app(SequenceCollector(related_snapshot()))
     async with app.run_test(size=(120, 55)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
+        # The shipped app takes no view of its own, so an old choice arrives
+        # as apply_issue_columns would deliver it: set on the mounted dashboard.
+        app.dashboard.issue_view = view
+        await pilot.pause()
         await pilot.press("c")
         editor = app.screen
         assert isinstance(editor, IssueColumnEditor)
         assert "agent_state" not in editor.column_order
+        assert editor.column_order[:2] == ["title", "number"]
         editor.query_one(MarkedSelectionList).deselect_all()
         await pilot.click("#column-apply")
         await wait_until(lambda: app.screen is app.dashboard)
@@ -424,9 +436,9 @@ async def test_offscreen_related_worktree_is_styled_only_when_person_scrolls():
     snapshot = snapshot.model_copy(
         update={"projects": (project,), "agent_runs": (run,)}
     )
-    app = DashpotApp(SequenceCollector(snapshot), refresh_seconds=0)
+    app = dashboard_app(SequenceCollector(snapshot))
     async with app.run_test(size=(85, 30)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         table = app.dashboard.worktrees_pane().table
         app.dashboard.sessions_pane().table.focus()
         await wait_until(lambda: bool(table.related_rows))

@@ -5,8 +5,14 @@ import pytest
 from textual.widgets import Static
 from typing_extensions import override
 
-from app_harness import SequenceCollector, issue, with_first_target, workspace_snapshot
-from dashpot.app import DashpotApp
+from app_harness import (
+    SequenceCollector,
+    dashboard_app,
+    first_load_landed,
+    issue,
+    with_first_target,
+    workspace_snapshot,
+)
 from dashpot.model import RepositoryStateInventory
 from dashpot.worktree_launcher import LauncherConfiguration, configure_worktree_launcher
 from dashpot.worktree_table import WorktreeTable
@@ -34,15 +40,14 @@ async def test_worktree_enter_and_copy_are_scoped_and_mouse_does_not_launch(tmp_
         workspace_snapshot(issue("test/repo#1", "First")), path=str(path)
     )
     opener = Mock()
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(snapshot),
-        refresh_seconds=0,
         launcher_configuration=LauncherConfiguration(opener),
     )
     clipboard = Mock()
     app.copy_to_clipboard = clipboard
     async with app.run_test(size=(120, 45)) as pilot:
-        await wait_until(lambda: app.store.revision == 1)
+        await wait_until(lambda: first_load_landed(app))
         table = app.query_one(WorktreeTable)
         table.focus()
         await pilot.pause()
@@ -77,14 +82,13 @@ async def test_pending_request_keeps_captured_path_and_refuses_duplicates(tmp_pa
         captured.append(path)
         release.wait(timeout=3)
 
-    app = DashpotApp(
+    app = dashboard_app(
         SequenceCollector(snapshot),
-        refresh_seconds=0,
         launcher_configuration=LauncherConfiguration(opener),
     )
     try:
         async with app.run_test(size=(120, 45)) as pilot:
-            await wait_until(lambda: app.store.revision == 1)
+            await wait_until(lambda: first_load_landed(app))
             table = app.query_one(WorktreeTable)
             table.focus()
             await pilot.press("enter")
