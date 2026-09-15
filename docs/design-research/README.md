@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-13
+date: 2026-09-15
 ---
 
 # Design research
@@ -107,6 +107,71 @@ provenance of each pass.
   from the passes above; it supplies the individual-against-team tension
   with an AI-era measurement the corpus lacked.
 
+## Phase C: the lifecycle and the team
+
+Researched separately on 2026-09-15 to balance a corpus skewed toward one
+person keeping a model of code an agent wrote: these notes take the team and
+the lifecycle as their unit, and the work rather than the session. Each ends
+in a mapping of its findings to where the earlier notes touch them, and each
+is documentary — the [analysis](analysis.md) remains the only note that
+takes a position.
+
+- [Workspace awareness and coordination](workspace-awareness-and-coordination.md)
+  — the CSCW definitions of awareness (who, what, where, and their
+  histories), the coordination requirements awareness serves (Conway's law
+  tests, socio-technical congruence, the awareness network), how the
+  developer awareness tools were evaluated, what awareness information
+  people measurably use, three generations of the chat-versus-tracker
+  argument, and bots as awareness participants.
+- [Flow, WIP limits and constraints](flow-wip-limits-and-constraints.md) —
+  WIP limits, pull, batch size, the Theory of Constraints, the Definition of
+  Done and stage gates as their own texts state them and as software teams
+  measured them; batch size at review as the one place WIP meets
+  comprehension evidence; and the stand-up and retrospective as knowledge
+  transfer.
+- [Handover between sessions, people, and agents](handover-between-sessions-people-and-agents.md)
+  — what shift handover in mission control, nuclear plants, and hospitals
+  transfers and loses (I-PASS's 23% fewer errors; the sender's most
+  important item lost 60% of the time), interruption and resumption as
+  handover to one's later self, common ground with a machine, and what
+  agent-era compaction and handoff artifacts keep and drop.
+- [Automation as a team player](automation-as-a-team-player.md) — the
+  joint-activity strand's requirements (observability, directability,
+  common ground, the ten challenges), coordination cost as measured in
+  human–autonomy teaming, and the 2019–2026 AI-teammate and coding-agent
+  studies that restate those requirements without citing them.
+- [Review capacity and volume](review-capacity-and-volume.md) — reviewer
+  hours before agents, arrival rates and review latencies since, curl's
+  security-triage record, what project policies actually enforce (no
+  numeric rate limit found beyond one three-PR rule), tooling sold as
+  capacity, and the Jevons and rebound framing.
+- [Ownership and accountability for delegated work](ownership-and-accountability-for-delegated-work.md)
+  — the ownership–quality evidence and its replications, who signs for an
+  agent change (the DCO, the kernel's rule, forge mechanics, vendor terms),
+  licence positions on certifying agent output, and the first measurements
+  of ownership feeling and modification survival under AI authorship.
+- [Expert finding and transactive memory](expert-finding-and-transactive-memory.md)
+  — Wegner's transactive memory and its meta-analyses, how developers
+  locate an expert, whether expertise recommenders were evaluated on
+  people, and the one survey of developers asking an AI instead of a
+  colleague.
+- [Apprenticeship under agents](apprenticeship-under-agents.md) —
+  legitimate peripheral participation and cognitive apprenticeship, the
+  economics of who pays for training, the contested payroll evidence on
+  junior developer hiring, seniority in usage telemetry, the counter-evidence
+  that the least experienced gain most, and firms' divergent practice.
+- [Integration frequency and parallel branches](integration-frequency-and-parallel-branches.md)
+  — pre-agent conflict rates (one in six to one in three), branch structure
+  and quality, the frequency prescriptions and their evidence, merge queues
+  as integration devices, what agent vendors say about worktree counts and
+  landing order, and the first conflict measurements on agent-authored
+  branches.
+- [Team-level measurement](team-level-measurement.md) — SPACE, DevEx, and
+  DORA as instruments and at what level they score, the team-cognition
+  scales and how many teams validated them, the AI-era surveys' actual
+  items, and the finding that nothing measures a team's shared model of its
+  codebase.
+
 ## Synthesis and analysis
 
 - [Synthesis](synthesis.md) — the documentary reading of the whole corpus:
@@ -124,4 +189,8 @@ provenance of each pass.
 The evidence note and the landscape sweep are the shared vocabulary; the
 track notes assume both. The gap notes are best read after the tracks, since
 each ends in a mapping of its claims to where the tracks touch them. The
-synthesis assumes all of them; the analysis assumes the synthesis.
+synthesis assumes all of them; the analysis assumes the synthesis. The
+Phase C notes assume the team lens and the unfamiliar-code note, and can
+be read in any order after those; the synthesis summarises them in its
+own dated section and the analysis draws on them for the team's rows of
+its map and its last four principles.

@@ -1,6 +1,6 @@
 ---
 status: proposal
-date: 2026-09-14
+date: 2026-09-15
 ---
 
 # Design analysis
@@ -125,7 +125,7 @@ observation.
 | Work stops or relocates | `work stop`, `work relocate`, `SessionEnd`; Orphaned Agent Runs | agent | Work Store |
 | Cleanup | Branch and Worktree removal on confirmed selection | person | none |
 
-Two facts about this layer matter for everything that follows. First,
+Three facts about this layer matter for everything that follows. First,
 Dashpot already has two channels *into* the agent's loop, not merely a view
 of its results: the lifecycle hook publisher registered in each harness,
 and the model-invoked `dashpot-issue-work` skill that tells the agent how
@@ -136,7 +136,20 @@ nothing Dashpot records today is about a *person's* act. The Work Store
 records what an agent is bound to; the observation records what Git and
 GitHub say. The corpus found that no tool anywhere records that a human
 read an artifact, and Dashpot is no exception
-([synthesis, gaps](synthesis.md#gaps-every-pass-left), item 5).
+([synthesis, gaps](synthesis.md#gaps-every-pass-left), item 5). Third,
+by the CSCW definition Dashpot is a *workspace awareness* tool — the
+up-to-the-moment understanding of who is acting, on what, where, with
+their histories — and the awareness literature found no tool that treats
+an automated actor as an awareness subject whose who/what/where must be
+shown to people. Dashpot's Agent Run — a session, bound to an Issue, at a
+Worktree, live or gone — is exactly that, which the awareness literature
+says is instrumental: when the people whose work depends on each other's
+know it, changes resolve faster and fail less
+([awareness, finding](workspace-awareness-and-coordination.md#finding)).
+Observability is the half of "automation as a team player" Dashpot has;
+directability — re-directing the agent fluently — is the half it lacks,
+and the hook and skill channels are where it could live
+([team player, finding](automation-as-a-team-player.md#finding)).
 
 ### Layer 2: what the evidence says a lifecycle needs
 
@@ -148,11 +161,15 @@ evidence marks as where the model is built, held, or lost:
 | **Task start: restate the problem** | Generation before exposure is the demanding end of the mechanism table; plan approval is the only task-start gate agents ship, and it is the one people reject (39% plan rejection versus 3% per permission) | Plan modes; AGENTS.md ([in-loop friction, Claude Code](track-in-loop-friction.md#claude-code)) |
 | **In-loop step: promote, not accept** | The only tool inverting the authorship default is a notebook; no editor or agent CLI has ported it | Per-command permission gates ([in-loop friction, inversion](track-in-loop-friction.md#inversion-outside-notebooks)) |
 | **Hand-off: explain it back** | The single causal result in the corpus: 61.5% versus 23.1% later unassisted repair, at d = 1.52 velocity cost | Nothing between "agent done" and "PR opened" ([hand-off checks, Sankaranarayanan](track-hand-off-checks.md#sankaranarayanan-2026-in-full)) |
-| **Review as transfer** | Pre-AI, reviewing spread the files a developer "knows" by 66–150%; AI-era review telemetry runs the other way (approvals up, inline comments −22%) | Review decision glyph on a PR row ([unfamiliar code, practices](unfamiliar-code-and-shared-models.md#practices-that-transfer-the-model)) |
-| **Return after absence** | Retention is unmeasured beyond one week; the human-factors literature found detection restored by a short return to manual control | Session activity age; fetch age ([adjacent literatures, aviation](adjacent-literatures.md#skill-fade-in-aviation)) |
+| **Review as transfer** | Pre-AI, reviewing spread the files a developer "knows" by 66–150%; AI-era review telemetry is disputed in direction (habituation in one study, scrutiny rising in another); batch size at review is the one place team friction meets comprehension evidence (59% versus 35% effectiveness for small versus large changes) | Review decision glyph on a PR row ([unfamiliar code, practices](unfamiliar-code-and-shared-models.md#practices-that-transfer-the-model); [flow, finding](flow-wip-limits-and-constraints.md#finding)) |
+| **Arrival at review: rate and WIP** | Generation grows multiplicatively per developer, review linearly with headcount; no project sets a numeric limit beyond one three-PR rule; WIP limits are the team-level friction device with before–after evidence (lead time halved) and no comprehension measure | Open PR counts and Agent Runs per Worktree are observed but not bounded ([review capacity, finding](review-capacity-and-volume.md#finding); [flow, finding](flow-wip-limits-and-constraints.md#finding)) |
+| **Session boundary: handover** | What is handed over is a state model plus a stance — belief, intent, expectation, contingency — and it is rebuilt by the receiver's questions; written-only handover failed in four of five investigated incidents; a structured protocol cut errors 23%; agent compaction keeps the artifact side and nobody measures what a person recovers from it | `work stop` / `work relocate` / `SessionEnd` end or move a run and record nothing about its state ([handover, finding](handover-between-sessions-people-and-agents.md#finding)) |
+| **Return after absence** | Retention is unmeasured beyond one week; the human-factors literature found detection restored by a short return to manual control; programmers resume from cues, not memory (93% navigate before editing) | Session activity age; fetch age ([adjacent literatures, aviation](adjacent-literatures.md#skill-fade-in-aviation); [handover, finding](handover-between-sessions-people-and-agents.md#finding)) |
+| **Integration order across parallel runs** | Conflict probability rose 5%→40% with concurrent changes at Uber; 79.4% of agent PRs are open concurrently and cross-agent pairs conflict 41.7%; no vendor states how many parallel runs is too many or in what order they land | Worktrees, Branches, and integration facts are observed; no count or order ([integration, finding](integration-frequency-and-parallel-branches.md#finding)) |
 | **Module revisit** | No tool connects a change to a review schedule; SRS on a repository has never been built | Integration facts per Branch ([durable model, scheduling](track-durable-model.md#who-has-connected-change-detection-to-review-scheduling)) |
 | **Periodic: what did I lose** | Every measure in the corpus is a single session; the one deployed instrument is a self-report item | Nothing ([measurement, arguments against](track-measurement.md#arguments-against-measuring)) |
-| **A person joining, or handing over** | The model was held by the team; onboarding's answer is mentor + small task + running it; no AI-era item touches this stage | Nothing ([unfamiliar code, convergence](unfamiliar-code-and-shared-models.md#what-the-newcomer-studies-converge-on)) |
+| **A person joining, or handing over** | The model was held by the team; onboarding's answer is mentor + small task + running it; apprenticeship ran on the routine work agents now do, and "seniors can no longer observe whether juniors are learning or just prompting"; no AI-era item touches this stage | Nothing ([unfamiliar code, convergence](unfamiliar-code-and-shared-models.md#what-the-newcomer-studies-converge-on); [apprenticeship, finding](apprenticeship-under-agents.md#finding)) |
+| **Who signs** | Every policy read places accountability for an agent change on a named person; ownership predicted quality at Microsoft; agent code is 15.8 points less likely to be modified later under an untested "no clear owner" hypothesis | Issue Binding names the session, not a person; PR author and reviewers are observed ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)) |
 
 ### The map: lifecycle stage against demand
 
@@ -169,7 +186,9 @@ not a candidate.
 | In-loop step | promote rather than accept (M: harness-side) | agent asks before proceeding (M: skill/hook) | — | permission gates (O via hooks, unmeasured) | — | curated dialog (N) |
 | Hand-off (agent done, pre-PR) | write the PR description oneself (N) | explain it back, graded (N + M if gating) | quiz on the diff (N) | — | read-first viewer (N) | explainer artifact (N) |
 | PR review / merge | — | reviewer explains a hunk (N; social) | — | review decision (O); read attestation per file (N) | `Viewed` state (N: not in the PR observation) | Agent Trace / provenance (N) |
-| Integration / Cleanup | — | — | — | integration by reachability or content (O) | — | ADR / rationale written (N) |
+| Integration / Cleanup | — | — | — | integration by reachability or content (O); landing order across concurrent runs (N) | — | ADR / rationale written (N) |
+| Session boundary (stop, relocate, end) | state + stance handover written by the outgoing holder (N) | receiver asks before resuming (N) | — | — | what the run left undone (O: Work Store; N: state) | compaction summary (M: harness-side) |
+| Arrival at review | — | — | — | concurrent Agent Runs, open PRs, change size bounded per person (N; M if enforced) | — | — |
 | Return after absence | — | — | recall before re-reading (N) | — | what moved while away (O: Git facts; N: read) | — |
 | Module revisit | — | — | scheduled retrieval, invalidated by change (N) | — | — | — |
 | Periodic | — | — | sampled recall across the repository (N) | — | — | self-report instrument (N) |
@@ -193,6 +212,13 @@ What the map shows, before any candidate is weighed:
 - Three whole rows — return after absence, module revisit, periodic —
   have no **O** at all, and they are the rows the retention gap sits in.
   They are also the rows that work identically without AI.
+- The rows Phase C added — session boundary, arrival at review,
+  integration order — are the team's rows, and they are where Dashpot's
+  existing facts are densest: runs, worktrees, branches, open PRs,
+  integration. The friction there is a *bound* (how many in flight, how
+  large, in what order) rather than an act, which is the one kind of
+  friction with team-level before–after evidence and the one kind a
+  passive observer can show without performing.
 
 ## 3. Principles the evidence supports
 
@@ -325,6 +351,75 @@ design to. A principle that goes beyond what was measured says so.
     on a human-authored branch is suspect, because agent-authored code is
     the extreme case of unfamiliar code, not a different kind of thing.
 
+The Phase C notes add four principles for the team's rows of the map
+(added 2026-09-15):
+
+12. **Observable and directable, or not a teammate.** Two decades of
+    joint-activity research give one answer to what automation needs to be
+    a team player: people must see what it is doing and will do next, and
+    be able to redirect it fluently — "strong, silent, difficult to direct"
+    is the failure, not too much or too little autonomy — and every member
+    must help control the cost of coordinating. The coding-agent
+    measurements find 22.58% of misalignment episodes involve inaccurate
+    self-report, and reviewers reward agent behaviours that reduce
+    coordination cost
+    ([team player, finding](automation-as-a-team-player.md#finding)).
+    *Commits to:* Dashpot's observation model as the observability half —
+    an Agent Run at a Worktree bound to an Issue is the who/what/where the
+    awareness literature asks for and no tool shows for an automated actor
+    ([awareness, finding](workspace-awareness-and-coordination.md#finding))
+    — and to treating directability as the missing half: a friction on the
+    agent must let the person redirect, not only watch, through the hook
+    and skill channels that already exist.
+
+13. **A handover is a state model and a stance, rebuilt by the receiver's
+    questions.** Across mission control, nuclear plants, and hospitals the
+    update that works is interactive and carries belief, intent,
+    expectation, and contingency; written-only handover failed in four of
+    five investigated incidents, a structured protocol cut errors 23%, and
+    the sender's most important item was lost 60% of the time while
+    senders believed it had arrived. Agent compaction keeps the artifact
+    side only, and no one measures what a person recovers from it
+    ([handover, finding](handover-between-sessions-people-and-agents.md#finding)).
+    *Commits to:* the session boundary — `work stop`, relocation, session
+    end, return after absence — as a lifecycle stage with its own friction:
+    an outgoing statement of state and stance that the Work Store keeps,
+    and a receiving step that asks before resuming rather than reads a
+    summary. This is the one stage where the agent, not the person, is the
+    outgoing holder.
+
+14. **Bound the rate, not only the act.** Generation grows multiplicatively
+    per developer and review linearly with headcount; no project sets a
+    numeric limit beyond one three-PR rule; WIP limits are the team-level
+    friction with before–after evidence, and batch size at review is the
+    one place team friction meets comprehension evidence (59% versus 35%);
+    conflict probability rose from 5% to 40% with concurrent changes, and
+    79.4% of agent PRs are open concurrently with another
+    ([review capacity, finding](review-capacity-and-volume.md#finding);
+    [flow, finding](flow-wip-limits-and-constraints.md#finding);
+    [integration, finding](integration-frequency-and-parallel-branches.md#finding)).
+    *Commits to:* bounds — concurrent Agent Runs per person, open PRs
+    awaiting a reviewer, change size, landing order — as first-class
+    friction alongside the acts of principles 1–6. A bound is the one kind
+    of friction a passive observer can show without performing, and the one
+    the velocity-proportional reading of the namesake names most directly.
+    Goes beyond the evidence: no source measures whether a bound changes
+    what anyone understands.
+
+15. **A named person signs.** Every policy, forge rule, and vendor term
+    read places accountability for an agent-written change on a named
+    person, none on the agent; ownership predicted quality at Microsoft
+    more than any other metric; agent code is 15.8 points less likely to be
+    modified later under an untested "no clear owner" hypothesis; and
+    Nissenbaum's "many hands" barrier explains why a named signer can still
+    fail ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)).
+    *Commits to:* every act Dashpot records under principle 6 attaching to
+    a person's identity as well as to the shared object — an Issue Binding
+    names a session; the accountable party is a person — and to the
+    "who knows what" question having a person's name as its answer, not a
+    transcript's
+    ([expert finding, finding](expert-finding-and-transactive-memory.md#finding)).
+
 ## 4. Method for what follows
 
 The next stage generates candidates per lifecycle stage and walks each
@@ -344,6 +439,10 @@ reasons for a shortlist are legible:
   through which channel (observation, hook publisher, skill, external
   gate).
 - **Without AI** — is it still worth having on a human-authored branch?
+- **Coordination cost** — what the candidate makes observable and
+  directable about the agent, and what it costs the team to coordinate
+  (principle 12); for a bound, what it limits and who sets it (principle
+  14).
 - **Social form** — does it work for one person alone *and* for a team;
   what it attaches to (Issue, Branch, Pull Request, module — or only a
   session); and what it makes visible, shareable, or transferable to a

@@ -859,7 +859,12 @@ via arc42, Cucumber and Contextive is in
   [doi:10.1016/j.infsof.2014.02.010](https://doi.org/10.1016/j.infsof.2014.02.010), on agile
   practices and shared mental models, was metadata only.)
 - **Ryan and O'Connor (2013), tacit knowledge in software teams.** 48 teams from 46 Irish
-  and UK SMEs, 181 people. Transactive memory (Lewis scale) and quality of social interaction
+  and UK SMEs, 181 people. (added 2026-09-15: the dependent variable is the 14-item Team
+  Tacit Knowledge Measure, scored as distance from an 18-expert profile and developed and
+  validated on the same 48-team sample in [Ryan and O'Connor 2009](https://doi.org/10.1016/j.jss.2008.05.037)
+  (rwg = .96, α = .71, r = .35 with effectiveness), so the 2013 result is a second analysis
+  of one dataset rather than an independent sample
+  ([team-level measurement, finding](team-level-measurement.md#finding)).) Transactive memory (Lewis scale) and quality of social interaction
   both predicted team tacit knowledge (TMS alone R² = .09; adding quality of interaction β =
   .43, R² = .20; quantity of interaction ns); "team tacit knowledge is acquired and shared
   directly through good quality social interactions and through the development of a TMS
