@@ -189,6 +189,12 @@ takes a position.
   by tension, a framed placement of every card, a mechanical clustering,
   and a reconciliation that separates the themes the frame already names
   from the cross-cutting ones it scatters.
+- [Claim inventory](claim-inventory.md) — the plan's first deliverable:
+  every research note decomposed into atomic idea cards (3,931 across the
+  27 notes, one file per note under `claim-inventory/`), each in the
+  note's own terms with its figures verbatim and a link to the section it
+  was read from; extracted blind to the frame and sample-verified. Cite
+  by card id.
 
 ## Reading order
 
