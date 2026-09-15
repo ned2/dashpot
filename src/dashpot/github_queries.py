@@ -14,6 +14,7 @@ from .commands import CommandRunner, run_command
 from .github import (
     DEFAULT_REFRESH_BUDGET,
     GitHubGateway,
+    GitHubRequestError,
     GraphQLVariables,
     RefreshBudget,
     RefreshMeter,
@@ -25,7 +26,6 @@ from .github_issues import (
     _label_colors,
     normalize_github_issue,
 )
-from .github_pull_request_search import _validate_grouping
 from .github_pull_requests import (
     GitHubPullRequestsSource,
     normalize_github_pull_request,
@@ -101,6 +101,34 @@ def explicit_sort(query: str) -> bool:
 
     tokens = re.findall(r'"(?:\\.|[^"\\])*"|[^\s()]+', query)
     return any(token.casefold().startswith("sort:") for token in tokens)
+
+
+def validate_grouping(text: str) -> None:
+    """Keep the submitted expression inside the Repository scope wrapper."""
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for character in text:
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif quote is not None:
+            if character == quote:
+                quote = None
+        elif character == '"':
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                break
+    if depth != 0 or quote is not None or escaped:
+        raise GitHubRequestError(
+            "github-search-syntax",
+            "Close every quote and parenthesis before submitting the search",
+        )
 
 
 def effective_ordering(request: QueryRequest) -> str:
@@ -189,7 +217,7 @@ class GitHubQuerySource(CachedQuerySource):
             raise ValueError(
                 "Project source configuration changed; reopen the dashboard"
             )
-        _validate_grouping(request.query)
+        validate_grouping(request.query)
         ordering = effective_ordering(request)
         expression = f"repo:{self.repository_name} is:{'issue' if request.kind == 'issues' else 'pr'}"
         if request.state != "all":

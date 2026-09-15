@@ -862,60 +862,6 @@ class ObservationCoordinator:
         )
 
 
-class SnapshotCollector(Protocol):
-    def refresh(self) -> WorkspaceSnapshot: ...
-
-
-class SnapshotScheduler:
-    """Schedule a single-shot ``refresh()`` collector as one Workspace key.
-
-    The whole checkpoint is published atomically; only ticket generations are
-    tracked so a superseded refresh cannot overwrite a newer one.
-    """
-
-    def __init__(self, collector: SnapshotCollector) -> None:
-        self.collector = collector
-        self._lock = threading.Lock()
-        self._generation = 0
-        self._pending: WorkspaceSnapshot | None = None
-
-    def keys(self, project_id: str | None = None) -> list[ObservationKey]:
-        return [WORKSPACE_KEY]
-
-    def follow_ups(self, changes: Sequence[StoreChange]) -> list[ObservationKey]:
-        return []
-
-    def request(self, keys: Sequence[ObservationKey]) -> list[ObservationTicket]:
-        # Any key means the one Workspace key; no key means no ticket. A
-        # single-shot collector observes everything afresh whatever is asked.
-        if not keys:
-            return []
-        with self._lock:
-            self._generation += 1
-            return [ObservationTicket(WORKSPACE_KEY, self._generation)]
-
-    def is_current(self, ticket: ObservationTicket) -> bool:
-        with self._lock:
-            return ticket.generation == self._generation
-
-    def observe(self, ticket: ObservationTicket) -> ObservationOutcome:
-        if not self.is_current(ticket):
-            return ObservationOutcome(ticket, accepted=False)
-        snapshot = self.collector.refresh()
-        with self._lock:
-            if ticket.generation != self._generation:
-                return ObservationOutcome(ticket, accepted=False)
-            self._pending = snapshot
-        return ObservationOutcome(ticket, accepted=True)
-
-    def publish(self, store: WorkspaceObservationStore) -> list[StoreChange]:
-        with self._lock:
-            snapshot, self._pending = self._pending, None
-        if snapshot is None:
-            return []
-        return [store.replace(snapshot)]
-
-
 def _pending_project(project: ResolvedProject) -> ProjectObservation:
     return ProjectObservation(
         project_id=project.project_id,

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-11
+date: 2026-09-15
 ---
 
 # Design
@@ -86,7 +86,7 @@ observations have a separate budget and availability. The declared lowest-number
 twenty Linked Pull Requests require deliberate connection completion when more
 exist; there is no incremental bookkeeping or counterpart expansion.
 
-The dashboard ([paged_app.py](../src/dashpot/paged_app.py)) schedules Issue pages,
+The dashboard ([app.py](../src/dashpot/app.py)) schedules Issue pages,
 Pull Request pages, both kinds of Project Totals, targeted identities and local
 observations independently. Configured Projects are published before remote work.
 The page store ([paged_store.py](../src/dashpot/paged_store.py)) never puts partial

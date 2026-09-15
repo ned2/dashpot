@@ -26,11 +26,11 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
+from dashpot.app import DashpotApp
 from dashpot.fetch import FetchReport, RemoteFetch, fetch_remotes
 from dashpot.git import Git
 from dashpot.legend import LegendScreen
 from dashpot.model import Branch, WorkspaceSnapshot
-from dashpot.paged_app import PagedDashpotApp
 from factories import SequenceRunner, completed
 from helpers import wait_until
 
@@ -108,19 +108,19 @@ def success(anchor: Path, *remotes: str) -> FetchReport:
     )
 
 
-def branch_names(app: PagedDashpotApp) -> list[str]:
+def branch_names(app: DashpotApp) -> list[str]:
     return sorted(row.name for row in app.store.query_branches().rows)
 
 
-def remote_branch_names(app: PagedDashpotApp) -> list[str]:
+def remote_branch_names(app: DashpotApp) -> list[str]:
     return sorted(row.name for row in app.store.query_branches().rows if row.remotes)
 
 
-def diagnostics_text(app: PagedDashpotApp) -> str:
+def diagnostics_text(app: DashpotApp) -> str:
     return str(app.query_one("#diagnostics", Static).render())
 
 
-def toasts(app: PagedDashpotApp) -> list[str]:
+def toasts(app: DashpotApp) -> list[str]:
     return [notification.message for notification in app._notifications]
 
 

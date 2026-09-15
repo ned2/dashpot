@@ -153,7 +153,7 @@ Modules that do not fit cleanly: `serialization.py` (a CLI wire seam over
 `from .paged_app import PagedDashpotApp as DashpotApp`: production only ever
 runs the paged app. `PagedDashboardScreen` overrides fifteen methods,
 neutering `on_input_changed`
-([`paged_app.py:128-131`](../src/dashpot/paged_app.py#L128-L131)) and
+([`paged_app.py:128-131`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/paged_app.py#L128-L131)) and
 `sort_rows` (`:203-206`) to no-ops, dropping `sort` from `set_issue_query`,
 and re-implementing `update_alert` verbatim plus one keyword (`:265-280`
 against `app.py:1064-1079`). The base `DashpotApp` is constructed about 137
@@ -460,7 +460,9 @@ Ordered by value over risk. Each of 2–7 is an Issue-sized task and, per the
 rather than in this document. Item 3 and the `sessions -> repository`
 edge were delivered by #175 (`source_factories.py`, `github_repository.py`,
 `LockHolder` in `processes`); the `harnesses <-> processes` cycle is kept
-type-only and documented there rather than broken.
+type-only and documented there rather than broken. Item 4 was delivered by
+#179: `paged_app.py` and `SnapshotScheduler` are gone, `app.py` holds the
+one `DashpotApp`, and `tests/app_harness.py` owns the snapshot scheduler.
 
 1. **Quick wins with no design decision**: Legend bindings (`app.py:1267`),
    freeze `BranchObservation`,

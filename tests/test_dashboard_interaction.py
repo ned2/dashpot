@@ -19,6 +19,7 @@ from app_harness import (
     serve_snapshot,
     workspace_snapshot,
 )
+from dashpot.app import DashpotApp
 from dashpot.issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
@@ -28,7 +29,6 @@ from dashpot.issue_list import row_key
 from dashpot.issue_table import DEFAULT_COLUMNS
 from dashpot.issue_view import IssueScreen
 from dashpot.list_pane import ListRow
-from dashpot.paged_app import PagedDashpotApp
 from helpers import wait_until
 
 
@@ -123,7 +123,7 @@ async def test_slash_focuses_the_pull_request_search_from_its_table() -> None:
         assert app.query_one("#pull-request-search", Input).has_focus
 
 
-async def select_header(app: PagedDashpotApp, pilot: Pilot[None], column: str) -> None:
+async def select_header(app: DashpotApp, pilot: Pilot[None], column: str) -> None:
     """Select the Issue table's header for ``column``."""
     # Posting the table's own ``HeaderSelected`` reaches the screen's handler
     # the way a mouse click does without depending on where the header cell
@@ -139,7 +139,7 @@ async def select_header(app: PagedDashpotApp, pilot: Pilot[None], column: str) -
     await pilot.pause()
 
 
-async def submit_search(app: PagedDashpotApp, pilot: Pilot[None], text: str) -> None:
+async def submit_search(app: DashpotApp, pilot: Pilot[None], text: str) -> None:
     """Type ``text`` into the Issue search and press Enter, as a person would."""
     search = app.query_one("#issue-search", Input)
     search.value = text
@@ -148,14 +148,14 @@ async def submit_search(app: PagedDashpotApp, pilot: Pilot[None], text: str) -> 
     await wait_until(lambda: app.navigation["issues"].request.query == text)
 
 
-def headers(app: PagedDashpotApp) -> list[str]:
+def headers(app: DashpotApp) -> list[str]:
     return [
         str(column.label)
         for column in app.query_one("#queue", DataTable).columns.values()
     ]
 
 
-def titles(app: PagedDashpotApp) -> list[str]:
+def titles(app: DashpotApp) -> list[str]:
     table = app.query_one("#queue", DataTable)
     title_column = table.get_column_index("title")
     return [

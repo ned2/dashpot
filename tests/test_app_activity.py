@@ -466,9 +466,7 @@ async def test_paged_issue_emphasis_uses_only_current_page_without_resolving_on_
     )
     app.scheduler.agent_observer = lambda targets: ([run], [])
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(
-            lambda: "I_1" in app.paged_store.resolved and not app.query_busy
-        )
+        await wait_until(lambda: "I_1" in app.store.resolved and not app.query_busy)
         request_identities = Mock(wraps=app.request_identities)
         app.request_identities = request_identities
         sessions = app.dashboard.sessions_pane().table

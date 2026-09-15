@@ -32,7 +32,7 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.app import ObservationFinished
+from dashpot.app import DashpotApp, ObservationFinished
 from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
 from dashpot.issue_list import row_key
 from dashpot.issue_table import (
@@ -43,7 +43,6 @@ from dashpot.issue_table import (
 )
 from dashpot.issue_view import selection_title
 from dashpot.model import AgentRun, Diagnostic, WorkspaceSnapshot
-from dashpot.paged_app import PagedDashpotApp
 from helpers import snapshot_of, wait_until
 
 
@@ -172,7 +171,7 @@ async def test_published_observation_updates_inventory_and_result_count() -> Non
         assert str(count.render()) == page_summary(2)
 
 
-async def refresh_over_a_grown_page(app: PagedDashpotApp, trigger: str) -> None:
+async def refresh_over_a_grown_page(app: DashpotApp, trigger: str) -> None:
     """Select the last Issue, then observe a page with one inserted before it."""
     second = workspace_snapshot(
         issue("test/repo#0", "Inserted", "P0"),
@@ -762,7 +761,7 @@ def coordinated_app(
     tmp_path: Path,
     *,
     refresh_seconds: float = 0,
-    refresh_indicator_seconds: float | None = None,
+    refresh_indicator_seconds: float = 0.75,
 ):
     """The shipped app over a coordinated workspace, its pages served for Alpha.
 
@@ -943,11 +942,11 @@ async def test_late_observation_is_dropped_after_dashboard_children_unmount(
         )
 
 
-def alert(app: PagedDashpotApp) -> Static:
+def alert(app: DashpotApp) -> Static:
     return app.query_one("#alert", Static)
 
 
-def alert_text(app: PagedDashpotApp) -> str:
+def alert_text(app: DashpotApp) -> str:
     return str(alert(app).render())
 
 

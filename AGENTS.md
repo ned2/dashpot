@@ -135,9 +135,10 @@ The conventions the tooling enforces or the code assumes:
   recoloured, and give its button states one colour in `dashpot.tcss`.
 - Textual runs a message handler (`on_ready`, `on_observation_finished`, …)
   on every class of the MRO that defines it, subclass first, so an override
-  never calls `super()` — that would run the base handler twice. Work that
-  must follow the base handler goes in an override of the plain method it
-  calls, as `PagedDashpotApp._accept_observation` does.
+  never calls `super()` — that would run the base handler twice. Keep the
+  handler thin and delegate to a plain method, as
+  `DashpotApp.on_observation_finished` delegates to `_accept_observation`, so
+  work that must follow the handler has a method to override.
 - Docstrings are one imperative line in the voice of the shared domain language
   (`"""Identify the supported Agent Session enclosing this command."""`);
   comments explain why, not what.
