@@ -21,7 +21,7 @@ from textual.pilot import Pilot
 from textual.widgets import Select
 
 import factories
-from dashpot.app import QUERY_SOURCE_KEYS, DashpotApp
+from dashpot.app import DashpotApp
 from dashpot.cleanup import CleanupAdapter
 from dashpot.collect import (
     WORKSPACE_KEY,
@@ -52,6 +52,7 @@ from dashpot.model import (
     WorkspaceSnapshot,
 )
 from dashpot.observation_store import StoreChange, WorkspaceObservationStore
+from dashpot.page_runner import QUERY_SOURCE_KEYS
 from dashpot.pull_request_list import (
     PullRequestLifecycle,
     PullRequestListQuery,
@@ -530,7 +531,7 @@ def dashboard_app(
 
 def serve_snapshot(app: DashpotApp, snapshot: WorkspaceSnapshot) -> None:
     """Have every Query Source answer from ``snapshot`` from now on."""
-    for source in app.sources.values():
+    for source in app.queries.sources.values():
         assert isinstance(source, SnapshotQuerySource)
         source.serve(snapshot)
 
@@ -538,7 +539,7 @@ def serve_snapshot(app: DashpotApp, snapshot: WorkspaceSnapshot) -> None:
 def hold_sources(app: DashpotApp) -> Event:
     """Hold every Query Source's next answers until the returned Event is set."""
     gate = Event()
-    for source in app.sources.values():
+    for source in app.queries.sources.values():
         assert isinstance(source, SnapshotQuerySource)
         source.release = gate
     return gate
@@ -591,7 +592,9 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     """
     app.dashboard.queue_table().focus()
     await pilot.press("enter")
-    await wait_until(lambda: isinstance(app.screen, IssueScreen) and not app.query_busy)
+    await wait_until(
+        lambda: isinstance(app.screen, IssueScreen) and not app.queries.busy
+    )
     await pilot.pause()
     screen = app.screen
     assert isinstance(screen, IssueScreen)
