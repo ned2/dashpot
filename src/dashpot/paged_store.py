@@ -1,4 +1,11 @@
-"""Join Query Pages and Resolved Issues without populating export inventories."""
+"""Join Query Pages and Resolved Issues without populating export inventories.
+
+The accepted observations advance the inherited ``revision``; the accepted
+source results — pages, totals, identities — advance ``source_revision``.
+Every write moves exactly one of them by one, so their sum advances with
+every write, and it is what this store's read models report as their
+``revision``: the joined state each was built from.
+"""
 
 from __future__ import annotations
 
@@ -26,11 +33,35 @@ from .source_queries import (
 
 
 class PagedObservationStore(WorkspaceObservationStore):
+    """Hold the accepted pages, totals and identities beside the observations."""
+
     def __init__(self, snapshot: WorkspaceSnapshot | None = None) -> None:
         super().__init__(snapshot)
         self.pages: dict[ResourceKind, QueryPage] = {}
         self.totals: dict[ResourceKind, ProjectTotals] = {}
         self.resolved: OrderedDict[str, ResolvedIssue] = OrderedDict()
+        self.source_revision = 0
+
+    @property
+    def result_revision(self) -> int:
+        """Identify the joined state a read model was built from."""
+        return self.revision + self.source_revision
+
+    def accept_page(self, kind: ResourceKind, page: QueryPage | None) -> bool:
+        """Show ``page`` as the kind's current page, or none; report a change."""
+        if page is None:
+            changed = self.pages.pop(kind, None) is not None
+        else:
+            changed = self.pages.get(kind) != page
+            self.pages[kind] = page
+        if changed:
+            self.source_revision += 1
+        return changed
+
+    def accept_totals(self, totals: ProjectTotals) -> None:
+        """Accept a kind's Project Totals."""
+        self.totals[totals.kind] = totals
+        self.source_revision += 1
 
     def accept_identities(self, outcomes: Sequence[ResolvedIssue]) -> None:
         """Retain bounded identity evidence independently of navigation history."""
@@ -39,6 +70,7 @@ class PagedObservationStore(WorkspaceObservationStore):
             self.resolved.move_to_end(outcome.issue_id)
         while len(self.resolved) > 256:
             self.resolved.popitem(last=False)
+        self.source_revision += 1
 
     def _row(self, issue_id: str) -> IssueListRow | None:
         outcome = self.resolved.get(issue_id)
@@ -108,7 +140,7 @@ class PagedObservationStore(WorkspaceObservationStore):
             tuple(rows),
             page.matched_count or 0 if page else 0,
             len(rows),
-            self.revision,
+            self.result_revision,
             totals.open_count or 0 if totals else 0,
             totals.closed_count or 0 if totals else 0,
         )
@@ -125,7 +157,7 @@ class PagedObservationStore(WorkspaceObservationStore):
             issues=issues,
             agent_runs=self._state.agent_runs,
             issue_runs=self._state.issue_runs,
-            revision=self.revision,
+            revision=self.result_revision,
         )
 
     @override

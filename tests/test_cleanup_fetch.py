@@ -282,7 +282,7 @@ async def test_prefetch_observation_cannot_release_the_confirmation_barrier():
     try:
         async with app.run_test(size=(100, 40)) as pilot:
             screen = await open_preview(app, pilot, "branch")
-            app.schedule_observations(app.scheduler.keys(), "timer")
+            app.observations.schedule(app.observations.scheduler.keys(), "timer")
             await wait_until(collector.entered_old.is_set)
             await pilot.press("f")
             await wait_until(lambda: "Refreshing Git" in screen.fetch_status)

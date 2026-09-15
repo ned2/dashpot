@@ -32,7 +32,7 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
+from dashpot.app import DashboardScreen, DashpotApp
 from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
 from dashpot.issue_list import row_key
 from dashpot.issue_table import (
@@ -44,6 +44,7 @@ from dashpot.issue_table import (
 from dashpot.issue_view import selection_title
 from dashpot.messages import ObservationFinished
 from dashpot.model import AgentRun, Diagnostic, WorkspaceSnapshot
+from dashpot.observation_runner import ObservationTrigger
 from helpers import snapshot_of, wait_until
 
 
@@ -174,7 +175,9 @@ async def test_published_observation_updates_inventory_and_result_count() -> Non
         assert str(count.render()) == page_summary(2)
 
 
-async def refresh_over_a_grown_page(app: DashpotApp, trigger: str) -> None:
+async def refresh_over_a_grown_page(
+    app: DashpotApp, trigger: ObservationTrigger
+) -> None:
     """Select the last Issue, then observe a page with one inserted before it."""
     second = workspace_snapshot(
         issue("test/repo#0", "Inserted", "P0"),
@@ -241,7 +244,7 @@ async def test_failed_refresh_keeps_last_good_rows_and_shows_diagnostic() -> Non
         await app.run_action("refresh")
         # The restarted pages land independently of the failed observation.
         await wait_until(
-            lambda: bool(app.observation_errors) and first_load_landed(app)
+            lambda: bool(app.observations.errors) and first_load_landed(app)
         )
 
         assert app.store.revision == 1
@@ -621,15 +624,15 @@ async def test_refresh_while_in_flight_coalesces_and_reruns_once() -> None:
             app.request_refresh("manual")
             await pilot.pause()
             assert collector.calls == 1
-            assert list(app.pending_rerun.values()) == ["manual"]
+            assert list(app.observations.pending_rerun.values()) == ["manual"]
 
             collector.release.set()
             # The held observation lands first, then the rerun observes anew.
             await wait_until(lambda: app.store.checkpoint() == new)
-            await wait_until(lambda: not app.in_flight)
+            await wait_until(lambda: not app.observations.in_flight)
             assert app.store.revision == 2
             assert collector.calls == 2
-            assert not app.pending_rerun
+            assert not app.observations.pending_rerun
     finally:
         collector.release.set()
 
@@ -647,7 +650,7 @@ async def test_timer_ticks_coalesce_onto_a_slow_observation(tmp_path: Path) -> N
             # one is left to finish: its source is asked exactly once.
             await wait_until(lambda: collectors["alpha"].source.calls >= 3)
             assert collectors["beta"].source.calls == 1
-            assert not app.pending_rerun
+            assert not app.observations.pending_rerun
 
             collectors["beta"].source.release.set()
             await wait_until(
@@ -667,31 +670,36 @@ async def test_only_a_timer_tick_coalesces_without_a_rerun(tmp_path: Path) -> No
 
     try:
         async with app.run_test(size=(80, 24)) as pilot:
-            await wait_until(lambda: not app.in_flight)
+            await wait_until(lambda: not app.observations.in_flight)
             collectors["beta"].source.release.clear()
-            app.schedule_observations([beta_issues], "manual")
+            app.observations.schedule([beta_issues], "manual")
             await wait_until(collectors["beta"].source.started.is_set)
-            assert not app.refreshing_visible
+            assert not app.observations.refreshing_visible
 
-            app.schedule_observations([beta_issues], "timer")
+            app.observations.schedule([beta_issues], "timer")
             await pilot.pause()
-            assert not app.pending_rerun
-            assert not app.refreshing_visible
+            assert not app.observations.pending_rerun
+            assert not app.observations.refreshing_visible
 
             # A Cleanup that changed the Repository while it was being
             # observed must be observed again; the latest trigger wins.
-            app.schedule_observations([beta_issues], "cleanup")
-            app.schedule_observations([beta_issues], "manual")
+            app.observations.schedule([beta_issues], "cleanup")
+            app.observations.schedule([beta_issues], "manual")
             await pilot.pause()
-            assert app.pending_rerun == {beta_issues: "manual"}
+            assert app.observations.pending_rerun == {beta_issues: "manual"}
             # The press is acknowledged at once, ahead of the indicator delay.
-            assert app.refreshing_visible
+            assert app.observations.refreshing_visible
             assert "refreshing Beta" in alert_text(app)
 
             collectors["beta"].source.release.set()
-            await wait_until(lambda: not app.in_flight and not app.pending_rerun)
+            await wait_until(
+                lambda: (
+                    not app.observations.in_flight
+                    and not app.observations.pending_rerun
+                )
+            )
             assert collectors["beta"].source.calls == 3
-            assert not app.refreshing_visible
+            assert not app.observations.refreshing_visible
     finally:
         collectors["beta"].source.release.set()
 
@@ -702,12 +710,12 @@ async def test_a_key_press_observes_the_issue_source_again(tmp_path: Path) -> No
     beta = collectors["beta"].source
 
     async with app.run_test(size=(80, 24)) as pilot:
-        await wait_until(lambda: not app.in_flight)
-        app.schedule_observations([ObservationKey("issues", "beta")], "timer")
-        await wait_until(lambda: beta.calls == 2 and not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
+        app.observations.schedule([ObservationKey("issues", "beta")], "timer")
+        await wait_until(lambda: beta.calls == 2 and not app.observations.in_flight)
         await pilot.press("r")
         # The press's own observation, after the initial one and the tick.
-        await wait_until(lambda: beta.calls == 3 and not app.in_flight)
+        await wait_until(lambda: beta.calls == 3 and not app.observations.in_flight)
 
 
 @pytest.mark.asyncio
@@ -722,24 +730,24 @@ async def test_a_timer_tick_failure_never_toasts() -> None:
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
-        await wait_until(lambda: not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
         app.request_refresh("timer")
         await wait_until(lambda: alert(app).display)
         assert alert(app).has_class("-error")
         assert len(app._notifications) == 0
         # The failed key is schedulable again: a person's refresh runs and,
         # having changed the failure, earns the toast the tick did not.
-        await wait_until(lambda: not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
         await app.run_action("refresh")
         await wait_until(
             lambda: (
                 collector.calls == 3
-                and not app.in_flight
+                and not app.observations.in_flight
                 and len(app._notifications) == 1
             )
         )
         assert len(app._notifications) == 1
-        assert any("forbidden" in error for error in app.observation_errors.values())
+        assert any("forbidden" in error for error in app.observations.errors.values())
 
 
 def coordinated_workspace(tmp_path: Path):
@@ -842,7 +850,7 @@ async def test_refresh_fans_out_to_every_project(
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
         await wait_until(lambda: table.row_count == 1)
-        await wait_until(lambda: not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
         alpha_key = row_key("issue", "I_alpha#1")
         await wait_until(
             lambda: app.dashboard.issue_table.selected_row_key == alpha_key
@@ -863,7 +871,9 @@ async def test_refresh_fans_out_to_every_project(
         )
         # The refresh restarts the pages too; the table is empty until the
         # restarted Issue page has landed and its one row is selected again.
-        await wait_until(lambda: not app.in_flight and observation_landed(app, 2))
+        await wait_until(
+            lambda: not app.observations.in_flight and observation_landed(app, 2)
+        )
         await wait_until(lambda: table.row_count == 1)
 
         assert collectors["alpha"].target_calls == 2
@@ -882,7 +892,7 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
         await wait_until(lambda: table.row_count == 1)
-        await wait_until(lambda: not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
         collectors["alpha"].source.collections = [
             IssueSourceRefreshError("github-down", "GitHub is unavailable")
         ]
@@ -911,7 +921,7 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
         )
         assert alpha_snapshot().target_status == "fresh"
         assert table.row_count == 1
-        assert not app.observation_errors
+        assert not app.observations.errors
 
 
 @pytest.mark.asyncio
@@ -991,7 +1001,7 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
     async with app.run_test(size=(80, 24)):
         table = app.query_one("#queue", DataTable)
         await wait_until(lambda: table.row_count == 1)
-        await wait_until(lambda: not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
         # A slow runner can leave the initial refresh's own indicator showing.
         await wait_until(lambda: not alert(app).display)
         collectors["beta"].source.release.clear()
@@ -1008,7 +1018,7 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
 
         collectors["beta"].source.release.set()
         await wait_until(lambda: not alert(app).display)
-        await wait_until(lambda: not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
         assert not alert(app).display
 
 
@@ -1028,17 +1038,19 @@ async def test_queued_refresh_indicator_is_harmless_during_shutdown(
 
     collector = SequenceCollector(snapshot)
     app = dashboard_app(collector, refresh_indicator_seconds=0.01)
-    delayed_indicator = app.show_refreshing
+    delayed_indicator = app.observations.show_refreshing
     close_all = app._close_all
     delivered = False
 
     def deliver() -> None:
         nonlocal delivered
-        assert app.in_flight
+        assert app.observations.in_flight
         assert not app.is_running
-        delayed_indicator()
-        assert not app.refreshing_visible
-        assert app.refresh_indicator_timer is None
+        with mock.patch.object(DashboardScreen, "update_alert") as redraw:
+            delayed_indicator()
+        # The runner still notes the keys in flight; the app draws nothing.
+        redraw.assert_not_called()
+        assert app.observations.indicator_timer is None
         delivered = True
 
     async def close_dashboard() -> None:
@@ -1055,14 +1067,14 @@ async def test_queued_refresh_indicator_is_harmless_during_shutdown(
         # Hold delivery after the real timer fires, even if shutdown stops it.
         with (
             mock.patch.object(collector, "refresh", side_effect=collect),
-            mock.patch.object(app, "show_refreshing") as queued_indicator,
+            mock.patch.object(app.observations, "show_refreshing") as queued_indicator,
             mock.patch.object(app, "_close_all", side_effect=close_dashboard),
         ):
             async with app.run_test(size=(80, 24)):
                 await wait_until(started.is_set)
                 await wait_until(lambda: queued_indicator.call_count == 1)
-                assert app.in_flight
-                assert not app.refreshing_visible
+                assert app.observations.in_flight
+                assert not app.observations.refreshing_visible
 
             assert not app.screen_stack
             if delivery == "closed":
@@ -1081,22 +1093,24 @@ async def test_quick_refresh_never_flickers_the_indicator(tmp_path: Path) -> Non
         await wait_until(lambda: table.row_count == 1)
         # The initial refresh settles first so its own indicator timer cannot
         # bleed into what the manual refresh is being measured for.
-        await wait_until(lambda: not app.in_flight)
-        assert app.refresh_indicator_timer is None
+        await wait_until(lambda: not app.observations.in_flight)
+        assert app.observations.indicator_timer is None
 
         # The refresh schedules its indicator timer while the spy is in
         # place, so a timer that fires is counted rather than raced against.
         with mock.patch.object(
-            app, "show_refreshing", wraps=app.show_refreshing
+            app.observations,
+            "show_refreshing",
+            wraps=app.observations.show_refreshing,
         ) as indicator:
             await app.run_action("refresh")
-            await wait_until(lambda: not app.in_flight)
+            await wait_until(lambda: not app.observations.in_flight)
 
             # A completed refresh stops the pending timer, so the indicator
             # callback never ran and nothing was ever shown to flicker.
             assert indicator.call_count == 0
         assert not alert(app).display
-        assert app.refresh_indicator_timer is None
+        assert app.observations.indicator_timer is None
 
 
 @pytest.mark.asyncio
@@ -1112,7 +1126,7 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
-        await wait_until(lambda: not app.in_flight)
+        await wait_until(lambda: not app.observations.in_flight)
         await app.run_action("refresh")
         # The restarted pages read as unavailable until they land again; the
         # failure is what remains once they have.
@@ -1125,14 +1139,16 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
         # Wait for the observation to actually run and settle: requesting the
         # next refresh too early would coalesce onto it and rerun once.
         await app.run_action("refresh")
-        await wait_until(lambda: collector.calls == 3 and not app.in_flight)
+        await wait_until(
+            lambda: collector.calls == 3 and not app.observations.in_flight
+        )
         assert len(app._notifications) == 1
         assert alert(app).display
 
         await app.run_action("refresh")
         await wait_until(lambda: not alert(app).display)
 
-        assert not app.observation_errors
+        assert not app.observations.errors
         assert "GitHub is unavailable" not in str(
             app.query_one("#diagnostics", Static).render()
         )

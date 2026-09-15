@@ -88,13 +88,24 @@ exist; there is no incremental bookkeeping or counterpart expansion.
 
 The dashboard ([app.py](../src/dashpot/app.py)) schedules Issue pages,
 Pull Request pages, both kinds of Project Totals, targeted identities and local
-observations independently. Configured Projects are published before remote work.
+observations independently: the page runner
+([page_runner.py](../src/dashpot/page_runner.py)) runs one source query per
+key at a time and keeps each paged kind's navigation, and the observation
+runner ([observation_runner.py](../src/dashpot/observation_runner.py)) observes
+each key at most once at a time, coalescing requests onto the observation in
+flight ([ADR 0020](adr/0020-coalesce-requests-onto-the-observation-in-flight.md)).
+Both drive the app through a narrow host protocol — run work off the loop,
+start a timer, redraw the alert — so their scheduling is tested without a
+running app. Configured Projects are published before remote work.
 The page store ([paged_store.py](../src/dashpot/paged_store.py)) never puts partial
-query rows in complete snapshot inventory fields. It joins Agent Runs to targeted
-identity evidence without changing Work Store Issue Bindings. Opening a bound
-Issue works independently of page membership; selected relationship titles are
-resolved one level deep. Relevant identities are refreshed directly, including
-relationship changes without an Issue timestamp change.
+query rows in complete snapshot inventory fields; every accepted page, total or
+identity goes through a method that advances its `source_revision`, so a read
+model's `revision` changes whenever what it was built from does. It joins Agent
+Runs to targeted identity evidence without changing Work Store Issue Bindings.
+Opening a bound Issue works independently of page membership; selected
+relationship titles are resolved one level deep. Relevant identities are
+refreshed directly, including relationship changes without an Issue timestamp
+change.
 
 A Query Page has its submitted request, effective ordering, matching count,
 returned count, continuation outcome and its own attempt/last-good times. Project

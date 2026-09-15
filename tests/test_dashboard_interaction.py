@@ -68,11 +68,11 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         search.value = "draft:true"
         await pilot.pause()
         assert pane.table.row_count == 2
-        assert app.navigation["pull-requests"].request.query == ""
+        assert app.pages.navigation["pull-requests"].request.query == ""
         search.focus()
         await pilot.press("enter")
         await wait_until(lambda: pane.table.row_count == 1)
-        assert app.navigation["pull-requests"].request.query == "draft:true"
+        assert app.pages.navigation["pull-requests"].request.query == "draft:true"
         assert app.dashboard.pull_request_query.text == "draft:true"
         assert "Draft navigation" in str(pane.table.get_row_at(0)[2])
         assert str(count.render()) == "1 pull request"
@@ -80,7 +80,7 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
 
         lifecycle.value = "closed"
         await wait_until(
-            lambda: app.navigation["pull-requests"].request.state == "closed"
+            lambda: app.pages.navigation["pull-requests"].request.state == "closed"
         )
         await wait_until(lambda: pane.table.row_count == 1)
         assert "closed draft" in str(pane.table.get_row_at(0)[0])
@@ -145,7 +145,7 @@ async def submit_search(app: DashpotApp, pilot: Pilot[None], text: str) -> None:
     search.value = text
     search.focus()
     await pilot.press("enter")
-    await wait_until(lambda: app.navigation["issues"].request.query == text)
+    await wait_until(lambda: app.pages.navigation["issues"].request.query == text)
 
 
 def headers(app: DashpotApp) -> list[str]:
@@ -211,7 +211,7 @@ async def test_a_header_the_source_cannot_order_by_leaves_the_query_alone() -> N
     async with app.run_test(size=(80, 24)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         table = app.query_one("#queue", DataTable)
-        request = app.navigation["issues"].request
+        request = app.pages.navigation["issues"].request
 
         for name, label in (
             ("issue_state", "◉"),
@@ -220,7 +220,7 @@ async def test_a_header_the_source_cannot_order_by_leaves_the_query_alone() -> N
         ):
             fixed_key = next(key for key in table.columns if key.value == name)
             await select_header(app, pilot, name)
-            assert app.navigation["issues"].request == request
+            assert app.pages.navigation["issues"].request == request
             assert str(table.columns[fixed_key].label) == label
         # Each refusal is explained once, and nothing was queried for it.
         assert len(app._notifications) == 3
@@ -241,18 +241,18 @@ async def test_a_header_click_submits_its_ordering_and_a_second_reverses_it() ->
 
         await select_header(app, pilot, "priority")
         await wait_until(lambda: titles(app) == ["Higher priority", "Lower priority"])
-        assert app.navigation["issues"].request.ordering == "priority:asc"
+        assert app.pages.navigation["issues"].request.ordering == "priority:asc"
         assert headers(app)[4] == "PRIORITY ↑"
 
         await select_header(app, pilot, "priority")
         await wait_until(lambda: titles(app) == ["Lower priority", "Higher priority"])
-        assert app.navigation["issues"].request.ordering == "priority:desc"
+        assert app.pages.navigation["issues"].request.ordering == "priority:desc"
         assert headers(app)[4] == "PRIORITY ↓"
 
         # Another column takes over ascending; the page is the source's.
         await select_header(app, pilot, "number")
         await wait_until(
-            lambda: app.navigation["issues"].request.ordering == "number:asc"
+            lambda: app.pages.navigation["issues"].request.ordering == "number:asc"
         )
         await wait_until(lambda: headers(app)[2] == "# ↑")
         assert headers(app)[4] == "PRIORITY ↕"
@@ -320,7 +320,7 @@ async def test_the_table_keeps_the_sources_page_order() -> None:
         # The source's own order stands: nothing is re-sorted locally, and
         # no header claims an order the source did not apply.
         assert titles(app) == ["Older", "Missing", "Newest"]
-        assert app.navigation["issues"].request.ordering == "provider-default"
+        assert app.pages.navigation["issues"].request.ordering == "provider-default"
         assert headers(app)[6] == "LAST ACTION ↕"
 
 
@@ -378,11 +378,11 @@ async def test_a_chosen_ordering_survives_submitted_searches() -> None:
         await select_header(app, pilot, "number")
         await select_header(app, pilot, "number")
         await wait_until(lambda: titles(app) == ["Second", "First"])
-        assert app.navigation["issues"].request.ordering == "number:desc"
+        assert app.pages.navigation["issues"].request.ordering == "number:desc"
 
         await submit_search(app, pilot, "s")
         await wait_until(lambda: titles(app) == ["Second", "First"])
-        assert app.navigation["issues"].request.ordering == "number:desc"
+        assert app.pages.navigation["issues"].request.ordering == "number:desc"
         assert headers(app)[2] == "# ↓"
 
         # A sort qualifier takes over while it is present, and removing it
@@ -391,7 +391,7 @@ async def test_a_chosen_ordering_survives_submitted_searches() -> None:
         await wait_until(lambda: headers(app)[2] == "#")
         await submit_search(app, pilot, "s")
         await wait_until(lambda: headers(app)[2] == "# ↓")
-        assert app.navigation["issues"].request.ordering == "number:desc"
+        assert app.pages.navigation["issues"].request.ordering == "number:desc"
 
 
 @pytest.mark.asyncio
@@ -433,7 +433,7 @@ async def test_visible_filters_update_the_page_summary_but_not_the_totals() -> N
                 == row_key("issue", closed_issue.id)
             )
         )
-        assert app.navigation["issues"].request.state == "closed"
+        assert app.pages.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
         assert pane_title(app, "#queue-pane") == inventory
 
@@ -475,21 +475,21 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         assert app.dashboard.issue_table.issue_view.query.states == frozenset(
             {"closed"}
         )
-        assert app.navigation["issues"].request.state == "closed"
+        assert app.pages.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
         assert pane_title(app, "#queue-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "all")
         await wait_until(lambda: table.row_count == 2)
-        assert app.navigation["issues"].request.state == "all"
+        assert app.pages.navigation["issues"].request.state == "all"
         assert str(count.render()) == page_summary(2)
         assert pane_title(app, "#queue-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "open")
         await wait_until(lambda: table.row_count == 1)
-        assert app.navigation["issues"].request.state == "open"
+        assert app.pages.navigation["issues"].request.state == "open"
         assert str(count.render()) == page_summary(1)
         assert pane_title(app, "#queue-pane") == inventory
 
@@ -520,7 +520,7 @@ async def test_ordering_and_column_visibility_leave_both_counts_alone() -> None:
         app.dashboard.issue_table.apply_issue_columns(("title", "number"))
         await pilot.pause()
 
-        assert app.navigation["issues"].request.ordering == "number:asc"
+        assert app.pages.navigation["issues"].request.ordering == "number:asc"
         assert app.dashboard.issue_table.issue_view.columns == (
             "agent_state",
             "title",
@@ -579,21 +579,21 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
         assert headers(app) == ["◈", "◉", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↕"]
         await select_header(app, pilot, "number")
         await wait_until(lambda: headers(app)[2] == "# ↑")
-        assert app.navigation["issues"].request.ordering == "number:asc"
+        assert app.pages.navigation["issues"].request.ordering == "number:asc"
 
         # A search change keeps the chosen ordering; the column returns and
         # can be ordered by again.
         await submit_search(app, pilot, "")
         await wait_until(lambda: table.row_count == 2)
-        assert app.navigation["issues"].request.ordering == "number:asc"
+        assert app.pages.navigation["issues"].request.ordering == "number:asc"
         assert headers(app)[2:5] == ["# ↑", "TITLE", "PRIORITY ↕"]
         await select_header(app, pilot, "priority")
         await wait_until(lambda: headers(app)[4] == "PRIORITY ↑")
-        assert app.navigation["issues"].request.ordering == "priority:asc"
+        assert app.pages.navigation["issues"].request.ordering == "priority:asc"
         assert titles(app)[0] == "Zebra"
         await select_header(app, pilot, "priority")
         await wait_until(lambda: headers(app)[4] == "PRIORITY ↓")
-        assert app.navigation["issues"].request.ordering == "priority:desc"
+        assert app.pages.navigation["issues"].request.ordering == "priority:desc"
         # A row without a priority stays last in either direction.
         assert titles(app)[0] == "Zebra"
 

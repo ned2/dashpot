@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -41,11 +41,7 @@ from .cleanup import (
     WorktreeCleanupRequest,
 )
 from .cleanup_view import CleanupReportScreen, CleanupScreen
-from .collect import (
-    ObservationKey,
-    ObservationScheduler,
-    ObservationTicket,
-)
+from .collect import ObservationKey, ObservationScheduler
 from .column_editor import IssueColumnEditor
 from .fetch import RemoteFetcher
 from .focus_table import FocusCursorTable
@@ -70,45 +66,30 @@ from .messages import (
     CleanupFinished,
     CleanupInspected,
     FetchFinished,
+    IdentitiesFinished,
     ObservationFinished,
-    QueryFinished,
+    PageFinished,
+    TotalsFinished,
 )
-from .page_navigation import PageNavigation, PageTicket, totals_text
+from .observation_runner import (
+    Acceptance,
+    DroppedObservation,
+    FailedObservation,
+    ObservationRunner,
+    ObservationTrigger,
+)
+from .page_navigation import PageTicket, totals_text
+from .page_runner import PageRunner
 from .paged_store import PagedObservationStore
 from .pane_layout import fit_panes, pane_wish
 from .panes import LIST_PANE_SPECS, PaneContext
 from .pull_request_list import DEFAULT_PULL_REQUEST_QUERY, PullRequestListQuery
-from .source_queries import (
-    ProjectTotals,
-    QueryPage,
-    QueryRequest,
-    QuerySource,
-    ResolvedIssue,
-    ResourceKind,
-)
+from .source_queries import QuerySource, ResolvedIssue, ResourceKind
 from .spread_table import SpreadTable
 from .worktree_launcher import LauncherConfiguration
 from .worktree_table import WorktreeTable
 
 T = TypeVar("T")
-
-# Observation triggers a person asked for, whose outcome earns a toast.
-MANUAL_TRIGGERS = frozenset({"manual", "fetch"})
-# Triggers that coalesce onto an observation already in flight without
-# queueing a rerun: the next tick is the rerun. Every other trigger (a key
-# press, a Remote Fetch or Cleanup that changed the Repository, a follow-up
-# of a publish) still observes once more after the running one lands.
-COALESCED_TRIGGERS = frozenset({"timer"})
-
-# The Query Sources the shipped app consults, one per concurrent consumer:
-# each key runs on its own executor thread against its own source instance.
-QUERY_SOURCE_KEYS: tuple[str, ...] = (
-    "issues",
-    "pull-requests",
-    "totals:issues",
-    "totals:pull-requests",
-    "identities",
-)
 
 
 class DashboardBody(Container):
@@ -163,10 +144,10 @@ class DashboardScreen(Screen[None]):
 
     @property
     def dashpot(self) -> DashpotApp:
-        """Narrow `self.app` once: the store and observation state live there.
+        """Narrow `self.app` once: the store and the runners live there.
 
-        Use `dashpot` for Dashpot-owned state (store, observation errors,
-        in-flight tickets) and plain `app` for the Textual API.
+        Use `dashpot` for Dashpot-owned state (the store, the observation
+        and page runners, the flows) and plain `app` for the Textual API.
         """
         return cast("DashpotApp", self.app)
 
@@ -178,18 +159,18 @@ class DashboardScreen(Screen[None]):
 
     def action_next_page(self) -> None:
         kind = self.page_kind()
-        ticket = self.dashpot.navigation[kind].next()
+        ticket = self.dashpot.pages.navigation[kind].next()
         if ticket:
             self.dashpot.request_page(kind, ticket)
         self.dashpot.render_pages()
 
     def action_previous_page(self) -> None:
-        self.dashpot.navigation[self.page_kind()].previous()
+        self.dashpot.pages.navigation[self.page_kind()].previous()
         self.dashpot.render_pages()
 
     def action_restart_page(self) -> None:
         kind = self.page_kind()
-        self.dashpot.request_page(kind, self.dashpot.navigation[kind].restart())
+        self.dashpot.request_page(kind, self.dashpot.pages.navigation[kind].restart())
 
     @override
     def compose(self) -> ComposeResult:
@@ -332,8 +313,8 @@ class DashboardScreen(Screen[None]):
 
     def order_issues_by(self, column: str) -> None:
         """Submit the column's ordering to the source, or reverse it."""
-        navigation = self.dashpot.navigation["issues"]
-        source = self.dashpot.sources["issues"]
+        navigation = self.dashpot.pages.navigation["issues"]
+        source = self.dashpot.pages.sources["issues"]
         if not source.supports_sort(navigation.request, column):
             self.notify(
                 "This column cannot order the submitted source query",
@@ -442,7 +423,7 @@ class DashboardScreen(Screen[None]):
         """Re-list every observed record from the store."""
         context = PaneContext(
             self.dashpot.store,
-            self.dashpot.navigation,
+            self.dashpot.pages.navigation,
             dark=self.app.current_theme.dark,
             now=datetime.now(UTC),
         )
@@ -552,7 +533,7 @@ class DashboardScreen(Screen[None]):
         # A refresh failure and a search error are the app's own errors; a
         # Project's diagnostics carry the severity they were observed with.
         entries: list[tuple[AlertSeverity, str]] = [
-            ("error", message) for message in self.dashpot.observation_errors.values()
+            ("error", message) for message in self.dashpot.observations.errors.values()
         ]
         entries.extend(
             (diagnostic.severity, diagnostic.message)
@@ -597,8 +578,8 @@ class DashboardScreen(Screen[None]):
         app = self.dashpot
         alert = summarize_alerts(
             app.store,
-            failures=app.observation_errors,
-            refreshing=tuple(app.in_flight) if app.refreshing_visible else (),
+            failures=app.observations.errors,
+            refreshing=app.observations.refreshing,
             fetching=tuple(app.fetching),
             source_pages=app.store.pages,
         )
@@ -684,47 +665,21 @@ class DashpotApp(App[None]):
         # fetch failure per Project until a fetch there succeeds.
         self.fetching: dict[str, str] = {}
         self.fetch_errors: dict[str, str] = {}
-        # Quick background observations should not flicker an indicator; the
-        # refreshing alert appears only once work has been in flight this long.
-        self.refresh_indicator_seconds = refresh_indicator_seconds
-        self.refresh_indicator_timer: Timer | None = None
-        self.refreshing_visible = False
-        self.in_flight: dict[ObservationKey, int] = {}
-        # A key requested while its observation is in flight is observed once
-        # more when that observation lands, under the latest trigger.
-        self.pending_rerun: dict[ObservationKey, str] = {}
-        self.scheduler = scheduler
         self.refresh_seconds = refresh_seconds
-        self.store = PagedObservationStore()
         self.refresh_timer: Timer | None = None
-        self.observation_errors: dict[ObservationKey, str] = {}
-        # A key is observed at most once at a time, so a pool sized to the
-        # keys lets every key run concurrently and a slow Issue Source never
-        # holds a thread the Git or Agent Run observation needs.
-        self.refresh_executor = ThreadPoolExecutor(
-            max_workers=max(2, min(8, len(self.scheduler.keys()))),
-            thread_name_prefix="dashpot-refresh",
+        self.store = PagedObservationStore()
+        # The observations in flight, their reruns and their indicator, and
+        # the source queries behind the pages, totals and identities.
+        self.observations = ObservationRunner(
+            scheduler, self.store, self, indicator_seconds=refresh_indicator_seconds
         )
-        # The Query Sources behind the pages, totals and identities, each on
-        # its own executor thread, and the navigation of each paged kind.
-        self.sources = dict(sources)
-        self.navigation: dict[ResourceKind, PageNavigation] = {
-            kind: PageNavigation(QueryRequest(kind=kind))
-            for kind in ("issues", "pull-requests")
-        }
-        self.query_executor = ThreadPoolExecutor(
-            max_workers=5, thread_name_prefix="dashpot-query"
-        )
-        self.query_busy: set[str] = set()
-        self.query_queued: dict[
-            str, tuple[PageTicket | None, Callable[[], object]]
-        ] = {}
+        self.pages = PageRunner(sources, self.store, self)
         self.selected_identity: str | None = None
         self.open_when_resolved: str | None = None
         # A local-only coordinator composes a placeholder for every Project
         # at construction; publishing it now names the Projects before their
         # first observation lands.
-        self.scheduler.publish(self.store)
+        scheduler.publish(self.store)
 
     @override
     def get_default_screen(self) -> DashboardScreen:
@@ -790,7 +745,7 @@ class DashpotApp(App[None]):
             ("issues", dashboard.issue_filter_bar),
             ("pull-requests", dashboard.pull_request_filter_bar),
         ):
-            bar.search.placeholder = self.sources[kind].search_prompt
+            bar.search.placeholder = self.pages.sources[kind].search_prompt
         if not self.store.has_observations:
             dashboard.queue_table().loading = True
         # The first pages render whatever the store already holds, so a
@@ -804,16 +759,33 @@ class DashpotApp(App[None]):
             )
 
     def on_unmount(self) -> None:
-        self.refresh_executor.shutdown(wait=False, cancel_futures=True)
-        self.query_executor.shutdown(wait=False, cancel_futures=True)
+        self.observations.shutdown()
+        self.pages.shutdown()
 
     async def off_loop(
         self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
     ) -> T:
-        """Run one blocking operation on an executor thread and return its value."""
+        """Run one blocking operation on an executor thread and return its value.
+
+        Fetches, Cleanups and Worktree launches share the observation pool
+        until they have flows of their own.
+        """
         return await asyncio.get_running_loop().run_in_executor(
-            executor or self.refresh_executor, operation
+            executor or self.observations.executor, operation
         )
+
+    def update_alert(self) -> None:
+        """Redraw the alert readout, the one path every change of its state takes."""
+        # A stopped timer can already have queued a redraw; shutdown marks
+        # the app not running before it removes screens or closes messages.
+        if (
+            not self.is_running
+            or self._closing
+            or self._closed
+            or not self.screen_stack
+        ):
+            return
+        self.dashboard.update_alert()
 
     def run_off_loop(
         self,
@@ -905,37 +877,25 @@ class DashpotApp(App[None]):
         """One automatic tick: coalesce onto whatever is still in flight."""
         self.request_refresh("timer")
 
-    def request_refresh(self, trigger: str) -> None:
+    def request_refresh(self, trigger: ObservationTrigger) -> None:
         """Observe every key and re-query the pages, totals and identities.
 
         A manual refresh restarts each navigation at page one; any other
         trigger repeats the displayed page unless its query is still running.
         """
-        self.schedule_observations(self.scheduler.keys(), trigger)
-        for kind in ("issues", "pull-requests"):
-            navigation = self.navigation[kind]
-            if trigger == "manual":
-                self.request_page(kind, navigation.restart())
-            elif kind not in self.query_busy:
-                self.request_page(kind, navigation.refresh())
-            key = "totals:" + kind
-            if key not in self.query_busy:
-                self.launch_query(
-                    key, None, lambda kind=kind, key=key: self.sources[key].totals(kind)
-                )
+        self.observations.refresh(trigger)
+        self.pages.refresh(restart=trigger == "manual")
         self.request_identities()
+        self.render_pages()
 
     def submit_page(self, kind: ResourceKind, **updates: str) -> None:
-        """Submit a new query context and invalidate prior navigation history."""
-        navigation = self.navigation[kind]
-        self.request_page(
-            kind, navigation.restart(navigation.request.model_copy(update=updates))
-        )
+        """Submit a new query context, which redraws the pages as loading."""
+        self.pages.submit(kind, **updates)
+        self.render_pages()
 
     def request_page(self, kind: ResourceKind, ticket: PageTicket) -> None:
-        self.launch_query(
-            kind, ticket, lambda: self.sources[kind].query_page(ticket.request)
-        )
+        """Query the page a ticket names and redraw the pages meanwhile."""
+        self.pages.request_page(kind, ticket)
         self.render_pages()
 
     def request_identities(self) -> None:
@@ -959,65 +919,38 @@ class DashpotApp(App[None]):
                     ids.append(relationships.parent)
         requested = tuple(dict.fromkeys(ids))
         if requested:
-            self.launch_query(
-                "identities",
-                None,
-                lambda: self.sources["identities"].resolve_identities(requested),
-            )
+            self.pages.request_identities(requested)
 
-    def launch_query(
-        self, key: str, ticket: PageTicket | None, operation: Callable[[], object]
-    ) -> None:
-        """Run one query per key at a time; the latest request waits its turn."""
-        if key in self.query_busy:
-            self.query_queued[key] = (ticket, operation)
-            return
-        self.query_busy.add(key)
-        self.run_off_loop(
-            f"query {key}",
-            f"query:{key}",
-            operation,
-            partial(QueryFinished, key, ticket),
-            executor=self.query_executor,
-        )
-
-    def on_query_finished(self, message: QueryFinished) -> None:
-        self.query_busy.discard(message.key)
-        if message.ticket:
-            kind = cast("ResourceKind", message.key)
-            self.navigation[kind].accept(
-                message.ticket, cast("QueryPage | None", message.value), message.error
-            )
-        elif isinstance(message.value, ProjectTotals):
-            self.store.totals[message.value.kind] = message.value
-        elif message.key == "identities" and isinstance(message.value, tuple):
-            self.store.accept_identities(
-                cast("tuple[ResolvedIssue, ...]", message.value)
-            )
-            if self.open_when_resolved and any(
-                outcome.issue_id == self.open_when_resolved
-                for outcome in cast("tuple[ResolvedIssue, ...]", message.value)
-            ):
-                row = self.store._row(self.open_when_resolved)
-                if row:
-                    self.push_screen(IssueScreen(row))
-                else:
-                    self.notify(
-                        "Bound Issue details are unavailable", severity="warning"
-                    )
-                self.open_when_resolved = None
+    def on_page_finished(self, message: PageFinished) -> None:
+        self.pages.accept_page(message)
         self.render_pages()
-        queued = self.query_queued.pop(message.key, None)
-        if queued:
-            self.launch_query(message.key, *queued)
+
+    def on_totals_finished(self, message: TotalsFinished) -> None:
+        self.pages.accept_totals(message)
+        self.render_pages()
+
+    def on_identities_finished(self, message: IdentitiesFinished) -> None:
+        self.pages.accept_identities(message)
+        if message.outcomes is not None:
+            self.open_resolved_issue(message.outcomes)
+        self.render_pages()
+
+    def open_resolved_issue(self, outcomes: tuple[ResolvedIssue, ...]) -> None:
+        """Open the bound Issue a person is waiting on once its identity resolves."""
+        if not self.open_when_resolved or all(
+            outcome.issue_id != self.open_when_resolved for outcome in outcomes
+        ):
+            return
+        row = self.store._row(self.open_when_resolved)
+        if row:
+            self.push_screen(IssueScreen(row))
+        else:
+            self.notify("Bound Issue details are unavailable", severity="warning")
+        self.open_when_resolved = None
 
     def render_pages(self) -> None:
         """Publish each navigation's page to the store and redraw the dashboard."""
-        for kind, navigation in self.navigation.items():
-            if navigation.page:
-                self.store.pages[kind] = navigation.page
-            else:
-                self.store.pages.pop(kind, None)
+        self.pages.publish()
         if not self.is_running or not self.dashboard.is_mounted:
             return
         self.dashboard.queue_table().loading = False
@@ -1084,7 +1017,7 @@ class DashpotApp(App[None]):
                 partial(fetcher, Path(anchor)),
                 partial(FetchFinished, project_id),
             )
-        self.dashboard.update_alert()
+        self.update_alert()
 
     def on_fetch_finished(self, message: FetchFinished) -> None:
         self.record_fetch_result(message)
@@ -1116,15 +1049,8 @@ class DashpotApp(App[None]):
         # is re-observed rather than inferred from the fetch, and a fetch
         # that reached no remote leaves the last good observation as it is.
         if observe and report is not None and report.fetched:
-            self.schedule_observations(
-                [
-                    key
-                    for key in self.scheduler.keys(message.project_id)
-                    if key.kind in ("targets", "workspace")
-                ],
-                "fetch",
-            )
-        dashboard.update_alert()
+            self.observations.schedule(self.git_keys(message.project_id), "fetch")
+        self.update_alert()
 
     def request_cleanup(self, selection: CleanupSelection | None) -> None:
         """Preview a Cleanup of the highlighted row, off the event loop.
@@ -1292,7 +1218,7 @@ class DashpotApp(App[None]):
             group=f"fetch:{project_id}",
             exit_on_error=False,
         )
-        self.dashboard.update_alert()
+        self.update_alert()
 
     async def fetch_cleanup_preview(
         self, project_id: str, anchor: Path, screen: CleanupScreen
@@ -1353,26 +1279,21 @@ class DashpotApp(App[None]):
                 await screen.replace_preview(preview, status)
         finally:
             self.fetching.pop(project_id, None)
-            if not (self._closing or self._closed):
-                self.dashboard.update_alert()
+            self.update_alert()
 
     async def observe_cleanup_fetch(self, project_id: str) -> None:
         """Wait for post-fetch Git observations before accepting refreshed evidence."""
-        keys = [
-            key
-            for key in self.scheduler.keys(project_id)
-            if key.kind in ("targets", "workspace")
-        ]
+        keys = self.git_keys(project_id)
         if not keys:
             raise RuntimeError(
                 "No Git observation is available; refresh and reopen the preview."
             )
-        pending = {key: self.in_flight.get(key, 0) for key in keys}
+        pending = {key: self.observations.in_flight.get(key, 0) for key in keys}
         future = asyncio.Future[None]()
         waiter = (pending, future)
         self._cleanup_refresh_waiters.append(waiter)
         try:
-            self.schedule_observations(keys, "fetch", rerun_in_flight=True)
+            self.observations.schedule(keys, "fetch", rerun_in_flight=True)
             await asyncio.wait_for(future, self.cleanup_refresh_timeout)
         finally:
             self._cleanup_refresh_waiters.remove(waiter)
@@ -1481,100 +1402,19 @@ class DashpotApp(App[None]):
 
     def reobserve_after_cleanup(self, project_id: str) -> None:
         """Observe what a Cleanup changed the passive way, never inferring it."""
-        self.schedule_observations(
-            [
-                key
-                for key in self.scheduler.keys(project_id)
-                if key.kind in ("targets", "workspace")
-            ],
-            "cleanup",
-        )
+        self.observations.schedule(self.git_keys(project_id), "cleanup")
+
+    def git_keys(self, project_id: str) -> list[ObservationKey]:
+        """The keys that observe a Project's Git state, which a mutation changes."""
+        return [
+            key
+            for key in self.observations.scheduler.keys(project_id)
+            if key.kind in ("targets", "workspace")
+        ]
 
     def project_display_label(self, project_id: str) -> str:
         project = self.store.project(project_id)
         return project.display_label if project is not None else project_id
-
-    def schedule_observations(
-        self,
-        keys: Sequence[ObservationKey],
-        trigger: str,
-        *,
-        rerun_in_flight: bool | None = None,
-    ) -> None:
-        """Observe ``keys``, coalescing onto any observation already in flight.
-
-        Observations of one key are serialised by the scheduler, so a second
-        ticket could never land sooner than the running one; requesting it
-        would only discard the running work when it lands. A key in flight
-        is therefore left to finish and, unless the trigger coalesces
-        (``rerun_in_flight`` decides; by default only a timer tick does), is
-        observed once more afterwards under the latest trigger.
-        """
-        if rerun_in_flight is None:
-            rerun_in_flight = trigger not in COALESCED_TRIGGERS
-        wanted: list[ObservationKey] = []
-        coalesced = False
-        for key in keys:
-            if key not in self.in_flight:
-                wanted.append(key)
-            elif rerun_in_flight:
-                self.pending_rerun[key] = trigger
-                coalesced = True
-        tickets = self.scheduler.request(wanted) if wanted else ()
-        for ticket in tickets:
-            self.in_flight[ticket.key] = ticket.generation
-            # Not exclusive: a worker is never cancelled by a later request,
-            # so every started observation ends by posting its outcome and
-            # the in-flight gate always reopens.
-            self.run_off_loop(
-                f"observe {ticket.key.group}",
-                ticket.key.group,
-                partial(self.scheduler.observe, ticket),
-                partial(ObservationFinished, ticket, trigger),
-            )
-        if coalesced and not self.refreshing_visible:
-            # The press did something; say so at once rather than after the
-            # indicator threshold, which the running observation may have
-            # already passed.
-            self.refreshing_visible = True
-            self.dashboard.update_alert()
-        if self.refresh_indicator_timer is None and self.in_flight:
-            self.refresh_indicator_timer = self.set_timer(
-                self.refresh_indicator_seconds,
-                self.show_refreshing,
-                name="refresh indicator",
-            )
-
-    def show_refreshing(self) -> None:
-        self.refresh_indicator_timer = None
-        # A stopped timer can already have queued this callback; shutdown marks
-        # the app not running before it removes screens or closes messages.
-        if (
-            not self.is_running
-            or self._closing
-            or self._closed
-            or not self.screen_stack
-        ):
-            return
-        if self.in_flight:
-            self.refreshing_visible = True
-            self.dashboard.update_alert()
-
-    def _finish_in_flight(self, ticket: ObservationTicket) -> None:
-        if self.in_flight.get(ticket.key) == ticket.generation:
-            del self.in_flight[ticket.key]
-        # A queued rerun keeps the key refreshing; the indicator stays put
-        # until it is scheduled rather than blinking off in between.
-        if not self.in_flight and not self.pending_rerun:
-            if self.refresh_indicator_timer is not None:
-                self.refresh_indicator_timer.stop()
-                self.refresh_indicator_timer = None
-            self.refreshing_visible = False
-
-    def _schedule_pending_rerun(self, key: ObservationKey) -> None:
-        trigger = self.pending_rerun.pop(key, None)
-        if trigger is not None and not (self._closing or self._closed):
-            self.schedule_observations([key], trigger)
 
     def on_observation_finished(self, message: ObservationFinished) -> None:
         # A late completion can be dispatched during shutdown while widgets
@@ -1584,63 +1424,36 @@ class DashpotApp(App[None]):
             return
         if not self.dashboard._update_widgets_mounted():
             return
-        self._finish_in_flight(message.ticket)
-        try:
-            self._accept_observation(message)
-            # Identities are resolved against the Agent Runs just published.
-            if message.ticket.key.kind == "agent-runs":
-                self.request_identities()
-            self.finish_cleanup_observation(message)
-        finally:
-            # After acceptance, so the finished ticket is still the current
-            # generation while its outcome is judged.
-            self._schedule_pending_rerun(message.ticket.key)
-            self.dashboard.update_alert()
+        self.observations.finish(message, partial(self._accept_observation, message))
 
-    def _accept_observation(self, message: ObservationFinished) -> None:
+    def _accept_observation(
+        self, message: ObservationFinished, landed: Acceptance
+    ) -> None:
+        self.show_observation(landed)
+        # Identities are resolved against the Agent Runs just published.
+        if message.ticket.key.kind == "agent-runs":
+            self.request_identities()
+        self.finish_cleanup_observation(message)
+
+    def show_observation(self, landed: Acceptance) -> None:
+        """Render what a landed observation changed; a dropped one changes nothing."""
+        if isinstance(landed, DroppedObservation):
+            return
         dashboard = self.dashboard
-        key = message.ticket.key
-        if message.error is not None:
-            if not self.scheduler.is_current(message.ticket):
-                return
-            dashboard.queue_table().loading = False
-            error = f"Refresh failed: {message.error}"
-            # The persistent alert already carries a repeated failure; only a
-            # new or changed failure earns a toast.
-            changed = self.observation_errors.get(key) != error
-            self.observation_errors[key] = error
-            dashboard.update_diagnostics()
-            if message.trigger in MANUAL_TRIGGERS and changed:
-                self.notify(error, severity="error", title="Dashpot refresh")
-            return
-        outcome = message.outcome
-        if outcome is None or not outcome.accepted:
-            return
-        recovered = self.observation_errors.pop(key, None) is not None
-        if recovered and message.trigger in MANUAL_TRIGGERS:
-            self.notify(
-                "Refresh succeeded", severity="information", title="Dashpot refresh"
-            )
-        # Publishing happens here, on the UI thread, so the store is never
-        # mutated while a read model is being rendered from it.
-        changes = self.scheduler.publish(self.store)
         # An accepted observation ends the cold load even when an earlier
         # publish already carried its change; the spinner must not outlive it.
         dashboard.queue_table().loading = False
-        if not changes:
+        if isinstance(landed, FailedObservation):
             dashboard.update_diagnostics()
+            if landed.announced:
+                self.notify(landed.error, severity="error", title="Dashpot refresh")
             return
-        dashboard.issue_table.reconcile_rows()
-        dashboard.update_issue_inventory()
-        dashboard.reconcile_list_panes()
-        dashboard.update_diagnostics()
-        # Follow-ups are derived from what was published, not from this
-        # ticket's key: another key's handler may already have published
-        # this one's pending composition.
-        follow_ups = self.scheduler.follow_ups(changes)
-        if follow_ups:
-            # A follow-up already in flight started before this publish, so
-            # it is observed again whatever the trigger.
-            self.schedule_observations(
-                follow_ups, message.trigger, rerun_in_flight=True
+        if landed.announced:
+            self.notify(
+                "Refresh succeeded", severity="information", title="Dashpot refresh"
             )
+        if landed.changes:
+            dashboard.issue_table.reconcile_rows()
+            dashboard.update_issue_inventory()
+            dashboard.reconcile_list_panes()
+        dashboard.update_diagnostics()

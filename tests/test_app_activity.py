@@ -173,7 +173,7 @@ async def test_refresh_for_each_new_source_follows_visible_key_and_clears_remove
         accepted = tuple(target.related_rows for target in tables.values())
         app.request_refresh("manual")
         await wait_until(
-            lambda: bool(app.observation_errors) and first_load_landed(app)
+            lambda: bool(app.observations.errors) and first_load_landed(app)
         )
         assert tuple(target.related_rows for target in tables.values()) == accepted
         app.request_refresh("manual")
@@ -280,7 +280,7 @@ async def test_refresh_switch_reorder_rejection_and_removal_follow_visible_sessi
         await wait_until(lambda: emphasis(app) == expected(app, "switched-run"))
         app.request_refresh("manual")
         await wait_until(
-            lambda: bool(app.observation_errors) and first_load_landed(app)
+            lambda: bool(app.observations.errors) and first_load_landed(app)
         )
         assert emphasis(app) == expected(app, "switched-run")
         app.request_refresh("manual")
@@ -468,13 +468,13 @@ async def test_paged_issue_emphasis_uses_only_current_page_without_resolving_on_
     app = application(tmp_path, collector=WorktreeCollector(tmp_path))
     run = agent_run(
         "run",
-        app.sources["issues"].context.project_id,
+        app.pages.sources["issues"].context.project_id,
         issue_id="I_1",
         target_path=str(tmp_path),
     )
-    app.scheduler.agent_observer = lambda targets: ([run], [])
+    app.observations.scheduler.agent_observer = lambda targets: ([run], [])
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: "I_1" in app.store.resolved and not app.query_busy)
+        await wait_until(lambda: "I_1" in app.store.resolved and not app.pages.busy)
         request_identities = Mock(wraps=app.request_identities)
         app.request_identities = request_identities
         sessions = app.dashboard.sessions_pane().table
@@ -483,12 +483,14 @@ async def test_paged_issue_emphasis_uses_only_current_page_without_resolving_on_
         request_identities.assert_not_called()
         app.dashboard.queue_table().focus()
         await pilot.press("n")
-        await wait_until(lambda: app.navigation["issues"].page.issues[0].id == "I_2")
+        await wait_until(
+            lambda: app.pages.navigation["issues"].page.issues[0].id == "I_2"
+        )
         sessions.focus()
         await pilot.pause()
         assert not app.dashboard.queue_table().related_rows
         assert app.dashboard.worktrees_pane().table.related_rows
-        assert app.navigation["issues"].page.issues[0].id == "I_2"
+        assert app.pages.navigation["issues"].page.issues[0].id == "I_2"
 
 
 @pytest.mark.asyncio
@@ -510,12 +512,12 @@ async def test_paged_cursor_survives_observed_hook_session_starting_issue_work(
         hooks,
     )
     app = application(tmp_path, collector=WorktreeCollector(tmp_path))
-    app.scheduler.agent_observer = lambda targets: observe_agent_runs(
+    app.observations.scheduler.agent_observer = lambda targets: observe_agent_runs(
         targets, hooks, lookup=present(process)
     )
     async with app.run_test(size=(150, 55)):
         sessions = app.dashboard.sessions_pane().table
-        await wait_until(lambda: sessions.row_count == 1 and not app.query_busy)
+        await wait_until(lambda: sessions.row_count == 1 and not app.pages.busy)
         sessions.focus()
         before = capture_selection(sessions)[0]
         assert app.store.query_sessions().rows[0].session.session_id == "conversation"
