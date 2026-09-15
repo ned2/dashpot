@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from dashpot.github_queries import GitHubQuerySource
+from dashpot.github import GitHubRequestError
+from dashpot.github_queries import GitHubQuerySource, validate_grouping
 from dashpot.markdown_queries import MarkdownQuerySource
 from dashpot.project_config import load_project_config
 from dashpot.source_queries import InvalidContinuation, QueryPage, QueryRequest
@@ -115,6 +116,35 @@ def test_advanced_expression_preserved_and_lifecycle_scoped(tmp_path):
     assert (
         f"searchQuery=repo:ned2/dashpot is:issue ({expression})" in runner.calls[1][0]
     )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "draft:true) OR repo:elsewhere/repo (",
+        'label:"unterminated',
+        "(draft:true",
+        "author:ned\\",
+    ],
+)
+def test_unbalanced_expression_cannot_escape_repository_scope(tmp_path, query):
+    with pytest.raises(GitHubRequestError) as error:
+        validate_grouping(query)
+    assert error.value.code == "github-search-syntax"
+    # The page reports the refusal as its own diagnostic; only the context
+    # observation reached GitHub.
+    source, runner = github(tmp_path, context())
+    page = source.query_page(QueryRequest(query=query))
+    assert page.status == "unavailable" and not page.issues
+    assert [d.code for d in page.diagnostics] == ["github-search-syntax"]
+    assert len(runner.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "query", ['label:"bug (parser"', "don't", 'label:"escaped \\" quote" (a)']
+)
+def test_quoted_parentheses_and_apostrophes_stay_literal_in_scope_validation(query):
+    validate_grouping(query)
 
 
 def test_missing_page_profile_rejects_page_atomically(tmp_path):

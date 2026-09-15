@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 
 from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
+from .app import QUERY_SOURCE_KEYS, DashpotApp
 from .cleanup import (
     BranchCleanupRequest,
     CleanupConfirmation,
@@ -32,8 +33,6 @@ from .integrate import (
 )
 from .issue_resolution import describe_issue, show_issue
 from .model import Diagnostic, RepositoryAnchor, Workspace
-from .paged_app import QUERY_SOURCE_KEYS
-from .paged_app import PagedDashpotApp as DashpotApp
 from .project_config import PROJECT_CONFIG_NAME
 from .query_source import configured_query_source
 from .repository import worktree_root

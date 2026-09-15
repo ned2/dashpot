@@ -28,6 +28,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot import session_cells
+from dashpot.app import DashpotApp
 from dashpot.issue_list import row_key
 from dashpot.issue_profile import IssueProfile
 from dashpot.issue_view import IssueScreen
@@ -37,7 +38,6 @@ from dashpot.model import (
     RunState,
     WorkspaceSnapshot,
 )
-from dashpot.paged_app import PagedDashpotApp
 from helpers import snapshot_of, wait_until
 
 
@@ -217,7 +217,7 @@ def sessions_snapshot(
     return snapshot.model_copy(update={"issue_runs": issue_runs})
 
 
-def session_pane_keys(app: PagedDashpotApp) -> list[str]:
+def session_pane_keys(app: DashpotApp) -> list[str]:
     table = app.dashboard.sessions_pane().table
     return [
         str(table.coordinate_to_cell_key(Coordinate(index, 0)).row_key.value)
@@ -391,7 +391,7 @@ async def test_enter_resolves_a_bound_issue_off_the_page_before_opening_it() -> 
         # A bound Issue the Issue Source no longer knows is reported, not opened.
         pane.table.move_cursor(row=keys.index(row_key("session", "work:codex:gone")))
         await pilot.press("enter")
-        await wait_until(lambda: "I_gone" in app.paged_store.resolved)
+        await wait_until(lambda: "I_gone" in app.store.resolved)
         await pilot.pause()
         assert [notification.message for notification in app._notifications] == [
             "Resolving bound Issue details",

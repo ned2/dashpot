@@ -28,6 +28,7 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
+from dashpot.app import DashpotApp
 from dashpot.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,
@@ -47,7 +48,6 @@ from dashpot.issue_list import row_key
 from dashpot.legend import LegendScreen
 from dashpot.list_pane import ListPane
 from dashpot.model import Branch, WorkspaceSnapshot
-from dashpot.paged_app import PagedDashpotApp
 from helpers import wait_until
 
 ANCHOR = "/repo"
@@ -269,16 +269,16 @@ class FakeCleaner:
         return answer
 
 
-def toasts(app: PagedDashpotApp) -> list[str]:
+def toasts(app: DashpotApp) -> list[str]:
     return [notification.message for notification in app._notifications]
 
 
-def toast_titles(app: PagedDashpotApp) -> list[str]:
+def toast_titles(app: DashpotApp) -> list[str]:
     return [notification.title for notification in app._notifications]
 
 
 async def focus_row(
-    app: PagedDashpotApp, pilot: Pilot[None], pane_id: str, key: str
+    app: DashpotApp, pilot: Pilot[None], pane_id: str, key: str
 ) -> None:
     """Focus a list pane and put its cursor on the row with ``key``."""
     pane = app.query_one(f"#{pane_id}", ListPane)
@@ -288,12 +288,12 @@ async def focus_row(
     await app.workers.wait_for_complete()
 
 
-def cleanup_screen(app: PagedDashpotApp) -> CleanupScreen:
+def cleanup_screen(app: DashpotApp) -> CleanupScreen:
     assert isinstance(app.screen, CleanupScreen)
     return app.screen
 
 
-def confirm_button(app: PagedDashpotApp) -> Button:
+def confirm_button(app: DashpotApp) -> Button:
     return cleanup_screen(app).query_one("#cleanup-confirm", Button)
 
 
@@ -312,7 +312,7 @@ def details(app):
     )
 
 
-def problem_text(app: PagedDashpotApp) -> str:
+def problem_text(app: DashpotApp) -> str:
     return str(cleanup_screen(app).query_one("#cleanup-problem", Static).render())
 
 

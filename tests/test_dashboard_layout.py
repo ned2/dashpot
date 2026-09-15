@@ -25,9 +25,9 @@ from app_harness import (
     prepare_pane,
     workspace_snapshot,
 )
+from dashpot.app import DashpotApp
 from dashpot.item_filter import ItemFilterBar
 from dashpot.list_pane import ListColumn, ListPane, ListRow
-from dashpot.paged_app import PagedDashpotApp
 from dashpot.pane_layout import PANE_MARGIN
 from helpers import wait_until
 
@@ -82,9 +82,7 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         assert_search_row_fits_the_queue_pane(app, page_summary)
 
 
-def assert_search_row_fits_the_queue_pane(
-    app: PagedDashpotApp, page_summary: str
-) -> None:
+def assert_search_row_fits_the_queue_pane(app: DashpotApp, page_summary: str) -> None:
     queue_pane = app.query_one("#queue-pane")
     search = app.query_one("#issue-search", Input)
     count = app.query_one("#issue-count", Static)

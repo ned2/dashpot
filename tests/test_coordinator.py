@@ -13,7 +13,6 @@ from dashpot.collect import (
     AGENT_RUNS_KEY,
     ObservationCoordinator,
     ObservationKey,
-    SnapshotScheduler,
 )
 from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_sources import CollectedIssues, IssueSource
@@ -559,25 +558,3 @@ def test_barrier_refresh_is_a_complete_checkpoint(workspace) -> None:
     # A second barrier is independent and still complete.
     again = coordinator.refresh()
     assert [project.project_id for project in again.projects] == ["alpha", "beta"]
-
-
-def test_snapshot_scheduler_publishes_a_whole_checkpoint_once() -> None:
-    snapshot = WorkspaceSnapshot(
-        collected_at="2026-08-28T00:00:00Z", elapsed_ms=1, projects=[]
-    )
-
-    class Collector:
-        def refresh(self) -> WorkspaceSnapshot:
-            return snapshot
-
-    scheduler = SnapshotScheduler(Collector())
-    store = WorkspaceObservationStore()
-    (old,) = scheduler.request(scheduler.keys())
-    (new,) = scheduler.request(scheduler.keys())
-
-    assert not scheduler.observe(old).accepted
-    assert scheduler.publish(store) == []
-    assert scheduler.observe(new).accepted
-    assert len(scheduler.publish(store)) == 1
-    assert scheduler.publish(store) == []
-    assert store.checkpoint().collected_at == "2026-08-28T00:00:00Z"

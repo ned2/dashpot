@@ -27,6 +27,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot import session_cells
+from dashpot.app import DashpotApp
 from dashpot.column_editor import IssueColumnEditor
 from dashpot.detail_fields import DetailFields, detail_items_text
 from dashpot.issue_cells import IssueStateCell
@@ -41,7 +42,6 @@ from dashpot.issue_view import (
 )
 from dashpot.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
 from dashpot.model import AgentRun, IssueActivity, LinkedPullRequest
-from dashpot.paged_app import PagedDashpotApp
 from helpers import wait_until
 
 
@@ -343,7 +343,7 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
         stale_row = app.dashboard.rows_by_key[selected_key]
         assert stale_row.project_runs == ()
 
-        app.paged_store.replace_agent_runs(
+        app.store.replace_agent_runs(
             [observed_run], {selected_issue.id: [observed_run.id]}
         )
         app.dashboard.open_issue(selected_key)
@@ -357,7 +357,7 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
 
 def _issue_view_app(
     *issues: IssueProfile, runs: list[AgentRun] | None = None
-) -> PagedDashpotApp:
+) -> DashpotApp:
     return dashboard_app(SequenceCollector(workspace_snapshot(*issues, runs=runs)))
 
 
