@@ -97,6 +97,18 @@ Green CI on unchanged reviewed code finishes verification without another
 routine review. Follow the README's [integration sequence](README.md#contributing)
 and keep the Issue Binding through all delegated work and green PR CI.
 
+When `main` advances past the PR branch's base, PR CI refuses the branch until
+its base is an ancestor of its head again. This Repository authorizes the
+rebase: rebase the branch onto `origin/main`, rerun the local review gate
+against the new base, and force-push the branch with an explicit lease on its
+previous head (`--force-with-lease=refs/heads/<branch>:<old-head>`), without
+asking first. A conflict-free rebase whose diff against the old head is exactly
+what landed on `main` is content-preserving and needs no further review; a
+rebase that resolves conflicts changes the reviewed diff and needs focused
+follow-up review. Record the old and new heads and the new base in the PR's
+validation section. Pull requests integrate by squash merge on GitHub, so the
+branch's own commits are not what lands on `main`; the PR title and body are.
+
 Under Codex on Linux, use the per-command sandbox-escalation mechanism for a
 full gate only when its matching condition applies:
 
