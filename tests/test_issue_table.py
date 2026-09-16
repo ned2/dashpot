@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
@@ -35,19 +34,9 @@ from dashpot.issue_table import (
 )
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import AgentRun, IssueActivity, LinkedPullRequest
-from helpers import required, snapshot_of
-
-if TYPE_CHECKING:
-    from _typeshed import SupportsRichComparison
-
-    from dashpot.issue_cells import TableCell
+from helpers import snapshot_of
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def cell_order(cell: TableCell) -> SupportsRichComparison:
-    """The domain value a rendered cell carries, for cells that all have one."""
-    return required(cell.sort_value)
 
 
 def test_row_projection_respects_visible_column_order() -> None:
@@ -100,9 +89,6 @@ def test_author_column_is_hidden_by_default_and_marks_a_missing_author() -> None
     assert "author" not in DEFAULT_COLUMNS
     assert cells[row_key("issue", authored.id)] == ("ned2",)
     assert cells[row_key("issue", anonymous.id)] == ("-",)
-    # The placeholder carries no value: the cell is a mark, not a name.
-    assert cells[row_key("issue", authored.id)][0].sort_value == "ned2"
-    assert cells[row_key("issue", anonymous.id)][0].sort_value is None
 
 
 def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None:
@@ -123,10 +109,6 @@ def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None
     assert "type" not in DEFAULT_COLUMNS
     assert cells[row_key("issue", classified.id)] == ("v1", "Feature")
     assert cells[row_key("issue", plain.id)] == ("-", "-")
-    assert [cell.sort_value for cell in cells[row_key("issue", plain.id)]] == [
-        None,
-        None,
-    ]
 
 
 def test_comments_column_shows_engagement_only_when_present() -> None:
@@ -158,8 +140,6 @@ def test_comments_column_shows_engagement_only_when_present() -> None:
     assert "comments" not in DEFAULT_COLUMNS
     assert cells[row_key("issue", discussed.id)] == ("4",)
     assert cells[row_key("issue", quiet.id)] == ("-",)
-    assert cells[row_key("issue", discussed.id)][0].sort_value == 4
-    assert cells[row_key("issue", quiet.id)][0].sort_value == 0
 
     detail = issue_metadata_text(contexts[row_key("issue", discussed.id)])
     assert "Comments: 4\n" in detail
@@ -189,7 +169,7 @@ def test_issue_number_column_uses_the_bare_project_local_number() -> None:
     assert number.justify == "right"
 
 
-def test_issue_date_columns_render_iso_dates_and_carry_the_full_timestamp() -> None:
+def test_issue_date_columns_render_iso_dates() -> None:
     selected_issue = issue(
         "test/repo#17",
         "Timestamp test",
@@ -206,14 +186,7 @@ def test_issue_date_columns_render_iso_dates_and_carry_the_full_timestamp() -> N
         "2026-08-25",
         "2026-08-27",
     )
-    # Two instants on one date render alike but stay distinct by timestamp.
-    later = date_cell("2026-08-27T01:15:00Z")
-    earlier = date_cell("2026-08-27T00:30:00Z")
-    assert later == earlier
-    ordered = sorted([later, earlier], key=cell_order)
-    assert ordered[0] is earlier
-    assert ordered[1] is later
-    assert date_cell(None).sort_value is None
+    assert date_cell(None) == "-"
 
 
 def test_labels_column_renders_tracker_coloured_chips_and_carries_names() -> None:
@@ -237,7 +210,7 @@ def test_labels_column_renders_tracker_coloured_chips_and_carries_names() -> Non
     chips = cells[row_key("issue", labelled.id)][0]
     assert isinstance(chips, LabelsCell)
     assert chips.plain == " bug   enhancement   zeta "
-    assert chips.sort_value == ("bug", "enhancement", "zeta")
+    assert chips.labels == ("bug", "enhancement", "zeta")
     styles = [str(span.style) for span in chips.spans]
     assert styles == [
         "#ffffff on #d73a4a",
@@ -247,7 +220,7 @@ def test_labels_column_renders_tracker_coloured_chips_and_carries_names() -> Non
     empty = cells[row_key("issue", bare.id)][0]
     assert isinstance(empty, LabelsCell)
     assert empty.plain == "-"
-    assert empty.sort_value is None
+    assert empty.labels == ()
 
 
 def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
@@ -279,7 +252,6 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
         assert isinstance(priority, PriorityCell)
         assert priority.plain == " P0 "
         assert priority.priority == "P0"
-        assert priority.sort_value == 0
         assert [str(span.style) for span in priority.spans] == ["#ffffff on #b60205"]
         # The priority labels leave the LABELS chips rather than render twice.
         assert isinstance(labels, LabelsCell)
@@ -311,7 +283,6 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
     assert isinstance(absent, PriorityCell)
     assert absent.plain == ""
     assert absent.priority is None
-    assert absent.sort_value is None
     # The rows keep the order the source gave them.
     assert list(cells) == [
         row_key("issue", prioritised.id),
@@ -378,39 +349,17 @@ def test_column_catalogue_owns_searchability_and_cells_carry_typed_values() -> N
             "title",
         }
     )
-    agent_states = [
-        agent_state_cell(("running",)),
-        agent_state_cell(()),
-        agent_state_cell(("waiting",)),
-        agent_state_cell(("unknown",)),
-    ]
-
-    ordered = sorted(agent_states, key=cell_order)
-
-    assert [str(cell) for cell in ordered] == ["", "○", "◐", "●"]
+    # The most active bound Agent Run sets the Glyph; no run shows nothing.
+    assert str(agent_state_cell(())) == ""
+    assert str(agent_state_cell(("unknown",))) == "○"
+    assert str(agent_state_cell(("waiting",))) == "◐"
+    assert str(agent_state_cell(("running",))) == "●"
     assert str(agent_state_cell(("running", "running"))) == "●"
     assert str(agent_state_cell(("waiting", "running", "unknown"))) == "●"
     assert str(agent_state_cell(("unknown", "waiting"))) == "◐"
-    numbers = [IssueNumberCell(10), IssueNumberCell(2)]
-
-    assert sorted(numbers, key=cell_order) == [
-        IssueNumberCell(2),
-        IssueNumberCell(10),
-    ]
-    assert all(number.justify == "right" for number in numbers)
-    states = [
-        IssueStateCell("duplicate", dark=True),
-        IssueStateCell("open", dark=True),
-        IssueStateCell("not-planned", dark=True),
-        IssueStateCell("completed", dark=True),
-    ]
-
-    assert [cell.state_kind for cell in sorted(states, key=cell_order)] == [
-        "open",
-        "completed",
-        "not-planned",
-        "duplicate",
-    ]
+    assert all(IssueNumberCell(number).justify == "right" for number in (2, 10))
+    for kind in ("open", "completed", "not-planned", "duplicate"):
+        assert IssueStateCell(kind, dark=True).state_kind == kind
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:

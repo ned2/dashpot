@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -21,6 +22,7 @@ from app_harness import (
     issue,
     issue_metadata_text,
     open_issue_view,
+    pane_title,
     serve_snapshot,
     show_issue_states,
     with_first_project_snapshot,
@@ -91,11 +93,6 @@ async def test_issue_view_tracks_github_issue_state_colors(
         view = await open_issue_view(app, pilot)
         body = view.query_one("#issue-view-body")
         metadata = view.query_one("#issue-view-metadata")
-        # The view arrives without focus once its identities land (see
-        # test_the_issue_view_keeps_its_chrome_after_its_identities_resolve),
-        # so focus the body to read the colours as a person would see them.
-        body.focus()
-        await pilot.pause()
 
         assert issue_state_class(selected_issue) == state_class
         assert view.query_one("#issue-view").has_class(state_class)
@@ -439,16 +436,8 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         assert table.has_focus
 
 
-# Opening an Issue resolves the identities it relates to, and the shipped
-# view recomposes when they land without repeating what its mount did: the
-# body loses focus, both panes lose their titles and the compact layout
-# forgets to stack until the terminal is next resized. This expected failure
-# holds what the view showed before its identities landed until the
-# recompose keeps it, and then demands the marker go (#207).
-@pytest.mark.xfail(
-    strict=True,
-    reason="the Issue view's recompose on resolved identities drops its chrome",
-)
+# Opening an Issue resolves the identities it relates to, and the view
+# recomposes when they land; the chrome its mount set must survive that.
 @pytest.mark.asyncio
 async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() -> None:
     app = _issue_view_app(issue("test/repo#1", "First"))
@@ -460,10 +449,8 @@ async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() ->
         metadata = view.query_one("#issue-view-metadata")
 
         assert body.has_focus
-        assert body._border_title is not None
-        assert body._border_title.plain == "#1: First"
-        assert metadata._border_title is not None
-        assert metadata._border_title.plain == "DETAILS"
+        assert pane_title(view, "#issue-view-body") == "#1: First"
+        assert pane_title(view, "#issue-view-metadata") == "DETAILS"
         # Focus is cued by the border colour rather than a heavier bar.
         assert body.styles.border_top[1] != metadata.styles.border_top[1]
         await pilot.press("tab")
@@ -477,6 +464,47 @@ async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() ->
             lambda: metadata.region.y >= body.region.y + body.region.height
         )
         assert metadata.region.width == body.region.width
+
+
+@pytest.mark.asyncio
+async def test_a_newer_projection_keeps_the_pane_a_person_is_reading() -> None:
+    app = _issue_view_app(issue("test/repo#1", "First"))
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        view = await open_issue_view(app, pilot)
+        await pilot.press("tab")
+        metadata = view.query_one("#issue-view-metadata")
+        assert metadata.has_focus
+
+        related = issue("test/repo#2", "Second")
+        view.show(replace(view.context, related_issues=(related,)))
+        await pilot.pause()
+
+        # The panes are new widgets after the recompose, dressed like the old.
+        assert view.query_one("#issue-view-metadata") is not metadata
+        assert view.context.related_issues == (related,)
+        assert view.query_one("#issue-view-metadata").has_focus
+        assert pane_title(view, "#issue-view-body") == "#1: First"
+        assert pane_title(view, "#issue-view-metadata") == "DETAILS"
+        assert not view.stacked
+
+
+@pytest.mark.asyncio
+async def test_a_recompose_after_the_view_closed_is_a_no_op() -> None:
+    app = _issue_view_app(issue("test/repo#1", "First"))
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        view = await open_issue_view(app, pilot)
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, IssueScreen))
+
+        # A projection landing after Escape must not touch the dismissed view.
+        await view.recompose()
+
+        assert not view.is_attached
+        assert not view.query("#issue-view-body")
 
 
 @pytest.mark.asyncio

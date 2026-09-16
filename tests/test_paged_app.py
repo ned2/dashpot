@@ -265,25 +265,22 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
     tmp_path,
 ):
     app = application(tmp_path)
-    source = app.queries.sources["issues"]
+    # Square brackets, as a Pydantic validation error or a quoted identifier
+    # would carry them: the text must render as typed, not parse as markup.
+    error = "Issue Source exploded [type=value_error]"
 
     def failing(request):
-        raise RuntimeError("Issue Source exploded")
+        raise RuntimeError(error)
 
     async with app.run_test(size=(150, 55)) as pilot:
         await wait_until(lambda: app.dashboard.queue_table().row_count == 1)
-        source.query_page = failing
+        app.queries.sources["issues"].query_page = failing
         app.dashboard.action_restart_page()
-        await wait_until(
-            lambda: app.queries.navigation["issues"].error == "Issue Source exploded"
-        )
+        await wait_until(lambda: app.queries.navigation["issues"].error == error)
         await pilot.pause()
         assert app.is_running
         assert app.queries.navigation["issues"].page is None
-        assert (
-            str(app.dashboard.query_one("#issue-count", Static).render())
-            == "Issue Source exploded"
-        )
+        assert str(app.dashboard.query_one("#issue-count", Static).render()) == error
 
 
 @pytest.mark.asyncio

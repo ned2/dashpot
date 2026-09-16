@@ -19,7 +19,6 @@ from .issue_cells import (
     ISSUE_STATE_COLUMN_GLYPH,
     SORT_GLYPHS,
     IssueNumberCell,
-    IssueTableCell,
     TableCell,
     agent_state_cell,
     comments_cell,
@@ -28,7 +27,6 @@ from .issue_cells import (
     labels_cell,
     optional_text_cell,
     priority_cell,
-    text_cell,
 )
 from .issue_list import (
     IssueListQuery,
@@ -266,25 +264,22 @@ def build_rows(
 def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     project = row.project
     issue = row.issue
-    assignees = tuple(assignee.casefold() for assignee in issue.assignees)
     return {
         "issue_state": issue_state_cell(issue, dark=dark),
         "agent_state": agent_state_cell(row.session_states, dark=dark),
         "number": IssueNumberCell(issue.number),
-        "title": text_cell(truncate_end(issue.title, TITLE_LIMIT)),
+        "title": truncate_end(issue.title, TITLE_LIMIT),
         "labels": labels_cell(issue, project),
-        "project": text_cell(project.display_label),
+        "project": project.display_label,
         "priority": priority_cell(issue, project),
-        "assignees": IssueTableCell(
-            ", ".join(issue.assignees) or "unassigned", assignees
-        ),
+        "assignees": ", ".join(issue.assignees) or "unassigned",
         "author": optional_text_cell(issue.author),
         "milestone": optional_text_cell(issue.milestone),
         "type": optional_text_cell(issue.issue_type),
         "comments": (
             comments_cell(row.auxiliary.activity)
             if row.auxiliary and row.auxiliary.activity
-            else text_cell("unavailable" if row.auxiliary else "not fetched")
+            else ("unavailable" if row.auxiliary else "not fetched")
         )
         if row.queried
         else comments_cell(issue_activity(issue, project)),

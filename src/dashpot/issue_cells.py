@@ -1,17 +1,19 @@
 """The Issue table's rendered values: cell types, Glyphs and chip formatting.
 
 Everything here turns an Issue Profile fact into what a cell shows — a
-coloured state block, a label chip, a date — while retaining the domain
-value behind the text, which ``issue_list`` derives the same way when it
-orders a Query Page. The column catalogue and the view state that arrange
-these cells live in ``issue_table``.
+coloured state block, a label chip, a date. A plain text value is a ``str``;
+a Rich cell carries its style, and where the text alone would not say what
+it shows — an Issue state block, a priority chip, label chips — the typed fact
+beside it. Nothing here orders rows: the source orders every Query Page.
+The column catalogue and the view state that arrange these cells live in
+``issue_table``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Literal, Self
+from typing import Literal
 
 from rich.text import Text
 
@@ -19,7 +21,6 @@ from .glyphs import ACTIVITY_COLUMN_GLYPH, SESSION_STATE_GLYPHS, Glyph
 from .issue_list import (
     PRIORITY_BY_LABEL,
     PriorityLevel,
-    SortValue,
     is_priority_label,
     issue_priority_label,
 )
@@ -58,22 +59,10 @@ LEGEND_AGENT_STATE = (AGENT_STATE_COLUMN_GLYPH, *AGENT_STATE_GLYPHS.values())
 LEGEND_SORT = tuple(SORT_GLYPHS.values())
 
 
-class IssueTableCell(str):
-    """A rendered table value that retains the domain value behind its text."""
-
-    sort_value: SortValue
-
-    def __new__(cls, text: str, sort_value: SortValue) -> Self:
-        cell = super().__new__(cls, text)
-        cell.sort_value = sort_value
-        return cell
-
-
 class AgentStateCell(Text):
-    """Retain the aggregate Agent Run state alongside its shared Glyph."""
+    """The aggregate Agent Run state as its shared Glyph."""
 
-    __slots__ = ("sort_value",)
-    sort_value: SortValue
+    __slots__ = ()
 
     def __init__(self, state: RunState | None, *, dark: bool) -> None:
         glyph = AGENT_STATE_GLYPHS[state] if state is not None else None
@@ -81,40 +70,26 @@ class AgentStateCell(Text):
             glyph.symbol if glyph is not None else "",
             style=glyph.style(dark=dark) if glyph is not None else "",
         )
-        self.sort_value = (
-            ("unknown", "waiting", "running").index(state) + 1 if state else 0
-        )
 
 
 class IssueStateCell(Text):
     """A semantic Issue-state value rendered as a colored block."""
 
-    __slots__ = ("sort_value", "state_kind")
-
-    sort_value: SortValue
+    __slots__ = ("state_kind",)
 
     def __init__(self, state_kind: IssueStateKind, *, dark: bool) -> None:
         glyph = ISSUE_STATE_GLYPHS[state_kind]
         super().__init__(glyph.symbol, style=glyph.style(dark=dark))
         self.state_kind = state_kind
-        self.sort_value = (
-            "open",
-            "completed",
-            "not-planned",
-            "duplicate",
-        ).index(state_kind)
 
 
 class IssueNumberCell(Text):
-    """A right-aligned Issue Number that retains the number itself."""
+    """A right-aligned Issue Number."""
 
-    __slots__ = ("sort_value",)
-
-    sort_value: SortValue
+    __slots__ = ()
 
     def __init__(self, number: int) -> None:
         super().__init__(str(number), justify="right")
-        self.sort_value = number
 
 
 # Chip colour for labels whose tracker supplies no palette.
@@ -128,9 +103,7 @@ class PriorityCell(Text):
     no priority: the table never invents a default.
     """
 
-    __slots__ = ("priority", "sort_value")
-
-    sort_value: SortValue
+    __slots__ = ("priority",)
 
     def __init__(
         self,
@@ -140,7 +113,6 @@ class PriorityCell(Text):
     ) -> None:
         super().__init__(no_wrap=True)
         self.priority = priority
-        self.sort_value = None if priority is None else int(priority[1:])
         if priority is not None and label is not None:
             append_chip(self, priority, colors.get(label, NEUTRAL_LABEL_COLOR))
 
@@ -148,9 +120,7 @@ class PriorityCell(Text):
 class LabelsCell(Text):
     """Issue labels rendered as coloured chips, like a tracker's feed."""
 
-    __slots__ = ("labels", "sort_value")
-
-    sort_value: SortValue
+    __slots__ = ("labels",)
 
     def __init__(
         self,
@@ -159,9 +129,6 @@ class LabelsCell(Text):
     ) -> None:
         super().__init__(no_wrap=True)
         self.labels = labels
-        self.sort_value = (
-            tuple(label.casefold() for label in labels) if labels else None
-        )
         append_label_chips(self, labels, colors)
 
 
@@ -223,22 +190,13 @@ def chip_foreground(background: str) -> str:
 
 
 TableCell = (
-    IssueTableCell
-    | AgentStateCell
-    | IssueStateCell
-    | IssueNumberCell
-    | LabelsCell
-    | PriorityCell
+    str | AgentStateCell | IssueStateCell | IssueNumberCell | LabelsCell | PriorityCell
 )
 
 
-def text_cell(value: str) -> IssueTableCell:
-    return IssueTableCell(value, value.casefold())
-
-
-def comments_cell(activity: IssueActivity) -> IssueTableCell:
+def comments_cell(activity: IssueActivity) -> str:
     count = activity.comment_count
-    return IssueTableCell(str(count) if count else "-", count)
+    return str(count) if count else "-"
 
 
 _NO_LABEL_COLORS: Mapping[str, str] = dict[str, str]()
@@ -262,17 +220,14 @@ def priority_cell(issue: IssueProfile, project: ProjectObservation) -> PriorityC
     return PriorityCell(priority, label, label_colors(project))
 
 
-def optional_text_cell(value: str | None) -> IssueTableCell:
-    if value is None:
-        return IssueTableCell("-", None)
-    return text_cell(value)
+def optional_text_cell(value: str | None) -> str:
+    return "-" if value is None else value
 
 
-def date_cell(timestamp: str | None) -> IssueTableCell:
+def date_cell(timestamp: str | None) -> str:
     if timestamp is None:
-        return IssueTableCell("-", None)
-    instant = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    return IssueTableCell(instant.date().isoformat(), instant.timestamp())
+        return "-"
+    return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).date().isoformat()
 
 
 _CLOSED_STATE_KINDS: dict[str, IssueStateKind] = {
