@@ -8,11 +8,11 @@ from collections.abc import Iterable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Any, Literal, Self
 
-from pydantic import AfterValidator, ValidationError, model_validator
+from pydantic import ValidationError, model_validator
 
-from .harnesses import SESSION_ID
+from .harnesses import HookSessionIdentity
 from .model import Diagnostic
 from .models import (
     NonEmptyString,
@@ -31,19 +31,6 @@ SUPPORTED_WORK_STORE_VERSIONS = frozenset({1, WORK_STORE_VERSION})
 SESSION_KEY = re.compile(r"^[A-Za-z0-9._-]+$")
 
 BindingProvenance = Literal["explicit-reference", "explicit-identity"]
-
-
-def _hook_session_identity(value: str) -> str:
-    if not SESSION_ID.fullmatch(value):
-        raise ValueError(
-            "must be a hook session identity: contains unsupported characters"
-        )
-    return value
-
-
-# The native session identity a harness publishes; the hook and Work Store
-# records share one rule for it.
-HookSessionIdentity = Annotated[str, AfterValidator(_hook_session_identity)]
 
 
 class SessionProcess(PublishedModel):

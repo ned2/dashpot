@@ -14,7 +14,12 @@ from typing import Annotated, Any, Literal
 from pydantic import AfterValidator, Field, ValidationError
 
 from .git import Git, GitError
-from .harnesses import HARNESS_DISPLAY, SESSION_ID, SessionIdentityClaim
+from .harnesses import (
+    HARNESS_DISPLAY,
+    SESSION_ID,
+    HookSessionIdentity,
+    SessionIdentityClaim,
+)
 from .json_records import optional_string, require_string
 from .liveness import LivenessObservation, LivenessProbe, SessionLiveness
 from .models import (
@@ -37,7 +42,6 @@ from .session_matching import SessionEvidence
 from .timestamps import observed_instant, utc_now
 from .work_store import (
     ActiveWork,
-    HookSessionIdentity,
     SessionProcess,
     WorkStore,
     end_session_runs,

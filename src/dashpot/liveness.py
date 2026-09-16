@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .processes import (
-    LockHolder,
     ProcessKey,
+    ProcessLiveness,
     ProcessLookup,
     ProcessPresent,
     host_process_lookup,
@@ -14,7 +14,7 @@ from .processes import (
 )
 
 # A session is as live as its recorded host process.
-SessionLiveness = LockHolder
+SessionLiveness = ProcessLiveness
 
 
 @dataclass(frozen=True, slots=True)

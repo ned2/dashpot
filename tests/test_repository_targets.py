@@ -7,7 +7,7 @@ from unittest import mock
 
 from dashpot.git import Git
 from dashpot.model import Diagnostic
-from dashpot.processes import LockHolder
+from dashpot.processes import ProcessLiveness
 from dashpot.repository import observe_observation_targets, same_path
 from factories import SequenceRunner, completed, git
 
@@ -84,7 +84,7 @@ def test_a_lock_is_reported_only_once_its_holder_is_gone(tmp_path: Path) -> None
             git=over(runner),
             clock=lambda: next(times),
             process_lookup=lambda pid: (
-                cast("LockHolder", holder) if pid == 1699806 else "gone"
+                cast("ProcessLiveness", holder) if pid == 1699806 else "gone"
             ),
         )
         return inventory.targets[0].diagnostics

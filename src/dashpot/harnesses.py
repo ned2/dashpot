@@ -16,7 +16,9 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
+
+from pydantic import AfterValidator
 
 # ``processes`` imports this module's adapters to walk a command's ancestry,
 # and each adapter's host-process predicate is typed on the ``ProcessIdentity``
@@ -27,6 +29,19 @@ if TYPE_CHECKING:
     from .processes import ProcessIdentity
 
 SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
+
+
+def _hook_session_identity(value: str) -> str:
+    if not SESSION_ID.fullmatch(value):
+        raise ValueError(
+            "must be a hook session identity: contains unsupported characters"
+        )
+    return value
+
+
+# The native session identity a harness publishes; the hook and Work Store
+# records share one rule for it.
+HookSessionIdentity = Annotated[str, AfterValidator(_hook_session_identity)]
 # Dashpot's own, documented way for a session to state its identity when the
 # harness cannot be walked to and its native claim is absent or ambiguous:
 # ``<harness>:<Agent Session Identity>``, validated like every other claim.

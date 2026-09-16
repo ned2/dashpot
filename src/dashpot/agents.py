@@ -127,7 +127,7 @@ def observe_work_runs(
         diagnostics.extend(store_diagnostics)
         store.sweep()
         for work in active:
-            process_key = work.session_process.key if work.session_process else None
+            process_key = work.evidence.process_key
             if work.session_id is None:
                 diagnostics.append(
                     Diagnostic(
@@ -145,7 +145,7 @@ def observe_work_runs(
                 if liveness.liveness == "gone":
                     diagnostics.append(orphaned_run_diagnostic(work, target))
                     continue
-            identities = run_identities(work, process_key)
+            identities = run_identities(work)
             if identities & sessions_seen:
                 diagnostics.append(conflicting_run_diagnostic(work))
             sessions_seen |= identities
@@ -219,11 +219,7 @@ def relocation_diagnostic(
                 and scanned.record.outcome not in {"ended", "gone"}
             ):
                 try:
-                    locations.add(
-                        Path(
-                            scanned.record.repository_root or scanned.record.cwd
-                        ).resolve()
-                    )
+                    locations.add(scanned.record.worktree.resolve())
                 except (OSError, RuntimeError, ValueError):
                     continue
     if len(locations) > 1:
@@ -273,9 +269,7 @@ def relocation_diagnostic(
     )
 
 
-def run_identities(
-    work: ActiveWork, process_key: ProcessKey | None
-) -> set[tuple[str, ...]]:
+def run_identities(work: ActiveWork) -> set[tuple[str, ...]]:
     """Identify a named run for harness-scoped conflict detection."""
     identity = work.evidence
     if identity.native_key is None:
@@ -352,7 +346,10 @@ def observe_hook_sessions(
             )
         )
 
-    for root in stores:
+    for candidate in stores:
+        root = candidate.resolve()
+        if not root.exists():
+            continue
         store = HookRecordStore(root)
         for scanned in scan_hook_stores([root], probe, on_unreadable=report_unreadable):
             record = scanned.record

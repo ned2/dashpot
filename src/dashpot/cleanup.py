@@ -541,7 +541,7 @@ def _worktree_blockers(
     blockers = [
         obstacle for obstacle in obstacles if obstacle.kind not in _BRANCH_OBSTACLES
     ]
-    if any(path == candidate.expanduser().resolve() for candidate in protected):
+    if any(same_path(path, candidate.expanduser()) for candidate in protected):
         blockers.append(
             CleanupBlocker(
                 kind="protected",
@@ -960,11 +960,10 @@ def _prune_hint(remote: str, tracking: str) -> str:
 
 def _push_reason(stderr: str) -> str:
     """Git's first rejection or fatal line: a push failure ends in advice."""
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    reasons = [line for line in lines if line.startswith(("! [", "error:", "fatal:"))]
-    if reasons:
-        return reasons[0]
-    return lines[-1] if lines else "git push refused"
+    for line in stderr.splitlines():
+        if line.strip().startswith(("! [", "error:", "fatal:")):
+            return line.strip()
+    return last_stderr_line(stderr) or "git push refused"
 
 
 def _remote_ref_presence(

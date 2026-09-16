@@ -44,7 +44,7 @@ class GitError(DashpotError, RuntimeError):
 
 
 def last_stderr_line(stderr: str) -> str:
-    """Git's last non-empty stderr line: the reason, after any progress noise."""
+    """Take Git's last non-empty stderr line: the reason, after any progress noise."""
     lines = [line.strip() for line in stderr.splitlines() if line.strip()]
     return lines[-1] if lines else ""
 

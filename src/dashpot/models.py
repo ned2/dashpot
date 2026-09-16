@@ -70,7 +70,9 @@ def repository_relative(value: str) -> str:
     return value
 
 
-RepositoryRelativePath = Annotated[str, AfterValidator(repository_relative)]
+RepositoryRelativePath = Annotated[
+    str, PlainValidator(non_empty_string), AfterValidator(repository_relative)
+]
 
 
 def _strip_non_blank(value: str) -> str:
