@@ -48,11 +48,12 @@ below are those.
   (section 5). Two more candidates are demoted to connections. Of
   seven priors held out before clustering, two were found by the blind
   runs and five were not (section 7).
-- What they change in the analysis (section 8): four principles gain a
+- What they change in the analysis (section 8): five principles gain a
   clause (the instrument named, the default's decay, the artifact's
-  coupling, the answer hidden), the map gains a cell and loses a
-  claim, the last four principles are marked single-note, and the
-  method gains two lenses.
+  coupling, the answer hidden, the ask as an act), the authorless-code
+  lens widens, the map gains a cell and loses a claim, three of the four
+  Phase C principles are marked single-note, and the method gains two
+  lenses.
 - The mechanism lens replicates better than the tension lens because a
   mechanism has one subject and a tension two; the runs that disagreed
   most disagreed about where to cut the same material, not what it
@@ -773,13 +774,15 @@ commit. In order of how much they move.
    whether or not an agent wrote the code, and G9 should be reworded to
    say every locating instrument assumes a person authored it.
 
-7. **Principles 12 to 15 are single-note.** The confirmations of G11,
-   G12, G13, G16, G17, X3, and the team's rows are each one Phase C
-   note recovered by the clusterers (section 4). The analysis's last
-   four principles rest on the same notes and are consistent with the
-   corpus rather than converged on by it; a candidate that depends on
-   one of them needs a second source, and the method's *coordination
-   cost* and *social form* lenses should say so.
+7. **Principles 12 to 14 are single-note.** The confirmations of G11,
+   G12, G16, G17, and X3 are each one Phase C note recovered by the
+   clusterers (section 4). The analysis's principles 12 to 14 rest on
+   the same notes and are consistent with the corpus rather than
+   converged on by it; a candidate that depends on one of them needs a
+   second source. The review-capacity half of principle 14 and all of
+   principle 15 are the exceptions: the review-flooding, accountability,
+   and authorship groups are among the most evenly sourced robust groups
+   in the corpus.
 
 8. **The demand axis is a design choice, not a finding.** Only the
    explain column concentrates a robust group; the notes cluster on

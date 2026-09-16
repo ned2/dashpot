@@ -182,7 +182,8 @@ takes a position.
   here that takes a position: Dashpot as an instrument for a flexible,
   AI-heavy but AI-optional lifecycle; the lifecycle in two layers against
   the demand axis; the principles the evidence supports; and the method
-  for the candidates that follow.
+  for the candidates that follow. Revised after the themes note, whose
+  changes are marked in place.
 - [Thematic analysis: plan](thematic-analysis-plan.md) — the method for
   clustering the ideas across the whole corpus before candidates are
   drawn: a claim inventory, replicated blind clusterings by mechanism and

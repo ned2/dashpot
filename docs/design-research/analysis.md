@@ -1,6 +1,6 @@
 ---
 status: proposal
-date: 2026-09-15
+date: 2026-09-16
 ---
 
 # Design analysis
@@ -17,6 +17,14 @@ the note, and where it goes beyond the evidence it says so.
 The document is being written in stages. This revision holds the thesis,
 the lifecycle map, the principles, and the method for what follows; the
 candidates, their assumptions, and the tests are the next stage.
+
+Revised 2026-09-16 after the [thematic analysis](themes.md) of the whole
+corpus, which tested this document's frame against blind clusterings of
+every claim in the notes. The changes it asked for are marked where they
+apply: six principles gain a clause, the map gains a cell and a
+caveat, three of the four Phase C principles are marked as single-note,
+and the method gains two lenses and widens one
+([themes, what this changes](themes.md#8-what-this-changes-in-the-analysis)).
 
 ## 1. Thesis
 
@@ -181,18 +189,18 @@ not a candidate.
 
 | Stage \ demands | Generate / write | Explain | Recall | Verify / approve | Read / navigate | Nothing (artifact) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Issue declared | restate the problem before binding (N) | — | recall the last touch of the module (N) | — | — | Issue Profile (O) |
-| Session / work starts | — | — | what changed since last run here (O for Git; N for "read") | — | — | skill-carried lifecycle instructions (O) |
-| In-loop step | promote rather than accept (M: harness-side) | agent asks before proceeding (M: skill/hook) | — | permission gates (O via hooks, unmeasured) | — | curated dialog (N) |
-| Hand-off (agent done, pre-PR) | write the PR description oneself (N) | explain it back, graded (N + M if gating) | quiz on the diff (N) | — | read-first viewer (N) | explainer artifact (N) |
-| PR review / merge | — | reviewer explains a hunk (N; social) | — | review decision (O); read attestation per file (N) | `Viewed` state (N: not in the PR observation) | Agent Trace / provenance (N) |
-| Integration / Cleanup | — | — | — | integration by reachability or content (O); landing order across concurrent runs (N) | — | ADR / rationale written (N) |
-| Session boundary (stop, relocate, end) | state + stance handover written by the outgoing holder (N) | receiver asks before resuming (N) | — | — | what the run left undone (O: Work Store; N: state) | compaction summary (M: harness-side) |
+| Issue declared | restate the problem before binding (N) | — | recall the last touch of the module (N) | — | — | Issue Profile (O; signal: Issue Source refresh) |
+| Session / work starts | — | — | what changed since last run here (O for Git; N for "read") | — | — | skill-carried lifecycle instructions (O; signal: versioned with the repository) |
+| In-loop step | promote rather than accept (M: harness-side) | agent asks before proceeding (M: skill/hook) | — | permission gates (O via hooks, unmeasured) | — | curated dialog (N; no change signal) |
+| Hand-off (agent done, pre-PR) | write the PR description oneself (N) | explain it back, graded, diff hidden (N + M if gating) | quiz on the diff, diff hidden (N) | — | read-first viewer (N); ask a person (N; social) | explainer artifact (N; no change signal) |
+| PR review / merge | — | reviewer explains a hunk (N; social) | — | review decision (O); read attestation per file (N) | `Viewed` state (N: not in the PR observation) | Agent Trace / provenance (N; signal: pinned to the commit, lost on rewrite) |
+| Integration / Cleanup | — | — | — | integration by reachability or content (O); landing order across concurrent runs (N) | — | ADR / rationale written (N; signal: a scheduled staleness check or none) |
+| Session boundary (stop, relocate, end) | state + stance handover written by the outgoing holder (N) | receiver asks before resuming (N) | — | — | what the run left undone (O: Work Store; N: state) | compaction summary (M: harness-side; consumed once, does not age) |
 | Arrival at review | — | — | — | concurrent Agent Runs, open PRs, change size bounded per person (N; M if enforced) | — | — |
 | Return after absence | — | — | recall before re-reading (N) | — | what moved while away (O: Git facts; N: read) | — |
 | Module revisit | — | — | scheduled retrieval, invalidated by change (N) | — | — | — |
 | Periodic | — | — | sampled recall across the repository (N) | — | — | self-report instrument (N) |
-| Person joining / handover | small first task (N) | teach-back to the newcomer (N; social) | — | pairing with the novice driving (N; social) | tour, map (N) | — |
+| Person joining / handover | small first task (N) | teach-back to the newcomer (N; social) | — | pairing with the novice driving (N; social) | tour, map (N; signal: pinned ref or none); ask a person (N; social) | — |
 
 What the map shows, before any candidate is weighed:
 
@@ -219,6 +227,26 @@ What the map shows, before any candidate is weighed:
   large, in what order) rather than an act, which is the one kind of
   friction with team-level before–after evidence and the one kind a
   passive observer can show without performing.
+
+Added 2026-09-16, from the [thematic analysis](themes.md):
+
+- The **columns are a design choice, not a finding.** Of thirty-five
+  robust blind groups only one concentrates on a demand value (explain);
+  the notes cluster on lifecycle stage and on mechanism, not on what a
+  device asks of a person. The columns remain the right way to compare
+  candidates, but a candidate's evidence attaches to its mechanism, not
+  to its column — a cell is not evidence for what sits in it.
+- The **artifact column is stale by default.** Each artifact cell now
+  names its change signal or says it has none (principle 6); the cells
+  with none are the ones a candidate must couple or schedule.
+- The **Issue declared row is the thinnest.** Task start places 89 of
+  3,465 cards against review's 534: the corpus was collected around the
+  loop, the hand-off, and review, and a candidate in the first row is a
+  bet in the same sense as an in-loop one (principle 2).
+- The **read-or-navigate column now separates asking from reading.**
+  Who is asked — a person, a document, a model — is the team's directory
+  in use or bypassed (principle 9), and an ask is an act Dashpot could
+  record where a read is not.
 
 ## 3. Principles the evidence supports
 
@@ -255,7 +283,17 @@ design to. A principle that goes beyond what was measured says so.
    ([unfamiliar code, questions](unfamiliar-code-and-shared-models.md#the-questions-comprehenders-ask)).
    *Commits to:* a question drawn from the repository's structure or from
    running the code, not from the diff's prose; and a way to tell whether a
-   question worked.
+   question worked. *Added 2026-09-16:* and a question answered with the
+   answer off the screen. The feeling of understanding that fluent,
+   answer-visible output produces exceeds the understanding held —
+   judgments of learning inflate when the answer is present, 77% against
+   39% failure once the assistant is removed, perceived against actual
+   understanding correlating at .26 or less — and a retrieval attempt
+   before the reveal is the one intervention with controlled evidence of
+   closing that gap
+   ([themes, the confidence gap](themes.md#53-the-confidence-gap)). A
+   hand-off check that shows the diff while asking about it measures the
+   text twice over.
 
 4. **Defaults decide; practices fail; but only practices have shipped.**
    Answer.AI's claim is that willpower cannot hold against a tab key, and
@@ -268,7 +306,17 @@ design to. A principle that goes beyond what was measured says so.
    sits and what would move it one step toward a default. For Dashpot the
    axis is not free: observation cannot gate, so a gate is a hook, a
    pre-commit check, a PR check, or an agent instruction — something
-   Dashpot observes rather than performs.
+   Dashpot observes rather than performs. *Added 2026-09-16:* and
+   defaults decay. Vigilance over reliable automation falls with
+   exposure and load; 97% of permission prompts are approved and
+   dangerous-command blocking falls from 17% to 5% after fifty prompts;
+   within-reviewer approval rates rose over seven months while inline
+   comments fell — though that dataset's direction is disputed and no
+   comprehension gate has been watched for months either way
+   ([themes, habituation](themes.md#52-habituation-of-repeated-friction)).
+   A friction that repeats must be designed against its own habituation
+   — varied, sampled, faded with competence (principle 10), or measured
+   for persistence — and a candidate must say which.
 
 5. **Friction belongs at boundaries.** Proactive interventions are welcomed
    at task boundaries (80–90% preference) and dismissed mid-task (62%);
@@ -289,6 +337,16 @@ design to. A principle that goes beyond what was measured says so.
    an observation of a person's act — a read, an explanation, a run, a
    recall — with the same discipline as every other Dashpot fact: opaque
    identity, retained when a refresh fails, never inferred from a label.
+   *Added 2026-09-16:* and an artifact is stale by default. A
+   representation derived from the code — a document, a quiz item, a
+   map, a provenance link — has no change signal from its referent, so
+   it goes wrong silently unless something couples it to the code (a
+   pinned ref, an executable check, an event feed) or re-verifies it on
+   a schedule; the tools that do couple exist and the ones that do not
+   are the ones people tolerate as "useful even if not up to date"
+   ([themes, staleness](themes.md#51-staleness-without-a-trigger)).
+   Every artifact cell on the map names its change signal or says it has
+   none.
 
 7. **Bring the instrument.** Nothing measures a codebase model over weeks;
    the one deployed instrument is a self-report item; Storey asks how to
@@ -299,7 +357,21 @@ design to. A principle that goes beyond what was measured says so.
    because the alternative is shipping resistance with no way to know if
    it did anything. This goes beyond the evidence: the corpus also records
    the case against quantifying learning, and a Goodharted comprehension
-   score is a documented harm in education.
+   score is a documented harm in education. *Revised 2026-09-16:* "nothing
+   measures" is true only as a conjunction. The instruments exist — a
+   blackout or explain-back task scored against the code, comprehension
+   time inferred from IDE logs, a verified-understanding score in CI —
+   and the horizons have been reached in adjacent work; what no study has
+   done is run one on a professional team, on a living codebase, for
+   longer than a session, with a comprehension outcome. Meanwhile the
+   frameworks in use score perception rather than the model held, at the
+   individual rather than the team (transactive memory correlates with
+   performance at .77 self-reported and .38 observed), and self-assessed
+   understanding is not an instrument for this debt (principle 3)
+   ([themes, the instruments](themes.md#56-the-instruments-in-use-cannot-see-the-debt)).
+   The measure a candidate carries should therefore be one of those
+   instruments, not a survey item, and where it concerns the team it
+   should be scored by agreement across members, not by asking each one.
 
 8. **Expect relocation, and show the bill.** Cowan: labour-saving
    technology relocated work onto one generalist and raised the standard;
@@ -329,7 +401,16 @@ design to. A principle that goes beyond what was measured says so.
    never only to a session; and being scored on what it makes visible to
    a reviewer, a newcomer, or a second agent as well as on what it does
    for one person. This is the principle that distinguishes the family
-   from what a chat-centric tool could ship.
+   from what a chat-centric tool could ship. *Added 2026-09-16:* the
+   model is held socially *by asking*. Asking a colleague costs both
+   parties, so people route around it to documents, tools, and now AI —
+   Stack Overflow questions fell 25% in six months, 51% now ask a model
+   instead of a teammate — and who is asked is the team's directory of
+   who knows what in use or bypassed. That the cheapest answerer weakens
+   the directory is an inference the corpus does not test; that an ask
+   is an observable act, and the map's read-or-navigate column should
+   distinguish "ask a person" from "read", follows from the evidence
+   ([themes, question routing](themes.md#54-the-question-routing-economy)).
 
 10. **Fade for the expert.** Expertise reversal makes worked examples
     redundant or harmful for experts; Sankaranarayanan names gating experts
@@ -352,7 +433,17 @@ design to. A principle that goes beyond what was measured says so.
     the extreme case of unfamiliar code, not a different kind of thing.
 
 The Phase C notes add four principles for the team's rows of the map
-(added 2026-09-15):
+(added 2026-09-15). *Caveat, 2026-09-16:* the thematic analysis found
+that the blind clusterings confirm the gaps and tensions behind
+principles 12 to 14 by recovering one note's own structure — the
+joint-activity, awareness, handover, batch-size, and integration groups
+each draw 77% or more of their core from a single note — so those three
+are consistent with the corpus rather than converged on by it, and a
+candidate that depends on one of them needs a second source. The
+review-capacity half of principle 14 and all of principle 15 are the
+exceptions: the review-flooding, accountability, and authorship groups
+are among the most evenly sourced robust groups in the corpus
+([themes, confirmations](themes.md#4-robust-groups-that-confirm-the-frame)).
 
 12. **Observable and directable, or not a teammate.** Two decades of
     joint-activity research give one answer to what automation needs to be
@@ -419,6 +510,17 @@ The Phase C notes add four principles for the team's rows of the map
     "who knows what" question having a person's name as its answer, not a
     transcript's
     ([expert finding, finding](expert-finding-and-transactive-memory.md#finding)).
+    *Added 2026-09-16:* the name cannot be inferred from authorship.
+    Every instrument that locates knowledge or assigns responsibility —
+    blame, degree of knowledge, truck factor, ownership metrics, reviewer
+    and expertise recommenders, the Line 10 rule, the DCO — infers
+    understanding from authorship; the inference was weak before agents
+    (degree of knowledge explains R² = .25 of self-rated knowledge;
+    co-changer expert suggestion is right under half the time) and agent
+    authorship breaks it across all of them at once
+    ([themes, the authorship inference](themes.md#55-the-authorship-inference)).
+    The person an act attaches to is whoever performed the act, recorded
+    at the time — never whoever last touched the line.
 
 ## 4. Method for what follows
 
@@ -427,14 +529,33 @@ through a fixed set of lenses, so that candidates are comparable and the
 reasons for a shortlist are legible:
 
 - **Authorless code** — does it work when no one who could be asked wrote
-  the code?
+  the code? And does it lean on an authorship-derived proxy for
+  understanding — blame, ownership, degree of knowledge, truck factor, a
+  recommender? If so it fails the lens whether or not an agent wrote the
+  code, because that inference was weak before agents and is now broken
+  (principle 15).
 - **Grain** — what unit does it operate on: hunk, file, commit, PR, module,
   repository?
 - **Demand** — which column of the demand axis, and what act is recorded?
+  The column classifies the candidate; it is not evidence for it
+  (the map's caveat above).
 - **Enforcement and relocation** — where on the enforcement axis, what it
   would take to move one step toward a default, and whose work it moves
   onto whom.
+- **Decay** — what the device is at month six: varied, sampled, faded
+  with competence, measured for persistence, or habituated to
+  click-through (principle 4). No candidate can answer from evidence yet;
+  the lens records what it would take to.
 - **Verifiability** — how would we know it did anything (principle 7)?
+  Named instrument and horizon, not a survey item; team measures scored
+  by agreement, not by asking each member.
+- **Evidence source** — of the claims a candidate rests on, which are
+  vendor-run, single-session, or self-report? Those are the three ways
+  the corpus's evidence fails to see the debt
+  ([themes, the instruments](themes.md#56-the-instruments-in-use-cannot-see-the-debt)),
+  and the two widest blind groups in the corpus — vendor against
+  independent evidence, rigour against realism — had no frame element to
+  sit under before this lens.
 - **Lifecycle hook** — observed today, new observation, or mutation; and
   through which channel (observation, hook publisher, skill, external
   gate).
