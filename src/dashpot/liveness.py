@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 from .processes import (
-    ProcessAbsent,
+    LockHolder,
     ProcessKey,
     ProcessLookup,
-    ProcessUnobservable,
+    ProcessPresent,
     host_process_lookup,
+    process_liveness,
 )
 
-SessionLiveness = Literal["live", "gone", "unknown"]
+# A session is as live as its recorded host process.
+SessionLiveness = LockHolder
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +41,8 @@ def session_liveness(
         return LivenessObservation("unknown", "no recorded process identity")
     pid, started_at = key
     observed = lookup(pid)
-    if isinstance(observed, ProcessAbsent):
-        return LivenessObservation("gone")
-    if isinstance(observed, ProcessUnobservable):
-        return LivenessObservation("unknown", observed.reason)
+    if not isinstance(observed, ProcessPresent):
+        return LivenessObservation(*process_liveness(observed))
     if observed.identity.started_at != started_at:
         return LivenessObservation("gone")
     return LivenessObservation("live")

@@ -105,14 +105,21 @@ ProcessObservation = ProcessPresent | ProcessAbsent | ProcessUnobservable
 ProcessLookup = Callable[[int], ProcessObservation]
 
 
+def process_liveness(observed: ProcessObservation) -> tuple[LockHolder, str | None]:
+    """Read an observation as live, gone, or unknown with the adapter's reason.
+
+    Unknown is never evidence that the process ended.
+    """
+    if isinstance(observed, ProcessAbsent):
+        return "gone", None
+    if isinstance(observed, ProcessUnobservable):
+        return "unknown", observed.reason
+    return "live", None
+
+
 def lock_holder_probe(pid: int) -> LockHolder:
     """Answer a Worktree lock's question about its holder with the host probe."""
-    observed = host_process_lookup(pid)
-    if isinstance(observed, ProcessAbsent):
-        return "gone"
-    if isinstance(observed, ProcessUnobservable):
-        return "unknown"
-    return "live"
+    return process_liveness(host_process_lookup(pid))[0]
 
 
 def host_process_lookup(pid: int) -> ProcessObservation:

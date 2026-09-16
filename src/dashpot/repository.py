@@ -17,6 +17,7 @@ from .model import (
     TargetRole,
 )
 from .processes import LockHolder
+from .timestamps import utc_timestamp
 
 # The fields `git for-each-ref` reports per ref; the Git adapter's records()
 # separates them with NUL so a value can never be mistaken for a separator.
@@ -50,9 +51,14 @@ def repository_worktrees(
     a bare entry is not a Worktree. Independent clones are not reached
     ([ADR 0003](../../docs/adr/0003-prefer-project-local-dashpot-state.md)).
     """
+    return worktree_paths(worktree_records(root, timeout=timeout, git=git))
+
+
+def worktree_paths(records: Iterable[Mapping[str, str]]) -> list[Path]:
+    """The resolved path of every Worktree among Git's records; bare entries are none."""
     return [
         Path(record["worktree"]).resolve()
-        for record in worktree_records(root, timeout=timeout, git=git)
+        for record in records
         if record.get("worktree") and "bare" not in record
     ]
 
@@ -455,7 +461,7 @@ def _parse_branch_record(record: tuple[str, ...]) -> Branch | None:
         name=name,
         remote=remote,
         head=head,
-        committed_at=_utc_timestamp(committed_at),
+        committed_at=utc_timestamp(committed_at),
         upstream=upstream or None,
         ahead=ahead,
         behind=behind,
@@ -708,17 +714,6 @@ def _unintegrated_commit_count(
     return count
 
 
-def _utc_timestamp(value: str) -> str:
-    """Normalise Git's offset timestamp to UTC so timestamps sort as text."""
-    try:
-        moment = datetime.fromisoformat(value)
-    except ValueError:
-        return value
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
-    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
 def _parse_upstream_track(track: str) -> tuple[int | None, int | None, bool]:
     """``[ahead 1, behind 2]`` → counts; ``[gone]`` → gone; blank → in sync."""
     if "gone" in track:
@@ -764,4 +759,12 @@ def is_within(path: Path, parent: Path) -> bool:
         path.relative_to(parent)
         return True
     except ValueError:
+        return False
+
+
+def same_path(candidate: Path, expected: Path) -> bool:
+    """Whether two paths name one place once resolved; a persisted one may not resolve."""
+    try:
+        return candidate.resolve() == expected.resolve()
+    except (OSError, RuntimeError, ValueError):
         return False

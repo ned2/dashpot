@@ -7,7 +7,6 @@ import re
 from collections.abc import Iterable
 from contextlib import ExitStack
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 
@@ -23,7 +22,9 @@ from .models import (
 )
 from .processes import ProcessKey
 from .record_store import LockedRecordStore
+from .repository import same_path
 from .session_matching import SessionEvidence
+from .timestamps import observed_instant
 
 WORK_STORE_VERSION = 2
 SUPPORTED_WORK_STORE_VERSIONS = frozenset({1, WORK_STORE_VERSION})
@@ -34,10 +35,14 @@ BindingProvenance = Literal["explicit-reference", "explicit-identity"]
 
 def _hook_session_identity(value: str) -> str:
     if not SESSION_ID.fullmatch(value):
-        raise ValueError("must be a hook session identity or null")
+        raise ValueError(
+            "must be a hook session identity: contains unsupported characters"
+        )
     return value
 
 
+# The native session identity a harness publishes; the hook and Work Store
+# records share one rule for it.
 HookSessionIdentity = Annotated[str, AfterValidator(_hook_session_identity)]
 
 
@@ -158,6 +163,15 @@ class ActiveWork:
     relocation: RelocationIntent | None = None
 
     @property
+    def evidence(self) -> SessionEvidence:
+        """The session facts this run was recorded under, for matching."""
+        return SessionEvidence(
+            self.harness,
+            self.session_id,
+            self.session_process.key if self.session_process else None,
+        )
+
+    @property
     def run_id(self) -> str:
         return f"work:{self.harness}:{self.session_key}:{self.started_at}"
 
@@ -261,7 +275,7 @@ class WorkStore(LockedRecordStore):
         written durably before the source is removed, and a retry repairs the
         narrow crash window where both contain the same relocated run.
         """
-        if self.directory.resolve() == destination.directory.resolve():
+        if same_path(self.directory, destination.directory):
             return False
         stores = sorted(
             (self, destination),
@@ -327,23 +341,15 @@ def end_session_runs(
             continue
         for work in active:
             identity = SessionEvidence(harness, session_id, process_key)
-            recorded = SessionEvidence(
-                work.harness,
-                work.session_id,
-                work.session_process.key if work.session_process else None,
-            )
+            recorded = work.evidence
             if identity.match(recorded) != "same":
                 continue
             if recorded.process_key is not None and recorded.process_key != process_key:
                 continue
-            if ended_at is not None:
-                try:
-                    if datetime.fromisoformat(work.started_at) > datetime.fromisoformat(
-                        ended_at
-                    ):
-                        continue
-                except (TypeError, ValueError):
-                    continue
+            if ended_at is not None and observed_instant(
+                work.started_at
+            ) > observed_instant(ended_at):
+                continue
             if work.harness == "codex" and work.relocation is not None:
                 continue
             try:

@@ -43,6 +43,12 @@ class GitError(DashpotError, RuntimeError):
         super().__init__(f"git {' '.join(self.argv)} failed: {self.detail}")
 
 
+def last_stderr_line(stderr: str) -> str:
+    """Git's last non-empty stderr line: the reason, after any progress noise."""
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
 @dataclass(frozen=True, slots=True)
 class Git:
     """Run ``git`` at one Worktree with one timeout and an injectable runner."""

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from rich.text import Text
 
-from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_WIDTH
+from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_WIDTH, ATTENTION_COLORS, BAD_COLORS
 from .list_rows import ListCell, ListColumn, ListRow, truncate_end
 from .model import ObservationTarget, RunState
 from .session_cells import STATE_GLYPHS
@@ -21,11 +21,6 @@ from .worktree_list import WorktreeListResult, WorktreeListRow
 
 BRANCH_LIMIT = 24
 SHORT_HEAD = 7
-# GitHub Primer emphasis colours for the working-tree and availability
-# states; each pair is (light theme, dark theme).
-DIRTY_COLORS = ("#9a6700", "#d29922")
-UNAVAILABLE_COLORS = ("#cf222e", "#f85149")
-STALE_COLORS = ("#9a6700", "#d29922")
 
 WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn(
@@ -91,15 +86,15 @@ def tree_cell(dirty: bool | None, *, dark: bool) -> ListCell:
     if dirty is None:
         return Text("unknown", style="dim")
     if dirty:
-        return Text("dirty", style=DIRTY_COLORS[dark])
+        return Text("dirty", style=ATTENTION_COLORS[dark])
     return "clean"
 
 
 def freshness_color(freshness: str, *, dark: bool) -> str:
     """Choose emphasis for freshness that points at the target's Diagnostics."""
     if freshness == "unavailable":
-        return UNAVAILABLE_COLORS[dark]
-    return STALE_COLORS[dark]
+        return BAD_COLORS[dark]
+    return ATTENTION_COLORS[dark]
 
 
 def activity_description(where: str) -> str:

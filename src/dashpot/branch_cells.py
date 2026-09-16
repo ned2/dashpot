@@ -15,12 +15,17 @@ from rich.text import Text
 
 from .ages import relative_age
 from .branch_list import BranchListResult, BranchListRow, integration_summary
-from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_LEGEND, ACTIVITY_WIDTH, Glyph
+from .glyphs import (
+    ACTIVITY_COLUMN_GLYPH,
+    ACTIVITY_LEGEND,
+    ACTIVITY_WIDTH,
+    ATTENTION_COLORS,
+    BAD_COLORS,
+    Glyph,
+)
 from .list_rows import ListCell, ListColumn, ListRow, truncate_end
 from .model import Branch, IntegrationState
 from .worktree_cells import (
-    DIRTY_COLORS,
-    UNAVAILABLE_COLORS,
     activity_cell,
     activity_description,
     sessions_cell,
@@ -31,10 +36,12 @@ NAME_LIMIT = 48
 # Presence and relation states are glyph-only so their columns stay narrow.
 REF_PRESENT_GLYPH = Glyph("✓", "a Branch ref exists in this location")
 IN_SYNC_GLYPH = Glyph("=", "in sync with upstream")
-AHEAD_BEHIND_GLYPH = Glyph("↑2 ↓1", "commits ahead of / behind upstream", DIRTY_COLORS)
-NO_UPSTREAM_GLYPH = Glyph("∅", "no upstream is configured", DIRTY_COLORS)
+AHEAD_BEHIND_GLYPH = Glyph(
+    "↑2 ↓1", "commits ahead of / behind upstream", ATTENTION_COLORS
+)
+NO_UPSTREAM_GLYPH = Glyph("∅", "no upstream is configured", ATTENTION_COLORS)
 UPSTREAM_GONE_GLYPH = Glyph(
-    "✗", "upstream gone: it was configured and no longer exists", UNAVAILABLE_COLORS
+    "✗", "upstream gone: it was configured and no longer exists", BAD_COLORS
 )
 NO_LOCAL_REF_GLYPH = Glyph("-", "remote-only, so there is no local upstream")
 # INTEGRATED summarizes every ref the row represents, so its Glyphs speak of
@@ -51,12 +58,12 @@ UNINTEGRATED_GLYPH = Glyph(
     "↑",
     "some ref has commits the Integration Branch neither reaches nor holds "
     "the content of; the Cleanup preview counts them per target",
-    DIRTY_COLORS,
+    ATTENTION_COLORS,
 )
 NO_INTEGRATION_GLYPH = Glyph(
     "⊘",
     "no ref is known unintegrated, but a comparison is unavailable",
-    UNAVAILABLE_COLORS,
+    BAD_COLORS,
 )
 PRESENCE_LEGEND = (REF_PRESENT_GLYPH,)
 UPSTREAM_LEGEND = (

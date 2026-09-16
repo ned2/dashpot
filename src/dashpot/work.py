@@ -18,7 +18,6 @@ from .hook_records import (
     SessionLocation,
     ValidatedSessionIdentity,
     locate_agent_session,
-    now_iso,
     reachable_hook_stores,
     validate_session_claim,
 )
@@ -32,8 +31,9 @@ from .processes import (
     host_process_lookup,
     observe_agent_ancestry,
 )
-from .repository import repository_worktrees, worktree_root
+from .repository import repository_worktrees, same_path, worktree_root
 from .session_matching import SessionEvidence
+from .timestamps import utc_now
 from .work_store import (
     SESSION_KEY,
     ActiveWork,
@@ -197,7 +197,7 @@ def start_issue_work(
         raise RuntimeError(
             "this Agent Session has no current hook location; nothing was written"
         )
-    if not _same_worktree(location.worktree, root):
+    if not same_path(location.worktree, root):
         raise RuntimeError(
             f"{session.session_label} is at {location.worktree} according to "
             f"its freshest {HARNESS_DISPLAY[session.harness]} hook record, not "
@@ -208,7 +208,7 @@ def start_issue_work(
     unreadable_elsewhere: list[Diagnostic] = []
     selected_elsewhere: list[tuple[Path, ActiveWork]] = []
     for candidate in worktrees:
-        if _same_worktree(candidate, root):
+        if same_path(candidate, root):
             continue
         pending, candidate_diagnostics = _session_work(WorkStore(candidate), session)
         unreadable_elsewhere.extend(candidate_diagnostics)
@@ -219,7 +219,7 @@ def start_issue_work(
         if pending.relocation is None:
             continue
         intended = Path(pending.relocation.target_worktree)
-        if not _same_worktree(intended, root):
+        if not same_path(intended, root):
             raise RuntimeError(
                 f"this Agent Run was prepared to resume at {intended}, not {root}; "
                 "the pending run was left unchanged"
@@ -262,7 +262,7 @@ def start_issue_work(
         issue_id=issue.id,
         issue_reference=issue.reference,
         binding_provenance="explicit-reference",
-        started_at=now_iso(),
+        started_at=utc_now(),
         working_directory=str(current),
         branch=branch,
         session_id=session.session_id,
@@ -321,7 +321,7 @@ def relocate_issue_work(
     root = worktree_root(current)
     target_root = worktree_root(target)
     worktrees = repository_worktrees(root)
-    if not any(_same_worktree(target_root, worktree) for worktree in worktrees):
+    if not any(same_path(target_root, worktree) for worktree in worktrees):
         raise RuntimeError(
             f"{target_root} is not a linked Worktree of the current Git Repository"
         )
@@ -340,7 +340,7 @@ def relocate_issue_work(
             "hook record; run 'dashpot integrate codex --status'"
         )
     location = _session_location(session, stores, lookup)
-    if location is None or not _same_worktree(location.worktree, root):
+    if location is None or not same_path(location.worktree, root):
         observed = "nowhere" if location is None else str(location.worktree)
         raise RuntimeError(
             f"{session.session_label} is at {observed} according to its freshest "
@@ -371,13 +371,13 @@ def relocate_issue_work(
         )
     worktree, store, work = matches[0]
     _check_runtime(session, work, lookup)
-    if not _same_worktree(worktree, root):
+    if not same_path(worktree, root):
         raise RuntimeError(
             f"this Agent Session's active Agent Run is at {worktree}, not {root}; "
             "nothing was written"
         )
     branch = Git(root, timeout=2).maybe("symbolic-ref", "--quiet", "--short", "HEAD")
-    if _same_worktree(root, target_root):
+    if same_path(root, target_root):
         if work.relocation is None:
             raise RuntimeError(
                 "the relocation target is this session's current Worktree"
@@ -407,7 +407,7 @@ def relocate_issue_work(
             branch=branch,
             session_id=session.session_id,
             relocation=RelocationIntent(
-                target_worktree=str(target_root), requested_at=now_iso()
+                target_worktree=str(target_root), requested_at=utc_now()
             ),
         ),
     )
@@ -470,7 +470,7 @@ def stop_issue_work(
             return ["no active Issue work for this session", *warnings]
         return [
             f"stopped work on {work.issue_reference}"
-            + ("" if _same_worktree(worktree, root) else f" at {worktree}")
+            + ("" if same_path(worktree, root) else f" at {worktree}")
             for worktree, work in stopped
         ] + warnings
     previous, diagnostics = _session_work_by_key(store, session_key)
@@ -588,7 +588,7 @@ def _stop_elsewhere(
     selected: list[tuple[Path, WorkStore, ActiveWork]] = []
     diagnostics: list[Diagnostic] = []
     for worktree in worktrees:
-        if here is not None and _same_worktree(worktree, here):
+        if here is not None and same_path(worktree, here):
             continue
         store = WorkStore(worktree)
         work, store_diagnostics = _session_work(store, session)
@@ -624,13 +624,6 @@ def _check_runtime(
         )
 
 
-def _same_worktree(candidate: Path, worktree: Path) -> bool:
-    try:
-        return candidate.resolve() == worktree.resolve()
-    except OSError:
-        return False
-
-
 def _session_work_by_key(
     store: WorkStore, session_key: str
 ) -> tuple[ActiveWork | None, list[Diagnostic]]:
@@ -661,13 +654,7 @@ def _session_work(
     identity = SessionEvidence(session.harness, session.session_id, session.process_key)
     matches: list[ActiveWork] = []
     for work in active:
-        relation = identity.match(
-            SessionEvidence(
-                work.harness,
-                work.session_id,
-                work.session_process.key if work.session_process else None,
-            )
-        )
+        relation = identity.match(work.evidence)
         if relation == "unresolved":
             raise RuntimeError(
                 f"ownership of legacy Agent Run {work.session_key} at {store.directory} "

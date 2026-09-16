@@ -13,6 +13,13 @@ from dataclasses import dataclass
 
 from .model import RunState
 
+# GitHub Primer emphasis colours the list panes share; each pair is
+# (light theme, dark theme).
+GOOD_COLORS = ("#1a7f37", "#3fb950")
+ATTENTION_COLORS = ("#9a6700", "#d29922")
+BAD_COLORS = ("#cf222e", "#f85149")
+MUTED_COLORS = ("#59636e", "#8b949e")
+
 
 @dataclass(frozen=True, slots=True)
 class Glyph:
@@ -51,11 +58,9 @@ ACTIVITY_COLUMN_GLYPH = Glyph("◈", "the agent activity column")
 ACTIVITY_WIDTH = 1
 SESSION_STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
 SESSION_STATE_GLYPHS: dict[RunState, Glyph] = {
-    "running": Glyph("●", "an Agent Session is running", ("#1a7f37", "#3fb950")),
-    "waiting": Glyph("◐", "an Agent Session is waiting", ("#9a6700", "#d29922")),
-    "unknown": Glyph(
-        "○", "an Agent Session in an unknown state", ("#59636e", "#8b949e")
-    ),
+    "running": Glyph("●", "an Agent Session is running", GOOD_COLORS),
+    "waiting": Glyph("◐", "an Agent Session is waiting", ATTENTION_COLORS),
+    "unknown": Glyph("○", "an Agent Session in an unknown state", MUTED_COLORS),
 }
 # The shared agent-activity column's Legend, ranked as its cells are.
 ACTIVITY_LEGEND = (

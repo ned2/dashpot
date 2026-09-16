@@ -11,15 +11,10 @@ from datetime import UTC, datetime
 from rich.text import Text
 
 from .ages import relative_age
-from .glyphs import Glyph
+from .glyphs import ATTENTION_COLORS, BAD_COLORS, GOOD_COLORS, MUTED_COLORS, Glyph
 from .list_rows import ListCell, ListColumn, ListRow, truncate_end
 from .model import PullRequest
 from .pull_request_list import PullRequestListResult
-
-GOOD_COLORS = ("#1a7f37", "#3fb950")
-ATTENTION_COLORS = ("#9a6700", "#d29922")
-BAD_COLORS = ("#cf222e", "#f85149")
-MUTED_COLORS = ("#59636e", "#8b949e")
 
 OPEN_GLYPH = Glyph("■", "an open Pull Request", GOOD_COLORS)
 DRAFT_GLYPH = Glyph("■", "a draft Pull Request", ("#59636e", "#9198a1"))

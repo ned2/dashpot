@@ -13,13 +13,13 @@ from typing_extensions import override
 from dashpot.agents import observe_agent_runs
 from dashpot.hook_records import (
     HookRecordStore,
-    now_iso,
     publish_hook_event,
     session_directory,
     write_hook_record,
 )
 from dashpot.model import ObservationTarget
 from dashpot.processes import AgentAncestry, ProcessIdentity, SessionProcessRecord
+from dashpot.timestamps import utc_now
 from factories import hook_record_document, observation_target, write_config_marker
 from helpers import present
 
@@ -235,7 +235,7 @@ class HookRecordStoreTests(unittest.TestCase):
         self.assertEqual("2026-08-24T15:09:00.000000Z", stored()["turnStartedAt"])
 
     def test_stamps_are_fixed_width_so_records_order_by_text_too(self) -> None:
-        self.assertRegex(now_iso(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
+        self.assertRegex(utc_now(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
 
     def test_graceful_session_end_removes_the_record(self) -> None:
         event = {"session_id": "graceful", "cwd": "/repo", "hook_event_name": "Stop"}

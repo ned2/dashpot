@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .commands import non_interactive_runner
-from .git import Git, GitError
+from .git import Git, GitError, last_stderr_line
 
 FETCH_ENVIRONMENT: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0"}
 
@@ -102,7 +102,11 @@ def fetch_remotes(anchor: Path, *, git: Git) -> FetchReport:
             results.append(RemoteFetch(remote, False, exc.detail))
             continue
         if result.returncode != 0:
-            results.append(RemoteFetch(remote, False, _failure_detail(result.stderr)))
+            results.append(
+                RemoteFetch(
+                    remote, False, last_stderr_line(result.stderr) or "git fetch failed"
+                )
+            )
             continue
         results.append(RemoteFetch(remote, True))
     return FetchReport(str(anchor), tuple(results))
@@ -112,9 +116,3 @@ def remote_fetcher(timeout: float) -> RemoteFetcher:
     """The production fetcher: a non-interactive Git adapter with Dashpot's timeout."""
     git = Git(Path.cwd(), timeout, non_interactive_runner(FETCH_ENVIRONMENT))
     return lambda anchor: fetch_remotes(anchor, git=git)
-
-
-def _failure_detail(stderr: str) -> str:
-    """Git's last non-empty stderr line: the reason, after any progress noise."""
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    return lines[-1] if lines else "git fetch failed"

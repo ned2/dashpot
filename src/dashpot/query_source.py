@@ -7,7 +7,6 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from .issue_sources import utc_now
 from .model import Diagnostic
 from .source_queries import (
     Continuation,
@@ -23,6 +22,7 @@ from .source_queries import (
     decode_continuation,
     verify_continuation,
 )
+from .timestamps import utc_now
 
 
 class CachedQuerySource(ABC):

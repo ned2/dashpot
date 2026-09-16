@@ -17,7 +17,7 @@ from dashpot.serialization import (
     snapshot_document,
     worktree_plan_document,
 )
-from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
+from dashpot.worktrees import CleanupBlocker, WorktreePlan, WorktreeRemovability
 from factories import agent_run, project, pull_request, target, workspace
 from helpers import make_issue
 
@@ -321,7 +321,7 @@ def test_the_removability_document_keeps_its_keys_and_nulls() -> None:
         head="abc",
         role="linked",
         removable=False,
-        obstacles=[RemovalObstacle(kind="dirty", detail="1 path")],
+        obstacles=[CleanupBlocker(kind="dirty", detail="1 path")],
     )
 
     document = removability_document(report)

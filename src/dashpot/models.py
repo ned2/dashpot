@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Annotated, NoReturn, TypeVar
 
 from pydantic import (
@@ -12,7 +13,7 @@ from pydantic import (
     BaseModel,
     BeforeValidator,
     ConfigDict,
-    StringConstraints,
+    PlainValidator,
     ValidationError,
 )
 from pydantic.alias_generators import to_camel
@@ -48,9 +49,28 @@ class ConfigModel(PublishedModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def non_empty_string(value: object) -> str:
+    """Require a non-empty string, in the wording every hand validator used."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("must be a non-empty string")
+    return value
+
+
 # A required wire string is never empty: the hand validators these models
-# replace all read "non-empty" as part of the field's contract.
-NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
+# replace all read "non-empty" as part of the field's contract, and said so
+# in one voice whatever the input was.
+NonEmptyString = Annotated[str, PlainValidator(non_empty_string)]
+
+
+def repository_relative(value: str) -> str:
+    """Require a POSIX path that stays inside the Repository it is relative to."""
+    parsed = PurePosixPath(value)
+    if parsed.is_absolute() or ".." in parsed.parts:
+        raise ValueError("must be a repository-relative POSIX path")
+    return value
+
+
+RepositoryRelativePath = Annotated[str, AfterValidator(repository_relative)]
 
 
 def _strip_non_blank(value: str) -> str:

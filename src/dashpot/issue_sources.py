@@ -4,13 +4,13 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Literal
 
 from .errors import DashpotError
 from .issue_profile import IssueProfile, issue_location
 from .model import IssueActivity
 from .models import FrozenDict
+from .timestamps import utc_now
 
 IssueSourceStatus = Literal["fresh", "stale", "unavailable"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
@@ -268,7 +268,3 @@ class IssueSource(ABC):
         ``IssueSourceRefreshError``; sources without a palette or activity
         (Local Markdown) leave those mappings empty.
         """
-
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")

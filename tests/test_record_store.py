@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.record_store import LockedRecordStore
+from dashpot.record_store import LockedRecordStore, replace_atomically
 
 KEY = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -111,6 +111,20 @@ def test_sweep_removes_only_aged_crash_leftover_temporaries(tmp_path: Path) -> N
     assert foreign.exists()
     assert (tmp_path / ".kept.lock").exists()
     assert (tmp_path / "kept.json").exists()
+
+
+def test_a_failed_write_leaves_the_record_and_no_temporary_behind(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "record.json"
+    target.write_text("kept")
+
+    # A lone surrogate cannot be encoded, so the write fails mid-stream.
+    with pytest.raises(UnicodeEncodeError):
+        replace_atomically(target, "\udc80", temporary_prefix=".record.")
+
+    assert target.read_text() == "kept"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["record.json"]
 
 
 def test_sweeping_a_missing_directory_removes_nothing(tmp_path: Path) -> None:

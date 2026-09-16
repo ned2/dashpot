@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
@@ -16,7 +15,10 @@ from pydantic import (
 
 from .errors import DashpotError
 from .models import (
+    NonEmptyString,
     PublishedModel,
+    RepositoryRelativePath,
+    non_empty_string,
     translate_validation_error,
     validate_rfc3339_timestamp,
 )
@@ -28,16 +30,10 @@ class IssueProfileError(DashpotError, ValueError):
     """A source record cannot satisfy the complete Issue profile."""
 
 
-def _non_empty_string(value: object) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError("must be a non-empty string")
-    return value
-
-
 def _optional_string(value: object) -> str | None:
     if value is None:
         return None
-    return _non_empty_string(value)
+    return non_empty_string(value)
 
 
 def _positive_integer(value: object) -> int:
@@ -83,26 +79,17 @@ def _optional_state_reason(value: object) -> str | None:
 def _optional_timestamp(value: object) -> str | None:
     if value is None:
         return None
-    return validate_rfc3339_timestamp(_non_empty_string(value))
+    return validate_rfc3339_timestamp(non_empty_string(value))
 
 
 def _https_url(value: object) -> str:
-    text = _non_empty_string(value)
+    text = non_empty_string(value)
     url = urlsplit(text)
     if url.scheme != "https" or not url.netloc:
         raise ValueError("must be an absolute HTTPS URL")
     return text
 
 
-def _repository_relative_path(value: object) -> str:
-    text = _non_empty_string(value)
-    path = PurePosixPath(text)
-    if path.is_absolute() or ".." in path.parts:
-        raise ValueError("must be a repository-relative POSIX path")
-    return text
-
-
-_NonEmptyString = Annotated[str, PlainValidator(_non_empty_string)]
 _OptionalString = Annotated[str | None, PlainValidator(_optional_string)]
 _PositiveInteger = Annotated[int, PlainValidator(_positive_integer)]
 # The explicit serializer keeps `model_dump(mode="json")` from warning while
@@ -119,7 +106,6 @@ _OptionalStateReason = Annotated[
 ]
 _OptionalTimestamp = Annotated[str | None, PlainValidator(_optional_timestamp)]
 _HttpsUrl = Annotated[str, PlainValidator(_https_url)]
-_RepositoryRelativePath = Annotated[str, PlainValidator(_repository_relative_path)]
 
 
 class _ProfileModel(PublishedModel):
@@ -141,7 +127,7 @@ class GitHubIssueOrigin(_ProfileModel):
     """Record GitHub provenance with the durable repository identity."""
 
     kind: Literal["github"]
-    repository_id: _NonEmptyString
+    repository_id: NonEmptyString
 
 
 class MarkdownIssueOrigin(_ProfileModel):
@@ -161,7 +147,7 @@ class MarkdownIssueLocation(_ProfileModel):
     """Locate a Local Issue at a repository-relative path and line."""
 
     kind: Literal["markdown"]
-    path: _RepositoryRelativePath
+    path: RepositoryRelativePath
     line: _PositiveInteger
 
 
@@ -176,11 +162,11 @@ IssueLocation = Annotated[
 class IssueProfile(_ProfileModel):
     """Model one complete, source-neutral Issue snapshot."""
 
-    id: _NonEmptyString
-    project_id: _NonEmptyString
+    id: NonEmptyString
+    project_id: NonEmptyString
     number: _PositiveInteger
-    reference: _NonEmptyString
-    title: _NonEmptyString
+    reference: NonEmptyString
+    title: NonEmptyString
     body: str
     state: _IssueState
     state_reason: _OptionalStateReason
