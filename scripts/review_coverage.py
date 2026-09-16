@@ -79,7 +79,7 @@ def report_digest(root: Path) -> str:
     ).hexdigest()
 
 
-def collect(root: Path, base: str) -> Evidence:
+def collect(root: Path, base: str, workers: int | None = None) -> Evidence:
     """Run the full suite once and publish evidence only for unchanged sources."""
     directory = root / REPORT_DIRECTORY
     directory.mkdir(exist_ok=True)
@@ -87,6 +87,8 @@ def collect(root: Path, base: str) -> Evidence:
     manifest.unlink(missing_ok=True)
     report = directory / "coverage.json"
     report.unlink(missing_ok=True)
+    if workers is not None and workers < 0:
+        raise ValueError("Workers must be zero (serial) or a positive count")
     if os.environ.get("PYTEST_ADDOPTS"):
         raise ValueError("Unset PYTEST_ADDOPTS so coverage verifies the full suite")
     base_commit = git(root, "rev-parse", "--verify", f"{base}^{{commit}}")
@@ -101,6 +103,8 @@ def collect(root: Path, base: str) -> Evidence:
         "--cov-report=term-missing",
         f"--cov-report=json:{REPORT_DIRECTORY}/coverage.json",
     ]
+    if workers is not None:
+        command.extend(["-n", str(workers), "--dist=load", "--max-worker-restart=0"])
     environment = {**os.environ, "COVERAGE_FILE": str(directory / ".coverage")}
     subprocess.run(command, cwd=root, env=environment, check=True)
     if source_digest(root) != before:
@@ -141,6 +145,11 @@ def main() -> int:
         "--base", required=True, help="fixed commit or ref used for review"
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        help="override the repository's automatic worker count; 0 runs serially",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="verify existing evidence without running tests",
@@ -151,7 +160,7 @@ def main() -> int:
         evidence = (
             verify(root, arguments.base)
             if arguments.check
-            else collect(root, arguments.base)
+            else collect(root, arguments.base, arguments.workers)
         )
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Coverage evidence failed: {error}", file=sys.stderr)

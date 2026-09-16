@@ -345,7 +345,16 @@ Dashpot requires Python 3.11 or newer and uses
 uv sync --locked --group dev
 uv run pre-commit install
 uv run pytest -q
+# Run serially for debugging or reproduction:
+uv run pytest -q -n 0
 ```
+
+Tests run in parallel by default, reserving half the available CPUs and using
+at most eight workers (at least one). Linux uses the current CPU affinity;
+other platforms use the reported CPU count. Override with `-n N`, or `-n 0`
+for serial execution. CI explicitly uses two workers. Higher counts require
+measurement: sixteen failed locally despite eight passing repeatedly; see
+[CI and test performance](docs/ci-performance.md).
 
 ### Quality gates
 
@@ -385,7 +394,11 @@ uv run --locked python scripts/review_coverage.py --base "$review_base"
 ```
 
 Pin the review base for the engagement and include it in the review request.
-The helper runs pytest once, replacing ordinary pytest in this gate. It prints
+The helper runs pytest once, replacing ordinary pytest in this gate.
+It inherits pytest's automatic parallel default and combines worker coverage.
+Use `--workers N` to choose a count, or `--workers 0` for serial execution.
+Choose a worker count appropriate to local CPU and memory capacity. Worker crashes fail
+the run without restarting. The evidence records the exact command. It prints
 missing lines and writes `.review-coverage/coverage.json` plus `evidence.json`.
 Evidence records the base, source content digest, coverage report digest,
 command, Python/coverage versions, platform, and completion time. A failed run
@@ -412,7 +425,7 @@ committed. Coverage has no percentage threshold and does not establish the
 quality of assertions or coverage of every branch outcome.
 
 The pushed-revision gate can also run against the working tree. Its default
-includes ordinary pytest; `--skip-tests` uses already completed local coverage
+includes pytest with the same automatic parallel policy; `--skip-tests` uses already completed local coverage
 and avoids another test run. It covers the lockfile, Ruff, ty, documentation,
 and distributions, but omits hygiene hooks and coverage collection:
 
@@ -453,8 +466,20 @@ not need another review when that report becomes available.
 
 PR jobs check out the exact head commit and verify that the event's base is
 its ancestor. The quality job publishes those commits and the run identity in
-the `ci-revision-<attempt>` artifact. `CI required` succeeds only when every
-quality, test, build, installation, and minimum-Git job succeeds. It is the
+the `ci-revision-<attempt>` artifact. A PR changing only root Markdown or Markdown under `docs/` or `conformance/`
+runs the documentation lane: quality and revision-artifact checks still run,
+while tests, build, installation, and minimum-Git jobs are skipped. The complete
+PR diff (including both sides of renames) is classified by
+[`scripts/ci_lane.py`](scripts/ci_lane.py). Mixed, empty, unavailable, or
+non-Markdown diffs run full verification; manual and reusable invocations do too.
+`CI required` accepts only successful jobs and the exact skips authorized by a
+successful classification; failures, cancellations, and unexpected skips fail.
+
+Full verification runs tests in two independent processes per job, including
+Debian compatibility, and combines worker coverage on Ubuntu/Python 3.14.
+The same parallel command is available locally; `-n 0` keeps debugging serial.
+See [CI and test performance](docs/ci-performance.md) for benchmark commands,
+worker selection, UI profiling, and measured results. It is the
 required-check context to configure for `main`; repository administration
 setup is described in [development integration](docs/development-integration.md).
 

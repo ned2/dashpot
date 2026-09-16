@@ -514,7 +514,7 @@ def dashboard_app(
             for result in collector.results
             if isinstance(result, WorkspaceSnapshot)
         )
-    return DashpotApp(
+    app = DashpotApp(
         collector
         if isinstance(collector, ObservationScheduler)
         else SnapshotScheduler(collector),
@@ -528,6 +528,10 @@ def dashboard_app(
         cleaner=cleaner,
         launcher_configuration=launcher_configuration,
     )
+    # These tests assert settled layout and state, not intermediate animation frames.
+    # Keep real rendering and Pilot synchronization while avoiding optional motion.
+    app.animation_level = "none"
+    return app
 
 
 def serve_snapshot(app: DashpotApp, snapshot: WorkspaceSnapshot) -> None:
