@@ -49,6 +49,12 @@ class ConfigModel(PublishedModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WireModel(PublishedModel):
+    """Validate a selected GitHub response with a closed field contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 def non_empty_string(value: object) -> str:
     """Require a non-empty string, in the wording every hand validator used."""
     if not isinstance(value, str) or not value:

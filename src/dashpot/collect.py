@@ -8,15 +8,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
-from pydantic import ValidationError
-
 from .agent_bindings import bind_issue_runs
 from .agents import observe_agent_runs
 from .git import Git
 from .issue_profile import IssueProfile
 from .issue_sources import (
     IssueSource,
-    IssueSourceDiagnostic,
     IssueSourceObservation,
 )
 from .model import (
@@ -33,12 +30,12 @@ from .model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
+from .observation_errors import OBSERVATION_FAILURES
 from .observation_store import StoreChange, WorkspaceObservationStore
 from .processes import lock_holder_probe
 from .project_config import load_project_config
 from .pull_request_sources import (
     PullRequestSource,
-    PullRequestSourceDiagnostic,
     PullRequestSourceObservation,
     UnconfiguredPullRequestSource,
 )
@@ -122,12 +119,6 @@ class ObservationScheduler(Protocol):
     ) -> Sequence[ObservationKey]: ...
 
 
-# What an observation seam may raise: adapter failures, and the strict
-# frozen models rejecting a malformed observation — either becomes a
-# Diagnostic rather than failing the whole refresh.
-OBSERVATION_FAILURES = (OSError, RuntimeError, ValidationError)
-
-
 class ProjectObserver(Protocol):
     """What the coordinator asks of a per-Project collector."""
 
@@ -180,15 +171,7 @@ class ProjectCollector:
             issues=tuple(result.issues),
             label_colors=colors,
             issue_activity=activity,
-            diagnostics=tuple(
-                IssueSourceDiagnostic(
-                    source=d.source,
-                    severity=d.severity,
-                    code=d.code or "source-unavailable",
-                    message=d.message,
-                )
-                for d in result.diagnostics
-            ),
+            diagnostics=_enumeration_diagnostics(result.diagnostics),
         )
 
     def observe_pull_requests(self) -> PullRequestSourceObservation:
@@ -200,15 +183,7 @@ class ProjectCollector:
             attempted_at=result.attempted_at,
             last_good_at=result.last_good_at,
             pull_requests=tuple(result.pull_requests),
-            diagnostics=tuple(
-                PullRequestSourceDiagnostic(
-                    source=d.source,
-                    severity=d.severity,
-                    code=d.code or "source-unavailable",
-                    message=d.message,
-                )
-                for d in result.diagnostics
-            ),
+            diagnostics=_enumeration_diagnostics(result.diagnostics),
         )
 
     def observe_targets(self) -> RepositoryStateInventory:
@@ -331,7 +306,7 @@ def _issue_half(observation: IssueSourceObservation) -> _SourceObservation:
         status=observation.status,
         attempted_at=observation.attempted_at,
         last_good_at=observation.last_good_at,
-        diagnostics=tuple(_issue_diagnostics(observation)),
+        diagnostics=observation.diagnostics,
         project_diagnostics=(),
         elapsed_ms=0,
         issues=observation.issues,
@@ -348,15 +323,7 @@ def _pull_request_half(
         status=observation.status,
         attempted_at=observation.attempted_at,
         last_good_at=observation.last_good_at,
-        diagnostics=tuple(
-            Diagnostic(
-                source=diagnostic.source,
-                severity=diagnostic.severity,
-                message=diagnostic.message,
-                code=diagnostic.code,
-            )
-            for diagnostic in observation.diagnostics
-        ),
+        diagnostics=tuple(observation.diagnostics),
         project_diagnostics=(),
         elapsed_ms=0,
         pull_requests=observation.pull_requests,
@@ -877,18 +844,16 @@ def _pending_project(project: ResolvedProject) -> ProjectObservation:
     )
 
 
-def _issue_diagnostics(
-    observation: IssueSourceObservation,
-) -> list[Diagnostic]:
-    return [
-        Diagnostic(
-            source=diagnostic.source,
-            severity=diagnostic.severity,
-            message=diagnostic.message,
-            code=diagnostic.code,
-        )
-        for diagnostic in observation.diagnostics
-    ]
+def _enumeration_diagnostics(
+    diagnostics: Sequence[Diagnostic],
+) -> tuple[Diagnostic, ...]:
+    """Preserve the Source Enumeration fallback code at the collector seam."""
+    return tuple(
+        diagnostic
+        if diagnostic.code
+        else diagnostic.model_copy(update={"code": "source-unavailable"})
+        for diagnostic in diagnostics
+    )
 
 
 def _target_discovery_diagnostic(project_id: str, exc: BaseException) -> Diagnostic:

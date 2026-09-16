@@ -483,3 +483,45 @@ def test_single_record_page_sizes_can_carry_full_search_cursor_history():
         ),
     )
     assert decode_continuation(encode_continuation(continuation)) == continuation
+
+
+@pytest.mark.parametrize("operation", ["page", "totals", "identities"])
+@pytest.mark.parametrize(
+    "failure", [OSError, RuntimeError, ValueError, KeyError, TypeError]
+)
+def test_expected_query_failures_publish_unavailable(
+    tmp_path, monkeypatch, operation, failure
+):
+    source, _ = github(tmp_path)
+
+    def fail():
+        raise failure("cannot observe")
+
+    monkeypatch.setattr(source, "observe_context", fail)
+    if operation == "page":
+        result = source.query_page(QueryRequest())
+    elif operation == "totals":
+        result = source.totals("issues")
+    else:
+        (result,) = source.resolve_identities(["I_1"])
+    assert result.status == "unavailable"
+    assert "cannot observe" in result.diagnostics[0].message
+
+
+@pytest.mark.parametrize("operation", ["page", "totals", "identities"])
+def test_query_programmer_faults_escape_instead_of_becoming_stale(
+    tmp_path, monkeypatch, operation
+):
+    source, _ = github(tmp_path)
+
+    def fail():
+        raise AssertionError("adapter invariant")
+
+    monkeypatch.setattr(source, "observe_context", fail)
+    with pytest.raises(AssertionError, match="adapter invariant"):
+        if operation == "page":
+            source.query_page(QueryRequest())
+        elif operation == "totals":
+            source.totals("issues")
+        else:
+            source.resolve_identities(["I_1"])

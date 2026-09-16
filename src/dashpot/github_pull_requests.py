@@ -12,36 +12,30 @@ from typing_extensions import override
 from .commands import CommandRunner, run_command
 from .github import (
     DEFAULT_REFRESH_BUDGET,
+    MALFORMED_RESPONSE,
     RATE_LIMIT_SELECTION,
     CursorTrail,
     GitHubGateway,
     GitHubRequestError,
     RefreshBudget,
 )
+from .github_wire import PULL_REQUEST_FIELDS, PULL_REQUEST_STATES, PageInfo
 from .model import (
+    Diagnostic,
     PullRequest,
     PullRequestCheckStatus,
     PullRequestMergeability,
     PullRequestReviewDecision,
-    PullRequestState,
 )
-from .models import ConfigModel, LaxSequence, NonEmptyString, Rfc3339Timestamp
+from .models import LaxSequence, NonEmptyString, Rfc3339Timestamp, WireModel
 from .pull_request_sources import (
-    Clock,
     CollectedPullRequests,
     PullRequestSource,
-    PullRequestSourceDiagnostic,
     PullRequestSourceRefreshError,
 )
-
-_STATES: Mapping[str, PullRequestState] = {
-    "OPEN": "open",
-    "CLOSED": "closed",
-    "MERGED": "merged",
-}
+from .retaining_source import Clock
 
 _PAGE_SIZE = 100
-_RESPONSE_CODE = "github-malformed-response"
 
 _REVIEW_DECISIONS: Mapping[str, PullRequestReviewDecision] = {
     "APPROVED": "approved",
@@ -61,6 +55,8 @@ _MERGEABILITY: Mapping[str, PullRequestMergeability | None] = {
     "UNKNOWN": None,
 }
 
+_PULL_REQUEST_FIELDS = "\n          ".join(PULL_REQUEST_FIELDS)
+
 _PULL_REQUESTS_QUERY = f"""
 query DashpotPullRequests($repositoryId: ID!, $cursor: String) {{
   {RATE_LIMIT_SELECTION}
@@ -75,20 +71,7 @@ query DashpotPullRequests($repositoryId: ID!, $cursor: String) {{
       ) {{
         totalCount
         nodes {{
-          id
-          number
-          title
-          url
-          state
-          isDraft
-          headRefName
-          baseRefName
-          author {{ login }}
-          reviewDecision
-          statusCheckRollup {{ state }}
-          mergeable
-          createdAt
-          updatedAt
+          {_PULL_REQUEST_FIELDS}
         }}
         pageInfo {{ hasNextPage endCursor }}
       }}
@@ -98,15 +81,15 @@ query DashpotPullRequests($repositoryId: ID!, $cursor: String) {{
 """.strip()
 
 
-class _Actor(ConfigModel):
+class _Actor(WireModel):
     login: NonEmptyString
 
 
-class _StatusCheckRollup(ConfigModel):
+class _StatusCheckRollup(WireModel):
     state: Literal["ERROR", "EXPECTED", "FAILURE", "PENDING", "SUCCESS"]
 
 
-class _PullRequestNode(ConfigModel):
+class _PullRequestNode(WireModel):
     id: NonEmptyString
     number: int = Field(gt=0)
     title: NonEmptyString
@@ -123,18 +106,13 @@ class _PullRequestNode(ConfigModel):
     updated_at: Rfc3339Timestamp
 
 
-class _PageInfo(ConfigModel):
-    has_next_page: bool
-    end_cursor: str | None
-
-
-class _PullRequestConnection(ConfigModel):
+class _PullRequestConnection(WireModel):
     total_count: int = Field(ge=0)
     nodes: LaxSequence[_PullRequestNode]
-    page_info: _PageInfo
+    page_info: PageInfo
 
 
-class _RepositoryPage(ConfigModel):
+class _RepositoryPage(WireModel):
     id: NonEmptyString
     pull_requests: _PullRequestConnection
 
@@ -145,7 +123,7 @@ def normalize_github_pull_request(record: Mapping[str, Any]) -> PullRequest:
         node = _PullRequestNode.model_validate(record)
     except ValidationError as exc:
         raise PullRequestSourceRefreshError(
-            _RESPONSE_CODE, f"GitHub Pull Request is malformed: {exc}"
+            MALFORMED_RESPONSE, f"GitHub Pull Request is malformed: {exc}"
         ) from exc
     review = (
         _REVIEW_DECISIONS[node.review_decision]
@@ -163,7 +141,7 @@ def normalize_github_pull_request(record: Mapping[str, Any]) -> PullRequest:
         number=node.number,
         title=node.title,
         url=str(node.url),
-        state=_STATES[node.state],
+        state=PULL_REQUEST_STATES[node.state],
         is_draft=node.is_draft,
         head_branch=node.head_ref_name,
         base_branch=node.base_ref_name,
@@ -268,7 +246,7 @@ class GitHubPullRequestsSource(PullRequestSource):
             repository = _RepositoryPage.model_validate(node)
         except ValidationError as exc:
             raise PullRequestSourceRefreshError(
-                _RESPONSE_CODE, f"GitHub Pull Request page is malformed: {exc}"
+                MALFORMED_RESPONSE, f"GitHub Pull Request page is malformed: {exc}"
             ) from exc
         if repository.id != self.repository_id:
             raise PullRequestSourceRefreshError(
@@ -278,12 +256,12 @@ class GitHubPullRequestsSource(PullRequestSource):
             )
         return repository
 
-    def _rate_limit_diagnostics(self) -> tuple[PullRequestSourceDiagnostic, ...]:
+    def _rate_limit_diagnostics(self) -> tuple[Diagnostic, ...]:
         rate_limit = self.gateway.rate_limit
         if rate_limit is None or not rate_limit.low:
             return ()
         return (
-            PullRequestSourceDiagnostic(
+            Diagnostic(
                 source=self.name,
                 code="github-rate-limit-low",
                 severity="warning",

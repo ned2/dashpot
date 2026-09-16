@@ -717,3 +717,43 @@ class ObservationCoordinatorTests(unittest.TestCase):
         for workspace in results:
             self.assertEqual(1, len(workspace.projects))
             self.assertEqual("fresh", workspace.projects[0].status)
+
+
+def test_enumeration_keeps_fallback_diagnostic_codes_for_both_source_families():
+    from unittest.mock import Mock
+
+    from dashpot.source_queries import QuerySource, SourceContext, SourceEnumeration
+
+    context = SourceContext(
+        project_id="project:example",
+        repository_id="repository:example",
+        source="github",
+        location="github.com",
+    )
+    diagnostics = (
+        Diagnostic(source="github", severity="warning", message="missing code"),
+        Diagnostic(source="github", severity="warning", message="empty code", code=""),
+        Diagnostic(
+            source="github", severity="warning", message="coded", code="github-network"
+        ),
+    )
+    query = Mock(spec=QuerySource)
+    query.enumerate_source.side_effect = lambda kind: SourceEnumeration(
+        context=context,
+        kind=kind,
+        status="unavailable",
+        attempted_at="2026-09-17T00:00:00Z",
+        last_good_at=None,
+        diagnostics=diagnostics,
+    )
+    collector = ProjectCollector(resolved_project(), FakeSource())
+    collector.query_source = query
+    for observation in (collector.observe_issues(), collector.observe_pull_requests()):
+        assert [d.code for d in observation.diagnostics] == [
+            "source-unavailable",
+            "source-unavailable",
+            "github-network",
+        ]
+        assert observation.diagnostics[2] is diagnostics[2]
+    assert diagnostics[0].code is None
+    assert diagnostics[1].code == ""

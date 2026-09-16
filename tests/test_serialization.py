@@ -8,6 +8,7 @@ an unknown value is asserted to be an explicit ``null``, never an omission.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from dashpot.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
 from dashpot.serialization import (
@@ -221,6 +222,8 @@ def test_the_snapshot_document_pins_every_nested_shape() -> None:
 
     document = snapshot_document(workspace(observation, runs=[run]))
 
+    baseline = Path(__file__).parent / "fixtures" / "workspace-snapshot.json"
+    assert render_json(document) + "\n" == baseline.read_text()
     assert set(document) == SNAPSHOT_KEYS
     (project_document,) = document["projects"]
     assert set(project_document) == PROJECT_OBSERVATION_KEYS

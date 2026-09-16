@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from .model import Diagnostic
+from .observation_errors import QUERY_OBSERVATION_FAILURES
 from .source_queries import (
     Continuation,
     InvalidContinuation,
@@ -50,7 +51,7 @@ class CachedQuerySource(ABC):
             page = self.fetch_page(context, request, token, attempted)
         except InvalidContinuation:
             raise
-        except Exception as exc:
+        except QUERY_OBSERVATION_FAILURES as exc:
             previous = self._pages.get(key) if key else None
             diagnostic = self.diagnostic(exc)
             if previous is not None:
@@ -97,7 +98,7 @@ class CachedQuerySource(ABC):
                 attempted_at=attempted,
                 last_good_at=attempted,
             )
-        except Exception as exc:
+        except QUERY_OBSERVATION_FAILURES as exc:
             previous = self._totals.get(kind)
             diagnostic = self.diagnostic(exc)
             if previous and previous.context == context:
@@ -133,7 +134,7 @@ class CachedQuerySource(ABC):
         try:
             context = self.observe_context()
             results = self.fetch_identities(context, requested, attempted)
-        except Exception as exc:
+        except QUERY_OBSERVATION_FAILURES as exc:
             results = tuple(
                 ResolvedIssue(
                     context=self.context,
