@@ -77,9 +77,8 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
             lambda: app.queries.navigation["issues"].page.issues[0].number == 2
         )
         # Restarting begins a new generation at page one instead of stepping back
-        # through history. (The focused table binds Home itself, so the action is
-        # driven directly here.)
-        app.dashboard.action_restart_page()
+        # through history.
+        await pilot.press("g")
         await wait_until(
             lambda: (
                 app.queries.navigation["issues"].page is not None
@@ -160,7 +159,7 @@ async def test_the_legend_lists_the_shipped_screen_and_worktree_keys(tmp_path):
     for key, description in (
         ("n", "Next page"),
         ("p", "Previous page"),
-        ("home", "First page"),
+        ("g", "First page"),
         ("enter", "Open Worktree"),
         ("y", "Copy path"),
     ):

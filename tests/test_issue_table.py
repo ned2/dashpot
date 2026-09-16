@@ -1,8 +1,7 @@
-"""The Issue table's rows, columns, cells and sorting, without an App."""
+"""The Issue table's rows, columns and cells, without an App."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,13 +28,10 @@ from dashpot.issue_table import (
     COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
     TITLE_LIMIT,
-    ColumnKey,
     IssueTableViewState,
-    SortTerm,
     build_rows,
     searchable_columns,
     shown_columns,
-    sort_key_for_terms,
 )
 from dashpot.local_markdown_issues import parse_local_markdown_issue
 from dashpot.model import AgentRun, IssueActivity, LinkedPullRequest
@@ -44,13 +40,14 @@ from helpers import required, snapshot_of
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
 
+    from dashpot.issue_cells import TableCell
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def column_sort_key(column: ColumnKey) -> Callable[[object], SupportsRichComparison]:
-    """A column's own ordering, for cells that all carry a sort value."""
-    spec = COLUMNS_BY_KEY[column]
-    return lambda cell: required(spec.sort_key(cell))
+def cell_order(cell: TableCell) -> SupportsRichComparison:
+    """The domain value a rendered cell carries, for cells that all have one."""
+    return required(cell.sort_value)
 
 
 def test_row_projection_respects_visible_column_order() -> None:
@@ -87,7 +84,7 @@ def test_a_long_title_is_clipped_with_an_ellipsis_at_the_limit() -> None:
     assert contexts[row_key("issue", overlong.id)].issue.title == long_title
 
 
-def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> None:
+def test_author_column_is_hidden_by_default_and_marks_a_missing_author() -> None:
     authored = issue("test/repo#1", "Authored")
     anonymous = issue(
         "test/repo#2",
@@ -103,12 +100,9 @@ def test_author_column_is_hidden_by_default_and_sorts_missing_authors_last() -> 
     assert "author" not in DEFAULT_COLUMNS
     assert cells[row_key("issue", authored.id)] == ("ned2",)
     assert cells[row_key("issue", anonymous.id)] == ("-",)
-    values = [
-        cells[row_key("issue", anonymous.id)][0],
-        cells[row_key("issue", authored.id)][0],
-    ]
-    ascending = sorted(values, key=sort_key_for_terms((SortTerm("author"),)))
-    assert [str(value) for value in ascending] == ["ned2", "-"]
+    # The placeholder carries no value: the cell is a mark, not a name.
+    assert cells[row_key("issue", authored.id)][0].sort_value == "ned2"
+    assert cells[row_key("issue", anonymous.id)][0].sort_value is None
 
 
 def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None:
@@ -129,14 +123,10 @@ def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None
     assert "type" not in DEFAULT_COLUMNS
     assert cells[row_key("issue", classified.id)] == ("v1", "Feature")
     assert cells[row_key("issue", plain.id)] == ("-", "-")
-    ascending = sorted(
-        [
-            cells[row_key("issue", plain.id)][0],
-            cells[row_key("issue", classified.id)][0],
-        ],
-        key=sort_key_for_terms((SortTerm("milestone"),)),
-    )
-    assert [str(value) for value in ascending] == ["v1", "-"]
+    assert [cell.sort_value for cell in cells[row_key("issue", plain.id)]] == [
+        None,
+        None,
+    ]
 
 
 def test_comments_column_shows_engagement_only_when_present() -> None:
@@ -168,14 +158,8 @@ def test_comments_column_shows_engagement_only_when_present() -> None:
     assert "comments" not in DEFAULT_COLUMNS
     assert cells[row_key("issue", discussed.id)] == ("4",)
     assert cells[row_key("issue", quiet.id)] == ("-",)
-    ascending = sorted(
-        [
-            cells[row_key("issue", discussed.id)][0],
-            cells[row_key("issue", quiet.id)][0],
-        ],
-        key=sort_key_for_terms((SortTerm("comments"),)),
-    )
-    assert [str(value) for value in ascending] == ["-", "4"]
+    assert cells[row_key("issue", discussed.id)][0].sort_value == 4
+    assert cells[row_key("issue", quiet.id)][0].sort_value == 0
 
     detail = issue_metadata_text(contexts[row_key("issue", discussed.id)])
     assert "Comments: 4\n" in detail
@@ -205,7 +189,7 @@ def test_issue_number_column_uses_the_bare_project_local_number() -> None:
     assert number.justify == "right"
 
 
-def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> None:
+def test_issue_date_columns_render_iso_dates_and_carry_the_full_timestamp() -> None:
     selected_issue = issue(
         "test/repo#17",
         "Timestamp test",
@@ -222,29 +206,17 @@ def test_issue_date_columns_render_iso_dates_and_sort_by_full_timestamp() -> Non
         "2026-08-25",
         "2026-08-27",
     )
-    timestamps = [
-        date_cell(None),
-        date_cell("2026-08-27T01:15:00Z"),
-        date_cell("2026-08-27T00:30:00Z"),
-    ]
-    ascending = sorted(
-        timestamps,
-        key=sort_key_for_terms((SortTerm("last_action"),)),
-    )
-    descending = sorted(
-        timestamps,
-        key=sort_key_for_terms((SortTerm("last_action", descending=True),)),
-        reverse=True,
-    )
-    assert ascending[0] is timestamps[2]
-    assert ascending[1] is timestamps[1]
-    assert ascending[2] is timestamps[0]
-    assert descending[0] is timestamps[1]
-    assert descending[1] is timestamps[2]
-    assert descending[2] is timestamps[0]
+    # Two instants on one date render alike but stay distinct by timestamp.
+    later = date_cell("2026-08-27T01:15:00Z")
+    earlier = date_cell("2026-08-27T00:30:00Z")
+    assert later == earlier
+    ordered = sorted([later, earlier], key=cell_order)
+    assert ordered[0] is earlier
+    assert ordered[1] is later
+    assert date_cell(None).sort_value is None
 
 
-def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> None:
+def test_labels_column_renders_tracker_coloured_chips_and_carries_names() -> None:
     labelled = issue(
         "test/repo#1",
         "Labelled",
@@ -276,15 +248,6 @@ def test_labels_column_renders_tracker_coloured_chips_and_sorts_by_name() -> Non
     assert isinstance(empty, LabelsCell)
     assert empty.plain == "-"
     assert empty.sort_value is None
-
-    ascending = sorted([empty, chips], key=sort_key_for_terms((SortTerm("labels"),)))
-    assert ascending == [chips, empty]
-    descending = sorted(
-        [empty, chips],
-        key=sort_key_for_terms((SortTerm("labels", descending=True),)),
-        reverse=True,
-    )
-    assert descending == [chips, empty]
 
 
 def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
@@ -341,23 +304,19 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
 
     mixed = query_issue_list(workspace_snapshot(prioritised, unlabelled))
     assert shown_columns(DEFAULT_COLUMNS, mixed.rows) == DEFAULT_COLUMNS
-    for descending in (False, True):
-        _contexts, cells = build_rows(
-            mixed,
-            columns=("priority",),
-            sort=(SortTerm("priority", descending=descending),),
-        )
-        # An Issue without a priority label shows nothing and sorts after
-        # every priority in either direction: no default is invented.
-        absent = cells[row_key("issue", unlabelled.id)][0]
-        assert isinstance(absent, PriorityCell)
-        assert absent.plain == ""
-        assert absent.priority is None
-        assert absent.sort_value is None
-        assert list(cells) == [
-            row_key("issue", prioritised.id),
-            row_key("issue", unlabelled.id),
-        ]
+    _contexts, cells = build_rows(mixed, columns=("priority",))
+    # An Issue without a priority label shows nothing and carries no
+    # priority: no default is invented.
+    absent = cells[row_key("issue", unlabelled.id)][0]
+    assert isinstance(absent, PriorityCell)
+    assert absent.plain == ""
+    assert absent.priority is None
+    assert absent.sort_value is None
+    # The rows keep the order the source gave them.
+    assert list(cells) == [
+        row_key("issue", prioritised.id),
+        row_key("issue", unlabelled.id),
+    ]
 
     plain = query_issue_list(workspace_snapshot(unlabelled))
     assert shown_columns(DEFAULT_COLUMNS, plain.rows) == without_priority
@@ -391,26 +350,11 @@ def test_local_markdown_number_is_the_table_id() -> None:
     assert number.justify == "right"
 
 
-def test_selecting_a_sort_column_replaces_the_default_then_toggles_direction() -> None:
-    view = IssueTableViewState()
-
-    ascending = view.toggle_sort("number")
-    descending = ascending.toggle_sort("number")
-
-    assert ascending.sort == (SortTerm("number"),)
-    assert descending.sort == (SortTerm("number", descending=True),)
-
-
 def test_icon_and_title_columns_are_not_sortable() -> None:
-    view = IssueTableViewState(
-        columns=("issue_state", "agent_state", "title", "number", "priority"),
-        sort=(SortTerm("title"),),
-    )
-
-    assert view.toggle_sort("issue_state") is view
-    assert view.toggle_sort("agent_state") is view
-    assert view.toggle_sort("title") is view
-    assert view.toggle_sort("priority").sort == (SortTerm("priority"),)
+    assert not COLUMNS_BY_KEY["issue_state"].sortable
+    assert not COLUMNS_BY_KEY["agent_state"].sortable
+    assert not COLUMNS_BY_KEY["title"].sortable
+    assert COLUMNS_BY_KEY["priority"].sortable
 
 
 def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
@@ -421,7 +365,7 @@ def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
         view.with_columns(("title", "title"))
 
 
-def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
+def test_column_catalogue_owns_searchability_and_cells_carry_typed_values() -> None:
     assert searchable_columns() == frozenset(
         {
             "number",
@@ -441,7 +385,7 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
         agent_state_cell(("unknown",)),
     ]
 
-    ordered = sorted(agent_states, key=column_sort_key("agent_state"))
+    ordered = sorted(agent_states, key=cell_order)
 
     assert [str(cell) for cell in ordered] == ["", "○", "◐", "●"]
     assert str(agent_state_cell(("running", "running"))) == "●"
@@ -449,7 +393,7 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
     assert str(agent_state_cell(("unknown", "waiting"))) == "◐"
     numbers = [IssueNumberCell(10), IssueNumberCell(2)]
 
-    assert sorted(numbers, key=column_sort_key("number")) == [
+    assert sorted(numbers, key=cell_order) == [
         IssueNumberCell(2),
         IssueNumberCell(10),
     ]
@@ -461,9 +405,12 @@ def test_column_catalogue_owns_searchability_and_typed_sort_keys() -> None:
         IssueStateCell("completed", dark=True),
     ]
 
-    assert [
-        cell.state_kind for cell in sorted(states, key=column_sort_key("issue_state"))
-    ] == ["open", "completed", "not-planned", "duplicate"]
+    assert [cell.state_kind for cell in sorted(states, key=cell_order)] == [
+        "open",
+        "completed",
+        "not-planned",
+        "duplicate",
+    ]
 
 
 def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:

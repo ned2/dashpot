@@ -155,9 +155,9 @@ Projects retain local whitespace/quoted text matching. Both default to Open.
 Choose All when lifecycle belongs to the raw expression. Clearing search submits
 the default source query, without restoring a background inventory.
 
-`n` requests Next, `p` returns to Previous, and `Home` restarts the focused query
-pane. Eight accepted pages are retained; an evicted Previous is unavailable and
-requires restart. The page displays its own observation time. The count separates
+`n` requests Next, `p` returns to Previous, and `g` restarts the focused query
+pane from page one. Eight accepted pages are retained; an evicted Previous is
+unavailable and requires restart. The page displays its own observation time. The count separates
 rows shown from all matching results; `Open N · Closed M` always reports Project-wide
 totals, independently of search, lifecycle selection and page, with unavailability
 or stale status when appropriate. GitHub exposes only the first 1,000 search results:

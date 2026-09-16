@@ -14,7 +14,6 @@ from dashpot.issue_list import (
     IssueSortColumn,
     empty_issue_message,
     is_issue_sort_column,
-    issue_inventory_text,
     issue_result_count_text,
     issue_sort_value,
     next_issue_states,
@@ -22,7 +21,7 @@ from dashpot.issue_list import (
     sort_issue_rows,
 )
 from dashpot.issue_profile import IssueProfile
-from dashpot.issue_table import COLUMN_SPECS, SortTerm, build_rows
+from dashpot.issue_table import COLUMN_SPECS
 from dashpot.model import (
     AgentRun,
     IssueActivity,
@@ -166,65 +165,37 @@ def test_text_query_matches_the_author_without_requiring_one() -> None:
     assert [row.issue.id for row in result.rows] == ["I_matching"]
 
 
-def test_inventory_text_ignores_the_query_and_result_text_singularizes() -> None:
+def test_lifecycle_counts_ignore_the_query_and_result_text_singularizes() -> None:
     observed = workspace(
         issue("I_one", "open"), issue("I_two", "open"), issue("I_done", "closed")
     )
-    inventory = "Open 2 · Closed 1"
-
-    open_view = query_issue_list(observed)
-    assert (open_view.open_issue_count, open_view.closed_issue_count) == (2, 1)
-    assert issue_inventory_text(open_view) == inventory
-    assert issue_result_count_text(len(open_view.rows)) == "2 issues"
-
-    narrowed = query_issue_list(observed, IssueListQuery(text="I_one"))
-    assert issue_inventory_text(narrowed) == inventory
-    assert issue_result_count_text(len(narrowed.rows)) == "1 issue"
-
-    unmatched = query_issue_list(observed, IssueListQuery(text="nothing-here"))
-    assert issue_inventory_text(unmatched) == inventory
-    assert issue_result_count_text(len(unmatched.rows)) == "0 issues"
-
-    closed_view = query_issue_list(
-        observed, IssueListQuery(states=frozenset({"closed"}))
-    )
-    assert issue_inventory_text(closed_view) == inventory
-    assert issue_result_count_text(len(closed_view.rows)) == "1 issue"
-
-    all_view = query_issue_list(
-        observed, IssueListQuery(states=frozenset({"open", "closed"}))
-    )
-    assert issue_inventory_text(all_view) == inventory
-    assert issue_result_count_text(len(all_view.rows)) == "3 issues"
-
-    all_narrowed = query_issue_list(
-        observed, IssueListQuery(states=frozenset({"open", "closed"}), text="I_done")
-    )
-    assert issue_inventory_text(all_narrowed) == inventory
-    assert issue_result_count_text(len(all_narrowed.rows)) == "1 issue"
-
-    produced = [
-        issue_inventory_text(view)
-        for view in (
-            open_view,
-            narrowed,
-            unmatched,
-            closed_view,
-            all_view,
-            all_narrowed,
-        )
-    ] + [
-        issue_result_count_text(len(view.rows))
-        for view in (
-            open_view,
-            narrowed,
-            unmatched,
-            closed_view,
-            all_view,
-            all_narrowed,
-        )
+    views = [
+        (query_issue_list(observed), "2 issues"),
+        (query_issue_list(observed, IssueListQuery(text="I_one")), "1 issue"),
+        (query_issue_list(observed, IssueListQuery(text="nothing-here")), "0 issues"),
+        (
+            query_issue_list(observed, IssueListQuery(states=frozenset({"closed"}))),
+            "1 issue",
+        ),
+        (
+            query_issue_list(
+                observed, IssueListQuery(states=frozenset({"open", "closed"}))
+            ),
+            "3 issues",
+        ),
+        (
+            query_issue_list(
+                observed,
+                IssueListQuery(states=frozenset({"open", "closed"}), text="I_done"),
+            ),
+            "1 issue",
+        ),
     ]
-    for text in produced:
+
+    for view, expected in views:
+        assert (view.open_issue_count, view.closed_issue_count) == (2, 1)
+        assert issue_result_count_text(len(view.rows)) == expected
+    for text in (issue_result_count_text(n) for n in range(4)):
         assert " of " not in text
         assert "/" not in text
 
@@ -395,12 +366,45 @@ def varied_issues() -> tuple[IssueProfile, ...]:
     )
 
 
+# Each sortable column's ascending order over ``varied_issues``: a missing
+# value ranks last (an empty assignee tuple is a present, smallest value, so
+# issue:b leads there), ties keep Issue Number order, and casefolding makes
+# ``Mia`` and ``mia`` one value.
+ASCENDING_ORDERS: dict[IssueSortColumn, list[str]] = {
+    "number": ["issue:b", "issue:c", "issue:a", "issue:d"],
+    "priority": ["issue:c", "issue:a", "issue:b", "issue:d"],
+    "labels": ["issue:a", "issue:b", "issue:c", "issue:d"],
+    "project": ["issue:b", "issue:c", "issue:a", "issue:d"],
+    "assignees": ["issue:b", "issue:d", "issue:c", "issue:a"],
+    "author": ["issue:c", "issue:a", "issue:d", "issue:b"],
+    "milestone": ["issue:c", "issue:a", "issue:d", "issue:b"],
+    "type": ["issue:c", "issue:a", "issue:d", "issue:b"],
+    "comments": ["issue:b", "issue:d", "issue:a", "issue:c"],
+    "created": ["issue:a", "issue:b", "issue:c", "issue:d"],
+    "last_action": ["issue:c", "issue:a", "issue:d", "issue:b"],
+}
+# Descending reverses only the present values: the missing ones stay last,
+# and a tie keeps its order rather than reversing it.
+DESCENDING_ORDERS: dict[IssueSortColumn, list[str]] = {
+    "number": ["issue:d", "issue:a", "issue:c", "issue:b"],
+    "priority": ["issue:a", "issue:c", "issue:b", "issue:d"],
+    "labels": ["issue:b", "issue:a", "issue:c", "issue:d"],
+    "project": ["issue:b", "issue:c", "issue:a", "issue:d"],
+    "assignees": ["issue:a", "issue:c", "issue:d", "issue:b"],
+    "author": ["issue:a", "issue:d", "issue:c", "issue:b"],
+    "milestone": ["issue:a", "issue:d", "issue:c", "issue:b"],
+    "type": ["issue:a", "issue:d", "issue:c", "issue:b"],
+    "comments": ["issue:c", "issue:a", "issue:b", "issue:d"],
+    "created": ["issue:b", "issue:c", "issue:a", "issue:d"],
+    "last_action": ["issue:a", "issue:d", "issue:c", "issue:b"],
+}
+
+
 @pytest.mark.parametrize("column", ISSUE_SORT_COLUMNS)
-@pytest.mark.parametrize("descending", [False, True])
-def test_sort_issue_rows_orders_like_the_issue_table(
-    column: IssueSortColumn, *, descending: bool
+def test_sort_issue_rows_orders_every_column_with_missing_values_last(
+    column: IssueSortColumn,
 ) -> None:
-    """A query page sorted by the read model lists what the table would."""
+    """A Query Page ordered by the read model, as a Markdown Project's source serves it."""
     issues = varied_issues()
     snapshot = with_first_project_snapshot(
         workspace(*issues),
@@ -411,13 +415,11 @@ def test_sort_issue_rows_orders_like_the_issue_table(
     )
     result = query_issue_list(snapshot)
 
-    contexts, _cells = build_rows(
-        result, sort=(SortTerm(column, descending=descending),)
-    )
-    ordered = sort_issue_rows(result.rows, column, descending=descending)
+    ascending = sort_issue_rows(result.rows, column)
+    descending = sort_issue_rows(result.rows, column, descending=True)
 
-    assert [row.key for row in ordered] == list(contexts)
-    assert len(ordered) == len(issues)
+    assert [row.issue.id for row in ascending] == ASCENDING_ORDERS[column]
+    assert [row.issue.id for row in descending] == DESCENDING_ORDERS[column]
 
 
 def test_sort_columns_are_the_sortable_table_columns() -> None:

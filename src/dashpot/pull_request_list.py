@@ -164,20 +164,6 @@ def query_indexed_pull_request_list(
     )
 
 
-def pull_request_empty_message(
-    result: PullRequestListResult,
-    query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY,
-) -> str:
-    """Distinguish a fresh empty collection from stale or unavailable data."""
-    if result.observed_pull_request_count and not result.rows:
-        return "no Pull Requests match the current filters"
-    if result.status == "fresh":
-        return "no pull requests"
-    if result.status == "stale":
-        return "no pull requests when last observed"
-    return "pull requests unavailable"
-
-
 def pull_request_result_count_text(count: int) -> str:
     """Describe how many Pull Requests match every current filter."""
     return "1 pull request" if count == 1 else f"{count} pull requests"
@@ -247,44 +233,7 @@ def _lifecycle(pull_request: PullRequest) -> PullRequestLifecycle:
     return "open" if pull_request.state == "open" else "closed"
 
 
-def pull_request_inventory_text(result: PullRequestListResult) -> str:
-    """Summarize both lifecycles under the current search and draft filters."""
-    if result.status == "unavailable":
-        return "unavailable"
-    return f"Open {result.open_pull_request_count} · Closed {result.closed_pull_request_count}"
-
-
 def _is_lifecycle_qualifier(qualifier: PullRequestQualifier) -> bool:
     return qualifier.field == "state" or (
         qualifier.field == "is" and qualifier.value in {"open", "closed"}
-    )
-
-
-def query_pull_request_search_results(
-    project: ProjectObservation,
-    pull_requests: tuple[PullRequest, ...],
-    query: PullRequestListQuery,
-    *,
-    status: SourceStatus,
-    attempted_at: str | None,
-    last_good_at: str | None,
-) -> PullRequestListResult:
-    """Filter a complete GitHub search by lifecycle while preserving its order."""
-    rows = tuple(
-        PullRequestListRow(
-            row_key("pull-request", project.project_id, pr.id), project, pr
-        )
-        for pr in pull_requests
-        if _lifecycle(pr) in query.states
-    )
-    open_count = sum(pr.state == "open" for pr in pull_requests)
-    return PullRequestListResult(
-        rows=rows,
-        matched_pull_request_count=len(rows),
-        observed_pull_request_count=len(pull_requests),
-        status=status,
-        attempted_at=attempted_at,
-        last_good_at=last_good_at,
-        open_pull_request_count=open_count,
-        closed_pull_request_count=len(pull_requests) - open_count,
     )

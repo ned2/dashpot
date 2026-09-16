@@ -122,6 +122,14 @@ class IssueScreen(Screen[None]):
     def stacked(self) -> bool:
         return self.query_one("#issue-view").has_class("-stacked")
 
+    def show(self, context: IssueListRow) -> None:
+        """Show a newer projection of the open Issue; an unchanged one is left alone."""
+        if context == self.context:
+            return
+        self.context = context
+        self.issue = context.issue
+        self.refresh(recompose=True)
+
     def action_close(self) -> None:
         self.dismiss(None)
 

@@ -2,16 +2,16 @@
 
 Everything here turns an Issue Profile fact into what a cell shows — a
 coloured state block, a label chip, a date — while retaining the domain
-value the cell sorts by, which ``issue_list`` derives the same way for a
-query. The column catalogue and the view-state machine that arrange these
-cells live in ``issue_table``.
+value behind the text, which ``issue_list`` derives the same way when it
+orders a Query Page. The column catalogue and the view state that arrange
+these cells live in ``issue_table``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Literal, Self, cast
+from typing import Literal, Self
 
 from rich.text import Text
 
@@ -59,7 +59,7 @@ LEGEND_SORT = tuple(SORT_GLYPHS.values())
 
 
 class IssueTableCell(str):
-    """A rendered table value that retains its domain sort value."""
+    """A rendered table value that retains the domain value behind its text."""
 
     sort_value: SortValue
 
@@ -106,7 +106,7 @@ class IssueStateCell(Text):
 
 
 class IssueNumberCell(Text):
-    """A right-aligned Issue Number that retains its numeric sort value."""
+    """A right-aligned Issue Number that retains the number itself."""
 
     __slots__ = ("sort_value",)
 
@@ -124,8 +124,8 @@ NEUTRAL_LABEL_COLOR = "6e7781"
 class PriorityCell(Text):
     """An Issue's priority as a chip in the colour of the label that set it.
 
-    An Issue without a recognized priority label renders empty and sorts
-    after every priority: the table never invents a default.
+    An Issue without a recognized priority label renders empty and carries
+    no priority: the table never invents a default.
     """
 
     __slots__ = ("priority", "sort_value")
@@ -230,47 +230,6 @@ TableCell = (
     | LabelsCell
     | PriorityCell
 )
-
-
-def cell_sort_value(value: object) -> SortValue:
-    """The domain value a rendered cell orders by; other values compare as-is."""
-    if isinstance(
-        value,
-        (
-            IssueTableCell,
-            AgentStateCell,
-            IssueStateCell,
-            IssueNumberCell,
-            LabelsCell,
-            PriorityCell,
-        ),
-    ):
-        return value.sort_value
-    return cast("SortValue", value)
-
-
-def cells_match(left: TableCell, right: TableCell) -> bool:
-    if isinstance(left, AgentStateCell) and isinstance(right, AgentStateCell):
-        return (
-            left == right
-            and left.style == right.style
-            and left.sort_value == right.sort_value
-        )
-    if isinstance(left, LabelsCell) and isinstance(right, LabelsCell):
-        return left.labels == right.labels and left == right
-    if isinstance(left, PriorityCell) and isinstance(right, PriorityCell):
-        return left.priority == right.priority and left == right
-    if isinstance(left, IssueStateCell) and isinstance(right, IssueStateCell):
-        return (
-            left.state_kind == right.state_kind
-            and left.style == right.style
-            and left.sort_value == right.sort_value
-        )
-    if left != right:
-        return False
-    if isinstance(left, IssueTableCell) and isinstance(right, IssueTableCell):
-        return left.sort_value == right.sort_value
-    return type(left) is type(right)
 
 
 def text_cell(value: str) -> IssueTableCell:
