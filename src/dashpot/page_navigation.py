@@ -133,13 +133,19 @@ def totals_text(totals: ProjectTotals | None) -> str:
     )
 
 
-def page_text(navigation: PageNavigation) -> str:
+def page_text(navigation: PageNavigation, *, compact: bool = False) -> str:
     """Describe matching scope, coverage and the accepted page's own age."""
     page = navigation.page
     if page is None:
         return navigation.error or "Loading page"
-    text = f"{page.returned_count} shown · {page.matched_count if page.matched_count is not None else '?'} matches · {page.status}"
-    if page.last_good_at:
+    matched = page.matched_count if page.matched_count is not None else "?"
+    scope = (
+        f"{page.returned_count}/{matched} matches"
+        if compact
+        else f"{page.returned_count} shown · {matched} matches"
+    )
+    text = f"{scope} · {page.status}"
+    if page.last_good_at and not compact:
         text += f" · observed {page.last_good_at}"
     if (
         page.result_limit

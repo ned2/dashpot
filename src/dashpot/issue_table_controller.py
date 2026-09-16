@@ -143,15 +143,21 @@ class IssueTableController:
                 "issues", state=lifecycle_value(query.states)
             )
 
+    def update_page_summary(self) -> None:
+        """Fit the Issue page summary to the dashboard's current layout."""
+        navigation = self.screen.dashpot.queries.navigation["issues"]
+        self.screen.issue_filter_bar.count.update(
+            page_text(navigation, compact=self.screen.has_class("-compact"))
+        )
+        self.screen.issue_filter_bar.count.tooltip = page_text(navigation)
+
     def reconcile_rows(self) -> IssueListResult:
         """Rebuild the table from the accepted page and return the query result."""
         app = self.screen.dashpot
         table = self.table
         query = replace(self.issue_view.query, search_fields=searchable_columns())
         result = app.store.query_issues(query)
-        self.screen.issue_filter_bar.count.update(
-            page_text(app.queries.navigation["issues"])
-        )
+        self.update_page_summary()
         shown = shown_columns(self.issue_view.columns, result.rows)
         self.show_table_columns(shown)
         contexts, cells_by_key = build_rows(
