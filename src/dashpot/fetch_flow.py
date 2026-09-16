@@ -120,11 +120,12 @@ class RemoteFetchFlow:
                     title="Dashpot fetch",
                 )
                 continue
-            self.hold(project_id, Path(anchor))
+            path = Path(anchor)
+            self.hold(project_id, path)
             self.host.run_off_loop(
                 f"fetch {project_id}",
                 f"fetch:{project_id}",
-                partial(fetcher, Path(anchor)),
+                partial(fetcher, path),
                 partial(FetchFinished, project_id),
             )
         self.host.update_alert()

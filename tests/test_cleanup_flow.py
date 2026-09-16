@@ -83,15 +83,11 @@ class FakeHost(FetchHost):
 
 
 class FakeCleaner:
-    """Record every inspection and performance; nothing here runs Git."""
-
-    def __init__(self) -> None:
-        self.inspected: list[CleanupRequest] = []
+    """Answer every inspection with one bare preview; nothing here runs Git."""
 
     def inspect(
         self, request: CleanupRequest, *, protected: Sequence[Path]
     ) -> CleanupPreview:
-        self.inspected.append(request)
         return CleanupPreview(kind="branch", subject="feat", anchor=ANCHOR)
 
     def perform(
@@ -298,6 +294,16 @@ def test_a_refused_report_summarises_its_refusals_and_nothing_else() -> None:
         performed=False,
         preview=shown,
         refusals=("feat moved after the preview", "origin/feat is protected"),
+        results=(
+            TargetResult(
+                identity="local-branch:feat",
+                kind="local-branch",
+                label="feat",
+                expected="aaa",
+                outcome="refused",
+                detail="feat moved after the preview",
+            ),
+        ),
     )
     assert cleanup_summary(refused) == (
         "feat moved after the preview\norigin/feat is protected"
