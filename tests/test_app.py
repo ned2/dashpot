@@ -1147,12 +1147,16 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
         await wait_until(lambda: first_load_landed(app))
         await wait_until(lambda: not app.observations.in_flight)
         await app.run_action("refresh")
-        # The restarted pages read as unavailable until they land again; the
-        # failure is what remains once they have.
-        await wait_until(lambda: alert_text(app) == "✖ Refresh failed: Test Repository")
+        # The alert reads the failure as soon as the observation lands; the
+        # toast follows once its message is handled, so the wait covers both.
+        await wait_until(
+            lambda: (
+                alert_text(app) == "✖ Refresh failed: Test Repository"
+                and len(app._notifications) == 1
+            )
+        )
 
         assert alert(app).has_class("-error")
-        assert len(app._notifications) == 1
 
         # A repeated identical failure keeps the alert without another toast.
         # Wait for the observation to actually run and settle: requesting the
