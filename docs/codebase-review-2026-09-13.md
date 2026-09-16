@@ -463,6 +463,9 @@ edge were delivered by #175 (`source_factories.py`, `github_repository.py`,
 type-only and documented there rather than broken. Item 4 was delivered by
 #179: `paged_app.py` and `SnapshotScheduler` are gone, `app.py` holds the
 one `DashpotApp`, and `tests/app_harness.py` owns the snapshot scheduler.
+Item 5 was delivered by #212 (`run_off_loop`, the Issue table controller),
+#213 (the page and observation runners) and #182 (the Remote Fetch and
+Cleanup flows), each behind a host protocol the app satisfies.
 
 1. **Quick wins with no design decision**: Legend bindings (`app.py:1267`),
    freeze `BranchObservation`,

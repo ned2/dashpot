@@ -550,6 +550,8 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 choice = one.choice()
                 if choice is not None:
                     choice.value = one.target.identity in choices
+        # begin_fetch raised busy, so lowering it is what re-derives the
+        # rebuilt controls; nothing else refreshes them after the recompose.
         self.busy = False
         self.focus_choice()
 

@@ -8,7 +8,7 @@ than inferred ([ADR 0014](../../docs/adr/0014-fetch-remotes-on-explicit-key-pres
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Container
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -35,8 +35,6 @@ class FlowHost(OffLoopHost, Protocol):
         *,
         title: str = "",
         severity: SeverityLevel = "information",
-        timeout: float | None = None,
-        markup: bool = True,
     ) -> None: ...
 
     def update_alert(self) -> None: ...
@@ -70,7 +68,15 @@ class RemoteFetchFlow:
         project = self.store.project(project_id)
         return project.display_label if project is not None else project_id
 
-    def request(self, *, held: Mapping[str, str]) -> None:
+    def hold(self, project_id: str, anchor: Path) -> None:
+        """Reserve a Project for the Remote Fetch about to run at ``anchor``."""
+        self.fetching[project_id] = str(anchor)
+
+    def release(self, project_id: str) -> None:
+        """Let the Project go: no Remote Fetch is running there."""
+        self.fetching.pop(project_id, None)
+
+    def request(self, *, held: Container[str]) -> None:
         """Fetch the remotes of every observed Project's authoritative anchor.
 
         Only the Repository Anchor whose refs supplied the Branch observation
@@ -114,7 +120,7 @@ class RemoteFetchFlow:
                     title="Dashpot fetch",
                 )
                 continue
-            self.fetching[project_id] = anchor
+            self.hold(project_id, Path(anchor))
             self.host.run_off_loop(
                 f"fetch {project_id}",
                 f"fetch:{project_id}",
@@ -130,7 +136,7 @@ class RemoteFetchFlow:
         if self.host.closing:
             return
         if release:
-            self.fetching.pop(message.project_id, None)
+            self.release(message.project_id)
         label = self.label(message.project_id)
         report = message.report
         if report is None or not report.succeeded:

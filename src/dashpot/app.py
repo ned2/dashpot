@@ -921,7 +921,7 @@ class DashpotApp(App[None]):
         self.cleanups.request(selection)
 
     def on_cleanup_inspected(self, message: CleanupInspected) -> None:
-        self.cleanups.inspected(message)
+        self.cleanups.finish_inspection(message)
 
     def on_cleanup_screen_fetch_requested(
         self, message: CleanupScreen.FetchRequested
@@ -929,7 +929,7 @@ class DashpotApp(App[None]):
         self.cleanups.fetch_requested(message.screen)
 
     def on_cleanup_finished(self, message: CleanupFinished) -> None:
-        self.cleanups.finished(message)
+        self.cleanups.finish_cleanup(message)
 
     def on_observation_finished(self, message: ObservationFinished) -> None:
         # A late completion can be dispatched during shutdown while widgets

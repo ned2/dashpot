@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -67,9 +66,7 @@ class CleanupHost(FlowHost, Protocol):
         exit_on_error: bool = True,
     ) -> object: ...
 
-    async def off_loop(
-        self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
-    ) -> T: ...
+    async def off_loop(self, operation: Callable[[], T]) -> T: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,7 +234,7 @@ class CleanupFlow:
         hold = self.previews.get(project_id)
         return hold is not None and hold.screen is screen
 
-    def inspected(self, message: CleanupInspected) -> None:
+    def finish_inspection(self, message: CleanupInspected) -> None:
         """Show the preview an inspection produced, or report why there is none."""
         if self.host.closing:
             return
@@ -306,7 +303,7 @@ class CleanupFlow:
         if project_id not in self.cleaning:
             return
         screen.begin_fetch()
-        self.fetches.fetching[project_id] = str(anchor)
+        self.fetches.hold(project_id, anchor)
         self.host.run_worker(
             partial(self.fetch_preview, project_id, anchor, screen),
             name=f"fetch cleanup preview {project_id}",
@@ -368,7 +365,7 @@ class CleanupFlow:
             if self.holds(project_id, screen) and screen in self.host.screen_stack:
                 await screen.replace_preview(preview, status)
         finally:
-            self.fetches.fetching.pop(project_id, None)
+            self.fetches.release(project_id)
             self.host.update_alert()
 
     async def observe_fetch(self, project_id: str) -> None:
@@ -444,7 +441,7 @@ class CleanupFlow:
             partial(CleanupFinished, project_id, confirmation),
         )
 
-    def finished(self, message: CleanupFinished) -> None:
+    def finish_cleanup(self, message: CleanupFinished) -> None:
         """Report a performed Cleanup, or hold the Project for a revised preview."""
         if self.host.closing:
             return

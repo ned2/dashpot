@@ -99,12 +99,15 @@ flight ([ADR 0020](adr/0020-coalesce-requests-onto-the-observation-in-flight.md)
 Each drives the app through a narrow host protocol — run work off the loop
 and, for the observation runner, start a timer and redraw the alert — so
 their scheduling is tested without a running app. The two mutating flows
-hold their Projects the same way: the Remote Fetch flow keeps the Projects
-being fetched and the last failure per Project, and the Cleanup flow keeps
-the Projects held from preview to report with the preview each holds, waits
-on the observation runner's landings for the post-fetch Git facts, and asks
-the app only to notify, push its screens and run its workers. Configured
-Projects are published before remote work.
+([`fetch_flow.py`](../src/dashpot/fetch_flow.py),
+[`cleanup_flow.py`](../src/dashpot/cleanup_flow.py)) drive the app through
+host protocols of their own: the Remote Fetch flow keeps the Projects being
+fetched and the last failure per Project, and the Cleanup flow keeps the
+Projects held from preview to report with the preview each holds, waits on
+the observation runner's landings for the post-fetch Git facts, and asks the
+app only to notify, push its screens and run its workers. Their refusals are
+tested without a running app too; the previews and confirmations are driven
+through the dashboard. Configured Projects are published before remote work.
 The page store ([paged_store.py](../src/dashpot/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total or
 identity goes through a method that advances its `source_revision`, so a read
