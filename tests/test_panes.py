@@ -97,8 +97,8 @@ def test_pull_request_pane_lists_the_accepted_page_with_its_count() -> None:
     source = SnapshotQuerySource(snapshot)
     page = source.query_page(navigation.request)
     assert navigation.accept(navigation.restart(), page)
-    store.pages["pull-requests"] = page
-    store.totals["pull-requests"] = source.totals("pull-requests")
+    store.accept_page("pull-requests", page)
+    store.accept_totals(source.totals("pull-requests"))
     listed = pull_request_pane_rows(context(store, navigation))
     assert len(listed.rows) == 2
     assert listed.title_summary == "Open 2 · Closed 0"
