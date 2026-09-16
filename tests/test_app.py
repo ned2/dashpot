@@ -1018,28 +1018,35 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
 ) -> None:
     app, collectors = coordinated_app(tmp_path, refresh_indicator_seconds=0.2)
 
+    # The indicator must remain observable until this test releases the source;
+    # an automatic two-second release races layout on contended CI runners.
+    collectors["beta"].source.release_timeout = None
     async with app.run_test(size=(80, 24)):
-        table = app.query_one("#queue", DataTable)
-        await wait_until(lambda: table.row_count == 1)
-        await wait_until(lambda: not app.observations.in_flight)
-        # A slow runner can leave the initial refresh's own indicator showing.
-        await wait_until(lambda: not alert(app).display)
-        collectors["beta"].source.release.clear()
+        try:
+            table = app.query_one("#queue", DataTable)
+            await wait_until(lambda: table.row_count == 1)
+            await wait_until(lambda: not app.observations.in_flight)
+            # A slow runner can leave the initial refresh's own indicator showing.
+            await wait_until(lambda: not alert(app).display)
+            collectors["beta"].source.release.clear()
 
-        await app.run_action("refresh")
-        # On a slow runner the other Projects may still be in flight when the
-        # indicator first appears ("refreshing 3 Projects"); only Beta is
-        # held, so the readout converges on it.
-        await wait_until(lambda: "refreshing Beta" in alert_text(app))
+            await app.run_action("refresh")
+            # On a slow runner the other Projects may still be in flight when the
+            # indicator first appears ("refreshing 3 Projects"); only Beta is
+            # held, so the readout converges on it.
+            await wait_until(lambda: "refreshing Beta" in alert_text(app))
 
-        assert alert(app).display
-        assert alert(app).has_class("-info")
-        await wait_until(lambda: alert(app).region.height == 1)
+            assert alert(app).display
+            assert alert(app).has_class("-info")
+            await wait_until(lambda: alert(app).region.height == 1)
 
-        collectors["beta"].source.release.set()
-        await wait_until(lambda: not alert(app).display)
-        await wait_until(lambda: not app.observations.in_flight)
-        assert not alert(app).display
+            collectors["beta"].source.release.set()
+            await wait_until(lambda: not alert(app).display)
+            await wait_until(lambda: not app.observations.in_flight)
+            assert not alert(app).display
+
+        finally:
+            collectors["beta"].source.release.set()
 
 
 @pytest.mark.asyncio

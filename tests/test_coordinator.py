@@ -66,6 +66,7 @@ class ScriptedSource(IssueSource):
         self.calls = 0
         self.started = threading.Event()
         self.release = threading.Event()
+        self.release_timeout: float | None = 2
         self.release.set()
         self.lock = threading.Lock()
 
@@ -79,7 +80,7 @@ class ScriptedSource(IssueSource):
         with self.lock:
             self.calls += 1
         self.started.set()
-        self.release.wait(timeout=2)
+        self.release.wait(timeout=self.release_timeout)
         if not self.collections:
             return CollectedIssues((issue(f"{self.project_id}#1", self.project_id),))
         result = self.collections.pop(0)
