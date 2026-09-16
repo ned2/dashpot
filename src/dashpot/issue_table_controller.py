@@ -75,8 +75,7 @@ class IssueTableController:
 
     def __init__(self, screen: DashboardScreen) -> None:
         self.screen = screen
-        # The source orders every page, so the view never sorts locally.
-        self.issue_view = IssueTableViewState(sort=())
+        self.issue_view = IssueTableViewState()
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
         # Each list pane's read-model records from its last refresh, by pane

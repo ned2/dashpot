@@ -1,15 +1,16 @@
-"""The Issue table's shape: its column catalogue, view state and sort order.
+"""The Issue table's shape: its column catalogue and view state.
 
 The rendered values themselves — cell types, Glyphs and chip formatting —
-live in ``issue_cells``; this module decides which columns are shown, how
-the table is sorted, and assembles each queried row into cells.
+live in ``issue_cells``; this module decides which columns are shown, heads
+them for the ordering the source accepted, and assembles each queried row
+into cells. The source orders every page, so nothing here sorts.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal
 
 from rich.text import Text
 
@@ -21,7 +22,6 @@ from .issue_cells import (
     IssueTableCell,
     TableCell,
     agent_state_cell,
-    cell_sort_value,
     comments_cell,
     date_cell,
     issue_state_cell,
@@ -35,16 +35,10 @@ from .issue_list import (
     IssueListResult,
     IssueListRow,
     IssueSearchField,
-    SortValue,
     issue_activity,
     issue_priority,
-    rank_missing_last,
-    row_tie_break,
 )
 from .list_rows import truncate_end
-
-if TYPE_CHECKING:
-    from _typeshed import SupportsRichComparison
 
 ColumnKey = Literal[
     "issue_state",
@@ -75,8 +69,6 @@ class ColumnSpec:
     # ``0`` keeps the column at its content, as for a one-glyph icon.
     spread_weight: int | None = None
     search_field: IssueSearchField | None = None
-    sort_key: Callable[[object], SortValue] = cell_sort_value
-    nulls_last: bool = False
     # What a mouse resting on the header is told, for a one-glyph heading
     # whose meaning the Legend also explains.
     tooltip: str | None = None
@@ -123,13 +115,12 @@ COLUMN_SPECS = (
         update_width=True,
         search_field=IssueSearchField.TITLE,
     ),
-    ColumnSpec("priority", "PRIORITY", nulls_last=True, shown_when=_has_priority),
+    ColumnSpec("priority", "PRIORITY", shown_when=_has_priority),
     ColumnSpec(
         "labels",
         "LABELS",
         update_width=True,
         search_field=IssueSearchField.LABELS,
-        nulls_last=True,
     ),
     ColumnSpec(
         "project",
@@ -148,25 +139,22 @@ COLUMN_SPECS = (
         "AUTHOR",
         update_width=True,
         search_field=IssueSearchField.AUTHOR,
-        nulls_last=True,
     ),
     ColumnSpec(
         "milestone",
         "MILESTONE",
         update_width=True,
         search_field=IssueSearchField.MILESTONE,
-        nulls_last=True,
     ),
     ColumnSpec(
         "type",
         "TYPE",
         update_width=True,
         search_field=IssueSearchField.TYPE,
-        nulls_last=True,
     ),
     ColumnSpec("comments", "COMMENTS"),
-    ColumnSpec("created", "CREATED", nulls_last=True),
-    ColumnSpec("last_action", "LAST ACTION", nulls_last=True),
+    ColumnSpec("created", "CREATED"),
+    ColumnSpec("last_action", "LAST ACTION"),
 )
 COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
 DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(
@@ -188,32 +176,21 @@ COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
 @dataclass(frozen=True, slots=True)
 class SortTerm:
+    """One column of the ordering the source accepted, as its header shows it."""
+
     column: ColumnKey
     descending: bool = False
-
-
-DEFAULT_SORT = (SortTerm("last_action", descending=True),)
 
 
 @dataclass(frozen=True, slots=True)
 class IssueTableViewState:
     query: IssueListQuery = IssueListQuery()
     columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS
-    sort: tuple[SortTerm, ...] = DEFAULT_SORT
 
     def __post_init__(self) -> None:
         others = tuple(column for column in self.columns if column != "agent_state")
         _validate_columns(("agent_state", *others))
         object.__setattr__(self, "columns", ("agent_state", *others))
-
-    def toggle_sort(self, column: ColumnKey) -> IssueTableViewState:
-        if not COLUMNS_BY_KEY[column].sortable:
-            return self
-        if len(self.sort) == 1 and self.sort[0].column == column:
-            term = replace(self.sort[0], descending=not self.sort[0].descending)
-        else:
-            term = SortTerm(column)
-        return replace(self, sort=(term,))
 
     def with_columns(self, columns: tuple[ColumnKey, ...]) -> IssueTableViewState:
         return replace(self, columns=columns)
@@ -257,31 +234,6 @@ def searchable_columns() -> frozenset[IssueSearchField]:
     )
 
 
-def sort_key_for_terms(
-    terms: tuple[SortTerm, ...],
-) -> Callable[[object], SupportsRichComparison]:
-    specs = tuple(COLUMNS_BY_KEY[term.column] for term in terms)
-
-    def sort_key(value: object) -> SupportsRichComparison:
-        values = value if isinstance(value, tuple) else (value,)
-        return tuple(
-            _term_sort_value(spec, term, cell)
-            for spec, term, cell in zip(specs, terms, values, strict=False)
-        )
-
-    return sort_key
-
-
-def _term_sort_value(
-    spec: ColumnSpec, term: SortTerm, cell: object
-) -> SupportsRichComparison:
-    value = spec.sort_key(cell)
-    if not spec.nulls_last:
-        # Columns without nulls_last never render a missing sort value.
-        return cast("SupportsRichComparison", value)
-    return rank_missing_last(value, descending=term.descending)
-
-
 def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
     if not column.sortable:
         return column.label
@@ -299,26 +251,13 @@ def build_rows(
     result: IssueListResult,
     *,
     columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS,
-    sort: tuple[SortTerm, ...] = (),
     dark: bool = True,
 ) -> tuple[dict[str, IssueListRow], dict[str, tuple[TableCell, ...]]]:
-    """Render queried rows into the requested presentation schema."""
-    projected = [(row, _row_values(row, dark=dark)) for row in result.rows]
-    if sort:
-        directions = {term.descending for term in sort}
-        if len(directions) != 1:
-            raise ValueError("Issue table sort terms must share one direction")
-        projected.sort(key=lambda item: row_tie_break(item[0]))
-        projected.sort(
-            key=lambda item: sort_key_for_terms(sort)(
-                tuple(item[1][term.column] for term in sort)
-            ),
-            reverse=sort[0].descending,
-        )
-
+    """Render queried rows into the requested presentation schema, in the source's order."""
     contexts: dict[str, IssueListRow] = {}
     cells_by_key: dict[str, tuple[TableCell, ...]] = {}
-    for row, values in projected:
+    for row in result.rows:
+        values = _row_values(row, dark=dark)
         contexts[row.key] = row
         cells_by_key[row.key] = tuple(values[column] for column in columns)
     return contexts, cells_by_key

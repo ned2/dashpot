@@ -1,9 +1,9 @@
 """The Issues pane read model: every visible Issue of the Project, once.
 
 A row is one Issue joined to its Project, its bound Agent Runs and their
-states. The Issue facts a row sorts by — priority, comment activity, dates —
-are derived here so the query and the rendered table order alike; the
-rendered values themselves live in ``issue_cells``.
+states. The Issue facts a Query Page is ordered by — priority, comment
+activity, dates — are derived here, the one place a source that orders
+locally consults; the rendered values themselves live in ``issue_cells``.
 """
 
 from __future__ import annotations
@@ -284,15 +284,6 @@ def issue_result_count_text(count: int) -> str:
     return "1 issue" if count == 1 else f"{count} issues"
 
 
-def issue_inventory_text(result: IssueListResult) -> str:
-    """Describe the complete lifecycle inventory: ``Open 6 · Closed 19``.
-
-    Both totals are shown whatever the query, with labels before numbers so
-    the copy never reads as a pagination status.
-    """
-    return f"Open {result.open_issue_count} · Closed {result.closed_issue_count}"
-
-
 def row_key(kind: str, *identities: str) -> str:
     """Encode opaque identities into an unambiguous row key."""
     return json.dumps([kind, *identities], ensure_ascii=False, separators=(",", ":"))
@@ -399,7 +390,8 @@ def sort_issue_rows(
     """Order rows by one column, rows without a value last either way.
 
     Ties keep Project, Issue Number and key order in both directions, so a
-    query page and the Issue table list the same Issues in the same order.
+    Query Page ordered here lists the same Issues in the same order whichever
+    way it is asked for.
     """
     ordered = sorted(rows, key=row_tie_break)
     ordered.sort(
@@ -422,7 +414,7 @@ def rank_missing_last(
     """Rank a sort value so a missing one follows every present one either way.
 
     The reversal a descending sort applies then only reorders the present
-    values; the Issue table ranks its cells with the same key.
+    values.
     """
     missing = value is None
     if descending:
@@ -436,8 +428,7 @@ def _optional_text_value(value: str | None) -> str | None:
 
 def _comment_count(row: IssueListRow) -> int | None:
     # A queried row whose activity was never fetched has no count to order
-    # by; the table shows ``not fetched`` there and, unlike this sort, would
-    # compare that text with the counts of rows that were fetched.
+    # by; the table shows ``not fetched`` there.
     if not row.queried:
         return issue_activity(row.issue, row.project).comment_count
     if row.auxiliary is not None and row.auxiliary.activity is not None:

@@ -119,7 +119,9 @@ class DashboardScreen(Screen[None]):
         ("o", "cycle_issue_state", "Open/Closed/All"),
         ("n", "next_page", "Next page"),
         ("p", "previous_page", "Previous page"),
-        ("home", "restart_page", "First page"),
+        # Not Home: the focused table and the search Input both bind it, so
+        # the screen would never see it. Neither owns a plain letter.
+        ("g", "restart_page", "First page"),
     ]
 
     def __init__(self) -> None:
@@ -456,7 +458,7 @@ class DashboardScreen(Screen[None]):
             return
         app = self.dashpot
         app.selected_identity = issue_id
-        row = app.store._row(issue_id)
+        row = app.store.row_for(issue_id)
         if row:
             self.app.push_screen(IssueScreen(row))
         else:
@@ -896,7 +898,7 @@ class DashpotApp(App[None]):
         ]
         if self.selected_identity:
             ids.append(self.selected_identity)
-            row = self.store._row(self.selected_identity)
+            row = self.store.row_for(self.selected_identity)
             if row:
                 relationships = row.issue.relationships
                 ids.extend(
@@ -932,7 +934,7 @@ class DashpotApp(App[None]):
             outcome.issue_id != self.open_when_resolved for outcome in outcomes
         ):
             return
-        row = self.store._row(self.open_when_resolved)
+        row = self.store.row_for(self.open_when_resolved)
         if row:
             self.push_screen(IssueScreen(row))
         else:
@@ -950,12 +952,9 @@ class DashpotApp(App[None]):
         self.dashboard.reconcile_list_panes()
         self.dashboard.update_diagnostics()
         if isinstance(self.screen, IssueScreen):
-            screen = self.screen
-            context = self.store.detail_for(screen.context)
-            if context and context != screen.context:
-                screen.context = context
-                screen.issue = context.issue
-                screen.refresh(recompose=True)
+            context = self.store.detail_for(self.screen.context)
+            if context:
+                self.screen.show(context)
 
     def request_fetch(self) -> None:
         """Fetch the remotes of every observed Project's authoritative anchor.

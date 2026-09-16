@@ -125,16 +125,6 @@ def pull_request_cells(
     )
 
 
-def pull_request_note(result: PullRequestListResult, now: datetime) -> str | None:
-    """Describe freshness only when the Pull Request observation is not fresh."""
-    if result.status == "fresh":
-        return None
-    if result.status == "stale":
-        age = relative_age(result.last_good_at, now)
-        return f"stale · last good {age}" if age else "stale"
-    return "unavailable"
-
-
 def _review_cell(pull_request: PullRequest, *, dark: bool) -> Text:
     values = {
         "approved": (APPROVED_GLYPH, "approved"),

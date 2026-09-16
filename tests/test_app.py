@@ -35,12 +35,7 @@ from app_harness import (
 from dashpot.app import DashboardScreen, DashpotApp
 from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
 from dashpot.issue_list import row_key
-from dashpot.issue_table import (
-    COLUMN_KEYS,
-    DEFAULT_COLUMNS,
-    DEFAULT_SORT,
-    SortTerm,
-)
+from dashpot.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.issue_view import selection_title
 from dashpot.messages import ObservationFinished, ObservationTrigger
 from dashpot.model import AgentRun, Diagnostic, WorkspaceSnapshot
@@ -97,7 +92,6 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "labels",
             "last_action",
         )
-        assert (SortTerm("last_action", descending=True),) == DEFAULT_SORT
         # Both fixtures carry a priority label, so the conditional column
         # shows; the source's own order carries no arrow.
         assert [str(column.label) for column in table.columns.values()] == [
@@ -979,9 +973,10 @@ async def test_alert_is_hidden_and_takes_no_space_when_healthy() -> None:
         await wait_until(lambda: first_load_landed(app))
         await app.run_action("refresh")
         await wait_until(lambda: observation_landed(app, 2))
+        # The refresh redraws the alert; its region follows on the next layout.
+        await wait_until(lambda: alert(app).region.height == 0)
 
         assert not alert(app).display
-        assert alert(app).region.height == 0
         assert not alert(app).has_class("-visible")
         # Neither the alert nor the empty Diagnostics box spends a line, so
         # the Issue pane reaches all the way to the footer.

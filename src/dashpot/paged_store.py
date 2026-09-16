@@ -77,7 +77,8 @@ class PagedObservationStore(WorkspaceObservationStore):
         if changed:
             self.source_revision += 1
 
-    def _row(self, issue_id: str) -> IssueListRow | None:
+    def row_for(self, issue_id: str) -> IssueListRow | None:
+        """Project one Issue by identity: resolved evidence first, then the accepted page."""
         outcome = self.resolved.get(issue_id)
         page = self.pages.get("issues")
         issue = outcome.issue if outcome else None
@@ -132,7 +133,7 @@ class PagedObservationStore(WorkspaceObservationStore):
         rows: list[IssueListRow] = []
         if page:
             for issue in page.issues:
-                row = self._row(issue.id)
+                row = self.row_for(issue.id)
                 if row:
                     # Page membership and ordering stay owned by the source.
                     rows.append(
@@ -169,7 +170,7 @@ class PagedObservationStore(WorkspaceObservationStore):
     def issue(
         self, issue_id: str, *, project_id: str | None = None
     ) -> IssueContext | None:
-        row = self._row(issue_id)
+        row = self.row_for(issue_id)
         if row is None or (
             project_id is not None and row.project.project_id != project_id
         ):
@@ -178,7 +179,7 @@ class PagedObservationStore(WorkspaceObservationStore):
 
     @override
     def detail_for(self, row: IssueListRow) -> IssueListRow | None:
-        return self._row(row.issue.id)
+        return self.row_for(row.issue.id)
 
     @override
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:

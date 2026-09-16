@@ -277,7 +277,9 @@ exemptions:
   (app.py:100,117; list_pane.py:73).
 - **Mutable implementation state**: `IssueSource`'s last-good cache
   (issue_sources.py:45), `ObservationCoordinator` / `SnapshotScheduler`
-  internals (collect.py:277,665), `ObservedActivityIndex` (agents.py:936),
+  internals (collect.py:277,665 — `SnapshotScheduler` has since moved to
+  `tests/app_harness.py`, a test-only scheduler), `ObservedActivityIndex`
+  (agents.py:936),
   `HookRecordStore` / `WorkStore` path holders, `_Preparation`
   (worktrees.py:117), widget state throughout the UI. Never models.
 

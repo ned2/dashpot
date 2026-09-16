@@ -762,7 +762,6 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
-        sort = app.dashboard.issue_table.issue_view.sort
         states = app.dashboard.issue_table.issue_view.query.states
         app.dashboard.queue_table().focus()
         await pilot.press("enter")
@@ -775,10 +774,9 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         # The dashboard keys live on the DashboardScreen, which is below the
         # Issue view in the screen stack, so they are never dispatched here:
         # no editor stacked over the Issue view, the dashboard's search not
-        # focused, its sort and state filter unchanged.
+        # focused, its state filter unchanged.
         assert isinstance(app.screen, IssueScreen)
         assert not app.dashboard.query_one("#issue-search", Input).has_focus
-        assert app.dashboard.issue_table.issue_view.sort == sort
         assert app.dashboard.issue_table.issue_view.query.states == states
         assert len(app.screen_stack) == 2
 

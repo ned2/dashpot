@@ -18,11 +18,9 @@ from dashpot.pull_request_cells import (
     MERGE_NOT_APPLICABLE_GLYPH,
     MERGED_GLYPH,
     build_pull_request_rows,
-    pull_request_note,
 )
 from dashpot.pull_request_list import (
     PullRequestListQuery,
-    pull_request_empty_message,
     query_pull_request_list,
 )
 from helpers import snapshot_of
@@ -30,19 +28,13 @@ from helpers import snapshot_of
 NOW = datetime(2026, 9, 4, 4, 0, tzinfo=UTC)
 
 
-def snapshot(*pull_requests, status: str = "fresh"):
+def snapshot(*pull_requests):
     project = factories.project(
         "project:one",
         pull_requests=pull_requests,
     )
     project_snapshot = snapshot_of(project).model_copy(
-        update={
-            "pull_request_status": status,
-            "pull_request_attempted_at": "2026-09-04T04:00:00Z",
-            "pull_request_last_good_at": (
-                "2026-09-04T03:00:00Z" if status == "stale" else None
-            ),
-        }
+        update={"pull_request_attempted_at": "2026-09-04T04:00:00Z"}
     )
     return factories.workspace(
         project.model_copy(update={"snapshot": project_snapshot})
@@ -182,19 +174,6 @@ def test_rows_render_draft_review_checks_mergeability_and_age_in_both_themes() -
         assert isinstance(dark_cell, Text) and isinstance(light_cell, Text)
         assert str(dark_cell.style) == glyph.style(dark=True)
         assert str(light_cell.style) == glyph.style(dark=False)
-
-
-def test_empty_message_and_note_distinguish_fresh_stale_and_unavailable() -> None:
-    fresh = query_pull_request_list(snapshot())
-    stale = query_pull_request_list(snapshot(status="stale"))
-    unavailable = query_pull_request_list(snapshot(status="unavailable"))
-
-    assert pull_request_empty_message(fresh) == "no pull requests"
-    assert pull_request_note(fresh, NOW) is None
-    assert pull_request_empty_message(stale) == ("no pull requests when last observed")
-    assert pull_request_note(stale, NOW) == "stale · last good 1h ago"
-    assert pull_request_empty_message(unavailable) == "pull requests unavailable"
-    assert pull_request_note(unavailable, NOW) == "unavailable"
 
 
 def test_lifecycle_selection_groups_merged_with_closed_and_scopes_counters() -> None:
