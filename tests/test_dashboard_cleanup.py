@@ -339,7 +339,7 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_notifies() -> Non
 
         assert cleaner.requests == [BRANCH_REQUEST]
         assert cleaner.protected == [(Path.cwd().resolve(), Path(ANCHOR))]
-        assert app.cleaning == {PROJECT: "feat"}
+        assert app.cleanups.cleaning == {PROJECT: "feat"}
         screen = cleanup_screen(app)
         assert str(screen.query_one("#cleanup-title", Static).render()) == (
             "Delete Branch"
@@ -361,7 +361,7 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_notifies() -> Non
         ]
         assert toasts(app) == ["Deleted Local Branch"]
         assert toast_titles(app) == ["Test Repository cleanup"]
-        assert app.cleaning == {}
+        assert app.cleanups.cleaning == {}
         assert not isinstance(app.screen, CleanupReportScreen)
         # What the deletion changed is observed passively afterwards.
         assert collector.calls == 2
@@ -432,7 +432,7 @@ async def test_escape_cancels_and_performs_nothing() -> None:
 
         assert not isinstance(app.screen, CleanupScreen)
         assert cleaner.confirmations == []
-        assert app.cleaning == {}
+        assert app.cleanups.cleaning == {}
         assert collector.calls == 1
         assert toasts(app) == []
 
@@ -473,7 +473,7 @@ async def test_a_changed_preview_reopens_for_another_confirmation() -> None:
         # Nothing was performed; the revised preview asks again, and the
         # Project stays held meanwhile.
         assert len(cleaner.confirmations) == 1
-        assert app.cleaning == {PROJECT: "feat"}
+        assert app.cleanups.cleaning == {PROJECT: "feat"}
         help_text = str(cleanup_screen(app).query_one("#cleanup-help", Static).render())
         assert help_text.startswith("The observed state changed since the preview")
         assert cleanup_screen(app).preview.fingerprint == "fedcba9876543210"
@@ -484,7 +484,7 @@ async def test_a_changed_preview_reopens_for_another_confirmation() -> None:
 
         await pilot.press("space")
         await pilot.click("#cleanup-confirm")
-        await wait_until(lambda: app.cleaning == {})
+        await wait_until(lambda: app.cleanups.cleaning == {})
         assert cleaner.confirmations[1].fingerprint == "fedcba9876543210"
         assert toasts(app)[-1] == "Deleted Local Branch"
         assert not isinstance(app.screen, CleanupReportScreen)
@@ -536,7 +536,7 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         assert acknowledgement.render().plain.startswith("▐X▌")
 
         await pilot.click("#cleanup-confirm")
-        await wait_until(lambda: app.cleaning == {})
+        await wait_until(lambda: app.cleanups.cleaning == {})
         assert cleaner.confirmations == [
             CleanupConfirmation(
                 WORKTREE_REQUEST,
@@ -604,7 +604,7 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         assert cleaner.confirmations == []
         await pilot.press("enter")
         await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
-        assert app.cleaning == {}
+        assert app.cleanups.cleaning == {}
 
 
 @pytest.mark.asyncio
@@ -649,7 +649,7 @@ async def test_an_inspection_failure_is_a_toast_and_releases_the_project() -> No
         await pilot.pause()
 
         assert toasts(app) == ["Test Repository: git vanished"]
-        assert app.cleaning == {}
+        assert app.cleanups.cleaning == {}
         assert not isinstance(app.screen, CleanupScreen)
 
 
@@ -719,14 +719,14 @@ async def test_a_fetch_in_flight_refuses_the_key() -> None:
             await wait_until(lambda: first_load_landed(app))
             await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
             await pilot.press("f")
-            await wait_until(lambda: bool(app.fetching))
+            await wait_until(lambda: bool(app.fetches.fetching))
             await pilot.press("x")
             await pilot.pause()
 
             assert toasts(app) == ["Fetching Test Repository; delete after it finishes"]
             assert cleaner.requests == []
             hold.set()
-            await wait_until(lambda: not app.fetching)
+            await wait_until(lambda: not app.fetches.fetching)
     finally:
         hold.set()
 
@@ -802,7 +802,7 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         await pilot.press("tab", "tab")  # Cancel, then Delete selected
         assert app.focused.id == "cleanup-confirm"
         await pilot.press("enter")
-        await wait_until(lambda: app.cleaning == {})
+        await wait_until(lambda: app.cleanups.cleaning == {})
         assert cleaner.confirmations == [
             CleanupConfirmation(
                 WORKTREE_REQUEST,
@@ -857,7 +857,7 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
         await pilot.pause()
         assert confirm_button(app).variant == "error"
         await pilot.click("#cleanup-confirm")
-        await wait_until(lambda: app.cleaning == {})
+        await wait_until(lambda: app.cleanups.cleaning == {})
         assert cleaner.confirmations == [
             CleanupConfirmation(
                 WORKTREE_REQUEST,

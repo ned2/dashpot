@@ -165,8 +165,8 @@ async def test_f_fetches_and_prunes_every_remote_then_observes_the_result() -> N
             "remote last fetched just now"
         )
         assert toasts(app) == ["Test Repository: fetched and pruned origin, upstream"]
-        assert app.fetch_errors == {}
-        assert not app.fetching
+        assert app.fetches.errors == {}
+        assert not app.fetches.fetching
 
 
 @pytest.mark.asyncio
@@ -204,7 +204,7 @@ async def test_no_remote_is_refused_visibly_and_nothing_is_re_observed() -> None
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
-        await wait_until(lambda: bool(app.fetch_errors))
+        await wait_until(lambda: bool(app.fetches.errors))
         await pilot.pause()
 
         assert toasts(app) == ["Test Repository: no remote is configured"]
@@ -241,10 +241,10 @@ async def test_a_failed_remote_keeps_the_last_good_observation_and_says_why() ->
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
-        await wait_until(lambda: bool(app.fetch_errors))
+        await wait_until(lambda: bool(app.fetches.errors))
         await pilot.pause()
 
-        assert app.fetch_errors == {
+        assert app.fetches.errors == {
             "project:test-repo": (
                 "Fetch failed: Test Repository: failed origin: fatal: Authentication "
                 "failed for 'https://x'; fork: command timed out after 10s: git"
@@ -287,7 +287,7 @@ async def test_a_partial_fetch_is_reported_as_a_failure_but_still_observed() -> 
         await pilot.press("f")
         await wait_until(lambda: app.store.revision == 3)
         await pilot.pause()
-        assert app.fetch_errors == {}
+        assert app.fetches.errors == {}
         assert "Fetch failed" not in diagnostics_text(app)
 
 
@@ -317,7 +317,7 @@ async def test_repeated_presses_do_not_overlap_and_the_fetch_is_visible() -> Non
             await wait_until(lambda: app.store.revision == 2)
             await pilot.pause()
             assert not alert.has_class("-visible")
-            assert not app.fetching
+            assert not app.fetches.fetching
     finally:
         fetcher.release.set()
 
@@ -330,12 +330,12 @@ async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.press("f")
-        await wait_until(lambda: bool(app.fetch_errors))
+        await wait_until(lambda: bool(app.fetches.errors))
 
-        assert app.fetch_errors == {
+        assert app.fetches.errors == {
             "project:test-repo": "Fetch failed: Test Repository: git vanished"
         }
-        assert not app.fetching
+        assert not app.fetches.fetching
 
 
 @pytest.mark.asyncio

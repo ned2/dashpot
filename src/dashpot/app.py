@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypeVar, cast
+from typing import Any, ClassVar, TypeVar, cast
 
 from textual import events, on
 from textual.app import App, ComposeResult
@@ -31,19 +31,14 @@ from .alerts import (
     summarize_alerts,
 )
 from .cleanup import (
-    BranchCleanupRequest,
     CleanupAdapter,
-    CleanupConfirmation,
-    CleanupPreview,
-    CleanupReport,
-    CleanupRequest,
-    TargetResult,
-    WorktreeCleanupRequest,
 )
-from .cleanup_view import CleanupReportScreen, CleanupScreen
-from .collect import ObservationKey, ObservationScheduler
+from .cleanup_flow import CleanupFlow, CleanupSelection
+from .cleanup_view import CleanupScreen
+from .collect import ObservationScheduler
 from .column_editor import IssueColumnEditor
 from .fetch import RemoteFetcher
+from .fetch_flow import RemoteFetchFlow
 from .focus_table import FocusCursorTable
 from .issue_cells import TableCell, issue_state_colors
 from .issue_list import (
@@ -97,14 +92,6 @@ class DashboardBody(Container):
 
     def on_resize(self, event: events.Resize) -> None:
         self.post_message(BodyResized(event.size))
-
-
-@dataclass(frozen=True, slots=True)
-class CleanupSelection:
-    """The pane row a person pressed ``x`` on: which list, and its row key."""
-
-    kind: Literal["branch", "worktree"]
-    key: str
 
 
 class DashboardScreen(Screen[None]):
@@ -539,7 +526,7 @@ class DashboardScreen(Screen[None]):
             for diagnostic in self.dashpot.launcher_configuration.diagnostics
         )
         entries.extend(
-            ("error", message) for message in self.dashpot.fetch_errors.values()
+            ("error", message) for message in self.dashpot.fetches.errors.values()
         )
         entries.extend(
             (
@@ -579,7 +566,7 @@ class DashboardScreen(Screen[None]):
             app.store,
             failures=app.observations.errors,
             refreshing=app.observations.refreshing,
-            fetching=tuple(app.fetching),
+            fetching=tuple(app.fetches.fetching),
             source_pages=app.store.pages,
         )
         widget = self.query_one("#alert", Static)
@@ -589,30 +576,6 @@ class DashboardScreen(Screen[None]):
                 alert is not None and alert.severity == severity, f"-{severity}"
             )
         widget.update(alert.text if alert is not None else "")
-
-
-def cleanup_subject(request: CleanupRequest) -> str:
-    """What a Cleanup in progress is about, for the refusals that name it."""
-    if isinstance(request, BranchCleanupRequest):
-        return request.name
-    return str(request.path)
-
-
-def cleanup_result_line(result: TargetResult) -> str:
-    """Render one concise Cleanup outcome for a toast."""
-    if result.outcome == "deleted":
-        verb = "Removed" if result.kind == "worktree" else "Deleted"
-        return f"{verb} {result.label}"
-    if result.outcome == "already-absent":
-        return f"{result.label} already absent"
-    return f"{result.outcome.capitalize()} {result.label}"
-
-
-def cleanup_summary(report: CleanupReport) -> str:
-    """List each target's outcome for a toast, or why nothing ran."""
-    if report.refusals:
-        return "\n".join(report.refusals)
-    return "\n".join(cleanup_result_line(result) for result in report.results)
 
 
 class DashpotApp(App[None]):
@@ -644,26 +607,6 @@ class DashpotApp(App[None]):
     ) -> None:
         super().__init__()
         self.launcher_configuration = launcher_configuration or LauncherConfiguration()
-        # The explicit Cleanup seam (``x``): without one the key is refused,
-        # so no observation-only construction can ever delete.
-        self.cleaner = cleaner
-        # Projects with a Cleanup in progress, from the preview being taken
-        # until the modal is dismissed or the report is in; a fetch there
-        # is refused meanwhile, and a Cleanup while a fetch is in flight.
-        self.cleaning: dict[str, str] = {}
-        self.cleanup_previews: dict[str, tuple[CleanupScreen, Path | None]] = {}
-        self._cleanup_refresh_waiters: list[
-            tuple[dict[ObservationKey, int], asyncio.Future[None]]
-        ] = []
-        self.cleanup_refresh_timeout = 30.0
-
-        # The explicit fetch seam (``f``); without one the key is refused,
-        # so no observation-only construction can ever fetch.
-        self.fetcher = fetcher
-        # Projects whose remotes are being fetched, by identity, and the last
-        # fetch failure per Project until a fetch there succeeds.
-        self.fetching: dict[str, str] = {}
-        self.fetch_errors: dict[str, str] = {}
         self.refresh_seconds = refresh_seconds
         self.refresh_timer: Timer | None = None
         self.store = PagedObservationStore()
@@ -674,6 +617,12 @@ class DashpotApp(App[None]):
             scheduler, self.store, self, indicator_seconds=refresh_indicator_seconds
         )
         self.queries = PageRunner(sources, self.store, self)
+        # The two named mutations, each holding its Projects while it runs:
+        # the Remote Fetch behind ``f`` and the Cleanup behind ``x``.
+        self.fetches = RemoteFetchFlow(fetcher, self.store, self.observations, self)
+        self.cleanups = CleanupFlow(
+            cleaner, self.store, self.observations, self.fetches, self
+        )
         self.selected_identity: str | None = None
         self.open_when_resolved: str | None = None
         # A local-only coordinator composes a placeholder for every Project
@@ -766,24 +715,28 @@ class DashpotApp(App[None]):
         self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
     ) -> T:
         """Run one blocking operation on an executor thread and return its value."""
-        # Fetches, Cleanups and Worktree launches share the observation pool
-        # until they have flows of their own.
+        # Fetches, Cleanups and Worktree launches share the observation pool;
+        # each is one blocking call per Project, never enough to need its own.
         return await asyncio.get_running_loop().run_in_executor(
             executor or self.observations.executor, operation
         )
+
+    @property
+    def closing(self) -> bool:
+        """Whether shutdown has begun, when a late result has nowhere to go."""
+        return self._closing or self._closed or not self.screen_stack
 
     def update_alert(self) -> None:
         """Redraw the alert readout, the one path every change of its state takes."""
         # A stopped timer can already have queued a redraw; shutdown marks
         # the app not running before it removes screens or closes messages.
-        if (
-            not self.is_running
-            or self._closing
-            or self._closed
-            or not self.screen_stack
-        ):
+        if not self.is_running or self.closing:
             return
         self.dashboard.update_alert()
+
+    def update_diagnostics(self) -> None:
+        """Redraw the diagnostics readout after a flow recorded a failure."""
+        self.dashboard.update_diagnostics()
 
     def run_off_loop(
         self,
@@ -957,454 +910,32 @@ class DashpotApp(App[None]):
                 self.screen.show(context)
 
     def request_fetch(self) -> None:
-        """Fetch the remotes of every observed Project's authoritative anchor.
-
-        Only the Repository Anchor whose refs supplied the Branch observation
-        is fetched, so independent clones sharing a Project are left alone.
-        A Project already being fetched is refused rather than fetched twice.
-        """
-        fetcher = self.fetcher
-        if fetcher is None:
-            self.notify(
-                "Fetching is not available in this view",
-                severity="warning",
-                title="Dashpot fetch",
-            )
-            return
-        anchors = {
-            project.project_id: project.snapshot.branch_anchor
-            for project in self.store.projects()
-            if project.snapshot is not None
-            and project.snapshot.branch_anchor is not None
-        }
-        if not anchors:
-            self.notify(
-                "No Branch observation names a Repository Anchor to fetch yet",
-                severity="warning",
-                title="Dashpot fetch",
-            )
-            return
-        for project_id, anchor in anchors.items():
-            if project_id in self.cleaning:
-                self.notify(
-                    f"Cleaning up {self.project_display_label(project_id)}; "
-                    f"fetch after it finishes",
-                    severity="warning",
-                    title="Dashpot fetch",
-                )
-                continue
-            if project_id in self.fetching:
-                self.notify(
-                    f"Already fetching {self.project_display_label(project_id)}",
-                    severity="warning",
-                    title="Dashpot fetch",
-                )
-                continue
-            self.fetching[project_id] = anchor
-            self.run_off_loop(
-                f"fetch {project_id}",
-                f"fetch:{project_id}",
-                partial(fetcher, Path(anchor)),
-                partial(FetchFinished, project_id),
-            )
-        self.update_alert()
+        """Fetch every observed Project's remotes, except where a Cleanup holds one."""
+        self.fetches.request(held=self.cleanups.cleaning)
 
     def on_fetch_finished(self, message: FetchFinished) -> None:
-        self.record_fetch_result(message)
-
-    def record_fetch_result(
-        self, message: FetchFinished, *, release: bool = True, observe: bool = True
-    ) -> None:
-        """Report a Remote Fetch and optionally release its Project reservation."""
-        if self._closing or self._closed or not self.screen_stack:
-            return
-        if release:
-            self.fetching.pop(message.project_id, None)
-        dashboard = self.dashboard
-        label = self.project_display_label(message.project_id)
-        report = message.report
-        if report is None or not report.succeeded:
-            detail = message.error if report is None else report.summary()
-            self.fetch_errors[message.project_id] = f"Fetch failed: {label}: {detail}"
-            self.notify(f"{label}: {detail}", severity="error", title="Dashpot fetch")
-        else:
-            self.fetch_errors.pop(message.project_id, None)
-            self.notify(
-                f"{label}: {report.summary()}",
-                severity="information",
-                title="Dashpot fetch",
-            )
-        dashboard.update_diagnostics()
-        # Whatever a remote changed is observed the passive way: the Git state
-        # is re-observed rather than inferred from the fetch, and a fetch
-        # that reached no remote leaves the last good observation as it is.
-        if observe and report is not None and report.fetched:
-            self.observations.schedule(
-                self.observations.git_keys(message.project_id), "fetch"
-            )
-        self.update_alert()
+        self.fetches.record(message)
 
     def request_cleanup(self, selection: CleanupSelection | None) -> None:
-        """Preview a Cleanup of the highlighted row, off the event loop.
-
-        The row is resolved through the observation store to a Cleanup
-        request at the Project's Branch anchor (a Branch) or the Repository
-        the path belongs to (a Worktree). A Project being fetched, or already
-        in a Cleanup, is refused rather than mutated twice.
-        """
-        cleaner = self.cleaner
-        if cleaner is None:
-            self.notify(
-                "Deleting is not available in this view",
-                severity="warning",
-                title="Dashpot cleanup",
-            )
-            return
-        if selection is None:
-            self.notify(
-                "Highlight a Branch or a Worktree to delete",
-                severity="warning",
-                title="Dashpot cleanup",
-            )
-            return
-        resolved = self.resolve_cleanup_request(selection)
-        if resolved is None:
-            self.notify(
-                "The highlighted row is no longer observed",
-                severity="warning",
-                title="Dashpot cleanup",
-            )
-            return
-        project_id, request = resolved
-        label = self.project_display_label(project_id)
-        if project_id in self.fetching:
-            self.notify(
-                f"Fetching {label}; delete after it finishes",
-                severity="warning",
-                title="Dashpot cleanup",
-            )
-            return
-        if project_id in self.cleaning:
-            self.notify(
-                f"Already cleaning up {label}",
-                severity="warning",
-                title="Dashpot cleanup",
-            )
-            return
-        self.cleaning[project_id] = cleanup_subject(request)
-        self.run_off_loop(
-            f"inspect cleanup {project_id}",
-            f"cleanup:{project_id}",
-            partial(
-                cleaner.inspect, request, protected=self.cleanup_protection(project_id)
-            ),
-            partial(CleanupInspected, project_id, request),
-        )
-
-    def resolve_cleanup_request(
-        self, selection: CleanupSelection
-    ) -> tuple[str, CleanupRequest] | None:
-        if selection.kind == "branch":
-            for branch_row in self.store.query_branches().rows:
-                if branch_row.key != selection.key:
-                    continue
-                snapshot = branch_row.project.snapshot
-                anchor = snapshot.branch_anchor if snapshot is not None else None
-                if anchor is None:
-                    return None
-                return branch_row.project.project_id, BranchCleanupRequest(
-                    Path(anchor), branch_row.name
-                )
-            return None
-        for worktree_row in self.store.query_worktrees().rows:
-            if worktree_row.key == selection.key:
-                return worktree_row.project.project_id, WorktreeCleanupRequest(
-                    Path(worktree_row.project.primary_anchor),
-                    Path(worktree_row.target.path),
-                )
-        return None
-
-    def cleanup_protection(self, project_id: str) -> tuple[Path, ...]:
-        """The checkouts a Cleanup never removes: Dashpot's own and the anchors."""
-        project = self.store.project(project_id)
-        anchors = tuple(Path(anchor) for anchor in project.anchors) if project else ()
-        return (Path.cwd().resolve(), *anchors)
+        """Preview a Cleanup of the highlighted row; nothing is deleted here."""
+        self.cleanups.request(selection)
 
     def on_cleanup_inspected(self, message: CleanupInspected) -> None:
-        if self._closing or self._closed or not self.screen_stack:
-            return
-        if message.preview is None:
-            self.cleaning.pop(message.project_id, None)
-            self.cleanup_previews.pop(message.project_id, None)
-            self.notify(
-                f"{self.project_display_label(message.project_id)}: {message.error}",
-                severity="error",
-                title="Dashpot cleanup",
-            )
-            return
-        self.show_cleanup_preview(message.project_id, message.request, message.preview)
-
-    def show_cleanup_preview(
-        self,
-        project_id: str,
-        request: CleanupRequest,
-        preview: CleanupPreview,
-        *,
-        changed: bool = False,
-    ) -> None:
-        """Capture the preview's Project and Remote Fetch anchor once."""
-        project = self.store.project(project_id)
-        screen = CleanupScreen(
-            request,
-            preview,
-            changed=changed,
-            fetched_at=project.snapshot.fetched_at
-            if project and project.snapshot
-            else None,
-        )
-        anchor = (
-            project.snapshot.branch_anchor if project and project.snapshot else None
-        )
-        captured_anchor = Path(anchor) if anchor else None
-        previous = self.cleanup_previews.get(project_id)
-        if changed and previous is not None:
-            screen.primary_identity = previous[0].primary_identity
-            captured_anchor = previous[1]
-        self.cleanup_previews[project_id] = (screen, captured_anchor)
-        self.push_screen(screen, partial(self.confirm_cleanup, project_id))
+        self.cleanups.inspected(message)
 
     def on_cleanup_screen_fetch_requested(
         self, message: CleanupScreen.FetchRequested
     ) -> None:
-        screen = message.screen
-        owner = next(
-            (
-                (project_id, anchor)
-                for project_id, (current, anchor) in self.cleanup_previews.items()
-                if current is screen
-            ),
-            None,
-        )
-        if owner is None or self.screen is not screen or screen.busy:
-            return
-        project_id, anchor = owner
-        if self.fetcher is None or anchor is None:
-            screen.fetch_status = (
-                "Remote Fetch is unavailable in this view."
-                if self.fetcher is None
-                else "No Repository Anchor supplies this Project's Branch facts. Refresh and reopen the preview."
-            )
-            screen.refresh_state()
-            return
-        if project_id in self.fetching:
-            screen.fetch_status = "A Remote Fetch is already running for this Project."
-            screen.refresh_state()
-            return
-        if project_id not in self.cleaning:
-            return
-        screen.begin_fetch()
-        self.fetching[project_id] = str(anchor)
-        self.run_worker(
-            partial(self.fetch_cleanup_preview, project_id, anchor, screen),
-            name=f"fetch cleanup preview {project_id}",
-            group=f"fetch:{project_id}",
-            exit_on_error=False,
-        )
-        self.update_alert()
-
-    async def fetch_cleanup_preview(
-        self, project_id: str, anchor: Path, screen: CleanupScreen
-    ) -> None:
-        """Fetch, observe, and re-inspect one captured Cleanup without confirming it."""
-        fetcher, cleaner = self.fetcher, self.cleaner
-        assert fetcher is not None and cleaner is not None
-        worker = get_current_worker()
-        preview = None
-        report = None
-        error = None
-        try:
-            try:
-                report = await self.off_loop(partial(fetcher, anchor))
-            except Exception as exc:
-                error = str(exc)
-            if worker.is_cancelled or self._closing or self._closed:
-                return
-            status = (
-                report.summary() if report is not None else f"Fetch failed: {error}"
-            )
-            screen.verified_remotes = frozenset(
-                report.fetched if report is not None else ()
-            )
-            self.record_fetch_result(
-                FetchFinished(project_id, report=report, error=error),
-                release=False,
-                observe=False,
-            )
-            screen.fetch_status = (
-                status + "\nRefreshing Git facts and Cleanup evidence…"
-            )
-            if screen in self.screen_stack:
-                screen.refresh_state()
-            try:
-                await self.observe_cleanup_fetch(project_id)
-                project = self.store.project(project_id)
-                screen.fetched_at = (
-                    project.snapshot.fetched_at
-                    if project and project.snapshot
-                    else None
-                )
-                if self.cleanup_previews.get(project_id, (None, None))[0] is screen:
-                    preview = await self.off_loop(
-                        partial(
-                            cleaner.inspect,
-                            screen.request,
-                            protected=self.cleanup_protection(project_id),
-                        )
-                    )
-            except Exception as exc:
-                detail = str(exc) or "Refresh timed out; retry or cancel."
-                status += f"\nCould not refresh the preview: {detail}"
-            if (
-                self.cleanup_previews.get(project_id, (None, None))[0] is screen
-                and screen in self.screen_stack
-            ):
-                await screen.replace_preview(preview, status)
-        finally:
-            self.fetching.pop(project_id, None)
-            self.update_alert()
-
-    async def observe_cleanup_fetch(self, project_id: str) -> None:
-        """Wait for post-fetch Git observations before accepting refreshed evidence."""
-        keys = self.observations.git_keys(project_id)
-        if not keys:
-            raise RuntimeError(
-                "No Git observation is available; refresh and reopen the preview."
-            )
-        pending = {key: self.observations.in_flight.get(key, 0) for key in keys}
-        future = asyncio.Future[None]()
-        waiter = (pending, future)
-        self._cleanup_refresh_waiters.append(waiter)
-        try:
-            self.observations.schedule(keys, "fetch", rerun_in_flight=True)
-            await asyncio.wait_for(future, self.cleanup_refresh_timeout)
-        finally:
-            self._cleanup_refresh_waiters.remove(waiter)
-        project = self.store.project(project_id)
-        if (
-            project is None
-            or project.snapshot is None
-            or project.snapshot.target_status != "fresh"
-        ):
-            raise RuntimeError(
-                "Git observation is unavailable or stale; inspect Diagnostics and retry."
-            )
-
-    def finish_cleanup_observation(self, message: ObservationFinished) -> None:
-        """Resolve only post-fetch observation completions after publication."""
-        key = message.ticket.key
-        for pending, future in self._cleanup_refresh_waiters:
-            if (
-                future.done()
-                or key not in pending
-                or message.ticket.generation <= pending[key]
-            ):
-                continue
-            if message.error or message.outcome is None or not message.outcome.accepted:
-                future.set_exception(
-                    RuntimeError(message.error or "Git refresh was not accepted.")
-                )
-            else:
-                del pending[key]
-                if not pending:
-                    future.set_result(None)
-
-    def confirm_cleanup(
-        self, project_id: str, confirmation: CleanupConfirmation | None
-    ) -> None:
-        """Perform what the modal confirmed, or release the Project on cancel."""
-        if confirmation is None:
-            self.cleanup_previews.pop(project_id, None)
-            self.cleaning.pop(project_id, None)
-            return
-        if project_id in self.fetching:
-            self.cleanup_previews.pop(project_id, None)
-            self.cleaning.pop(project_id, None)
-            self.notify(
-                "Remote Fetch is still running; reopen Cleanup after it finishes.",
-                severity="warning",
-            )
-            return
-        cleaner = self.cleaner
-        if cleaner is None:  # pragma: no cover - request_cleanup refuses first.
-            return
-        self.run_off_loop(
-            f"perform cleanup {project_id}",
-            f"cleanup:{project_id}",
-            partial(
-                cleaner.perform,
-                confirmation,
-                protected=self.cleanup_protection(project_id),
-            ),
-            partial(CleanupFinished, project_id, confirmation),
-        )
+        self.cleanups.fetch_requested(message.screen)
 
     def on_cleanup_finished(self, message: CleanupFinished) -> None:
-        if self._closing or self._closed or not self.screen_stack:
-            return
-        label = self.project_display_label(message.project_id)
-        report = message.report
-        if report is None:
-            self.cleaning.pop(message.project_id, None)
-            self.cleanup_previews.pop(message.project_id, None)
-            self.notify(
-                f"{label}: {message.error}", severity="error", title="Dashpot cleanup"
-            )
-            # The adapter may have mutated before failing: re-observe anyway.
-            self.reobserve_after_cleanup(message.project_id)
-            return
-        if report.changed:
-            # The Project stays held: the revised preview needs another
-            # explicit confirmation, and nothing was performed.
-            self.notify(
-                f"{label}: {report.refusals[0]}",
-                severity="warning",
-                title="Dashpot cleanup",
-            )
-            self.show_cleanup_preview(
-                message.project_id,
-                message.confirmation.request,
-                report.preview,
-                changed=True,
-            )
-            return
-        self.cleaning.pop(message.project_id, None)
-        self.cleanup_previews.pop(message.project_id, None)
-        self.notify(
-            cleanup_summary(report),
-            severity="information" if report.succeeded else "error",
-            title=f"{label} cleanup",
-        )
-        if not report.succeeded:
-            # A successful report is already complete in the toast. Keep the
-            # detailed screen only where a person needs the refusal or unknown
-            # outcome and its recovery context.
-            self.push_screen(CleanupReportScreen(report))
-        if report.performed:
-            self.reobserve_after_cleanup(message.project_id)
-
-    def reobserve_after_cleanup(self, project_id: str) -> None:
-        """Observe what a Cleanup changed the passive way, never inferring it."""
-        self.observations.schedule(self.observations.git_keys(project_id), "cleanup")
-
-    def project_display_label(self, project_id: str) -> str:
-        project = self.store.project(project_id)
-        return project.display_label if project is not None else project_id
+        self.cleanups.finished(message)
 
     def on_observation_finished(self, message: ObservationFinished) -> None:
         # A late completion can be dispatched during shutdown while widgets
         # are being unmounted one by one; any missing widget means the result
         # has nowhere to go and is dropped.
-        if self._closing or self._closed or not self.screen_stack:
+        if self.closing:
             return
         if not self.dashboard._update_widgets_mounted():
             return
@@ -1417,7 +948,6 @@ class DashpotApp(App[None]):
         # Identities are resolved against the Agent Runs just published.
         if message.ticket.key.kind == "agent-runs":
             self.request_identities()
-        self.finish_cleanup_observation(message)
 
     def show_observation(self, landed: Acceptance) -> None:
         """Render what a landed observation changed; a dropped one changes nothing."""
