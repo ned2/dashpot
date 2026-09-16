@@ -930,9 +930,9 @@ async def test_blocked_choices_keep_all_reasons_and_keyboard_access_to_full_evid
         assert "Recovery: git branch feat " + TIP in details(app)
         body = screen.query_one("#cleanup-body")
         body.scroll_end(animate=False)
-        await pilot.pause()
         content = evidence.query_one("Contents Static", Static)
-        assert content.region.bottom <= body.region.bottom
+        # Scrolling is deferred until layout, even with animation disabled.
+        await wait_until(lambda: content.region.bottom <= body.region.bottom)
         assert screen.query_one("#cleanup-cancel").region.bottom <= 24
         await pilot.press("escape")
         assert not isinstance(app.screen, CleanupScreen)
