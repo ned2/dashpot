@@ -559,13 +559,14 @@ def observation_landed(app: DashpotApp, revision: int) -> bool:
     """Report whether observation ``revision``, both pages and both totals rendered.
 
     The app waits on its page and totals queries as well as the observation,
-    and a manual refresh drops both pages until their restarted queries
-    answer, so a test reads the dashboard only once all of them are in.
+    and a restarted page keeps showing the page it replaces until its query
+    answers, so a test reads the dashboard only once every query has answered.
     """
     return (
         app.store.revision >= revision
         and set(app.store.pages) == {"issues", "pull-requests"}
         and set(app.store.totals) == {"issues", "pull-requests"}
+        and not app.queries.busy
     )
 
 

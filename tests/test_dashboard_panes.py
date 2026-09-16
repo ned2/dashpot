@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 from rich.text import Text
 from textual.coordinate import Coordinate
+from textual.pilot import Pilot
 from textual.widgets import DataTable
 
 import factories
@@ -32,6 +33,7 @@ from dashpot.app import DashpotApp
 from dashpot.issue_list import row_key
 from dashpot.issue_profile import IssueProfile
 from dashpot.issue_view import IssueScreen
+from dashpot.messages import ObservationTrigger
 from dashpot.model import (
     AgentRun,
     ObservationTarget,
@@ -41,8 +43,8 @@ from dashpot.model import (
 from helpers import snapshot_of, wait_until
 
 
-@pytest.mark.asyncio
-async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -> None:
+def refreshed_pull_request_snapshots() -> tuple[WorkspaceSnapshot, WorkspaceSnapshot]:
+    """Two observations across which the second Pull Request moves to the top."""
     first_pull_request = factories.pull_request(
         1,
         pull_request_id="PR_one",
@@ -67,6 +69,35 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
         issue("test/repo#1", "Issue"),
         pull_requests=(refreshed_pull_request, first_pull_request),
     )
+    return first, second
+
+
+async def refresh_over_a_moved_pull_request(
+    app: DashpotApp, pilot: Pilot[None], trigger: ObservationTrigger
+) -> None:
+    """Select the second Pull Request, then observe a page that moves it to the top."""
+    _first, second = refreshed_pull_request_snapshots()
+    await wait_until(lambda: first_load_landed(app))
+    pane = app.dashboard.pull_requests_pane()
+    pane.table.focus()
+    await pilot.pause()
+    await pilot.press("down")
+    selected_key, _index = pane.highlighted()
+    assert selected_key is not None and "PR_two" in selected_key
+
+    serve_snapshot(app, second)
+    app.request_refresh(trigger)
+    await wait_until(lambda: observation_landed(app, 2))
+    await wait_until(
+        lambda: "Selected and refreshed" in str(pane.table.get_row_at(0)[2])
+    )
+
+    assert pane.highlighted() == (selected_key, 0)
+
+
+@pytest.mark.asyncio
+async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -> None:
+    first, second = refreshed_pull_request_snapshots()
     app = dashboard_app(SequenceCollector(first, second))
 
     async with app.run_test(size=(160, 40)) as pilot:
@@ -91,9 +122,6 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
         ]
         pane.table.focus()
         await pilot.pause()
-        await pilot.press("down")
-        selected_key, _index = pane.highlighted()
-        assert selected_key is not None and "PR_two" in selected_key
 
         # Enter is intentionally unbound for Pull Requests in the first cut.
         await pilot.press("enter")
@@ -102,18 +130,20 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
         assert pane.table.has_focus
 
         # A timer refresh repeats the shown page, so the cursor can follow
-        # its Pull Request to the top; a manual one restarts the page instead
-        # and loses the cursor, the same restart test_app's expected failure
-        # test_manual_refresh_preserves_selection_by_stable_row_key holds
-        # for the Issue table (#206).
-        serve_snapshot(app, second)
-        app.timer_refresh()
-        await wait_until(lambda: observation_landed(app, 2))
-        await wait_until(
-            lambda: "Selected and refreshed" in str(pane.table.get_row_at(0)[2])
-        )
+        # its Pull Request to the top.
+        await refresh_over_a_moved_pull_request(app, pilot, "timer")
 
-        assert pane.highlighted() == (selected_key, 0)
+
+@pytest.mark.asyncio
+async def test_a_manual_refresh_keeps_the_pull_request_cursor_by_identity() -> None:
+    first, second = refreshed_pull_request_snapshots()
+    app = dashboard_app(SequenceCollector(first, second))
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        # A manual refresh restarts the page; the page it replaces stays
+        # listed until the restarted one lands, so the cursor follows its
+        # Pull Request to the top as it does across a timer refresh.
+        await refresh_over_a_moved_pull_request(app, pilot, "manual")
 
 
 @pytest.mark.asyncio

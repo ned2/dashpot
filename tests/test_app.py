@@ -204,15 +204,9 @@ async def test_timer_refresh_preserves_selection_by_stable_row_key() -> None:
         await refresh_over_a_grown_page(app, "timer")
 
 
-# A manual refresh restarts the page from one, and the table is rebuilt empty
-# while the new page is queried, which forgets the selected Issue before the
-# page lands. The timer path above keeps its page and its selection; this
-# expected failure holds the manual invariant until the restart keeps the
-# selection too, and then demands the marker go (#206).
-@pytest.mark.xfail(
-    strict=True,
-    reason="a manual refresh empties the Issue table before its restarted page lands",
-)
+# A manual refresh restarts the page from one; the page it replaces stays on
+# screen until the restarted one lands, so the selection survives as it does
+# across the timer path above.
 @pytest.mark.asyncio
 async def test_manual_refresh_preserves_selection_by_stable_row_key() -> None:
     first = workspace_snapshot(
@@ -223,6 +217,42 @@ async def test_manual_refresh_preserves_selection_by_stable_row_key() -> None:
 
     async with app.run_test(size=(80, 24)):
         await refresh_over_a_grown_page(app, "manual")
+
+
+@pytest.mark.asyncio
+async def test_a_restarted_page_stays_shown_without_an_unavailable_alert() -> None:
+    first = workspace_snapshot(
+        issue("test/repo#1", "First"),
+        issue("test/repo#2", "Second", "P2"),
+    )
+    app = dashboard_app(SequenceCollector(first, first))
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        table = app.query_one("#queue", DataTable)
+        selected_key = row_key("issue", "I_test/repo#2")
+        table.move_cursor(row=table.get_row_index(selected_key), animate=False)
+        await wait_until(
+            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+        )
+
+        # While the restarted pages are held in flight, the shown rows, the
+        # selection and the page summary stay, and no alert calls the Issues
+        # unavailable for a page that is merely restarting.
+        gate = hold_sources(app)
+        try:
+            await app.run_action("refresh")
+            await wait_until(lambda: app.store.revision == 2)
+            await pilot.pause()
+            assert table.row_count == 2
+            assert app.dashboard.issue_table.selected_row_key == selected_key
+            assert selected_title(app) == "#2: Second"
+            assert "Unavailable Issues" not in alert_text(app)
+            assert not alert(app).display
+        finally:
+            gate.set()
+        await wait_until(lambda: observation_landed(app, 2))
+        assert app.dashboard.issue_table.selected_row_key == selected_key
 
 
 @pytest.mark.asyncio
@@ -545,14 +575,9 @@ async def test_issue_transfer_follows_the_issue_to_its_new_project() -> None:
 
 
 # A page row needs its Project in the store, and a transfer changes both:
-# whichever of the refreshed page and the Project observation lands first,
-# the table empties until the other follows, and the selection is gone with
-# it. This expected failure holds the invariant the base app kept until the
-# rows survive the handover, and then demands the marker go (#208).
-@pytest.mark.xfail(
-    strict=True,
-    reason="a transferred Issue's rows vanish until its page and Project agree",
-)
+# whichever of the refreshed page and the Project observation lands first
+# names a Project the other does not yet know. The row keeps the Project it
+# last joined with until the other lands, and the selection with it.
 @pytest.mark.asyncio
 async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
     first, second, selected_key = transferred_snapshots()
