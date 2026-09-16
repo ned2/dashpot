@@ -140,3 +140,21 @@ def test_pytest_environment_cannot_silently_filter_full_suite(checkout, monkeypa
     monkeypatch.setenv("PYTEST_ADDOPTS", "-k one_test")
     with pytest.raises(ValueError, match="Unset PYTEST_ADDOPTS"):
         review_coverage.collect(checkout, "HEAD")
+
+
+def test_parallel_collection_records_the_exact_full_suite_command(
+    checkout, monkeypatch
+):
+    fake_pytest(monkeypatch, report)
+    evidence = review_coverage.collect(checkout, "HEAD", workers=2)
+    assert evidence.command[-4:] == ["-n", "2", "--dist=load", "--max-worker-restart=0"]
+    assert "--cov" in evidence.command
+    assert review_coverage.verify(checkout, "HEAD") == evidence
+
+
+def test_invalid_worker_count_removes_old_evidence(checkout, monkeypatch):
+    fake_pytest(monkeypatch, report)
+    review_coverage.collect(checkout, "HEAD")
+    with pytest.raises(ValueError, match="Workers"):
+        review_coverage.collect(checkout, "HEAD", workers=-1)
+    assert not (checkout / review_coverage.REPORT_DIRECTORY / "evidence.json").exists()

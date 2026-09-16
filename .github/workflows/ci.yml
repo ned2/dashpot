@@ -4,7 +4,22 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      test-workers:
+        description: Test processes (0 for serial benchmarks)
+        type: choice
+        options: ["0", "2", "4"]
+        default: "2"
+      benchmark:
+        description: Compare serial, two and four workers three times on representative runners
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      full-verification:
+        description: Keep reusable PR callers on full verification
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -17,6 +32,24 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: select verification lane
+    runs-on: ubuntu-latest
+    outputs:
+      lane: ${{ steps.classify.outputs.lane }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Classify the complete PR diff
+        id: classify
+        env:
+          FORCE_FULL: ${{ inputs.full-verification || false }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/ci_lane.py classify
+
   quality:
     name: quality gate
     runs-on: ubuntu-latest
@@ -74,9 +107,14 @@ jobs:
           retention-days: 30
 
   test:
+    needs: changes
+    if: needs.changes.outputs.lane == 'full'
     name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    env:
+      TEST_WORKERS: ${{ inputs.test-workers || '2' }}
+      BENCHMARK: ${{ inputs.benchmark && ((matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14') || (matrix.os == 'macos-latest' && matrix.python-version == '3.11')) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.benchmark && 45 || 15 }}
     strategy:
       fail-fast: false
       matrix:
@@ -107,21 +145,39 @@ jobs:
       # The report finds gaps without a percentage threshold (issue #81);
       # tests and report generation must still pass.
       - name: Run tests
-        if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.14'
-        run: uv run pytest -q --durations=30
+        if: env.BENCHMARK != 'true' && (matrix.os != 'ubuntu-latest' || matrix.python-version != '3.14')
+        run: uv run pytest -q --durations=30 -n "$TEST_WORKERS" --dist=load --max-worker-restart=0
 
       - name: Run tests with a coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        if: env.BENCHMARK != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
         env:
-          COVERAGE_DEBUG: sys
+          COVERAGE_DEBUG: sys,pid
           # pytest captures startup stderr on passing tests; preserve core evidence.
           COVERAGE_DEBUG_FILE: coverage-debug.log
         run: |
-          uv run pytest -q --durations=30 --cov --cov-report=term-missing
+          uv run pytest -q --durations=30 -n "$TEST_WORKERS" --dist=load --max-worker-restart=0 --cov --cov-report=term-missing
           grep -E 'coverage_version:|core:' coverage-debug.log
           uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Benchmark serial and parallel tests
+        if: env.BENCHMARK == 'true'
+        env:
+          BENCHMARK_COVERAGE: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          coverage_args=()
+          if [ "$BENCHMARK_COVERAGE" = true ]; then coverage_args=(--coverage); fi
+          uv run python scripts/benchmark_tests.py --output .review-coverage/benchmark "${coverage_args[@]}"
+      - name: Upload benchmark evidence
+        if: always() && env.BENCHMARK == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: benchmark-${{ matrix.os }}-${{ matrix.python-version }}
+          path: .review-coverage/benchmark/
+          if-no-files-found: error
+
   build:
+    needs: changes
+    if: needs.changes.outputs.lane == 'full'
     name: build distributions
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -167,7 +223,8 @@ jobs:
 
   install:
     name: install (${{ matrix.os }}, py${{ matrix.python-version }})
-    needs: build
+    needs: [changes, build]
+    if: needs.changes.outputs.lane == 'full'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -201,11 +258,15 @@ jobs:
           python scripts/smoke_install.py release-artifacts/dist/*.whl release-artifacts/dist/*.tar.gz
 
   minimum-git:
+    needs: changes
+    if: needs.changes.outputs.lane == 'full'
     name: Git 2.39 compatibility (Debian 12)
+    env:
+      TEST_WORKERS: ${{ inputs.test-workers || '2' }}
     runs-on: ubuntu-latest
     container:
       image: debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.benchmark && 45 || 15 }}
     defaults:
       run:
         shell: bash
@@ -245,23 +306,31 @@ jobs:
           PYGIT
           dpkg-query --show --showformat='${Package} ${Version}\n' git
       - name: Test against Debian Git 2.39
-        run: uv run pytest -q --durations=30
+        if: ${{ !inputs.benchmark }}
+        run: uv run pytest -q --durations=30 -n "$TEST_WORKERS" --dist=load --max-worker-restart=0
+
+      - name: Benchmark serial and parallel tests against Debian Git
+        if: inputs.benchmark
+        run: uv run python scripts/benchmark_tests.py --output .review-coverage/benchmark
+      - name: Upload benchmark evidence
+        if: always() && inputs.benchmark
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: benchmark-debian-minimum-git
+          path: .review-coverage/benchmark/
+          if-no-files-found: error
 
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [quality, test, build, install, minimum-git]
+    needs: [changes, quality, test, build, install, minimum-git]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every CI job to succeed
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Require every job expected for the selected lane
         env:
           RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python - <<'PYRESULTS'
-          import json, os
-          results = json.loads(os.environ["RESULTS"])
-          expected = {"quality", "test", "build", "install", "minimum-git"}
-          assert set(results) == expected, results
-          assert all(job["result"] == "success" for job in results.values()), results
-          PYRESULTS
+        run: python scripts/ci_lane.py require

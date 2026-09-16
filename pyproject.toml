@@ -48,6 +48,7 @@ dev = [
   "pytest",
   "pytest-asyncio",
   "pytest-cov>=7.1.0",
+  "pytest-xdist>=3.8,<4",
   "ruff",
   "textual-dev",
   "ty",

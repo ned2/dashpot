@@ -345,6 +345,8 @@ Dashpot requires Python 3.11 or newer and uses
 uv sync --locked --group dev
 uv run pre-commit install
 uv run pytest -q
+# Distribute the same tests over two independent processes:
+uv run pytest -q -n 2 --dist=load --max-worker-restart=0
 ```
 
 ### Quality gates
@@ -381,11 +383,15 @@ Before every commit, run the all-files checks and the full suite with coverage:
 ```bash
 review_base=$(git rev-parse origin/main)
 uv run pre-commit run --all-files
-uv run --locked python scripts/review_coverage.py --base "$review_base"
+uv run --locked python scripts/review_coverage.py --base "$review_base" --workers 2
 ```
 
 Pin the review base for the engagement and include it in the review request.
-The helper runs pytest once, replacing ordinary pytest in this gate. It prints
+The helper runs pytest once, replacing ordinary pytest in this gate.
+`--workers 2` distributes the full suite across two processes and combines
+coverage; omit it (or use `--workers 0`) for serial execution. Choose a
+worker count appropriate to local CPU and memory capacity. Worker crashes fail
+the run without restarting. The evidence records the exact command. It prints
 missing lines and writes `.review-coverage/coverage.json` plus `evidence.json`.
 Evidence records the base, source content digest, coverage report digest,
 command, Python/coverage versions, platform, and completion time. A failed run
@@ -453,8 +459,20 @@ not need another review when that report becomes available.
 
 PR jobs check out the exact head commit and verify that the event's base is
 its ancestor. The quality job publishes those commits and the run identity in
-the `ci-revision-<attempt>` artifact. `CI required` succeeds only when every
-quality, test, build, installation, and minimum-Git job succeeds. It is the
+the `ci-revision-<attempt>` artifact. A PR changing only root Markdown or Markdown under `docs/` or `conformance/`
+runs the documentation lane: quality and revision-artifact checks still run,
+while tests, build, installation, and minimum-Git jobs are skipped. The complete
+PR diff (including both sides of renames) is classified by
+[`scripts/ci_lane.py`](scripts/ci_lane.py). Mixed, empty, unavailable, or
+non-Markdown diffs run full verification; manual and reusable invocations do too.
+`CI required` accepts only successful jobs and the exact skips authorized by a
+successful classification; failures, cancellations, and unexpected skips fail.
+
+Full verification runs tests in two independent processes per job, including
+Debian compatibility, and combines worker coverage on Ubuntu/Python 3.14.
+The same parallel command is available locally; `-n 0` keeps debugging serial.
+See [CI and test performance](docs/ci-performance.md) for benchmark commands,
+worker selection, UI profiling, and measured results. It is the
 required-check context to configure for `main`; repository administration
 setup is described in [development integration](docs/development-integration.md).
 

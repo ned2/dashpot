@@ -18,7 +18,12 @@ After a PR has demonstrated the `CI required` check, configure it in the
 branch creation. Preserve signed commits, linear history, prevention of force
 pushes/deletion, and the existing empty bypass list. Require the exact job
 context `CI required`, not a workflow-name prefix. The aggregate explicitly
-rejects failed, cancelled, and skipped prerequisites.
+rejects failed, cancelled, and unexpectedly skipped prerequisites. Documentation-only
+PRs still run quality checks and publish the revision artifact, but may skip the
+test, build, installation, and minimum-Git jobs after successful classification.
+Mixed changes and manual/reusable invocations run full verification. The
+[CI performance guide](ci-performance.md) describes the lane and parallel test
+execution; the required-check name and artifact checks below are unchanged.
 
 The existing ruleset is `21862853` in `ned2/dashpot`. Read its current content
 before any update and retain unrelated or newly added rules. The additional
