@@ -17,7 +17,7 @@ on:
   workflow_call:
     inputs:
       full-verification:
-        description: Keep reusable PR callers on full verification
+        description: Mark reusable invocations (presence forces full verification)
         type: boolean
         default: true
 
@@ -45,7 +45,7 @@ jobs:
       - name: Classify the complete PR diff
         id: classify
         env:
-          FORCE_FULL: ${{ inputs.full-verification || false }}
+          FORCE_FULL: ${{ contains(toJSON(inputs), 'full-verification') }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python scripts/ci_lane.py classify

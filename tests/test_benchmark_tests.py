@@ -15,12 +15,20 @@ sys.path.pop(0)
 
 def fake_suite(monkeypatch, *, fail=False, change=False):
     commands = []
+    original_run = subprocess.run
     monkeypatch.delenv("PYTEST_ADDOPTS", raising=False)
-    monkeypatch.setattr(
-        benchmark_tests.subprocess, "check_output", lambda *a, **k: "revision\n"
-    )
+    original = subprocess.check_output
+
+    def revision(command, *args, **kwargs):
+        if command == ["git", "rev-parse", "HEAD"]:
+            return "revision\n"
+        return original(command, *args, **kwargs)
+
+    monkeypatch.setattr(benchmark_tests.subprocess, "check_output", revision)
 
     def run(command, **kwargs):
+        if command[1:3] != ["-m", "pytest"]:
+            return original_run(command, **kwargs)
         commands.append((command, kwargs["env"]))
         report = Path(
             next(
@@ -55,6 +63,23 @@ def test_benchmark_records_interleaved_full_suite_commands_and_coverage(
         assert str(tmp_path) in env["COVERAGE_FILE"]
         assert env["COVERAGE_DEBUG"] == "sys,pid"
     assert len({env["COVERAGE_FILE"] for _, env in commands}) == 4
+
+
+def test_platform_detection_can_use_a_subprocess(tmp_path, monkeypatch):
+    commands = fake_suite(monkeypatch)
+    monkeypatch.setattr(
+        benchmark_tests.platform,
+        "platform",
+        lambda: subprocess.check_output(
+            [sys.executable, "-c", "print('detected platform')"], text=True
+        ).strip(),
+    )
+    benchmark_tests.benchmark(tmp_path, [0], 1, False)
+    assert len(commands) == 1
+    assert (
+        json.loads((tmp_path / "results.json").read_text())["platform"]
+        == "detected platform"
+    )
 
 
 def test_benchmark_failure_keeps_evidence_and_does_not_retry(tmp_path, monkeypatch):
