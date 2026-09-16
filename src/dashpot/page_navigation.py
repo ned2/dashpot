@@ -27,14 +27,24 @@ class PageNavigation:
         self.index = -1
         self.error: str | None = None
         self.evicted = False
+        # A restart forgets its history at once, but the page it replaces
+        # stays on screen until the restarted query lands a page, so a
+        # refresh, a search or a reordering never empties the table first.
+        self.replaced_page: QueryPage | None = None
 
     @property
     def page(self) -> QueryPage | None:
         return self.history[self.index] if self.index >= 0 else None
 
+    @property
+    def shown(self) -> QueryPage | None:
+        """Draw the accepted page, or the one a restart still shows."""
+        return self.page if self.page is not None else self.replaced_page
+
     def restart(self, request: QueryRequest | None = None) -> PageTicket:
-        """Start a new navigation generation at page one."""
+        """Start a new navigation generation at page one, keeping the shown page."""
         self.generation += 1
+        self.replaced_page = self.shown
         self.request = (request or self.request).model_copy(update={"cursor": None})
         self.history = []
         self.index = -1
@@ -99,6 +109,7 @@ class PageNavigation:
             )
             return True
         self.error = None
+        self.replaced_page = None
         if ticket.navigation or self.index < 0:
             self.history = self.history[: self.index + 1]
             self.history.append(page)

@@ -281,6 +281,8 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
         assert app.is_running
         assert app.queries.navigation["issues"].page is None
         assert str(app.dashboard.query_one("#issue-count", Static).render()) == error
+        # The page the failed restart replaced stays on screen with the error.
+        assert app.dashboard.queue_table().row_count == 1
 
 
 @pytest.mark.asyncio

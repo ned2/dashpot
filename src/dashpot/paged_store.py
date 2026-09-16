@@ -22,7 +22,9 @@ from .model import Diagnostic, ProjectObservation, WorkspaceSnapshot
 from .observation_store import (
     IssueContext,
     ObservedDiagnostic,
+    StoreChange,
     WorkspaceObservationStore,
+    _StoreState,
 )
 from .session_list import SessionListResult, query_indexed_session_list
 from .source_queries import (
@@ -38,26 +40,61 @@ class PagedObservationStore(WorkspaceObservationStore):
     """Hold the accepted pages, totals and identities beside the observations."""
 
     def __init__(self, snapshot: WorkspaceSnapshot | None = None) -> None:
-        super().__init__(snapshot)
+        # The base construction commits a seeded snapshot, and a commit joins
+        # the shown page's Issues, so the page state must exist before it.
         self.pages: dict[ResourceKind, QueryPage] = {}
         self.totals: dict[ResourceKind, ProjectTotals] = {}
         self.resolved: OrderedDict[str, ResolvedIssue] = OrderedDict()
         self.source_revision = 0
+        # The Project each Issue on the shown page last joined with, by Issue
+        # identity. A transferred Issue's refreshed page and its Project
+        # observation land separately: while the page is in flight, an Issue
+        # whose Project the observation no longer names keeps the Project it
+        # last joined with, so its row and the selection on it survive until
+        # the page lands; a landed page joins strictly.
+        self.joined_projects: dict[str, ProjectObservation] = {}
+        self.issues_in_flight = False
+        super().__init__(snapshot)
 
     @property
     def result_revision(self) -> int:
         """Identify the joined state a read model was built from."""
         return self.revision + self.source_revision
 
-    def accept_page(self, kind: ResourceKind, page: QueryPage | None) -> None:
-        """Show ``page`` as the kind's current page, or none."""
+    @override
+    def _commit(self, candidate: _StoreState) -> StoreChange:
+        change = super()._commit(candidate)
+        if change.project_ids:
+            self._join_projects()
+        return change
+
+    def accept_page(
+        self, kind: ResourceKind, page: QueryPage | None, *, in_flight: bool = False
+    ) -> None:
+        """Show ``page`` as the kind's current page, or none, ``in_flight`` while queried again."""
         if page is None:
             changed = self.pages.pop(kind, None) is not None
         else:
             changed = self.pages.get(kind) != page
             self.pages[kind] = page
+        # Only Issue rows join a Project; Pull Request rows read their page.
+        if kind == "issues":
+            self.issues_in_flight = in_flight
+            self._join_projects()
         if changed:
             self.source_revision += 1
+
+    def _join_projects(self) -> None:
+        """Join each Issue on the shown page with its Project, or its last one in flight."""
+        page = self.pages.get("issues")
+        remembered = self.joined_projects
+        self.joined_projects = {}
+        for issue in page.issues if page else ():
+            project = self.project(issue.project_id)
+            if project is None and self.issues_in_flight:
+                project = remembered.get(issue.id)
+            if project is not None:
+                self.joined_projects[issue.id] = project
 
     def accept_totals(self, totals: ProjectTotals) -> None:
         """Accept a kind's Project Totals."""
@@ -92,7 +129,7 @@ class PagedObservationStore(WorkspaceObservationStore):
             auxiliary = page.auxiliary.get(issue_id)
         if issue is None:
             return None
-        project = self.project(issue.project_id)
+        project = self.project(issue.project_id) or self.joined_projects.get(issue_id)
         if project is None:
             return None
         project = self._presentation_project(project, auxiliary)

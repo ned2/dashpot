@@ -179,6 +179,6 @@ class PageRunner:
         self._release("identities")
 
     def publish(self) -> None:
-        """Show each navigation's page in the store."""
+        """Show each navigation's page in the store, in flight while its query runs."""
         for kind, navigation in self.navigation.items():
-            self.store.accept_page(kind, navigation.page)
+            self.store.accept_page(kind, navigation.shown, in_flight=kind in self.busy)

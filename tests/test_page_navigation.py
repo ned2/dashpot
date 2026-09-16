@@ -50,3 +50,27 @@ def test_superseded_completion_cannot_replace_new_query(tmp_path):
     assert navigation.accept(new, source.query_page(new.request))
     assert navigation.page is not None
     assert navigation.page.issues[0].number == 3
+
+
+def test_a_restart_keeps_showing_the_page_it_replaces_until_one_lands(tmp_path):
+    source = markdown(tmp_path)
+    navigation = PageNavigation(QueryRequest(page_size=1))
+    first = navigation.refresh()
+    shown = source.query_page(first.request)
+    navigation.accept(first, shown)
+
+    # The history is forgotten at once; the shown page is not.
+    restarted = navigation.restart(QueryRequest(query="3"))
+    assert navigation.page is None
+    assert navigation.shown == shown
+    # A failed restart keeps showing it with its error, as a failed refresh
+    # keeps its accepted page; a second restart keeps it too.
+    assert navigation.accept(restarted, None, "Issue Source exploded")
+    assert navigation.error == "Issue Source exploded"
+    assert navigation.shown == shown
+    again = navigation.restart()
+    assert navigation.shown == shown
+
+    landed = source.query_page(again.request)
+    assert navigation.accept(again, landed)
+    assert navigation.shown == landed

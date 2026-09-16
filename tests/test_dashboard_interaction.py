@@ -82,8 +82,14 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         await wait_until(
             lambda: app.queries.navigation["pull-requests"].request.state == "closed"
         )
-        await wait_until(lambda: pane.table.row_count == 1)
-        assert "closed draft" in str(pane.table.get_row_at(0)[0])
+        # The submitted page keeps listing the open draft until the closed
+        # one lands, so the wait is on the row itself, not its count.
+        await wait_until(
+            lambda: (
+                pane.table.row_count == 1
+                and "closed draft" in str(pane.table.get_row_at(0)[0])
+            )
+        )
 
         search.value = "author:alice"
         search.focus()
@@ -259,14 +265,8 @@ async def test_a_header_click_submits_its_ordering_and_a_second_reverses_it() ->
         assert titles(app) == ["Lower priority", "Higher priority"]
 
 
-# A submitted ordering restarts the page, and the table is rebuilt empty while
-# the reordered page is queried, which forgets the selected Issue before the
-# page lands. This expected failure holds the invariant the base app kept
-# until the restart keeps the selection too, and then demands the marker go (#206).
-@pytest.mark.xfail(
-    strict=True,
-    reason="a header click empties the Issue table before its reordered page lands",
-)
+# A submitted ordering restarts the page; the page it replaces stays on screen
+# until the reordered one lands, and the cursor re-finds its Issue by key.
 @pytest.mark.asyncio
 async def test_a_header_click_preserves_the_selected_issue() -> None:
     snapshot = workspace_snapshot(
