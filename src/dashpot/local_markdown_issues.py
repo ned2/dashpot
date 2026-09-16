@@ -9,12 +9,12 @@ from typing_extensions import override
 from .errors import DashpotError
 from .issue_profile import IssueProfile, IssueProfileError, conform_issue
 from .issue_sources import (
-    Clock,
     CollectedIssues,
     IssueHint,
     IssueSource,
     IssueSourceRefreshError,
 )
+from .retaining_source import Clock
 
 _LOCAL_METADATA_KEYS = {
     "id",

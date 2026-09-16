@@ -1,0 +1,177 @@
+{
+  "collectedAt": "2026-08-27T03:00:00Z",
+  "elapsedMs": 9,
+  "projects": [
+    {
+      "projectId": "project:one",
+      "displayLabel": "One",
+      "repositoryId": "repository:project:one",
+      "workspaces": [
+        "test"
+      ],
+      "anchors": [
+        "/project:one"
+      ],
+      "primaryAnchor": "/project:one",
+      "status": "fresh",
+      "elapsedMs": 3,
+      "snapshot": {
+        "projectId": "project:one",
+        "displayLabel": "One",
+        "repositoryId": "repository:project:one",
+        "collectedAt": "2026-08-27T03:00:00Z",
+        "issueSourceStatus": "fresh",
+        "issueSourceAttemptedAt": "2026-08-27T03:00:00Z",
+        "issueSourceLastGoodAt": "2026-08-27T03:00:00Z",
+        "observationTargets": [
+          {
+            "path": "/project:one",
+            "head": "abcdef1234567",
+            "branch": null,
+            "detached": true,
+            "dirty": false,
+            "availability": "available",
+            "elapsedMs": 3,
+            "diagnostics": [],
+            "role": "main"
+          }
+        ],
+        "issues": [
+          {
+            "id": "I_one",
+            "projectId": "project:01947e42-3f67-7c38-a41c-218df18a169b",
+            "number": 9,
+            "reference": "ned2/dashpot#9",
+            "title": "Replace TASKS.md with an owned Project and Issue model",
+            "body": "Adopt one Project per Git repository and one compatible Issue profile.",
+            "state": "open",
+            "stateReason": null,
+            "labels": [
+              "enhancement",
+              "needs-triage",
+              "priority/P1"
+            ],
+            "assignees": [
+              "ned2",
+              "octocat"
+            ],
+            "author": "ned2",
+            "relationships": {
+              "parent": "I_parent_1",
+              "subIssues": [
+                "I_child_1",
+                "I_child_2"
+              ],
+              "blockedBy": [
+                "I_blocker_1",
+                "I_blocker_2"
+              ],
+              "blocking": [
+                "I_blocked_1",
+                "I_blocked_2"
+              ]
+            },
+            "issueType": "Feature",
+            "milestone": "v1",
+            "createdAt": "2026-08-26T05:33:04Z",
+            "updatedAt": "2026-08-26T08:32:48Z",
+            "closedAt": null,
+            "origin": {
+              "kind": "github",
+              "repositoryId": "R_kgDOUEerrg"
+            },
+            "location": {
+              "kind": "github",
+              "url": "https://github.com/ned2/dashpot/issues/9"
+            }
+          }
+        ],
+        "diagnostics": [
+          {
+            "source": "s",
+            "severity": "info",
+            "message": "m",
+            "code": null
+          }
+        ],
+        "targetStatus": "fresh",
+        "targetAttemptedAt": null,
+        "targetLastGoodAt": null,
+        "labelColors": {},
+        "issueActivity": {
+          "I_one": {
+            "commentCount": 0,
+            "linkedPullRequests": [
+              {
+                "number": 1,
+                "url": "u",
+                "state": "open"
+              }
+            ],
+            "unlistedPullRequestCount": 0
+          }
+        },
+        "pullRequestStatus": "fresh",
+        "pullRequestAttemptedAt": "2026-08-27T03:00:00Z",
+        "pullRequestLastGoodAt": "2026-08-27T03:00:00Z",
+        "pullRequests": [
+          {
+            "id": "PR_83",
+            "number": 83,
+            "title": "Add the feature",
+            "url": "https://github.com/test/repo/pull/83",
+            "state": "open",
+            "isDraft": false,
+            "headBranch": "feature-83",
+            "baseBranch": "main",
+            "author": null,
+            "reviewDecision": null,
+            "checkStatus": null,
+            "mergeability": null,
+            "createdAt": "2026-09-01T00:00:00Z",
+            "updatedAt": "2026-08-27T03:00:00Z"
+          }
+        ],
+        "branches": [
+          {
+            "refname": "refs/heads/main",
+            "name": "main",
+            "remote": null,
+            "head": "abc123",
+            "committedAt": "2026-08-24T15:00:00Z",
+            "upstream": null,
+            "ahead": null,
+            "behind": null,
+            "upstreamGone": false,
+            "checkedOutAt": null,
+            "unintegratedCommits": null,
+            "contentIntegrated": null
+          }
+        ],
+        "fetchedAt": null,
+        "integrationRef": null,
+        "branchAnchor": null
+      },
+      "diagnostics": []
+    }
+  ],
+  "agentRuns": [
+    {
+      "id": "codex:one",
+      "harness": "codex",
+      "processOrSession": "codex:one",
+      "state": "waiting",
+      "observationTarget": "/project:one",
+      "observationProjectId": "project:one",
+      "branch": null,
+      "issueId": null,
+      "issueReferenceHint": null,
+      "workingDirectory": "/project:one",
+      "lastActivityAt": null,
+      "turnStartedAt": null,
+      "startedAt": null
+    }
+  ],
+  "issueRuns": {},
+  "diagnostics": []
+}

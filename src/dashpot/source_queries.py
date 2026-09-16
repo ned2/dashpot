@@ -9,13 +9,18 @@ import json
 from collections.abc import Sequence
 from typing import Annotated, Literal, Protocol
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from .errors import DashpotError
 from .issue_profile import IssueProfile
-from .model import Diagnostic, IssueActivity, PullRequest, SourceStatus
+from .model import (
+    Diagnostic,
+    IssueActivity,
+    ObservationModel,
+    PullRequest,
+    SourceStatus,
+)
 from .models import (
-    ConfigModel,
     FrozenMapping,
     LaxSequence,
     NonEmptyString,
@@ -26,7 +31,9 @@ ResourceKind = Literal["issues", "pull-requests"]
 Lifecycle = Literal["open", "closed", "all"]
 
 
-class QueryRequest(ConfigModel):
+class QueryRequest(ObservationModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: ResourceKind = "issues"
     query: str = ""
     state: Lifecycle = "open"
@@ -35,7 +42,9 @@ class QueryRequest(ConfigModel):
     cursor: NonEmptyString | None = None
 
 
-class SourceContext(ConfigModel):
+class SourceContext(ObservationModel):
+    model_config = ConfigDict(extra="forbid")
+
     project_id: NonEmptyString
     repository_id: NonEmptyString
     source: Literal["github", "local-markdown"]
@@ -45,7 +54,9 @@ class SourceContext(ConfigModel):
     configuration: str | None = None
 
 
-class ObservationFacts(ConfigModel):
+class ObservationFacts(ObservationModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: SourceStatus
     attempted_at: Rfc3339Timestamp
     last_good_at: Rfc3339Timestamp | None
@@ -165,7 +176,9 @@ class InvalidContinuation(DashpotError, ValueError):
     """Refuse a malformed, mismatched or expired continuation."""
 
 
-class Continuation(ConfigModel):
+class Continuation(ObservationModel):
+    model_config = ConfigDict(extra="forbid")
+
     version: Literal[1] = 1
     fingerprint: NonEmptyString
     offset: Annotated[int, Field(gt=0, le=1000000000)]

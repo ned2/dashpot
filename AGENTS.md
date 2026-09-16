@@ -155,7 +155,10 @@ The conventions the tooling enforces or the code assumes:
 - Values at validating seams — untrusted input, persisted state, published
   wire shapes — are Pydantic models on the shared base in
   `src/dashpot/models.py`
-  ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)); trusted
+  ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)). GitHub response
+  models use `WireModel`; published query values use `ObservationModel` with
+  their closed key contracts
+  ([ADR 0041](docs/adr/0041-distinguish-github-wire-models-from-configuration.md)); trusted
   internal values stay frozen, slotted dataclasses
   (`@dataclass(frozen=True, slots=True)`) and `Literal` unions. Identity is
   opaque and never derived from labels or paths.

@@ -13,6 +13,7 @@ from typing_extensions import override
 from .commands import CommandRunner, run_command
 from .github import (
     DEFAULT_REFRESH_BUDGET,
+    MALFORMED_RESPONSE,
     NOT_FOUND,
     RATE_LIMIT_SELECTION,
     CursorTrail,
@@ -22,27 +23,23 @@ from .github import (
     RefreshBudget,
     RefreshMeter,
 )
+from .github_wire import ISSUE_NODE_FIELDS, PULL_REQUEST_STATES
 from .issue_profile import (
     IssueProfile,
     IssueProfileError,
     conform_issue,
 )
 from .issue_sources import (
-    Clock,
     CollectedIssues,
     IssueHint,
     IssueSource,
-    IssueSourceDiagnostic,
     IssueSourceRefreshError,
 )
-from .model import IssueActivity, LinkedPullRequest, PullRequestState
+from .model import Diagnostic, IssueActivity, LinkedPullRequest
+from .retaining_source import Clock
 
 _PAGE_SIZE = 100
-_PULL_REQUEST_STATES: dict[str, PullRequestState] = {
-    "OPEN": "open",
-    "CLOSED": "closed",
-    "MERGED": "merged",
-}
+
 
 _STATE_REASONS = {
     "COMPLETED": "completed",
@@ -67,51 +64,6 @@ _CONNECTION_EXTRA_FIELDS = {"labels": ("color",)}
 _LABEL_COLOR = re.compile(r"[0-9a-fA-F]{6}")
 
 
-_ISSUE_NODE_FIELDS = """
-          id
-          number
-          url
-          title
-          body
-          state
-          stateReason
-          labels(first: 100) {
-            nodes { name color }
-            pageInfo { hasNextPage endCursor }
-          }
-          assignees(first: 100) {
-            nodes { login }
-            pageInfo { hasNextPage endCursor }
-          }
-          author { login }
-          parent { id }
-          subIssues(first: 100) {
-            nodes { id }
-            pageInfo { hasNextPage endCursor }
-          }
-          blockedBy(first: 100) {
-            nodes { id }
-            pageInfo { hasNextPage endCursor }
-          }
-          blocking(first: 100) {
-            nodes { id }
-            pageInfo { hasNextPage endCursor }
-          }
-          issueType { name }
-          milestone { title }
-          comments { totalCount }
-          closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {
-            totalCount
-            nodes { number url state }
-            pageInfo { hasNextPage endCursor }
-          }
-          createdAt
-          updatedAt
-          closedAt
-          repository { id nameWithOwner }
-""".strip("\n")
-
-
 _ISSUES_QUERY = f"""
 query DashpotIssues($repositoryId: ID!, $cursor: String) {{
   {RATE_LIMIT_SELECTION}
@@ -126,7 +78,7 @@ query DashpotIssues($repositoryId: ID!, $cursor: String) {{
         orderBy: {{field: CREATED_AT, direction: ASC}}
       ) {{
         nodes {{
-{_ISSUE_NODE_FIELDS}
+{ISSUE_NODE_FIELDS}
         }}
         pageInfo {{ hasNextPage endCursor }}
       }}
@@ -145,7 +97,7 @@ query DashpotIssue($repositoryId: ID!, $number: Int!) {{
       id
       nameWithOwner
       issue(number: $number) {{
-{_ISSUE_NODE_FIELDS}
+{ISSUE_NODE_FIELDS}
       }}
     }}
   }}
@@ -173,9 +125,6 @@ query DashpotIssueLinkedPullRequests($id: ID!, $cursor: String!) {{
 
 
 _PROFILE_CODE = "github-profile"
-
-
-_RESPONSE_CODE = "github-malformed-response"
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,13 +175,13 @@ class GitHubIssuesSource(IssueSource):
     def _start_meter(self) -> RefreshMeter:
         return self.budget.start(self._monotonic)
 
-    def _rate_limit_diagnostics(self) -> tuple[IssueSourceDiagnostic, ...]:
+    def _rate_limit_diagnostics(self) -> tuple[Diagnostic, ...]:
         """Warn while the hour's GraphQL points run low; never fail for it."""
         rate_limit = self.gateway.rate_limit
         if rate_limit is None or not rate_limit.low:
             return ()
         return (
-            IssueSourceDiagnostic(
+            Diagnostic(
                 source=self.name,
                 code="github-rate-limit-low",
                 severity="warning",
@@ -279,12 +228,12 @@ class GitHubIssuesSource(IssueSource):
                 return None
             raise
         repository = self._own_repository(data)
-        record = _fetched(repository, "issue", "data.repository", _RESPONSE_CODE)
+        record = _fetched(repository, "issue", "data.repository", MALFORMED_RESPONSE)
         if record is None:
             return None
         if not isinstance(record, dict):
             raise IssueSourceRefreshError(
-                _RESPONSE_CODE, "data.repository.issue must be an object or null"
+                MALFORMED_RESPONSE, "data.repository.issue must be an object or null"
             )
         issue = self._observe_record(record, meter).issue
         if reference is not None and issue.reference != reference:
@@ -308,27 +257,29 @@ class GitHubIssuesSource(IssueSource):
     def _observe_record(
         self, record: Mapping[str, Any], meter: RefreshMeter
     ) -> _ObservedIssue:
-        complete = self._complete_nested_connections(record, meter)
-        complete = self._complete_linked_pull_requests(complete, meter)
+        complete = self.complete_nested_connections(record, meter)
+        complete = self.complete_linked_pull_requests(complete, meter)
         issue = normalize_github_issue(
             complete, project_id=self.project_id, repository_id=self.repository_id
         )
         return _ObservedIssue(
             issue=issue,
-            updated_at=_fetched_string(complete, "updatedAt", "issue", _RESPONSE_CODE),
-            activity=_issue_activity(complete),
-            label_colors=_label_colors(complete),
+            updated_at=_fetched_string(
+                complete, "updatedAt", "issue", MALFORMED_RESPONSE
+            ),
+            activity=issue_activity(complete),
+            label_colors=label_colors(complete),
         )
 
-    def _complete_nested_connections(
+    def complete_nested_connections(
         self, record: Mapping[str, Any], meter: RefreshMeter
     ) -> dict[str, Any]:
         complete = copy.deepcopy(dict(record))
-        issue_id = _fetched_string(complete, "id", "issue", _RESPONSE_CODE)
+        issue_id = _fetched_string(complete, "id", "issue", MALFORMED_RESPONSE)
         for connection_name, item_field in _CONNECTION_FIELDS.items():
-            connection = _object(complete, connection_name, "issue", _RESPONSE_CODE)
+            connection = _object(complete, connection_name, "issue", MALFORMED_RESPONSE)
             nodes, has_next, end_cursor = _connection_page(
-                connection, f"issue.{connection_name}", _RESPONSE_CODE
+                connection, f"issue.{connection_name}", MALFORMED_RESPONSE
             )
             nodes, end_cursor = self._complete_issue_connection_pages(
                 issue_id,
@@ -346,12 +297,12 @@ class GitHubIssuesSource(IssueSource):
             connection["pageInfo"] = {"hasNextPage": False, "endCursor": end_cursor}
         return complete
 
-    def _complete_linked_pull_requests(
+    def complete_linked_pull_requests(
         self, record: Mapping[str, Any], meter: RefreshMeter
     ) -> dict[str, Any]:
         """Complete Linked Pull Requests while keeping engagement best-effort."""
         complete = copy.deepcopy(dict(record))
-        issue_id = _fetched_string(complete, "id", "issue", _RESPONSE_CODE)
+        issue_id = _fetched_string(complete, "id", "issue", MALFORMED_RESPONSE)
         connection = complete.get("closedByPullRequestsReferences")
         if not isinstance(connection, dict):
             return complete
@@ -402,26 +353,28 @@ class GitHubIssuesSource(IssueSource):
             cursor = trail.follow(end_cursor)
             meter.next_request(f"{len(nodes)} {request_subject}")
             data = self.gateway.graphql(query, {"id": issue_id, "cursor": cursor})
-            issue = _object(data, "node", "data", _RESPONSE_CODE)
-            connection = _object(issue, response_field, "data.node", _RESPONSE_CODE)
+            issue = _object(data, "node", "data", MALFORMED_RESPONSE)
+            connection = _object(issue, response_field, "data.node", MALFORMED_RESPONSE)
             next_nodes, has_next, end_cursor = _connection_page(
-                connection, response_path, _RESPONSE_CODE
+                connection, response_path, MALFORMED_RESPONSE
             )
             nodes.extend(next_nodes)
         return nodes, end_cursor
 
     def _own_repository(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
         """The repository node of an answer, checked to be the configured one."""
-        repository = _object(data, "node", "data", _RESPONSE_CODE)
+        repository = _object(data, "node", "data", MALFORMED_RESPONSE)
         observed_repository_id = _fetched_string(
-            repository, "id", "data.repository", _RESPONSE_CODE
+            repository, "id", "data.repository", MALFORMED_RESPONSE
         )
         if observed_repository_id != self.repository_id:
             raise IssueSourceRefreshError(
                 "github-repository-identity",
                 "GitHub repository identity does not match Project configuration",
             )
-        _fetched_string(repository, "nameWithOwner", "data.repository", _RESPONSE_CODE)
+        _fetched_string(
+            repository, "nameWithOwner", "data.repository", MALFORMED_RESPONSE
+        )
         return repository
 
     def _repository_query(
@@ -465,10 +418,10 @@ class GitHubIssuesSource(IssueSource):
                     self._repository_query(_ISSUES_QUERY, variables)
                 )
                 connection = _object(
-                    repository, "issues", "data.repository", _RESPONSE_CODE
+                    repository, "issues", "data.repository", MALFORMED_RESPONSE
                 )
                 nodes, has_next, end_cursor = _connection_page(
-                    connection, "data.repository.issues", _RESPONSE_CODE
+                    connection, "data.repository.issues", MALFORMED_RESPONSE
                 )
                 entries.extend(self._observe_records(nodes, meter))
                 if not has_next:
@@ -602,7 +555,7 @@ def _connection_strings(
     return values
 
 
-def _label_colors(record: Mapping[str, Any]) -> dict[str, str]:
+def label_colors(record: Mapping[str, Any]) -> dict[str, str]:
     """Read the ``name -> rrggbb`` palette from a completely fetched label
     connection.
 
@@ -631,7 +584,7 @@ def _label_colors(record: Mapping[str, Any]) -> dict[str, str]:
     return colors
 
 
-def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
+def issue_activity(record: Mapping[str, Any]) -> IssueActivity:
     """Read comment count and linked pull requests from a GraphQL Issue node.
 
     Engagement is presentation only, so anything missing or malformed reads
@@ -659,11 +612,11 @@ def _issue_activity(record: Mapping[str, Any]) -> IssueActivity:
             and isinstance(url, str)
             and url
             and isinstance(state, str)
-            and state in _PULL_REQUEST_STATES
+            and state in PULL_REQUEST_STATES
         ):
             linked_pull_requests.append(
                 LinkedPullRequest(
-                    number=number, url=url, state=_PULL_REQUEST_STATES[state]
+                    number=number, url=url, state=PULL_REQUEST_STATES[state]
                 )
             )
     linked_pull_requests.sort(key=lambda pull: pull.number)

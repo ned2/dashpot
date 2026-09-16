@@ -7,7 +7,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
 from typing_extensions import override
 
 from .commands import CommandRunner, run_command
@@ -20,19 +19,26 @@ from .github import (
     RefreshMeter,
 )
 from .github_issues import (
-    _ISSUE_NODE_FIELDS,
     GitHubIssuesSource,
-    _issue_activity,
-    _label_colors,
+    issue_activity,
+    label_colors,
     normalize_github_issue,
 )
 from .github_pull_requests import (
     GitHubPullRequestsSource,
     normalize_github_pull_request,
 )
+from .github_wire import (
+    ISSUE_NODE_FIELDS,
+    PULL_REQUEST_FIELDS,
+    Identity,
+    Repository,
+    SearchConnection,
+)
 from .issue_profile import IssueProfile
 from .model import Diagnostic, PullRequest
-from .models import ConfigModel, LaxSequence, NonEmptyString
+from .models import WireModel
+from .observation_errors import QUERY_OBSERVATION_FAILURES
 from .project_config import ProjectConfig, load_project_config
 from .query_source import CachedQuerySource
 from .source_queries import (
@@ -56,8 +62,9 @@ _CONTEXT = """query DashpotQueryContext($repositoryId: ID!) {
   node(id: $repositoryId) { ... on Repository { id nameWithOwner } }
   viewer { id }
 }"""
-_PR_FIELDS = """id number title url state isDraft headRefName baseRefName author { login }
-reviewDecision statusCheckRollup { state } mergeable createdAt updatedAt"""
+_PR_FIELDS = (
+    " ".join(PULL_REQUEST_FIELDS[:9]) + "\n" + " ".join(PULL_REQUEST_FIELDS[9:])
+)
 _SEARCH = f"""query DashpotQueryPage($searchQuery: String!, $size: Int!, $cursor: String) {{
   search(query: $searchQuery, type: ISSUE_ADVANCED, first: $size, after: $cursor) {{
     issueCount nodes {{ __typename ... on Issue {{ id repository {{ id }} }}
@@ -66,33 +73,13 @@ _SEARCH = f"""query DashpotQueryPage($searchQuery: String!, $size: Int!, $cursor
   }}
 }}"""
 _IDENTITIES = f"""query DashpotResolvedIssues($ids: [ID!]!) {{
-  nodes(ids: $ids) {{ __typename ... on Issue {{ {_ISSUE_NODE_FIELDS} }} }}
+  nodes(ids: $ids) {{ __typename ... on Issue {{ {ISSUE_NODE_FIELDS} }} }}
 }}"""
 
 
-class _Repository(ConfigModel):
-    id: NonEmptyString
-    name_with_owner: NonEmptyString
-
-
-class _Identity(ConfigModel):
-    id: NonEmptyString
-
-
-class _Context(ConfigModel):
-    node: _Repository
-    viewer: _Identity
-
-
-class _PageInfo(ConfigModel):
-    has_next_page: bool
-    end_cursor: str | None
-
-
-class _Search(ConfigModel):
-    issue_count: int = Field(ge=0)
-    nodes: LaxSequence[dict[str, Any]]
-    page_info: _PageInfo
+class _Context(WireModel):
+    node: Repository
+    viewer: Identity
 
 
 def explicit_sort(query: str) -> bool:
@@ -160,6 +147,7 @@ class GitHubQuerySource(CachedQuerySource):
         self.config = config
         self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
         self.budget = budget
+        self._meter: RefreshMeter = budget.start()
         self.profiles = GitHubIssuesSource(
             root,
             project_id=config.project_id,
@@ -250,7 +238,7 @@ class GitHubQuerySource(CachedQuerySource):
                     "Invalid GitHub continuation; restart from page one"
                 )
             variables["cursor"] = token.provider_cursor
-        connection = _Search.model_validate(
+        connection = SearchConnection.model_validate(
             self.gateway.graphql(_SEARCH, variables).get("search")
         )
         issues: list[IssueProfile] = []
@@ -261,13 +249,13 @@ class GitHubQuerySource(CachedQuerySource):
             expected = "Issue" if request.kind == "issues" else "PullRequest"
             if (
                 raw.get("__typename") != expected
-                or _Identity.model_validate(raw.get("repository")).id
+                or Identity.model_validate(raw.get("repository")).id
                 != context.repository_id
             ):
                 raise ValueError(
                     "GitHub query escaped the configured Repository or resource kind"
                 )
-            ids.append(_Identity.model_validate({"id": raw.get("id")}).id)
+            ids.append(Identity.model_validate({"id": raw.get("id")}).id)
             if request.kind == "pull-requests":
                 prs.append(
                     normalize_github_pull_request(
@@ -407,7 +395,7 @@ class GitHubQuerySource(CachedQuerySource):
                     raise ValueError(
                         "GitHub must answer one position per requested identity"
                     )
-            except Exception as exc:
+            except QUERY_OBSERVATION_FAILURES as exc:
                 results.extend(
                     ResolvedIssue(
                         context=context,
@@ -449,7 +437,7 @@ class GitHubQuerySource(CachedQuerySource):
                             **completed[identity],
                             "auxiliaryError": "GitHub could not observe auxiliary Issue facts",
                         }
-                except Exception as exc:
+                except QUERY_OBSERVATION_FAILURES as exc:
                     result = ResolvedIssue(
                         context=context,
                         issue_id=identity,
@@ -508,7 +496,7 @@ class GitHubQuerySource(CachedQuerySource):
             raise ValueError(
                 "GitHub identity response is malformed or answered another resource"
             )
-        repository = _Repository.model_validate(raw.get("repository"))
+        repository = Repository.model_validate(raw.get("repository"))
         if repository.id != context.repository_id:
             return ResolvedIssue(
                 context=context,
@@ -528,7 +516,7 @@ class GitHubQuerySource(CachedQuerySource):
                 observed_repository_id=repository.id,
                 reference=f"{repository.name_with_owner}#{raw['number']}",
             )
-        complete = self.profiles._complete_nested_connections(raw, meter)
+        complete = self.profiles.complete_nested_connections(raw, meter)
         issue = normalize_github_issue(
             complete, project_id=context.project_id, repository_id=context.repository_id
         )
@@ -552,7 +540,7 @@ class GitHubQuerySource(CachedQuerySource):
                 raise ValueError(str(raw["auxiliaryError"]))
             # Number ordering is not available on this connection. Complete it
             # deliberately to retain the declared lowest-numbered display subset.
-            complete = self.profiles._complete_linked_pull_requests(raw, meter)
+            complete = self.profiles.complete_linked_pull_requests(raw, meter)
             comments = complete.get("comments")
             linked = complete.get("closedByPullRequestsReferences")
             if (
@@ -571,10 +559,10 @@ class GitHubQuerySource(CachedQuerySource):
                 raise ValueError(
                     "Linked Pull Request display completion is unavailable"
                 )
-            activity = _issue_activity(complete)
+            activity = issue_activity(complete)
             if len(activity.linked_pull_requests) != min(linked["totalCount"], 20):
                 raise ValueError("Linked Pull Request observation is malformed")
-            colors = _label_colors(complete)
+            colors = label_colors(complete)
             labels = complete["labels"]["nodes"]
             if len(colors) != len(labels):
                 raise ValueError("Label colour observation is unavailable")
@@ -585,7 +573,7 @@ class GitHubQuerySource(CachedQuerySource):
                 activity=activity,
                 label_colors=colors,
             )
-        except Exception as exc:
+        except QUERY_OBSERVATION_FAILURES as exc:
             return AuxiliaryObservation(
                 status="unavailable",
                 attempted_at=attempted,
@@ -615,15 +603,7 @@ class GitHubQuerySource(CachedQuerySource):
                 status=observation.status,
                 attempted_at=observation.attempted_at,
                 last_good_at=observation.last_good_at,
-                diagnostics=tuple(
-                    Diagnostic(
-                        source=d.source,
-                        severity=d.severity,
-                        code=d.code,
-                        message=d.message,
-                    )
-                    for d in observation.diagnostics
-                ),
+                diagnostics=tuple(observation.diagnostics),
             )
         pulls = self.pull_requests.refresh()
         return SourceEnumeration(
@@ -633,10 +613,5 @@ class GitHubQuerySource(CachedQuerySource):
             status=pulls.status,
             attempted_at=pulls.attempted_at,
             last_good_at=pulls.last_good_at,
-            diagnostics=tuple(
-                Diagnostic(
-                    source=d.source, severity=d.severity, code=d.code, message=d.message
-                )
-                for d in pulls.diagnostics
-            ),
+            diagnostics=tuple(pulls.diagnostics),
         )

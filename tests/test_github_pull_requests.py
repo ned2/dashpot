@@ -351,3 +351,10 @@ def test_failure_on_closed_history_page_retains_all_lifecycles_and_recovers() ->
     assert failed.diagnostics[0].code == "github-malformed-response"
     assert recovered.status == "fresh"
     assert [pr.state for pr in recovered.pull_requests] == ["merged", "closed"]
+
+
+def test_pull_request_refresh_errors_follow_the_cli_domain_contract() -> None:
+    from dashpot.errors import DashpotError
+
+    with pytest.raises(DashpotError, match="GitHub Pull Request is malformed"):
+        normalize_github_pull_request({})

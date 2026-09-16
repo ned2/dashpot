@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: amended
+amended-by: 0041-distinguish-github-wire-models-from-configuration.md
 date: 2026-09-01
 ---
 
@@ -266,6 +267,11 @@ listed in the migrating PR and covered by tests.
   precedence logic is policy, not parsing.
 
 ## Consequences
+
+[ADR 0041](0041-distinguish-github-wire-models-from-configuration.md) amends the
+gh transport classification: selected GraphQL response models use `WireModel`,
+while the Issue adapter retains its documented hand-parsing semantics. Published
+query values use `ObservationModel` with their existing closed key contracts.
 
 - `src/dashpot/models.py` (shared base, the lax-sequence and
   frozen-mapping types, the timestamp type) and, at step 8,
