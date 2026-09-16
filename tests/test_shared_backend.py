@@ -9,11 +9,10 @@ import pytest
 
 import dashpot.work as work_module
 from dashpot.agents import observe_agent_runs
-from dashpot.hook_records import (
-    HookRecordStore,
+from dashpot.hook_records import HookRecordStore, session_directory
+from dashpot.hook_scan import (
     locate_agent_session,
     read_hook_record,
-    session_directory,
     sessions_at_worktree,
 )
 from dashpot.work import identify_agent_session, start_issue_work, stop_issue_work
@@ -510,7 +509,7 @@ def test_equal_native_ids_from_two_harnesses_coexist_in_one_hook_store(tmp_path)
 def test_relocation_requires_an_unoccupied_session_destination(
     roots, monkeypatch, competing
 ):
-    import dashpot.hook_records as hooks
+    import dashpot.work_reconciliation as hooks
     from dashpot.work_store import RelocationIntent
 
     a, b = roots

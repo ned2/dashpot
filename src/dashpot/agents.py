@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from .hook_records import (
+from .hook_records import HookRecordStore
+from .hook_scan import (
     HookRecordClassification,
-    HookRecordStore,
     reachable_hook_stores,
     scan_hook_stores,
     session_record_named,

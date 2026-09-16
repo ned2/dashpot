@@ -420,10 +420,10 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
 
     with (
         mock.patch(
-            "dashpot.hook_records.state_directory", return_value=tmp_path / "state"
+            "dashpot.hook_publish.state_directory", return_value=tmp_path / "state"
         ),
         mock.patch(
-            "dashpot.hook_records.observe_agent_ancestry",
+            "dashpot.hook_publish.observe_agent_ancestry",
             return_value=AgentAncestry(("codex", process)),
         ),
     ):

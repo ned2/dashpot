@@ -20,7 +20,7 @@ from typing import Literal
 
 from .git import Git, GitError
 from .harnesses import HARNESS_DISPLAY
-from .hook_records import reachable_hook_stores, sessions_at_worktree
+from .hook_scan import reachable_hook_stores, sessions_at_worktree
 from .issue_profile import IssueProfile
 from .issue_resolution import resolve_issue
 from .liveness import session_liveness

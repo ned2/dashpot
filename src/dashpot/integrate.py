@@ -17,13 +17,12 @@ from .harnesses import (
     adapter,
     override_claim,
 )
-from .hook_records import (
+from .hook_claims import validate_session_claim
+from .hook_records import session_directory, state_directory
+from .hook_scan import (
     SessionRecordSummary,
     StaleSessionRecord,
-    session_directory,
-    state_directory,
     summarize_session_records,
-    validate_session_claim,
 )
 from .processes import ProcessLookup, host_process_lookup
 from .record_store import replace_atomically

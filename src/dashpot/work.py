@@ -14,13 +14,8 @@ from .harnesses import (
     native_claims,
     override_claim,
 )
-from .hook_records import (
-    SessionLocation,
-    ValidatedSessionIdentity,
-    locate_agent_session,
-    reachable_hook_stores,
-    validate_session_claim,
-)
+from .hook_claims import ValidatedSessionIdentity, validate_session_claim
+from .hook_scan import SessionLocation, locate_agent_session, reachable_hook_stores
 from .issue_resolution import resolve_issue
 from .liveness import session_liveness
 from .model import Diagnostic
