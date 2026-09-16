@@ -22,6 +22,7 @@ from app_harness import (
     issue,
     issue_metadata_text,
     open_issue_view,
+    pane_title,
     serve_snapshot,
     show_issue_states,
     with_first_project_snapshot,
@@ -448,10 +449,8 @@ async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() ->
         metadata = view.query_one("#issue-view-metadata")
 
         assert body.has_focus
-        assert body._border_title is not None
-        assert body._border_title.plain == "#1: First"
-        assert metadata._border_title is not None
-        assert metadata._border_title.plain == "DETAILS"
+        assert pane_title(view, "#issue-view-body") == "#1: First"
+        assert pane_title(view, "#issue-view-metadata") == "DETAILS"
         # Focus is cued by the border colour rather than a heavier bar.
         assert body.styles.border_top[1] != metadata.styles.border_top[1]
         await pilot.press("tab")
@@ -483,14 +482,11 @@ async def test_a_newer_projection_keeps_the_pane_a_person_is_reading() -> None:
         await pilot.pause()
 
         # The panes are new widgets after the recompose, dressed like the old.
-        body = view.query_one("#issue-view-body")
-        metadata = view.query_one("#issue-view-metadata")
+        assert view.query_one("#issue-view-metadata") is not metadata
         assert view.context.related_issues == (related,)
-        assert metadata.has_focus
-        assert body._border_title is not None
-        assert body._border_title.plain == "#1: First"
-        assert metadata._border_title is not None
-        assert metadata._border_title.plain == "DETAILS"
+        assert view.query_one("#issue-view-metadata").has_focus
+        assert pane_title(view, "#issue-view-body") == "#1: First"
+        assert pane_title(view, "#issue-view-metadata") == "DETAILS"
         assert not view.stacked
 
 

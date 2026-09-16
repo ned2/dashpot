@@ -17,6 +17,7 @@ from pathlib import Path
 from threading import Event, Lock
 from typing import Protocol
 
+from textual.dom import DOMNode
 from textual.pilot import Pilot
 from textual.widgets import Select
 
@@ -587,8 +588,9 @@ async def show_issue_states(app: DashpotApp, state: str) -> None:
 async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     """Open the selected Issue with Enter and wait for its identities to settle.
 
-    Opening an Issue resolves the identities it relates to, and the shipped
-    view recomposes once they land; a test reads the view only after that.
+    Opening an Issue resolves the identities it relates to, and the view
+    recomposes once they land, replacing its panes; a test that read them
+    earlier would hold the old widgets.
     """
     app.dashboard.queue_table().focus()
     await pilot.press("enter")
@@ -648,8 +650,9 @@ def selected_title(app: DashpotApp) -> str:
     )
 
 
-def pane_title(app: DashpotApp, selector: str) -> str:
-    title = app.query_one(selector)._border_title
+def pane_title(node: DOMNode, selector: str) -> str:
+    """The border title of the pane ``selector`` names under ``node``, as plain text."""
+    title = node.query_one(selector)._border_title
     assert title is not None
     return title.plain
 

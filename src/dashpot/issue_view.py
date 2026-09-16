@@ -104,11 +104,14 @@ class IssueScreen(Screen[None]):
         """Recompose the view and give the new panes the chrome the old ones had."""
         focused = self.focused.id if self.focused is not None else None
         await super().recompose()
+        # The base recompose is a no-op on a detached screen, so is this.
+        if not self.is_attached:
+            return
         self.dress_panes()
         self.query_one(f"#{focused or 'issue-view-body'}").focus()
 
     def dress_panes(self) -> None:
-        """Title, focusability and stacking are not composed; set them on the panes."""
+        """Give the panes the titles, focusability and stacking compose leaves unset."""
         self.query_one("#issue-view-body").border_title = Content(
             selection_title(self.context)
         )
