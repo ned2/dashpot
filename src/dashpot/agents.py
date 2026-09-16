@@ -11,17 +11,16 @@ from typing import cast
 from .hook_records import (
     HookRecordClassification,
     HookRecordStore,
-    observed_instant,
+    reachable_hook_stores,
     scan_hook_stores,
-    session_directory,
     session_record_named,
-    state_directory,
 )
 from .liveness import LivenessObservation, LivenessProbe
 from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .processes import ProcessKey, ProcessLookup, host_process_lookup
-from .repository import is_within
+from .repository import is_within, same_path
 from .session_matching import SessionEvidence
+from .timestamps import observed_instant
 from .work_store import ActiveWork, WorkStore
 
 # Diagnostics about hook Agent Session records are harness-neutral.
@@ -126,9 +125,9 @@ def observe_work_runs(
         store = WorkStore(Path(target.path))
         active, store_diagnostics = store.active()
         diagnostics.extend(store_diagnostics)
-        sweep_work_store(store)
+        store.sweep()
         for work in active:
-            process_key = work_process_key(work)
+            process_key = work.evidence.process_key
             if work.session_id is None:
                 diagnostics.append(
                     Diagnostic(
@@ -146,7 +145,7 @@ def observe_work_runs(
                 if liveness.liveness == "gone":
                     diagnostics.append(orphaned_run_diagnostic(work, target))
                     continue
-            identities = run_identities(work, process_key)
+            identities = run_identities(work)
             if identities & sessions_seen:
                 diagnostics.append(conflicting_run_diagnostic(work))
             sessions_seen |= identities
@@ -179,27 +178,6 @@ def available_targets(
                 yield project_id, target
 
 
-def sweep_work_store(store: WorkStore) -> None:
-    """Reclaim a Work Store's leftovers without letting cleanup fail a scan.
-
-    Runs stopped before their lock files were reclaimed leave orphaned locks
-    behind; sweep those that guard nothing, and the temporary files a crashed
-    writer never renamed into place.
-    """
-    for session_key in store.orphaned_locks():
-        with contextlib.suppress(OSError):
-            store.prune_lock(session_key)
-    with contextlib.suppress(OSError):
-        store.sweep_temporaries()
-
-
-def work_process_key(work: ActiveWork) -> ProcessKey | None:
-    """Key a Work Store run by its recorded host process identity, if any."""
-    if work.session_process is None:
-        return None
-    return (work.session_process.pid, work.session_process.started_at)
-
-
 def orphaned_run_diagnostic(work: ActiveWork, target: ObservationTarget) -> Diagnostic:
     """Report a gone session that still records Issue work at one Worktree."""
     return Diagnostic(
@@ -224,13 +202,13 @@ def relocation_diagnostic(
 ) -> Diagnostic:
     """Report why a declared relocation has not completed yet."""
     assert work.relocation is not None
-    stores: list[Path] = [directory or state_directory()]
-    stores.extend(session_directory(Path(item.path)) for item in project_targets)
-    unique_stores = list(dict.fromkeys(path.resolve() for path in stores))
+    stores = reachable_hook_stores(
+        [Path(item.path) for item in project_targets], directory
+    )
     locations: set[Path] = set()
     if work.session_id is not None:
         for scanned in scan_hook_stores(
-            unique_stores,
+            stores,
             probe,
             select=lambda path: session_record_named(
                 path, work.session_id or "", work.harness
@@ -241,11 +219,7 @@ def relocation_diagnostic(
                 and scanned.record.outcome not in {"ended", "gone"}
             ):
                 try:
-                    locations.add(
-                        Path(
-                            scanned.record.repository_root or scanned.record.cwd
-                        ).resolve()
-                    )
+                    locations.add(scanned.record.worktree.resolve())
                 except (OSError, RuntimeError, ValueError):
                     continue
     if len(locations) > 1:
@@ -295,11 +269,9 @@ def relocation_diagnostic(
     )
 
 
-def run_identities(
-    work: ActiveWork, process_key: ProcessKey | None
-) -> set[tuple[str, ...]]:
+def run_identities(work: ActiveWork) -> set[tuple[str, ...]]:
     """Identify a named run for harness-scoped conflict detection."""
-    identity = SessionEvidence(work.harness, work.session_id, process_key)
+    identity = work.evidence
     if identity.native_key is None:
         return set()
     return {("session", *identity.native_key)}
@@ -353,9 +325,13 @@ def observe_hook_sessions(
     never reported here. Pruning is the only write observation performs, and
     it is conditional so a concurrently updated record survives.
     """
-    directories: list[Path] = [directory or state_directory()]
-    for _project_id, target in available_targets(targets_by_project):
-        directories.append(session_directory(Path(target.path)))
+    stores = reachable_hook_stores(
+        [
+            Path(target.path)
+            for _project_id, target in available_targets(targets_by_project)
+        ],
+        directory,
+    )
     # A session's record may exist both globally and Project-locally around
     # an integration upgrade; the freshest observation per session wins.
     latest: dict[str, HookSessionObservation] = {}
@@ -370,12 +346,10 @@ def observe_hook_sessions(
             )
         )
 
-    seen_directories: set[Path] = set()
-    for candidate in directories:
+    for candidate in stores:
         root = candidate.resolve()
-        if root in seen_directories or not root.exists():
+        if not root.exists():
             continue
-        seen_directories.add(root)
         store = HookRecordStore(root)
         for scanned in scan_hook_stores([root], probe, on_unreadable=report_unreadable):
             record = scanned.record
@@ -405,13 +379,8 @@ def observe_hook_sessions(
             ) >= observed_instant(previous.run.last_activity_at):
                 latest[session.run.id] = session
         # Records pruned above, or ended gracefully, leave their lock files
-        # behind; reclaim those that guard nothing, and the temporary files a
-        # crashed writer never renamed into place.
-        for session_id in store.orphaned_locks():
-            with contextlib.suppress(OSError):
-                store.prune_lock(session_id)
-        with contextlib.suppress(OSError):
-            store.sweep_temporaries()
+        # behind; reclaim those, and a crashed writer's temporaries.
+        store.sweep()
     unknown_by_reason: dict[str, int] = {}
     for session in latest.values():
         if session.liveness.liveness == "unknown":
@@ -511,7 +480,7 @@ def locate_observation_target(
         (
             (project_id, target)
             for project_id, target in available
-            if Path(target.path).resolve() == root_path
+            if same_path(Path(target.path), root_path)
         ),
         None,
     )

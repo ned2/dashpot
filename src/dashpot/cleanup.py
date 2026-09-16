@@ -31,7 +31,7 @@ from pydantic import computed_field
 
 from .commands import non_interactive_runner
 from .errors import DashpotError
-from .git import Git, GitError
+from .git import Git, GitError, last_stderr_line
 from .model import IntegrationState, integration_state
 from .models import LaxSequence, PublishedModel
 from .processes import ProcessLookup, host_process_lookup
@@ -43,11 +43,13 @@ from .repository import (
     assess_content_integration,
     choose_integration_ref,
     last_fetched_at,
+    same_path,
     worktree_root,
 )
 from .worktrees import (
+    BlockerKind,
+    CleanupBlocker,
     LocatedWorktree,
-    RemovalObstacle,
     assess_detached_head_preservation,
     assess_worktree_occupancy,
     assess_worktree_safety,
@@ -56,43 +58,10 @@ from .worktrees import (
 )
 
 TargetKind = Literal["local-branch", "remote-branch", "worktree"]
-BlockerKind = Literal[
-    "integration-branch",
-    "checked-out",
-    "unintegrated",
-    "unknown-integration",
-    "remote-mapping",
-    "push-url",
-    "main-worktree",
-    "protected",
-    "unavailable",
-    "dirty",
-    "locked",
-    "agent-session",
-    "agent-run",
-    "work-store",
-    "detached",
-]
-# The Worktree obstacles that block removing the Worktree itself; the Branch
-# ones (unpushed, unmerged) belong to the Branch target's own gate.
-_WORKTREE_BLOCKERS: Mapping[str, BlockerKind] = {
-    "main-worktree": "main-worktree",
-    "dirty": "dirty",
-    "locked": "locked",
-    "agent-session": "agent-session",
-    "agent-run": "agent-run",
-    "work-store": "work-store",
-    "detached": "detached",
-}
+# The Worktree obstacles that concern its Branch (unpushed, unmerged) belong
+# to the Branch target's own gate, not to removing the Worktree itself.
+_BRANCH_OBSTACLES: frozenset[BlockerKind] = frozenset({"unpushed", "unmerged"})
 CANONICAL_FETCH_REFSPEC = "+refs/heads/*:refs/remotes/{remote}/*"
-
-
-class CleanupBlocker(PublishedModel):
-    """One reason a target is unavailable, with the command a person could run."""
-
-    kind: BlockerKind
-    detail: str
-    command: str | None = None
 
 
 class IntegrationFact(PublishedModel):
@@ -565,16 +534,14 @@ def _worktree_blockers(
     protected: Sequence[Path],
 ) -> list[CleanupBlocker]:
     path = located.path
-    obstacles: list[RemovalObstacle] = assess_worktree_safety(located, lock_probe)
+    obstacles: list[CleanupBlocker] = assess_worktree_safety(located, lock_probe)
     obstacles.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
     if located.detached:
         obstacles.extend(assess_detached_head_preservation(located.git, located.head))
     blockers = [
-        CleanupBlocker(kind=kind, detail=obstacle.detail, command=obstacle.command)
-        for obstacle in obstacles
-        if (kind := _WORKTREE_BLOCKERS.get(obstacle.kind)) is not None
+        obstacle for obstacle in obstacles if obstacle.kind not in _BRANCH_OBSTACLES
     ]
-    if any(path == candidate.expanduser().resolve() for candidate in protected):
+    if any(same_path(path, candidate.expanduser()) for candidate in protected):
         blockers.append(
             CleanupBlocker(
                 kind="protected",
@@ -908,7 +875,9 @@ def _delete_local_branch(git: Git, target: CleanupTarget) -> TargetResult:
         if not _ref_exists(git, refname):
             return _result(target, "already-absent", f"{refname} was already gone")
         return _result(
-            target, "refused", _last_line(result.stderr) or "git update-ref refused"
+            target,
+            "refused",
+            last_stderr_line(result.stderr) or "git update-ref refused",
         )
     # The Branch's configuration goes with its ref; ``update-ref`` leaves it,
     # and a Branch that had none makes the removal a no-op.
@@ -991,11 +960,10 @@ def _prune_hint(remote: str, tracking: str) -> str:
 
 def _push_reason(stderr: str) -> str:
     """Git's first rejection or fatal line: a push failure ends in advice."""
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    reasons = [line for line in lines if line.startswith(("! [", "error:", "fatal:"))]
-    if reasons:
-        return reasons[0]
-    return lines[-1] if lines else "git push refused"
+    for line in stderr.splitlines():
+        if line.strip().startswith(("! [", "error:", "fatal:")):
+            return line.strip()
+    return last_stderr_line(stderr) or "git push refused"
 
 
 def _remote_ref_presence(
@@ -1037,7 +1005,7 @@ def _remove_worktree(git: Git, target: CleanupTarget) -> TargetResult:
         return _result(
             target,
             "refused",
-            _last_line(result.stderr) or "git worktree remove refused",
+            last_stderr_line(result.stderr) or "git worktree remove refused",
         )
     return _result(target, "deleted", f"removed {path}", recovery)
 
@@ -1056,7 +1024,7 @@ def _registered(git: Git, path: str) -> bool:
     except GitError:
         return True
     return any(
-        record.get("worktree") and Path(record["worktree"]).resolve() == Path(path)
+        record.get("worktree") and same_path(Path(record["worktree"]), Path(path))
         for record in records
     )
 
@@ -1073,11 +1041,6 @@ def _result(
         detail=detail,
         recovery=recovery,
     )
-
-
-def _last_line(stderr: str) -> str:
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    return lines[-1] if lines else ""
 
 
 def describe_cleanup_report(report: CleanupReport) -> list[str]:

@@ -138,6 +138,10 @@ class IssueProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(IssueProfileError, "repository-relative"):
             conform_issue(issue)
 
+        issue["location"]["path"] = ""
+        with self.assertRaisesRegex(IssueProfileError, "path must be a non-empty"):
+            conform_issue(issue)
+
     def test_version_genealogy_is_not_part_of_the_profile(self) -> None:
         issue = fixture("markdown.json")
         issue["profileVersion"] = 1

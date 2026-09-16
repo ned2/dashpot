@@ -7,8 +7,8 @@ from unittest import mock
 
 from dashpot.git import Git
 from dashpot.model import Diagnostic
-from dashpot.processes import LockHolder
-from dashpot.repository import observe_observation_targets
+from dashpot.processes import ProcessLiveness
+from dashpot.repository import observe_observation_targets, same_path
 from factories import SequenceRunner, completed, git
 
 
@@ -84,7 +84,7 @@ def test_a_lock_is_reported_only_once_its_holder_is_gone(tmp_path: Path) -> None
             git=over(runner),
             clock=lambda: next(times),
             process_lookup=lambda pid: (
-                cast("LockHolder", holder) if pid == 1699806 else "gone"
+                cast("ProcessLiveness", holder) if pid == 1699806 else "gone"
             ),
         )
         return inventory.targets[0].diagnostics
@@ -271,3 +271,10 @@ def test_unstatable_target_is_inaccessible_not_missing(tmp_path: Path) -> None:
     assert inventory.targets[0].availability == "unavailable"
     assert inventory.targets[0].diagnostics[0].code == "target-inaccessible"
     assert len(runner.calls) == 1
+
+
+def test_paths_that_cannot_resolve_never_name_the_same_place(tmp_path: Path) -> None:
+    assert same_path(tmp_path / "a" / ".." / "b", tmp_path / "b")
+    assert not same_path(tmp_path / "a", tmp_path / "b")
+    # A persisted path may carry bytes the host cannot even resolve.
+    assert not same_path(Path("bad\0path"), Path("bad\0path"))

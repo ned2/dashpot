@@ -40,6 +40,8 @@ from .repository import (
     is_within,
     lock_holder,
     main_worktree,
+    same_path,
+    worktree_paths,
     worktree_root,
 )
 from .settings import WORKTREE_ROOT_VARIABLE, Settings, load_settings
@@ -83,20 +85,31 @@ class WorktreePlan(PublishedModel):
     warnings: LaxSequence[str] = ()
 
 
-class RemovalObstacle(PublishedModel):
-    """One reason a Worktree is not removable, with the command that acts on it."""
+BlockerKind = Literal[
+    "integration-branch",
+    "checked-out",
+    "unintegrated",
+    "unknown-integration",
+    "remote-mapping",
+    "push-url",
+    "main-worktree",
+    "protected",
+    "unavailable",
+    "dirty",
+    "locked",
+    "agent-session",
+    "agent-run",
+    "work-store",
+    "unpushed",
+    "unmerged",
+    "detached",
+]
 
-    kind: Literal[
-        "main-worktree",
-        "dirty",
-        "locked",
-        "agent-session",
-        "agent-run",
-        "work-store",
-        "unpushed",
-        "unmerged",
-        "detached",
-    ]
+
+class CleanupBlocker(PublishedModel):
+    """One reason a Cleanup target is unavailable, with the command that acts on it."""
+
+    kind: BlockerKind
     detail: str
     command: str | None = None
 
@@ -109,7 +122,7 @@ class WorktreeRemovability(PublishedModel):
     head: str
     role: Literal["main", "linked"]
     removable: bool
-    obstacles: LaxSequence[RemovalObstacle] = ()
+    obstacles: LaxSequence[CleanupBlocker] = ()
     remove_commands: LaxSequence[str] = ()
 
 
@@ -158,11 +171,7 @@ def create_issue_worktree(
     refusals: list[str] = []
     hints: list[str] = []
     records = git.worktree_records()
-    worktrees = [
-        Path(record["worktree"]).resolve()
-        for record in records
-        if record.get("worktree") and "bare" not in record
-    ]
+    worktrees = worktree_paths(records)
     main = main_worktree(records)
 
     root, root_source = resolve_worktree_root(
@@ -475,7 +484,7 @@ def _check_existing_issue_worktrees(
 def _registered_at(records: list[dict[str, str]], path: Path) -> dict[str, str] | None:
     for record in records:
         raw = record.get("worktree")
-        if raw and Path(raw).resolve() == path:
+        if raw and same_path(Path(raw), path):
             return record
     return None
 
@@ -655,11 +664,7 @@ def linked_worktrees(current: Path, *, timeout: float = 10) -> list[Path]:
     """
     anchor = worktree_root(current)
     records = Git(anchor, timeout).worktree_records()
-    return sorted(
-        Path(record["worktree"]).resolve()
-        for record in records[1:]
-        if record.get("worktree") and "bare" not in record
-    )
+    return sorted(worktree_paths(records[1:]))
 
 
 def check_worktree(
@@ -755,23 +760,20 @@ def locate_worktree(
     role: Literal["main", "linked"] = (
         "main" if records and records[0] is registered else "linked"
     )
-    worktrees = tuple(
-        Path(record["worktree"]).resolve()
-        for record in records
-        if record.get("worktree") and "bare" not in record
+    return LocatedWorktree(
+        scoped, anchor, path, registered, role, tuple(worktree_paths(records))
     )
-    return LocatedWorktree(scoped, anchor, path, registered, role, worktrees)
 
 
 def assess_worktree_safety(
     located: LocatedWorktree, lock_probe: LockHolderProbe | None = None
-) -> list[RemovalObstacle]:
+) -> list[CleanupBlocker]:
     """The obstacles Git itself raises: the main Worktree, a lock, a dirty tree."""
     path, registered = located.path, located.record
-    obstacles: list[RemovalObstacle] = []
+    obstacles: list[CleanupBlocker] = []
     if located.role == "main":
         obstacles.append(
-            RemovalObstacle(
+            CleanupBlocker(
                 kind="main-worktree",
                 detail="the main Worktree cannot be removed with git worktree remove",
             )
@@ -785,7 +787,7 @@ def assess_worktree_safety(
         else:
             command = f"git worktree unlock {path}"
         obstacles.append(
-            RemovalObstacle(
+            CleanupBlocker(
                 kind="locked",
                 detail=f"locked: {reason} (holding process {holder})",
                 command=command,
@@ -797,7 +799,7 @@ def assess_worktree_safety(
         )
         if status.returncode != 0:
             obstacles.append(
-                RemovalObstacle(
+                CleanupBlocker(
                     kind="dirty",
                     detail=f"cannot inspect: "
                     f"{status.stderr.strip() or 'git status failed'}",
@@ -807,7 +809,7 @@ def assess_worktree_safety(
         elif status.stdout:
             count = len(status.stdout.splitlines())
             obstacles.append(
-                RemovalObstacle(
+                CleanupBlocker(
                     kind="dirty",
                     detail=f"{count} changed or untracked path(s); inspect with "
                     f"'git -C {path} status'",
@@ -821,14 +823,14 @@ def assess_worktree_occupancy(
     path: Path,
     worktrees: Sequence[Path],
     lookup: ProcessLookup = host_process_lookup,
-) -> list[RemovalObstacle]:
+) -> list[CleanupBlocker]:
     """The Agent Sessions, Agent Runs, and unreadable Work Store records at a Worktree."""
-    obstacles: list[RemovalObstacle] = []
+    obstacles: list[CleanupBlocker] = []
     stores = reachable_hook_stores(worktrees)
     for location in sessions_at_worktree(path, stores, lookup):
         record = location.record
         obstacles.append(
-            RemovalObstacle(
+            CleanupBlocker(
                 kind="agent-session",
                 detail=f"{HARNESS_DISPLAY[record.harness]} session "
                 f"{record.session_id} is {record.outcome} here "
@@ -839,7 +841,7 @@ def assess_worktree_occupancy(
     # A record that cannot be read may still be a live Agent Run; removable
     # is never claimed on evidence that could not be examined.
     obstacles.extend(
-        RemovalObstacle(kind="work-store", detail=diagnostic.message)
+        CleanupBlocker(kind="work-store", detail=diagnostic.message)
         for diagnostic in work_diagnostics
     )
     for work in active:
@@ -860,21 +862,21 @@ def assess_worktree_occupancy(
             )
             command = "dashpot work stop (inside that session)"
         obstacles.append(
-            RemovalObstacle(kind="agent-run", detail=detail, command=command)
+            CleanupBlocker(kind="agent-run", detail=detail, command=command)
         )
     return obstacles
 
 
 def assess_branch_preservation(
     git: Git, path: Path, branch: str
-) -> tuple[list[RemovalObstacle], bool]:
+) -> tuple[list[CleanupBlocker], bool]:
     """The Branch's obstacles, and whether its content is already integrated.
 
     Retained commits whose content the Integration Branch already holds — a
     squash merge — obstruct nothing: neither unmerged nor unpushed, since the
     work is where it was meant to land ([ADR 0017](../../docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
     """
-    obstacles: list[RemovalObstacle] = []
+    obstacles: list[CleanupBlocker] = []
     upstream = git.maybe(
         "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}"
     )
@@ -907,7 +909,7 @@ def assess_branch_preservation(
             else f"commits not reachable from {base_ref} could not be counted"
         )
         obstacles.append(
-            RemovalObstacle(
+            CleanupBlocker(
                 kind="unmerged",
                 detail=f"cannot tell whether Branch {branch} is integrated: {reason}",
                 command=f"git log --oneline {branch}",
@@ -917,7 +919,7 @@ def assess_branch_preservation(
         ahead = _count(git, f"{upstream}..refs/heads/{branch}")
         if ahead:
             obstacles.append(
-                RemovalObstacle(
+                CleanupBlocker(
                     kind="unpushed",
                     detail=f"{ahead} commit(s) not on {upstream}",
                     command=f"git -C {path} push",
@@ -925,7 +927,7 @@ def assess_branch_preservation(
             )
     elif unmerged:
         obstacles.append(
-            RemovalObstacle(
+            CleanupBlocker(
                 kind="unpushed",
                 detail=f"Branch {branch} has no upstream and {unmerged} commit(s) "
                 f"of its own",
@@ -934,7 +936,7 @@ def assess_branch_preservation(
         )
     if unmerged:
         obstacles.append(
-            RemovalObstacle(
+            CleanupBlocker(
                 kind="unmerged",
                 detail=f"{unmerged} commit(s) not reachable from {base_ref}",
                 command=f"git log --oneline {base_ref}..{branch}",
@@ -956,7 +958,7 @@ def durable_refs_containing(git: Git, commit: str) -> list[str]:
     return [record[0] for record in records if record[0]]
 
 
-def assess_detached_head_preservation(git: Git, head: str) -> list[RemovalObstacle]:
+def assess_detached_head_preservation(git: Git, head: str) -> list[CleanupBlocker]:
     """A detached HEAD no durable ref reaches is lost with the Worktree."""
     if not head:
         return []
@@ -971,7 +973,7 @@ def assess_detached_head_preservation(git: Git, head: str) -> list[RemovalObstac
             f"Branch, or tag reaches"
         )
     return [
-        RemovalObstacle(
+        CleanupBlocker(
             kind="detached",
             detail=detail,
             command=f"git branch rescue/{head[:7]} {head}",

@@ -3,22 +3,20 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, FiniteFloat, ValidationError
 
-from .models import ConfigModel, NonBlankString, translate_validation_error
+from .models import (
+    ConfigModel,
+    NonBlankString,
+    repository_relative,
+    translate_validation_error,
+)
 
 PROJECT_CONFIG_NAME = ".dashpot/config.json"
 DEFAULT_RECONCILIATION_SECONDS = 300.0
-
-
-def _repository_relative(value: str) -> str:
-    parsed = PurePosixPath(value)
-    if parsed.is_absolute() or ".." in parsed.parts:
-        raise ValueError("must be repository-relative")
-    return value
 
 
 class GitHubIssueSourceConfig(ConfigModel):
@@ -36,7 +34,7 @@ class LocalMarkdownIssueSourceConfig(ConfigModel):
     """Issues come from Markdown files under a repository-relative path."""
 
     kind: Literal["markdown"]
-    path: Annotated[NonBlankString, AfterValidator(_repository_relative)]
+    path: Annotated[NonBlankString, AfterValidator(repository_relative)]
 
 
 IssueSourceConfig = Annotated[

@@ -8,14 +8,18 @@ import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, ValidationError
 
 from .git import Git, GitError
-from .harnesses import HARNESS_DISPLAY, SESSION_ID, SessionIdentityClaim
+from .harnesses import (
+    HARNESS_DISPLAY,
+    SESSION_ID,
+    HookSessionIdentity,
+    SessionIdentityClaim,
+)
 from .json_records import optional_string, require_string
 from .liveness import LivenessObservation, LivenessProbe, SessionLiveness
 from .models import (
@@ -33,9 +37,15 @@ from .processes import (
     observe_agent_ancestry,
 )
 from .record_store import LockedRecordStore
-from .repository import repository_worktrees
+from .repository import repository_worktrees, same_path
 from .session_matching import SessionEvidence
-from .work_store import ActiveWork, SessionProcess, WorkStore, end_session_runs
+from .timestamps import observed_instant, utc_now
+from .work_store import (
+    ActiveWork,
+    SessionProcess,
+    WorkStore,
+    end_session_runs,
+)
 
 EVENT_STATES: dict[str, str] = {
     "SessionStart": "running",
@@ -53,26 +63,6 @@ EVENT_STATES: dict[str, str] = {
 SUBAGENT_EVENTS = frozenset({"SubagentStart", "SubagentStop"})
 
 
-def now_iso() -> str:
-    """Stamp an observation, at a fixed width so records order by text too."""
-    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
-
-
-def observed_instant(value: str | None) -> datetime:
-    """Order observations by instant; a record may be older than the format.
-
-    Unstamped and unparsable records sort before every stamped one rather
-    than claiming a time Dashpot never observed.
-    """
-    if value:
-        try:
-            moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return datetime.min.replace(tzinfo=UTC)
-        return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
-    return datetime.min.replace(tzinfo=UTC)
-
-
 def state_directory() -> Path:
     override = os.environ.get("DASHPOT_STATE_DIR")
     if override:
@@ -86,12 +76,6 @@ def state_directory() -> Path:
 
 
 HOOK_RECORD_VERSION = 2
-
-
-def _session_identity(value: str) -> str:
-    if not SESSION_ID.fullmatch(value):
-        raise ValueError("contains unsupported characters")
-    return value
 
 
 def _supported_harness(value: str) -> str:
@@ -111,7 +95,6 @@ def _blank_to_none(value: str | None) -> str | None:
     return value or None
 
 
-HookSessionIdentity = Annotated[str, AfterValidator(_session_identity)]
 Harness = Annotated[str, AfterValidator(_supported_harness)]
 ActiveState = Annotated[str, AfterValidator(_active_state)]
 OptionalText = Annotated[str | None, AfterValidator(_blank_to_none)]
@@ -205,7 +188,7 @@ def build_hook_record(
         turn_id=event.get("turn_id"),
         model=event.get("model"),
         agent_id=event.get("agent_id"),
-        last_activity_at=now_iso(),
+        last_activity_at=utc_now(),
         session_process=SessionProcessRecord.of(process) if process else None,
         session_process_unobservable=None if process else process_unobservable,
     )
@@ -484,7 +467,7 @@ def complete_session_work_relocation(
             work.harness == "codex"
             and work.session_id == session_id
             and work.relocation is not None
-            and _resolves_to(Path(work.relocation.target_worktree), target)
+            and same_path(Path(work.relocation.target_worktree), target)
             for work in active
         )
     if pending != 1:
@@ -509,7 +492,7 @@ def complete_session_work_relocation(
                 return False
             for candidate in active:
                 relation = SessionEvidence("codex", session_id).match(
-                    SessionEvidence(candidate.harness, candidate.session_id)
+                    candidate.evidence
                 )
                 if relation == "unresolved":
                     return False
@@ -519,13 +502,13 @@ def complete_session_work_relocation(
             item
             for item in matching
             if item[2].relocation is not None
-            and _resolves_to(Path(item[2].relocation.target_worktree), target)
+            and same_path(Path(item[2].relocation.target_worktree), target)
         ]
         if len(pending_matches) != 1:
             return False
         source_worktree, source, work = pending_matches[0]
         if any(
-            not _resolves_to(candidate_worktree, target)
+            not same_path(candidate_worktree, target)
             or candidate.session_key != work.session_key
             for candidate_worktree, _store, candidate in matching
             if candidate != work
@@ -534,7 +517,7 @@ def complete_session_work_relocation(
         intent = work.relocation
         if intent is None:
             return False
-        if not _resolves_to(Path(intent.target_worktree), target) or _resolves_to(
+        if not same_path(Path(intent.target_worktree), target) or same_path(
             source_worktree, target
         ):
             return False
@@ -582,27 +565,17 @@ def _sequential_target_is_confirmed(
         stores, probe, select=named, on_unreadable=reject_unreadable
     ):
         if (
-            SessionEvidence("codex", session_id).match(
-                SessionEvidence(scanned.record.harness, scanned.record.session_id)
-            )
+            SessionEvidence("codex", session_id).match(scanned.record.evidence)
             != "same"
         ):
             continue
-        location = Path(scanned.record.repository_root or scanned.record.cwd)
-        if not _resolves_to(location, target) and scanned.record.outcome not in {
+        location = scanned.record.worktree
+        if not same_path(location, target) and scanned.record.outcome not in {
             "ended",
             "gone",
         }:
             return False
     return not unreadable
-
-
-def _resolves_to(candidate: Path, expected: Path) -> bool:
-    """Compare a persisted path without trusting that it still resolves."""
-    try:
-        return candidate.resolve() == expected
-    except (OSError, RuntimeError, ValueError):
-        return False
 
 
 # A hook record's outcome is its Session Liveness, plus the one fact liveness
@@ -633,6 +606,16 @@ class HookRecordClassification:
     @property
     def process_key(self) -> ProcessKey | None:
         return self.process.key if self.process else None
+
+    @property
+    def evidence(self) -> SessionEvidence:
+        """The session facts this record was published under, for matching."""
+        return SessionEvidence(self.harness, self.session_id, self.process_key)
+
+    @property
+    def worktree(self) -> Path:
+        """The Worktree the harness last published from: its root, else its cwd."""
+        return Path(self.repository_root or self.cwd)
 
     @property
     def display(self) -> str:
@@ -685,7 +668,7 @@ class SessionLocation:
 
     @property
     def worktree(self) -> Path:
-        return Path(self.record.repository_root or self.record.cwd)
+        return self.record.worktree
 
     @property
     def process(self) -> ProcessIdentity | None:
@@ -855,7 +838,7 @@ def locate_agent_session(
         if session_id is not None:
             if (
                 SessionEvidence(harness or record.harness, session_id).match(
-                    SessionEvidence(record.harness, record.session_id)
+                    record.evidence
                 )
                 != "same"
             ):
@@ -900,7 +883,7 @@ def sessions_at_worktree(
         location
         for _session_id, location in sorted(freshest.items())
         if location.record.outcome not in {"ended", "gone"}
-        and location.worktree.resolve() == target
+        and same_path(location.worktree, target)
     ]
 
 

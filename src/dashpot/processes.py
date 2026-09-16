@@ -18,7 +18,9 @@ from .models import PublishedModel
 ProcessKey = tuple[int, str]
 # Whether the process holding a Worktree lock is still running: the answer the
 # process adapter gives the Git observation of a lock Git reports.
-LockHolder = Literal["live", "gone", "unknown"]
+# A process is live, gone, or could not be observed; unknown is never evidence
+# that it ended.
+ProcessLiveness = Literal["live", "gone", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,14 +107,20 @@ ProcessObservation = ProcessPresent | ProcessAbsent | ProcessUnobservable
 ProcessLookup = Callable[[int], ProcessObservation]
 
 
-def lock_holder_probe(pid: int) -> LockHolder:
-    """Answer a Worktree lock's question about its holder with the host probe."""
-    observed = host_process_lookup(pid)
+def process_liveness(
+    observed: ProcessObservation,
+) -> tuple[ProcessLiveness, str | None]:
+    """Read an observation as live, gone, or unknown with the adapter's reason."""
     if isinstance(observed, ProcessAbsent):
-        return "gone"
+        return "gone", None
     if isinstance(observed, ProcessUnobservable):
-        return "unknown"
-    return "live"
+        return "unknown", observed.reason
+    return "live", None
+
+
+def lock_holder_probe(pid: int) -> ProcessLiveness:
+    """Answer a Worktree lock's question about its holder with the host probe."""
+    return process_liveness(host_process_lookup(pid))[0]
 
 
 def host_process_lookup(pid: int) -> ProcessObservation:

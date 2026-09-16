@@ -21,6 +21,38 @@ from .file_locks import locked_path, prune_lock_file
 TEMPORARY_MAX_AGE_SECONDS = 3600.0
 
 
+def replace_atomically(
+    path: Path, content: str, *, temporary_prefix: str, durable: bool = False
+) -> None:
+    """Write ``content`` beside ``path`` and rename it into place, never partially.
+
+    A ``durable`` write is flushed to disk before the rename and the rename
+    itself is fsynced through the directory entry, so a crash never leaves
+    ``path`` pointing at a partially persisted record; the temporary is
+    named ``<temporary_prefix><random>`` in ``path``'s directory.
+    """
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=temporary_prefix, dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            if durable:
+                stream.flush()
+                os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        if durable:
+            directory_descriptor = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 class LockedRecordStore:
     """Keep keyed JSON records in one directory, replaced atomically under a lock.
 
@@ -56,30 +88,25 @@ class LockedRecordStore:
 
     def replace(self, key: str, record: dict[str, Any]) -> None:
         """Replace the key's record atomically and durably."""
-        destination = self.record_path(key)
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{key}.", dir=self.directory
+        replace_atomically(
+            self.record_path(key),
+            json.dumps(record, indent=2) + "\n",
+            temporary_prefix=f".{key}.",
+            durable=True,
         )
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(descriptor, "w") as stream:
-                json.dump(record, stream, indent=2)
-                stream.write("\n")
-                # Flush to disk before the rename, so a crash never leaves the
-                # destination pointing at a partially persisted record.
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, destination)
-            # The rename itself must also survive a crash, which takes an
-            # fsync of the directory entry, not just the file's contents.
-            directory_descriptor = os.open(self.directory, os.O_RDONLY)
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+
+    def sweep(self) -> None:
+        """Reclaim the store's leftovers without letting cleanup fail a scan.
+
+        Runs stopped before their lock files were reclaimed leave orphaned
+        locks behind; sweep those that guard nothing, and the temporary files
+        a crashed writer never renamed into place.
+        """
+        for key in self.orphaned_locks():
+            with contextlib.suppress(OSError):
+                self.prune_lock(key)
+        with contextlib.suppress(OSError):
+            self.sweep_temporaries()
 
     def prune_lock(self, key: str) -> bool:
         """Delete the key's lock file once no record remains behind it."""

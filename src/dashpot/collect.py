@@ -18,7 +18,6 @@ from .issue_sources import (
     IssueSource,
     IssueSourceDiagnostic,
     IssueSourceObservation,
-    utc_now,
 )
 from .model import (
     AgentRun,
@@ -52,6 +51,7 @@ from .repository import (
 )
 from .source_factories import build_issue_source, build_pull_request_source
 from .source_queries import QuerySource
+from .timestamps import utc_now
 
 WorkspaceAgentObserver = Callable[
     [Mapping[str, Sequence[ObservationTarget]]],

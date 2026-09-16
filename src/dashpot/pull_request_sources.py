@@ -6,8 +6,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .issue_sources import DiagnosticSeverity, utc_now
+from .issue_sources import DiagnosticSeverity
 from .model import PullRequest, SourceStatus
+from .timestamps import utc_now
 
 Clock = Callable[[], str]
 

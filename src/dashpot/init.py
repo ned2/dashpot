@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from .commands import CommandRunner, run_command
 from .git import Git, GitError
@@ -10,6 +10,7 @@ from .github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
 )
+from .models import repository_relative
 from .project_config import PROJECT_CONFIG_NAME
 from .repository import worktree_root
 
@@ -40,9 +41,10 @@ def initialize_project(
         raise RuntimeError(f"already configured: {config_path}")
     reference = github_repo_from_remote(root, adapter)
     if markdown_path is not None:
-        parsed = PurePosixPath(markdown_path)
-        if parsed.is_absolute() or ".." in parsed.parts:
-            raise RuntimeError("--markdown path must be repository-relative")
+        try:
+            repository_relative(markdown_path)
+        except ValueError as exc:
+            raise RuntimeError(f"--markdown path {exc}") from exc
         repository_id = f"repository:{uuid.uuid4()}"
         display_label = root.name
         issue_source: dict[str, str] = {"kind": "markdown", "path": markdown_path}

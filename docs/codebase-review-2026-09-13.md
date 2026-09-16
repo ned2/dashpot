@@ -465,7 +465,12 @@ type-only and documented there rather than broken. Item 4 was delivered by
 one `DashpotApp`, and `tests/app_harness.py` owns the snapshot scheduler.
 Item 5 was delivered by #212 (`run_off_loop`, the Issue table controller),
 #213 (the page and observation runners) and #182 (the Remote Fetch and
-Cleanup flows), each behind a host protocol the app satisfies.
+Cleanup flows), each behind a host protocol the app satisfies. The
+small-helper dedupes of item 6 (finding 6 and the colour tuples of finding 7,
+except the session-label formatting) were delivered by #186: `timestamps.py`
+holds the clock and readers, `repository.same_path` and `worktree_paths` the
+path helpers, `record_store.replace_atomically` the atomic write, one
+`CleanupBlocker` in `worktrees.py`, and `glyphs.py` the Primer palette.
 
 1. **Quick wins with no design decision**: Legend bindings (`app.py:1267`),
    freeze `BranchObservation`,

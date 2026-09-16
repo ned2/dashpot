@@ -6,7 +6,6 @@ import re
 import shlex
 import shutil
 import sysconfig
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +26,7 @@ from .hook_records import (
     validate_session_claim,
 )
 from .processes import ProcessLookup, host_process_lookup
+from .record_store import replace_atomically
 from .repository import main_worktree, worktree_records, worktree_root
 
 HOOK_TIMEOUT = 3
@@ -457,7 +457,12 @@ def _install_issue_work_skill(destination: Path) -> str:
     existed = destination.exists()
     for relative in ISSUE_WORK_SKILL_FILES:
         target = destination / relative
-        _write_text(target, (source / relative).read_text(encoding="utf-8"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        replace_atomically(
+            target,
+            (source / relative).read_text(encoding="utf-8"),
+            temporary_prefix=f".{target.name}.",
+        )
     verb = "updated" if existed else "installed"
     return f"{verb} Dashpot Issue work skill in {destination}"
 
@@ -728,30 +733,6 @@ def _config_toml_coexistence_warning(spec: HarnessIntegration, home: Path) -> li
 
 
 def _write_json(path: Path, document: dict[str, Any]) -> None:
-    handle, temporary_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    replace_atomically(
+        path, json.dumps(document, indent=2) + "\n", temporary_prefix=f".{path.name}."
     )
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(document, stream, indent=2)
-            stream.write("\n")
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
-    )
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            stream.write(content)
-        os.replace(temporary, path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()

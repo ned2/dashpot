@@ -15,10 +15,11 @@ from dashpot.processes import (
     ProcessPresent,
     ProcessUnobservable,
     host_process_lookup,
+    lock_holder_probe,
     namespace_is_isolated,
     observe_agent_ancestry,
 )
-from helpers import absent, table_lookup, unobservable
+from helpers import absent, present, table_lookup, unobservable
 
 
 class ProcessLookupTests(unittest.TestCase):
@@ -337,3 +338,20 @@ class NamespaceIsolationTests(unittest.TestCase):
         root = self.namespace_root(cgroup="12:pids:/docker/0123abc\n")
         (root / "proc" / "1" / "cmdline").unlink()
         self.assertTrue(namespace_is_isolated(root))
+
+
+class LockHolderProbeTests(unittest.TestCase):
+    def test_the_probe_reads_the_host_observation_as_live_gone_or_unknown(
+        self,
+    ) -> None:
+        identity = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+        for lookup, expected in (
+            (present(identity), "live"),
+            (absent(), "gone"),
+            (unobservable("ps-unavailable"), "unknown"),
+        ):
+            with (
+                self.subTest(expected=expected),
+                mock.patch("dashpot.processes.host_process_lookup", lookup),
+            ):
+                self.assertEqual(expected, lock_holder_probe(42))

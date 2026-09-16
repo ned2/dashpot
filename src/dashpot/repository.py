@@ -16,7 +16,8 @@ from .model import (
     RepositoryStateInventory,
     TargetRole,
 )
-from .processes import LockHolder
+from .processes import ProcessLiveness
+from .timestamps import utc_timestamp
 
 # The fields `git for-each-ref` reports per ref; the Git adapter's records()
 # separates them with NUL so a value can never be mistaken for a separator.
@@ -50,9 +51,14 @@ def repository_worktrees(
     a bare entry is not a Worktree. Independent clones are not reached
     ([ADR 0003](../../docs/adr/0003-prefer-project-local-dashpot-state.md)).
     """
+    return worktree_paths(worktree_records(root, timeout=timeout, git=git))
+
+
+def worktree_paths(records: Iterable[Mapping[str, str]]) -> list[Path]:
+    """Resolve every Worktree among Git's records; a bare entry is none."""
     return [
         Path(record["worktree"]).resolve()
-        for record in worktree_records(root, timeout=timeout, git=git)
+        for record in records
         if record.get("worktree") and "bare" not in record
     ]
 
@@ -86,15 +92,15 @@ def main_worktree(records: Sequence[Mapping[str, str]]) -> Path:
 
 
 # Whether the process holding a Worktree lock is still running. Dashpot asks
-# the process adapter through this seam, which answers with its ``LockHolder``;
+# the process adapter through this seam, which answers with its liveness;
 # observing processes is not this module's job, and a lock Git reports is only
 # a fact about one.
-LockHolderProbe = Callable[[int], LockHolder]
+LockHolderProbe = Callable[[int], ProcessLiveness]
 # Every harness that locks a Worktree names the holding process the same way.
 LOCK_HOLDER_PID = re.compile(r"\bpid (\d+)\b")
 
 
-def lock_holder(reason: str, probe: LockHolderProbe | None) -> LockHolder:
+def lock_holder(reason: str, probe: LockHolderProbe | None) -> ProcessLiveness:
     """Whether the process a lock reason names is still running."""
     if probe is None:
         return "unknown"
@@ -455,7 +461,7 @@ def _parse_branch_record(record: tuple[str, ...]) -> Branch | None:
         name=name,
         remote=remote,
         head=head,
-        committed_at=_utc_timestamp(committed_at),
+        committed_at=utc_timestamp(committed_at),
         upstream=upstream or None,
         ahead=ahead,
         behind=behind,
@@ -708,17 +714,6 @@ def _unintegrated_commit_count(
     return count
 
 
-def _utc_timestamp(value: str) -> str:
-    """Normalise Git's offset timestamp to UTC so timestamps sort as text."""
-    try:
-        moment = datetime.fromisoformat(value)
-    except ValueError:
-        return value
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
-    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
 def _parse_upstream_track(track: str) -> tuple[int | None, int | None, bool]:
     """``[ahead 1, behind 2]`` → counts; ``[gone]`` → gone; blank → in sync."""
     if "gone" in track:
@@ -764,4 +759,12 @@ def is_within(path: Path, parent: Path) -> bool:
         path.relative_to(parent)
         return True
     except ValueError:
+        return False
+
+
+def same_path(candidate: Path, expected: Path) -> bool:
+    """Tell whether two paths name one place; a persisted path may not resolve."""
+    try:
+        return candidate.resolve() == expected.resolve()
+    except (OSError, RuntimeError, ValueError):
         return False

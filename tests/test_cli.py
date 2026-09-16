@@ -36,7 +36,7 @@ from dashpot.model import (
 )
 from dashpot.processes import AgentAncestry, ProcessIdentity
 from dashpot.workspace import WorkspaceInventory, WorkspaceResolution
-from dashpot.worktrees import RemovalObstacle, WorktreePlan, WorktreeRemovability
+from dashpot.worktrees import CleanupBlocker, WorktreePlan, WorktreeRemovability
 from factories import git, write_config_marker
 from helpers import issue_payload
 
@@ -714,7 +714,7 @@ def test_worktree_check_dispatches_and_prints_the_report(
         role="linked",
         removable=False,
         obstacles=(
-            RemovalObstacle(
+            CleanupBlocker(
                 kind="dirty",
                 detail="1 changed path",
                 command="git worktree remove --force /w/x",
@@ -755,7 +755,7 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
             removable=removable,
             obstacles=()
             if removable
-            else (RemovalObstacle(kind="dirty", detail="1 changed path"),),
+            else (CleanupBlocker(kind="dirty", detail="1 changed path"),),
             remove_commands=(f"git worktree remove {path}",),
         )
 
