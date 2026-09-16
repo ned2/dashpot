@@ -104,7 +104,9 @@ class IssueScreen(Screen[None]):
         """Recompose the view and give the new panes the chrome the old ones had."""
         focused = self.focused.id if self.focused is not None else None
         await super().recompose()
-        # The base recompose is a no-op on a detached screen, so is this.
+        # The base recompose is a no-op on a detached screen, so is this. It
+        # also skips a screen being pruned, which is private state; a
+        # projection landing in that instant finds the panes still mounted.
         if not self.is_attached:
             return
         self.dress_panes()

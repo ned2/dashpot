@@ -657,8 +657,9 @@ def pane_title(node: DOMNode, selector: str) -> str:
     return title.plain
 
 
-def pane_subtitle(app: DashpotApp, selector: str) -> str:
-    subtitle = app.query_one(selector)._border_subtitle
+def pane_subtitle(node: DOMNode, selector: str) -> str:
+    """The border subtitle of the pane ``selector`` names under ``node``, as plain text."""
+    subtitle = node.query_one(selector)._border_subtitle
     assert subtitle is not None
     return subtitle.plain
 

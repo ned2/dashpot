@@ -491,7 +491,7 @@ async def test_a_newer_projection_keeps_the_pane_a_person_is_reading() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_newer_projection_after_the_view_closed_is_a_no_op() -> None:
+async def test_a_recompose_after_the_view_closed_is_a_no_op() -> None:
     app = _issue_view_app(issue("test/repo#1", "First"))
 
     async with app.run_test(size=(120, 36)) as pilot:

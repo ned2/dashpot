@@ -3,7 +3,7 @@
 Everything here turns an Issue Profile fact into what a cell shows — a
 coloured state block, a label chip, a date. A plain text value is a ``str``;
 a Rich cell carries its style, and where the text alone would not say what
-it shows — a state block, a priority chip, label chips — the typed fact
+it shows — an Issue state block, a priority chip, label chips — the typed fact
 beside it. Nothing here orders rows: the source orders every Query Page.
 The column catalogue and the view state that arrange these cells live in
 ``issue_table``.
