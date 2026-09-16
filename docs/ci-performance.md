@@ -34,6 +34,8 @@ uv run pytest -q -n 2 --dist=load --max-worker-restart=0
 
 Each worker has its own Python process and runs its assigned tests sequentially.
 Start with two workers; more processes may increase contention rather than speed.
+Four workers failed a layout-readiness assertion on the measured Debian runner,
+so CI uses two; higher local counts require validation on that machine.
 Serial execution remains `uv run pytest -q`, or `-n 0` when overriding a parallel
 command. Keep interactive debugging serial.
 
@@ -71,16 +73,44 @@ executed/missing lines as well as counts; timing-dependent paths can vary, so
 unexplained differences require investigation.
 
 Manual CI dispatch accepts `test-workers` for ordinary full-matrix comparisons.
-Its optional `benchmark` input runs the repeated comparison on macOS's minimum
+Its optional `benchmark` input compares serial execution with `test-workers`
+(two by default), three times each, on macOS's minimum
 Python, Ubuntu/Python 3.14 with coverage, and Debian minimum-Git. Remaining jobs
 retain full verification. Benchmark logs, JUnit reports, and coverage reports are
 uploaded as artifacts, including on failure. Python 3.14 coverage diagnostics
 include process IDs so worker SysMonitor evidence remains attributable.
 
+The local helper defaults to evaluating all three counts. Hosted benchmarking
+uses the selected count so an unsuitable candidate need not interrupt repeated
+validation of the chosen configuration. Selecting zero measures serial only.
+
 Measure whole-job and aggregate-gate time too: setup, runner scheduling, and the
 slowest required job determine how long a person waits. The target for this
 change is a 25% reduction in median full-gate time, with unchanged verification
 and no new intermittent failures. It is an evaluation target, not a guarantee.
+
+## Measured results
+
+At revision `f75abdc344497ee9afc5c6598a93e4cb3bdd3ead`, local Python 3.14.7 coverage
+runs on an Intel Core i9-13900K (32 logical CPUs, Linux) produced:
+
+| Workers | Three full-suite times (seconds) | Median | Reduction from serial |
+| --- | --- | --- | --- |
+| 0 | 201.02, 203.30, 206.67 | 203.30 | — |
+| 2 | 116.40, 114.98, 116.72 | 116.40 | 42.7% |
+| 4 | 80.63, 83.03, 80.89 | 80.89 | 60.2% |
+
+Each run passed 1,532 tests and 159 subtests. These are elapsed process times,
+including coverage, rather than pytest's slightly shorter internal duration.
+
+The [hosted candidate comparison](https://github.com/ned2/dashpot/actions/runs/35120362971)
+rejected four workers on Debian: serial and two workers passed in 330.42 and
+213.13 seconds; four workers failed the refresh indicator's layout-readiness
+assertion. Explicitly holding the fake source until release removes its separate
+two-second lifetime race, but did not resolve this four-worker rendering failure.
+The test retains its assertions and 1.5-second readiness deadline. Deeper
+four-worker rendering diagnosis is deferred; two workers are the CI candidate,
+and local four-worker success does not establish hosted reliability.
 
 ## UI profiling
 
@@ -106,7 +136,6 @@ weaken synchronization. Tooltip tests already shorten the production tooltip
 delay to 10 ms. Lowering timeout ceilings would not accelerate successful
 condition-based waits. Replacing stylesheet processing or sharing mutable
 applications across tests is not justified by this profile.
-
 
 The dashboard harness disables optional animations through Textual's public
 `animation_level` setting. These tests assert settled state and layout, rather

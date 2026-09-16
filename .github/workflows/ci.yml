@@ -11,7 +11,7 @@ on:
         options: ["0", "2", "4"]
         default: "2"
       benchmark:
-        description: Compare serial, two and four workers three times on representative runners
+        description: Compare serial and test-workers three times on representative runners
         type: boolean
         default: false
   workflow_call:
@@ -166,7 +166,9 @@ jobs:
         run: |
           coverage_args=()
           if [ "$BENCHMARK_COVERAGE" = true ]; then coverage_args=(--coverage); fi
-          uv run python scripts/benchmark_tests.py --output .review-coverage/benchmark "${coverage_args[@]}"
+          workers=(0)
+          if [ "$TEST_WORKERS" != 0 ]; then workers+=("$TEST_WORKERS"); fi
+          uv run python scripts/benchmark_tests.py --output .review-coverage/benchmark --workers "${workers[@]}" "${coverage_args[@]}"
       - name: Upload benchmark evidence
         if: always() && env.BENCHMARK == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -311,7 +313,12 @@ jobs:
 
       - name: Benchmark serial and parallel tests against Debian Git
         if: inputs.benchmark
-        run: uv run python scripts/benchmark_tests.py --output .review-coverage/benchmark
+        run: |
+          if [ "$TEST_WORKERS" = 0 ]; then
+            uv run python scripts/benchmark_tests.py --output .review-coverage/benchmark --workers 0
+          else
+            uv run python scripts/benchmark_tests.py --output .review-coverage/benchmark --workers 0 "$TEST_WORKERS"
+          fi
       - name: Upload benchmark evidence
         if: always() && inputs.benchmark
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
