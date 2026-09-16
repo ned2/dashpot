@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from dashpot.file_locks import locked_path, prune_lock_file
+from dashpot.core.file_locks import locked_path, prune_lock_file
 
 
 def test_lock_file_is_created_and_kept_by_the_holder(tmp_path: Path) -> None:

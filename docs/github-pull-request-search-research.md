@@ -13,7 +13,7 @@ review-decision, check-status, mergeability, and creation/update facts; it lacks
 body/comments, labels, assignees, reviewer identities, teams, reactions,
 milestones, Projects, and close/merge dates. Local matching can offer a declared
 subset, but cannot reproduce all operators or GitHub's relevance ordering.
-This is an implementation inference from [the model](../src/dashpot/model.py)
+This is an implementation inference from [the model](../src/dashpot/core/model.py)
 and the operator inventory below.
 
 ## Operator inventory

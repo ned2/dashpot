@@ -2,7 +2,7 @@
 
 This contract defines the complete, source-neutral Issue snapshot that every
 Dashpot Issue Source must produce. The JSON Schema describes its shape;
-`dashpot.issue_profile` owns validation and collection canonicalization, and
+`dashpot.core.issue_profile` owns validation and collection canonicalization, and
 the test suite checks semantic equivalence against the fixtures.
 
 ## Complete snapshots
@@ -91,7 +91,7 @@ The raw Local Markdown input fixture lives at
 Adapters conform when they produce these outputs from their corresponding raw
 source fixtures. The schema stays hand-maintained and authoritative;
 `tests/test_issue_schema_agreement.py` runs a shared corpus of valid and
-invalid cases through both the schema and the `dashpot.issue_profile` model,
+invalid cases through both the schema and the `dashpot.core.issue_profile` model,
 so drift between the two authorities is a test failure, and records the rules
 the model enforces that JSON Schema cannot express (self-reference,
 calendar-valid dates, canonical collection order). Raw transport and Markdown parsing fixtures belong to the

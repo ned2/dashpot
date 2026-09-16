@@ -11,9 +11,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+from .core.model import (
+    ProjectObservation,
+    PullRequest,
+    SourceStatus,
+    WorkspaceSnapshot,
+)
 from .issue_list import row_key
-from .model import ProjectObservation, PullRequest, SourceStatus, WorkspaceSnapshot
-from .pull_request_search import PullRequestQualifier, parse_pull_request_search
+from .issues.pull_request_search import (
+    PullRequestQualifier,
+    parse_pull_request_search,
+)
 
 PullRequestLifecycle = Literal["open", "closed"]
 

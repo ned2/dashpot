@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from dashpot.ages import relative_age
+from dashpot.core.ages import relative_age
 
 NOW = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
 

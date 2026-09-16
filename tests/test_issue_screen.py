@@ -31,10 +31,11 @@ from app_harness import (
 from dashpot import session_cells
 from dashpot.app import DashpotApp
 from dashpot.column_editor import IssueColumnEditor
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
 from dashpot.detail_fields import DetailFields, detail_items_text
 from dashpot.issue_cells import IssueStateCell
 from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
-from dashpot.issue_profile import IssueProfile
 from dashpot.issue_view import (
     IssueScreen,
     issue_byline,
@@ -43,7 +44,6 @@ from dashpot.issue_view import (
     issue_state_class,
 )
 from dashpot.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
-from dashpot.model import AgentRun, IssueActivity, LinkedPullRequest
 from helpers import wait_until
 
 

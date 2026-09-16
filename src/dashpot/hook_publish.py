@@ -6,20 +6,23 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .core.json_records import optional_string
 from .hook_records import (
     build_hook_record,
     session_directory,
     state_directory,
     write_hook_record,
 )
-from .json_records import optional_string
 from .processes import (
     ProcessIdentity,
     ProcessLookup,
     host_process_lookup,
     observe_agent_ancestry,
 )
-from .work_reconciliation import complete_session_work_relocation, end_session_work
+from .work_reconciliation import (
+    complete_session_work_relocation,
+    end_session_work,
+)
 
 
 def route_record_directory(record: Mapping[str, Any]) -> Path:

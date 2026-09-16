@@ -5,8 +5,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .errors import DashpotError
-from .git import Git
+from .core.errors import DashpotError
+from .core.git import Git
+from .core.model import Diagnostic
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
@@ -15,10 +16,13 @@ from .harnesses import (
     override_claim,
 )
 from .hook_claims import ValidatedSessionIdentity, validate_session_claim
-from .hook_scan import SessionLocation, locate_agent_session, reachable_hook_stores
-from .issue_resolution import resolve_issue
+from .hook_scan import (
+    SessionLocation,
+    locate_agent_session,
+    reachable_hook_stores,
+)
+from .issues.issue_resolution import resolve_issue
 from .liveness import session_liveness
-from .model import Diagnostic
 from .processes import (
     ProcessIdentity,
     ProcessKey,

@@ -11,9 +11,9 @@ from unittest import mock
 from typing_extensions import override
 
 from dashpot.agents import observe_agent_runs
+from dashpot.core.model import ObservationTarget
 from dashpot.hook_publish import publish_hook_event
 from dashpot.hook_records import HookRecordStore, session_directory, write_hook_record
-from dashpot.model import ObservationTarget
 from dashpot.processes import AgentAncestry, ProcessIdentity, SessionProcessRecord
 from dashpot.timestamps import utc_now
 from factories import hook_record_document, observation_target, write_config_marker

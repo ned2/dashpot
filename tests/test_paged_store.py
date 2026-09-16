@@ -8,9 +8,9 @@ from app_harness import (
     with_first_project,
     workspace_snapshot,
 )
-from dashpot.model import WorkspaceSnapshot
+from dashpot.core.model import WorkspaceSnapshot
 from dashpot.paged_store import PagedObservationStore
-from dashpot.source_queries import QueryPage, QueryRequest
+from dashpot.queries.source_queries import QueryPage, QueryRequest
 from helpers import snapshot_of
 
 

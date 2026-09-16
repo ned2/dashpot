@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .commands import CommandRunner, run_command
-from .errors import DashpotError
+from ..core.commands import CommandRunner, run_command
+from ..core.errors import DashpotError
 
 # Every GraphQL query Dashpot sends carries this selection beside its data,
 # so the rate limit is observed on the way rather than asked for separately.

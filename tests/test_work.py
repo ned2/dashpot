@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 
 from dashpot.agents import observe_agent_runs
-from dashpot.errors import DashpotError
+from dashpot.core.errors import DashpotError
+from dashpot.core.model import ObservationTarget
 from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
 from dashpot.hook_publish import publish_hook_event
 from dashpot.hook_records import session_directory, state_directory
-from dashpot.model import ObservationTarget
 from dashpot.processes import ProcessIdentity, ProcessLookup, ProcessPresent
 from dashpot.work import (
     identify_agent_session,

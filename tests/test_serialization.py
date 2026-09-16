@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashpot.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
+from dashpot.core.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
 from dashpot.serialization import (
     issue_document,
     removability_document,

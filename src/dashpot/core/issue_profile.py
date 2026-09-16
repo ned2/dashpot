@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 from .errors import DashpotError
-from .models import (
+from .pydantic import (
     NonEmptyString,
     PublishedModel,
     RepositoryRelativePath,

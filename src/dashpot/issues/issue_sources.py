@@ -6,10 +6,10 @@ from dataclasses import dataclass, field, replace
 
 from typing_extensions import override
 
-from .issue_profile import IssueProfile, issue_location
-from .model import Diagnostic, IssueActivity, SourceStatus
-from .models import FrozenDict
-from .retaining_source import RetainingSource, SourceRefreshError
+from ..core.issue_profile import IssueProfile, issue_location
+from ..core.model import Diagnostic, IssueActivity, SourceStatus
+from ..core.pydantic import FrozenDict
+from ..retaining_source import RetainingSource, SourceRefreshError
 
 
 @dataclass(frozen=True, slots=True)

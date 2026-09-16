@@ -10,7 +10,20 @@ from typing import Any
 
 from typing_extensions import override
 
-from .commands import CommandRunner, run_command
+from ..core.commands import CommandRunner, run_command
+from ..core.issue_profile import (
+    IssueProfile,
+    IssueProfileError,
+    conform_issue,
+)
+from ..core.model import Diagnostic, IssueActivity, LinkedPullRequest
+from ..issues.issue_sources import (
+    CollectedIssues,
+    IssueHint,
+    IssueSource,
+    IssueSourceRefreshError,
+)
+from ..retaining_source import Clock
 from .github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,
@@ -24,19 +37,6 @@ from .github import (
     RefreshMeter,
 )
 from .github_wire import ISSUE_NODE_FIELDS, PULL_REQUEST_STATES
-from .issue_profile import (
-    IssueProfile,
-    IssueProfileError,
-    conform_issue,
-)
-from .issue_sources import (
-    CollectedIssues,
-    IssueHint,
-    IssueSource,
-    IssueSourceRefreshError,
-)
-from .model import Diagnostic, IssueActivity, LinkedPullRequest
-from .retaining_source import Clock
 
 _PAGE_SIZE = 100
 

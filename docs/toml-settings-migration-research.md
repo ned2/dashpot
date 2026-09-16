@@ -30,13 +30,13 @@ reader, merge policy, compatibility aliases, or automatic conversion is needed.
 
 ## Current repository facts
 
-The settings boundary is [settings.py](../src/dashpot/settings.py). Its file
+The settings boundary is [settings.py](../src/dashpot/project/settings.py). Its file
 model currently has one known setting, `worktreeRoot`; its resolved value is
 `Settings.worktree_root`. An absent file gives defaults. Invalid JSON, unreadable
 files, and invalid known values cause a `RuntimeError`. Unknown fields produce
 a `settings-unknown-field` Diagnostic while valid known fields remain usable.
 
-The shared model in [models.py](../src/dashpot/models.py) uses strict validation,
+The shared model in [models.py](../src/dashpot/core/pydantic.py) uses strict validation,
 camelCase aliases, and `populate_by_name=True`. Consequently, the loader also
 accepts the Python spelling `worktree_root`. Unknown fields are retained in the
 intermediate file model and reported, not rewritten to disk. `worktreeRoot`
@@ -62,8 +62,8 @@ The files with similar names have separate contracts:
 The public `--config` option selects the Workspace inventory file; it does not
 select machine-local settings. Naming the new file `config.toml` must not
 silently repurpose that option. Relevant boundaries are
-[workspace.py](../src/dashpot/workspace.py),
-[project_config.py](../src/dashpot/project_config.py),
+[workspace.py](../src/dashpot/project/workspace.py),
+[project_config.py](../src/dashpot/project/project_config.py),
 [cli.py](../src/dashpot/cli.py), and [integrate.py](../src/dashpot/integrate.py).
 
 ## Parser, validation, and dependencies
@@ -214,7 +214,7 @@ are unnecessary for either change.
 
 | Area | Required follow-up when implementing |
 | --- | --- |
-| [settings.py](../src/dashpot/settings.py) | Filename, TOML parser, normalized errors, diagnostics, settings-local alias policy |
+| [settings.py](../src/dashpot/project/settings.py) | Filename, TOML parser, normalized errors, diagnostics, settings-local alias policy |
 | [test_settings.py](../tests/test_settings.py) | TOML fixtures and format behavior |
 | [test_worktrees.py](../tests/test_worktrees.py) | Settings diagnostic source fixture and unchanged root precedence |
 | [cli.py](../src/dashpot/cli.py) | Keep Workspace `--config` meaning; adjust help only if setting names change |

@@ -73,13 +73,13 @@ from .observation_runner import (
     FailedObservation,
     ObservationRunner,
 )
-from .page_navigation import totals_text
 from .page_runner import PageRunner
 from .paged_store import PagedObservationStore
 from .pane_layout import fit_panes, pane_wish
 from .panes import LIST_PANE_SPECS, PaneContext
 from .pull_request_list import DEFAULT_PULL_REQUEST_QUERY, PullRequestListQuery
-from .source_queries import QuerySource, ResolvedIssue, ResourceKind
+from .queries.page_navigation import totals_text
+from .queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
 from .spread_table import SpreadTable
 from .worktree_launcher import LauncherConfiguration
 from .worktree_table import WorktreeTable

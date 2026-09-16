@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.commands import CommandResult
-from dashpot.git import Git, GitError
+from dashpot.core.commands import CommandResult
+from dashpot.core.git import Git, GitError
 from factories import SequenceRunner, completed
 
 

@@ -13,7 +13,7 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.model import RepositoryStateInventory
+from dashpot.core.model import RepositoryStateInventory
 from dashpot.worktree_launcher import LauncherConfiguration, configure_worktree_launcher
 from dashpot.worktree_table import WorktreeTable
 from factories import target

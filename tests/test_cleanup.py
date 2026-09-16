@@ -25,8 +25,8 @@ from dashpot.cleanup import (
     inspect_cleanup,
     perform_cleanup,
 )
-from dashpot.commands import CommandResult, run_command
-from dashpot.git import Git, GitError
+from dashpot.core.commands import CommandResult, run_command
+from dashpot.core.git import Git, GitError
 from dashpot.hook_records import session_directory, write_hook_record
 from dashpot.processes import ProcessIdentity, ProcessLookup, host_process_lookup
 from dashpot.repository import LockHolderProbe

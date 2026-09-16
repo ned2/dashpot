@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dashpot.json_records import optional_string, require_string
+from dashpot.core.json_records import optional_string, require_string
 
 
 def test_a_missing_hook_input_string_names_the_input() -> None:

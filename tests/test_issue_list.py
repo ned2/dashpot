@@ -8,6 +8,12 @@ import pytest
 
 import factories
 from app_harness import with_first_project_snapshot
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.core.model import (
+    AgentRun,
+    IssueActivity,
+    WorkspaceSnapshot,
+)
 from dashpot.issue_list import (
     ISSUE_SORT_COLUMNS,
     IssueListQuery,
@@ -20,14 +26,8 @@ from dashpot.issue_list import (
     query_issue_list,
     sort_issue_rows,
 )
-from dashpot.issue_profile import IssueProfile
 from dashpot.issue_table import COLUMN_SPECS
-from dashpot.model import (
-    AgentRun,
-    IssueActivity,
-    WorkspaceSnapshot,
-)
-from dashpot.source_queries import AuxiliaryObservation
+from dashpot.queries.source_queries import AuxiliaryObservation
 from helpers import make_issue
 
 NOW = "2026-08-27T00:00:00Z"

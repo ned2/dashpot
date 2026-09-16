@@ -42,9 +42,9 @@ from dashpot.cleanup_flow import (
     cleanup_result_line,
     cleanup_summary,
 )
+from dashpot.core.model import Branch, WorkspaceSnapshot
 from dashpot.fetch_flow import RemoteFetchFlow
 from dashpot.messages import CleanupFinished, CleanupInspected
-from dashpot.model import Branch, WorkspaceSnapshot
 from dashpot.observation_runner import ObservationRunner
 from dashpot.paged_store import PagedObservationStore
 from test_fetch_flow import FakeHost as FetchHost

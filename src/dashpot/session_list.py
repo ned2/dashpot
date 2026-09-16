@@ -14,10 +14,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .core.issue_profile import IssueProfile
+from .core.model import AgentRun, ProjectObservation, WorkspaceSnapshot
 from .glyphs import SESSION_STATE_ORDER
 from .issue_list import row_key
-from .issue_profile import IssueProfile
-from .model import AgentRun, ProjectObservation, WorkspaceSnapshot
 
 HARNESS_LABELS = {"codex": "Codex", "claude-code": "Claude Code"}
 STATE_ORDER = SESSION_STATE_ORDER

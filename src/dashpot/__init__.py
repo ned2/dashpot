@@ -1,7 +1,7 @@
 """Useful damping for agent-driven projects."""
 
-from .issue_profile import IssueProfile
-from .model import (
+from .core.issue_profile import IssueProfile
+from .core.model import (
     AgentRun,
     Diagnostic,
     ObservationTarget,

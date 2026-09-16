@@ -28,8 +28,13 @@ from .cleanup import (
 )
 from .collect import ObservationOutcome, ObservationTicket
 from .fetch import FetchReport
-from .page_navigation import PageTicket
-from .source_queries import ProjectTotals, QueryPage, ResolvedIssue, ResourceKind
+from .queries.page_navigation import PageTicket
+from .queries.source_queries import (
+    ProjectTotals,
+    QueryPage,
+    ResolvedIssue,
+    ResourceKind,
+)
 
 T = TypeVar("T")
 

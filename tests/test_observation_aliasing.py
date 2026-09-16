@@ -13,13 +13,13 @@ from pydantic import ValidationError
 from typing_extensions import override
 
 import factories
-from dashpot.issue_profile import IssueProfile
-from dashpot.issue_sources import (
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.core.model import IssueActivity, WorkspaceSnapshot
+from dashpot.issues.issue_sources import (
     CollectedIssues,
     IssueSource,
     IssueSourceRefreshError,
 )
-from dashpot.model import IssueActivity, WorkspaceSnapshot
 from dashpot.observation_store import WorkspaceObservationStore
 from factories import agent_run, project, workspace
 from helpers import make_issue, required, snapshot_of

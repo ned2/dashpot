@@ -8,20 +8,23 @@ import pytest
 from pydantic import ValidationError
 
 from dashpot.collect import create_project_collector
-from dashpot.github_issues import GitHubIssuesSource
-from dashpot.github_pull_requests import GitHubPullRequestsSource
-from dashpot.issue_resolution import configured_issue_source
-from dashpot.local_markdown_issues import LocalMarkdownIssuesSource
-from dashpot.model import ResolvedProject
-from dashpot.project_config import (
+from dashpot.github.github_issues import GitHubIssuesSource
+from dashpot.github.github_pull_requests import GitHubPullRequestsSource
+from dashpot.issues.issue_resolution import configured_issue_source
+from dashpot.issues.local_markdown_issues import LocalMarkdownIssuesSource
+from dashpot.issues.pull_request_sources import UnconfiguredPullRequestSource
+from dashpot.issues.source_factories import (
+    build_issue_source,
+    build_pull_request_source,
+)
+from dashpot.project.project_config import (
     PROJECT_CONFIG_NAME,
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
     load_project_config,
     parse_project_config,
 )
-from dashpot.pull_request_sources import UnconfiguredPullRequestSource
-from dashpot.source_factories import build_issue_source, build_pull_request_source
+from dashpot.project.workspace import ResolvedProject
 from factories import completed, fake_git, init_repository, write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"

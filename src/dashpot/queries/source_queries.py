@@ -11,16 +11,16 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import ConfigDict, Field, model_validator
 
-from .errors import DashpotError
-from .issue_profile import IssueProfile
-from .model import (
+from ..core.errors import DashpotError
+from ..core.issue_profile import IssueProfile
+from ..core.model import (
     Diagnostic,
     IssueActivity,
     ObservationModel,
     PullRequest,
     SourceStatus,
 )
-from .models import (
+from ..core.pydantic import (
     FrozenMapping,
     LaxSequence,
     NonEmptyString,

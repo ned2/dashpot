@@ -11,10 +11,16 @@ from pathlib import Path
 
 from rich.text import Text
 
-from .ages import relative_age
+from .core.ages import relative_age
+from .core.model import AgentRun, RunState
 from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_WIDTH, SESSION_STATE_GLYPHS
-from .list_rows import ListCell, ListColumn, ListRow, truncate_end, truncate_start
-from .model import AgentRun, RunState
+from .list_rows import (
+    ListCell,
+    ListColumn,
+    ListRow,
+    truncate_end,
+    truncate_start,
+)
 from .session_list import (
     HARNESS_LABELS,
     OUTSIDE_PROJECT_TEXT,

@@ -38,7 +38,7 @@ async def check_tui(root: Path) -> None:
         create_collector,
         create_query_sources,
     )
-    from dashpot.model import RepositoryAnchor, Workspace
+    from dashpot.project.workspace import RepositoryAnchor, Workspace
 
     for size in ((60, 20), (120, 40)):
         collector = create_collector(

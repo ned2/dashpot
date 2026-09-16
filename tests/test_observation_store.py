@@ -6,9 +6,8 @@ import pydantic
 import pytest
 
 import factories
-from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
-from dashpot.issue_profile import IssueProfile
-from dashpot.model import (
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.core.model import (
     AgentRun,
     Branch,
     Diagnostic,
@@ -16,6 +15,7 @@ from dashpot.model import (
     ProjectObservation,
     SourceStatus,
 )
+from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.serialization import snapshot_document
 from factories import NOW, workspace

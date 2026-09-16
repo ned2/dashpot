@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Annotated, Literal
 
 from pydantic import Field
 
 from .issue_profile import IssueProfile
-from .models import (
+from .pydantic import (
     FrozenMapping,
     LaxSequence,
     NonEmptyString,
@@ -206,27 +205,6 @@ class ProjectSnapshot(ObservationModel):
     fetched_at: str | None = None
     integration_ref: str | None = None
     branch_anchor: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RepositoryAnchor:
-    path: str
-
-
-@dataclass(frozen=True, slots=True)
-class Workspace:
-    name: str
-    anchors: tuple[RepositoryAnchor, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedProject:
-    project_id: str
-    display_label: str
-    repository_id: str
-    workspaces: tuple[str, ...]
-    anchors: tuple[str, ...]
-    primary_anchor: str
 
 
 class ProjectObservation(ObservationModel):

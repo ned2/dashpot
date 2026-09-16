@@ -9,9 +9,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .commands import CommandResult, CommandRunner
-from .model import Diagnostic
-from .settings import WORKTREE_PATH_ARGUMENT, default_settings_path, load_settings
+from .core.commands import CommandResult, CommandRunner
+from .core.model import Diagnostic
+from .project.settings import (
+    WORKTREE_PATH_ARGUMENT,
+    default_settings_path,
+    load_settings,
+)
 
 WorktreeOpener = Callable[[Path], None]
 

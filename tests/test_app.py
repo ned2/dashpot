@@ -33,11 +33,11 @@ from app_harness import (
 )
 from dashpot.app import DashboardScreen, DashpotApp
 from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
+from dashpot.core.model import AgentRun, Diagnostic, WorkspaceSnapshot
 from dashpot.issue_list import row_key
 from dashpot.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.issue_view import selection_title
 from dashpot.messages import ObservationFinished, ObservationTrigger
-from dashpot.model import AgentRun, Diagnostic, WorkspaceSnapshot
 from helpers import snapshot_of, wait_until
 
 
@@ -904,7 +904,7 @@ async def test_refresh_fans_out_to_every_project(
 async def test_one_failed_observation_kind_does_not_hide_the_other(
     tmp_path: Path,
 ) -> None:
-    from dashpot.issue_sources import IssueSourceRefreshError
+    from dashpot.issues.issue_sources import IssueSourceRefreshError
 
     app, collectors = coordinated_app(tmp_path)
 

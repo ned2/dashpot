@@ -3,8 +3,8 @@ from dataclasses import replace
 import pytest
 
 from app_harness import issue
+from dashpot.core.model import AgentRun
 from dashpot.issue_list import IssueListQuery
-from dashpot.model import AgentRun
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.related_rows import query_related_rows
 from factories import agent_run, project, target, workspace

@@ -6,8 +6,8 @@ from typing import Any
 
 from pydantic import Field
 
-from .model import PullRequestState
-from .models import LaxSequence, NonEmptyString, WireModel
+from ..core.model import PullRequestState
+from ..core.pydantic import LaxSequence, NonEmptyString, WireModel
 
 
 class Identity(WireModel):

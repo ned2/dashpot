@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.settings import Settings, default_settings_path, load_settings
+from dashpot.project.settings import Settings, default_settings_path, load_settings
 
 
 def test_absent_settings_are_the_defaults(tmp_path: Path) -> None:

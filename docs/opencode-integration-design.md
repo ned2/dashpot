@@ -162,7 +162,7 @@ For an initial storage implementation, use one versioned evidence document per
 backend/plugin-location association, containing its generations and session
 entries. Registration, retirement, bootstrap, and each activity
 update then require one atomic replacement. This is a concrete way to reuse
-[LockedRecordStore](../src/dashpot/record_store.py), not a requirement that all
+[LockedRecordStore](../src/dashpot/core/record_store.py), not a requirement that all
 future evidence remain in one JSON document. Measure the cost of rewriting it
 before choosing release limits; split records only with an explicit crash
 protocol, not an assumption that several renames form one transaction.
@@ -219,10 +219,10 @@ permanently unobservable backends is a known storage cost.
 
 ### Atomicity, concurrency and lock ordering
 
-The current [record store](../src/dashpot/record_store.py) durably replaces one
+The current [record store](../src/dashpot/core/record_store.py) durably replaces one
 file: fsync the temporary, rename, then fsync its directory. Its separate keys
 and separate Worktree stores are not a repository-wide transaction. The current
-[file lock](../src/dashpot/file_locks.py) also waits without a deadline. Both
+[file lock](../src/dashpot/core/file_locks.py) also waits without a deadline. Both
 facts matter to this proposal.
 
 Recommend one OpenCode coordination lock for each local Git Repository, shared
@@ -522,7 +522,7 @@ proposed. The following separates the completed correction from that future work
 | [agents.py](../src/dashpot/agents.py): `run_identities` | Conflict detection uses harness-scoped native identity; shared processes do not make named runs duplicates |
 | [hook_scan.py](../src/dashpot/hook_scan.py): `locate_agent_session`; [hook_records.py](../src/dashpot/hook_records.py): `HookRecordStore` | Named lookup validates full identity; colliding native labels across harnesses use separate checked filenames. A publisher generation ordering contract remains proposed |
 | [work_store.py](../src/dashpot/work_store.py): `end_session_runs`, `replace_current`, `stop_current` | SessionEnd matches native identity and runtime; replacement and deletion compare expected state under lock. Reuse this conditional mutation seam for future retryable end reconciliation |
-| [record_store.py](../src/dashpot/record_store.py): `LockedRecordStore.replace`, `locked` | One-file durable replacement is reusable; repository coordination and deadline-aware acquisition remain additional requirements |
+| [record_store.py](../src/dashpot/core/record_store.py): `LockedRecordStore.replace`, `locked` | One-file durable replacement is reusable; repository coordination and deadline-aware acquisition remain additional requirements |
 | [liveness.py](../src/dashpot/liveness.py): `session_liveness`, `LivenessProbe` | Reuse PID/start-time proof and per-pass memoization; unknown never authorizes takeover or orphan recovery |
 | [harnesses.py](../src/dashpot/harnesses.py) | Reuse native-identity requirements without treating backend recognition as session identification |
 | [integrate.py](../src/dashpot/integrate.py) | Add managed OpenCode plugin installation/status/removal without assuming every harness uses hook JSON |

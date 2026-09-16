@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .commands import CommandRunner, run_command
-from .git import Git
+from ..core.commands import CommandRunner, run_command
+from ..core.git import Git
 from .github import NOT_FOUND, GitHubGateway, GitHubRequestError
 
 

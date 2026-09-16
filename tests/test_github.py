@@ -7,8 +7,8 @@ import threading
 import unittest
 from pathlib import Path
 
-from dashpot.commands import CommandResult
-from dashpot.github import (
+from dashpot.core.commands import CommandResult
+from dashpot.github.github import (
     CursorTrail,
     GitHubGateway,
     GitHubRequestError,

@@ -1,7 +1,7 @@
 """Check accepted history and generation behavior without remote requests."""
 
-from dashpot.page_navigation import PageNavigation
-from dashpot.source_queries import QueryRequest
+from dashpot.queries.page_navigation import PageNavigation
+from dashpot.queries.source_queries import QueryRequest
 from test_source_queries import markdown
 
 

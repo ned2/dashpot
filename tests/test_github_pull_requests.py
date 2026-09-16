@@ -10,12 +10,12 @@ from typing import Any
 
 import pytest
 
-from dashpot.github import RefreshBudget
-from dashpot.github_pull_requests import (
+from dashpot.github.github import RefreshBudget
+from dashpot.github.github_pull_requests import (
     GitHubPullRequestsSource,
     normalize_github_pull_request,
 )
-from dashpot.pull_request_sources import PullRequestSourceRefreshError
+from dashpot.issues.pull_request_sources import PullRequestSourceRefreshError
 from factories import SequenceRunner, completed
 
 NOW = "2026-09-04T04:00:00Z"
@@ -354,7 +354,7 @@ def test_failure_on_closed_history_page_retains_all_lifecycles_and_recovers() ->
 
 
 def test_pull_request_refresh_errors_follow_the_cli_domain_contract() -> None:
-    from dashpot.errors import DashpotError
+    from dashpot.core.errors import DashpotError
 
     with pytest.raises(DashpotError, match="GitHub Pull Request is malformed"):
         normalize_github_pull_request({})

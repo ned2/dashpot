@@ -154,7 +154,7 @@ The conventions the tooling enforces or the code assumes:
   with no blanket `type: ignore` — an ignore names its rule and says why.
 - Values at validating seams — untrusted input, persisted state, published
   wire shapes — are Pydantic models on the shared base in
-  `src/dashpot/models.py`
+  `src/dashpot/core/pydantic.py`
   ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)). GitHub response
   models use `WireModel`; published query values use `ObservationModel` with
   their closed key contracts

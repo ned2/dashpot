@@ -12,16 +12,16 @@ from typing import Any, Literal, Self
 
 from pydantic import ValidationError, model_validator
 
-from .harnesses import HookSessionIdentity
-from .model import Diagnostic
-from .models import (
+from .core.model import Diagnostic
+from .core.pydantic import (
     NonEmptyString,
     PersistedRecord,
     PublishedModel,
     describe_validation_error,
 )
+from .core.record_store import LockedRecordStore
+from .harnesses import HookSessionIdentity
 from .processes import ProcessKey
-from .record_store import LockedRecordStore
 from .repository import same_path
 from .session_matching import SessionEvidence
 from .timestamps import observed_instant

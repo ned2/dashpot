@@ -9,7 +9,26 @@ from typing import Any, Literal
 from pydantic import Field, HttpUrl, ValidationError
 from typing_extensions import override
 
-from .commands import CommandRunner, run_command
+from ..core.commands import CommandRunner, run_command
+from ..core.model import (
+    Diagnostic,
+    PullRequest,
+    PullRequestCheckStatus,
+    PullRequestMergeability,
+    PullRequestReviewDecision,
+)
+from ..core.pydantic import (
+    LaxSequence,
+    NonEmptyString,
+    Rfc3339Timestamp,
+    WireModel,
+)
+from ..issues.pull_request_sources import (
+    CollectedPullRequests,
+    PullRequestSource,
+    PullRequestSourceRefreshError,
+)
+from ..retaining_source import Clock
 from .github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,
@@ -19,21 +38,11 @@ from .github import (
     GitHubRequestError,
     RefreshBudget,
 )
-from .github_wire import PULL_REQUEST_FIELDS, PULL_REQUEST_STATES, PageInfo
-from .model import (
-    Diagnostic,
-    PullRequest,
-    PullRequestCheckStatus,
-    PullRequestMergeability,
-    PullRequestReviewDecision,
+from .github_wire import (
+    PULL_REQUEST_FIELDS,
+    PULL_REQUEST_STATES,
+    PageInfo,
 )
-from .models import LaxSequence, NonEmptyString, Rfc3339Timestamp, WireModel
-from .pull_request_sources import (
-    CollectedPullRequests,
-    PullRequestSource,
-    PullRequestSourceRefreshError,
-)
-from .retaining_source import Clock
 
 _PAGE_SIZE = 100
 

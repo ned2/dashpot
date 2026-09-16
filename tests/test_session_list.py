@@ -10,16 +10,16 @@ from rich.text import Text
 
 import factories
 from dashpot.agents import observe_agent_runs
-from dashpot.hook_records import write_hook_record
-from dashpot.issue_list import row_key
-from dashpot.issue_profile import IssueProfile
-from dashpot.list_rows import truncate_end, truncate_start
-from dashpot.model import (
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.core.model import (
     AgentRun,
     ObservationTarget,
     ProjectObservation,
     RunState,
 )
+from dashpot.hook_records import write_hook_record
+from dashpot.issue_list import row_key
+from dashpot.list_rows import truncate_end, truncate_start
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.processes import ProcessIdentity
 from dashpot.session_cells import (

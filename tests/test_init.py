@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from dashpot.commands import CommandResult, CommandRunner
-from dashpot.init import initialize_project
+from dashpot.core.commands import CommandResult, CommandRunner
+from dashpot.project.init import initialize_project
 from factories import init_repository
 
 

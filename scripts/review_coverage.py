@@ -14,7 +14,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Literal
 
-from dashpot.models import ConfigModel
+from dashpot.core.pydantic import ConfigModel
 
 REPORT_DIRECTORY = ".review-coverage"
 

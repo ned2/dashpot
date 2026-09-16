@@ -21,9 +21,9 @@ from .messages import (
     PageFinished,
     TotalsFinished,
 )
-from .page_navigation import PageNavigation, PageTicket
 from .paged_store import PagedObservationStore
-from .source_queries import QueryRequest, QuerySource, ResourceKind
+from .queries.page_navigation import PageNavigation, PageTicket
+from .queries.source_queries import QueryRequest, QuerySource, ResourceKind
 
 if TYPE_CHECKING:
     from textual.message import Message

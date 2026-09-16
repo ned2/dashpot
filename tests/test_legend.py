@@ -9,10 +9,10 @@ from typing import get_args
 import dashpot
 from dashpot import alerts, branch_cells, glyphs, issue_cells, legend, session_cells
 from dashpot.alerts import AlertSeverity
+from dashpot.core.model import RunState
 from dashpot.glyphs import Glyph, LegendSection
 from dashpot.issue_cells import IssueStateKind
 from dashpot.list_rows import ListColumn, column_help
-from dashpot.model import RunState
 from helpers import required
 
 SOURCE_DIR = Path(dashpot.__file__).parent

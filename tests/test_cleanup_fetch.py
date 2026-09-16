@@ -598,7 +598,7 @@ async def test_dismissal_during_recomposition_does_not_reopen_preview(monkeypatc
 async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
     from threading import Event
 
-    from dashpot.model import RepositoryStateInventory
+    from dashpot.core.model import RepositoryStateInventory
     from factories import target
     from test_paged_app import LocalOnlyCollector, application
 

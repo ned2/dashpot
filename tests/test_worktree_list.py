@@ -7,13 +7,13 @@ import pytest
 from rich.text import Text
 
 import factories
-from dashpot.issue_list import row_key
-from dashpot.model import (
+from dashpot.core.model import (
     ObservationTarget,
     ProjectObservation,
     SourceStatus,
     TargetRole,
 )
+from dashpot.issue_list import row_key
 from dashpot.observation_store import WorkspaceObservationStore
 from dashpot.worktree_cells import (
     WORKTREE_COLUMNS,

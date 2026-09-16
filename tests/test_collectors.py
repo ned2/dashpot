@@ -13,15 +13,9 @@ from typing import Any
 from typing_extensions import override
 
 from dashpot.collect import ObservationCoordinator, ProjectCollector
-from dashpot.commands import CommandResult
-from dashpot.github_repository import observe_github_repository_identity
-from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.issue_sources import (
-    CollectedIssues,
-    IssueSource,
-    IssueSourceObservation,
-)
-from dashpot.model import (
+from dashpot.core.commands import CommandResult
+from dashpot.core.issue_profile import IssueProfile, conform_issue
+from dashpot.core.model import (
     AgentRun,
     Branch,
     Diagnostic,
@@ -30,10 +24,16 @@ from dashpot.model import (
     ObservationTarget,
     ProjectSnapshot,
     RepositoryStateInventory,
-    ResolvedProject,
     WorkspaceSnapshot,
 )
-from dashpot.pull_request_sources import PullRequestSourceObservation
+from dashpot.github.github_repository import observe_github_repository_identity
+from dashpot.issues.issue_sources import (
+    CollectedIssues,
+    IssueSource,
+    IssueSourceObservation,
+)
+from dashpot.issues.pull_request_sources import PullRequestSourceObservation
+from dashpot.project.workspace import ResolvedProject
 from dashpot.repository import BranchObservation
 from factories import observation_target
 from helpers import jsonable
@@ -722,7 +722,11 @@ class ObservationCoordinatorTests(unittest.TestCase):
 def test_enumeration_keeps_fallback_diagnostic_codes_for_both_source_families():
     from unittest.mock import Mock
 
-    from dashpot.source_queries import QuerySource, SourceContext, SourceEnumeration
+    from dashpot.queries.source_queries import (
+        QuerySource,
+        SourceContext,
+        SourceEnumeration,
+    )
 
     context = SourceContext(
         project_id="project:example",

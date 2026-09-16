@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dashpot.search import SearchSort, parse_search
+from dashpot.issues.search import SearchSort, parse_search
 
 
 def test_unquoted_words_are_implicit_and_terms() -> None:

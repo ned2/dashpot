@@ -4,15 +4,15 @@ import json
 import uuid
 from pathlib import Path
 
-from .commands import CommandRunner, run_command
-from .git import Git, GitError
-from .github_repository import (
+from ..core.commands import CommandRunner, run_command
+from ..core.git import Git, GitError
+from ..core.pydantic import repository_relative
+from ..github.github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
 )
-from .models import repository_relative
+from ..repository import worktree_root
 from .project_config import PROJECT_CONFIG_NAME
-from .repository import worktree_root
 
 STATE_IGNORE_RULE = ".dashpot/state/"
 

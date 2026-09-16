@@ -14,17 +14,17 @@ from dashpot.collect import (
     ObservationCoordinator,
     ObservationKey,
 )
-from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.issue_sources import CollectedIssues, IssueSource
-from dashpot.model import (
+from dashpot.core.issue_profile import IssueProfile, conform_issue
+from dashpot.core.model import (
     AgentRun,
     ObservationTarget,
     RepositoryStateInventory,
-    ResolvedProject,
     WorkspaceSnapshot,
 )
+from dashpot.issues.issue_sources import CollectedIssues, IssueSource
+from dashpot.issues.pull_request_sources import PullRequestSourceObservation
 from dashpot.observation_store import StoreChange, WorkspaceObservationStore
-from dashpot.pull_request_sources import PullRequestSourceObservation
+from dashpot.project.workspace import ResolvedProject
 
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
@@ -375,7 +375,7 @@ def test_target_failure_keeps_last_good_targets_and_fresh_issues(
 def test_issue_failure_keeps_last_good_issues_and_fresh_targets(
     workspace,
 ) -> None:
-    from dashpot.issue_sources import IssueSourceRefreshError
+    from dashpot.issues.issue_sources import IssueSourceRefreshError
 
     coordinator, collectors, _runs, _targets = workspace
     store = WorkspaceObservationStore()

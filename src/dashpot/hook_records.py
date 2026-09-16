@@ -12,22 +12,22 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field
 
-from .git import Git, GitError
+from .core.git import Git, GitError
+from .core.json_records import optional_string, require_string
+from .core.pydantic import (
+    NonEmptyString,
+    PersistedRecord,
+)
+from .core.record_store import LockedRecordStore
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_ID,
     HookSessionIdentity,
 )
-from .json_records import optional_string, require_string
-from .models import (
-    NonEmptyString,
-    PersistedRecord,
-)
 from .processes import (
     ProcessIdentity,
     SessionProcessRecord,
 )
-from .record_store import LockedRecordStore
 from .session_matching import SessionEvidence
 from .timestamps import observed_instant, utc_now
 

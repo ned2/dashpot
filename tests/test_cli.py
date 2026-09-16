@@ -21,21 +21,22 @@ from dashpot.cleanup import (
     TargetResult,
     WorktreeCleanupRequest,
 )
-from dashpot.errors import DashpotError
-from dashpot.git import GitError
+from dashpot.core.errors import DashpotError
+from dashpot.core.git import GitError
+from dashpot.core.issue_profile import IssueProfileError, conform_issue
+from dashpot.core.model import WorkspaceSnapshot
 from dashpot.hook import publish_from_stream
 from dashpot.integrate import INTEGRATIONS
-from dashpot.issue_profile import IssueProfileError, conform_issue
-from dashpot.issue_sources import IssueSourceRefreshError
-from dashpot.local_markdown_issues import LocalMarkdownIssueError
-from dashpot.model import (
+from dashpot.issues.issue_sources import IssueSourceRefreshError
+from dashpot.issues.local_markdown_issues import LocalMarkdownIssueError
+from dashpot.processes import AgentAncestry, ProcessIdentity
+from dashpot.project.workspace import (
     RepositoryAnchor,
     ResolvedProject,
     Workspace,
-    WorkspaceSnapshot,
+    WorkspaceInventory,
+    WorkspaceResolution,
 )
-from dashpot.processes import AgentAncestry, ProcessIdentity
-from dashpot.workspace import WorkspaceInventory, WorkspaceResolution
 from dashpot.worktrees import CleanupBlocker, WorktreePlan, WorktreeRemovability
 from factories import git, write_config_marker
 from helpers import issue_payload

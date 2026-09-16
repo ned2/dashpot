@@ -10,13 +10,9 @@ from typing import Literal, Protocol, runtime_checkable
 
 from .agent_bindings import bind_issue_runs
 from .agents import observe_agent_runs
-from .git import Git
-from .issue_profile import IssueProfile
-from .issue_sources import (
-    IssueSource,
-    IssueSourceObservation,
-)
-from .model import (
+from .core.git import Git
+from .core.issue_profile import IssueProfile
+from .core.model import (
     AgentRun,
     Branch,
     Diagnostic,
@@ -26,28 +22,35 @@ from .model import (
     ProjectSnapshot,
     PullRequest,
     RepositoryStateInventory,
-    ResolvedProject,
     SourceStatus,
     WorkspaceSnapshot,
 )
-from .observation_errors import OBSERVATION_FAILURES
-from .observation_store import StoreChange, WorkspaceObservationStore
-from .processes import lock_holder_probe
-from .project_config import load_project_config
-from .pull_request_sources import (
+from .issues.issue_sources import (
+    IssueSource,
+    IssueSourceObservation,
+)
+from .issues.pull_request_sources import (
     PullRequestSource,
     PullRequestSourceObservation,
     UnconfiguredPullRequestSource,
 )
-from .query_source import configured_query_source
+from .issues.source_factories import (
+    build_issue_source,
+    build_pull_request_source,
+)
+from .observation_errors import OBSERVATION_FAILURES
+from .observation_store import StoreChange, WorkspaceObservationStore
+from .processes import lock_holder_probe
+from .project.project_config import load_project_config
+from .project.workspace import ResolvedProject
+from .queries.query_source import configured_query_source
+from .queries.source_queries import QuerySource
 from .repository import (
     BranchObservation,
     observe_branches,
     observe_observation_targets,
     worktree_root,
 )
-from .source_factories import build_issue_source, build_pull_request_source
-from .source_queries import QuerySource
 from .timestamps import utc_now
 
 WorkspaceAgentObserver = Callable[

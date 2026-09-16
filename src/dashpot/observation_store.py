@@ -5,15 +5,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
 from .branch_list import BranchListResult, query_indexed_branch_list
-from .issue_list import (
-    IssueListQuery,
-    IssueListResult,
-    IssueListRow,
-    query_indexed_issue_list,
-    row_key,
-)
-from .issue_profile import IssueProfile
-from .model import (
+from .core.issue_profile import IssueProfile
+from .core.model import (
     AgentRun,
     Branch,
     Diagnostic,
@@ -21,6 +14,13 @@ from .model import (
     ProjectObservation,
     PullRequest,
     WorkspaceSnapshot,
+)
+from .issue_list import (
+    IssueListQuery,
+    IssueListResult,
+    IssueListRow,
+    query_indexed_issue_list,
+    row_key,
 )
 from .pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,

@@ -18,20 +18,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .git import Git, GitError
+from .core.git import Git, GitError
+from .core.issue_profile import IssueProfile
+from .core.pydantic import LaxSequence, PublishedModel
 from .harnesses import HARNESS_DISPLAY
 from .hook_scan import reachable_hook_stores, sessions_at_worktree
-from .issue_profile import IssueProfile
-from .issue_resolution import resolve_issue
+from .issues.issue_resolution import resolve_issue
 from .liveness import session_liveness
-from .models import LaxSequence, PublishedModel
 from .processes import ProcessLookup, host_process_lookup
-from .project_config import (
+from .project.project_config import (
     PROJECT_CONFIG_NAME,
     ProjectConfig,
     load_project_config,
     parse_project_config,
 )
+from .project.settings import WORKTREE_ROOT_VARIABLE, Settings, load_settings
 from .repository import (
     DEFAULT_BRANCHES,
     LockHolderProbe,
@@ -44,7 +45,6 @@ from .repository import (
     worktree_paths,
     worktree_root,
 )
-from .settings import WORKTREE_ROOT_VARIABLE, Settings, load_settings
 from .work_store import WorkStore
 
 WorktreeRootSource = Literal[
