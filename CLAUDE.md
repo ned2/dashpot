@@ -2,33 +2,16 @@
 
 # Claude Code notes
 
-The shared agent guidance is imported above from [AGENTS.md](AGENTS.md). Do not use Claude
-Code memories or any other agent-private note store: never create or update files under a
-`.claude/.../memory/` directory or a `MEMORY.md`. Follow the shared tracking policy in
-[AGENTS.md](AGENTS.md) instead.
+The shared agent guidance is imported above from [AGENTS.md](AGENTS.md); this file holds
+only what is specific to the Claude Code harness.
 
-## Dashpot observes this session
-
-The Dashpot hook publisher is installed user-wide for Claude Code (check with
-`uv run dashpot integrate claude-code --status`), so a session in this checkout is observed
-as live automatically. Observation is not Issue opt-in: the `dashpot work start` / `stop`
-lifecycle in [AGENTS.md](AGENTS.md#issue-work-lifecycle) still applies.
-
-Run `dashpot integrate claude-code` only from the main checkout (`~/projects/dashpot`),
-never from an Issue Worktree: the hooks bind the absolute path of the invoking
-environment's publisher, and a linked Worktree's `.venv` is removed with the Worktree,
-which would break every hook event on the machine. `integrate` refuses such a binding and
-`--status` warns about one that already exists
-([diagnosis](docs/installation.md#diagnose-an-installation)).
-
-## Sub-agents share the session's Agent Run
-
-Verified against a real session: a Claude Code sub-agent's shell is a child of the same
-`claude` process as the main session, so `identify_agent_session` resolves to the same
-session key and `dashpot work show` from the sub-agent reports the main session's run. A
-sub-agent therefore needs no opt-in of its own — and must leave `work start` / `stop` alone,
-since running them from a sub-agent would switch or end the whole session's Issue work. The
-`start` / `stop` calls belong to the main session only. With the hooks installed, a
-sub-agent's `work start` in a worktree other than the main session's is refused as running
-where the session is not ([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md));
-`stop` is not, so the rule still matters.
+- Claude Code's memory feature is the private note store [AGENTS.md](AGENTS.md#tracking-and-notes)
+  forbids: never create or update files under a `.claude/.../memory/` directory or a
+  `MEMORY.md`.
+- The hook publisher is installed with `dashpot integrate claude-code`; check it with
+  `uv run dashpot integrate claude-code --status`.
+- A Claude Code sub-agent's shell is a child of the same `claude` process as the main
+  session (verified against a real session), so `identify_agent_session` resolves to the
+  same session key and `dashpot work show` from the sub-agent reports the main session's
+  run. That is the mechanism behind the sub-agent rule in
+  [AGENTS.md](AGENTS.md#issue-work-lifecycle).

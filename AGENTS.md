@@ -52,6 +52,25 @@ before exit, and the resumed turn verifies the preserved run with `work show`
 before using `work start`. Claude Code uses `EnterWorktree`. Leave the Worktree
 in place unless the user explicitly requests Cleanup.
 
+The lifecycle hooks `dashpot integrate <harness>` installs observe a session in
+this checkout as live automatically. Observation is not Issue opt-in: the
+`work start` / `stop` lifecycle above still applies. Run `dashpot integrate
+<harness>` only from the main checkout, never from an Issue Worktree: the hooks
+bind the absolute path of the invoking environment's publisher, and a linked
+Worktree's `.venv` is removed with the Worktree, which would break every hook
+event on the machine. `integrate` refuses such a binding and `--status` warns
+about one that already exists
+([diagnosis](docs/installation.md#diagnose-an-installation)).
+
+A sub-agent shares the session's Agent Run and needs no opt-in of its own. It
+must leave `work start` / `stop` alone: running them from a sub-agent would
+switch or end the whole session's Issue work, and a sub-agent's `work start`
+in a Worktree other than the session's is refused as running where the
+session is not
+([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)),
+while `stop` is not refused, so the rule still matters. The `start` / `stop`
+calls belong to the main session only.
+
 ## Vocabulary
 
 Before changing code, tests, or documentation, read the shared
