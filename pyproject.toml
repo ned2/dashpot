@@ -136,6 +136,8 @@ error-on-warning = true
 # The suite is what `pytest` with no arguments runs: tests only, no stray
 # collection from scripts or the conformance fixtures.
 testpaths = ["tests"]
+# Local runs reserve CPU capacity and cap workers through tests/conftest.py.
+addopts = "-n auto --dist=load --max-worker-restart=0"
 # A warning is a defect: deprecations and unawaited coroutines fail rather
 # than scroll past.
 filterwarnings = ["error"]

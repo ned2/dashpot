@@ -7,7 +7,7 @@ date: 2026-09-17
 
 CI keeps the supported Python/platform matrix and full suite. It reduces waiting
 through documentation-only verification and process-parallel tests. The same
-parallel execution is available locally without changing pytest's serial default.
+parallel execution is the local default for pytest and the development gates.
 
 ## Documentation lane
 
@@ -36,15 +36,18 @@ Use the checkout's locked development environment:
 
 ```bash
 uv sync --locked --group dev
-uv run pytest -q -n 2 --dist=load --max-worker-restart=0
+uv run pytest -q
 ```
 
 Each worker has its own Python process and runs its assigned tests sequentially.
-Start with two workers; more processes may increase contention rather than speed.
-Four workers failed a layout-readiness assertion on the measured Debian runner,
-so CI uses two; higher local counts require validation on that machine.
-Serial execution remains `uv run pytest -q`, or `-n 0` when overriding a parallel
-command. Keep interactive debugging serial.
+The default uses half the available CPU count, rounded down and bounded to one
+through eight workers. Linux respects CPU affinity; other platforms use
+`os.cpu_count()`. This leaves CPU headroom and selects eight on the measured
+32-thread machine. `-n N` overrides automatic selection; `-n 0` runs serially
+for debugging and reproduction. Explicit `-n logical` retains xdist's meaning.
+Four workers failed a layout-readiness assertion on measured hosted runners,
+so CI explicitly uses two. Automatic selection is a conservative starting
+point, not a reliability guarantee for every machine or background workload.
 
 For the full local review gate, use the evidence helper rather than a separate
 uninstrumented full-suite run:
@@ -52,12 +55,15 @@ uninstrumented full-suite run:
 ```bash
 review_base=$(git rev-parse origin/main)
 uv run pre-commit run --all-files
-uv run --locked python scripts/review_coverage.py --base "$review_base" --workers 2
+uv run --locked python scripts/review_coverage.py --base "$review_base"
 uv run --locked python scripts/review_coverage.py --base "$review_base" --check
 ```
 
 The helper combines worker coverage and records the command in the same source
-and report evidence as serial execution. Omit `--workers` for serial coverage.
+and report evidence as serial execution. Omit `--workers` to inherit the same
+automatic policy; `--workers N` overrides it and `--workers 0` is explicitly
+serial even with parallel pytest defaults. The source digest binds evidence to
+the pytest configuration and worker-selection hook as well as application code.
 Worker crashes fail without automatic restarts. Keep one coverage run and one
 writer per Worktree, as required by the [local review gate](../README.md#local-review-gate).
 Worker coverage does not implicitly add application-spawned subprocess coverage.
@@ -172,13 +178,34 @@ at 187 seconds. This meets the 25% target for this pair; it is not evidence of a
 controlled 25% median gate reduction. Final PR validation records subsequent
 ordinary gate runs separately from the deliberately longer benchmark workflow.
 
+## Higher local worker counts
+
+A follow-up at `9762cdc61198b64698d24be39f8eeb5cc3f85b5a` evaluated higher counts
+on the same i9-13900K machine with 32 logical CPUs and 64 GiB RAM. All timings
+include coverage. The initial four-worker run passed in 106.26 seconds and
+eight passed in 65.87 seconds; sixteen failed the existing refresh-indicator
+layout assertion after 50.58 seconds. Faster failure is not a usable speedup.
+
+Three further eight-worker runs passed in 65.11, 65.69, and 66.50 seconds,
+median 65.69. Each preserved the same 1,533 JUnit test cases and 159 subtests.
+Across these repetitions, eight workers executed every production line seen in
+the four-worker comparison; individual runs varied at existing timing-dependent
+paths. No test assertion or readiness deadline changed for this experiment.
+
+Eight is the highest repeatedly validated count here, not a universal safe
+maximum. Counts nine through fifteen and above sixteen have not been validated.
+The automatic policy caps at eight and reserves half the available CPUs;
+explicit larger counts remain available for controlled experiments. Hosted CI
+keeps its independently validated two-worker setting. Reduce the local count
+when concurrent workloads consume CPU or memory.
+
 ## UI profiling
 
 Profile representative dashboard navigation and tooltip tests separately from
 unprofiled timing runs:
 
 ```bash
-uv run python -m cProfile -o /tmp/dashpot-ui.prof -m pytest -q tests/test_dashboard_interaction.py tests/test_header_tooltips.py
+uv run python -m cProfile -o /tmp/dashpot-ui.prof -m pytest -q -n 0 tests/test_dashboard_interaction.py tests/test_header_tooltips.py
 uv run python -m pstats /tmp/dashpot-ui.prof
 ```
 

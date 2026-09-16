@@ -152,6 +152,23 @@ def test_parallel_collection_records_the_exact_full_suite_command(
     assert review_coverage.verify(checkout, "HEAD") == evidence
 
 
+def test_default_collection_inherits_repository_worker_policy(checkout, monkeypatch):
+    fake_pytest(monkeypatch, report)
+    evidence = review_coverage.collect(checkout, "HEAD")
+    assert "-n" not in evidence.command
+    assert "-o" not in evidence.command
+    assert "--cov" in evidence.command
+
+
+def test_serial_collection_explicitly_overrides_parallel_defaults(
+    checkout, monkeypatch
+):
+    fake_pytest(monkeypatch, report)
+    evidence = review_coverage.collect(checkout, "HEAD", workers=0)
+    assert evidence.command[-4:] == ["-n", "0", "--dist=load", "--max-worker-restart=0"]
+    assert review_coverage.verify(checkout, "HEAD") == evidence
+
+
 def test_invalid_worker_count_removes_old_evidence(checkout, monkeypatch):
     fake_pytest(monkeypatch, report)
     review_coverage.collect(checkout, "HEAD")

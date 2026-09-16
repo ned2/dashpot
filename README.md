@@ -345,9 +345,16 @@ Dashpot requires Python 3.11 or newer and uses
 uv sync --locked --group dev
 uv run pre-commit install
 uv run pytest -q
-# Distribute the same tests over two independent processes:
-uv run pytest -q -n 2 --dist=load --max-worker-restart=0
+# Run serially for debugging or reproduction:
+uv run pytest -q -n 0
 ```
+
+Tests run in parallel by default, reserving half the available CPUs and using
+at most eight workers (at least one). Linux uses the current CPU affinity;
+other platforms use the reported CPU count. Override with `-n N`, or `-n 0`
+for serial execution. CI explicitly uses two workers. Higher counts require
+measurement: sixteen failed locally despite eight passing repeatedly; see
+[CI and test performance](docs/ci-performance.md).
 
 ### Quality gates
 
@@ -383,14 +390,14 @@ Before every commit, run the all-files checks and the full suite with coverage:
 ```bash
 review_base=$(git rev-parse origin/main)
 uv run pre-commit run --all-files
-uv run --locked python scripts/review_coverage.py --base "$review_base" --workers 2
+uv run --locked python scripts/review_coverage.py --base "$review_base"
 ```
 
 Pin the review base for the engagement and include it in the review request.
 The helper runs pytest once, replacing ordinary pytest in this gate.
-`--workers 2` distributes the full suite across two processes and combines
-coverage; omit it (or use `--workers 0`) for serial execution. Choose a
-worker count appropriate to local CPU and memory capacity. Worker crashes fail
+It inherits pytest's automatic parallel default and combines worker coverage.
+Use `--workers N` to choose a count, or `--workers 0` for serial execution.
+Choose a worker count appropriate to local CPU and memory capacity. Worker crashes fail
 the run without restarting. The evidence records the exact command. It prints
 missing lines and writes `.review-coverage/coverage.json` plus `evidence.json`.
 Evidence records the base, source content digest, coverage report digest,
@@ -418,7 +425,7 @@ committed. Coverage has no percentage threshold and does not establish the
 quality of assertions or coverage of every branch outcome.
 
 The pushed-revision gate can also run against the working tree. Its default
-includes ordinary pytest; `--skip-tests` uses already completed local coverage
+includes pytest with the same automatic parallel policy; `--skip-tests` uses already completed local coverage
 and avoids another test run. It covers the lockfile, Ruff, ty, documentation,
 and distributions, but omits hygiene hooks and coverage collection:
 

@@ -79,7 +79,7 @@ def report_digest(root: Path) -> str:
     ).hexdigest()
 
 
-def collect(root: Path, base: str, workers: int = 0) -> Evidence:
+def collect(root: Path, base: str, workers: int | None = None) -> Evidence:
     """Run the full suite once and publish evidence only for unchanged sources."""
     directory = root / REPORT_DIRECTORY
     directory.mkdir(exist_ok=True)
@@ -87,7 +87,7 @@ def collect(root: Path, base: str, workers: int = 0) -> Evidence:
     manifest.unlink(missing_ok=True)
     report = directory / "coverage.json"
     report.unlink(missing_ok=True)
-    if workers < 0:
+    if workers is not None and workers < 0:
         raise ValueError("Workers must be zero (serial) or a positive count")
     if os.environ.get("PYTEST_ADDOPTS"):
         raise ValueError("Unset PYTEST_ADDOPTS so coverage verifies the full suite")
@@ -103,7 +103,7 @@ def collect(root: Path, base: str, workers: int = 0) -> Evidence:
         "--cov-report=term-missing",
         f"--cov-report=json:{REPORT_DIRECTORY}/coverage.json",
     ]
-    if workers:
+    if workers is not None:
         command.extend(["-n", str(workers), "--dist=load", "--max-worker-restart=0"])
     environment = {**os.environ, "COVERAGE_FILE": str(directory / ".coverage")}
     subprocess.run(command, cwd=root, env=environment, check=True)
@@ -145,7 +145,9 @@ def main() -> int:
         "--base", required=True, help="fixed commit or ref used for review"
     )
     parser.add_argument(
-        "--workers", type=int, default=0, help="parallel processes; default: 0 (serial)"
+        "--workers",
+        type=int,
+        help="override the repository's automatic worker count; 0 runs serially",
     )
     parser.add_argument(
         "--check",
