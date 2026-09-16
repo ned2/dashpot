@@ -1,5 +1,6 @@
 """Exercise CI lane selection across real diffs and aggregate job outcomes."""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -153,3 +154,37 @@ def test_reusable_pr_caller_forces_full_verification(checkout):
     assert (
         ci_lane.classify("pull_request", base, commit(root), force_full=True) == "full"
     )
+
+
+def test_workflow_commands_accept_docs_skips_but_reject_them_for_mixed_changes(
+    checkout, monkeypatch
+):
+    root, base = checkout
+    script = str(Path(ci_lane.__file__).resolve())
+    output = root / "workflow-output"
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("PR_BASE_SHA", base)
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("FORCE_FULL", "false")
+    (root / "README.md").write_text("Documentation change\n")
+
+    for lane in ("docs", "full"):
+        if lane == "full":
+            (root / "code.py").write_text("value = 1\n")
+        monkeypatch.setenv("PR_HEAD_SHA", commit(root))
+        subprocess.run([sys.executable, script, "classify"], check=True)
+        name, emitted = output.read_text().strip().split("=")
+        assert (name, emitted) == ("lane", lane)
+        output.unlink()
+
+        jobs = results("docs")
+        jobs["changes"]["outputs"]["lane"] = emitted
+        monkeypatch.setenv("RESULTS", json.dumps(jobs))
+        aggregate = subprocess.run(
+            [sys.executable, script, "require"], capture_output=True, text=True
+        )
+        if lane == "docs":
+            assert aggregate.returncode == 0, aggregate.stderr
+        else:
+            assert aggregate.returncode != 0
+            assert "must report success" in aggregate.stderr

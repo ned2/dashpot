@@ -23,6 +23,13 @@ successful documentation classification. Every failure, cancellation, missing
 result, or unexpected skip fails the gate. The required check name and
 integration artifact contract stay unchanged.
 
+Pre-integration tests run both commands against real documentation-only and
+mixed Git diffs, pass the emitted `GITHUB_OUTPUT` lane into the aggregate, and
+check accepted and rejected skips. Workflow inspection confirms quality and
+revision-artifact publication remain unconditional for PRs. A live docs-only PR
+can confirm GitHub's orchestration after this workflow lands on `main`; this
+implementation PR necessarily selects the full lane.
+
 ## Local parallel tests
 
 Use the checkout's locked development environment:
@@ -104,13 +111,66 @@ Each run passed 1,532 tests and 159 subtests. These are elapsed process times,
 including coverage, rather than pytest's slightly shorter internal duration.
 
 The [hosted candidate comparison](https://github.com/ned2/dashpot/actions/runs/35120362971)
-rejected four workers on Debian: serial and two workers passed in 330.42 and
-213.13 seconds; four workers failed the refresh indicator's layout-readiness
-assertion. Explicitly holding the fake source until release removes its separate
-two-second lifetime race, but did not resolve this four-worker rendering failure.
+rejected four workers on Debian and macOS: Debian's serial and two-worker runs
+passed in 330.42 and 213.13 seconds; four workers failed the refresh indicator's
+layout-readiness assertion. macOS passed its first four-worker run, then failed
+the same assertion on the second. Explicitly holding the fake source until
+release removes its separate two-second lifetime race, but did not resolve this
+four-worker rendering failure.
 The test retains its assertions and 1.5-second readiness deadline. Deeper
 four-worker rendering diagnosis is deferred; two workers are the CI candidate,
 and local four-worker success does not establish hosted reliability.
+
+The completed Ubuntu 3.14 coverage repetitions in that run had serial times of
+261.35, 236.29, and 248.87 seconds (median 248.87), versus 160.57, 154.34, and
+141.27 seconds with two workers (median 154.34, 38.0% faster). All six passed.
+The unfinished final four-worker repetition was cancelled after the other
+platforms rejected that count; it is not counted as a successful run.
+
+All local serial and two-worker runs covered the same 10,193 of 10,607
+production statements, with identical executed lines. Ubuntu's coverage varied
+between 10,192 and 10,194 statements in both serial and parallel runs. The
+executed-line unions across three repetitions were identical: variation was
+limited to the existing unmatched-Agent-Session returns in `agents.py` and
+alternative concurrent-Worktree-creation diagnostics in `worktrees.py`.
+No production source changed. Worker debug logs identify SysMonitor cores by
+process ID; the controller's initial `-none-` entry is not the worker core.
+
+The [ordinary serial full-matrix run](https://github.com/ned2/dashpot/actions/runs/35120780797)
+passed all jobs at the same test-source revision. Gate execution took 372 seconds,
+measured from the first job start to completion of `CI required`, excluding the
+deliberate benchmark queue. Whole test-job times ranged from 259 to 353 seconds;
+Debian took 346 seconds including setup. These single-run timings provide context
+for the repeated suite measurements, not a controlled median gate comparison.
+
+The [selected-configuration benchmark](https://github.com/ned2/dashpot/actions/runs/35123084668)
+at `94093cafc6119dafb9130ac36d523b5db14d928f` passed all 18 representative
+full-suite runs, with identical JUnit test identities and outcomes. Its test
+sources match the earlier revision; only benchmark controls and documentation
+changed. Hosted runner medians confirm the two-worker choice:
+
+| Environment | Serial runs (seconds) | Two-worker runs (seconds) | Median reduction |
+| --- | --- | --- | --- |
+| Ubuntu, Python 3.14 coverage, 4 CPUs | 305.69, 293.53, 307.77 | 189.12, 189.33, 194.34 | 38.1% (305.69 → 189.33) |
+| Debian 12, Python 3.11, Git 2.39, 4 CPUs | 335.47, 301.03, 310.73 | 194.29, 187.61, 202.04 | 37.5% (310.73 → 194.29) |
+| macOS ARM64, Python 3.11, 3 CPUs | 400.89, 309.57, 286.71 | 204.86, 177.61, 164.46 | 42.6% (309.57 → 177.61) |
+
+Each run passed 1,532 tests and 159 subtests without retries or worker restarts.
+Ubuntu's production coverage again varied only at the existing paths described
+above. This batch's parallel union omitted `worktrees.py:563`, the alternative
+diagnostic when a competing Worktree creator has already finished; it executed
+the initializing-creator diagnostic instead. The earlier two-worker batch covered
+both paths. The concurrent-creation test still asserts one successful creation,
+one refusal, and preservation of the winning Worktree and Branch. No unexplained
+coverage loss was observed. The other supported CI legs also passed with two
+workers in this run.
+
+The [ordinary two-worker full-matrix run](https://github.com/ned2/dashpot/actions/runs/35123764103)
+passed with a 261-second gate, versus the serial run's 372 seconds: 29.8% less
+execution time in this pair. Whole test jobs took 126–238 seconds, with Debian
+at 187 seconds. This meets the 25% target for this pair; it is not evidence of a
+controlled 25% median gate reduction. Final PR validation records subsequent
+ordinary gate runs separately from the deliberately longer benchmark workflow.
 
 ## UI profiling
 
@@ -145,3 +205,6 @@ baseline times of 37.42, 35.28, and 36.55 seconds (median 36.55); the harness
 change yielded 34.67, 35.39, and 35.00 seconds (median 35.00, about 4% faster).
 This modest gain is independent of parallel execution and does not justify
 removing readiness or rendering synchronization.
+The isolated 4% figure applies only to this representative sample. No isolated
+whole-suite percentage is attributed to the harness change; the full-suite
+measurements above validate the combined changes.
