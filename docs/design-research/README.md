@@ -202,6 +202,12 @@ takes a position.
   sorted into confirmations of the frame and the themes the frame
   scatters, the connections the corpus does not draw, the fate of the
   held-out priors, and what all of it changes in the analysis.
+- [Candidates](candidates.md) — the analysis's candidate stage: 91
+  candidates across the map's twelve stages, each walked through the
+  eleven lenses with a verdict on record; the 47 survivors reduced to
+  twelve families, each with the assumptions it depends on and the
+  cheapest test of each; the cross-cutting assumptions; and a sequence,
+  pending the grilling the analysis calls for.
 
 ## Reading order
 

@@ -16,7 +16,8 @@ the note, and where it goes beyond the evidence it says so.
 
 The document is being written in stages. This revision holds the thesis,
 the lifecycle map, the principles, and the method for what follows; the
-candidates, their assumptions, and the tests are the next stage.
+candidates, their assumptions, and the tests are in the
+[candidates note](candidates.md), which applies §4's method.
 
 Revised 2026-09-16 after the [thematic analysis](themes.md) of the whole
 corpus, which tested this document's frame against blind clusterings of
@@ -524,9 +525,9 @@ are among the most evenly sourced robust groups in the corpus
 
 ## 4. Method for what follows
 
-The next stage generates candidates per lifecycle stage and walks each
-through a fixed set of lenses, so that candidates are comparable and the
-reasons for a shortlist are legible:
+The [candidates note](candidates.md) generates candidates per lifecycle
+stage and walks each through a fixed set of lenses, so that candidates are
+comparable and the reasons for a shortlist are legible:
 
 - **Authorless code** — does it work when no one who could be asked wrote
   the code? And does it lean on an authorship-derived proxy for
