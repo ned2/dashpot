@@ -491,6 +491,23 @@ async def test_a_newer_projection_keeps_the_pane_a_person_is_reading() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_newer_projection_after_the_view_closed_is_a_no_op() -> None:
+    app = _issue_view_app(issue("test/repo#1", "First"))
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        view = await open_issue_view(app, pilot)
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, IssueScreen))
+
+        # A projection landing after Escape must not touch the dismissed view.
+        await view.recompose()
+
+        assert not view.is_attached
+        assert not view.query("#issue-view-body")
+
+
+@pytest.mark.asyncio
 async def test_the_issue_view_stacks_its_details_when_the_terminal_narrows() -> None:
     app = _issue_view_app(issue("test/repo#1", "Compact"))
 
