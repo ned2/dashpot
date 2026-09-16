@@ -109,6 +109,10 @@ class ObservationRunner:
         self.pending_rerun: dict[ObservationKey, ObservationTrigger] = {}
         # The last failure per key, until an observation of it is accepted.
         self.errors: dict[ObservationKey, str] = {}
+        # Told of every landed observation once it is presented, so a flow
+        # waiting on a Project's Git keys hears them land without the app
+        # relaying each one.
+        self.landings: list[Callable[[ObservationFinished], None]] = []
         # Quick background observations should not flicker an indicator; the
         # refreshing alert appears only once work has been in flight this long.
         self.indicator_seconds = indicator_seconds
@@ -206,12 +210,15 @@ class ObservationRunner:
         """Land one observation: reopen its key, accept it, then run its rerun.
 
         ``present`` shows the acceptance while the finished ticket is still
-        the current generation of its key; whatever it does, the queued
-        rerun is scheduled and the alert redrawn afterwards.
+        the current generation of its key, and the landings hear of it
+        next; whatever they do, the queued rerun is scheduled and the alert
+        redrawn afterwards.
         """
         self._release(message.ticket)
         try:
             present(self.accept(message))
+            for landing in self.landings:
+                landing(message)
         finally:
             self._rerun(message.ticket.key)
             self.host.update_alert()

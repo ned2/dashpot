@@ -82,11 +82,11 @@ async def test_fetch_stays_in_same_dialog_and_holds_confirmation(kind):
             assert len(fetcher.anchors) == 1
             app.dashboard.branches_pane().table.move_cursor(row=0)
             fetcher.release.set()
-            await wait_until(lambda: not app.fetching and not screen.busy)
+            await wait_until(lambda: not app.fetches.fetching and not screen.busy)
             assert app.screen is screen and screen.preview_valid
             assert cleaner.requests == [request, request]
             assert "fetched and pruned origin" in screen.fetch_status
-            assert app.cleaning and not cleaner.confirmations
+            assert app.cleanups.cleaning and not cleaner.confirmations
     finally:
         fetcher.release.set()
 
@@ -166,11 +166,11 @@ async def test_fetch_dismissal_never_reopens_or_performs_cleanup():
             await wait_until(lambda: bool(fetcher.anchors))
             await pilot.press("escape")
             await wait_until(lambda: app.screen is app.dashboard)
-            assert not app.cleaning and app.fetching
+            assert not app.cleanups.cleaning and app.fetches.fetching
             await pilot.press("x")
             assert app.screen is app.dashboard
             fetcher.release.set()
-            await wait_until(lambda: not app.fetching)
+            await wait_until(lambda: not app.fetches.fetching)
             assert app.screen is app.dashboard and screen not in app.screen_stack
             assert len(cleaner.requests) == 1 and not cleaner.confirmations
             assert collector.calls == 2
@@ -206,7 +206,7 @@ async def test_failure_or_partial_fetch_stays_visible_with_fresh_inspection(answ
         assert (
             str(answer) if isinstance(answer, Exception) else answer.summary()
         ) in screen.fetch_status
-        assert PROJECT in app.fetch_errors
+        assert PROJECT in app.fetches.errors
 
 
 @pytest.mark.asyncio
@@ -246,7 +246,9 @@ async def test_stale_post_fetch_observation_keeps_confirmation_unavailable():
         screen = await open_preview(app, pilot, "branch")
         await pilot.press("f")
         await wait_until(
-            lambda: app.store.revision == 2 and not screen.busy and not app.fetching
+            lambda: (
+                app.store.revision == 2 and not screen.busy and not app.fetches.fetching
+            )
         )
         assert not screen.preview_valid
         assert len(cleaner.requests) == 1
@@ -288,7 +290,7 @@ async def test_prefetch_observation_cannot_release_the_confirmation_barrier():
             await wait_until(lambda: "Refreshing Git" in screen.fetch_status)
             collector.release_old.set()
             await wait_until(collector.entered_new.is_set)
-            assert screen.busy and app.fetching
+            assert screen.busy and app.fetches.fetching
             assert len(cleaner.requests) == 1
             assert screen.query_one("#cleanup-confirm", Button).disabled
             collector.release_new.set()
@@ -544,12 +546,12 @@ async def test_post_fetch_observation_failure_never_reenables_old_preview(failur
     app = dashboard_app(
         collector, refresh_seconds=0, cleaner=cleaner, fetcher=RecordingFetcher()
     )
-    app.cleanup_refresh_timeout = 0.05
+    app.cleanups.refresh_timeout = 0.05
     try:
         async with app.run_test(size=(80, 24)) as pilot:
             screen = await open_preview(app, pilot, "branch")
             await pilot.press("f")
-            await wait_until(lambda: not screen.busy and not app.fetching)
+            await wait_until(lambda: not screen.busy and not app.fetches.fetching)
             assert not screen.preview_valid
             assert screen.query_one("#cleanup-confirm", Button).disabled
             assert "Could not refresh" in screen.fetch_status
@@ -587,8 +589,8 @@ async def test_dismissal_during_recomposition_does_not_reopen_preview(monkeypatc
         await entered.wait()
         await pilot.press("escape")
         release.set()
-        await wait_until(lambda: not app.fetching)
-        assert app.screen is app.dashboard and not app.cleaning
+        await wait_until(lambda: not app.fetches.fetching)
+        assert app.screen is app.dashboard and not app.cleanups.cleaning
         assert not cleaner.confirmations
 
 
@@ -624,7 +626,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
     collector = Collector()
     cleaner = FakeCleaner(WORKTREE_PREVIEW, WORKTREE_PREVIEW)
     app = application(tmp_path, collector=collector)
-    app.cleaner, app.fetcher = cleaner, RecordingFetcher()
+    app.cleanups.cleaner, app.fetches.fetcher = cleaner, RecordingFetcher()
     try:
         async with app.run_test(size=(100, 35)) as pilot:
             table = app.dashboard.worktrees_pane().table
@@ -647,7 +649,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
             collector.release_observation.set()
             await wait_until(lambda: len(cleaner.requests) == 2 and not screen.busy)
             assert app.screen is screen and screen.preview_valid
-            assert app.fetcher.anchors == [Path(ANCHOR)]
+            assert app.fetches.fetcher.anchors == [Path(ANCHOR)]
             assert "2026-09-12" in str(
                 screen.query_one("#cleanup-freshness", Static).render()
             )

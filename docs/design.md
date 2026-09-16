@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-15
+date: 2026-09-16
 ---
 
 # Design
@@ -33,6 +33,7 @@ one Project per run is the observed Project, and restarts both submitted source 
 and relevant identities. It never fetches: `f`
 mutates, a Remote Fetch of the Repository Anchor whose refs
 supplied the Branch observation ([`fetch.py`](../src/dashpot/fetch.py),
+[`fetch_flow.py`](../src/dashpot/fetch_flow.py),
 [ADR 0014](adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
 off the event loop, once per Project at a time, and once any remote has been
 fetched it schedules the passive Git observation of that Project, so the
@@ -41,6 +42,7 @@ result without anything being inferred from the fetch itself.
 
 `x` is the other mutating key, a Cleanup
 ([`cleanup.py`](../src/dashpot/cleanup.py),
+[`cleanup_flow.py`](../src/dashpot/cleanup_flow.py),
 [`cleanup_view.py`](../src/dashpot/cleanup_view.py),
 [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
 The highlighted Branches or Worktrees row is resolved through the observation
@@ -96,8 +98,16 @@ each key at most once at a time, coalescing requests onto the observation in
 flight ([ADR 0020](adr/0020-coalesce-requests-onto-the-observation-in-flight.md)).
 Each drives the app through a narrow host protocol — run work off the loop
 and, for the observation runner, start a timer and redraw the alert — so
-their scheduling is tested without a running app. Configured Projects are
-published before remote work.
+their scheduling is tested without a running app. The two mutating flows
+([`fetch_flow.py`](../src/dashpot/fetch_flow.py),
+[`cleanup_flow.py`](../src/dashpot/cleanup_flow.py)) drive the app through
+host protocols of their own: the Remote Fetch flow keeps the Projects being
+fetched and the last failure per Project, and the Cleanup flow keeps the
+Projects held from preview to report with the preview each holds, waits on
+the observation runner's landings for the post-fetch Git facts, and asks the
+app only to notify, push its screens and run its workers. Their refusals are
+tested without a running app too; the previews and confirmations are driven
+through the dashboard. Configured Projects are published before remote work.
 The page store ([paged_store.py](../src/dashpot/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total or
 identity goes through a method that advances its `source_revision`, so a read

@@ -11,6 +11,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import DescendantFocus
 from textual.message import Message
+from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 from typing_extensions import override
@@ -222,6 +223,11 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         ("escape", "cancel", "Cancel"),
         ("f", "fetch", "Fetch & prune remotes"),
     ]
+    # The three facts a Remote Fetch changes while the preview is open; each
+    # change re-derives the controls, so no caller refreshes them by hand.
+    busy = reactive(False, bindings=True)
+    preview_valid = reactive(True)
+    fetch_status = reactive("")
 
     class FetchRequested(Message):
         """Request Remote Fetch for the captured Cleanup preview."""
@@ -246,9 +252,6 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         self.verified_remotes: frozenset[str] | None = None
         primary = primary_target(preview)
         self.primary_identity = primary.identity if primary is not None else None
-        self.busy = False
-        self.preview_valid = True
-        self.fetch_status = ""
         self._rebuilding = False
 
     @property
@@ -492,6 +495,15 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     def on_checkbox_changed(self, _event: Checkbox.Changed) -> None:
         self.refresh_state()
 
+    def watch_busy(self) -> None:
+        self.refresh_state()
+
+    def watch_preview_valid(self) -> None:
+        self.refresh_state()
+
+    def watch_fetch_status(self) -> None:
+        self.refresh_state()
+
     def action_fetch(self) -> None:
         if not self.busy:
             self.post_message(self.FetchRequested(self))
@@ -500,7 +512,6 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         """Hold destructive confirmation while this preview is refreshed."""
         self.busy = True
         self.fetch_status = "Fetching and pruning remotes…"
-        self.refresh_state()
 
     async def replace_preview(
         self, preview: CleanupPreview | None, status: str
@@ -513,15 +524,19 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         self.preview_valid = preview is not None
         self.fetch_status = status
         if preview is not None:
-            self.preview = preview
-            if changed:
-                self.fetch_status += (
-                    "\nPreview updated. Review its current facts before confirming."
-                )
-            if preview.ignored:
-                self.fetch_status += "\nReview and acknowledge ignored content again."
+            # The controls the new preview needs exist only after the
+            # recompose, so nothing re-derives them until it has happened.
             self._rebuilding = True
             try:
+                self.preview = preview
+                if changed:
+                    self.fetch_status += (
+                        "\nPreview updated. Review its current facts before confirming."
+                    )
+                if preview.ignored:
+                    self.fetch_status += (
+                        "\nReview and acknowledge ignored content again."
+                    )
                 await self.recompose()
             finally:
                 self._rebuilding = False
@@ -535,8 +550,9 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 choice = one.choice()
                 if choice is not None:
                     choice.value = one.target.identity in choices
+        # begin_fetch raised busy, so lowering it is what re-derives the
+        # rebuilt controls; nothing else refreshes them after the recompose.
         self.busy = False
-        self.refresh_state()
         self.focus_choice()
 
     def action_cancel(self) -> None:
