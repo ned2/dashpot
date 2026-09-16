@@ -195,6 +195,12 @@ takes a position.
   note's own terms with its figures verbatim and a link to the section it
   was read from; extracted blind to the frame and sample-verified. Cite
   by card id.
+- [Themes](themes.md) — the plan's second deliverable and the plan's
+  result: the link-graph baseline, four blind clusterings and their
+  agreement, the framed placement of every card, the robust groups
+  sorted into confirmations of the frame and the themes the frame
+  scatters, the connections the corpus does not draw, the fate of the
+  held-out priors, and what all of it changes in the analysis.
 
 ## Reading order
 
@@ -205,4 +211,6 @@ synthesis assumes all of them; the analysis assumes the synthesis. The
 Phase C notes assume the team lens and the unfamiliar-code note, and can
 be read in any order after those; the synthesis summarises them in its
 own dated section and the analysis draws on them for the team's rows of
-its map and its last four principles.
+its map and its last four principles. The themes note assumes the
+synthesis and the analysis, since it tests their frame; the claim
+inventory is a reference, cited by card id, not a note to read through.

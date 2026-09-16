@@ -1,6 +1,7 @@
 ---
-status: proposal
+status: superseded
 date: 2026-09-16
+superseded-by: themes.md, claim-inventory.md
 ---
 
 # Thematic analysis: plan
@@ -8,10 +9,10 @@ date: 2026-09-16
 A plan for clustering the ideas across the whole corpus and finding
 themes it is not yet tracking. It runs before the analysis's candidate
 stage so that candidates are drawn from what the corpus contains rather
-than from the frame it was collected under. When executed, its results go
-to `themes.md` and its claim inventory to `claim-inventory.md`; this note
-is then marked superseded by both (`superseded-by:` in its frontmatter, as
-`scripts/check_docs.py` requires).
+than from the frame it was collected under. Executed 2026-09-16: its
+results are in [themes.md](themes.md) and its claim inventory in
+[claim-inventory.md](claim-inventory.md), and the departures from the
+plan as written are recorded in the themes note's method section.
 
 Revised 2026-09-16 after an independent review of the first draft; the
 changes are noted where they apply.
