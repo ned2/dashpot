@@ -15,7 +15,6 @@ from textual.widgets import DataTable, Footer, Static
 import factories
 from app_harness import (
     NOW,
-    UNAVAILABLE_PAGE_SUMMARY,
     SequenceCollector,
     assert_panes_stack_above_full_width_queue,
     dashboard_app,
@@ -119,7 +118,9 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert not table.allow_select
 
         assert pane_title(app, "#queue-pane") == "ISSUES · Open 2 · Closed 0"
-        assert str(app.query_one("#issue-count", Static).render()) == page_summary(2)
+        assert (
+            str(app.query_one("#issue-count", Static).render()) == "2/2 matches · fresh"
+        )
         assert not app.query("#issue-filters .pane-title")
         diagnostics = app.query_one("#diagnostics", Static)
         assert_panes_stack_above_full_width_queue(app)
@@ -360,7 +361,7 @@ async def test_unavailable_issue_source_empties_the_page_but_not_the_store() -> 
         # The page owns the rows, so an unavailable source shows none; the
         # store still holds the last good Issue the observed run is bound to.
         count = app.query_one("#issue-count", Static)
-        assert str(count.render()) == UNAVAILABLE_PAGE_SUMMARY
+        assert str(count.render()) == "0/? matches · unavailable"
         assert "GitHub unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )

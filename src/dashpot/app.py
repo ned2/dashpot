@@ -373,6 +373,7 @@ class DashboardScreen(Screen[None]):
         if not self.is_mounted or not self._update_widgets_mounted():
             return
         self.fit_list_panes(message.size)
+        self.issue_table.update_page_summary()
 
     def on_list_pane_rows_changed(self, _message: ListPane.RowsChanged) -> None:
         # A pane's share depends on what every pane wants, so any change of

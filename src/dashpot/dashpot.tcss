@@ -102,6 +102,16 @@ ItemFilterBar > .item-count {
     color: $text-muted;
 }
 
+Screen.-compact #issue-search {
+    min-width: 21;
+}
+
+Screen.-compact #issue-count {
+    width: 1fr;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
 #queue {
     height: 1fr;
     background: $background;
