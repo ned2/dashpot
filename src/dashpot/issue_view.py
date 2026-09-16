@@ -95,13 +95,25 @@ class IssueScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
+        self.dress_panes()
+        self.query_one("#issue-view-body").focus()
+
+    @override
+    async def recompose(self) -> None:
+        """Recompose the view and give the new panes the chrome the old ones had."""
+        focused = self.focused.id if self.focused is not None else None
+        await super().recompose()
+        self.dress_panes()
+        self.query_one(f"#{focused or 'issue-view-body'}").focus()
+
+    def dress_panes(self) -> None:
+        """Title, focusability and stacking are not composed; set them on the panes."""
         self.query_one("#issue-view-body").border_title = Content(
             selection_title(self.context)
         )
         self.query_one("#issue-view-metadata").border_title = "DETAILS"
         self.query_one("#issue-view-metadata").can_focus = True
-        self.query_one("#issue-view-body").focus()
-        self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
         self.apply_layout(self.size.width)
 
     def on_theme_changed(self, _theme: Theme) -> None:

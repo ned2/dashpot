@@ -77,7 +77,14 @@ class ItemFilterBar(Horizontal):
             id=f"{self.item}-search",
             classes="item-search",
         )
-        yield Static(self.initial_count, id=f"{self.item}-count", classes="item-count")
+        # The count carries a page error verbatim, and a Query Source's message
+        # may contain square brackets, so it must not be read as markup.
+        yield Static(
+            self.initial_count,
+            id=f"{self.item}-count",
+            classes="item-count",
+            markup=False,
+        )
 
     @property
     def state(self) -> Select[str]:
