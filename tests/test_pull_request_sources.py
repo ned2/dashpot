@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing_extensions import override
+from typing import override
 
 from dashpot.issues.pull_request_sources import (
     CollectedPullRequests,

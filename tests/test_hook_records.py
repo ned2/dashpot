@@ -5,10 +5,8 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, override
 from unittest import mock
-
-from typing_extensions import override
 
 from dashpot.core.model import ObservationTarget
 from dashpot.core.timestamps import utc_now

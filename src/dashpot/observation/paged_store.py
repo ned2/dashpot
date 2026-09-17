@@ -14,8 +14,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import replace
-
-from typing_extensions import override
+from typing import override
 
 from ..core.model import Diagnostic, ProjectObservation, WorkspaceSnapshot
 from ..queries.source_queries import (

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, cast
+from typing import ClassVar, cast, override
 
 from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, SelectionList, Static
-from typing_extensions import override
 
 from .issue_table import COLUMN_KEYS, COLUMNS_BY_KEY, ColumnKey
 from .marked_widgets import MarkedSelectionList

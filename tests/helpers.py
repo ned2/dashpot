@@ -12,7 +12,7 @@ import copy
 import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -26,8 +26,6 @@ from dashpot.sessions.processes import (
     ProcessPresent,
     ProcessUnobservable,
 )
-
-T = TypeVar("T")
 
 _CONFORMANCE_FIXTURES = Path(__file__).parents[1] / "conformance" / "issue" / "fixtures"
 _GITHUB_FIXTURE: dict[str, Any] = json.loads(
@@ -44,7 +42,7 @@ async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> Non
         await asyncio.sleep(0.01)
 
 
-def required(value: T | None) -> T:
+def required[T](value: T | None) -> T:
     """Fail the test rather than dereference an absent value."""
     assert value is not None
     return value

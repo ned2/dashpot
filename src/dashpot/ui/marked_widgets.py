@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import override
 
 from rich.segment import Segment
 from textual.content import Content
 from textual.strip import Strip
 from textual.widgets import Checkbox, SelectionList
-from typing_extensions import override
-
-SelectionType = TypeVar("SelectionType")
 
 
-class MarkedSelectionList(SelectionList[SelectionType]):
+class MarkedSelectionList[SelectionType](SelectionList[SelectionType]):
     """Show an X only for a selected option."""
 
     @override

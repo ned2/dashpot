@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, TypeVar, cast
+from typing import Any, ClassVar, cast, override
 
 from textual import events, on
 from textual.app import App, ComposeResult
@@ -24,7 +24,6 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Select, Static
 from textual.worker import get_current_worker
-from typing_extensions import override
 
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text, next_issue_states
@@ -71,8 +70,6 @@ from .pane_layout import fit_panes, pane_wish
 from .panes import LIST_PANE_SPECS, ListPaneId, PaneContext, PaneSpec
 from .spread_table import SpreadTable
 from .worktree_table import WorktreeTable
-
-T = TypeVar("T")
 
 # The focus cycle is an override of Textual's own hidden Tab bindings, not a
 # Binding of the dashboard's; the Legend lists it as the keys a person presses.
@@ -680,7 +677,7 @@ class DashpotApp(App[None]):
         self.observations.shutdown()
         self.queries.shutdown()
 
-    async def off_loop(
+    async def off_loop[T](
         self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
     ) -> T:
         """Run one blocking operation on an executor thread and return its value."""
@@ -707,7 +704,7 @@ class DashpotApp(App[None]):
         """Redraw the diagnostics readout after a flow recorded a failure."""
         self.dashboard.update_diagnostics()
 
-    def run_off_loop(
+    def run_off_loop[T](
         self,
         name: str,
         group: str,
@@ -732,7 +729,7 @@ class DashpotApp(App[None]):
             exit_on_error=False,
         )
 
-    async def _post_off_loop(
+    async def _post_off_loop[T](
         self,
         operation: Callable[[], T],
         on_done: Callable[[T | None, str | None], Message],

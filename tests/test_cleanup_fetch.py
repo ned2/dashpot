@@ -1,10 +1,10 @@
 """Fetch from a Cleanup preview without authorizing or retargeting deletion."""
 
 from pathlib import Path
+from typing import override
 
 import pytest
 from textual.widgets import Button, Checkbox, Footer, Static
-from typing_extensions import override
 
 from app_harness import (
     SequenceCollector,

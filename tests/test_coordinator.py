@@ -4,10 +4,9 @@ import copy
 import json
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 import pytest
-from typing_extensions import override
 
 from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.core.model import (

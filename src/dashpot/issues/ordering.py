@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, TypeAlias, TypeGuard, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeGuard
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import IssueActivity, ProjectObservation
@@ -17,10 +17,8 @@ from ..core.model import IssueActivity, ProjectObservation
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
 
-T = TypeVar("T")
-
 # What a column yields for ordering: something Python can compare, or nothing.
-SortValue: TypeAlias = "SupportsRichComparison | None"
+type SortValue = SupportsRichComparison | None
 # The compact P-level a recognized priority label stands for.
 PriorityLevel = Literal["P0", "P1", "P2", "P3"]
 PRIORITY_BY_LABEL: dict[str, PriorityLevel] = {
@@ -132,7 +130,7 @@ def issue_sort_value(
     return _timestamp_value(issue.updated_at)
 
 
-def sort_by_column(
+def sort_by_column[T](
     items: Iterable[T],
     *,
     value: Callable[[T], SortValue],

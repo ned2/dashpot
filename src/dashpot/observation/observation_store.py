@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import (
@@ -43,8 +43,6 @@ from .worktree_list import (
 )
 
 StoreChangeKind = Literal["workspace", "projects", "agent-runs"]
-Key = TypeVar("Key")
-Value = TypeVar("Value")
 
 
 @dataclass(frozen=True, slots=True)
@@ -542,7 +540,9 @@ def _workspace_metadata(
     return state.collected_at, state.elapsed_ms, state.diagnostics
 
 
-def _changed_keys(before: Mapping[Key, Value], after: Mapping[Key, Value]) -> set[Key]:
+def _changed_keys[Key, Value](
+    before: Mapping[Key, Value], after: Mapping[Key, Value]
+) -> set[Key]:
     return {
         key for key in before.keys() | after.keys() if before.get(key) != after.get(key)
     }

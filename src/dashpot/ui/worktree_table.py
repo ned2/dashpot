@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, override
 
 from rich.text import Text
 from textual.binding import BindingType
 from textual.message import Message
 from textual.reactive import reactive
-from typing_extensions import override
 
 from .focus_table import FocusCursorTable
 from .keyed_table import capture_selection

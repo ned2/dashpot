@@ -5,8 +5,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-
-from typing_extensions import override
+from typing import override
 
 from dashpot.core.model import Harness, ObservationTarget
 from dashpot.sessions.agents import observe_agent_runs

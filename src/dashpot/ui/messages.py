@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Literal, Protocol, TypeVar
+from typing import Literal, Protocol
 
 from textual.geometry import Size
 from textual.message import Message
@@ -36,8 +36,6 @@ from ..repository.cleanup import (
 )
 from ..repository.fetch import FetchReport
 
-T = TypeVar("T")
-
 # What asked for an observation: the first load, a person's key press, an
 # automatic tick, or a Remote Fetch or Cleanup that changed the Repository.
 ObservationTrigger = Literal["initial", "manual", "timer", "fetch", "cleanup"]
@@ -51,7 +49,7 @@ class OffLoopHost(Protocol):
     message and never an exit.
     """
 
-    def run_off_loop(
+    def run_off_loop[T](
         self,
         name: str,
         group: str,

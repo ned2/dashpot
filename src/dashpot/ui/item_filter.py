@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
+from typing import cast, override
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Input, Select, Static
-from typing_extensions import override
 
 # The lifecycle choices every item-list filter offers, in display order.
 LIFECYCLE_STATUSES: tuple[tuple[str, str], ...] = (

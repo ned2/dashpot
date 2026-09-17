@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, override
 
 from pydantic import Field, HttpUrl, ValidationError
-from typing_extensions import override
 
 from ..core.commands import CommandRunner, run_command
 from ..core.model import (

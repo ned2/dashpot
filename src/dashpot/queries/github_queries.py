@@ -5,9 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
-
-from typing_extensions import override
+from typing import Any, override
 
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile

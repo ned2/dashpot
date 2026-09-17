@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
-
-from typing_extensions import override
+from typing import Any, override
 
 from ..core.errors import DashpotError
 from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, override
 
 import pytest
 from textual import events
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Static
-from typing_extensions import override
 
 from dashpot.ui.spread_table import SpreadTable, proportional_shares, spread_widths
 
