@@ -210,10 +210,16 @@ async def test_failure_or_partial_fetch_stays_visible_with_fresh_inspection(answ
 
 
 @pytest.mark.asyncio
-async def test_reinspection_failure_disables_confirmation_until_retry():
-    cleaner = FakeCleaner(
-        BRANCH_PREVIEW, RuntimeError("inspection denied"), BRANCH_PREVIEW
-    )
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (RuntimeError("inspection denied"), "inspection denied"),
+        # An error that says nothing is still named, by its type.
+        (RuntimeError(), "RuntimeError"),
+    ],
+)
+async def test_reinspection_failure_disables_confirmation_until_retry(error, reason):
+    cleaner = FakeCleaner(BRANCH_PREVIEW, error, BRANCH_PREVIEW)
     app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE, BEFORE),
         refresh_seconds=0,
@@ -226,7 +232,7 @@ async def test_reinspection_failure_disables_confirmation_until_retry():
         await wait_until(lambda: len(cleaner.requests) == 2 and not screen.busy)
         assert not screen.preview_valid
         assert screen.query_one("#cleanup-confirm", Button).disabled
-        assert "inspection denied" in screen.fetch_status
+        assert f"Could not refresh the preview: {reason}" in screen.fetch_status
         await pilot.press("f")
         await wait_until(lambda: len(cleaner.requests) == 3 and not screen.busy)
         assert screen.preview_valid
@@ -555,6 +561,14 @@ async def test_post_fetch_observation_failure_never_reenables_old_preview(failur
             assert not screen.preview_valid
             assert screen.query_one("#cleanup-confirm", Button).disabled
             assert "Could not refresh" in screen.fetch_status
+            # Each failure is named: the observation's own error, or the
+            # wait for it running out, which carries no text of its own.
+            reason = (
+                "observation denied"
+                if failure == "error"
+                else "Refresh timed out; retry or cancel."
+            )
+            assert reason in screen.fetch_status
             collector.release_observation.set()
             await app.workers.wait_for_complete()
             assert not screen.preview_valid and len(cleaner.requests) == 1
@@ -600,7 +614,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
 
     from dashpot.core.model import RepositoryStateInventory
     from factories import target
-    from test_paged_app import LocalOnlyCollector, application
+    from test_app_query_pages import LocalOnlyCollector, application
 
     class Collector(LocalOnlyCollector):
         def __init__(self):

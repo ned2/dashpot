@@ -7,8 +7,9 @@ a widget; both describe rows with the values here so neither imports Textual.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, TypeVar
 
 from rich.text import Text
 
@@ -65,6 +66,37 @@ class ListRow:
     key: str
     cells: tuple[ListCell, ...]
     issue_id: str | None = None
+
+
+class ListRecord(Protocol):
+    """What every pane record carries: the row key it is listed by."""
+
+    @property
+    def key(self) -> str: ...
+
+
+Record = TypeVar("Record", bound=ListRecord)
+
+
+def build_list_rows(
+    records: Iterable[Record],
+    cells: Callable[[Record], tuple[ListCell, ...]],
+    *,
+    issue_id: Callable[[Record], str | None] | None = None,
+) -> tuple[ListRow, ...]:
+    """Render each record as the pane row its identity keys and its cells fill.
+
+    ``cells`` is the pane's own rendering of one record, and ``issue_id``
+    names the Issue a row navigates to when the pane's records bind one.
+    """
+    return tuple(
+        ListRow(
+            record.key,
+            cells(record),
+            issue_id=None if issue_id is None else issue_id(record),
+        )
+        for record in records
+    )
 
 
 def truncate_end(value: str, limit: int) -> str:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Literal, cast
 
 from rich.text import Text
@@ -13,6 +14,7 @@ from textual.message import Message
 from textual.widgets import Static
 from typing_extensions import override
 
+from ..observation.related_rows import FocusedSource
 from .focus_table import FocusCursorTable
 from .item_filter import ItemFilterBar
 from .keyed_table import capture_selection, restore_selection
@@ -41,12 +43,11 @@ __all__ = [
 class ListPane(Vertical):
     """A titled, content-sized table of every observed record of one kind."""
 
+    @dataclass(eq=False)
     class RowsChanged(Message):
         """The pane's record count changed, so the panes' shares may too."""
 
-        def __init__(self, pane: ListPane) -> None:
-            super().__init__()
-            self.pane = pane
+        pane: ListPane
 
         @property
         @override
@@ -74,6 +75,9 @@ class ListPane(Vertical):
         self.table_id = table_id
         self.table_type = table_type
         self.rows_by_key: dict[str, ListRow] = {}
+        # The read-model records the listed rows were built from, kept so a
+        # cursor action reads its record here and never queries the store.
+        self.records: tuple[FocusedSource, ...] = ()
         self.row_cap = DEFAULT_ROW_CAP
         self.controls = controls
         self._controls_height = controls_height
@@ -131,9 +135,9 @@ class ListPane(Vertical):
         columns: Sequence[ListColumn] | None = None,
         note: str | None = None,
         empty_message: str | None = None,
-        title_count: int | None = None,
         title_summary: str | None = None,
         filter_count: str | None = None,
+        records: tuple[FocusedSource, ...] = (),
     ) -> None:
         """Replace the listed records, keeping the cursor by row identity.
 
@@ -141,7 +145,8 @@ class ListPane(Vertical):
         dropped one, such as the Sessions pane's single-Observation-Target
         case. ``note`` is a separate pane-level fact, such as when the
         Branches pane's Remote-Tracking Branches were last fetched.
-        ``filter_count`` is the matched count the pane's controls show.
+        ``filter_count`` is the matched count the pane's controls show, and
+        ``records`` are the read-model rows ``rows`` were built from.
         """
         table = self.table
         message = empty_message or self.empty_message
@@ -162,9 +167,8 @@ class ListPane(Vertical):
                 )
                 table.add_row(*cells, key=row.key)
         self.rows_by_key = desired
-        summary = title_summary
-        if summary is None:
-            summary = str(self.count if title_count is None else title_count)
+        self.records = records
+        summary = str(self.count) if title_summary is None else title_summary
         self.border_title = Content(f"{self.label} · {summary}")
         self.border_subtitle = Content(note) if note else None
         if self.controls is not None and filter_count is not None:
@@ -221,3 +225,7 @@ class ListPane(Vertical):
 
     def row(self, key: str) -> ListRow | None:
         return self.rows_by_key.get(key)
+
+    def record(self, key: str) -> FocusedSource | None:
+        """The read-model record the row ``key`` names was built from."""
+        return next((record for record in self.records if record.key == key), None)

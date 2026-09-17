@@ -26,6 +26,7 @@ from app_harness import (
     pane_title,
     selected_title,
     serve_snapshot,
+    toasts,
     with_first_project,
     with_first_project_snapshot,
     with_first_target,
@@ -757,7 +758,7 @@ async def test_a_timer_tick_failure_never_toasts() -> None:
         app.request_refresh("timer")
         await wait_until(lambda: alert(app).display)
         assert alert(app).has_class("-error")
-        assert len(app._notifications) == 0
+        assert len(toasts(app)) == 0
         # The failed key is schedulable again: a person's refresh runs and,
         # having changed the failure, earns the toast the tick did not.
         await wait_until(lambda: not app.observations.in_flight)
@@ -766,10 +767,10 @@ async def test_a_timer_tick_failure_never_toasts() -> None:
             lambda: (
                 collector.calls == 3
                 and not app.observations.in_flight
-                and len(app._notifications) == 1
+                and len(toasts(app)) == 1
             )
         )
-        assert len(app._notifications) == 1
+        assert len(toasts(app)) == 1
         assert any("forbidden" in error for error in app.observations.errors.values())
 
 
@@ -1164,7 +1165,7 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
         await wait_until(
             lambda: (
                 alert_text(app) == "✖ Refresh failed: Test Repository"
-                and len(app._notifications) == 1
+                and len(toasts(app)) == 1
             )
         )
 
@@ -1177,7 +1178,7 @@ async def test_refresh_failure_is_a_persistent_alert_that_recovers() -> None:
         await wait_until(
             lambda: collector.calls == 3 and not app.observations.in_flight
         )
-        assert len(app._notifications) == 1
+        assert len(toasts(app)) == 1
         assert alert(app).display
 
         await app.run_action("refresh")

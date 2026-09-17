@@ -13,7 +13,6 @@ from pathlib import Path
 from rich.text import Text
 
 from ..core.model import ObservationTarget, RunState
-from ..observation.list_result import ListResult
 from ..observation.session_list import SESSION_STATE_ORDER, abbreviate_path
 from ..observation.worktree_list import WorktreeListRow
 from .glyphs import (
@@ -22,7 +21,7 @@ from .glyphs import (
     ATTENTION_COLORS,
     BAD_COLORS,
 )
-from .list_rows import ListCell, ListColumn, ListRow, truncate_end
+from .list_rows import ListCell, ListColumn, truncate_end
 from .session_cells import STATE_GLYPHS
 
 BRANCH_LIMIT = 24
@@ -38,19 +37,6 @@ WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("branch", "BRANCH"),
     ListColumn("tree", "TREE"),
 )
-
-
-def build_worktree_rows(
-    result: ListResult[WorktreeListRow, None], *, dark: bool, home: Path | None = None
-) -> tuple[ListRow, ...]:
-    """Render the query result as pane rows carrying every scan-level fact."""
-    return tuple(
-        ListRow(
-            row.key,
-            worktree_cells(row, dark=dark, home=home),
-        )
-        for row in result.rows
-    )
 
 
 def worktree_cells(

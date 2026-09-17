@@ -9,7 +9,7 @@ tooltip and the Legend's Branches sections are built from.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 
 from rich.text import Text
 
@@ -17,10 +17,8 @@ from ..core.ages import relative_age
 from ..core.model import Branch, IntegrationState
 from ..observation.branch_list import (
     BranchListRow,
-    BranchListSummary,
     integration_summary,
 )
-from ..observation.list_result import ListResult
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
     ACTIVITY_LEGEND,
@@ -29,7 +27,7 @@ from .glyphs import (
     BAD_COLORS,
     Glyph,
 )
-from .list_rows import ListCell, ListColumn, ListRow, truncate_end
+from .list_rows import ListCell, ListColumn, truncate_end
 from .worktree_cells import (
     activity_cell,
     activity_description,
@@ -172,20 +170,6 @@ BRANCH_COLUMNS: tuple[ListColumn, ...] = (
     ),
     ListColumn("commit", "LAST COMMIT", description=COMMIT_DESCRIPTION),
 )
-
-
-def build_branch_rows(
-    result: ListResult[BranchListRow, BranchListSummary],
-    *,
-    dark: bool,
-    now: datetime | None = None,
-) -> tuple[ListRow, ...]:
-    """Render the query result as pane rows carrying every scan-level fact."""
-    current = now or datetime.now(UTC)
-    return tuple(
-        ListRow(row.key, branch_cells(row, dark=dark, now=current))
-        for row in result.rows
-    )
 
 
 def branch_cells(

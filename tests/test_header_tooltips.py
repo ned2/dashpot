@@ -63,7 +63,18 @@ async def hover_afresh(
     """
     await leave(pilot, tooltip)
     assert await pilot.hover(selector, offset=(x, y))
-    await pilot.pause(0.05)
+    await hover_settled(pilot, tooltip, selector)
+
+
+async def hover_settled(pilot: Pilot[Any], tooltip: Tooltip, selector: str) -> None:
+    """Wait for a hover's outcome: the table's tooltip shown, or none offered.
+
+    The table sets its own ``tooltip`` as the mouse moves; the screen's timer
+    then shows it. A table offering none leaves the box hidden, which is
+    already so after leaving, so there is nothing further to wait for.
+    """
+    table = pilot.app.screen.query_one(selector, DataTable)
+    await wait_until(lambda: tooltip.display or table.tooltip is None)
 
 
 async def leave(pilot: Pilot[Any], tooltip: Tooltip) -> None:
@@ -76,7 +87,9 @@ async def leave(pilot: Pilot[Any], tooltip: Tooltip) -> None:
     await wait_until(lambda: not tooltip.display)
 
 
-async def move_within(pilot: Pilot[Any], selector: str, x: int, y: int) -> None:
+async def move_within(
+    pilot: Pilot[Any], tooltip: Tooltip, selector: str, x: int, y: int
+) -> None:
     """Move the mouse to ``(x, y)`` without leaving the table.
 
     The first move hides whatever the table was showing, as Textual does for
@@ -85,7 +98,7 @@ async def move_within(pilot: Pilot[Any], selector: str, x: int, y: int) -> None:
     """
     assert await pilot.hover(selector, offset=(x, y))
     assert await pilot.hover(selector, offset=(x, y))
-    await pilot.pause(0.05)
+    await hover_settled(pilot, tooltip, selector)
 
 
 @pytest.mark.asyncio
@@ -118,17 +131,17 @@ async def test_every_branches_header_shows_its_help_and_only_its_help() -> None:
             assert tooltip.region.height <= 20, column.key
 
         # Moving between headers without leaving follows the mouse.
-        await move_within(pilot, "#branches", offsets[6], 0)
+        await move_within(pilot, tooltip, "#branches", offsets[6], 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(BRANCH_COLUMNS[6]))
-        await move_within(pilot, "#branches", offsets[3], 0)
+        await move_within(pilot, tooltip, "#branches", offsets[3], 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(BRANCH_COLUMNS[3]))
 
         # A body cell clears it, and so does leaving. The cell is one to the
         # right of the box the LOCAL header opened beneath itself, since a
         # mouse inside that box rests on the tooltip rather than the table.
-        await move_within(pilot, "#branches", offsets[7] + 30, 1)
+        await move_within(pilot, tooltip, "#branches", offsets[7] + 30, 1)
         assert not tooltip.display
         assert table.tooltip is None
         await hover_afresh(pilot, tooltip, "#branches", offsets[6], 0)

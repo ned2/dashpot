@@ -15,7 +15,6 @@ from typing import Literal
 from rich.text import Text
 
 from ..observation.issue_list import (
-    IssueListQuery,
     IssueListRow,
     IssueListSummary,
     IssueSearchField,
@@ -183,7 +182,8 @@ class SortTerm:
 
 @dataclass(frozen=True, slots=True)
 class IssueTableViewState:
-    query: IssueListQuery = IssueListQuery()
+    """The columns the Issue table shows; its query is the screen's ``ListQueries``."""
+
     columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS
 
     def __post_init__(self) -> None:

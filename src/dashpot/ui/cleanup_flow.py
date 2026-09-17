@@ -325,7 +325,8 @@ class CleanupFlow:
         try:
             try:
                 report = await self.host.off_loop(partial(fetcher, anchor))
-            except Exception as exc:
+            except Exception as exc:  # UI boundary: a fetcher failure is the
+                # preview's status and a Diagnostics line, never an exit.
                 error = str(exc)
             if worker.is_cancelled or self.host.closing:
                 return
@@ -359,9 +360,17 @@ class CleanupFlow:
                             protected=self.protection(project_id),
                         )
                     )
-            except Exception as exc:
-                detail = str(exc) or "Refresh timed out; retry or cancel."
-                status += f"\nCould not refresh the preview: {detail}"
+            except TimeoutError:
+                # ``observe_fetch`` waited ``refresh_timeout`` for the Git
+                # observations; the built-in timeout carries no text of its own.
+                status += (
+                    "\nCould not refresh the preview: Refresh timed out; "
+                    "retry or cancel."
+                )
+            except Exception as exc:  # UI boundary: a failed observation or
+                # inspection leaves the preview invalid with its reason, never exits.
+                reason = str(exc) or type(exc).__name__
+                status += f"\nCould not refresh the preview: {reason}"
             if self.holds(project_id, screen) and screen in self.host.screen_stack:
                 await screen.replace_preview(preview, status)
         finally:

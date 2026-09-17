@@ -16,11 +16,7 @@ from typing import TYPE_CHECKING, cast
 from rich.text import Text
 from textual.widgets import DataTable
 
-from ..observation.issue_list import (
-    IssueListQuery,
-    IssueListRow,
-    IssueListSummary,
-)
+from ..observation.issue_list import IssueListRow, IssueListSummary
 from ..observation.list_result import ListResult
 from ..observation.related_rows import FocusedSource, query_related_rows
 from ..queries.page_navigation import page_text
@@ -39,7 +35,6 @@ from .issue_table import (
     searchable_columns,
     shown_columns,
 )
-from .item_filter import lifecycle_value
 from .keyed_table import capture_selection, restore_selection
 from .panes import LIST_PANE_SPECS
 from .spread_table import SpreadTable
@@ -83,9 +78,6 @@ class IssueTableController:
         self.issue_view = IssueTableViewState()
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
-        # Each list pane's read-model records from its last refresh, by pane
-        # id, so relationship emphasis never queries the store per cursor move.
-        self.pane_records: dict[str, tuple[FocusedSource, ...]] = {}
 
     @property
     def table(self) -> SpreadTable[TableCell]:
@@ -139,15 +131,6 @@ class IssueTableController:
             return
         self.show_table_columns(shown_columns(columns, ()))
 
-    def set_issue_query(self, query: IssueListQuery) -> None:
-        """Record the submitted Issue query; a lifecycle change submits a page."""
-        previous = self.issue_view.query
-        self.issue_view = replace(self.issue_view, query=query)
-        if query.states != previous.states:
-            self.screen.dashpot.submit_page(
-                "issues", state=lifecycle_value(query.states)
-            )
-
     def update_page_summary(self) -> None:
         """Fit the Issue page summary to the dashboard's current layout."""
         navigation = self.screen.dashpot.queries.navigation["issues"]
@@ -160,7 +143,9 @@ class IssueTableController:
         """Rebuild the table from the accepted page and return the query result."""
         app = self.screen.dashpot
         table = self.table
-        query = replace(self.issue_view.query, search_fields=searchable_columns())
+        query = replace(
+            self.screen.list_queries.issues, search_fields=searchable_columns()
+        )
         result = app.store.query_issues(query)
         self.update_page_summary()
         shown = shown_columns(self.issue_view.columns, result.rows)
@@ -196,14 +181,14 @@ class IssueTableController:
     def records(self) -> tuple[FocusedSource, ...]:
         """Every pane's records and the Issue rows, as last listed."""
         return (
-            *chain.from_iterable(self.pane_records.values()),
+            *chain.from_iterable(pane.records for pane in self.screen.list_panes()),
             *self.rows_by_key.values(),
         )
 
     def update_related_rows(self, *, clear: bool = False) -> None:
         """Emphasize direct relationships of the visible focused cursor."""
         screen = self.screen
-        if not screen.is_mounted or not screen._update_widgets_mounted():
+        if not screen.is_mounted or not screen.surfaces_mounted():
             return
         records = self.records()
         source: FocusedSource | None = None

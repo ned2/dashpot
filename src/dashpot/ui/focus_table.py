@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Self
 
 from rich.segment import Segment
@@ -10,6 +11,7 @@ from rich.style import Style
 from rich.text import TextType
 from textual import events
 from textual.message import Message
+from textual.reactive import reactive
 from textual.widgets import DataTable
 from textual.widgets.data_table import CellType, ColumnKey
 from typing_extensions import override
@@ -26,12 +28,16 @@ class FocusCursorTable(DataTable[CellType]):
     COMPONENT_CLASSES: ClassVar[set[str]] = DataTable.COMPONENT_CLASSES | {
         "datatable--related-row"
     }
-    related_rows: frozenset[str] = frozenset[str]()
-    related_columns: frozenset[str] = frozenset[str]()
+    # The rows related to the focused cursor and the columns that emphasise
+    # them; a change repaints the table, and the watchers drop the cached
+    # row renders the old emphasis was painted into.
+    related_rows: reactive[frozenset[str]] = reactive(frozenset[str]())
+    related_columns: reactive[frozenset[str]] = reactive(frozenset[str]())
     # Header tooltips by column key; created on first use rather than in
     # ``__init__``, whose long DataTable signature would have to be repeated.
     _header_tooltips: dict[ColumnKey, str] | None = None
 
+    @dataclass(eq=False)
     class FocusChanged(Message):
         """Recompute relationships when the visible cursor changes focus."""
 
@@ -84,11 +90,13 @@ class FocusCursorTable(DataTable[CellType]):
 
     def set_related_rows(self, keys: frozenset[str], columns: frozenset[str]) -> None:
         """Emphasize related rows without changing their values or selection."""
-        if (keys, columns) == (self.related_rows, self.related_columns):
-            return
         self.related_rows, self.related_columns = keys, columns
+
+    def watch_related_rows(self) -> None:
         self._clear_caches()
-        self.refresh()
+
+    def watch_related_columns(self) -> None:
+        self._clear_caches()
 
     def is_related_row(self, row_index: int) -> bool:
         return (
@@ -125,17 +133,12 @@ class FocusCursorTable(DataTable[CellType]):
             row_index, column_index, base_style, width, cursor, hover
         )
 
+    @dataclass(eq=False)
     class RowBoundaryReached(Message):
         """Report a row move beyond this table so its screen may move focus."""
 
-        def __init__(
-            self,
-            table: FocusCursorTable[Any],
-            step: Literal[-1, 1],
-        ) -> None:
-            super().__init__()
-            self.table = table
-            self.step = step
+        table: FocusCursorTable[Any]
+        step: Literal[-1, 1]
 
         @property
         @override

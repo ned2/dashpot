@@ -21,7 +21,9 @@ from app_harness import (
     first_load_landed,
     footer_keys,
     issue,
+    legend_keys_text,
     pane_subtitle,
+    toasts,
     with_first_project,
     with_first_project_snapshot,
     workspace_snapshot,
@@ -118,10 +120,6 @@ def remote_branch_names(app: DashpotApp) -> list[str]:
 
 def diagnostics_text(app: DashpotApp) -> str:
     return str(app.query_one("#diagnostics", Static).render())
-
-
-def toasts(app: DashpotApp) -> list[str]:
-    return [notification.message for notification in app._notifications]
 
 
 @pytest.mark.asyncio
@@ -408,6 +406,4 @@ async def test_f_is_listed_in_the_footer_and_the_legend() -> None:
         await pilot.press("question_mark")
         await pilot.pause()
         assert isinstance(app.screen, LegendScreen)
-        assert "Fetch & prune remotes" in str(
-            app.screen.query_one("#legend-keys", Static).render()
-        )
+        assert "Fetch & prune remotes" in legend_keys_text(app)

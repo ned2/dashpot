@@ -542,9 +542,7 @@ CleanupScreen, CleanupReportScreen {
 }
 
 .cleanup-target CleanupChoice > .toggle--button,
-.cleanup-target CleanupChoice.-on > .toggle--button,
-#cleanup-ignored > .toggle--button,
-#cleanup-ignored.-on > .toggle--button {
+.cleanup-target CleanupChoice.-on > .toggle--button {
     color: $text;
 }
 

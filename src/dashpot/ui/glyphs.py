@@ -14,12 +14,18 @@ from dataclasses import dataclass
 from ..core.model import RunState
 from ..observation.session_list import SESSION_STATE_ORDER
 
-# GitHub Primer emphasis colours the list panes share; each pair is
-# (light theme, dark theme).
+# GitHub Primer foreground colours every pane's Glyphs share; each pair is
+# (light theme, dark theme), and a Glyph never spells a colour of its own.
 GOOD_COLORS = ("#1a7f37", "#3fb950")
 ATTENTION_COLORS = ("#9a6700", "#d29922")
 BAD_COLORS = ("#cf222e", "#f85149")
 MUTED_COLORS = ("#59636e", "#8b949e")
+DONE_COLORS = ("#8250df", "#ab7df8")
+# Primer emphasis colours: the block behind an Issue's state, which its chip
+# and the ISSUE pane border repeat so the border's meaning is discoverable.
+OPEN_EMPHASIS_COLORS = ("#1f883d", "#238636")
+DONE_EMPHASIS_COLORS = ("#8250df", "#8957e5")
+NEUTRAL_EMPHASIS_COLORS = ("#59636e", "#656c76")
 
 
 @dataclass(frozen=True, slots=True)

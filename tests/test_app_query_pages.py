@@ -1,4 +1,9 @@
-"""Exercise independently published query pages through Textual's public seam."""
+"""The app over a local Markdown Query Source: its Query Pages, totals and identities.
+
+The one suite that builds ``DashpotApp`` with the shipped coordinator rather
+than the harness, so each kind's page is published independently and
+through Textual's public seam.
+"""
 
 import threading
 
@@ -12,6 +17,8 @@ from app_harness import (
     dashboard_app,
     first_load_landed,
     issue,
+    legend_keys_text,
+    toasts,
     workspace_snapshot,
 )
 from dashpot.core.model import RepositoryStateInventory, WorkspaceSnapshot
@@ -149,22 +156,26 @@ async def test_the_legend_lists_the_shipped_screen_and_worktree_keys(tmp_path):
 
         legend = app.screen
         assert isinstance(legend, LegendScreen)
-        rendered = str(legend.query_one("#legend-keys", Static).render())
+        rendered = legend_keys_text(app)
         listed = {
-            binding.key: binding.description
-            for binding in Binding.make_bindings(legend.legend_bindings)
+            (binding.key, binding.description)
+            for group in legend.legend_keys
+            for binding in Binding.make_bindings(group.bindings)
         }
 
-    # The paging keys belong to the screen that actually runs, and the
-    # Worktrees table binds its own; the Legend must omit neither.
+    # The paging keys belong to the screen that actually runs, the Worktrees
+    # table binds its own, and the focus cycle is an override with no
+    # Binding; the Legend must omit none of them.
     for key, description in (
         ("n", "Next page"),
         ("p", "Previous page"),
         ("g", "First page"),
         ("enter", "Open Worktree"),
         ("y", "Copy path"),
+        ("tab", "Next list"),
+        ("shift+tab", "Previous list"),
     ):
-        assert listed[key] == description
+        assert (key, description) in listed
         assert description in rendered
 
 
@@ -254,9 +265,7 @@ async def test_bound_issue_off_the_page_opens_once_its_identity_resolves(tmp_pat
             await wait_until(lambda: isinstance(app.screen, IssueScreen))
             assert app.screen.issue.id == "I_3"
             assert app.open_when_resolved is None
-            assert [n.message for n in app._notifications] == [
-                "Resolving bound Issue details"
-            ]
+            assert toasts(app) == ["Resolving bound Issue details"]
     finally:
         release.set()
 

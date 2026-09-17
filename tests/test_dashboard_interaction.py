@@ -17,6 +17,7 @@ from app_harness import (
     pane_title,
     prepare_pane,
     serve_snapshot,
+    toasts,
     workspace_snapshot,
 )
 from dashpot.observation.issue_list import row_key
@@ -64,6 +65,13 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         assert str(count.render()) == "2 pull requests"
         assert pane_title(app, "#pull-requests-pane") == inventory
 
+        # Page keys follow the pane holding focus: the Pull Requests pane
+        # pages Pull Requests, and anywhere else pages Issues.
+        pane.table.focus()
+        await wait_until(lambda: app.dashboard.page_kind() == "pull-requests")
+        app.dashboard.queue_table().focus()
+        await wait_until(lambda: app.dashboard.page_kind() == "issues")
+
         # Typing submits nothing; Enter submits the whole text to the source.
         search.value = "draft:true"
         await pilot.pause()
@@ -73,7 +81,7 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         await pilot.press("enter")
         await wait_until(lambda: pane.table.row_count == 1)
         assert app.queries.navigation["pull-requests"].request.query == "draft:true"
-        assert app.dashboard.pull_request_query.text == "draft:true"
+        assert app.dashboard.list_queries.pull_requests.text == "draft:true"
         assert "Draft navigation" in str(pane.table.get_row_at(0)[2])
         assert str(count.render()) == "1 pull request"
         assert pane_title(app, "#pull-requests-pane") == inventory
@@ -229,7 +237,7 @@ async def test_a_header_the_source_cannot_order_by_leaves_the_query_alone() -> N
             assert app.queries.navigation["issues"].request == request
             assert str(table.columns[fixed_key].label) == label
         # Each refusal is explained once, and nothing was queried for it.
-        assert len(app._notifications) == 3
+        assert len(toasts(app)) == 3
         assert titles(app) == ["Zebra", "Alpha"]
 
 
@@ -350,7 +358,7 @@ async def test_a_submitted_sort_qualifier_owns_the_order_until_it_is_cleared() -
 
         # The qualifier orders the page, so no header offers to.
         assert "created" not in app.dashboard.issue_table.issue_view.columns
-        assert app.dashboard.issue_table.issue_view.query.text == "sort:created-desc"
+        assert app.dashboard.list_queries.issues.text == "sort:created-desc"
         assert headers(app) == [
             "◈",
             "◉",
@@ -472,9 +480,7 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
                 == row_key("issue", closed_issue.id)
             )
         )
-        assert app.dashboard.issue_table.issue_view.query.states == frozenset(
-            {"closed"}
-        )
+        assert app.dashboard.list_queries.issues.states == frozenset({"closed"})
         assert app.queries.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
         assert pane_title(app, "#queue-pane") == inventory
@@ -782,7 +788,8 @@ async def test_hovering_a_glyph_header_shows_its_meaning() -> None:
             assert await pilot.hover("#pull-request-search")
             await wait_until(lambda: not tooltip.display)
             assert await pilot.hover("#queue", offset=(x, y))
-            await pilot.pause(0.05)
+            # The table offered its header's tooltip, now shown, or none.
+            await wait_until(lambda: tooltip.display or table.tooltip is None)
 
         await hover_table(0, 0)
         await wait_until(lambda: tooltip.display)

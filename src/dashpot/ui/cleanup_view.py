@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
@@ -230,12 +231,11 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     preview_valid = reactive(True)
     fetch_status = reactive("")
 
+    @dataclass(eq=False)
     class FetchRequested(Message):
         """Request Remote Fetch for the captured Cleanup preview."""
 
-        def __init__(self, screen: CleanupScreen) -> None:
-            super().__init__()
-            self.screen = screen
+        screen: CleanupScreen
 
     def __init__(
         self,

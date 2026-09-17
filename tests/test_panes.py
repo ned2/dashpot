@@ -11,6 +11,7 @@ from dashpot.observation.related_rows import RelatedRows
 from dashpot.queries.page_navigation import PageNavigation
 from dashpot.queries.source_queries import QueryRequest, ResourceKind
 from dashpot.ui.item_filter import ItemFilterBar
+from dashpot.ui.list_rows import build_list_rows
 from dashpot.ui.panes import (
     LIST_PANE_SPECS,
     PaneContext,
@@ -39,8 +40,10 @@ def test_every_pane_is_declared_once_with_its_own_identities() -> None:
     assert len(set(pane_ids)) == len(pane_ids)
     assert len(set(table_ids)) == len(table_ids)
     for spec in LIST_PANE_SPECS:
-        # Controls and their height come together, as the pane requires.
+        # Controls and their height come together, as the pane requires, and
+        # controls filter a paged kind's query.
         assert (spec.controls is None) == (spec.controls_height == 0)
+        assert (spec.controls is None) == (spec.query_kind is None)
         # A pane in relationship emphasis names the columns that show it.
         assert (spec.related is None) == (not spec.related_columns)
 
@@ -115,3 +118,26 @@ def test_pull_request_filter_bar_starts_from_the_default_query() -> None:
     assert bar.item == "pull-request"
     assert bar.initial_status == "open"
     assert bar.initial_query == ""
+
+
+def test_build_list_rows_keys_each_record_and_names_its_issue() -> None:
+    run = factories.agent_run("one", target_path="/repo", issue_id="I_test/repo#1")
+    store = PagedObservationStore(
+        workspace_snapshot(issue("test/repo#1", "First"), runs=[run])
+    )
+    sessions = store.query_sessions()
+    rows = build_list_rows(
+        sessions.rows,
+        lambda row: (row.session.harness,),
+        issue_id=lambda row: row.bound_issue_id,
+    )
+    assert [(row.key, row.cells) for row in rows] == [
+        (record.key, (record.session.harness,)) for record in sessions.rows
+    ]
+    assert [row.issue_id for row in rows] == [
+        record.bound_issue_id for record in sessions.rows
+    ]
+    # A pane whose records bind no Issue names none.
+    assert all(
+        row.issue_id is None for row in build_list_rows(sessions.rows, lambda _row: ())
+    )

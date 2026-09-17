@@ -6,28 +6,24 @@ query itself lives in ``pull_request_list``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from rich.text import Text
 
 from ..core.ages import relative_age
 from ..core.model import PullRequest
-from ..observation.list_result import ListResult
-from ..observation.pull_request_list import (
-    PullRequestListRow,
-    PullRequestListSummary,
-)
 from .glyphs import (
     ATTENTION_COLORS,
     BAD_COLORS,
+    DONE_COLORS,
     GOOD_COLORS,
     MUTED_COLORS,
     Glyph,
 )
-from .list_rows import ListCell, ListColumn, ListRow, truncate_end
+from .list_rows import ListCell, ListColumn, truncate_end
 
 OPEN_GLYPH = Glyph("■", "an open Pull Request", GOOD_COLORS)
-DRAFT_GLYPH = Glyph("■", "a draft Pull Request", ("#59636e", "#9198a1"))
+DRAFT_GLYPH = Glyph("■", "a draft Pull Request", MUTED_COLORS)
 APPROVED_GLYPH = Glyph("✓R", "reviews approve the Pull Request", GOOD_COLORS)
 CHANGES_REQUESTED_GLYPH = Glyph(
     "✗R", "reviews request changes to the Pull Request", BAD_COLORS
@@ -50,10 +46,8 @@ MERGEABILITY_UNKNOWN_GLYPH = Glyph(
     "…M", "GitHub is still determining mergeability", MUTED_COLORS
 )
 
-CLOSED_GLYPH = Glyph(
-    "■", "a Pull Request closed without merging", ("#d1242f", "#f85149")
-)
-MERGED_GLYPH = Glyph("■", "a merged Pull Request", ("#8250df", "#ab7df8"))
+CLOSED_GLYPH = Glyph("■", "a Pull Request closed without merging", BAD_COLORS)
+MERGED_GLYPH = Glyph("■", "a merged Pull Request", DONE_COLORS)
 MERGE_NOT_APPLICABLE_GLYPH = Glyph("—M", "mergeability does not apply", MUTED_COLORS)
 
 STATE_LEGEND = (OPEN_GLYPH, DRAFT_GLYPH, CLOSED_GLYPH, MERGED_GLYPH)
@@ -94,23 +88,6 @@ PULL_REQUEST_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn("merge", "MERGE"),
     ListColumn("updated", "UPDATED"),
 )
-
-
-def build_pull_request_rows(
-    result: ListResult[PullRequestListRow, PullRequestListSummary],
-    *,
-    dark: bool,
-    now: datetime | None = None,
-) -> tuple[ListRow, ...]:
-    """Render every Pull Request with its scan-level coordination facts."""
-    current = now or datetime.now(UTC)
-    return tuple(
-        ListRow(
-            row.key,
-            pull_request_cells(row.pull_request, dark=dark, now=current),
-        )
-        for row in result.rows
-    )
 
 
 def pull_request_cells(

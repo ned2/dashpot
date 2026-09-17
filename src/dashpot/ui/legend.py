@@ -11,6 +11,7 @@ header tooltips read too.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import ClassVar
 
 from rich.text import Text
@@ -110,6 +111,14 @@ LEGEND: tuple[LegendSection, ...] = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class KeyGroup:
+    """The keys one screen or widget binds, named for where they are pressed."""
+
+    label: str
+    bindings: tuple[BindingType, ...]
+
+
 def legend_glyphs() -> tuple[Glyph, ...]:
     """Every Glyph the Legend explains, once each, in Legend order."""
     seen: list[Glyph] = []
@@ -174,11 +183,11 @@ class LegendScreen(ModalScreen[None]):
         ("question_mark", "close", "Close"),
     ]
 
-    def __init__(self, bindings: Sequence[BindingType]) -> None:
-        # The caller supplies the bindings to list: the dashboard's keys live
-        # on the DashboardScreen, which this module must not import.
+    def __init__(self, keys: Sequence[KeyGroup]) -> None:
+        # The caller supplies the keys to list: the dashboard's live on the
+        # DashboardScreen, which this module must not import.
         super().__init__()
-        self.legend_bindings = tuple(bindings)
+        self.legend_keys = tuple(keys)
 
     @override
     def compose(self) -> ComposeResult:
@@ -199,12 +208,21 @@ class LegendScreen(ModalScreen[None]):
                     classes="legend-section",
                     id=f"legend-section-{index}",
                 )
-            yield Static(KEYS_LABEL, classes="legend-heading", id="legend-keys-heading")
-            yield Static(self.keys_text(), classes="legend-section", id="legend-keys")
+            for index, group in enumerate(self.legend_keys):
+                yield Static(
+                    f"{KEYS_LABEL} · {group.label}",
+                    classes="legend-heading",
+                    id=f"legend-keys-heading-{index}",
+                )
+                yield Static(
+                    self.keys_text(group.bindings),
+                    classes="legend-section legend-keys",
+                    id=f"legend-keys-{index}",
+                )
 
-    def keys_text(self) -> Text:
-        """The supplied bindings as the Footer would show them, one per line."""
-        bindings = list(Binding.make_bindings(self.legend_bindings))
+    def keys_text(self, keys: Sequence[BindingType]) -> Text:
+        """The group's bindings as the Footer would show them, one per line."""
+        bindings = [binding for binding in Binding.make_bindings(keys) if binding.show]
         width = max(len(self.app.get_key_display(binding)) for binding in bindings)
         text = Text()
         for index, binding in enumerate(bindings):

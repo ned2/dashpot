@@ -22,8 +22,8 @@ from dashpot.ui.keyed_table import capture_selection
 from dashpot.ui.marked_widgets import MarkedSelectionList
 from factories import agent_run, hook_record_document, target
 from helpers import present, wait_until
+from test_app_query_pages import application
 from test_app_worktree_launcher import WorktreeCollector
-from test_paged_app import application
 from test_related_rows import query_source, related, related_snapshot
 
 
@@ -194,7 +194,7 @@ def emphasis(app):
 
 
 def expected(app, run_id):
-    rows = related(app.store, run_id, app.dashboard.issue_table.issue_view.query)
+    rows = related(app.store, run_id, app.dashboard.list_queries.issues)
     return rows.worktrees, rows.branches, rows.issues
 
 
@@ -212,7 +212,8 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
         ]
         queries = (
             app.dashboard.issue_table.issue_view,
-            app.dashboard.pull_request_query,
+            app.dashboard.list_queries.issues,
+            app.dashboard.list_queries.pull_requests,
         )
         sessions.focus()
         await wait_until(lambda: emphasis(app) == expected(app, "one"))
@@ -226,7 +227,8 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
         ]
         assert queries == (
             app.dashboard.issue_table.issue_view,
-            app.dashboard.pull_request_query,
+            app.dashboard.list_queries.issues,
+            app.dashboard.list_queries.pull_requests,
         )
         assert collector.calls == 1
         await pilot.press("?")
