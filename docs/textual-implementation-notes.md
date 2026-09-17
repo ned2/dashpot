@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-13
+date: 2026-09-17
 ---
 
 # Textual implementation notes for Dashpot
@@ -26,15 +26,28 @@ bindings, while the app keeps the scheduler, the store and screen navigation.
 ```text
 DashpotApp
 └── DashboardScreen
-    ├── source-status
-    ├── body
-    │   ├── queue-pane
-    │   │   └── DataTable
-    │   └── detail-pane
-    │       └── Markdown (or Static)
+    ├── body (DashboardBody)
+    │   ├── list-row
+    │   │   ├── sessions-pane (ListPane)
+    │   │   │   └── FocusCursorTable
+    │   │   ├── worktrees-pane (ListPane)
+    │   │   │   └── WorktreeTable
+    │   │   ├── branches-pane (ListPane)
+    │   │   │   └── FocusCursorTable
+    │   │   └── pull-requests-pane (ListPane)
+    │   │       ├── ItemFilterBar
+    │   │       └── FocusCursorTable
+    │   └── queue-pane
+    │       ├── ItemFilterBar
+    │       └── SpreadTable (#queue, the Issue table)
+    ├── alert
     ├── diagnostics
     └── Footer
 ```
+
+The list panes come from `LIST_PANE_SPECS` in `ui/panes.py`, each a
+`PaneSpec` composed once; every `ListPane` also holds the `Static` it shows
+while empty. The Issue detail is a pushed `IssueScreen`, not a pane.
 
 Keep the headless `ObservationCoordinator` and its snapshots independent of
 Textual. Each pane read model is therefore two modules: the query half
@@ -327,10 +340,14 @@ needs a selection and a confirmation:
 - `ModalScreen[Result | None]` with `push_screen(screen, callback)`: the
   screen `dismiss`es with the value the app acts on, or `None` on `Escape`,
   so the app never reads widget state across the screen boundary.
-- `SelectionList` prompts are one line: `Selection` keeps only the first line
-  of a multi-line prompt. Keep the list to label, availability, and location,
-  and render each target's gate and consequences in a `Static` beneath it.
-  Give each `Selection` an `id` when the app needs `get_option(identity)`.
+- Each Cleanup target is a `CleanupTargetView`: a heading carrying only the
+  label — a `Static` for the primary subject, a `CleanupChoice`
+  (`MarkedCheckbox`) for every other target — with its availability beside
+  it, and the target's blockers, summary, and a `Collapsible` of evidence in
+  `Static`s beneath it. Give each choice an `id` (`cleanup-target-<index>`)
+  when the screen needs to find it. `SelectionList` prompts are one line
+  (`Selection` keeps only the first line of a multi-line prompt), so the
+  column editor's `MarkedSelectionList` keeps its prompts to a label.
 - Stock `SelectionList` and `Checkbox` always draw the `X` and tell the state
   apart by colour only; `MarkedSelectionList` and `MarkedCheckbox`
   (`marked_widgets.py`) blank the mark when off, and the stylesheet gives
@@ -354,8 +371,9 @@ needs a selection and a confirmation:
   A disabled button still lights up under the mouse and swallows the click
   without a word, and `Tab` skips it, so an idle preview never uses it to
   express an incomplete selection. Keep it pressable, recompute
-  the reason on every `SelectionList.SelectedChanged` and `Checkbox.Changed`,
-  show it beneath the list, switch the variant to `error` only once a press
+  the reason in `on_checkbox_changed` and in the `busy`, `preview_valid`, and
+  `fetch_status` watchers (`refresh_state`),
+  show it beneath the targets, switch the variant to `error` only once a press
   would delete, and answer a premature press with a toast and focus on what is
   missing; deselect what must never stay selected in the same handler.
 - Return directly to the dashboard after every successful Cleanup and list its

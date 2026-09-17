@@ -368,7 +368,8 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   checking. Ruff's rule selection and ty's rule levels live in
   [`pyproject.toml`](pyproject.toml). Then
   [`scripts/check_docs.py`](scripts/check_docs.py) resolves every in-repo
-  Markdown link and requires the frontmatter described in the
+  Markdown link (its path, heading anchor, or `#L` line fragment) and requires
+  the frontmatter described in the
   [documentation map](#documentation-map); it always reads the whole document
   set, because a link resolves against files the commit need not touch.
 - **On push**: the pushed-revision gate in

@@ -185,7 +185,8 @@ The conventions the tooling enforces or the code assumes:
   `first_load_landed` before reading a pane. Fakes stand in for GitHub;
   nothing in the suite talks to the network.
 - Every document under `docs/` declares `status` and `date` in frontmatter,
-  and every in-repo Markdown link resolves — path and heading anchor.
+  and every in-repo Markdown link resolves — path, heading anchor, and `#L`
+  line fragment.
   `scripts/check_docs.py` fails the gate on either. When you move or rename a
   section, fix the pointers in the same change; when you finish work an ADR or
   a research note described as future, update that document's `status` rather

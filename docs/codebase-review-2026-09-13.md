@@ -55,12 +55,12 @@ Textual. At the import level they are not:
   query (`query_session_list`, `SessionListRow`, `SessionListResult`) with
   Rich/Textual rendering (`build_session_rows`, `session_state_cell -> Text`)
   and imports `ListCell`, `ListColumn`, `ListRow`, and `truncate_end` from
-  [`list_pane.py`](../src/dashpot/ui/list_pane.py#L33-L64), a widget module.
-- [`observation_store.py`](../src/dashpot/observation/observation_store.py#L7-L32) and
-  [`paged_store.py`](../src/dashpot/observation/paged_store.py#L18) import the **private**
+  [`list_pane.py`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/list_pane.py#L33-L64), a widget module.
+- [`observation_store.py`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/observation_store.py#L7-L32) and
+  [`paged_store.py`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/paged_store.py#L18) import the **private**
   `_query_indexed_*` functions from all five;
-  [`collect.py`](../src/dashpot/observation/collect.py#L40) imports the store;
-  [`issue_resolution.py`](../src/dashpot/issues/issue_resolution.py#L7) imports
+  [`collect.py`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/collect.py#L40) imports the store;
+  [`issue_resolution.py`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/issue_resolution.py#L7) imports
   `collect.build_issue_source`; `work.py` and `worktrees.py` import
   `issue_resolution`.
 - Consequently `import dashpot.sessions.work`, `import dashpot.worktrees`, and
@@ -69,11 +69,11 @@ Textual. At the import level they are not:
   Textual. `hook_records` is still clean.
 
 Other private cross-module reaches, each a missing public seam:
-[`github_queries.py`](../src/dashpot/queries/github_queries.py#L21-L28) imports
+[`github_queries.py`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/github_queries.py#L21-L28) imports
 `_ISSUE_NODE_FIELDS`, `_issue_activity`, `_label_colors`, and
 `_validate_grouping` from siblings and calls
 `self.profiles._complete_nested_connections` (`:503`);
-[`markdown_queries.py`](../src/dashpot/queries/markdown_queries.py#L15-L20) imports
+[`markdown_queries.py`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/markdown_queries.py#L15-L20) imports
 `_matches_search` and `issue_table.build_rows` (Rich output) only to sort a
 Query Page; `paged_app.py:295,412,471` call `paged_store._row`;
 `app.py:2063` calls `self.dashboard._update_widgets_mounted()`.
@@ -86,7 +86,7 @@ infrastructure (the `DashpotModel` / `PublishedModel` / `PersistedRecord` /
 `model.py` is the published observation domain (`ProjectSnapshot`,
 `AgentRun`, `WorkspaceSnapshot`, …) plus three trusted dataclasses —
 `RepositoryAnchor`, `Workspace`, `ResolvedProject`
-([`model.py:193-211`](../src/dashpot/core/model.py#L193-L211)) — that belong
+([`model.py:193-211`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/model.py#L193-L211)) — that belong
 beside `workspace.py`; `issue_profile.py` is the Issue Profile seam. The two
 Pydantic modules are the first and third most-imported in the package and
 differ by one letter. Renaming `models.py` to something like `core/pydantic.py`
@@ -153,7 +153,7 @@ Modules that do not fit cleanly: `serialization.py` (a CLI wire seam over
 ### `app.py` decomposition
 
 **The base/paged split is unsound (verified).**
-[`cli.py:35`](../src/dashpot/cli.py#L35) reads
+[`cli.py:35`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/cli.py#L35) reads
 `from .paged_app import PagedDashpotApp as DashpotApp`: production only ever
 runs the paged app. `PagedDashboardScreen` overrides fifteen methods,
 neutering `on_input_changed`
@@ -271,14 +271,14 @@ Cross-cutting inside `app.py`:
 
 | # | Finding | Standard |
 | --- | --- | --- |
-| 1 | **Verified.** [`repository.py:350`](../src/dashpot/repository/repository.py#L350) `@dataclass(slots=True) class BranchObservation` is the only non-frozen dataclass in `src/`. | AGENTS.md: trusted internal values are frozen, slotted dataclasses. |
+| 1 | **Verified.** [`repository.py:350`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/repository.py#L350) `@dataclass(slots=True) class BranchObservation` is the only non-frozen dataclass in `src/`. | AGENTS.md: trusted internal values are frozen, slotted dataclasses. |
 | 2 | **Verified.** The headless coordinator transitively imports Textual (see Structure). | Textual implementation notes. |
-| 3 | **Verified.** The Legend omits shipped keys. [`app.py:1267`](../src/dashpot/ui/app.py#L1267) builds it from `DashboardScreen.BINDINGS`, but production runs `PagedDashboardScreen` (`n`, `p`, `home` at `paged_app.py:94-105`) and `WorktreeTable` binds `enter` and `y` (`worktree_table.py:18`). | Domain language: the Legend lists the keys; `design.md`. |
-| 4 | **Verified.** [`design.md`](design.md) and [`textual-implementation-notes.md`](textual-implementation-notes.md) say the Cleanup confirm button "is never disabled", while [`cleanup_view.py:488`](../src/dashpot/ui/cleanup_view.py#L488) sets `button.disabled = self.busy or not self.preview_valid`. The code follows [ADR 0036](adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) ("Confirmation stays disabled through fetching"), which post-dates the rejected alternative in [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md); the premature-press case is still handled without disabling. The two documents are stale and ADR 0019 wants `amended-by` 0036. | `design.md`; AGENTS.md documentation-currency rule. |
-| 5 | **Withdrawn** (see the erratum below). Two lint directives, [`github_issues.py:710`](../src/dashpot/github/github_issues.py#L710) `# ruff: ignore[any-type]` and [`app.py:1111`](../src/dashpot/ui/app.py#L1111) `# ruff: ignore[mutable-class-default]`, were reported as not Ruff syntax and therefore inert. | AGENTS.md: an ignore names its rule. |
+| 3 | **Verified.** The Legend omits shipped keys. [`app.py:1267`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/app.py#L1267) builds it from `DashboardScreen.BINDINGS`, but production runs `PagedDashboardScreen` (`n`, `p`, `home` at `paged_app.py:94-105`) and `WorktreeTable` binds `enter` and `y` (`worktree_table.py:18`). | Domain language: the Legend lists the keys; `design.md`. |
+| 4 | **Verified.** [`design.md`](design.md) and [`textual-implementation-notes.md`](textual-implementation-notes.md) say the Cleanup confirm button "is never disabled", while [`cleanup_view.py:488`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/cleanup_view.py#L488) sets `button.disabled = self.busy or not self.preview_valid`. The code follows [ADR 0036](adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) ("Confirmation stays disabled through fetching"), which post-dates the rejected alternative in [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md); the premature-press case is still handled without disabling. The two documents are stale and ADR 0019 wants `amended-by` 0036. | `design.md`; AGENTS.md documentation-currency rule. |
+| 5 | **Withdrawn** (see the erratum below). Two lint directives, [`github_issues.py:710`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/github_issues.py#L710) `# ruff: ignore[any-type]` and [`app.py:1111`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/app.py#L1111) `# ruff: ignore[mutable-class-default]`, were reported as not Ruff syntax and therefore inert. | AGENTS.md: an ignore names its rule. |
 | 6 | **Verified.** Retired vocabulary is still threaded. The domain language retires *Reconciliation* ([ADR 0033](adr/0033-query-pages-and-independent-issue-resolution.md)), yet `reconcile=` is set at `app.py:1983`, carried through `ObservationTicket.reconcile` (`collect.py:103`), `ObservationScheduler.request`, `ProjectCollector.observe_issues`, and `IssueSource.refresh(reconcile=)` into `_reconcile_requested` (`issue_sources.py:140-165`), which nothing outside that class reads. `GitHubIssuesSource.reconcile_seconds` (`github_issues.py:218`) is stored and never read. | Domain language; AGENTS.md vocabulary rule. |
 | 7 | Wrong Pydantic base for the seam. `ConfigModel` (`models.py:202`, "a configuration file whose key set is a closed contract") carries published observations in `source_queries.py:29-173` and GraphQL wire shapes in `github_queries.py:73-95`, `github_pull_request_search.py:62-83`, `github_pull_requests.py:100-136`. GitHub responses are hand-validated in `github_issues.py:690-760` (the idiom ADR 0013 records as retained) but Pydantic-validated in the three newer modules — two idioms for one seam with no recorded decision. | [ADR 0013](adr/0013-adopt-pydantic-models-by-seam.md) per-seam variants. |
-| 8 | **Verified.** [`errors.py:9-13`](../src/dashpot/core/errors.py#L9-L13) states that every error reaching `cli.main` derives from `DashpotError`; `src/` has 93 bare `raise RuntimeError` sites against 17 `DashpotError` ones, and `PullRequestSourceRefreshError(RuntimeError)` (`pull_request_sources.py:42`) is off the base while its sibling `IssueSourceRefreshError` is on it. | `errors.py` contract. |
+| 8 | **Verified.** [`errors.py:9-13`](https://github.com/ned2/dashpot/blob/b59032f/src/dashpot/errors.py#L9-L13) states that every error reaching `cli.main` derives from `DashpotError`; `src/` has 93 bare `raise RuntimeError` sites against 17 `DashpotError` ones, and `PullRequestSourceRefreshError(RuntimeError)` (`pull_request_sources.py:42`) is off the base while its sibling `IssueSourceRefreshError` is on it. | `errors.py` contract. |
 | 9 | Docstrings "one imperative line": about 109 noun-phrase first lines in the domain modules (`git.py:70`, `processes.py:273`, `cleanup.py:93`, …) and about 95 multi-line or noun-phrase docstrings in the presentation modules (`app.py:131,155,792,1445`, …). Pervasive enough that either the rule or the code wants adjusting. | AGENTS.md. |
 | 10 | Domain-language *Avoid* notes: `cleanup_view.py:284` labels a checkout path "Repository:"; `spread_table.py:32` says "icon". | Domain language. |
 | 11 | `design.md` pane column lists are stale: Sessions (first column is now `◈`), Worktrees ("five", now six), Branches ("seven", now eight). | AGENTS.md documentation-currency rule. |

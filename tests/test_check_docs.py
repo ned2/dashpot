@@ -98,13 +98,54 @@ def test_links_inside_fenced_code_are_not_checked(
     assert check(monkeypatch, tmp_path, document) == []
 
 
-def test_a_line_fragment_checks_only_its_path(
+def test_a_line_fragment_within_the_file_passes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    target = write_document(tmp_path, "target.md", "# Heading\n")
-    document = write_document(tmp_path, "guide.md", "See [lines](target.md#L4-L9).\n")
+    write_document(tmp_path, "src/module.py", "a = 1\nb = 2\nc = 3\n")
+    document = write_document(
+        tmp_path,
+        "guide.md",
+        "See [one](src/module.py#L3) and [all](src/module.py#L1-L3).\n",
+    )
 
-    assert check(monkeypatch, tmp_path, document, target) == []
+    assert check(monkeypatch, tmp_path, document) == []
+
+
+def test_a_line_fragment_beyond_the_file_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A moved or shortened file must not keep a link to lines it no longer has."""
+    write_document(tmp_path, "src/module.py", "a = 1\nb = 2\nc = 3\n")
+    document = write_document(
+        tmp_path,
+        "guide.md",
+        "See [past](src/module.py#L4) and [over](src/module.py#L2-L9).\n",
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == [
+        "guide.md:1: src/module.py #L4 is beyond its 3 lines",
+        "guide.md:1: src/module.py #L2-L9 is beyond its 3 lines",
+    ]
+
+
+def test_an_inverted_or_zero_line_fragment_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    write_document(tmp_path, "src/module.py", "a = 1\nb = 2\nc = 3\n")
+    document = write_document(
+        tmp_path,
+        "guide.md",
+        "See [zero](src/module.py#L0) and [back](src/module.py#L3-L2).\n",
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == [
+        "guide.md:1: src/module.py #L0 is not a line range",
+        "guide.md:1: src/module.py #L3-L2 is not a line range",
+    ]
 
 
 def test_an_external_link_is_left_alone(

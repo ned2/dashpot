@@ -1,8 +1,9 @@
 """Check the repository's Markdown documents for staleness signals.
 
 Two gates run over the tracked Markdown files. The link gate resolves every
-in-repo link — relative paths and heading anchors — and fails on a target that
-does not exist, so a rename or a moved section cannot silently rot a pointer.
+in-repo link — relative paths, heading anchors, and `#L<n>` / `#L<n>-L<m>` line
+fragments — and fails on a target that does not exist, so a rename, a moved
+section, or an edit that shortens a file cannot silently rot a pointer.
 The frontmatter gate requires every document under `docs/` to declare its
 `status` and `date`, and requires a `superseded` or `amended` document to name
 what replaced or changed it, so a reader can tell a living document from a
@@ -77,8 +78,8 @@ CODE_SPAN_PATTERN = re.compile(
 EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "ftp://", "tel:")
 
 # GitHub's blob-view line fragment (`#L12`, `#L12-L20`) addresses a file's
-# lines rather than a heading, so only its path half can be checked.
-LINE_FRAGMENT_PATTERN = re.compile(r"\AL\d+(?:-L\d+)?\Z")
+# lines rather than a heading, so it is checked against the file's length.
+LINE_FRAGMENT_PATTERN = re.compile(r"\AL(?P<start>\d+)(?:-L(?P<end>\d+))?\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +236,20 @@ def resolve_in_repository(path: Path, location: str) -> Path | None:
     return resolved
 
 
+def line_fragment_problem(target: Path, fragment: re.Match[str]) -> str | None:
+    """Explain why a `#L` fragment names lines the file does not have."""
+    if not target.is_file():
+        return None
+    start = int(fragment.group("start"))
+    end = int(fragment.group("end") or start)
+    if start < 1 or end < start:
+        return f"#{fragment.group(0)} is not a line range"
+    count = len(target.read_bytes().splitlines())
+    if end > count:
+        return f"#{fragment.group(0)} is beyond its {count} lines"
+    return None
+
+
 def check_links(paths: Sequence[Path]) -> list[Problem]:
     """Resolve every in-repo link and report the ones that lead nowhere."""
     anchors_by_path: dict[Path, set[str]] = {}
@@ -256,7 +271,8 @@ def check_links(paths: Sequence[Path]) -> list[Problem]:
             line = line_of(text, offset)
             location, _, raw_anchor = target.partition("#")
             anchor = unquote(raw_anchor)
-            if LINE_FRAGMENT_PATTERN.match(anchor):
+            fragment = LINE_FRAGMENT_PATTERN.match(anchor)
+            if fragment is not None:
                 anchor = ""
             if not location:
                 if anchor and anchor not in anchors_for(path):
@@ -275,6 +291,13 @@ def check_links(paths: Sequence[Path]) -> list[Problem]:
                 problems.append(
                     Problem(relative, line, f"link target is missing: {location}")
                 )
+                continue
+            if fragment is not None:
+                explanation = line_fragment_problem(resolved, fragment)
+                if explanation is not None:
+                    problems.append(
+                        Problem(relative, line, f"{location} {explanation}")
+                    )
                 continue
             if (
                 anchor

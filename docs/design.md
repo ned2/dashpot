@@ -316,8 +316,9 @@ leading the Agent Session count in the Branches and Worktrees `SESSIONS`
 columns), the Branches presence, `UPSTREAM`, and `INTEGRATED` vocabularies
 above, the Issues table's `◉` Issue
 state column (`■` in the state colour: open, completed, not planned or
-duplicate), its `◈` Agent Run state column (`▶` running, `Ⅱ` waiting, `?`
-unknown, blank for no Agent Run), the `↕ ↑ ↓` sort markers on its headers,
+duplicate), its `◈` Agent Run state column (the Sessions family's `●`
+running, `◐` waiting and `○` unknown, blank for no Agent Run), the `↕ ↑ ↓`
+sort markers on its headers,
 and the `✖` error, `⚠` warning and `↻` observation severities the alert line
 and Diagnostics share. The Legend is generated from the `Glyph` values the
 cells render with ([`glyphs.py`](../src/dashpot/ui/glyphs.py)), each pane owning
