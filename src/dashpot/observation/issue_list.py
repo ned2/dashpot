@@ -16,22 +16,21 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, TypeAlias, TypeGuard
 
-from .core.issue_profile import IssueProfile
-from .core.model import (
+from ..core.issue_profile import IssueProfile
+from ..core.model import (
     AgentRun,
     IssueActivity,
     ProjectObservation,
     RunState,
-    WorkspaceSnapshot,
 )
-from .issues.search import parse_search
-from .queries.source_queries import AuxiliaryObservation
+from ..issues.search import parse_search
+from ..queries.source_queries import AuxiliaryObservation
+from .list_result import ListResult
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison
 
 IssueState = Literal["open", "closed"]
-RowKind = Literal["issue"]
 # What a column yields for ordering: something Python can compare, or nothing.
 SortValue: TypeAlias = "SupportsRichComparison | None"
 # The compact P-level a recognized priority label stands for.
@@ -119,11 +118,9 @@ class IssueListQuery:
 @dataclass(frozen=True, slots=True)
 class IssueListRow:
     key: str
-    kind: RowKind
     project: ProjectObservation
     issue: IssueProfile
     observed_runs: tuple[AgentRun, ...] = ()
-    project_runs: tuple[AgentRun, ...] = ()
     session_states: tuple[RunState, ...] = ()
     queried: bool = False
     auxiliary: AuxiliaryObservation | None = None
@@ -131,53 +128,11 @@ class IssueListRow:
 
 
 @dataclass(frozen=True, slots=True)
-class IssueListResult:
-    rows: tuple[IssueListRow, ...]
+class IssueListSummary:
     matched_issue_count: int
     observed_issue_count: int
-    revision: int = 0
-    # Lifecycle split of every observed Issue, before any filter, so the
-    # Issue pane title can show the complete inventory regardless of the
-    # active lifecycle or search filter.
     open_issue_count: int = 0
     closed_issue_count: int = 0
-
-
-def query_issue_list(
-    snapshot: WorkspaceSnapshot,
-    query: IssueListQuery = IssueListQuery(),
-    *,
-    revision: int = 0,
-) -> IssueListResult:
-    """Query source-neutral Issue-list rows from complete observed state."""
-    projects: dict[str, ProjectObservation] = {}
-    issues: dict[tuple[str, str], IssueProfile] = {}
-    for project in snapshot.projects:
-        if project.project_id in projects:
-            raise ValueError(f"Duplicate Project Identity {project.project_id}")
-        projects[project.project_id] = project
-        if project.snapshot is None:
-            continue
-        for issue in project.snapshot.issues:
-            key = (project.project_id, issue.id)
-            if key in issues:
-                raise ValueError(
-                    f"Duplicate Issue Identity {issue.id} in {project.project_id}"
-                )
-            issues[key] = issue
-    agent_runs: dict[str, AgentRun] = {}
-    for run in snapshot.agent_runs:
-        if run.id in agent_runs:
-            raise ValueError(f"Duplicate Agent Run Identity {run.id}")
-        agent_runs[run.id] = run
-    return query_indexed_issue_list(
-        projects=projects,
-        issues=issues,
-        agent_runs=agent_runs,
-        issue_runs=snapshot.issue_runs,
-        query=query,
-        revision=revision,
-    )
 
 
 def query_indexed_issue_list(
@@ -188,7 +143,7 @@ def query_indexed_issue_list(
     issue_runs: Mapping[str, Sequence[str]],
     query: IssueListQuery,
     revision: int,
-) -> IssueListResult:
+) -> ListResult[IssueListRow, IssueListSummary]:
     issue_id_counts = Counter(issue_id for _project_id, issue_id in issues)
     issues_by_project: dict[str, list[IssueProfile]] = {
         project_id: [] for project_id in projects
@@ -196,14 +151,6 @@ def query_indexed_issue_list(
     for (project_id, _issue_id), issue in issues.items():
         if project_id in issues_by_project:
             issues_by_project[project_id].append(issue)
-    runs_by_project = {
-        project.project_id: tuple(
-            run
-            for run in agent_runs.values()
-            if run.observation_project_id == project.project_id
-        )
-        for project in projects.values()
-    }
     rows: list[IssueListRow] = []
     observed_issue_count = 0
     matched_issue_count = 0
@@ -239,23 +186,21 @@ def query_indexed_issue_list(
             rows.append(
                 IssueListRow(
                     key,
-                    "issue",
                     project,
                     issue=issue,
                     observed_runs=observed_runs,
-                    project_runs=runs_by_project[project.project_id],
                     session_states=session_states,
                 )
             )
-    # Agent Runs without an Issue Binding are not Work rows; they remain
-    # visible through each Project's observed-run facts (project_runs).
-    return IssueListResult(
-        tuple(rows),
-        matched_issue_count,
-        observed_issue_count,
-        revision,
-        open_issue_count=open_issue_count,
-        closed_issue_count=observed_issue_count - open_issue_count,
+    return ListResult(
+        rows=tuple(rows),
+        revision=revision,
+        summary=IssueListSummary(
+            matched_issue_count=matched_issue_count,
+            observed_issue_count=observed_issue_count,
+            open_issue_count=open_issue_count,
+            closed_issue_count=observed_issue_count - open_issue_count,
+        ),
     )
 
 

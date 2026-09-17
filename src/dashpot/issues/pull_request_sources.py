@@ -8,7 +8,7 @@ from typing_extensions import override
 
 from ..core.model import Diagnostic, PullRequest, SourceStatus
 from ..core.timestamps import utc_now
-from ..retaining_source import Clock, RetainingSource, SourceRefreshError
+from .retaining_source import Clock, RetainingSource, SourceRefreshError
 
 
 @dataclass(frozen=True, slots=True)

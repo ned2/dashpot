@@ -6,9 +6,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .collect import ObservationCoordinator
 from .core.model import Diagnostic
-from .page_runner import QUERY_SOURCE_KEYS
+from .observation.collect import ObservationCoordinator
 from .project.project_config import PROJECT_CONFIG_NAME
 from .project.workspace import (
     RepositoryAnchor,
@@ -31,6 +30,7 @@ from .repository.cleanup import (
     perform_cleanup,
 )
 from .repository.repository import worktree_root
+from .ui.page_runner import QUERY_SOURCE_KEYS
 
 
 @dataclass(frozen=True, slots=True)

@@ -119,7 +119,7 @@ channels. This does not establish a Dashpot-owned external sending endpoint.
   needs a separately testable handoff prerequisite, never a blanket exemption
   from the existing occupancy check.
 - Resolved: dialog Remote Fetch now separates idle-preview reservations from
-  confirmed mutations in `src/dashpot/app.py`, as recorded in
+  confirmed mutations in `src/dashpot/ui/app.py`, as recorded in
   [ADR 0036](adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md).
 
 These are static findings in the checkout examined during this investigation.

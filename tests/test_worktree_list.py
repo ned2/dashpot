@@ -13,14 +13,13 @@ from dashpot.core.model import (
     SourceStatus,
     TargetRole,
 )
-from dashpot.issue_list import row_key
-from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.worktree_cells import (
+from dashpot.observation.issue_list import row_key
+from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.ui.worktree_cells import (
     WORKTREE_COLUMNS,
     build_worktree_rows,
     worktree_cells,
 )
-from dashpot.worktree_list import query_worktree_list
 from factories import session, workspace
 from helpers import required
 
@@ -105,7 +104,7 @@ def test_main_worktree_is_pinned_before_the_existing_path_order() -> None:
         target("/zeta-linked", branch="zeta"),
     )
 
-    result = query_worktree_list(workspace(alpha))
+    result = WorkspaceObservationStore(workspace(alpha)).query_worktrees()
 
     assert [row.target.path for row in result.rows] == [
         "/zeta-main",
@@ -223,14 +222,13 @@ def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> 
         target(long_path, branch="feature/" + "b" * 40, head="0123456789abcdef"),
         anchors=("/home/agent/projects/alpha",),
     )
-    result = query_worktree_list(
-        workspace(alpha, runs=[session("s", "project:alpha", long_path, "running")]),
-        revision=4,
-    )
+    result = WorkspaceObservationStore(
+        workspace(alpha, runs=[session("s", "project:alpha", long_path, "running")])
+    ).query_worktrees()
 
     main_row, linked_row = build_worktree_rows(result, dark=True, home=home)
 
-    assert result.revision == 4
+    assert result.revision == 1
     assert len(main_row.cells) == len(WORKTREE_COLUMNS)
     assert main_row.key == row_key(
         "worktree", "project:alpha", "/home/agent/projects/alpha"
@@ -254,7 +252,9 @@ def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> 
 
 def test_detached_targets_say_so() -> None:
     alpha = project("project:alpha", target("/project:alpha", role="main", branch=None))
-    (row,) = build_worktree_rows(query_worktree_list(workspace(alpha)), dark=False)
+    (row,) = build_worktree_rows(
+        WorkspaceObservationStore(workspace(alpha)).query_worktrees(), dark=False
+    )
     assert row.cells[4] == "detached @ abcdef1"
 
     without_head = project(
@@ -262,6 +262,6 @@ def test_detached_targets_say_so() -> None:
         target("/project:alpha", role="main", branch=None, head=""),
     )
     (row,) = build_worktree_rows(
-        query_worktree_list(workspace(without_head)), dark=False
+        WorkspaceObservationStore(workspace(without_head)).query_worktrees(), dark=False
     )
     assert row.cells[4] == "detached"

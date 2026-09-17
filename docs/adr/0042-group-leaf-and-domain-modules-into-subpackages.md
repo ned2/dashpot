@@ -44,7 +44,7 @@ import each owning module directly, with no old-path shims.
 `hook.py` remains the root entry point. Integration resolves the bundled
 `skills/` from the package root rather than beside its relocated module, so
 installed hook publishers and skill installation retain their existing paths
-and behavior. Repository observation and UI moves remain with #190 and #191.
+and behavior. Repository observation and UI follow in the stages below.
 
 [Issue #190](https://github.com/ned2/dashpot/issues/190) groups Git observation,
 Remote Fetch, Worktree launching, and Cleanup selection under `repository`.
@@ -69,5 +69,82 @@ rendering, and exit-status mapping. Composition never imports the CLI. This is
 an intentional root-level file beside the entry points and serialization.
 The coordinator's `query_driven` flag names the existing mode in which source
 pages are observed separately from local Repository State and Agent Runs;
-its scheduling behavior is unchanged. Observation and UI package moves remain
-with #191.
+its scheduling behavior is unchanged. The final stage below completes the Observation and UI moves.
+
+
+## Completed layout
+
+[Issue #191](https://github.com/ned2/dashpot/issues/191) completes the structural
+arc. `observation` owns the coordinator, accepted stores, related-row joins,
+and the five query read models. `keys.py` owns scheduling keys, tickets, and
+outcomes, so alerts need not import the coordinator. `ui` owns the Textual
+runners as well as widgets and rendering: both runners consume the Textual
+messages and host protocols in `ui/messages.py`. No protocol split is needed
+for the current consumers. Observation imports neither UI nor Textual; fresh
+interpreter checks import the actual modules as well as the empty package.
+Session-state ordering belongs to the session read model and is reused by the
+Glyph legend, preserving that dependency direction.
+
+One `ListResult[Row, Summary]` carries rows, revision, and count. The second
+type parameter preserves the existing Issue counts, Pull Request counts and
+freshness, and Branch repository facts in typed summaries; Sessions and
+Worktrees use `None`. This refines the review's proposed `ListResult[Row]`:
+the five old carriers were not interchangeable rows/revision pairs, and
+flattening their distinct facts would weaken the interface. Their query
+semantics stay unchanged. `WorkspaceObservationStore` alone indexes accepted
+snapshots; tests use that seam instead of five snapshot-rebuilding functions.
+Issue rows no longer carry a constant kind or unused Project-wide runs, and
+pane refresh values no longer carry an unset title count.
+
+`issues/retaining_source.py` belongs to complete-collection sources.
+`core/observation_errors.py` supplies the shared failure classification without
+requiring query adapters to import the coordinator. The stylesheet remains at
+the root and `ui/app.py` resolves it through `../dashpot.tcss`, including in
+installed distributions.
+
+The ownership map below accounts for every shipped Python module. Package
+initializers belong to their package; they are empty except the documented
+Cleanup facade. Root `__init__.py` retains its existing public exports. Root
+`__main__.py`, `cli.py`, and `hook.py` are entry points, `composition.py` wires
+the application, and `serialization.py` owns published output. The only root
+assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
+
+| Package | Owned modules (excluding initializers) |
+| --- | --- |
+| `core` | `ages`, `commands`, `errors`, `file_locks`, `git`, `issue_profile`, `json_records`, `model`, `observation_errors`, `pydantic`, `record_store`, `timestamps` |
+| `github` | `github`, `github_issues`, `github_pull_requests`, `github_repository`, `github_wire` |
+| `issues` | `issue_resolution`, `issue_sources`, `local_markdown_issues`, `pull_request_search`, `pull_request_sources`, `retaining_source`, `search`, `source_factories` |
+| `observation` | `branch_list`, `collect`, `issue_list`, `keys`, `list_result`, `observation_store`, `paged_store`, `pull_request_list`, `related_rows`, `session_list`, `worktree_list` |
+| `project` | `init`, `project_config`, `settings`, `workspace` |
+| `queries` | `github_queries`, `markdown_queries`, `page_navigation`, `query_source`, `source_queries` |
+| `repository` | `cleanup/adapter`, `cleanup/perform`, `cleanup/preview`, `cleanup/targets`, `cleanup_selection`, `fetch`, `repository`, `worktree_launcher`, `worktrees/base`, `worktrees/create`, `worktrees/records`, `worktrees/removability` |
+| `sessions` | `agent_bindings`, `agents`, `harnesses`, `hook_claims`, `hook_publish`, `hook_records`, `hook_scan`, `integrate`, `liveness`, `processes`, `session_matching`, `work`, `work_reconciliation`, `work_store` |
+| `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `legend`, `list_pane`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
+
+
+## Residual review suggestions
+
+The [original review](../codebase-review-2026-09-13.md) remains historical.
+Completion means the planned structural arc is delivered, not that every
+judgement suggestion is mandatory. These dispositions accompany #191:
+
+- The package moves are delivered by #188, #189, #190, and #191. The preceding
+  layer split, one-app consolidation, and flow extraction were delivered by
+  #175, #179, #212, #213, and #182; the review's sequencing section records the
+  earlier helper consolidations in #186. This change completes the shared
+  result and store-index consolidation.
+- Parallel Query Source and complete-collection source adapter families are
+  deliberately deferred. They serve different page/find and export contracts;
+  collapsing them needs its own behavioral design and validation, beyond a
+  package move. The shared retaining implementation remains owned by Issues.
+- Session-label formatting is deliberately deferred. The Work commands and
+  hook records still format related labels at different seams; consolidating
+  their fallback wording is a small independent change, not a dependency of
+  this layout.
+- Further `DashboardScreen` extraction is optional and deferred. Its flow,
+  runner, pane, and Issue-table-controller extractions already establish the
+  planned seams. The remaining composition, focus, layout, and delegation do
+  not justify another extraction in this Issue.
+- The review's proposed compatibility re-export shims are superseded by the
+  alpha internal-interface decision above. Other point-in-time judgement
+  smells remain advisory; they do not reopen the structural arc.

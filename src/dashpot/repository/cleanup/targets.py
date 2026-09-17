@@ -10,9 +10,7 @@ from pydantic import computed_field
 
 from ...core.model import IntegrationState, integration_state
 from ...core.pydantic import LaxSequence, PublishedModel
-from ..worktrees.removability import (
-    CleanupBlocker,
-)
+from ..worktrees.removability import CleanupBlocker
 
 TargetKind = Literal["local-branch", "remote-branch", "worktree"]
 

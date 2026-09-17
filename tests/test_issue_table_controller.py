@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dashpot.issue_table_controller import focused_source, issue_column_label
-from dashpot.observation_store import WorkspaceObservationStore
+from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.queries.source_queries import QueryRequest
+from dashpot.ui.issue_table_controller import focused_source, issue_column_label
 from test_related_rows import records, related_snapshot
 
 

@@ -28,7 +28,7 @@ from ..issues.pull_request_sources import (
     PullRequestSource,
     PullRequestSourceRefreshError,
 )
-from ..retaining_source import Clock
+from ..issues.retaining_source import Clock
 from .github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,

@@ -7,7 +7,6 @@ from typing import Annotated, Literal
 
 from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
-from .app import DashpotApp
 from .composition import (
     ObservationOptions,
     create_collector,
@@ -17,10 +16,7 @@ from .composition import (
 from .core.errors import DashpotError
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
-from .project.workspace import (
-    RepositoryAnchor,
-    Workspace,
-)
+from .project.workspace import RepositoryAnchor, Workspace
 from .queries.query_source import configured_query_source
 from .repository.cleanup import (
     BranchCleanupRequest,
@@ -62,6 +58,7 @@ from .sessions.work import (
     start_issue_work,
     stop_issue_work,
 )
+from .ui.app import DashpotApp
 
 Harness = Literal["codex", "claude-code"]
 

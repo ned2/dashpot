@@ -21,21 +21,21 @@ from textual.theme import Theme
 from textual.widgets import Footer, Markdown, Static
 from typing_extensions import override
 
-from .core.ages import relative_age
-from .core.issue_profile import IssueProfile, issue_location
-from .core.model import ProjectObservation
+from ..core.ages import relative_age
+from ..core.issue_profile import IssueProfile, issue_location
+from ..core.model import ProjectObservation
+from ..observation.issue_list import (
+    IssueListRow,
+    is_priority_label,
+    issue_activity,
+    issue_priority,
+)
 from .detail_fields import DetailFields, DetailItem
 from .issue_cells import (
     issue_state_chip,
     issue_state_kind,
     label_chips,
     label_colors,
-)
-from .issue_list import (
-    IssueListRow,
-    is_priority_label,
-    issue_activity,
-    issue_priority,
 )
 
 EMPTY_BODY_MESSAGE = "This Issue has no description."

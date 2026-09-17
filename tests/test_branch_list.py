@@ -5,17 +5,17 @@ from datetime import UTC, datetime
 from rich.text import Text
 
 import factories
-from dashpot.branch_cells import (
+from dashpot.core.model import Branch, ObservationTarget, ProjectObservation
+from dashpot.observation.branch_list import integration_summary
+from dashpot.observation.issue_list import row_key
+from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.ui.branch_cells import (
     BRANCH_COLUMNS,
     branch_cells,
     branch_note,
     build_branch_rows,
     fetch_age_text,
 )
-from dashpot.branch_list import integration_summary, query_branch_list
-from dashpot.core.model import Branch, ObservationTarget, ProjectObservation
-from dashpot.issue_list import row_key
-from dashpot.observation_store import WorkspaceObservationStore
 from factories import NOW, session, target, workspace
 from helpers import snapshot_of
 
@@ -105,11 +105,11 @@ def test_local_and_remote_refs_of_one_name_are_one_row() -> None:
         remote("elsewhere"),
     )
 
-    result = query_branch_list(workspace(observation))
+    result = WorkspaceObservationStore(workspace(observation)).query_branches()
 
     assert result.count == 4
-    assert result.fetched_at == NOW
-    assert result.integration_refs == ("refs/remotes/origin/main",)
+    assert result.summary.fetched_at == NOW
+    assert result.summary.integration_refs == ("refs/remotes/origin/main",)
     by_name = {row.name: row for row in result.rows}
     assert set(by_name) == {"main", "feature", "scratch", "elsewhere"}
     main = by_name["main"]
@@ -132,7 +132,7 @@ def test_checked_out_branches_lead_then_the_most_recent_commit() -> None:
         targets=[target("/project:one", role="main", branch="old-but-checked-out")],
     )
 
-    result = query_branch_list(workspace(observation))
+    result = WorkspaceObservationStore(workspace(observation)).query_branches()
 
     assert [row.name for row in result.rows] == [
         "old-but-checked-out",
@@ -154,7 +154,7 @@ def test_integration_branch_is_pinned_before_the_existing_order() -> None:
         targets=[target("/project:one", role="main", branch="checked-out")],
     )
 
-    result = query_branch_list(workspace(observation))
+    result = WorkspaceObservationStore(workspace(observation)).query_branches()
 
     assert [row.name for row in result.rows] == [
         "main",
@@ -209,7 +209,9 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     on_main = session("codex:1", "project:one", "/home/ned/project:one").model_copy(
         update={"branch": "main"}
     )
-    result = query_branch_list(workspace(observation, runs=[on_main]))
+    result = WorkspaceObservationStore(
+        workspace(observation, runs=[on_main])
+    ).query_branches()
     by_name = {row.name: row for row in result.rows}
 
     def plain(cells: tuple[str | Text, ...]) -> list[str]:
@@ -277,7 +279,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
 def row_cells(*refs: Branch) -> list[str]:
     """The cells of the one row ``refs`` join into."""
     observation = branchy_project("project:one", *refs)
-    (row,) = query_branch_list(workspace(observation)).rows
+    (row,) = WorkspaceObservationStore(workspace(observation)).query_branches().rows
     return [str(cell) for cell in branch_cells(row, dark=True, now=CLOCK)]
 
 
@@ -418,8 +420,10 @@ def test_integration_summary_ignores_ref_order_counts_and_the_upstream() -> None
     observation = branchy_project("project:one", *refs)
     reversed_observation = branchy_project("project:one", *reversed(refs))
 
-    (row,) = query_branch_list(workspace(observation)).rows
-    (reversed_row,) = query_branch_list(workspace(reversed_observation)).rows
+    (row,) = WorkspaceObservationStore(workspace(observation)).query_branches().rows
+    (reversed_row,) = (
+        WorkspaceObservationStore(workspace(reversed_observation)).query_branches().rows
+    )
 
     assert integration_summary(row) == integration_summary(reversed_row)
     cells = branch_cells(row, dark=True, now=CLOCK)
@@ -447,9 +451,9 @@ def test_fetch_age_is_honest() -> None:
         }
     )
 
-    result = query_branch_list(workspace(observation))
+    result = WorkspaceObservationStore(workspace(observation)).query_branches()
 
-    assert result.fetched_at is None
+    assert result.summary.fetched_at is None
     assert fetch_age_text(None, CLOCK) == "remote never fetched"
     assert fetch_age_text("2026-08-27T00:00:00Z", CLOCK) == "remote last fetched 3h ago"
     assert branch_note((), None, CLOCK) == (

@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import factories
-from dashpot.alerts import summarize_alerts
-from dashpot.collect import AGENT_RUNS_KEY, ObservationKey
 from dashpot.core.model import (
     Diagnostic,
     ObservationTarget,
@@ -12,7 +10,9 @@ from dashpot.core.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
-from dashpot.observation_store import WorkspaceObservationStore
+from dashpot.observation.keys import AGENT_RUNS_KEY, ObservationKey
+from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.ui.alerts import summarize_alerts
 
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 

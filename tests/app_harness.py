@@ -22,14 +22,6 @@ from textual.pilot import Pilot
 from textual.widgets import Select
 
 import factories
-from dashpot.app import DashpotApp
-from dashpot.collect import (
-    WORKSPACE_KEY,
-    ObservationKey,
-    ObservationOutcome,
-    ObservationScheduler,
-    ObservationTicket,
-)
 from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.core.model import (
     AgentRun,
@@ -39,8 +31,9 @@ from dashpot.core.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
-from dashpot.detail_fields import detail_items_text
-from dashpot.issue_list import (
+from dashpot.issues.search import parse_search
+from dashpot.observation.collect import ObservationScheduler
+from dashpot.observation.issue_list import (
     IssueListRow,
     IssueSearchField,
     is_issue_sort_column,
@@ -48,15 +41,16 @@ from dashpot.issue_list import (
     row_key,
     sort_issue_rows,
 )
-from dashpot.issue_view import IssueScreen, issue_metadata_items, selection_title
-from dashpot.issues.search import parse_search
-from dashpot.list_pane import ListPane, ListRow
-from dashpot.observation_store import StoreChange, WorkspaceObservationStore
-from dashpot.page_runner import QUERY_SOURCE_KEYS
-from dashpot.pull_request_list import (
+from dashpot.observation.keys import (
+    WORKSPACE_KEY,
+    ObservationKey,
+    ObservationOutcome,
+    ObservationTicket,
+)
+from dashpot.observation.observation_store import StoreChange, WorkspaceObservationStore
+from dashpot.observation.pull_request_list import (
     PullRequestLifecycle,
     PullRequestListQuery,
-    query_pull_request_list,
 )
 from dashpot.queries.source_queries import (
     AuxiliaryObservation,
@@ -76,6 +70,11 @@ from dashpot.queries.source_queries import (
 from dashpot.repository.cleanup import CleanupAdapter
 from dashpot.repository.fetch import RemoteFetcher
 from dashpot.repository.worktree_launcher import LauncherConfiguration
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.detail_fields import detail_items_text
+from dashpot.ui.issue_view import IssueScreen, issue_metadata_items, selection_title
+from dashpot.ui.list_pane import ListPane, ListRow
+from dashpot.ui.page_runner import QUERY_SOURCE_KEYS
 from helpers import snapshot_of, wait_until
 
 NOW = "2026-08-25T01:00:00Z"
@@ -257,7 +256,7 @@ class SnapshotQuerySource:
     and ``serve`` swaps that snapshot for the one a later observation carries.
     An Issue page honours the submitted search text and column ordering the
     way the local Markdown source does, and a Pull Request page the same
-    search ``query_pull_request_list`` applies locally.
+    search the Pull Request read model applies locally.
     """
 
     search_prompt = "Search Issues (Enter)"
@@ -335,7 +334,7 @@ class SnapshotQuerySource:
         assert is_issue_sort_column(column)
         rows = sort_issue_rows(
             (
-                IssueListRow(row_key("issue", issue.id), "issue", self.project, issue)
+                IssueListRow(row_key("issue", issue.id), self.project, issue)
                 for issue in found
             ),
             column,
@@ -350,10 +349,9 @@ class SnapshotQuerySource:
             if request.state == "all"
             else frozenset({request.state})
         )
-        result = query_pull_request_list(
-            factories.workspace(self.project),
-            PullRequestListQuery(text=request.query, states=states),
-        )
+        result = WorkspaceObservationStore(
+            factories.workspace(self.project)
+        ).query_pull_requests(PullRequestListQuery(text=request.query, states=states))
         return [row.pull_request for row in result.rows]
 
     def query_page(self, request: QueryRequest) -> QueryPage:

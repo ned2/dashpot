@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dashpot.pane_layout import (
+from dashpot.ui.pane_layout import (
     DEFAULT_ROW_CAP,
     EMPTY_PANE_HEIGHT,
     PANE_CHROME,

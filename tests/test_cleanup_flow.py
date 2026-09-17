@@ -25,17 +25,8 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot.cleanup_flow import (
-    CleanupFlow,
-    CleanupSelection,
-    cleanup_result_line,
-    cleanup_summary,
-)
 from dashpot.core.model import Branch, WorkspaceSnapshot
-from dashpot.fetch_flow import RemoteFetchFlow
-from dashpot.messages import CleanupFinished, CleanupInspected
-from dashpot.observation_runner import ObservationRunner
-from dashpot.paged_store import PagedObservationStore
+from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupConfirmation,
@@ -47,6 +38,15 @@ from dashpot.repository.cleanup import (
     TargetResult,
     WorktreeCleanupRequest,
 )
+from dashpot.ui.cleanup_flow import (
+    CleanupFlow,
+    CleanupSelection,
+    cleanup_result_line,
+    cleanup_summary,
+)
+from dashpot.ui.fetch_flow import RemoteFetchFlow
+from dashpot.ui.messages import CleanupFinished, CleanupInspected
+from dashpot.ui.observation_runner import ObservationRunner
 from test_fetch_flow import FakeHost as FetchHost
 
 ANCHOR = "/repo"

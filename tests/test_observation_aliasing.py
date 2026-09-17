@@ -20,7 +20,7 @@ from dashpot.issues.issue_sources import (
     IssueSource,
     IssueSourceRefreshError,
 )
-from dashpot.observation_store import WorkspaceObservationStore
+from dashpot.observation.observation_store import WorkspaceObservationStore
 from factories import agent_run, project, workspace
 from helpers import make_issue, required, snapshot_of
 

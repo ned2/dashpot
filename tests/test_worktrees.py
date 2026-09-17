@@ -31,10 +31,7 @@ from dashpot.repository.worktrees.removability import (
     describe_removability,
     linked_worktrees,
 )
-from dashpot.serialization import (
-    removability_document,
-    worktree_plan_document,
-)
+from dashpot.serialization import removability_document, worktree_plan_document
 from dashpot.sessions.hook_records import session_directory, write_hook_record
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore

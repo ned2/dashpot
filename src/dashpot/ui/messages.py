@@ -20,21 +20,21 @@ from typing import Literal, Protocol, TypeVar
 from textual.geometry import Size
 from textual.message import Message
 
-from .collect import ObservationOutcome, ObservationTicket
-from .queries.page_navigation import PageTicket
-from .queries.source_queries import (
+from ..observation.keys import ObservationOutcome, ObservationTicket
+from ..queries.page_navigation import PageTicket
+from ..queries.source_queries import (
     ProjectTotals,
     QueryPage,
     ResolvedIssue,
     ResourceKind,
 )
-from .repository.cleanup import (
+from ..repository.cleanup import (
     CleanupConfirmation,
     CleanupPreview,
     CleanupReport,
     CleanupRequest,
 )
-from .repository.fetch import FetchReport
+from ..repository.fetch import FetchReport
 
 T = TypeVar("T")
 

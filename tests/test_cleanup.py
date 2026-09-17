@@ -29,10 +29,7 @@ from dashpot.repository.cleanup import (
 )
 from dashpot.repository.repository import LockHolderProbe
 from dashpot.repository.worktrees.removability import check_worktree
-from dashpot.serialization import (
-    cleanup_preview_document,
-    cleanup_report_document,
-)
+from dashpot.serialization import cleanup_preview_document, cleanup_report_document
 from dashpot.sessions.hook_records import session_directory, write_hook_record
 from dashpot.sessions.processes import (
     ProcessIdentity,

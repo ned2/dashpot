@@ -691,7 +691,7 @@ recommendations to resolve before implementing support:
 - Registration is repeated in [harnesses.py](../src/dashpot/sessions/harnesses.py),
   [integrate.py](../src/dashpot/sessions/integrate.py), the
   [CLI harness union](../src/dashpot/cli.py), and
-  [session labels](../src/dashpot/session_list.py). A registry could connect
+  [session labels](../src/dashpot/observation/session_list.py). A registry could connect
   narrow identity, publisher, installer and display concerns; evaluate that
   consolidation without turning `HarnessAdapter` into a large framework.
 

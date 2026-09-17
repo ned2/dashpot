@@ -19,13 +19,9 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 from textual.worker import get_current_worker
 
-from .cleanup_view import CleanupReportScreen, CleanupScreen
-from .collect import ObservationKey
-from .fetch_flow import FlowHost, RemoteFetchFlow
-from .messages import CleanupFinished, CleanupInspected, FetchFinished
-from .observation_runner import ObservationRunner
-from .paged_store import PagedObservationStore
-from .repository.cleanup import (
+from ..observation.keys import ObservationKey
+from ..observation.paged_store import PagedObservationStore
+from ..repository.cleanup import (
     BranchCleanupRequest,
     CleanupAdapter,
     CleanupConfirmation,
@@ -35,6 +31,10 @@ from .repository.cleanup import (
     TargetResult,
     WorktreeCleanupRequest,
 )
+from .cleanup_view import CleanupReportScreen, CleanupScreen
+from .fetch_flow import FlowHost, RemoteFetchFlow
+from .messages import CleanupFinished, CleanupInspected, FetchFinished
+from .observation_runner import ObservationRunner
 
 if TYPE_CHECKING:
     from textual.screen import Screen

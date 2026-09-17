@@ -10,7 +10,12 @@ from typing_extensions import override
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import Diagnostic, ProjectObservation
-from ..issue_list import (
+from ..issues.local_markdown_issues import (
+    LocalMarkdownIssuesSource,
+    parse_local_markdown_issue,
+)
+from ..issues.search import parse_search
+from ..observation.issue_list import (
     IssueListRow,
     IssueSearchField,
     is_issue_sort_column,
@@ -18,11 +23,6 @@ from ..issue_list import (
     row_key,
     sort_issue_rows,
 )
-from ..issues.local_markdown_issues import (
-    LocalMarkdownIssuesSource,
-    parse_local_markdown_issue,
-)
-from ..issues.search import parse_search
 from ..project.project_config import (
     LocalMarkdownIssueSourceConfig,
     ProjectConfig,
@@ -165,7 +165,7 @@ class MarkdownQuerySource(CachedQuerySource):
                 raise ValueError("Unsupported local column ordering")
             rows = sort_issue_rows(
                 (
-                    IssueListRow(row_key("issue", issue.id), "issue", project, issue)
+                    IssueListRow(row_key("issue", issue.id), project, issue)
                     for issue in records
                 ),
                 column,

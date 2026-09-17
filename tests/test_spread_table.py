@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dashpot.spread_table import proportional_shares, spread_widths
+from dashpot.ui.spread_table import proportional_shares, spread_widths
 
 
 def test_shares_follow_the_weights_and_sum_exactly() -> None:

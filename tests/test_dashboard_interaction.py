@@ -19,16 +19,16 @@ from app_harness import (
     serve_snapshot,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
-from dashpot.issue_cells import (
+from dashpot.observation.issue_list import row_key
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
     PriorityCell,
 )
-from dashpot.issue_list import row_key
-from dashpot.issue_table import DEFAULT_COLUMNS
-from dashpot.issue_view import IssueScreen
-from dashpot.list_pane import ListRow
+from dashpot.ui.issue_table import DEFAULT_COLUMNS
+from dashpot.ui.issue_view import IssueScreen
+from dashpot.ui.list_pane import ListRow
 from helpers import wait_until
 
 

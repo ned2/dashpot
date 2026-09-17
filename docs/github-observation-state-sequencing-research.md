@@ -80,7 +80,7 @@ The GitHub Issue observation now has four distinct layers of state:
    result and publishes it into the process-local
    `WorkspaceObservationStore`. Issues and Pull Requests are separate keys with
    separate last-good and failure state
-   ([`collect.py`](../src/dashpot/collect.py),
+   ([`collect.py`](../src/dashpot/observation/collect.py),
    [`design.md`](design.md)).
 
 The distinction remains deliberate. Persisting private source state to resume

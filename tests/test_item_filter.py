@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from dashpot.item_filter import LIFECYCLE_STATUSES, lifecycle_states, lifecycle_value
+from dashpot.ui.item_filter import LIFECYCLE_STATUSES, lifecycle_states, lifecycle_value
 
 
 @pytest.mark.parametrize(

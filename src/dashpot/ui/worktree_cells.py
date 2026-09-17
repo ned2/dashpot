@@ -12,7 +12,10 @@ from pathlib import Path
 
 from rich.text import Text
 
-from .core.model import ObservationTarget, RunState
+from ..core.model import ObservationTarget, RunState
+from ..observation.list_result import ListResult
+from ..observation.session_list import SESSION_STATE_ORDER, abbreviate_path
+from ..observation.worktree_list import WorktreeListRow
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
     ACTIVITY_WIDTH,
@@ -21,8 +24,6 @@ from .glyphs import (
 )
 from .list_rows import ListCell, ListColumn, ListRow, truncate_end
 from .session_cells import STATE_GLYPHS
-from .session_list import STATE_ORDER, abbreviate_path
-from .worktree_list import WorktreeListResult, WorktreeListRow
 
 BRANCH_LIMIT = 24
 SHORT_HEAD = 7
@@ -40,7 +41,7 @@ WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
 
 
 def build_worktree_rows(
-    result: WorktreeListResult, *, dark: bool, home: Path | None = None
+    result: ListResult[WorktreeListRow, None], *, dark: bool, home: Path | None = None
 ) -> tuple[ListRow, ...]:
     """Render the query result as pane rows carrying every scan-level fact."""
     return tuple(
@@ -121,5 +122,5 @@ def activity_cell(states: Sequence[RunState], *, dark: bool) -> Text:
     """Render the liveliest Agent Session state, or blank when absent."""
     if not states:
         return Text("")
-    glyph = STATE_GLYPHS[min(states, key=lambda item: STATE_ORDER[item])]
+    glyph = STATE_GLYPHS[min(states, key=lambda item: SESSION_STATE_ORDER[item])]
     return Text(glyph.symbol, style=glyph.style(dark=dark))

@@ -34,7 +34,7 @@ per-ref commit-reachability and content-integration observation of
 [ADR 0017](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)
 and ADR 0018 against the same Integration Branch, and the row aggregates
 those per-ref states (`integration_summary` in
-[`branch_list.py`](../../src/dashpot/branch_list.py)):
+[`branch_list.py`](../../src/dashpot/observation/branch_list.py)):
 
 | Aggregate observation | `INTEGRATED` |
 | --- | --- |
@@ -72,7 +72,7 @@ target's own integration fact and count, its other blockers, explicit
 selection, confirmation and the remote lease.
 
 Each Branches column now carries a description and the Glyphs its cells
-render on its `ListColumn` ([`branch_cells.py`](../../src/dashpot/branch_cells.py)),
+render on its `ListColumn` ([`branch_cells.py`](../../src/dashpot/ui/branch_cells.py)),
 and both the header tooltip and the Legend's Branches sections are built from
 that one definition — the tooltip as the description followed by each
 Glyph's meaning, the Legend as the Glyph lines followed by the description as

@@ -16,9 +16,10 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Protocol
 
-from .collect import ObservationKey, ObservationScheduler, ObservationTicket
+from ..observation.collect import ObservationScheduler
+from ..observation.keys import ObservationKey, ObservationTicket
+from ..observation.observation_store import StoreChange, WorkspaceObservationStore
 from .messages import ObservationFinished, ObservationTrigger, OffLoopHost
-from .observation_store import StoreChange, WorkspaceObservationStore
 
 # Observation triggers a person asked for, whose outcome earns a toast.
 MANUAL_TRIGGERS: frozenset[ObservationTrigger] = frozenset({"manual", "fetch"})

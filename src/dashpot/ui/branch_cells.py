@@ -13,9 +13,14 @@ from datetime import UTC, datetime
 
 from rich.text import Text
 
-from .branch_list import BranchListResult, BranchListRow, integration_summary
-from .core.ages import relative_age
-from .core.model import Branch, IntegrationState
+from ..core.ages import relative_age
+from ..core.model import Branch, IntegrationState
+from ..observation.branch_list import (
+    BranchListRow,
+    BranchListSummary,
+    integration_summary,
+)
+from ..observation.list_result import ListResult
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
     ACTIVITY_LEGEND,
@@ -170,7 +175,7 @@ BRANCH_COLUMNS: tuple[ListColumn, ...] = (
 
 
 def build_branch_rows(
-    result: BranchListResult,
+    result: ListResult[BranchListRow, BranchListSummary],
     *,
     dark: bool,
     now: datetime | None = None,

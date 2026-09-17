@@ -22,7 +22,11 @@ from ..repository import (
     worktree_root,
 )
 from .base import resolve_base
-from .records import INITIALIZING_LOCK, registered_at, short_branch
+from .records import (
+    INITIALIZING_LOCK,
+    registered_at,
+    short_branch,
+)
 
 BlockerKind = Literal[
     "integration-branch",

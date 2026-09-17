@@ -5,9 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from ..repository import (
-    same_path,
-)
+from ..repository import same_path
 
 INITIALIZING_LOCK = "initializing"
 

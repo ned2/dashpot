@@ -11,14 +11,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .core.model import (
+from ..core.model import (
     AgentRun,
     ObservationTarget,
     ProjectObservation,
     TargetRole,
-    WorkspaceSnapshot,
 )
 from .issue_list import row_key
+from .list_result import ListResult
 
 ROLE_ORDER: dict[TargetRole, int] = {"main": 0, "linked": 1}
 
@@ -42,56 +42,13 @@ class WorktreeListRow:
         return self.target.availability
 
 
-@dataclass(frozen=True, slots=True)
-class WorktreeListResult:
-    rows: tuple[WorktreeListRow, ...]
-    revision: int = 0
-
-    @property
-    def count(self) -> int:
-        return len(self.rows)
-
-
-def query_worktree_list(
-    snapshot: WorkspaceSnapshot, *, revision: int = 0
-) -> WorktreeListResult:
-    """Query the Worktrees pane rows from complete observed state."""
-    projects: dict[str, ProjectObservation] = {}
-    targets: dict[tuple[str, str], ObservationTarget] = {}
-    for project in snapshot.projects:
-        if project.project_id in projects:
-            raise ValueError(f"Duplicate Project Identity {project.project_id}")
-        projects[project.project_id] = project
-        if project.snapshot is None:
-            continue
-        for target in project.snapshot.observation_targets:
-            key = (project.project_id, target.path)
-            if key in targets:
-                raise ValueError(
-                    f"Duplicate Observation Target {target.path} in "
-                    f"{project.project_id}"
-                )
-            targets[key] = target
-    agent_runs: dict[str, AgentRun] = {}
-    for run in snapshot.agent_runs:
-        if run.id in agent_runs:
-            raise ValueError(f"Duplicate Agent Run Identity {run.id}")
-        agent_runs[run.id] = run
-    return query_indexed_worktree_list(
-        projects=projects,
-        observation_targets=targets,
-        agent_runs=agent_runs,
-        revision=revision,
-    )
-
-
 def query_indexed_worktree_list(
     *,
     projects: Mapping[str, ProjectObservation],
     observation_targets: Mapping[tuple[str, str], ObservationTarget],
     agent_runs: Mapping[str, AgentRun],
     revision: int,
-) -> WorktreeListResult:
+) -> ListResult[WorktreeListRow, None]:
     sessions_by_target: dict[tuple[str, str | None], list[AgentRun]] = {}
     for run in agent_runs.values():
         sessions_by_target.setdefault(
@@ -112,7 +69,7 @@ def query_indexed_worktree_list(
             )
         )
     rows.sort(key=_sort_key)
-    return WorktreeListResult(tuple(rows), revision)
+    return ListResult(rows=tuple(rows), summary=None, revision=revision)
 
 
 def _sort_key(row: WorktreeListRow) -> tuple[int, str]:

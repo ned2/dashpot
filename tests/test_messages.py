@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dashpot.messages import FetchFinished, TotalsFinished
+from dashpot.ui.messages import FetchFinished, TotalsFinished
 
 
 def test_messages_carry_their_payload_and_textual_message_state() -> None:

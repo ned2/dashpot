@@ -11,17 +11,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from .core.model import (
+from ..core.model import (
     ProjectObservation,
     PullRequest,
     SourceStatus,
-    WorkspaceSnapshot,
 )
-from .issue_list import row_key
-from .issues.pull_request_search import (
+from ..issues.pull_request_search import (
     PullRequestQualifier,
     parse_pull_request_search,
 )
+from .issue_list import row_key
+from .list_result import ListResult
 
 PullRequestLifecycle = Literal["open", "closed"]
 
@@ -45,8 +45,7 @@ class PullRequestListRow:
 
 
 @dataclass(frozen=True, slots=True)
-class PullRequestListResult:
-    rows: tuple[PullRequestListRow, ...]
+class PullRequestListSummary:
     matched_pull_request_count: int
     observed_pull_request_count: int
     status: SourceStatus
@@ -54,42 +53,6 @@ class PullRequestListResult:
     last_good_at: str | None
     open_pull_request_count: int
     closed_pull_request_count: int
-    revision: int = 0
-
-    @property
-    def count(self) -> int:
-        return len(self.rows)
-
-
-def query_pull_request_list(
-    snapshot: WorkspaceSnapshot,
-    query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY,
-    *,
-    revision: int = 0,
-) -> PullRequestListResult:
-    """Query Pull Request rows from one complete Workspace checkpoint."""
-    projects: dict[str, ProjectObservation] = {}
-    pull_requests: dict[tuple[str, str], PullRequest] = {}
-    for project in snapshot.projects:
-        if project.project_id in projects:
-            raise ValueError(f"Duplicate Project Identity {project.project_id}")
-        projects[project.project_id] = project
-        if project.snapshot is None:
-            continue
-        for pull_request in project.snapshot.pull_requests:
-            key = (project.project_id, pull_request.id)
-            if key in pull_requests:
-                raise ValueError(
-                    f"Duplicate Pull Request identity {pull_request.id} in "
-                    f"{project.project_id}"
-                )
-            pull_requests[key] = pull_request
-    return query_indexed_pull_request_list(
-        projects=projects,
-        pull_requests=pull_requests,
-        query=query,
-        revision=revision,
-    )
 
 
 def query_indexed_pull_request_list(
@@ -98,7 +61,7 @@ def query_indexed_pull_request_list(
     pull_requests: Mapping[tuple[str, str], PullRequest],
     query: PullRequestListQuery,
     revision: int,
-) -> PullRequestListResult:
+) -> ListResult[PullRequestListRow, PullRequestListSummary]:
     parsed = parse_pull_request_search(query.text)
     rows = [
         PullRequestListRow(
@@ -159,16 +122,18 @@ def query_indexed_pull_request_list(
         for snapshot in snapshots
         if snapshot.pull_request_last_good_at is not None
     ]
-    return PullRequestListResult(
+    return ListResult(
         rows=tuple(rows),
-        matched_pull_request_count=len(rows),
-        observed_pull_request_count=len(pull_requests),
-        status=status,
-        attempted_at=max(attempted, default=None),
-        last_good_at=max(last_good, default=None),
-        open_pull_request_count=open_count,
-        closed_pull_request_count=closed_count,
         revision=revision,
+        summary=PullRequestListSummary(
+            matched_pull_request_count=len(rows),
+            observed_pull_request_count=len(pull_requests),
+            status=status,
+            attempted_at=max(attempted, default=None),
+            last_good_at=max(last_good, default=None),
+            open_pull_request_count=open_count,
+            closed_pull_request_count=closed_count,
+        ),
     )
 
 

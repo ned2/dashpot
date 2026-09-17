@@ -9,17 +9,17 @@ from app_harness import (
     first_load_landed,
     observation_landed,
 )
-from dashpot.column_editor import IssueColumnEditor
-from dashpot.glyphs import SESSION_STATE_GLYPHS
-from dashpot.issue_cells import AgentStateCell
-from dashpot.issue_list import row_key
-from dashpot.issue_table import IssueTableViewState
-from dashpot.keyed_table import capture_selection
-from dashpot.marked_widgets import MarkedSelectionList
+from dashpot.observation.issue_list import row_key
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import write_hook_record
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
+from dashpot.ui.column_editor import IssueColumnEditor
+from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
+from dashpot.ui.issue_cells import AgentStateCell
+from dashpot.ui.issue_table import IssueTableViewState
+from dashpot.ui.keyed_table import capture_selection
+from dashpot.ui.marked_widgets import MarkedSelectionList
 from factories import agent_run, hook_record_document, target
 from helpers import present, wait_until
 from test_app_worktree_launcher import WorktreeCollector

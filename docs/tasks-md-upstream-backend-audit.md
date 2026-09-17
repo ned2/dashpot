@@ -551,7 +551,7 @@ The seam is nevertheless too implicit for issue #9:
 - project/source configuration is loaded from a checkout, and collection calls
   `observe_repository()` before selecting either source, so even GitHub-backed
   observation currently requires a local git worktree
-  ([collector construction](../src/dashpot/collect.py#L68-L89)); and
+  ([collector construction](../src/dashpot/observation/collect.py#L68-L89)); and
 - the external `tasks` executable and its JSON contract are not version-pinned
   in Dashpot's package dependencies
   ([package manifest](../pyproject.toml),

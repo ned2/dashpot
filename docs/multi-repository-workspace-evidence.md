@@ -63,11 +63,11 @@ inventory accepts any non-empty list of repository anchors
 Identity and returns a list of resolved Projects (`src/dashpot/project/workspace.py:122-211`).
 
 The collector refreshes all resolved Projects concurrently and returns them in
-one Workspace checkpoint (`src/dashpot/collect.py:149-226`). The Issue read model
+one Workspace checkpoint (`src/dashpot/observation/collect.py:149-226`). The Issue read model
 then iterates all Projects and emits all matching Issues into one result
-(`src/dashpot/issue_list.py:66-103`, `src/dashpot/issue_list.py:121-220`). A
+(`src/dashpot/observation/issue_list.py:66-103`, `src/dashpot/observation/issue_list.py:121-220`). A
 Project column and Project text search exist, although the Project column is
-hidden by default (`src/dashpot/issue_table.py:93-128`).
+hidden by default (`src/dashpot/ui/issue_table.py:93-128`).
 
 Tests prove multi-Project failure isolation: one failed Project remains
 unavailable without blanking a successful Project

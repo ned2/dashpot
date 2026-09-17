@@ -31,13 +31,17 @@ from app_harness import (
     with_first_target,
     workspace_snapshot,
 )
-from dashpot.app import DashboardScreen, DashpotApp
-from dashpot.collect import ObservationKey, ObservationOutcome, ObservationTicket
 from dashpot.core.model import AgentRun, Diagnostic, WorkspaceSnapshot
-from dashpot.issue_list import row_key
-from dashpot.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
-from dashpot.issue_view import selection_title
-from dashpot.messages import ObservationFinished, ObservationTrigger
+from dashpot.observation.issue_list import row_key
+from dashpot.observation.keys import (
+    ObservationKey,
+    ObservationOutcome,
+    ObservationTicket,
+)
+from dashpot.ui.app import DashboardScreen, DashpotApp
+from dashpot.ui.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
+from dashpot.ui.issue_view import selection_title
+from dashpot.ui.messages import ObservationFinished, ObservationTrigger
 from helpers import snapshot_of, wait_until
 
 
@@ -771,7 +775,7 @@ async def test_a_timer_tick_failure_never_toasts() -> None:
 
 def coordinated_workspace(tmp_path: Path):
     """A two-Project coordinator whose sources can be paused per Project."""
-    from dashpot.collect import ObservationCoordinator
+    from dashpot.observation.collect import ObservationCoordinator
     from test_coordinator import Clock, ScriptedCollector, ScriptedSource, resolved
 
     clock = Clock()

@@ -17,8 +17,21 @@ from dataclasses import replace
 
 from typing_extensions import override
 
-from .core.model import Diagnostic, ProjectObservation, WorkspaceSnapshot
-from .issue_list import IssueListQuery, IssueListResult, IssueListRow, row_key
+from ..core.model import Diagnostic, ProjectObservation, WorkspaceSnapshot
+from ..queries.source_queries import (
+    AuxiliaryObservation,
+    ProjectTotals,
+    QueryPage,
+    ResolvedIssue,
+    ResourceKind,
+)
+from .issue_list import (
+    IssueListQuery,
+    IssueListRow,
+    IssueListSummary,
+    row_key,
+)
+from .list_result import ListResult
 from .observation_store import (
     IssueContext,
     ObservedDiagnostic,
@@ -26,14 +39,7 @@ from .observation_store import (
     WorkspaceObservationStore,
     _StoreState,
 )
-from .queries.source_queries import (
-    AuxiliaryObservation,
-    ProjectTotals,
-    QueryPage,
-    ResolvedIssue,
-    ResourceKind,
-)
-from .session_list import SessionListResult, query_indexed_session_list
+from .session_list import SessionListRow, query_indexed_session_list
 
 
 class PagedObservationStore(WorkspaceObservationStore):
@@ -138,11 +144,9 @@ class PagedObservationStore(WorkspaceObservationStore):
         )
         return IssueListRow(
             row_key("issue", issue.id),
-            "issue",
             project,
             issue,
             runs,
-            tuple(self._state.agent_runs.values()),
             tuple(run.state for run in runs),
             True,
             auxiliary,
@@ -165,7 +169,9 @@ class PagedObservationStore(WorkspaceObservationStore):
         )
 
     @override
-    def query_issues(self, query: IssueListQuery = IssueListQuery()) -> IssueListResult:
+    def query_issues(
+        self, query: IssueListQuery = IssueListQuery()
+    ) -> ListResult[IssueListRow, IssueListSummary]:
         page = self.pages.get("issues")
         rows: list[IssueListRow] = []
         if page:
@@ -179,17 +185,19 @@ class PagedObservationStore(WorkspaceObservationStore):
                         )
                     )
         totals = self.totals.get("issues")
-        return IssueListResult(
-            tuple(rows),
-            page.matched_count or 0 if page else 0,
-            len(rows),
-            self.result_revision,
-            totals.open_count or 0 if totals else 0,
-            totals.closed_count or 0 if totals else 0,
+        return ListResult(
+            rows=tuple(rows),
+            revision=self.result_revision,
+            summary=IssueListSummary(
+                matched_issue_count=page.matched_count or 0 if page else 0,
+                observed_issue_count=len(rows),
+                open_issue_count=totals.open_count or 0 if totals else 0,
+                closed_issue_count=totals.closed_count or 0 if totals else 0,
+            ),
         )
 
     @override
-    def query_sessions(self) -> SessionListResult:
+    def query_sessions(self) -> ListResult[SessionListRow, None]:
         issues = {
             (result.context.project_id, result.issue_id): result.issue
             for result in self.resolved.values()

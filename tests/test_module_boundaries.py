@@ -23,12 +23,16 @@ HEADLESS_MODULES = (
     "dashpot.sessions.work",
     "dashpot.repository.worktrees.create",
     "dashpot.repository.worktrees.removability",
-    "dashpot.collect",
+    "dashpot.observation.collect",
     "dashpot.repository.cleanup",
-    "dashpot.observation_store",
-    "dashpot.paged_store",
+    "dashpot.observation.observation_store",
+    "dashpot.observation.paged_store",
     "dashpot.queries.markdown_queries",
-    *(f"dashpot.{name}" for name in sorted(READ_MODELS)),
+    "dashpot.observation",
+    "dashpot.observation.keys",
+    "dashpot.observation.related_rows",
+    "dashpot.observation.list_result",
+    *(f"dashpot.observation.{name}" for name in sorted(READ_MODELS)),
 )
 
 
@@ -38,8 +42,8 @@ HEADLESS_MODULES = (
 LIGHT_PATHS = (
     ("dashpot.composition", ("dashpot.cli",)),
     ("dashpot.repository.cleanup", ("dashpot.repository.worktrees.create",)),
-    ("dashpot.hook", ("dashpot.github.github", "dashpot.collect")),
-    ("dashpot.issues.issue_resolution", ("dashpot.collect",)),
+    ("dashpot.hook", ("dashpot.github.github", "dashpot.observation.collect")),
+    ("dashpot.issues.issue_resolution", ("dashpot.observation.collect",)),
 )
 
 
@@ -52,7 +56,7 @@ def assert_import_leaves_out(module: str, absent: tuple[str, ...]) -> None:
 
 
 def test_headless_modules_do_not_load_textual() -> None:
-    assert_import_leaves_out(", ".join(HEADLESS_MODULES), ("textual",))
+    assert_import_leaves_out(", ".join(HEADLESS_MODULES), ("textual", "dashpot.ui"))
 
 
 @pytest.mark.parametrize(
@@ -68,7 +72,10 @@ def private_read_model_imports(path: Path) -> list[str]:
     """``from .<read model> import _name`` statements in one module."""
     found: list[str] = []
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if not isinstance(node, ast.ImportFrom) or node.module not in READ_MODELS:
+        if (
+            not isinstance(node, ast.ImportFrom)
+            or (node.module or "").split(".")[-1] not in READ_MODELS
+        ):
             continue
         found.extend(
             f"{path.name}:{node.lineno} {node.module}.{alias.name}"
