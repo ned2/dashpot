@@ -12,11 +12,9 @@ from pathlib import Path
 
 from dashpot.core.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
 from dashpot.queries.source_queries import QueryRequest
+from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
-from dashpot.repository.worktrees.removability import (
-    CleanupBlocker,
-    WorktreeRemovability,
-)
+from dashpot.repository.worktrees.removability import WorktreeRemovability
 from dashpot.serialization import (
     issue_document,
     list_page_document,

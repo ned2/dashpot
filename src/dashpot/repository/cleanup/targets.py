@@ -10,9 +10,36 @@ from pydantic import computed_field
 
 from ...core.model import IntegrationState, integration_state
 from ...core.pydantic import LaxSequence, PublishedModel
-from ..worktrees.removability import CleanupBlocker
 
 TargetKind = Literal["local-branch", "remote-branch", "worktree"]
+
+BlockerKind = Literal[
+    "integration-branch",
+    "checked-out",
+    "unintegrated",
+    "unknown-integration",
+    "remote-mapping",
+    "push-url",
+    "main-worktree",
+    "protected",
+    "unavailable",
+    "dirty",
+    "locked",
+    "agent-session",
+    "agent-run",
+    "work-store",
+    "unpushed",
+    "unmerged",
+    "detached",
+]
+
+
+class CleanupBlocker(PublishedModel):
+    """One reason a Cleanup target is unavailable, with the command that acts on it."""
+
+    kind: BlockerKind
+    detail: str
+    command: str | None = None
 
 
 class IntegrationFact(PublishedModel):

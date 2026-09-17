@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ...core.git import Git
-from ..repository import DEFAULT_BRANCHES, choose_integration_ref
+from ..repository import DEFAULT_BRANCHES, RefIndex
 
 BaseSource = Literal["--base", "origin/HEAD", "local-branch"]
 
@@ -34,31 +34,17 @@ def resolve_base(git: Git, option: str | None) -> BaseResolution:
             )
         ref = git.maybe("rev-parse", "--symbolic-full-name", option) or option
         return BaseResolution(ref, "--base", commit)
-    origin_head = git.maybe("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
-    origin_head = origin_head or None
-    origin_commit = commit_of(git, origin_head) if origin_head is not None else None
-    origin_refs = (
-        [origin_head] if origin_head is not None and origin_commit is not None else []
-    )
-    ref = choose_integration_ref(origin_head, origin_refs)
+    # The Integration Branch rule chooses a new Worktree's base
+    # ([ADR 0012](../../docs/adr/0012-observe-branch-integration-by-reachability.md)),
+    # read through the same ref index the Cleanup preview inspects.
+    refs = RefIndex.read(git)
+    ref = refs.integration_ref()
     if ref is not None:
-        return BaseResolution(ref, "origin/HEAD", origin_commit)
-    # Each candidate ref is resolved exactly once; the chosen ref's commit is
-    # reused rather than resolved again.
-    commits = {
-        f"refs/heads/{name}": commit
-        for name in DEFAULT_BRANCHES
-        if (commit := commit_of(git, f"refs/heads/{name}")) is not None
-    }
-    candidates = list(commits)
-    ref = choose_integration_ref(None, candidates)
-    if ref is not None:
-        return BaseResolution(ref, "local-branch", commits[ref])
-    local = [
-        name.removeprefix("refs/heads/")
-        for name in candidates
-        if name.startswith("refs/heads/")
-    ]
+        source: BaseSource = (
+            "origin/HEAD" if ref == refs.origin_head else "local-branch"
+        )
+        return BaseResolution(ref, source, refs.commits[ref])
+    local = [name for name in DEFAULT_BRANCHES if f"refs/heads/{name}" in refs.commits]
     return BaseResolution(
         None,
         None,

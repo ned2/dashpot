@@ -5,47 +5,42 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from ...core.git import Git, GitError
+from ...core.git import Git
 from ...core.model import IntegrationState
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ..repository import (
     LOCAL_REF_PREFIX,
-    ORIGIN_HEAD_REF,
     REMOTE_REF_PREFIX,
     LockHolderProbe,
-    assess_content_integration,
-    choose_integration_ref,
+    RefIndex,
+    branch_name,
     last_fetched_at,
     same_path,
     worktree_root,
 )
-from ..worktrees.removability import (
-    BlockerKind,
-    CleanupBlocker,
+from ..worktrees.records import checked_out_at
+from .obstacles import (
+    NO_INTEGRATION_BRANCH,
     LocatedWorktree,
     assess_detached_head_preservation,
     assess_worktree_occupancy,
     assess_worktree_safety,
     ignored_content,
+    integration_fact,
     locate_worktree,
 )
 from .targets import (
     BranchCleanupRequest,
+    CleanupBlocker,
     CleanupPreview,
     CleanupRequest,
     CleanupTarget,
     IntegrationFact,
     WorktreeCleanupRequest,
 )
-
-# The Worktree obstacles that concern its Branch (unpushed, unmerged) belong
-# to the Branch target's own gate, not to removing the Worktree itself.
-_BRANCH_OBSTACLES: frozenset[BlockerKind] = frozenset({"unpushed", "unmerged"})
-
 
 CANONICAL_FETCH_REFSPEC = "+refs/heads/*:refs/remotes/{remote}/*"
 
@@ -71,48 +66,11 @@ def inspect_cleanup(
     return _inspect_worktree(request, adapter, lookup, lock_probe, protected, timeout)
 
 
-@dataclass(frozen=True, slots=True)
-class _RefIndex:
-    """Every Branch ref of a Repository: commit, commit time, and origin/HEAD."""
-
-    commits: Mapping[str, str]
-    committed_at: Mapping[str, str]
-    origin_head: str | None
-
-    @classmethod
-    def read(cls, git: Git) -> _RefIndex:
-        records = git.records(
-            "refs/heads",
-            "refs/remotes",
-            fields=(
-                "%(refname)",
-                "%(objectname)",
-                "%(committerdate:iso-strict)",
-                "%(symref)",
-            ),
-        )
-        commits: dict[str, str] = {}
-        committed_at: dict[str, str] = {}
-        origin_head: str | None = None
-        for refname, commit, committed, symref in records:
-            if refname == ORIGIN_HEAD_REF:
-                origin_head = symref or None
-                continue
-            if symref:
-                continue
-            commits[refname] = commit
-            committed_at[refname] = committed
-        return cls(commits, committed_at, origin_head)
-
-    def integration_ref(self) -> str | None:
-        return choose_integration_ref(self.origin_head, self.commits)
-
-
 def _inspect_branch(request: BranchCleanupRequest, git: Git) -> CleanupPreview:
     anchor = worktree_root(request.anchor, git)
     scoped = git.at(anchor)
     name = request.name
-    refs = _RefIndex.read(scoped)
+    refs = RefIndex.read(scoped)
     integration_ref = refs.integration_ref()
     targets: list[CleanupTarget] = []
     local_ref = f"{LOCAL_REF_PREFIX}{name}"
@@ -123,7 +81,7 @@ def _inspect_branch(request: BranchCleanupRequest, git: Git) -> CleanupPreview:
                 name,
                 refs,
                 integration_ref,
-                checked_out_at=_checked_out_at(scoped, local_ref),
+                checked_out_at=checked_out_at(scoped.worktree_records(), local_ref),
             )
         )
     fetched = last_fetched_at(anchor, scoped)
@@ -142,7 +100,7 @@ def _inspect_branch(request: BranchCleanupRequest, git: Git) -> CleanupPreview:
 def _local_branch_target(
     git: Git,
     name: str,
-    refs: _RefIndex,
+    refs: RefIndex,
     integration_ref: str | None,
     *,
     checked_out_at: Path | None,
@@ -150,7 +108,7 @@ def _local_branch_target(
 ) -> CleanupTarget:
     refname = f"{LOCAL_REF_PREFIX}{name}"
     commit = refs.commits[refname]
-    fact = _integration_fact(
+    fact = integration_fact(
         git, integration_ref, refname, refs.committed_at.get(refname)
     )
     blockers = _integration_branch_blockers(refname, name, integration_ref, None)
@@ -187,13 +145,13 @@ def _remote_branch_target(
     git: Git,
     name: str,
     remote: str,
-    refs: _RefIndex,
+    refs: RefIndex,
     integration_ref: str | None,
     fetched: str | None,
 ) -> CleanupTarget:
     tracking = f"{REMOTE_REF_PREFIX}{remote}/{name}"
     commit = refs.commits[tracking]
-    fact = _integration_fact(
+    fact = integration_fact(
         git, integration_ref, tracking, refs.committed_at.get(tracking)
     )
     blockers = _integration_branch_blockers(
@@ -269,7 +227,7 @@ def _integration_branch_blockers(
                 detail=f"{refname} is the Integration Branch",
             )
         ]
-    if name == _branch_name(integration_ref):
+    if name == branch_name(integration_ref):
         return [
             CleanupBlocker(
                 kind="integration-branch",
@@ -280,47 +238,11 @@ def _integration_branch_blockers(
     return []
 
 
-def _branch_name(refname: str) -> str:
-    """The Branch name of a local or Remote-Tracking ref."""
-    if refname.startswith(LOCAL_REF_PREFIX):
-        return refname.removeprefix(LOCAL_REF_PREFIX)
-    if refname.startswith(REMOTE_REF_PREFIX):
-        _remote, _slash, name = refname.removeprefix(REMOTE_REF_PREFIX).partition("/")
-        return name
-    return refname
-
-
-def _integration_fact(
-    git: Git, integration_ref: str | None, refname: str, committed_at: str | None
-) -> IntegrationFact:
-    if integration_ref is None:
-        return IntegrationFact(
-            integration_ref=None, unintegrated_commits=None, content_integrated=None
-        )
-    count = git.count("rev-list", "--count", f"{integration_ref}..{refname}")
-    content: bool | None = None
-    if count:
-        try:
-            content = assess_content_integration(
-                git, integration_ref, refname, committed_at
-            )
-        except GitError:
-            content = None
-    return IntegrationFact(
-        integration_ref=integration_ref,
-        unintegrated_commits=count,
-        content_integrated=content,
-    )
-
-
 def _integration_blockers(fact: IntegrationFact, refname: str) -> list[CleanupBlocker]:
     state = fact.state
     if state == "unknown":
         if fact.integration_ref is None:
-            detail = (
-                "no Integration Branch could be chosen: origin/HEAD is not set and "
-                "there is no unique local main or master Branch"
-            )
+            detail = NO_INTEGRATION_BRANCH
         else:
             detail = (
                 f"commits of {refname} not reachable from {fact.integration_ref} "
@@ -352,13 +274,6 @@ def _content_consequence(fact: IntegrationFact) -> list[str]:
         f"content is integrated, but {fact.unintegrated_commits} original commit(s) "
         f"are not reachable from {fact.integration_ref} and lose their last named ref"
     ]
-
-
-def _checked_out_at(git: Git, refname: str) -> Path | None:
-    for record in git.worktree_records():
-        if record.get("branch") == refname and record.get("worktree"):
-            return Path(record["worktree"]).resolve()
-    return None
 
 
 def _remotes(git: Git) -> list[str]:
@@ -403,7 +318,7 @@ def _inspect_worktree(
         )
     ]
     if branch is not None:
-        refs = _RefIndex.read(located.git)
+        refs = RefIndex.read(located.git)
         if f"{LOCAL_REF_PREFIX}{branch}" in refs.commits:
             targets.append(
                 _local_branch_target(
@@ -425,13 +340,10 @@ def _worktree_blockers(
     protected: Sequence[Path],
 ) -> list[CleanupBlocker]:
     path = located.path
-    obstacles: list[CleanupBlocker] = assess_worktree_safety(located, lock_probe)
-    obstacles.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
+    blockers: list[CleanupBlocker] = assess_worktree_safety(located, lock_probe)
+    blockers.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
     if located.detached:
-        obstacles.extend(assess_detached_head_preservation(located.git, located.head))
-    blockers = [
-        obstacle for obstacle in obstacles if obstacle.kind not in _BRANCH_OBSTACLES
-    ]
+        blockers.extend(assess_detached_head_preservation(located.git, located.head))
     if any(same_path(path, candidate.expanduser()) for candidate in protected):
         blockers.append(
             CleanupBlocker(

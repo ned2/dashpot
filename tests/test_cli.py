@@ -28,6 +28,7 @@ from dashpot.project.workspace import (
 )
 from dashpot.repository.cleanup import (
     BranchCleanupRequest,
+    CleanupBlocker,
     CleanupConfirmation,
     CleanupPreview,
     CleanupReport,
@@ -36,10 +37,7 @@ from dashpot.repository.cleanup import (
     WorktreeCleanupRequest,
 )
 from dashpot.repository.worktrees.create import WorktreePlan
-from dashpot.repository.worktrees.removability import (
-    CleanupBlocker,
-    WorktreeRemovability,
-)
+from dashpot.repository.worktrees.removability import WorktreeRemovability
 from dashpot.sessions.integrate import INTEGRATIONS
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.ui.page_runner import QUERY_SOURCE_KEYS

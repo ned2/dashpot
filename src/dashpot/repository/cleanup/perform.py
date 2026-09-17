@@ -19,8 +19,8 @@ from ..repository import (
     LOCAL_REF_PREFIX,
     REMOTE_REF_PREFIX,
     LockHolderProbe,
-    same_path,
 )
+from ..worktrees.records import registered_at
 from .preview import describe_cleanup_preview, inspect_cleanup
 from .targets import (
     CleanupPreview,
@@ -410,10 +410,7 @@ def _registered(git: Git, path: str) -> bool:
         records = git.worktree_records()
     except GitError:
         return True
-    return any(
-        record.get("worktree") and same_path(Path(record["worktree"]), Path(path))
-        for record in records
-    )
+    return registered_at(records, Path(path)) is not None
 
 
 def _result(

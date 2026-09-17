@@ -42,6 +42,10 @@ HEADLESS_MODULES = (
 LIGHT_PATHS = (
     ("dashpot.composition", ("dashpot.cli",)),
     ("dashpot.repository.cleanup", ("dashpot.repository.worktrees.create",)),
+    (
+        "dashpot.repository.worktrees.removability",
+        ("dashpot.repository.worktrees.create",),
+    ),
     ("dashpot.hook", ("dashpot.github.github", "dashpot.observation.collect")),
     ("dashpot.issues.issue_resolution", ("dashpot.observation.collect",)),
 )

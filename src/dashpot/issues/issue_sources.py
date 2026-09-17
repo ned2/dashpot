@@ -114,11 +114,6 @@ class IssueSourceRefreshError(SourceRefreshError):
 class IssueSource(RetainingSource[CollectedIssues, IssueSourceObservation]):
     """Refresh complete Issue collections while retaining the last good value."""
 
-    @property
-    def code_prefix(self) -> str:
-        """Prefix the shared diagnostic codes; defaults to the source name."""
-        return self.name
-
     def find(self, hint: IssueHint) -> IssueProfile | None:
         """Resolve one Issue Hint to at most one Issue of a fresh collection.
 

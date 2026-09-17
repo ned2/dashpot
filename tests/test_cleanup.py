@@ -27,6 +27,7 @@ from dashpot.repository.cleanup import (
     inspect_cleanup,
     perform_cleanup,
 )
+from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH
 from dashpot.repository.repository import LockHolderProbe
 from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import cleanup_preview_document, cleanup_report_document
@@ -498,6 +499,49 @@ def test_detached_worktree_needs_a_durable_ref(tmp_path: Path) -> None:
     assert blocker.command == f"git branch rescue/{lost[:7]} {lost}"
     report = check_worktree(root, worktree)
     assert [obstacle.kind for obstacle in report.obstacles] == ["detached"]
+
+
+@pytest.mark.parametrize(
+    ("origin", "origin_head", "second_default", "integration_ref"),
+    [
+        (True, None, False, "refs/remotes/origin/main"),
+        (False, "refs/heads/main", True, "refs/heads/main"),
+        (False, None, False, "refs/heads/main"),
+        (False, None, True, None),
+    ],
+    ids=["origin-head", "origin-head-at-local", "local-default", "none"],
+)
+def test_preview_and_removability_agree_on_the_integration_branch(
+    tmp_path: Path,
+    origin: bool,
+    origin_head: str | None,
+    second_default: bool,
+    integration_ref: str | None,
+) -> None:
+    root = repo(tmp_path, origin=origin)
+    branch(root, "feat")
+    if origin_head is not None:
+        git(root, "symbolic-ref", "refs/remotes/origin/HEAD", origin_head)
+    if second_default:
+        git(root, "branch", "master", "main")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "feat")
+
+    _tree, local = preview_worktree(root, worktree).targets
+    report = check_worktree(root, worktree)
+
+    assert local.integration is not None
+    assert local.integration.integration_ref == integration_ref
+    (gate,) = local.blockers
+    (unmerged,) = [item for item in report.obstacles if item.kind == "unmerged"]
+    if integration_ref is None:
+        assert gate.kind == "unknown-integration"
+        assert gate.detail == NO_INTEGRATION_BRANCH
+        assert unmerged.detail.endswith(NO_INTEGRATION_BRANCH)
+    else:
+        assert gate.kind == "unintegrated"
+        assert gate.detail == f"1 commit(s) not reachable from {integration_ref}"
+        assert unmerged.detail == gate.detail
 
 
 def test_missing_worktree_directory_is_unavailable(tmp_path: Path) -> None:

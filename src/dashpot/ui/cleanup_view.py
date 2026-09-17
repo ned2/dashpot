@@ -25,8 +25,9 @@ from ..repository.cleanup import (
     CleanupRequest,
     CleanupTarget,
     describe_cleanup_report,
+    primary_target,
+    retained_choices,
 )
-from ..repository.cleanup_selection import primary_target, retained_choices
 from .branch_cells import fetch_age_text
 from .marked_widgets import MarkedCheckbox
 

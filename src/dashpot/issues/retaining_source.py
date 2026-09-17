@@ -43,6 +43,11 @@ class RetainingSource(ABC, Generic[Collected, Observation]):
     def name(self) -> str:
         """Name this source in its Diagnostics."""
 
+    @property
+    def code_prefix(self) -> str:
+        """Prefix the shared diagnostic codes; defaults to the source name."""
+        return self.name
+
     def refresh(self) -> Observation:
         """Publish one complete cycle or retain the last good collection."""
         attempted_at = self._clock()

@@ -188,6 +188,11 @@ class GitHubPullRequestsSource(PullRequestSource):
     def name(self) -> str:
         return "github-pull-requests"
 
+    @property
+    @override
+    def code_prefix(self) -> str:
+        return "github"
+
     @override
     def _collect(self) -> CollectedPullRequests:
         meter = (

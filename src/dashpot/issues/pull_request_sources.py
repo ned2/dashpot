@@ -57,19 +57,20 @@ class PullRequestSource(
 
     @override
     def _check_collection_invariants(self, collected: CollectedPullRequests) -> None:
+        """Refuse a collection that repeats a Pull Request identity or Number."""
         identities: set[str] = set()
         numbers: set[int] = set()
         for pull_request in collected.pull_requests:
             if pull_request.id in identities:
                 raise PullRequestSourceRefreshError(
-                    "github-duplicate-identity",
-                    f"GitHub collected duplicate Pull Request identity "
+                    f"{self.code_prefix}-duplicate-identity",
+                    f"{self.name} collected duplicate Pull Request identity "
                     f"{pull_request.id}",
                 )
             if pull_request.number in numbers:
                 raise PullRequestSourceRefreshError(
-                    "github-duplicate-number",
-                    f"GitHub collected duplicate Pull Request Number "
+                    f"{self.code_prefix}-duplicate-number",
+                    f"{self.name} collected duplicate Pull Request Number "
                     f"#{pull_request.number}",
                 )
             identities.add(pull_request.id)
