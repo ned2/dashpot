@@ -113,6 +113,12 @@ observations have a separate budget and availability. The declared lowest-number
 twenty Linked Pull Requests require deliberate connection completion when more
 exist; there is no incremental bookkeeping or counterpart expansion.
 
+Query and complete-collection adapters retain distinct cache and failure policies.
+They share parsing, Profile completion, and collection retention; explicit export
+crosses the Query Source enumeration seam before the collector shapes snapshot
+output. [ADR 0043](adr/0043-retain-distinct-query-and-collection-adapters.md)
+records the caller trace, remaining duplication, and rejected consolidation options.
+
 The dashboard ([app.py](../src/dashpot/ui/app.py)) schedules Issue pages,
 Pull Request pages, both kinds of Project Totals, targeted identities and local
 observations independently: the page runner

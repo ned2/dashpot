@@ -817,8 +817,9 @@ The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
 a point-in-time survey of clean-code uplifts, package boundaries, and
 decomposition seams for the largest modules.
 [ADR 0042](docs/adr/0042-group-leaf-and-domain-modules-into-subpackages.md)
-records the implemented leaf, domain, sessions, and repository packages,
-the application composition seam, and the remaining observation/UI moves.
+records the completed package layout and application composition seam.
+[ADR 0043](docs/adr/0043-retain-distinct-query-and-collection-adapters.md)
+records why query and complete-collection adapters retain distinct contracts.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
