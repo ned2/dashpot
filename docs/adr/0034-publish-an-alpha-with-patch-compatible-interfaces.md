@@ -30,7 +30,10 @@ the UI depends on tested DataTable and layout behavior. Other dependency bounds
 remain unchanged. Source tests use the lockfile, while installed-artifact tests
 resolve the runtime dependencies an application user receives.
 
-The target is CPython 3.11–3.14, Linux x86-64 and Apple Silicon macOS, with both
+The target is CPython 3.12–3.14 (raised from a 3.11 floor on 2026-09-18, before
+publication, by [#222](https://github.com/ned2/dashpot/issues/222), so the
+code can use Python 3.12's generic syntax), Linux x86-64 and Apple Silicon
+macOS, with both
 Codex and Claude Code. CI covers both Python endpoints on both platforms,
 intermediate versions on Linux, and maintained Git 2.39.x from Debian 12 as
 the minimum compatibility baseline. gh 2.100.0
