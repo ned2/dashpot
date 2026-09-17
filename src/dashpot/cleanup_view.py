@@ -17,7 +17,8 @@ from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 from typing_extensions import override
 
 from .branch_cells import fetch_age_text
-from .cleanup import (
+from .marked_widgets import MarkedCheckbox
+from .repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     CleanupBlocker,
     CleanupConfirmation,
@@ -27,8 +28,7 @@ from .cleanup import (
     CleanupTarget,
     describe_cleanup_report,
 )
-from .cleanup_selection import primary_target, retained_choices
-from .marked_widgets import MarkedCheckbox
+from .repository.cleanup_selection import primary_target, retained_choices
 
 CHANGED_HELP = (
     f"{CHANGED_SINCE_PREVIEW[0].upper()}{CHANGED_SINCE_PREVIEW[1:]}. "

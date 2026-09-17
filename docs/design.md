@@ -5,16 +5,28 @@ date: 2026-09-17
 
 # Design
 
-The leaf and domain layers live in six packages: `core` for shared
+The leaf and domain layers live in seven packages: `core` for shared
 infrastructure and observation values, `project` for configuration and Workspace
 resolution, `github` for the gateway and wire adapters, `issues` for Issue
 Sources and resolution, `queries` for source queries and page navigation, and `sessions` for Agent
-Session observation, the Work Store, Issue work, and integration.
+Session observation, the Work Store, Issue work, and integration; and
+`repository` for Git observation, Remote Fetch, Worktree operations, and Cleanup.
 [ADR 0042](adr/0042-group-leaf-and-domain-modules-into-subpackages.md) records
 the layout and its staged scope. Pydantic bases live in
 [`core/pydantic.py`](../src/dashpot/core/pydantic.py); observation models in
 [`core/model.py`](../src/dashpot/core/model.py); trusted Workspace values in
 [`project/workspace.py`](../src/dashpot/project/workspace.py).
+
+Root-level [`composition.py`](../src/dashpot/composition.py) constructs the
+collector and Query Sources and composes Cleanup into a report; the CLI parses
+arguments and renders results. Cleanup has separate
+[preview](../src/dashpot/repository/cleanup/preview.py),
+[execution](../src/dashpot/repository/cleanup/perform.py), and
+[dashboard adapter](../src/dashpot/repository/cleanup/adapter.py) modules over
+shared [target values](../src/dashpot/repository/cleanup/targets.py). Worktree
+[creation](../src/dashpot/repository/worktrees/create.py) and
+[removability](../src/dashpot/repository/worktrees/removability.py) are separate
+so removal checks never load creation.
 
 Observation is scheduled per key rather than as one refresh: the Project's
 Issue Source, Pull Request source and Repository State are observed
@@ -43,7 +55,7 @@ the running one lands. `r` refreshes every key in the Workspace, which with
 one Project per run is the observed Project, and restarts both submitted source queries from page one, refreshing totals
 and relevant identities. It never fetches: `f`
 mutates, a Remote Fetch of the Repository Anchor whose refs
-supplied the Branch observation ([`fetch.py`](../src/dashpot/fetch.py),
+supplied the Branch observation ([`fetch.py`](../src/dashpot/repository/fetch.py),
 [`fetch_flow.py`](../src/dashpot/fetch_flow.py),
 [ADR 0014](adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
 off the event loop, once per Project at a time, and once any remote has been
@@ -52,7 +64,7 @@ Branches pane, the Integration Branch facts, and the fetch age reflect the
 result without anything being inferred from the fetch itself.
 
 `x` is the other mutating key, a Cleanup
-([`cleanup.py`](../src/dashpot/cleanup.py),
+([`cleanup.py`](../src/dashpot/repository/cleanup/),
 [`cleanup_flow.py`](../src/dashpot/cleanup_flow.py),
 [`cleanup_view.py`](../src/dashpot/cleanup_view.py),
 [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).

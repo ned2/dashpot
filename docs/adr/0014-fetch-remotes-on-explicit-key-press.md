@@ -29,7 +29,7 @@ boundary, invoked by a person, and it mutates only what its name says:
   holds independent clones of one Project.
 - The invocation is `git fetch --prune -- <remote>` once per configured
   remote, in `git remote` order, under Dashpot's Git timeout
-  ([`fetch.py`](../../src/dashpot/fetch.py)). One call per remote attributes
+  ([`fetch.py`](../../src/dashpot/repository/fetch.py)). One call per remote attributes
   a failure to the remote that failed and lets the rest complete, so a
   partial failure is reported remote by remote and never as an unqualified
   success. No remote configured is a refusal, not a fetch.

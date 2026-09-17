@@ -115,7 +115,7 @@ channels. This does not establish a Dashpot-owned external sending endpoint.
 - `src/dashpot/sessions/work.py` starts/switches Issue work. Calling it after a Claude
   move recreates the run with a new start time; that cannot satisfy #148's
   preservation of Agent Run identity and start time.
-- `src/dashpot/cleanup.py` uses Worktree occupancy as a blocker. Management
+- `src/dashpot/repository/cleanup/` uses Worktree occupancy as a blocker. Management
   needs a separately testable handoff prerequisite, never a blanket exemption
   from the existing occupancy check.
 - Resolved: dialog Remote Fetch now separates idle-preview reservations from

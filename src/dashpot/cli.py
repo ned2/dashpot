@@ -2,45 +2,47 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
 
 from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
 from .app import DashpotApp
-from .cleanup import (
+from .composition import (
+    ObservationOptions,
+    create_collector,
+    create_query_sources,
+    run_cleanup,
+)
+from .core.errors import DashpotError
+from .issues.issue_resolution import describe_issue, show_issue
+from .project.init import initialize_project
+from .project.workspace import (
+    RepositoryAnchor,
+    Workspace,
+)
+from .queries.query_source import configured_query_source
+from .repository.cleanup import (
     BranchCleanupRequest,
-    CleanupConfirmation,
     CleanupError,
     CleanupPreview,
     CleanupRequest,
     GitCleanupAdapter,
     WorktreeCleanupRequest,
-    cleanup_git,
     describe_cleanup_report,
-    inspect_cleanup,
-    perform_cleanup,
 )
-from .collect import ObservationCoordinator
-from .core.errors import DashpotError
-from .core.model import Diagnostic
-from .fetch import remote_fetcher
-from .issues.issue_resolution import describe_issue, show_issue
-from .page_runner import QUERY_SOURCE_KEYS
-from .project.init import initialize_project
-from .project.project_config import PROJECT_CONFIG_NAME
-from .project.workspace import (
-    RepositoryAnchor,
-    Workspace,
-    default_workspace_config,
-    load_workspaces,
-    merge_workspaces,
-    resolve_workspace_projects,
+from .repository.fetch import remote_fetcher
+from .repository.repository import worktree_root
+from .repository.worktree_launcher import configure_worktree_launcher
+from .repository.worktrees.create import (
+    create_issue_worktree,
+    describe_worktree_plan,
 )
-from .queries.query_source import configured_query_source
-from .queries.source_queries import QuerySource
-from .repository import worktree_root
+from .repository.worktrees.removability import (
+    check_worktree,
+    describe_removability,
+    linked_worktrees,
+)
 from .serialization import (
     cleanup_report_document,
     issue_document,
@@ -60,29 +62,10 @@ from .sessions.work import (
     start_issue_work,
     stop_issue_work,
 )
-from .worktree_launcher import configure_worktree_launcher
-from .worktrees import (
-    check_worktree,
-    create_issue_worktree,
-    describe_removability,
-    describe_worktree_plan,
-    linked_worktrees,
-)
 
 Harness = Literal["codex", "claude-code"]
 
 USAGE_EXIT_CODE = 2
-
-
-@dataclass(frozen=True, slots=True)
-class ObservationOptions:
-    """Describe what one Dashpot run observes and how patiently."""
-
-    workspaces: tuple[Workspace, ...] = ()
-    config: Path | None = None
-    timeout: float = 10.0
-    refresh_seconds: float = 15.0
-    state_dir: Path | None = None
 
 
 def parse_workspace_argument(value: str) -> Workspace:
@@ -371,7 +354,6 @@ def _list_page(
     timeout: float,
 ) -> int:
     """Emit one Query Page and independently scoped Project Totals."""
-    from .queries.query_source import configured_query_source
     from .queries.source_queries import QueryRequest
 
     root = worktree_root(Path.cwd().resolve())
@@ -567,23 +549,12 @@ def _cleanup(
     json_output: bool,
 ) -> int:
     """Preview, select, perform, and report one Cleanup from this checkout."""
-    protected = cleanup_protection()
-    git = cleanup_git(timeout)
-    preview = inspect_cleanup(request, protected=protected, timeout=timeout, git=git)
-    # A preview with nothing to select has already said why; ``perform``
-    # repeats the refusal so the report carries it in every output shape.
-    confirmation = CleanupConfirmation(
+    report = run_cleanup(
         request,
-        preview.fingerprint,
-        select(preview),
+        select=select,
         delete_ignored=delete_ignored,
-    )
-    report = perform_cleanup(
-        confirmation,
-        protected=protected,
-        timeout=timeout,
-        git=git,
         dry_run=dry_run,
+        timeout=timeout,
     )
     if json_output:
         print(render_json(cleanup_report_document(report)))
@@ -594,42 +565,6 @@ def _cleanup(
     if report.dry_run:
         return USAGE_EXIT_CODE if report.refusals else 0
     return 0 if report.succeeded else USAGE_EXIT_CODE
-
-
-def cleanup_protection() -> list[Path]:
-    """The checkouts a Cleanup never removes: this one and every configured Repository Anchor.
-
-    The anchors are the ones a dashboard run from here would observe: the
-    checkout's own root when it carries a Project configuration, and each
-    anchor of the Workspace config, taken at its Worktree root. An inventory
-    that cannot be read refuses the Cleanup rather than proceeding unaware.
-    """
-    current = Path.cwd().resolve()
-    protected = [current]
-    try:
-        root = worktree_root(current)
-    except RuntimeError:
-        root = None
-    if root is not None and (root / PROJECT_CONFIG_NAME).is_file():
-        protected.append(root)
-    inventory = default_workspace_config()
-    if inventory.is_file():
-        try:
-            workspaces = load_workspaces(inventory).workspaces
-        except RuntimeError as exc:
-            raise CleanupError(
-                f"cannot tell which Repository Anchors to protect: {exc}"
-            ) from exc
-        for workspace in workspaces:
-            for anchor in workspace.anchors:
-                path = Path(anchor.path)
-                # An anchor that is gone or not a repository still names a
-                # path no Cleanup should touch.
-                try:
-                    protected.append(worktree_root(path))
-                except (OSError, RuntimeError):
-                    protected.append(path)
-    return list(dict.fromkeys(protected))
 
 
 branch = App(
@@ -785,72 +720,6 @@ def integrate(
 def _report(messages: Iterable[str]) -> None:
     for message in messages:
         print(message)
-
-
-def create_collector(
-    options: ObservationOptions, *, recurring: bool = True
-) -> ObservationCoordinator:
-    """Resolve the Workspaces one run observes into its coordinator."""
-    polling_seconds = (
-        options.refresh_seconds if recurring and options.refresh_seconds > 0 else None
-    )
-    inventory_diagnostics: Sequence[Diagnostic] = ()
-    if options.workspaces:
-        workspaces = merge_workspaces(list(options.workspaces))
-    elif options.config is not None:
-        inventory = load_workspaces(options.config.expanduser())
-        workspaces = list(inventory.workspaces)
-        inventory_diagnostics = inventory.diagnostics
-    else:
-        current = Path.cwd().resolve()
-        try:
-            project_root = worktree_root(current)
-            in_repository = True
-        except RuntimeError:
-            project_root = current
-            in_repository = False
-        if (project_root / PROJECT_CONFIG_NAME).is_file():
-            workspaces = [
-                Workspace(
-                    project_root.name,
-                    (RepositoryAnchor(str(project_root)),),
-                )
-            ]
-        else:
-            inventory = default_workspace_config()
-            if in_repository and not inventory.is_file():
-                raise RuntimeError(
-                    f"this repository has no {PROJECT_CONFIG_NAME}; run "
-                    f"'dashpot init' to configure it, or define Workspaces "
-                    f"in {inventory}"
-                )
-            loaded = load_workspaces(inventory)
-            workspaces = list(loaded.workspaces)
-            inventory_diagnostics = loaded.diagnostics
-    resolution = resolve_workspace_projects(
-        workspaces,
-        timeout=options.timeout,
-        polling_seconds=polling_seconds,
-    )
-    return ObservationCoordinator(
-        resolution.projects,
-        timeout=options.timeout,
-        state_dir=options.state_dir.expanduser() if options.state_dir else None,
-        diagnostics=[*inventory_diagnostics, *resolution.diagnostics],
-        polling_seconds=polling_seconds,
-        local_only=recurring,
-    )
-
-
-def create_query_sources(collector: ObservationCoordinator) -> dict[str, QuerySource]:
-    """Build the configured Query Source behind each of the dashboard's queries."""
-    root = (
-        Path(collector.projects[0].primary_anchor) if collector.projects else Path.cwd()
-    )
-    return {
-        key: configured_query_source(root, timeout=collector.timeout)
-        for key in QUERY_SOURCE_KEYS
-    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:

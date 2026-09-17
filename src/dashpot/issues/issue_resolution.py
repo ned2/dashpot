@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..core.issue_profile import IssueProfile, issue_location
 from ..project.project_config import load_project_config
-from ..repository import worktree_root
+from ..repository.repository import worktree_root
 from .issue_sources import IssueSource, parse_issue_hint
 from .source_factories import build_issue_source
 

@@ -21,9 +21,10 @@ READ_MODELS = frozenset(
 # it needs a terminal.
 HEADLESS_MODULES = (
     "dashpot.sessions.work",
-    "dashpot.worktrees",
+    "dashpot.repository.worktrees.create",
+    "dashpot.repository.worktrees.removability",
     "dashpot.collect",
-    "dashpot.cleanup",
+    "dashpot.repository.cleanup",
     "dashpot.observation_store",
     "dashpot.paged_store",
     "dashpot.queries.markdown_queries",
@@ -35,6 +36,8 @@ HEADLESS_MODULES = (
 # Issue Hint serves ``work`` and ``worktree``. Neither observes a Project, so
 # neither loads the coordinator, and the hook never loads the GitHub gateway.
 LIGHT_PATHS = (
+    ("dashpot.composition", ("dashpot.cli",)),
+    ("dashpot.repository.cleanup", ("dashpot.repository.worktrees.create",)),
     ("dashpot.hook", ("dashpot.github.github", "dashpot.collect")),
     ("dashpot.issues.issue_resolution", ("dashpot.collect",)),
 )
@@ -55,7 +58,7 @@ def test_headless_modules_do_not_load_textual() -> None:
 @pytest.mark.parametrize(
     ("module", "absent"), LIGHT_PATHS, ids=[module for module, _ in LIGHT_PATHS]
 )
-def test_light_paths_do_not_load_observation_or_github(
+def test_light_paths_leave_unrelated_modules_unloaded(
     module: str, absent: tuple[str, ...]
 ) -> None:
     assert_import_leaves_out(module, absent)

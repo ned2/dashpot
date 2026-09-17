@@ -23,7 +23,6 @@ from textual.widgets import Select
 
 import factories
 from dashpot.app import DashpotApp
-from dashpot.cleanup import CleanupAdapter
 from dashpot.collect import (
     WORKSPACE_KEY,
     ObservationKey,
@@ -41,7 +40,6 @@ from dashpot.core.model import (
     WorkspaceSnapshot,
 )
 from dashpot.detail_fields import detail_items_text
-from dashpot.fetch import RemoteFetcher
 from dashpot.issue_list import (
     IssueListRow,
     IssueSearchField,
@@ -75,7 +73,9 @@ from dashpot.queries.source_queries import (
     encode_continuation,
     verify_continuation,
 )
-from dashpot.worktree_launcher import LauncherConfiguration
+from dashpot.repository.cleanup import CleanupAdapter
+from dashpot.repository.fetch import RemoteFetcher
+from dashpot.repository.worktree_launcher import LauncherConfiguration
 from helpers import snapshot_of, wait_until
 
 NOW = "2026-08-25T01:00:00Z"

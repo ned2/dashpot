@@ -10,7 +10,7 @@ from ..core.git import Git
 from ..core.model import Diagnostic
 from ..core.timestamps import utc_now
 from ..issues.issue_resolution import resolve_issue
-from ..repository import repository_worktrees, same_path, worktree_root
+from ..repository.repository import repository_worktrees, same_path, worktree_root
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
@@ -18,7 +18,10 @@ from .harnesses import (
     native_claims,
     override_claim,
 )
-from .hook_claims import ValidatedSessionIdentity, validate_session_claim
+from .hook_claims import (
+    ValidatedSessionIdentity,
+    validate_session_claim,
+)
 from .hook_scan import (
     SessionLocation,
     locate_agent_session,

@@ -8,16 +8,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .core.git import Git, GitError
-from .core.model import (
+from ..core.git import Git, GitError
+from ..core.model import (
     Branch,
     Diagnostic,
     ObservationTarget,
     RepositoryStateInventory,
     TargetRole,
 )
-from .core.timestamps import utc_timestamp
-from .sessions.processes import ProcessLiveness
+from ..core.timestamps import utc_timestamp
+from ..sessions.processes import ProcessLiveness
 
 # The fields `git for-each-ref` reports per ref; the Git adapter's records()
 # separates them with NUL so a value can never be mistaken for a separator.

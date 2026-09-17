@@ -43,7 +43,7 @@ from .project.project_config import load_project_config
 from .project.workspace import ResolvedProject
 from .queries.query_source import configured_query_source
 from .queries.source_queries import QuerySource
-from .repository import (
+from .repository.repository import (
     BranchObservation,
     observe_branches,
     observe_observation_targets,
@@ -452,9 +452,10 @@ class ObservationCoordinator:
         agent_observer: WorkspaceAgentObserver | None = None,
         clock: Callable[[], str] = utc_now,
         polling_seconds: float | None = 15,
-        local_only: bool = False,
+        query_driven: bool = False,
     ) -> None:
-        self.local_only = local_only
+        # Query-driven dashboards observe source pages separately from local state.
+        self.query_driven = query_driven
         self.projects = list(projects)
         self.projects_by_id = {project.project_id: project for project in self.projects}
         self.timeout = timeout
@@ -477,7 +478,7 @@ class ObservationCoordinator:
         self._pending_projects: dict[str, None] = {}
         self._agent: _AgentObservation | None = None
         self._agent_pending = False
-        if local_only:
+        if query_driven:
             for project in self.projects:
                 composed = self._compose(project.project_id)
                 if composed is not None:
@@ -497,7 +498,7 @@ class ObservationCoordinator:
             for current in selected
             for kind in (
                 ("targets",)
-                if self.local_only
+                if self.query_driven
                 else ("issues", "pull-requests", "targets")
             )
         ]
@@ -735,7 +736,7 @@ class ObservationCoordinator:
             ObservationKey("pull-requests", project_id)
         )
         targets = self._observations.get(ObservationKey("targets", project_id))
-        if self.local_only:
+        if self.query_driven:
             pending = _SourceObservation(
                 status="unavailable",
                 attempted_at=self.clock(),
@@ -780,7 +781,7 @@ class ObservationCoordinator:
             workspaces=project.workspaces,
             anchors=project.anchors,
             primary_anchor=project.primary_anchor,
-            status="fresh" if self.local_only else issues.status,
+            status="fresh" if self.query_driven else issues.status,
             elapsed_ms=elapsed_ms,
             snapshot=snapshot,
             diagnostics=project_diagnostics,
@@ -814,7 +815,7 @@ class ObservationCoordinator:
             published.get(project.project_id) or _pending_project(project)
             for project in self.projects
         ]
-        if self.local_only:
+        if self.query_driven:
             bindings: dict[str, list[str]] = {}
             for run in agent_runs:
                 if run.issue_id:

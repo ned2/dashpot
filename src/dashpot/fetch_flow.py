@@ -20,7 +20,7 @@ from .paged_store import PagedObservationStore
 if TYPE_CHECKING:
     from textual.notifications import SeverityLevel
 
-    from .fetch import RemoteFetcher
+    from .repository.fetch import RemoteFetcher
 
 
 class FlowHost(OffLoopHost, Protocol):

@@ -34,7 +34,7 @@ from dashpot.issues.issue_sources import (
 )
 from dashpot.issues.pull_request_sources import PullRequestSourceObservation
 from dashpot.project.workspace import ResolvedProject
-from dashpot.repository import BranchObservation
+from dashpot.repository.repository import BranchObservation
 from factories import observation_target
 from helpers import jsonable
 

@@ -11,7 +11,7 @@ from ..github.github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
 )
-from ..repository import worktree_root
+from ..repository.repository import worktree_root
 from .project_config import PROJECT_CONFIG_NAME
 
 STATE_IGNORE_RULE = ".dashpot/state/"

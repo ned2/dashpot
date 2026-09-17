@@ -12,7 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.cleanup import (
+from dashpot.core.commands import CommandResult, run_command
+from dashpot.core.git import Git, GitError
+from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     BranchCleanupRequest,
     CleanupConfirmation,
@@ -25,9 +27,8 @@ from dashpot.cleanup import (
     inspect_cleanup,
     perform_cleanup,
 )
-from dashpot.core.commands import CommandResult, run_command
-from dashpot.core.git import Git, GitError
-from dashpot.repository import LockHolderProbe
+from dashpot.repository.repository import LockHolderProbe
+from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import (
     cleanup_preview_document,
     cleanup_report_document,
@@ -38,7 +39,6 @@ from dashpot.sessions.processes import (
     ProcessLookup,
     host_process_lookup,
 )
-from dashpot.worktrees import check_worktree
 from factories import git
 from helpers import table_lookup
 

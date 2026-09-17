@@ -25,7 +25,7 @@ from ..github.github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
 )
-from ..repository import worktree_root
+from ..repository.repository import worktree_root
 from .project_config import (
     GitHubIssueSourceConfig,
     ProjectConfig,

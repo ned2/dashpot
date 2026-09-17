@@ -22,8 +22,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core.commands import non_interactive_runner
-from .core.git import Git, GitError, last_stderr_line
+from ..core.commands import non_interactive_runner
+from ..core.git import Git, GitError, last_stderr_line
 
 FETCH_ENVIRONMENT: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0"}
 

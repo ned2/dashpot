@@ -11,8 +11,23 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from dashpot import cli
-from dashpot.cleanup import (
+from dashpot import cli, composition
+from dashpot.core.errors import DashpotError
+from dashpot.core.git import GitError
+from dashpot.core.issue_profile import IssueProfileError, conform_issue
+from dashpot.core.model import WorkspaceSnapshot
+from dashpot.hook import publish_from_stream
+from dashpot.issues.issue_sources import IssueSourceRefreshError
+from dashpot.issues.local_markdown_issues import LocalMarkdownIssueError
+from dashpot.page_runner import QUERY_SOURCE_KEYS
+from dashpot.project.workspace import (
+    RepositoryAnchor,
+    ResolvedProject,
+    Workspace,
+    WorkspaceInventory,
+    WorkspaceResolution,
+)
+from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupConfirmation,
     CleanupPreview,
@@ -21,23 +36,13 @@ from dashpot.cleanup import (
     TargetResult,
     WorktreeCleanupRequest,
 )
-from dashpot.core.errors import DashpotError
-from dashpot.core.git import GitError
-from dashpot.core.issue_profile import IssueProfileError, conform_issue
-from dashpot.core.model import WorkspaceSnapshot
-from dashpot.hook import publish_from_stream
-from dashpot.issues.issue_sources import IssueSourceRefreshError
-from dashpot.issues.local_markdown_issues import LocalMarkdownIssueError
-from dashpot.project.workspace import (
-    RepositoryAnchor,
-    ResolvedProject,
-    Workspace,
-    WorkspaceInventory,
-    WorkspaceResolution,
+from dashpot.repository.worktrees.create import WorktreePlan
+from dashpot.repository.worktrees.removability import (
+    CleanupBlocker,
+    WorktreeRemovability,
 )
 from dashpot.sessions.integrate import INTEGRATIONS
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
-from dashpot.worktrees import CleanupBlocker, WorktreePlan, WorktreeRemovability
 from factories import git, write_config_marker
 from helpers import issue_payload
 
@@ -82,17 +87,17 @@ def test_no_argument_cli_defaults_to_configured_current_project(
 ) -> None:
     write_config_marker(tmp_path)
     monkeypatch.chdir(tmp_path)
-    options = cli.ObservationOptions()
+    options = composition.ObservationOptions()
 
     resolution = WorkspaceResolution([project(tmp_path)], [])
     with (
-        mock.patch.object(cli, "worktree_root", return_value=tmp_path),
-        mock.patch.object(cli, "load_workspaces") as load_workspaces,
+        mock.patch.object(composition, "worktree_root", return_value=tmp_path),
+        mock.patch.object(composition, "load_workspaces") as load_workspaces,
         mock.patch.object(
-            cli, "resolve_workspace_projects", return_value=resolution
+            composition, "resolve_workspace_projects", return_value=resolution
         ) as resolve,
     ):
-        collector = cli.create_collector(options)
+        collector = composition.create_collector(options)
 
     load_workspaces.assert_not_called()
     resolve.assert_called_once_with(
@@ -112,16 +117,16 @@ def test_no_argument_cli_anchors_ephemeral_workspace_at_git_root(
     nested.mkdir(parents=True)
     write_config_marker(project_root)
     monkeypatch.chdir(nested)
-    options = cli.ObservationOptions()
+    options = composition.ObservationOptions()
     resolution = WorkspaceResolution([project(project_root)], [])
 
     with (
-        mock.patch.object(cli, "worktree_root", return_value=project_root),
+        mock.patch.object(composition, "worktree_root", return_value=project_root),
         mock.patch.object(
-            cli, "resolve_workspace_projects", return_value=resolution
+            composition, "resolve_workspace_projects", return_value=resolution
         ) as resolve,
     ):
-        collector = cli.create_collector(options)
+        collector = composition.create_collector(options)
 
     resolve.assert_called_once_with(
         [
@@ -145,23 +150,23 @@ def test_explicit_config_takes_precedence_over_current_project(
     write_config_marker(configured)
     config = tmp_path / "workspaces.json"
     monkeypatch.chdir(tmp_path)
-    options = cli.ObservationOptions(config=config)
+    options = composition.ObservationOptions(config=config)
 
     with (
         mock.patch.object(
-            cli,
+            composition,
             "load_workspaces",
             return_value=WorkspaceInventory(
                 (Workspace("configured", (RepositoryAnchor(str(configured)),)),)
             ),
         ) as load_workspaces,
         mock.patch.object(
-            cli,
+            composition,
             "resolve_workspace_projects",
             return_value=WorkspaceResolution([project(configured)], []),
         ),
     ):
-        collector = cli.create_collector(options)
+        collector = composition.create_collector(options)
 
     load_workspaces.assert_called_once_with(config)
     assert collector.projects == [project(configured)]
@@ -173,20 +178,20 @@ def test_explicit_workspace_takes_precedence_over_config(
     workspace = tmp_path / "explicit"
     workspace.mkdir()
     write_config_marker(workspace)
-    options = cli.ObservationOptions(
+    options = composition.ObservationOptions(
         workspaces=(Workspace("explicit", (RepositoryAnchor(str(workspace)),)),),
         config=tmp_path / "unused.json",
     )
 
     with (
-        mock.patch.object(cli, "load_workspaces") as load_workspaces,
+        mock.patch.object(composition, "load_workspaces") as load_workspaces,
         mock.patch.object(
-            cli,
+            composition,
             "resolve_workspace_projects",
             return_value=WorkspaceResolution([project(workspace)], []),
         ),
     ):
-        collector = cli.create_collector(options)
+        collector = composition.create_collector(options)
 
     load_workspaces.assert_not_called()
     assert collector.projects == [project(workspace)]
@@ -200,24 +205,24 @@ def test_no_argument_cli_falls_back_to_standard_workspace_config(
     write_config_marker(configured)
     config = tmp_path / "workspaces.json"
     monkeypatch.chdir(tmp_path)
-    options = cli.ObservationOptions()
+    options = composition.ObservationOptions()
 
     with (
-        mock.patch.object(cli, "default_workspace_config", return_value=config),
+        mock.patch.object(composition, "default_workspace_config", return_value=config),
         mock.patch.object(
-            cli,
+            composition,
             "load_workspaces",
             return_value=WorkspaceInventory(
                 (Workspace("configured", (RepositoryAnchor(str(configured)),)),)
             ),
         ) as load_workspaces,
         mock.patch.object(
-            cli,
+            composition,
             "resolve_workspace_projects",
             return_value=WorkspaceResolution([project(configured)], []),
         ),
     ):
-        collector = cli.create_collector(options)
+        collector = composition.create_collector(options)
 
     load_workspaces.assert_called_once_with(config)
     assert collector.projects == [project(configured)]
@@ -240,7 +245,7 @@ def test_json_mode_prints_snapshot() -> None:
     assert result == 0
     assert json.loads(stdout.getvalue())["elapsedMs"] == 4
     create_collector.assert_called_once_with(
-        cli.ObservationOptions(
+        composition.ObservationOptions(
             workspaces=(Workspace("repo", (RepositoryAnchor("/repo"),)),)
         ),
         recurring=False,
@@ -249,7 +254,7 @@ def test_json_mode_prints_snapshot() -> None:
 
 def test_tui_mode_constructs_a_recurring_collector() -> None:
     collector = mock.Mock()
-    sources = {key: mock.Mock() for key in cli.QUERY_SOURCE_KEYS}
+    sources = {key: mock.Mock() for key in QUERY_SOURCE_KEYS}
 
     with (
         mock.patch.object(
@@ -264,7 +269,7 @@ def test_tui_mode_constructs_a_recurring_collector() -> None:
 
     assert result == 0
     create_collector.assert_called_once_with(
-        cli.ObservationOptions(
+        composition.ObservationOptions(
             workspaces=(Workspace("repo", (RepositoryAnchor("/repo"),)),)
         ),
         recurring=True,
@@ -284,7 +289,7 @@ def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
         built.append((root, timeout))
         return object()
 
-    monkeypatch.setattr(cli, "configured_query_source", configured)
+    monkeypatch.setattr(composition, "configured_query_source", configured)
     project = ResolvedProject(
         "project:example",
         "Example",
@@ -295,13 +300,13 @@ def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
     )
     collector = mock.Mock(projects=[project], timeout=7.5)
 
-    sources = cli.create_query_sources(collector)
+    sources = composition.create_query_sources(collector)
 
     # One source per dashboard query, each its own instance, so concurrent
     # queries never share a source's caches across executor threads.
-    assert tuple(sources) == cli.QUERY_SOURCE_KEYS
+    assert tuple(sources) == QUERY_SOURCE_KEYS
     assert len({id(source) for source in sources.values()}) == len(sources)
-    assert built == [(Path("/clone-one"), 7.5)] * len(cli.QUERY_SOURCE_KEYS)
+    assert built == [(Path("/clone-one"), 7.5)] * len(QUERY_SOURCE_KEYS)
 
 
 def test_query_sources_fall_back_to_the_current_directory_without_projects(
@@ -309,10 +314,10 @@ def test_query_sources_fall_back_to_the_current_directory_without_projects(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        cli, "configured_query_source", lambda root, *, timeout: (root, timeout)
+        composition, "configured_query_source", lambda root, *, timeout: (root, timeout)
     )
 
-    sources = cli.create_query_sources(mock.Mock(projects=[], timeout=3.0))
+    sources = composition.create_query_sources(mock.Mock(projects=[], timeout=3.0))
 
     assert set(sources.values()) == {(tmp_path.resolve(), 3.0)}
 
@@ -333,7 +338,7 @@ def test_compact_json_mode_has_no_recurring_polling_schedule() -> None:
 
     assert result == 0
     create_collector.assert_called_once_with(
-        cli.ObservationOptions(
+        composition.ObservationOptions(
             workspaces=(Workspace("repo", (RepositoryAnchor("/repo"),)),)
         ),
         recurring=False,
@@ -440,15 +445,17 @@ def test_unconfigured_repository_error_suggests_init(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    options = cli.ObservationOptions()
+    options = composition.ObservationOptions()
     missing = tmp_path / "nowhere" / "workspaces.json"
 
     with (
-        mock.patch.object(cli, "worktree_root", return_value=tmp_path),
-        mock.patch.object(cli, "default_workspace_config", return_value=missing),
+        mock.patch.object(composition, "worktree_root", return_value=tmp_path),
+        mock.patch.object(
+            composition, "default_workspace_config", return_value=missing
+        ),
         pytest.raises(RuntimeError, match="dashpot init"),
     ):
-        cli.create_collector(options)
+        composition.create_collector(options)
 
 
 def test_init_command_prints_messages_and_exits_cleanly(
@@ -876,9 +883,13 @@ def test_branch_delete_previews_confirms_and_reports(
     adapter = object()
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=adapter),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview) as inspect,
-        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+        mock.patch.object(composition, "cleanup_git", return_value=adapter),
+        mock.patch.object(
+            composition, "inspect_cleanup", return_value=preview
+        ) as inspect,
+        mock.patch.object(
+            composition, "perform_cleanup", return_value=report
+        ) as perform,
     ):
         assert cli.main(["branch", "delete", "feat", "--local"]) == 0
     request = BranchCleanupRequest(tmp_path.resolve(), "feat")
@@ -899,9 +910,9 @@ def test_branch_delete_previews_confirms_and_reports(
     assert f"      recover: git branch feat {local.expected}" in out
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=adapter),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
-        mock.patch.object(cli, "perform_cleanup", return_value=report),
+        mock.patch.object(composition, "cleanup_git", return_value=adapter),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(composition, "perform_cleanup", return_value=report),
     ):
         assert cli.main(["branch", "delete", "feat", "--local", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
@@ -919,9 +930,11 @@ def test_branch_delete_names_each_remote_it_is_given(
     report = cleanup_report(preview, performed=False, refusals=("nothing",))
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=object()),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
-        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+        mock.patch.object(composition, "cleanup_git", return_value=object()),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(
+            composition, "perform_cleanup", return_value=report
+        ) as perform,
     ):
         assert (
             cli.main(
@@ -953,7 +966,7 @@ def test_branch_delete_without_a_target_flag_is_a_usage_refusal(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(cli, "inspect_cleanup") as inspect:
+    with mock.patch.object(composition, "inspect_cleanup") as inspect:
         assert cli.main(["branch", "delete", "feat"]) == 2
     inspect.assert_not_called()
     captured = capsys.readouterr()
@@ -976,9 +989,11 @@ def test_branch_delete_refusal_exits_2_and_names_each_reason(
     )
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=object()),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
-        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+        mock.patch.object(composition, "cleanup_git", return_value=object()),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(
+            composition, "perform_cleanup", return_value=report
+        ) as perform,
     ):
         assert cli.main(["branch", "delete", "feat", "--local"]) == 2
     # With no local target to select, the command still names the one it
@@ -1008,9 +1023,11 @@ def test_worktree_remove_selects_its_targets_from_the_flags(
     adapter = object()
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=adapter),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
-        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+        mock.patch.object(composition, "cleanup_git", return_value=adapter),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(
+            composition, "perform_cleanup", return_value=report
+        ) as perform,
     ):
         assert (
             cli.main(
@@ -1045,9 +1062,11 @@ def test_worktree_remove_selects_its_targets_from_the_flags(
     assert "  2. Local Branch refs/heads/feat" in out
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=adapter),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
-        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+        mock.patch.object(composition, "cleanup_git", return_value=adapter),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(
+            composition, "perform_cleanup", return_value=report
+        ) as perform,
     ):
         assert cli.main(["worktree", "remove", "/w/x", "--json"]) == 0
     assert perform.call_args.args[0].selected == (tree.identity,)
@@ -1068,9 +1087,9 @@ def test_worktree_remove_with_delete_branch_needs_a_branch(
     preview = cleanup_preview("worktree", cleanup_target("worktree"))
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=object()),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview),
-        mock.patch.object(cli, "perform_cleanup") as perform,
+        mock.patch.object(composition, "cleanup_git", return_value=object()),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(composition, "perform_cleanup") as perform,
     ):
         assert cli.main(["worktree", "remove", "/w/x", "--delete-branch"]) == 2
     perform.assert_not_called()
@@ -1113,9 +1132,13 @@ def test_cleanup_protects_this_checkout_and_every_configured_anchor(
     report = cleanup_report(preview, dry_run=True, performed=False)
 
     with (
-        mock.patch.object(cli, "cleanup_git", return_value=object()),
-        mock.patch.object(cli, "inspect_cleanup", return_value=preview) as inspect,
-        mock.patch.object(cli, "perform_cleanup", return_value=report) as perform,
+        mock.patch.object(composition, "cleanup_git", return_value=object()),
+        mock.patch.object(
+            composition, "inspect_cleanup", return_value=preview
+        ) as inspect,
+        mock.patch.object(
+            composition, "perform_cleanup", return_value=report
+        ) as perform,
     ):
         assert cli.main(["worktree", "remove", "/w/x", "--dry-run"]) == 0
 
@@ -1140,7 +1163,7 @@ def test_cleanup_refuses_when_the_workspace_inventory_cannot_be_read(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(cli, "inspect_cleanup") as inspect:
+    with mock.patch.object(composition, "inspect_cleanup") as inspect:
         assert cli.main(["branch", "delete", "feat", "--local"]) == 2
 
     inspect.assert_not_called()
@@ -1279,8 +1302,8 @@ def test_default_command_defaults_match_observation_options() -> None:
 
     assert bound["workspace"] is None
     assert bound["config"] is None
-    assert bound["timeout"] == cli.ObservationOptions().timeout
-    assert bound["refresh_seconds"] == cli.ObservationOptions().refresh_seconds
+    assert bound["timeout"] == composition.ObservationOptions().timeout
+    assert bound["refresh_seconds"] == composition.ObservationOptions().refresh_seconds
     assert bound["state_dir"] is None
     assert bound["json_output"] is False
 

@@ -14,7 +14,10 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.model import RepositoryStateInventory
-from dashpot.worktree_launcher import LauncherConfiguration, configure_worktree_launcher
+from dashpot.repository.worktree_launcher import (
+    LauncherConfiguration,
+    configure_worktree_launcher,
+)
 from dashpot.worktree_table import WorktreeTable
 from factories import target
 from helpers import wait_until

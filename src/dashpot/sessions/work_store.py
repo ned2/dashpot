@@ -21,7 +21,7 @@ from ..core.pydantic import (
 )
 from ..core.record_store import LockedRecordStore
 from ..core.timestamps import observed_instant
-from ..repository import same_path
+from ..repository.repository import same_path
 from .harnesses import HookSessionIdentity
 from .processes import ProcessKey
 from .session_matching import SessionEvidence

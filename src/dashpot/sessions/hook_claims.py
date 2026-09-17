@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..repository import repository_worktrees
+from ..repository.repository import repository_worktrees
 from .harnesses import (
     HARNESS_DISPLAY,
     SessionIdentityClaim,

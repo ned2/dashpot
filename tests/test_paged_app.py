@@ -51,7 +51,7 @@ def application(tmp_path, *, launcher_configuration=None, collector=None):
     )
     coordinator = ObservationCoordinator(
         [project],
-        local_only=True,
+        query_driven=True,
         factory=lambda *args, **kwargs: collector or LocalOnlyCollector(),
         agent_observer=lambda targets: ([], []),
     )

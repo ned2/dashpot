@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dashpot.cleanup import (
+from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupConfirmation,
     CleanupPreview,
