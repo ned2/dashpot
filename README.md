@@ -566,8 +566,10 @@ A GitHub-backed Project looks like this:
 The Repository Anchor must have a GitHub `origin`; collection uses the
 authenticated `gh` CLI. `reconciliationSeconds` is deprecated and unused.
 Existing positive finite values remain readable; the setting no longer schedules
-whole-source sweeps or constrains `--refresh-seconds`. A Local Issue Markdown Project
-selects a repository-relative file or directory:
+whole-source sweeps or constrains `--refresh-seconds`, and the loaded model
+declares the field deprecated
+([ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)).
+A Local Issue Markdown Project selects a repository-relative file or directory:
 
 ```json
 {
@@ -831,6 +833,8 @@ records the completed package layout and application composition seam.
 records why query and complete-collection adapters retain distinct contracts,
 and [ADR 0047](docs/adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)
 why the dashboard screen stays one Textual adapter.
+[ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)
+records which Python 3.13 typing backports the 3.12 baseline adopts.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

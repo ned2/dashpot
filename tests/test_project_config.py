@@ -42,6 +42,12 @@ def write_config(root: Path, issue_source: dict[str, Any]) -> None:
     )
 
 
+def retired_reconciliation_seconds(config: GitHubIssueSourceConfig) -> float:
+    """Read the retired field, which is a deprecation diagnostic by contract."""
+    with pytest.deprecated_call():
+        return config.reconciliation_seconds
+
+
 def project(root: Path) -> ResolvedProject:
     return ResolvedProject(
         PROJECT_ID,
@@ -63,7 +69,7 @@ def test_loads_github_project_configuration(tmp_path: Path) -> None:
     assert config.repository_id == "R_dashpot"
     assert config.issue_source == GitHubIssueSourceConfig(kind="github")
     assert isinstance(config.issue_source, GitHubIssueSourceConfig)
-    assert config.issue_source.reconciliation_seconds == 300
+    assert retired_reconciliation_seconds(config.issue_source) == 300
 
 
 def test_loads_configured_github_reconciliation_period(tmp_path: Path) -> None:
@@ -72,7 +78,7 @@ def test_loads_configured_github_reconciliation_period(tmp_path: Path) -> None:
     config = load_project_config(tmp_path, polling_seconds=15)
 
     assert isinstance(config.issue_source, GitHubIssueSourceConfig)
-    assert config.issue_source.reconciliation_seconds == 90
+    assert retired_reconciliation_seconds(config.issue_source) == 90
 
 
 @pytest.mark.parametrize("value", [0, -1, "300"])
@@ -110,7 +116,7 @@ def test_deprecated_reconciliation_period_does_not_constrain_polling(
     write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 14.5})
     config = load_project_config(tmp_path, polling_seconds=15)
     assert isinstance(config.issue_source, GitHubIssueSourceConfig)
-    assert config.issue_source.reconciliation_seconds == pytest.approx(14.5)
+    assert retired_reconciliation_seconds(config.issue_source) == pytest.approx(14.5)
 
 
 def test_accepts_short_reconciliation_period_without_a_polling_schedule(
@@ -121,7 +127,27 @@ def test_accepts_short_reconciliation_period_without_a_polling_schedule(
     config = load_project_config(tmp_path, polling_seconds=None)
 
     assert isinstance(config.issue_source, GitHubIssueSourceConfig)
-    assert config.issue_source.reconciliation_seconds == 1
+    assert retired_reconciliation_seconds(config.issue_source) == 1
+
+
+def test_reading_the_retired_reconciliation_period_is_a_deprecation(
+    tmp_path: Path,
+) -> None:
+    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 90})
+
+    # Loading, comparing, and dumping a config that still carries the retired
+    # key stay silent; only reading the field itself names the retirement.
+    config = load_project_config(tmp_path)
+    assert config.issue_source == GitHubIssueSourceConfig.model_validate(
+        {"kind": "github", "reconciliationSeconds": 90}
+    )
+    assert config.issue_source.model_dump(by_alias=True) == {
+        "kind": "github",
+        "reconciliationSeconds": 90,
+    }
+    assert isinstance(config.issue_source, GitHubIssueSourceConfig)
+    with pytest.deprecated_call(match=r"reconciliationSeconds is retired.*ADR 0033"):
+        assert config.issue_source.reconciliation_seconds == 90
 
 
 def test_loads_local_markdown_project_configuration(tmp_path: Path) -> None:

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, TypeGuard
+from typing import TYPE_CHECKING, Literal
+
+from typing_extensions import TypeIs
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import IssueActivity, ProjectObservation
@@ -86,8 +88,12 @@ def issue_activity(issue: IssueProfile, project: ProjectObservation) -> IssueAct
     return project.snapshot.issue_activity.get(issue.id, IssueActivity())
 
 
-def is_issue_sort_column(column: str) -> TypeGuard[IssueSortColumn]:
-    """Tell whether a submitted ordering names an Issue fact a list sorts by."""
+def is_issue_sort_column(column: str) -> TypeIs[IssueSortColumn]:
+    """Tell whether a submitted ordering names an Issue fact a list sorts by.
+
+    A ``TypeIs`` because the answer is exact either way: a column that passes
+    is one of the sort columns, and one that fails is none of them.
+    """
     return column in ISSUE_SORT_COLUMNS
 
 
