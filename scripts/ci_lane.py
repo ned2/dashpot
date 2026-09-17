@@ -1,4 +1,4 @@
-"""Select CI verification from the complete PR or candidate diff and enforce its results."""
+"""Select CI verification from the complete PR diff and enforce its results."""
 
 from __future__ import annotations
 
@@ -17,14 +17,9 @@ def documentation_path(name: str) -> bool:
     )
 
 
-# A pull request run classifies the branch diff; a merge queue run classifies
-# the candidate the queue built on main. Every other invocation runs full.
-DIFF_CLASSIFIED_EVENTS = frozenset({"pull_request", "merge_group"})
-
-
 def classify(event: str, base: str, head: str, *, force_full: bool = False) -> str:
     """Require full verification unless a complete documentation diff is available."""
-    if force_full or event not in DIFF_CLASSIFIED_EVENTS or not base or not head:
+    if force_full or event != "pull_request" or not base or not head:
         return "full"
     try:
         # Disabling rename detection includes both paths of cross-boundary moves.

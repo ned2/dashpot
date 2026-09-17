@@ -3,8 +3,6 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  merge_group:
-    types: [checks_requested]
   workflow_dispatch:
     inputs:
       test-workers:
@@ -26,18 +24,15 @@ on:
 permissions:
   contents: read
 
-# The revision every job checks out and the quality job records. A pull
-# request run verifies the branch head as pushed; a merge queue run verifies
-# the candidate the queue built on the current main (its github.sha), which
-# is what integration lands. Neither requires the branch to contain main: the
-# queue supplies that guarantee.
+# The revision every job checks out and the quality job records: the branch
+# head as pushed for a pull request run, github.sha otherwise. A pull request
+# run does not require the branch to contain main (ADR 0045).
 env:
   PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
 # Rapid successive PR updates cancel superseded runs so only the
-# newest cumulative commit completes. A merge queue candidate is never
-# cancelled: the queue owns its lifecycle. Future release/tag workflows must define
+# newest cumulative commit completes. Future release/tag workflows must define
 # their own concurrency policy without cancel-in-progress.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
@@ -88,7 +83,7 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Record the verified revision
-        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        if: github.event_name == 'pull_request'
         run: |
           test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
           python - <<'PYREVISION'
@@ -104,7 +99,7 @@ jobs:
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
       - name: Publish the verified revision
-        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ci-revision-${{ github.run_attempt }}
