@@ -72,6 +72,7 @@ def test_start_resolves_reference_and_records_active_work(tmp_path: Path) -> Non
     assert active[0].harness == "codex"
     assert active[0].session_process is not None
     assert active[0].session_process.pid == 4242
+    assert active[0].session_label == "codex pid 4242"
     assert "started work on build-observer" in messages[0]
 
 
@@ -417,6 +418,7 @@ def test_claude_code_session_opts_in_from_a_hidden_ancestry_by_hook_identity(
     active, _ = WorkStore(root).active()
     assert active[0].harness == "claude-code"
     assert active[0].session_id == CLAUDE_SESSION
+    assert active[0].session_label == "claude-code pid 7777"
     assert active[0].session_key.startswith("claude-code-session-")
 
 
@@ -433,6 +435,7 @@ def test_claude_code_with_visible_ancestry_records_its_corroborated_identity(
     active, _ = WorkStore(root).active()
     assert active[0].session_key.startswith("claude-code-session-")
     assert active[0].session_id == CLAUDE_SESSION
+    assert active[0].session_label == "claude-code pid 7777"
 
 
 def test_visible_ancestry_refuses_a_claim_that_does_not_corroborate(
@@ -485,21 +488,31 @@ def test_a_session_keeps_one_record_across_sandboxed_and_host_commands(
     assert WorkStore(root).active()[0] == []
 
 
+@pytest.mark.parametrize(
+    ("harness", "session_id", "environ"),
+    [
+        ("codex", CODEX_SESSION, CODEX_ENVIRON),
+        ("claude-code", CLAUDE_SESSION, CLAUDE_ENVIRON),
+    ],
+)
 def test_a_record_without_a_hook_process_is_keyed_by_session_identity(
     tmp_path: Path,
+    harness: str,
+    session_id: str,
+    environ: dict[str, str],
 ) -> None:
     root = repository(tmp_path / "repo")
-    hook_record(root, CODEX_SESSION, "codex", None)
+    hook_record(root, session_id, harness, None)
 
-    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=CODEX_ENVIRON)
+    start_issue_work(root, "build-observer", lookup=ISOLATED, environ=environ)
 
     active, _ = WorkStore(root).active()
     assert active[0].session_process is None
-    assert active[0].session_id == CODEX_SESSION
-    assert active[0].session_key.startswith("codex-session-")
-    assert CODEX_SESSION not in active[0].session_key
-    assert active[0].session_label == f"codex session {CODEX_SESSION}"
-    assert stop_issue_work(root, lookup=ISOLATED, environ=CODEX_ENVIRON) == [
+    assert active[0].session_id == session_id
+    assert active[0].session_key.startswith(f"{harness}-session-")
+    assert session_id not in active[0].session_key
+    assert active[0].session_label == f"{harness} session {session_id}"
+    assert stop_issue_work(root, lookup=ISOLATED, environ=environ) == [
         "stopped work on build-observer"
     ]
 
@@ -815,8 +828,10 @@ def test_relocation_preserves_a_named_process_keyed_run(
     assert WorkStore(a).active()[0] == [pending]
 
 
+@pytest.mark.parametrize("with_process", [True, False])
 def test_target_hook_completes_the_declared_relocation_as_the_same_run(
     tmp_path: Path,
+    with_process: bool,
 ) -> None:
     a, b = two_worktrees(tmp_path)
     resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
@@ -832,9 +847,9 @@ def test_target_hook_completes_the_declared_relocation_as_the_same_run(
             "cwd": str(b),
             "hook_event_name": "SessionStart",
         },
-        process=resumed,
+        process=resumed if with_process else None,
         harness="codex",
-        lookup=table_lookup({resumed.pid: resumed}),
+        lookup=table_lookup({resumed.pid: resumed} if with_process else {}),
     )
 
     assert WorkStore(a).active()[0] == []
@@ -843,11 +858,16 @@ def test_target_hook_completes_the_declared_relocation_as_the_same_run(
     assert continued.started_at == before.started_at
     assert continued.issue_id == before.issue_id
     assert continued.relocation is None
-    assert continued.session_process == SessionProcess(
-        pid=resumed.pid, started_at=resumed.started_at
+    assert continued.session_process == (
+        SessionProcess(pid=resumed.pid, started_at=resumed.started_at)
+        if with_process
+        else None
     )
     assert continued.working_directory == str(b)
     assert continued.branch == "linked"
+    assert continued.session_label == (
+        "codex pid 5252" if with_process else f"codex session {CODEX_SESSION}"
+    )
 
 
 def test_target_hook_repairs_the_persisted_two_record_crash_window(

@@ -23,6 +23,7 @@ from .processes import (
     ProcessLookup,
     host_process_lookup,
 )
+from .session_labels import work_session_label
 from .session_matching import SessionEvidence
 from .work_store import (
     ActiveWork,
@@ -144,10 +145,8 @@ def complete_session_work_relocation(
         )
         relocated = replace(
             work,
-            session_label=(
-                f"codex pid {process.pid}"
-                if process is not None
-                else f"codex session {session_id}"
+            session_label=work_session_label(
+                "codex", session_id, pid=process.pid if process is not None else None
             ),
             session_process=session_process,
             working_directory=require_string(record.get("cwd"), "cwd"),

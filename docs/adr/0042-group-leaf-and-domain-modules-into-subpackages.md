@@ -118,7 +118,7 @@ assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
 | `project` | `init`, `project_config`, `settings`, `workspace` |
 | `queries` | `github_queries`, `markdown_queries`, `page_navigation`, `query_source`, `source_queries` |
 | `repository` | `cleanup/adapter`, `cleanup/perform`, `cleanup/preview`, `cleanup/targets`, `cleanup_selection`, `fetch`, `repository`, `worktree_launcher`, `worktrees/base`, `worktrees/create`, `worktrees/records`, `worktrees/removability` |
-| `sessions` | `agent_bindings`, `agents`, `harnesses`, `hook_claims`, `hook_publish`, `hook_records`, `hook_scan`, `integrate`, `liveness`, `processes`, `session_matching`, `work`, `work_reconciliation`, `work_store` |
+| `sessions` | `agent_bindings`, `agents`, `harnesses`, `hook_claims`, `hook_publish`, `hook_records`, `hook_scan`, `integrate`, `liveness`, `processes`, `session_labels`, `session_matching`, `work`, `work_reconciliation`, `work_store` |
 | `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `legend`, `list_pane`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
 
 
@@ -139,10 +139,14 @@ judgement suggestion is mandatory. These dispositions accompany #191:
   distinct cache, failure, lookup, and export contracts with the existing shared
   implementation. The assessment is complete; a generic consolidation is rejected
   without evidence that it simplifies those contracts.
-- Session-label formatting is deliberately deferred. The Work commands and
-  hook records still format related labels at different seams; consolidating
-  their fallback wording is a small independent change, not a dependency of
-  this layout.
+- [#233](https://github.com/ned2/dashpot/issues/233) consolidates declared-work
+  labels in `sessions/session_labels.py`: opt-in and relocation both prefer
+  `<harness> pid <pid>` when process evidence exists, otherwise
+  `<harness> session <native-id>`. Hook-only observations deliberately retain
+  `<native-id> hook`, while observations of persisted Work Store records use
+  the stored label unchanged. Harness display names in Diagnostics remain at
+  their existing seams. Labels never select identity, bindings, or liveness;
+  this extraction changes no wording or persisted records.
 - Further `DashboardScreen` extraction is optional and deferred. Its flow,
   runner, pane, and Issue-table-controller extractions already establish the
   planned seams. The remaining composition, focus, layout, and delegation do
