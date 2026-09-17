@@ -222,7 +222,7 @@ class LegendScreen(ModalScreen[None]):
 
     def keys_text(self, keys: Sequence[BindingType]) -> Text:
         """The group's bindings as the Footer would show them, one per line."""
-        bindings = list(Binding.make_bindings(keys))
+        bindings = [binding for binding in Binding.make_bindings(keys) if binding.show]
         width = max(len(self.app.get_key_display(binding)) for binding in bindings)
         text = Text()
         for index, binding in enumerate(bindings):

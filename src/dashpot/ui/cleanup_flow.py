@@ -369,7 +369,8 @@ class CleanupFlow:
                 )
             except Exception as exc:  # UI boundary: a failed observation or
                 # inspection leaves the preview invalid with its reason, never exits.
-                status += f"\nCould not refresh the preview: {exc}"
+                reason = str(exc) or type(exc).__name__
+                status += f"\nCould not refresh the preview: {reason}"
             if self.holds(project_id, screen) and screen in self.host.screen_stack:
                 await screen.replace_preview(preview, status)
         finally:

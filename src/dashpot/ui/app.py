@@ -112,7 +112,10 @@ class DashboardScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self.issue_table = IssueTableController(self)
-        self.list_queries = ListQueries(self)
+        # The app is reached lazily: a screen has none until it is pushed.
+        self.list_queries = ListQueries(
+            lambda kind, **updates: self.dashpot.submit_page(kind, **updates)
+        )
         query = self.list_queries.issues
         self.issue_filter_bar = ItemFilterBar(
             "issue",

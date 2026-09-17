@@ -9,8 +9,8 @@ Pull Request page is submitted from.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING
 
 from ..observation.issue_list import IssueListQuery
 from ..observation.pull_request_list import (
@@ -20,15 +20,15 @@ from ..observation.pull_request_list import (
 from ..queries.source_queries import ResourceKind
 from .item_filter import lifecycle_states, lifecycle_value
 
-if TYPE_CHECKING:
-    from .app import DashboardScreen
+# What a submitted page is handed: its paged kind and the changed fields.
+SubmitPage = Callable[..., None]
 
 
 class ListQueries:
     """Record each filter bar's submitted query and submit its page when it changes."""
 
-    def __init__(self, screen: DashboardScreen) -> None:
-        self.screen = screen
+    def __init__(self, submit_page: SubmitPage) -> None:
+        self.submit_page = submit_page
         self.issues = IssueListQuery()
         self.pull_requests = DEFAULT_PULL_REQUEST_QUERY
 
@@ -39,7 +39,7 @@ class ListQueries:
     def submit_search(self, kind: ResourceKind, text: str) -> None:
         """Submit the whole search text on Enter; editing alone changes nothing."""
         self.record(kind, text=text)
-        self.screen.dashpot.submit_page(kind, query=text)
+        self.submit_page(kind, query=text)
 
     def change_lifecycle(self, kind: ResourceKind, value: object) -> None:
         """Record the chosen lifecycle, which submits a page when it differs."""
@@ -47,7 +47,7 @@ class ListQueries:
         if states is None or states == self.query(kind).states:
             return
         self.record(kind, states=states)
-        self.screen.dashpot.submit_page(kind, state=lifecycle_value(states))
+        self.submit_page(kind, state=lifecycle_value(states))
 
     def record(self, kind: ResourceKind, **changes: object) -> None:
         """Replace the recorded query's changed fields without submitting."""

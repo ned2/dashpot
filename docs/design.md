@@ -341,8 +341,8 @@ Legend's Branches sections are built from, so neither can drift. The Legend
 lists all eight Branches columns, Glyphs or not. It also lists every shipped
 key, grouped by where it is pressed — the dashboard with its `Tab` focus
 cycle, the Worktrees pane, and each modal screen — and a test holds it to
-every `BINDINGS` under `ui/`; the Branches `INTEGRATED` and Worktrees `SESSIONS` notes say
-what `x` checks — the `INTEGRATED` note distinguishing the row summary from
+every `BINDINGS` under `ui/`; the Branches `INTEGRATED` and Worktrees
+`SESSIONS` notes say what `x` checks — the `INTEGRATED` note distinguishing the row summary from
 the Cleanup preview's per-target checks — where the person deciding what to
 delete reads it. See
 [`textual-implementation-notes.md`](textual-implementation-notes.md) for
