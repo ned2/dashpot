@@ -21,11 +21,11 @@ from ..core.pydantic import (
     PublishedModel,
     translate_validation_error,
 )
+from ..core.worktree_paths import worktree_root
 from ..github.github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
 )
-from ..repository.repository import worktree_root
 from .project_config import (
     GitHubIssueSourceConfig,
     ProjectConfig,

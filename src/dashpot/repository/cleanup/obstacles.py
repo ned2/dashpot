@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git, GitError
+from ...core.worktree_paths import worktree_paths, worktree_root
 from ...sessions.harnesses import HARNESS_DISPLAY
 from ...sessions.hook_scan import reachable_hook_stores, sessions_at_worktree
 from ...sessions.liveness import session_liveness
@@ -18,8 +19,6 @@ from ..repository import (
     RefIndex,
     assess_content_integration,
     lock_holder,
-    worktree_paths,
-    worktree_root,
 )
 from ..worktrees.records import INITIALIZING_LOCK, registered_at, short_branch
 from .targets import CleanupBlocker, IntegrationFact

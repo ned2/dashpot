@@ -10,9 +10,9 @@ from textual.message import Message
 
 from app_harness import SnapshotQuerySource, issue, workspace_snapshot
 from dashpot.observation.paged_store import PagedObservationStore
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.messages import IdentitiesFinished, PageFinished, TotalsFinished
-from dashpot.ui.page_runner import QUERY_SOURCE_KEYS, PageRunner
+from dashpot.ui.page_runner import PageRunner
 
 
 @dataclass

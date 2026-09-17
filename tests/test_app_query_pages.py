@@ -26,10 +26,9 @@ from dashpot.observation.collect import ObservationCoordinator
 from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.project.workspace import ResolvedProject
 from dashpot.queries.page_navigation import PageNavigation, page_text, totals_text
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.legend import LegendScreen
-from dashpot.ui.page_runner import QUERY_SOURCE_KEYS
 from helpers import wait_until
 from test_source_queries import markdown
 

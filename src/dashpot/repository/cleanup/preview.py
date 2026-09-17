@@ -10,6 +10,7 @@ from typing import Literal
 
 from ...core.git import Git
 from ...core.model import IntegrationState
+from ...core.worktree_paths import same_path, worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ..repository import (
     LOCAL_REF_PREFIX,
@@ -18,8 +19,6 @@ from ..repository import (
     RefIndex,
     branch_name,
     last_fetched_at,
-    same_path,
-    worktree_root,
 )
 from ..worktrees.records import checked_out_at
 from .obstacles import (

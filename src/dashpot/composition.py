@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .core.model import Diagnostic
+from .core.worktree_paths import worktree_root
 from .observation.collect import ObservationCoordinator
 from .project.project_config import PROJECT_CONFIG_NAME
 from .project.workspace import (
@@ -18,7 +19,7 @@ from .project.workspace import (
     resolve_workspace_projects,
 )
 from .queries.query_source import configured_query_source
-from .queries.source_queries import QuerySource
+from .queries.source_queries import QUERY_SOURCE_KEYS, QuerySource
 from .repository.cleanup import (
     CleanupConfirmation,
     CleanupError,
@@ -29,8 +30,6 @@ from .repository.cleanup import (
     inspect_cleanup,
     perform_cleanup,
 )
-from .repository.repository import worktree_root
-from .ui.page_runner import QUERY_SOURCE_KEYS
 
 
 @dataclass(frozen=True, slots=True)

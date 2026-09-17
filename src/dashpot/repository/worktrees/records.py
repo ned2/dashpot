@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
-from ..repository import branch_name, same_path
+from ...core.worktree_paths import same_path
+from ..repository import branch_name
 
 INITIALIZING_LOCK = "initializing"
 

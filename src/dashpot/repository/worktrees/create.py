@@ -12,6 +12,12 @@ from typing import Literal
 from ...core.git import Git, GitError
 from ...core.issue_profile import IssueProfile
 from ...core.pydantic import LaxSequence, PublishedModel
+from ...core.worktree_paths import (
+    is_within,
+    main_worktree,
+    worktree_paths,
+    worktree_root,
+)
 from ...issues.issue_resolution import resolve_issue
 from ...project.project_config import (
     PROJECT_CONFIG_NAME,
@@ -20,12 +26,6 @@ from ...project.project_config import (
     parse_project_config,
 )
 from ...project.settings import WORKTREE_ROOT_VARIABLE, Settings, load_settings
-from ..repository import (
-    is_within,
-    main_worktree,
-    worktree_paths,
-    worktree_root,
-)
 from .base import BaseSource, commit_of, resolve_base
 from .records import (
     INITIALIZING_LOCK,

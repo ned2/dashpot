@@ -7,6 +7,7 @@ from typing import Literal
 
 from ...core.git import Git
 from ...core.pydantic import LaxSequence, PublishedModel
+from ...core.worktree_paths import worktree_paths, worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ..cleanup.obstacles import (
     assess_branch_preservation,
@@ -16,7 +17,7 @@ from ..cleanup.obstacles import (
     locate_worktree,
 )
 from ..cleanup.targets import CleanupBlocker
-from ..repository import LockHolderProbe, worktree_paths, worktree_root
+from ..repository import LockHolderProbe
 
 
 class WorktreeRemovability(PublishedModel):

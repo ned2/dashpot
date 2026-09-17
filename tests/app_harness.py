@@ -31,16 +31,10 @@ from dashpot.core.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
-from dashpot.issues.search import parse_search
+from dashpot.issues.ordering import is_issue_sort_column, sort_issues
+from dashpot.issues.search import IssueSearchField, matches_issue_search, parse_search
 from dashpot.observation.collect import ObservationScheduler
-from dashpot.observation.issue_list import (
-    IssueListRow,
-    IssueSearchField,
-    is_issue_sort_column,
-    matches_issue_search,
-    row_key,
-    sort_issue_rows,
-)
+from dashpot.observation.issue_list import IssueListRow
 from dashpot.observation.keys import (
     WORKSPACE_KEY,
     ObservationKey,
@@ -53,6 +47,7 @@ from dashpot.observation.pull_request_list import (
     PullRequestListQuery,
 )
 from dashpot.queries.source_queries import (
+    QUERY_SOURCE_KEYS,
     AuxiliaryObservation,
     Continuation,
     ProjectTotals,
@@ -74,7 +69,6 @@ from dashpot.ui.app import DashpotApp
 from dashpot.ui.detail_fields import detail_items_text
 from dashpot.ui.issue_view import IssueScreen, issue_metadata_items, selection_title
 from dashpot.ui.list_pane import ListPane, ListRow
-from dashpot.ui.page_runner import QUERY_SOURCE_KEYS
 from helpers import snapshot_of, wait_until
 
 NOW = "2026-08-25T01:00:00Z"
@@ -332,15 +326,7 @@ class SnapshotQuerySource:
             return found
         column, _, direction = ordering.rpartition(":")
         assert is_issue_sort_column(column)
-        rows = sort_issue_rows(
-            (
-                IssueListRow(row_key("issue", issue.id), self.project, issue)
-                for issue in found
-            ),
-            column,
-            descending=direction == "desc",
-        )
-        return [row.issue for row in rows]
+        return sort_issues(found, self.project, column, descending=direction == "desc")
 
     def _matching_pull_requests(self, request: QueryRequest) -> list[PullRequest]:
         """The Pull Requests the submitted state and search text select."""

@@ -25,6 +25,7 @@ from ..core.model import (
 )
 from ..core.observation_errors import OBSERVATION_FAILURES
 from ..core.timestamps import utc_now
+from ..core.worktree_paths import worktree_root
 from ..issues.issue_sources import IssueSource, IssueSourceObservation
 from ..issues.pull_request_sources import (
     PullRequestSource,
@@ -43,7 +44,6 @@ from ..repository.repository import (
     BranchObservation,
     observe_branches,
     observe_observation_targets,
-    worktree_root,
 )
 from ..sessions.agent_bindings import bind_issue_runs
 from ..sessions.agents import observe_agent_runs

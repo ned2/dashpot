@@ -10,15 +10,18 @@ import factories
 from app_harness import with_first_project_snapshot
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import AgentRun, IssueActivity, WorkspaceSnapshot
-from dashpot.observation.issue_list import (
+from dashpot.issues.ordering import (
     ISSUE_SORT_COLUMNS,
-    IssueListQuery,
     IssueSortColumn,
-    empty_issue_message,
     is_issue_sort_column,
+    sort_issues,
+)
+from dashpot.observation.issue_list import (
+    IssueListQuery,
+    empty_issue_message,
     issue_result_count_text,
-    issue_sort_value,
     next_issue_states,
+    row_sort_value,
     sort_issue_rows,
 )
 from dashpot.observation.observation_store import WorkspaceObservationStore
@@ -436,6 +439,29 @@ def test_sort_issue_rows_orders_every_column_with_missing_values_last(
     assert [row.issue.id for row in descending] == DESCENDING_ORDERS[column]
 
 
+@pytest.mark.parametrize("column", ISSUE_SORT_COLUMNS)
+def test_a_source_ordering_locally_agrees_with_the_read_model(
+    column: IssueSortColumn,
+) -> None:
+    """The seam a Markdown Project's source orders by yields the read model's order."""
+    issues = varied_issues()
+    snapshot = with_first_project_snapshot(
+        workspace(*issues),
+        issue_activity={
+            issues[0].id: IssueActivity(comment_count=2),
+            issues[2].id: IssueActivity(comment_count=7),
+        },
+    )
+    store = WorkspaceObservationStore(snapshot)
+    project = store.projects()[0]
+
+    for descending in (False, True):
+        ordered = sort_issues(issues, project, column, descending=descending)
+        rows = sort_issue_rows(store.query_issues().rows, column, descending=descending)
+
+        assert [issue.id for issue in ordered] == [row.issue.id for row in rows]
+
+
 def test_sort_columns_are_the_sortable_table_columns() -> None:
     assert set(ISSUE_SORT_COLUMNS) == set(get_args(IssueSortColumn))
     assert set(ISSUE_SORT_COLUMNS) == {
@@ -471,6 +497,6 @@ def test_queried_comment_activity_sorts_by_count_or_ranks_last() -> None:
         for row, count in zip(result.rows, (5, None), strict=True)
     )
 
-    assert issue_sort_value(fetched, "comments") == 5
-    assert issue_sort_value(unfetched, "comments") is None
+    assert row_sort_value(fetched, "comments") == 5
+    assert row_sort_value(unfetched, "comments") is None
     assert sort_issue_rows([unfetched, fetched], "comments") == [fetched, unfetched]

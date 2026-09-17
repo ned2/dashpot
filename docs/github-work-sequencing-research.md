@@ -14,7 +14,7 @@ GitHub's native parent/sub-issue and `blocked by`/`blocking` relationships, but
 does not expose them in the Issue table, Issue pane, search grammar, or a
 "next Issue" operation. Its default last-action sort, optional priority column,
 and arbitrary table sorting are presentation order, not workflow order
-([GitHub collection](../src/dashpot/github/github_issues.py),
+([GitHub collection](../src/dashpot/issues/github_issues.py),
 [Issue profile](../src/dashpot/core/issue_profile.py),
 [table state](../src/dashpot/ui/issue_table.py),
 [Issue pane](../src/dashpot/ui/app.py)).
@@ -97,7 +97,7 @@ The GitHub collector requests `parent`, `subIssues`, `blockedBy`, `blocking`,
 and `milestone` for every Issue. The source-neutral profile requires and
 validates those relationships. This means basic dependency display does **not**
 require a new underlying Issue data model
-([GitHub collection](../src/dashpot/github/github_issues.py),
+([GitHub collection](../src/dashpot/issues/github_issues.py),
 [Issue validation](../src/dashpot/core/issue_profile.py)).
 
 What is missing is projection and interaction:

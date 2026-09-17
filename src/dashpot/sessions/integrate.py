@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.record_store import replace_atomically
-from ..repository.repository import main_worktree, worktree_records, worktree_root
+from ..core.worktree_paths import main_worktree, worktree_records, worktree_root
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,

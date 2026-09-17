@@ -19,7 +19,7 @@ from rich.text import Text
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import IssueActivity, ProjectObservation, RunState
-from ..observation.issue_list import (
+from ..issues.ordering import (
     PRIORITY_BY_LABEL,
     PriorityLevel,
     is_priority_label,

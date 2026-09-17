@@ -14,15 +14,8 @@ from ..issues.local_markdown_issues import (
     LocalMarkdownIssuesSource,
     parse_local_markdown_issue,
 )
-from ..issues.search import parse_search
-from ..observation.issue_list import (
-    IssueListRow,
-    IssueSearchField,
-    is_issue_sort_column,
-    matches_issue_search,
-    row_key,
-    sort_issue_rows,
-)
+from ..issues.ordering import is_issue_sort_column, sort_issues
+from ..issues.search import IssueSearchField, matches_issue_search, parse_search
 from ..project.project_config import (
     LocalMarkdownIssueSourceConfig,
     ProjectConfig,
@@ -163,15 +156,9 @@ class MarkdownQuerySource(CachedQuerySource):
             column, _, direction = ordering.rpartition(":")
             if not is_issue_sort_column(column) or direction not in {"asc", "desc"}:
                 raise ValueError("Unsupported local column ordering")
-            rows = sort_issue_rows(
-                (
-                    IssueListRow(row_key("issue", issue.id), project, issue)
-                    for issue in records
-                ),
-                column,
-                descending=direction == "desc",
+            records = sort_issues(
+                records, project, column, descending=direction == "desc"
             )
-            records = [row.issue for row in rows]
         offset = token.offset if token else 0
         if token and offset >= len(records):
             raise InvalidContinuation(

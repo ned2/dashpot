@@ -14,13 +14,9 @@ from typing import Literal
 
 from rich.text import Text
 
-from ..observation.issue_list import (
-    IssueListRow,
-    IssueListSummary,
-    IssueSearchField,
-    issue_activity,
-    issue_priority,
-)
+from ..issues.ordering import issue_activity, issue_priority
+from ..issues.search import IssueSearchField
+from ..observation.issue_list import IssueListRow, IssueListSummary
 from ..observation.list_result import ListResult
 from .issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,

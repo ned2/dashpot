@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from dashpot.github.github_issues import GitHubIssuesSource
-from dashpot.github.github_pull_requests import GitHubPullRequestsSource
+from dashpot.issues.github_issues import GitHubIssuesSource
+from dashpot.issues.github_pull_requests import GitHubPullRequestsSource
 from dashpot.issues.issue_resolution import configured_issue_source
 from dashpot.issues.local_markdown_issues import LocalMarkdownIssuesSource
 from dashpot.issues.pull_request_sources import UnconfiguredPullRequestSource

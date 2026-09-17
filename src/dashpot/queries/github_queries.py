@@ -22,22 +22,22 @@ from ..github.github import (
     RefreshBudget,
     RefreshMeter,
 )
-from ..github.github_issues import (
-    GitHubIssuesSource,
-    issue_activity,
-    label_colors,
-    normalize_github_issue,
-)
-from ..github.github_pull_requests import (
-    GitHubPullRequestsSource,
-    normalize_github_pull_request,
-)
 from ..github.github_wire import (
     ISSUE_NODE_FIELDS,
     PULL_REQUEST_FIELDS,
     Identity,
     Repository,
     SearchConnection,
+)
+from ..issues.github_issues import (
+    GitHubIssuesSource,
+    issue_activity,
+    label_colors,
+    normalize_github_issue,
+)
+from ..issues.github_pull_requests import (
+    GitHubPullRequestsSource,
+    normalize_github_pull_request,
 )
 from ..project.project_config import ProjectConfig, load_project_config
 from .query_source import CachedQuerySource

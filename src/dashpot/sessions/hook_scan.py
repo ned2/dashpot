@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from ..core.pydantic import describe_validation_error, validate_degrading
 from ..core.timestamps import observed_instant
-from ..repository.repository import same_path
+from ..core.worktree_paths import same_path
 from .harnesses import HARNESS_DISPLAY
 from .hook_records import (
     HOOK_RECORD_FATAL,

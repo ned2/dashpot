@@ -9,8 +9,8 @@ from ..core.errors import DashpotError
 from ..core.git import Git
 from ..core.model import Diagnostic
 from ..core.timestamps import utc_now
+from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
 from ..issues.issue_resolution import resolve_issue
-from ..repository.repository import repository_worktrees, same_path, worktree_root
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,

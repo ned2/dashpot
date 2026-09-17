@@ -10,14 +10,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..core.git import Git
-from ..github.github_issues import GitHubIssuesSource
-from ..github.github_pull_requests import GitHubPullRequestsSource
 from ..github.github_repository import github_repo_from_remote
 from ..project.project_config import (
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
     ProjectConfig,
 )
+from .github_issues import GitHubIssuesSource
+from .github_pull_requests import GitHubPullRequestsSource
 from .issue_sources import IssueSource
 from .local_markdown_issues import LocalMarkdownIssuesSource
 from .pull_request_sources import (

@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from dashpot.github.github import RefreshBudget
-from dashpot.github.github_pull_requests import (
+from dashpot.issues.github_pull_requests import (
     GitHubPullRequestsSource,
     normalize_github_pull_request,
 )

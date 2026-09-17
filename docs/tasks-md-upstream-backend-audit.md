@@ -504,7 +504,7 @@ independent adapters:
 
 That split is visible in
 `sources.py` (since split into [`local_markdown_issues.py`](../src/dashpot/issues/local_markdown_issues.py)
-and [`github_issues.py`](../src/dashpot/github/github_issues.py)): the local adapter requests the CLI's
+and [`github_issues.py`](../src/dashpot/issues/github_issues.py)): the local adapter requests the CLI's
 `summary`/`file`/`line` fields, while the GitHub adapter requests only
 `number,title,labels,assignees,url`. It means some discrepancies are inherited
 from tasks.md, while others are introduced by Dashpot itself.
@@ -533,7 +533,7 @@ There are two important positives in Dashpot's own seam:
   ([implementation, now `IssueSource.refresh`](../src/dashpot/issues/issue_sources.py)); and
 - unlike upstream's GitHub adapter, Dashpot does not convert a failed `gh issue
   list` call to an empty queue
-  ([GitHub collection, now `GitHubIssuesSource`](../src/dashpot/github/github_issues.py)).
+  ([GitHub collection, now `GitHubIssuesSource`](../src/dashpot/issues/github_issues.py)).
 
 The seam is nevertheless too implicit for issue #9:
 
