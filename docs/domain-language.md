@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-13
+date: 2026-09-17
 ---
 
 # Domain language
@@ -212,9 +212,8 @@ carry a warning (a rate limit running low). Codes are prefixed by the source
 family — a GitHub Issue Source reports `github-authentication`,
 `github-permission`, `github-not-found`, `github-repository`,
 `github-rate-limit`, `github-rate-limit-low`, `github-refresh-budget`,
-`github-reconciliation-overdue`, `github-issue-count`, `github-timeout`,
-`github-network`,
-`github-pagination`, `github-malformed-response` and `github-profile` — and
+`github-timeout`, `github-network`, `github-pagination`,
+`github-malformed-response` and `github-profile` — and
 are read from the tracker's structured signals before its prose. A Project
 whose Issue Source is Local Markdown reports `pull-requests-not-configured`
 rather than inferring GitHub hosting from a Git remote
