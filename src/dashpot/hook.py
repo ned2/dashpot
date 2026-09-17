@@ -21,9 +21,12 @@ def publish_from_stream(stream: TextIO, harness: str = "codex") -> None:
 
 
 def _run(harness: str, label: str) -> int:
+    # ``ValueError`` is the store's refusal of an occupied destination and
+    # the base of a record's Pydantic validation failure; both are reported
+    # like every other failed publish rather than shown as a traceback.
     try:
         publish_from_stream(sys.stdin, harness)
-    except (OSError, json.JSONDecodeError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         print(f"dashpot {label} hook: {exc}", file=sys.stderr)
         return NON_BLOCKING_FAILURE_EXIT_CODE
     return 0

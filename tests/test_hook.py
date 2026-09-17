@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from dashpot import hook
-from dashpot.sessions.hook_records import build_hook_record
-from factories import git
+from dashpot.sessions.hook_records import HookRecordStore, build_hook_record
+from dashpot.sessions.processes import AgentAncestry
+from dashpot.sessions.session_matching import SessionEvidence
+from factories import git, hook_record_document
 
 
 def test_a_detached_head_still_records_the_repository_root(tmp_path: Path) -> None:
@@ -103,3 +105,36 @@ def test_an_unsupported_event_is_a_non_blocking_hook_exit(
 
     assert hook.claude_code_main() == 1
     assert "unsupported hook event" in capsys.readouterr().err
+
+
+def test_an_occupied_destination_is_a_non_blocking_hook_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The store refuses to overwrite another Agent Session Identity's record
+    # with a ``ValueError``; the harness must still see the one-line report.
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("DASHPOT_STATE_DIR", str(state_dir))
+    monkeypatch.setattr(
+        "dashpot.sessions.hook_publish.observe_agent_ancestry",
+        lambda harness: AgentAncestry(None, "isolated-namespace"),
+    )
+    state_dir.mkdir()
+    # Only a record already sitting at this identity's own storage key can
+    # occupy it, which no ``write`` produces, so the store seeds it directly.
+    key = SessionEvidence("claude-code", "s1").storage_key()
+    HookRecordStore(state_dir).replace(
+        key, hook_record_document(tmp_path, "other", state="waiting")
+    )
+    event = {"session_id": "s1", "hook_event_name": "Stop", "cwd": str(tmp_path)}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+
+    assert hook.claude_code_main() == 1
+
+    captured = capsys.readouterr()
+    assert captured.err == (
+        "dashpot Claude Code hook: hook destination is occupied by another "
+        "Agent Session Identity\n"
+    )
+    assert captured.out == ""

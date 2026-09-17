@@ -18,6 +18,7 @@ from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
 from .project.workspace import RepositoryAnchor, Workspace
 from .queries.query_source import configured_query_source
+from .queries.source_queries import QueryRequest
 from .repository.cleanup import (
     BranchCleanupRequest,
     CleanupError,
@@ -42,6 +43,7 @@ from .repository.worktrees.removability import (
 from .serialization import (
     cleanup_report_document,
     issue_document,
+    list_page_document,
     removability_document,
     render_json,
     snapshot_document,
@@ -351,8 +353,6 @@ def _list_page(
     timeout: float,
 ) -> int:
     """Emit one Query Page and independently scoped Project Totals."""
-    from .queries.source_queries import QueryRequest
-
     root = worktree_root(Path.cwd().resolve())
     source = configured_query_source(root, timeout=timeout)
     page = source.query_page(
@@ -361,15 +361,7 @@ def _list_page(
         )
     )
     totals = source.totals(kind)
-    print(
-        render_json(
-            {
-                "page": page.model_dump(mode="json", by_alias=True),
-                "totals": totals.model_dump(mode="json", by_alias=True),
-            },
-            compact=compact,
-        )
-    )
+    print(render_json(list_page_document(page, totals), compact=compact))
     return 0
 
 
