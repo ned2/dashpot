@@ -1,6 +1,6 @@
 """Retain explicit Cleanup choices against refreshed evidence."""
 
-from .cleanup import CleanupPreview, CleanupTarget
+from .targets import CleanupPreview, CleanupTarget
 
 
 def primary_target(preview: CleanupPreview) -> CleanupTarget | None:

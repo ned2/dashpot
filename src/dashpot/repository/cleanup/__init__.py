@@ -1,6 +1,5 @@
 """Expose Cleanup preview and confirmed execution through one public seam."""
 
-from ..worktrees.removability import CleanupBlocker as CleanupBlocker
 from .adapter import CleanupAdapter as CleanupAdapter
 from .adapter import GitCleanupAdapter as GitCleanupAdapter
 from .perform import (
@@ -22,9 +21,12 @@ from .preview import (
     describe_cleanup_preview as describe_cleanup_preview,
 )
 from .preview import inspect_cleanup as inspect_cleanup
+from .selection import primary_target as primary_target
+from .selection import retained_choices as retained_choices
 from .targets import (
     BranchCleanupRequest as BranchCleanupRequest,
 )
+from .targets import CleanupBlocker as CleanupBlocker
 from .targets import CleanupPreview as CleanupPreview
 from .targets import CleanupRequest as CleanupRequest
 from .targets import CleanupTarget as CleanupTarget

@@ -57,10 +57,35 @@ remote deletion, and unforced Worktree removal.
 
 Worktree creation and removability have separate owning modules beneath
 `repository/worktrees`, sharing base-ref resolution in `base.py` and topology-record lookup helpers
-in `records.py`. The Worktrees initializer stays empty: Cleanup imports removal
-checks without loading Issue-worktree creation. The split modules are about
+in `records.py`. The Worktrees initializer stays empty, so neither Cleanup nor
+the removability report loads Issue-worktree creation. The split modules are about
 600 lines or fewer; the cohesive `repository/repository.py` observation module
 is deliberately exempt from that size target.
+
+[Issue #241](https://github.com/ned2/dashpot/issues/241) places the Cleanup
+vocabulary in the Cleanup package. `cleanup/targets` owns `BlockerKind` and
+`CleanupBlocker`, since most kinds are produced only by the preview;
+`cleanup/obstacles` owns the shared obstacle assessment (locating a
+registered Worktree, its Git safety, occupancy, Branch preservation, detached
+HEAD, ignored content, and the per-ref integration fact); and
+`cleanup/selection` owns the dashboard's retained-choice policy. The
+`worktrees/removability` report composes those assessments into
+`WorktreeRemovability` for `dashpot worktree check`, so the dependency runs
+from the report to the Cleanup package and never back: the Cleanup facade
+loads no `worktrees` module but `base` and `records`, which keeps the import
+graph acyclic and the creation module unloaded.
+
+One Integration Branch rule remains, `repository.choose_integration_ref`
+([ADR 0012](0012-observe-branch-integration-by-reachability.md)), applied to
+two readings. Branch observation applies it to the ref listing it already
+takes for the Branches pane; the Cleanup preview, Worktree removability, and
+Worktree base resolution all apply it through `repository.RefIndex`, one
+`for-each-ref` reading of every local and Remote-Tracking Branch with its
+commit and commit time. Base resolution keeps `worktrees/base.resolve_base`
+because creation also honours an explicit `--base` and reports the rule that
+chose the base with a refusal that names the option; without an option it
+reads the same index. The preview and removability of one Worktree therefore
+agree on the Integration Branch by construction, and a test proves it.
 
 Root-level `composition.py` owns observation options, collector and Query Source
 construction, configured Cleanup protection, and preview/select/perform
@@ -117,7 +142,7 @@ assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
 | `observation` | `branch_list`, `collect`, `issue_list`, `keys`, `list_result`, `observation_store`, `paged_store`, `pull_request_list`, `related_rows`, `session_list`, `worktree_list` |
 | `project` | `init`, `project_config`, `settings`, `workspace` |
 | `queries` | `github_queries`, `markdown_queries`, `page_navigation`, `query_source`, `source_queries` |
-| `repository` | `cleanup/adapter`, `cleanup/perform`, `cleanup/preview`, `cleanup/targets`, `cleanup_selection`, `fetch`, `repository`, `worktree_launcher`, `worktrees/base`, `worktrees/create`, `worktrees/records`, `worktrees/removability` |
+| `repository` | `cleanup/adapter`, `cleanup/obstacles`, `cleanup/perform`, `cleanup/preview`, `cleanup/selection`, `cleanup/targets`, `fetch`, `repository`, `worktree_launcher`, `worktrees/base`, `worktrees/create`, `worktrees/records`, `worktrees/removability` |
 | `sessions` | `agent_bindings`, `agents`, `harnesses`, `hook_claims`, `hook_publish`, `hook_records`, `hook_scan`, `integrate`, `liveness`, `processes`, `session_labels`, `session_matching`, `work`, `work_reconciliation`, `work_store` |
 | `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `legend`, `list_pane`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
 

@@ -894,7 +894,7 @@ def test_no_integration_branch_is_reported_not_assumed_merged(tmp_path: Path) ->
     assert "unmerged" in by_kind
     assert by_kind["unmerged"].detail.startswith(
         "cannot tell whether Branch worktree-protocol is integrated: "
-        "no base Branch could be chosen"
+        "no Integration Branch could be chosen"
     )
 
 

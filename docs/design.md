@@ -25,10 +25,11 @@ arguments and renders results. Cleanup has separate
 [preview](../src/dashpot/repository/cleanup/preview.py),
 [execution](../src/dashpot/repository/cleanup/perform.py), and
 [dashboard adapter](../src/dashpot/repository/cleanup/adapter.py) modules over
-shared [target values](../src/dashpot/repository/cleanup/targets.py). Worktree
-[creation](../src/dashpot/repository/worktrees/create.py) and
-[removability](../src/dashpot/repository/worktrees/removability.py) are separate
-so removal checks never load creation.
+shared [target values](../src/dashpot/repository/cleanup/targets.py) and
+[obstacle assessments](../src/dashpot/repository/cleanup/obstacles.py). Worktree
+[creation](../src/dashpot/repository/worktrees/create.py) and the
+[removability report](../src/dashpot/repository/worktrees/removability.py) are
+separate so removal checks never load creation.
 
 Observation is scheduled per key rather than as one refresh: the Project's
 Issue Source, Pull Request source and Repository State are observed
