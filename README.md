@@ -815,7 +815,9 @@ The [test-duration measurements](docs/test-duration-measurements.md) record the
 development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
 a point-in-time survey of clean-code uplifts, package boundaries, and
-decomposition seams for the largest modules.
+decomposition seams for the largest modules; the
+[codebase review of 2026-09-17](docs/codebase-review-2026-09-17.md) audits
+how that plan landed and reviews the resulting state.
 [ADR 0042](docs/adr/0042-group-leaf-and-domain-modules-into-subpackages.md)
 records the completed package layout and application composition seam.
 [ADR 0043](docs/adr/0043-retain-distinct-query-and-collection-adapters.md)
