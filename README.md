@@ -828,7 +828,9 @@ how that plan landed and reviews the resulting state.
 [ADR 0042](docs/adr/0042-group-leaf-and-domain-modules-into-subpackages.md)
 records the completed package layout and application composition seam.
 [ADR 0043](docs/adr/0043-retain-distinct-query-and-collection-adapters.md)
-records why query and complete-collection adapters retain distinct contracts.
+records why query and complete-collection adapters retain distinct contracts,
+and [ADR 0047](docs/adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)
+why the dashboard screen stays one Textual adapter.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

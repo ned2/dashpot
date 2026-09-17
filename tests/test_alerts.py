@@ -12,7 +12,7 @@ from dashpot.core.model import (
 )
 from dashpot.observation.keys import AGENT_RUNS_KEY, ObservationKey
 from dashpot.observation.observation_store import WorkspaceObservationStore
-from dashpot.ui.alerts import summarize_alerts
+from dashpot.ui.alerts import list_diagnostics, summarize_alerts
 
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 
@@ -224,3 +224,61 @@ def test_an_explicit_fetch_in_flight_is_informational_and_names_the_project() ->
     assert alert is not None
     assert alert.severity == "info"
     assert alert.text == "↻ fetching remotes Beta, unknown"
+
+
+def test_healthy_state_has_no_diagnostics() -> None:
+    assert list_diagnostics(store(project("alpha"))) is None
+    assert list_diagnostics(WorkspaceObservationStore()) is None
+
+
+def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> None:
+    settings = Diagnostic(
+        source="settings", severity="warning", message="launcher misconfigured"
+    )
+    rate_limit = Diagnostic(
+        source="github",
+        severity="info",
+        message="rate limit low",
+        code="github-rate-limit-low",
+    )
+    conflict = Diagnostic(
+        source="workspace",
+        severity="warning",
+        message="two sessions claim one run",
+        code="work-session-conflict",
+    )
+    readout = list_diagnostics(
+        store(project("alpha", diagnostics=(rate_limit,)), diagnostics=[conflict]),
+        failures={ObservationKey("issues", "alpha"): "Refresh failed: GitHub down"},
+        launcher_diagnostics=(settings,),
+        fetch_failures={"alpha": "Fetch failed: Alpha: no remote"},
+    )
+
+    assert readout is not None
+    assert readout.severity == "error"
+    assert readout.lines == "\n".join(
+        (
+            "✖ Refresh failed: GitHub down",
+            "⚠ launcher misconfigured",
+            "✖ Fetch failed: Alpha: no remote",
+            "⚠ workspace: two sessions claim one run",
+            "↻ Alpha · github: rate limit low",
+        )
+    )
+
+
+def test_a_project_diagnostic_keeps_its_severity_and_names_its_project() -> None:
+    readout = list_diagnostics(
+        store(
+            project(
+                "alpha",
+                diagnostics=(
+                    Diagnostic(source="github", severity="info", message="fine"),
+                ),
+            )
+        )
+    )
+
+    assert readout is not None
+    assert readout.severity == "info"
+    assert readout.lines == "↻ Alpha · github: fine"

@@ -140,6 +140,11 @@ the observation runner's landings for the post-fetch Git facts, and asks the
 app only to notify, push its screens and run its workers. Their refusals are
 tested without a running app too; the previews and confirmations are driven
 through the dashboard. Configured Projects are published before remote work.
+The screen itself is the one Textual adapter over those objects: its
+handlers gather widget facts, call the module that owns the decision and
+paint the result, and both readouts — the alert line and the Diagnostics
+box — are derived by [`alerts.py`](../src/dashpot/ui/alerts.py)
+([ADR 0047](adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)).
 The page store ([paged_store.py](../src/dashpot/observation/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total or
 identity goes through a method that advances its `source_revision`, so a read

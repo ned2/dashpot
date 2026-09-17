@@ -1,8 +1,9 @@
-"""Concise, high-visibility summary of exceptional observation state.
+"""The dashboard's two readouts of exceptional state: the alert line and the Diagnostics box.
 
-The alert is a readout derived from current facts, never stored: it appears
-when something is stale, unavailable, failing, or slow, and disappears on its
-own when the facts recover. Diagnostics remains the durable detail record.
+Both are derived from current facts, never stored. The alert is the concise,
+high-visibility summary: it appears when something is stale, unavailable,
+failing, or slow, and disappears on its own when the facts recover. The
+Diagnostics box is the durable detail record, every Diagnostic in full.
 """
 
 from __future__ import annotations
@@ -13,9 +14,12 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from ..core.ages import relative_age
-from ..core.model import ProjectObservation
+from ..core.model import Diagnostic, ProjectObservation
 from ..observation.keys import ObservationKey
-from ..observation.observation_store import WorkspaceObservationStore
+from ..observation.observation_store import (
+    ObservedDiagnostic,
+    WorkspaceObservationStore,
+)
 from ..queries.source_queries import QueryPage, ResourceKind
 from .glyphs import Glyph
 
@@ -70,7 +74,50 @@ class Alert:
 
     @property
     def text(self) -> str:
+        """The items on one line, for the alert readout."""
         return SEPARATOR.join(item.display for item in self.items)
+
+    @property
+    def lines(self) -> str:
+        """One line per item, for the Diagnostics box."""
+        return "\n".join(item.display for item in self.items)
+
+
+def list_diagnostics(
+    store: WorkspaceObservationStore,
+    *,
+    failures: Mapping[ObservationKey, str] | None = None,
+    launcher_diagnostics: Iterable[Diagnostic] = (),
+    fetch_failures: Mapping[str, str] | None = None,
+) -> Alert | None:
+    """List every Diagnostic in full for the Diagnostics box, or nothing while it is empty.
+
+    Where the alert summarizes, the Diagnostics box is the durable detail:
+    each line is one Diagnostic with the severity it was observed with, a
+    Project's prefixed by the Project it was observed for. The app's own
+    errors come first — ``failures`` per observation key and
+    ``fetch_failures`` per Project are refresh and Remote Fetch failures,
+    and ``launcher_diagnostics`` are what loading the launcher settings
+    reported.
+    """
+    items = [AlertItem("error", message) for message in (failures or {}).values()]
+    items.extend(
+        AlertItem(diagnostic.severity, diagnostic.message)
+        for diagnostic in launcher_diagnostics
+    )
+    items.extend(
+        AlertItem("error", message) for message in (fetch_failures or {}).values()
+    )
+    items.extend(
+        AlertItem(entry.diagnostic.severity, _diagnostic_line(entry))
+        for entry in store.diagnostics()
+    )
+    return Alert(tuple(items)) if items else None
+
+
+def _diagnostic_line(entry: ObservedDiagnostic) -> str:
+    text = f"{entry.diagnostic.source}: {entry.diagnostic.message}"
+    return text if entry.project_label is None else f"{entry.project_label} · {text}"
 
 
 def summarize_alerts(
