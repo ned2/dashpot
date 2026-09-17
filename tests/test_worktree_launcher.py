@@ -10,6 +10,7 @@ from dashpot.core.commands import CommandResult
 from dashpot.project.settings import SettingsFile, load_settings
 from dashpot.repository.worktree_launcher import (
     WorktreeLauncher,
+    WorktreeLaunchError,
     configure_worktree_launcher,
     run_launch_command,
 )
@@ -90,7 +91,7 @@ def test_tmux_uses_explicit_origin_and_literal_path(tmp_path):
 @pytest.mark.parametrize("pane", [None, "", "1", "%1;", "unrelated"])
 def test_invalid_tmux_origin_never_launches(tmp_path, pane):
     runner = Mock()
-    with pytest.raises(RuntimeError, match="originating tmux pane"):
+    with pytest.raises(WorktreeLaunchError, match="originating tmux pane"):
         WorktreeLauncher(None, pane, True, tmp_path / "config.toml", runner=runner)(
             tmp_path
         )
@@ -100,7 +101,7 @@ def test_invalid_tmux_origin_never_launches(tmp_path, pane):
 def test_outside_tmux_guidance_names_setting_and_copy_action(tmp_path):
     runner = Mock()
     with pytest.raises(
-        RuntimeError, match=r"worktree_open_command.*config.toml.*press y"
+        WorktreeLaunchError, match=r"worktree_open_command.*config.toml.*press y"
     ):
         WorktreeLauncher(None, None, False, tmp_path / "config.toml", runner=runner)(
             tmp_path
@@ -111,7 +112,7 @@ def test_outside_tmux_guidance_names_setting_and_copy_action(tmp_path):
 def test_missing_directory_is_not_repaired(tmp_path):
     runner = Mock()
     path = tmp_path / "missing"
-    with pytest.raises(RuntimeError, match="directory is unavailable"):
+    with pytest.raises(WorktreeLaunchError, match="directory is unavailable"):
         WorktreeLauncher(
             ("launcher",), None, False, tmp_path / "config.toml", runner=runner
         )(path)
@@ -121,7 +122,7 @@ def test_missing_directory_is_not_repaired(tmp_path):
 
 def test_custom_failure_does_not_fall_back_to_tmux(tmp_path):
     runner = Mock(return_value=CommandResult([], 2, "", "failed\nrequest"))
-    with pytest.raises(RuntimeError, match="launcher exited 2: failed request"):
+    with pytest.raises(WorktreeLaunchError, match="launcher exited 2: failed request"):
         WorktreeLauncher(
             ("launcher",), "%8", True, tmp_path / "config.toml", runner=runner
         )(tmp_path)
@@ -133,7 +134,7 @@ def test_launch_command_captures_success_and_missing_executable(tmp_path):
         [sys.executable, "-c", 'print("requested")'], tmp_path, 2
     )
     assert result.returncode == 0 and result.stdout.strip() == "requested"
-    with pytest.raises(RuntimeError, match="cannot launch"):
+    with pytest.raises(WorktreeLaunchError, match="cannot launch"):
         run_launch_command([str(tmp_path / "absent")], tmp_path, 2)
 
 
@@ -150,6 +151,7 @@ def test_request_with_persistent_child_is_bounded_and_child_is_not_killed(
     script = r"""
 import ctypes, os, signal, subprocess, sys, time
 from pathlib import Path
+from dashpot.repository.worktree_launcher import WorktreeLaunchError
 from dashpot.repository.worktree_launcher import run_launch_command
 assert ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0
 root=Path(sys.argv[1]); redirect=sys.argv[2]=='True'
@@ -161,7 +163,7 @@ try:
     try:
         result=run_launch_command([sys.executable,'-c',request], root, 0.5)
         assert redirect and result.returncode==0
-    except RuntimeError as error:
+    except WorktreeLaunchError as error:
         assert not redirect and 'timed out' in str(error), error
     assert time.monotonic()-started < 3
     pid=int(pidfile.read_text())

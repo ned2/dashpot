@@ -12,10 +12,9 @@ from pathlib import Path
 from rich.text import Text
 
 from ..core.ages import relative_age
-from ..core.model import AgentRun, RunState
+from ..core.model import HARNESS_DISPLAY, AgentRun, RunState
 from ..observation.list_result import ListResult
 from ..observation.session_list import (
-    HARNESS_LABELS,
     OUTSIDE_PROJECT_TEXT,
     SESSION_STATE_ORDER,
     UNBOUND_ISSUE_TEXT,
@@ -75,7 +74,7 @@ def session_cells(
     session = row.session
     return (
         session_state_cell(session.state, dark=dark),
-        HARNESS_LABELS.get(session.harness, session.harness),
+        HARNESS_DISPLAY[session.harness],
         *((session_target_cell(row, home=home),) if target else ()),
         truncate_end(session.branch or "detached", BRANCH_LIMIT),
         session_issue_cell(row),

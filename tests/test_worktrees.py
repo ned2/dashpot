@@ -17,9 +17,11 @@ import pytest
 from dashpot.core.commands import CommandResult, run_command
 from dashpot.core.git import Git
 from dashpot.core.model import Diagnostic
-from dashpot.project.settings import Settings
+from dashpot.project.settings import Settings, SettingsError
+from dashpot.repository.cleanup import CleanupError
 from dashpot.repository.worktrees import create as worktrees
 from dashpot.repository.worktrees.create import (
+    WorktreeCreateError,
     create_issue_worktree,
     default_branch_name,
     describe_worktree_plan,
@@ -621,17 +623,17 @@ def test_concurrent_creators_yield_one_worktree_one_branch_and_one_error(
 ) -> None:
     root = sim(tmp_path)
 
-    def attempt(_index: int) -> worktrees.WorktreePlan | RuntimeError:
+    def attempt(_index: int) -> worktrees.WorktreePlan | WorktreeCreateError:
         try:
             return create(root)
-        except RuntimeError as exc:
+        except WorktreeCreateError as exc:
             return exc
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(attempt, range(2)))
 
     plans = [item for item in outcomes if isinstance(item, worktrees.WorktreePlan)]
-    errors = [item for item in outcomes if isinstance(item, RuntimeError)]
+    errors = [item for item in outcomes if isinstance(item, WorktreeCreateError)]
     created = [plan for plan in plans if plan.created]
     expected = str(tmp_path / "p" / "sim.worktrees" / "worktree-protocol")
     assert len(created) == 1
@@ -659,7 +661,7 @@ def test_lost_race_rolls_back_only_the_branch_this_invocation_created(
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         return run_command(args, cwd, timeout)
 
-    with pytest.raises(RuntimeError) as failure:
+    with pytest.raises(WorktreeCreateError) as failure:
         create(root, git_adapter=Git(root, runner=failing_add))
 
     message = str(failure.value)
@@ -680,7 +682,7 @@ def test_a_branch_left_pointing_elsewhere_is_never_deleted(tmp_path: Path) -> No
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         return run_command(args, cwd, timeout)
 
-    with pytest.raises(RuntimeError, match="not at the base commit"):
+    with pytest.raises(WorktreeCreateError, match="not at the base commit"):
         create(root, git_adapter=Git(root, runner=failing_add))
 
     assert "worktree-protocol" in local_branches(root)
@@ -711,7 +713,7 @@ def test_unwritable_root_is_an_actionable_error(tmp_path: Path) -> None:
     blocked = tmp_path / "blocked"
     blocked.write_text("")
 
-    with pytest.raises(RuntimeError, match="cannot create the Worktree root"):
+    with pytest.raises(WorktreeCreateError, match="cannot create the Worktree root"):
         create(root, worktree_root_option=blocked / "worktrees")
 
     assert local_branches(root) == {"main"}
@@ -942,7 +944,7 @@ def test_main_worktree_is_never_removable(tmp_path: Path) -> None:
 def test_check_refuses_a_path_that_is_not_a_worktree(tmp_path: Path) -> None:
     root = sim(tmp_path)
 
-    with pytest.raises(RuntimeError, match="is not a Worktree of the Repository"):
+    with pytest.raises(CleanupError, match="is not a Worktree of the Repository"):
         check_worktree(root, tmp_path / "nowhere")
 
 
@@ -993,7 +995,7 @@ def test_malformed_settings_fail_before_root_overrides(
     path = directory / "config.toml"
     path.write_text("worktree_root = [\n")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(directory.parent))
-    with pytest.raises(RuntimeError, match="cannot read Dashpot settings") as error:
+    with pytest.raises(SettingsError, match="cannot read Dashpot settings") as error:
         create_issue_worktree(
             root,
             "35",

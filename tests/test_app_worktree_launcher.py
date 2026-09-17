@@ -16,6 +16,7 @@ from app_harness import (
 from dashpot.core.model import RepositoryStateInventory
 from dashpot.repository.worktree_launcher import (
     LauncherConfiguration,
+    WorktreeLaunchError,
     configure_worktree_launcher,
 )
 from dashpot.ui.worktree_table import WorktreeTable
@@ -205,3 +206,35 @@ async def test_paged_launch_keeps_path_through_refresh_and_empty_footer(tmp_path
             assert captured == [first] and clipboard.call_count == 1
     finally:
         release.set()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_launch_is_a_toast_and_releases_the_row(tmp_path):
+    # The launcher's own refusal reaches the person as a toast, and a second
+    # Enter is accepted once the refused request has ended.
+    path = tmp_path / "refused"
+    path.mkdir()
+    snapshot = with_first_target(
+        workspace_snapshot(issue("test/repo#1", "First")), path=str(path)
+    )
+    opener = Mock(side_effect=WorktreeLaunchError("launcher exited 2: no tmux"))
+    app = dashboard_app(
+        SequenceCollector(snapshot),
+        launcher_configuration=LauncherConfiguration(opener),
+    )
+    notify = Mock(wraps=app.notify)
+    app.notify = notify
+    async with app.run_test(size=(120, 45)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        table = app.query_one(WorktreeTable)
+        table.focus()
+        await pilot.press("enter")
+        await wait_until(lambda: opener.call_count == 1 and not table.opening)
+        await pilot.press("enter")
+        await wait_until(lambda: opener.call_count == 2 and not table.opening)
+    errors = [
+        call.args[0]
+        for call in notify.call_args_list
+        if call.kwargs.get("severity") == "error"
+    ]
+    assert errors == ["launcher exited 2: no tmux"] * 2

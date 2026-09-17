@@ -1,3 +1,5 @@
+"""Validate the Issue Profile every Issue Source conforms its Issues to."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

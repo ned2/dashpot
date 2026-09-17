@@ -6,6 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Literal
 
+from ..core.model import Harness
 from .processes import ProcessKey
 
 
@@ -13,7 +14,7 @@ from .processes import ProcessKey
 class SessionEvidence:
     """Compare validated session facts without treating a process as ownership."""
 
-    harness: str
+    harness: Harness
     session_id: str | None
     process_key: ProcessKey | None = None
 
@@ -40,5 +41,10 @@ class SessionEvidence:
             raise ValueError(
                 "a new Agent Run requires a confirmed Agent Session Identity"
             )
-        digest = hashlib.sha256(self.session_id.encode()).hexdigest()
-        return f"{self.harness}-session-{digest}"
+        return session_storage_key(self.harness, self.session_id)
+
+
+def session_storage_key(harness: str, session_id: str) -> str:
+    """Name the record of a native identity, whatever harness it claims."""
+    digest = hashlib.sha256(session_id.encode()).hexdigest()
+    return f"{harness}-session-{digest}"

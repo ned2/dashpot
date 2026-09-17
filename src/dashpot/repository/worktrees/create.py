@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
+from ...core.errors import DashpotError
 from ...core.git import Git, GitError
 from ...core.issue_profile import IssueProfile
 from ...core.pydantic import LaxSequence, PublishedModel
@@ -22,6 +23,7 @@ from ...issues.issue_resolution import resolve_issue
 from ...project.project_config import (
     PROJECT_CONFIG_NAME,
     ProjectConfig,
+    ProjectConfigError,
     load_project_config,
     parse_project_config,
 )
@@ -36,6 +38,10 @@ from .records import (
 WorktreeRootSource = Literal[
     "--worktree-root", "DASHPOT_WORKTREE_ROOT", "settings", "default-sibling"
 ]
+
+
+class WorktreeCreateError(DashpotError):
+    """A Worktree creation that failed or left something to inspect by hand."""
 
 
 WORKTREE_ROOT_SUFFIX = ".worktrees"
@@ -260,7 +266,7 @@ def _check_base_compatibility(
         base_config = parse_project_config(
             shown.stdout, Path(f"{base_ref}:{PROJECT_CONFIG_NAME}")
         )
-    except RuntimeError as exc:
+    except ProjectConfigError as exc:
         return [f"base {base_ref} ({base_commit[:12]}): {exc}"]
     mismatches = [
         f"{label} {theirs} (the Repository Anchor has {ours})"
@@ -373,13 +379,13 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
     if result.returncode != 0:
         detail = result.stderr.strip() or f"exit {result.returncode}"
         leftovers = _roll_back(git, plan, created_directories)
-        raise RuntimeError(
+        raise WorktreeCreateError(
             f"git worktree add failed: {detail}"
             + "".join(f"; {item}" for item in leftovers)
         )
     problems = _verify_worktree(git, plan)
     if problems:
-        raise RuntimeError(
+        raise WorktreeCreateError(
             f"created {path} but it is not the Worktree that was planned: "
             + "; ".join(problems)
             + f"; inspect it with 'git worktree list' and remove it with "
@@ -400,7 +406,7 @@ def _make_directories(directory: Path) -> list[Path]:
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise RuntimeError(
+        raise WorktreeCreateError(
             f"cannot create the Worktree root {directory}: {exc}; choose another "
             f"--worktree-root or {WORKTREE_ROOT_VARIABLE}"
         ) from exc

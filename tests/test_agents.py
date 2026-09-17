@@ -8,7 +8,7 @@ from pathlib import Path
 
 from typing_extensions import override
 
-from dashpot.core.model import ObservationTarget
+from dashpot.core.model import Harness, ObservationTarget
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import write_hook_record
 from dashpot.sessions.processes import ProcessIdentity
@@ -573,7 +573,7 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
     def record_work(
         self,
         session_key: str,
-        harness: str = "codex",
+        harness: Harness = "codex",
         session_id: str | None = None,
         process: ProcessIdentity | None = None,
         worktree: Path | None = None,

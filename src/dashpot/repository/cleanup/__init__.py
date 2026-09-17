@@ -8,7 +8,6 @@ from .perform import (
 from .perform import (
     CleanupConfirmation as CleanupConfirmation,
 )
-from .perform import CleanupError as CleanupError
 from .perform import CleanupReport as CleanupReport
 from .perform import Outcome as Outcome
 from .perform import TargetResult as TargetResult
@@ -27,6 +26,7 @@ from .targets import (
     BranchCleanupRequest as BranchCleanupRequest,
 )
 from .targets import CleanupBlocker as CleanupBlocker
+from .targets import CleanupError as CleanupError
 from .targets import CleanupPreview as CleanupPreview
 from .targets import CleanupRequest as CleanupRequest
 from .targets import CleanupTarget as CleanupTarget

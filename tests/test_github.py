@@ -7,7 +7,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from dashpot.core.commands import CommandResult
+from dashpot.core.commands import CommandError, CommandResult
 from dashpot.github.github import (
     CursorTrail,
     GitHubGateway,
@@ -125,8 +125,8 @@ class ClassificationTests(unittest.TestCase):
 
     def test_runner_failures_keep_their_own_codes(self) -> None:
         cases = [
-            (RuntimeError("command timed out after 7s: gh"), "github-timeout"),
-            (RuntimeError("command not found: gh"), "github-cli-unavailable"),
+            (CommandError("command timed out after 7s: gh"), "github-timeout"),
+            (CommandError("command not found: gh"), "github-cli-unavailable"),
             (OSError("[Errno 24] Too many open files"), "github-request"),
         ]
         for failure, expected in cases:
@@ -290,7 +290,7 @@ class ConcurrentRunner:
             self.active -= 1
         number = next(arg.removeprefix("n=") for arg in args if arg.startswith("n="))
         if number == self.failing:
-            raise RuntimeError("timed out")
+            raise CommandError("timed out")
         return completed(json.dumps({"data": {"n": number}}))
 
 

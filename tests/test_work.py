@@ -10,13 +10,16 @@ from pathlib import Path
 import pytest
 
 from dashpot.core.errors import DashpotError
-from dashpot.core.model import ObservationTarget
+from dashpot.core.model import Harness, ObservationTarget
+from dashpot.issues.issue_resolution import IssueResolutionError
+from dashpot.issues.issue_sources import IssueSourceRefreshError
 from dashpot.sessions.agents import observe_agent_runs
-from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE
+from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE, HarnessError
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup, ProcessPresent
 from dashpot.sessions.work import (
+    IssueWorkError,
     identify_agent_session,
     relocate_issue_work,
     show_issue_work,
@@ -134,7 +137,7 @@ def test_stop_by_session_key_refuses_a_live_session(tmp_path: Path) -> None:
     start_issue_work(root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
     (session_key,) = issue_ids(root)
 
-    with pytest.raises(RuntimeError, match="still running"):
+    with pytest.raises(IssueWorkError, match="still running"):
         stop_issue_work(root, session_key=session_key, lookup=present(CODEX))
 
     active, _ = WorkStore(root).active()
@@ -154,7 +157,7 @@ def test_stop_by_session_key_refuses_an_identity_route_session_still_placed(
     (work,) = WorkStore(root).active()[0]
     assert work.session_process is None
 
-    with pytest.raises(RuntimeError, match="still running"):
+    with pytest.raises(IssueWorkError, match="still running"):
         stop_issue_work(root, session_key=session_key, lookup=absent())
     assert len(WorkStore(root).active()[0]) == 1
 
@@ -275,7 +278,7 @@ def test_stop_by_session_key_refuses_an_unreadable_record(tmp_path: Path) -> Non
 def test_opt_in_requires_an_enclosing_supported_session(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
 
-    with pytest.raises(RuntimeError, match="supported agent session"):
+    with pytest.raises(IssueWorkError, match="supported agent session"):
         start_issue_work(root, "build-observer", lookup=absent())
 
 
@@ -283,7 +286,7 @@ def test_unmatched_reference_is_an_actionable_error(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
     hook_record(root, CODEX_SESSION, "codex", CODEX)
 
-    with pytest.raises(RuntimeError, match="did not match an Issue"):
+    with pytest.raises(IssueResolutionError, match="did not match an Issue"):
         start_issue_work(
             root, "no-such-issue", lookup=codex_lookup, environ=CODEX_ENVIRON
         )
@@ -297,7 +300,7 @@ def test_unavailable_issue_source_defers_resolution(tmp_path: Path) -> None:
     hook_record(root, CODEX_SESSION, "codex", CODEX)
     write_project_config(root, issue_source={"kind": "markdown", "path": "missing"})
 
-    with pytest.raises(RuntimeError, match="unavailable"):
+    with pytest.raises(IssueSourceRefreshError, match="unavailable"):
         start_issue_work(
             root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON
         )
@@ -372,7 +375,7 @@ def test_isolated_namespace_without_a_claim_reproduces_the_gap(tmp_path: Path) -
     root = repository(tmp_path / "repo")
     hook_record(root, CODEX_SESSION, "codex", CODEX)
 
-    with pytest.raises(RuntimeError, match="isolated process namespace") as failure:
+    with pytest.raises(IssueWorkError, match="isolated process namespace") as failure:
         start_issue_work(root, "build-observer", lookup=ISOLATED, environ={})
 
     assert "no supported agent session encloses this command" in str(failure.value)
@@ -444,7 +447,7 @@ def test_visible_ancestry_refuses_a_claim_that_does_not_corroborate(
     root = repository(tmp_path / "repo")
     other = ProcessIdentity(9999, 1, "claude", "Tue Aug 25 03:00:00 2026")
     hook_record(root, CLAUDE_SESSION, "claude-code", other)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(IssueWorkError):
         start_issue_work(
             root, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
         )
@@ -526,10 +529,10 @@ def test_legacy_unnamed_record_requires_explicit_recovery(tmp_path: Path) -> Non
     unnamed = replace(named, session_id=None)
     assert store.stop_current(named)
     store.start(unnamed)
-    with pytest.raises(RuntimeError, match="ownership of legacy Agent Run"):
+    with pytest.raises(IssueWorkError, match="ownership of legacy Agent Run"):
         start_issue_work(root, "fix-crash", lookup=ISOLATED, environ=CODEX_ENVIRON)
     assert store.active()[0] == [unnamed]
-    with pytest.raises(RuntimeError, match="still running"):
+    with pytest.raises(IssueWorkError, match="still running"):
         stop_issue_work(root, session_key=unnamed.session_key, lookup=ISOLATED)
     stop_issue_work(root, session_key=unnamed.session_key, lookup=absent())
     assert store.active()[0] == []
@@ -591,11 +594,11 @@ def test_rejected_identities_fail_actionably_and_write_no_binding(
     root = repository(tmp_path / "repo")
     arrange(root)
 
-    with pytest.raises(RuntimeError, match=re.escape(expected)):
+    with pytest.raises(IssueWorkError, match=re.escape(expected)):
         start_issue_work(root, "build-observer", lookup=ISOLATED, environ=environ)
 
     assert WorkStore(root).active()[0] == []
-    with pytest.raises(RuntimeError, match=re.escape(expected)):
+    with pytest.raises(IssueWorkError, match=re.escape(expected)):
         stop_issue_work(root, lookup=ISOLATED, environ=environ)
 
 
@@ -603,7 +606,7 @@ def test_a_gone_session_record_is_stale_not_an_identity(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
     hook_record(root, CODEX_SESSION, "codex", CODEX)
 
-    with pytest.raises(RuntimeError, match="process is gone"):
+    with pytest.raises(IssueWorkError, match="process is gone"):
         start_issue_work(root, "build-observer", lookup=absent(), environ=CODEX_ENVIRON)
 
     assert WorkStore(root).active()[0] == []
@@ -617,7 +620,7 @@ def test_coexisting_harness_identities_are_ambiguous_until_named(
     hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
     both = {**CODEX_ENVIRON, **CLAUDE_ENVIRON}
 
-    with pytest.raises(RuntimeError, match="more than one live Agent Session"):
+    with pytest.raises(IssueWorkError, match="more than one live Agent Session"):
         start_issue_work(root, "build-observer", lookup=ISOLATED, environ=both)
     assert WorkStore(root).active()[0] == []
 
@@ -664,7 +667,7 @@ def test_codex_and_claude_code_sandboxed_runs_on_one_issue_are_independent(
 def test_override_must_name_a_supported_harness(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
 
-    with pytest.raises(RuntimeError, match=SESSION_OVERRIDE_VARIABLE):
+    with pytest.raises(HarnessError, match=SESSION_OVERRIDE_VARIABLE):
         start_issue_work(
             root,
             "build-observer",
@@ -674,7 +677,7 @@ def test_override_must_name_a_supported_harness(tmp_path: Path) -> None:
 
 
 def test_claim_without_a_worktree_cannot_be_validated() -> None:
-    with pytest.raises(RuntimeError, match="only be validated at a Worktree"):
+    with pytest.raises(IssueWorkError, match="only be validated at a Worktree"):
         identify_agent_session(ISOLATED, environ=CODEX_ENVIRON)
 
 
@@ -758,7 +761,7 @@ def test_relocation_requires_a_confirmed_codex_identity(tmp_path: Path) -> None:
     hook_record(a, CODEX_SESSION, "codex", CODEX)
     start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
 
-    with pytest.raises(RuntimeError, match="supported agent session"):
+    with pytest.raises(IssueWorkError, match="supported agent session"):
         relocate_issue_work(a, b, lookup=codex_lookup, environ={})
 
     assert WorkStore(a).active()[0][0].relocation is None
@@ -772,7 +775,7 @@ def test_relocation_refuses_a_target_outside_the_linked_worktrees(
     hook_record(a, CODEX_SESSION, "codex", CODEX)
     start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
 
-    with pytest.raises(RuntimeError, match="not a linked Worktree"):
+    with pytest.raises(IssueWorkError, match="not a linked Worktree"):
         relocate_issue_work(a, unrelated, lookup=codex_lookup, environ=CODEX_ENVIRON)
 
     assert WorkStore(a).active()[0][0].relocation is None
@@ -960,7 +963,7 @@ def test_a_resume_at_the_wrong_target_cannot_reassign_the_pending_run(
         lookup=table_lookup({resumed.pid: resumed}),
     )
 
-    with pytest.raises(RuntimeError, match=re.escape(f"prepared to resume at {b}")):
+    with pytest.raises(IssueWorkError, match=re.escape(f"prepared to resume at {b}")):
         start_issue_work(
             c,
             "build-observer",
@@ -1120,7 +1123,7 @@ def test_a_tool_call_at_another_worktree_cannot_prepare_relocation(
     hook_record(a, CODEX_SESSION, "codex", CODEX)
     start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
 
-    with pytest.raises(RuntimeError, match=re.escape(f"not at {b}")):
+    with pytest.raises(IssueWorkError, match=re.escape(f"not at {b}")):
         relocate_issue_work(b, a, lookup=codex_lookup, environ=CODEX_ENVIRON)
 
     (unchanged,) = WorkStore(a).active()[0]
@@ -1137,7 +1140,7 @@ def test_claude_code_keeps_using_enter_worktree_instead_of_relocation_intent(
         a, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
     )
 
-    with pytest.raises(RuntimeError, match=r"Claude Code moves.*EnterWorktree"):
+    with pytest.raises(IssueWorkError, match=r"Claude Code moves.*EnterWorktree"):
         relocate_issue_work(a, b, lookup=present(CLAUDE), environ=CLAUDE_ENVIRON)
 
     assert WorkStore(a).active()[0][0].relocation is None
@@ -1223,7 +1226,7 @@ def test_start_where_the_session_is_not_is_refused(tmp_path: Path) -> None:
     hook_record(a, CODEX_SESSION, "codex", CODEX)
     start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
 
-    with pytest.raises(RuntimeError, match=re.escape(f"is at {a}")):
+    with pytest.raises(IssueWorkError, match=re.escape(f"is at {a}")):
         start_issue_work(b, "fix-crash", lookup=codex_lookup, environ=CODEX_ENVIRON)
 
     assert WorkStore(b).active()[0] == []
@@ -1238,7 +1241,7 @@ def test_a_stale_record_cannot_confirm_a_start_where_the_session_left(
     hook_record(a, CODEX_SESSION, "codex", CODEX, at=EARLIER)
     hook_record(b, CODEX_SESSION, "codex", CODEX, at=LATER)
 
-    with pytest.raises(RuntimeError, match=re.escape(f"is at {b}")):
+    with pytest.raises(IssueWorkError, match=re.escape(f"is at {b}")):
         start_issue_work(a, "build-observer", lookup=lookup, environ=environ)
 
     assert WorkStore(a).active()[0] == []
@@ -1251,7 +1254,7 @@ def test_a_global_store_record_places_a_session_at_its_worktree(
     a, b = two_worktrees(tmp_path)
     hook_record(a, CODEX_SESSION, "codex", CODEX, store=state_directory())
 
-    with pytest.raises(RuntimeError, match=re.escape(f"is at {a}")):
+    with pytest.raises(IssueWorkError, match=re.escape(f"is at {a}")):
         start_issue_work(b, "fix-crash", lookup=codex_lookup, environ=CODEX_ENVIRON)
     messages = start_issue_work(
         a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON
@@ -1278,7 +1281,7 @@ def test_stop_ends_the_run_wherever_in_the_repository_it_is(tmp_path: Path) -> N
 def test_without_hook_records_process_only_start_is_refused(tmp_path: Path) -> None:
     a, b = two_worktrees(tmp_path)
     for root in (a, b):
-        with pytest.raises(RuntimeError, match="supported agent session"):
+        with pytest.raises(IssueWorkError, match="supported agent session"):
             start_issue_work(root, "build-observer", lookup=codex_lookup, environ={})
         assert WorkStore(root).active()[0] == []
 
@@ -1308,7 +1311,7 @@ def test_a_relocated_session_is_observed_once_without_conflict(
 
 
 def session_end(
-    root: Path, session_id: str, harness: str, process: ProcessIdentity
+    root: Path, session_id: str, harness: Harness, process: ProcessIdentity
 ) -> None:
     """Publish the session's SessionEnd from ``root`` as its harness would."""
     publish_hook_event(

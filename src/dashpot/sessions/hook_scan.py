@@ -10,13 +10,14 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from ..core.model import HARNESS_DISPLAY, Harness
 from ..core.pydantic import describe_validation_error, validate_degrading
 from ..core.timestamps import observed_instant
 from ..core.worktree_paths import same_path
-from .harnesses import HARNESS_DISPLAY
 from .hook_records import (
     HOOK_RECORD_FATAL,
     HOOK_RECORD_VERSION,
+    ActiveState,
     HookRecord,
     session_directory,
     state_directory,
@@ -44,8 +45,8 @@ class HookRecordClassification:
     """One validated hook Agent Session record and its reconciled outcome."""
 
     session_id: str
-    harness: str
-    state: str
+    harness: Harness
+    state: ActiveState
     cwd: str
     repository_root: str | None
     branch: str | None
@@ -87,7 +88,7 @@ class StaleSessionRecord:
     """A hook record whose Agent Session is over: gone, or ended gracefully."""
 
     session_id: str
-    harness: str
+    harness: Harness
     event: str | None
     last_activity_at: str | None
     pid: int | None
@@ -247,7 +248,7 @@ def scan_hook_stores(
 
 
 def session_record_named(
-    path: Path, session_id: str, harness: str | None = None
+    path: Path, session_id: str, harness: Harness | None = None
 ) -> bool:
     """Select legacy and harness-scoped filenames for full record validation."""
     if path.stem == session_id:
@@ -264,7 +265,7 @@ def locate_agent_session(
     lookup: ProcessLookup = host_process_lookup,
     *,
     session_id: str | None = None,
-    harness: str | None = None,
+    harness: Harness | None = None,
     process_key: ProcessKey | None = None,
 ) -> SessionLocation | None:
     """Place a scoped native identity by its freshest validated hook record."""

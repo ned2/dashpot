@@ -308,6 +308,20 @@ class HookRecordStoreTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertFalse(store.prune("stale", updated))
 
+    def test_prune_keeps_a_record_it_can_no_longer_read(self) -> None:
+        # A record rewritten as something other than an object since it was
+        # observed is not the observed one, and only that one may go.
+        self.write("stale", "running", self.process)
+        path = self.state_dir / "stale.json"
+        observed = json.loads(path.read_text())
+        store = HookRecordStore(self.state_dir)
+
+        path.write_text("[]")
+        self.assertFalse(store.prune("stale", observed))
+        path.write_text("{")
+        self.assertFalse(store.prune("stale", observed))
+        self.assertTrue(path.exists())
+
     def test_malformed_record_becomes_diagnostic(self) -> None:
         (self.state_dir / "bad.json").write_text(json.dumps({"version": 99}))
 

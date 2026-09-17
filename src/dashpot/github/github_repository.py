@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from ..core.commands import CommandRunner, run_command
+from ..core.errors import DashpotError
 from ..core.git import Git
 from .github import NOT_FOUND, GitHubGateway, GitHubRequestError
 
@@ -24,6 +25,10 @@ def github_repo_from_remote(root: Path, git: Git | None = None) -> str | None:
         return None
     match = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?$", remote)
     return None if match is None else str(match.group(1))
+
+
+class RepositoryIdentityError(DashpotError):
+    """A GitHub answer that names the repository without its durable identity."""
 
 
 def observe_github_repository_identity(
@@ -46,7 +51,9 @@ def observe_github_repository_identity(
     repository_id = payload.get("node_id")
     observed_reference = payload.get("full_name")
     if not isinstance(repository_id, str) or not repository_id:
-        raise RuntimeError(f"GitHub repository {reference} has no durable identity")
+        raise RepositoryIdentityError(
+            f"GitHub repository {reference} has no durable identity"
+        )
     if not isinstance(observed_reference, str) or not observed_reference:
-        raise RuntimeError(f"GitHub repository {reference} has no full name")
+        raise RepositoryIdentityError(f"GitHub repository {reference} has no full name")
     return repository_id, observed_reference

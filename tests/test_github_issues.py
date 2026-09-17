@@ -9,7 +9,7 @@ from typing import Any
 
 import pydantic
 
-from dashpot.core.commands import CommandResult
+from dashpot.core.commands import CommandError, CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue, issue_location
 from dashpot.github.github import RefreshBudget
 from dashpot.issues.github_issues import GitHubIssuesSource, normalize_github_issue
@@ -919,8 +919,8 @@ class GitHubIssuesSourceTests(unittest.TestCase):
                 completed(stderr="HTTP 401: Bad credentials", returncode=1),
                 "github-authentication",
             ),
-            (RuntimeError("command timed out after 20s: gh"), "github-timeout"),
-            (RuntimeError("command not found: gh"), "github-cli-unavailable"),
+            (CommandError("command timed out after 20s: gh"), "github-timeout"),
+            (CommandError("command not found: gh"), "github-cli-unavailable"),
             (OSError("[Errno 24] Too many open files"), "github-request"),
         ]
         for result, expected_code in cases:

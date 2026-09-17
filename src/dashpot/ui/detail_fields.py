@@ -1,3 +1,5 @@
+"""Render one selected item's detail fields in the dashboard."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

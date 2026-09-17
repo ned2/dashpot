@@ -1,3 +1,5 @@
+"""Run one external command to completion through a replaceable runner."""
+
 from __future__ import annotations
 
 import os
@@ -6,6 +8,12 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+
+from .errors import DashpotError
+
+
+class CommandError(DashpotError):
+    """A command that could not run at all: the binary is missing or it timed out."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +24,8 @@ class CommandResult:
     stderr: str
 
 
+# A runner answers with the command's result, or raises ``CommandError`` (or
+# ``OSError``) when the command could not run at all.
 CommandRunner = Callable[[Sequence[str], Path, float], CommandResult]
 
 
@@ -47,9 +57,9 @@ def run_command(
             start_new_session=non_interactive,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(f"command not found: {args[0]}") from exc
+        raise CommandError(f"command not found: {args[0]}") from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"command timed out after {timeout:g}s: {args[0]}") from exc
+        raise CommandError(f"command timed out after {timeout:g}s: {args[0]}") from exc
     return CommandResult(list(args), result.returncode, result.stdout, result.stderr)
 
 

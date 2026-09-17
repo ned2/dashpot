@@ -28,6 +28,7 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
+from dashpot.core.commands import CommandError
 from dashpot.core.git import Git
 from dashpot.core.model import Branch, WorkspaceSnapshot
 from dashpot.repository.fetch import FetchReport, RemoteFetch, fetch_remotes
@@ -226,7 +227,7 @@ async def test_a_failed_remote_keeps_the_last_good_observation_and_says_why() ->
         completed(
             "", stderr="fatal: Authentication failed for 'https://x'", returncode=128
         ),
-        RuntimeError("command timed out after 10s: git"),
+        CommandError("command timed out after 10s: git"),
     )
     git = Git(Path("/unused"), runner=runner)
     collector = SequenceCollector(BEFORE)

@@ -8,20 +8,24 @@ import sys
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
-from pydantic import AfterValidator, Field
+from pydantic import AfterValidator, BeforeValidator, Field
 
 from ..core.git import Git, GitError
-from ..core.json_records import optional_string, require_string
+from ..core.json_records import HookRecordError, optional_string, require_string
+from ..core.model import Harness
 from ..core.pydantic import NonEmptyString, PersistedRecord
 from ..core.record_store import LockedRecordStore
 from ..core.timestamps import observed_instant, utc_now
-from .harnesses import HARNESS_DISPLAY, SESSION_ID, HookSessionIdentity
+from .harnesses import SESSION_ID, HarnessName, HookSessionIdentity
 from .processes import ProcessIdentity, SessionProcessRecord
-from .session_matching import SessionEvidence
+from .session_matching import session_storage_key
 
-EVENT_STATES: dict[str, str] = {
+# What a hook record says its session is doing; ``ended`` is the state a
+# graceful SessionEnd leaves, which the published ``RunState`` never shows.
+ActiveState = Literal["running", "waiting", "ended"]
+EVENT_STATES: dict[str, ActiveState] = {
     "SessionStart": "running",
     "UserPromptSubmit": "running",
     "PreToolUse": "running",
@@ -52,14 +56,8 @@ def state_directory() -> Path:
 HOOK_RECORD_VERSION = 2
 
 
-def _supported_harness(value: str) -> str:
-    if value not in HARNESS_DISPLAY:
-        raise ValueError(f"unsupported harness: {value!r}")
-    return value
-
-
-def _active_state(value: str) -> str:
-    if value not in {"running", "waiting", "ended"}:
+def _active_state(value: object) -> object:
+    if value not in get_args(ActiveState):
         raise ValueError(f"unsupported active state: {value!r}")
     return value
 
@@ -69,8 +67,8 @@ def _blank_to_none(value: str | None) -> str | None:
     return value or None
 
 
-Harness = Annotated[str, AfterValidator(_supported_harness)]
-ActiveState = Annotated[str, AfterValidator(_active_state)]
+# The validator ahead of the union keeps the record's refusal naming the state.
+ActiveStateName = Annotated[ActiveState, BeforeValidator(_active_state)]
 OptionalText = Annotated[str | None, AfterValidator(_blank_to_none)]
 
 
@@ -86,8 +84,8 @@ class HookRecord(PersistedRecord):
 
     version: Literal[2]
     session_id: HookSessionIdentity
-    harness: Harness = "codex"
-    state: ActiveState
+    harness: HarnessName = "codex"
+    state: ActiveStateName
     cwd: NonEmptyString
     repository_root: OptionalText = None
     branch: OptionalText = None
@@ -125,16 +123,16 @@ HOOK_RECORD_FATAL = frozenset({"version", "sessionId", "harness", "state", "cwd"
 def build_hook_record(
     event: dict[str, Any],
     process: ProcessIdentity | None = None,
-    harness: str = "codex",
+    harness: Harness = "codex",
     process_unobservable: str | None = None,
 ) -> dict[str, Any]:
     session_id = require_string(event.get("session_id"), "session_id")
     if not SESSION_ID.fullmatch(session_id):
-        raise RuntimeError("hook session_id contains unsupported characters")
+        raise HookRecordError("hook session_id contains unsupported characters")
     event_name = require_string(event.get("hook_event_name"), "hook_event_name")
     state = EVENT_STATES.get(event_name)
     if state is None:
-        raise RuntimeError(f"unsupported hook event: {event_name}")
+        raise HookRecordError(f"unsupported hook event: {event_name}")
     cwd = Path(require_string(event.get("cwd"), "cwd")).expanduser().resolve()
     # Each answer stands alone: a detached HEAD has no symbolic ref but is
     # still inside a Worktree whose root routes the record. A hook must never
@@ -260,8 +258,10 @@ class HookRecordStore(LockedRecordStore):
         """Publish one native identity without overwriting another harness."""
         session_id = require_string(record.get("sessionId"), "sessionId")
         harness = require_string(record.get("harness"), "harness")
-        identity = SessionEvidence(harness, session_id)
-        scoped_key = identity.storage_key()
+        # The store keeps what a harness published; a record naming an
+        # unsupported harness is refused by the read model, as a diagnostic.
+        native_key = (harness, session_id)
+        scoped_key = session_storage_key(harness, session_id)
         with ExitStack() as stack:
             for key in sorted((session_id, scoped_key)):
                 stack.enter_context(self.locked(key))
@@ -271,16 +271,14 @@ class HookRecordStore(LockedRecordStore):
                 key, previous = scoped_key, scoped
             elif (
                 legacy is None
-                or (legacy.get("harness"), legacy.get("sessionId"))
-                == identity.native_key
+                or (legacy.get("harness"), legacy.get("sessionId")) == native_key
             ):
                 key, previous = session_id, legacy
             else:
                 key, previous = scoped_key, None
             if (
                 previous is not None
-                and (previous.get("harness"), previous.get("sessionId"))
-                != identity.native_key
+                and (previous.get("harness"), previous.get("sessionId")) != native_key
             ):
                 raise ValueError(
                     "hook destination is occupied by another Agent Session Identity"
@@ -314,7 +312,7 @@ class HookRecordStore(LockedRecordStore):
         with self.locked(session_id):
             try:
                 current = self._read(destination)
-            except (RuntimeError, ValueError):
+            except (HookRecordError, ValueError):
                 return False
             if current is None or current != dict(observed):
                 return False
@@ -328,7 +326,7 @@ class HookRecordStore(LockedRecordStore):
         except FileNotFoundError:
             return None
         if not isinstance(raw, dict):
-            raise RuntimeError(f"hook record is not an object: {path}")
+            raise HookRecordError(f"hook record is not an object: {path}")
         return raw
 
 

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git, GitError
+from ...core.model import HARNESS_DISPLAY
 from ...core.worktree_paths import worktree_paths, worktree_root
-from ...sessions.harnesses import HARNESS_DISPLAY
 from ...sessions.hook_scan import reachable_hook_stores, sessions_at_worktree
 from ...sessions.liveness import session_liveness
 from ...sessions.processes import ProcessLookup, host_process_lookup
@@ -21,7 +21,7 @@ from ..repository import (
     lock_holder,
 )
 from ..worktrees.records import INITIALIZING_LOCK, registered_at, short_branch
-from .targets import CleanupBlocker, IntegrationFact
+from .targets import CleanupBlocker, CleanupError, IntegrationFact
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,19 +54,19 @@ def locate_worktree(
 ) -> LocatedWorktree:
     """Find ``target`` among the Worktrees of the Repository ``current`` is in.
 
-    A path Git does not list is a ``RuntimeError``: every assessment is about
+    A path Git does not list is a ``CleanupError``: every assessment is about
     a registered Worktree, never about a directory that merely looks like one.
     """
     path = target.expanduser().resolve()
     try:
         anchor = worktree_root(current, git)
-    except RuntimeError:
+    except GitError:
         anchor = worktree_root(path, git)
     scoped = (git if git is not None else Git(anchor, timeout)).at(anchor)
     records = scoped.worktree_records()
     registered = registered_at(records, path)
     if registered is None:
-        raise RuntimeError(f"{path} is not a Worktree of the Repository at {anchor}")
+        raise CleanupError(f"{path} is not a Worktree of the Repository at {anchor}")
     role: Literal["main", "linked"] = (
         "main" if records and records[0] is registered else "linked"
     )

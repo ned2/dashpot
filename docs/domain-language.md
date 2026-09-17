@@ -290,6 +290,13 @@ location; it cannot authorize Issue work without a confirmed native identity
 _Avoid_: session key, which is the Work Store's record name, and process
 identity, which is evidence of Session Liveness
 
+**Harness**:
+The coding-agent product hosting an Agent Session: Codex or Claude Code. The
+closed `Harness` union in `core/model.py` names each one by its identifier
+(`codex`, `claude-code`) and `HARNESS_DISPLAY` holds the name a person reads,
+so every model, record, and label spells a harness the same way. _Avoid_:
+"agent" or "tool" for the harness, and a bare string where the union fits.
+
 **Harness Adapter**:
 The per-harness contract through which Dashpot identifies an Agent Session
 from a command running inside it: which host process is the harness itself

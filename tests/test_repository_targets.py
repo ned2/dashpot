@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 from unittest import mock
 
+from dashpot.core.commands import CommandError
 from dashpot.core.git import Git
 from dashpot.core.model import Diagnostic
 from dashpot.core.worktree_paths import same_path
@@ -194,7 +195,7 @@ def test_combines_all_anchors_deduplicates_paths_and_isolates_discovery_failure(
     runner = SequenceRunner(
         completed(first_porcelain),
         completed(second_porcelain),
-        RuntimeError("git timed out"),
+        CommandError("git timed out"),
         completed(),
         completed(),
         completed(),

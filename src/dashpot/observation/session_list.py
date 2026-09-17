@@ -19,7 +19,6 @@ from ..core.model import AgentRun, ProjectObservation, RunState
 from .issue_list import row_key
 from .list_result import ListResult
 
-HARNESS_LABELS = {"codex": "Codex", "claude-code": "Claude Code"}
 SESSION_STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
 OUTSIDE_PROJECT_TEXT = "outside Project"
 UNBOUND_ISSUE_TEXT = "no active Issue work"

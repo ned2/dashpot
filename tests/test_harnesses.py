@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
+from dashpot.core.model import Harness
 from dashpot.sessions.harnesses import (
     ADAPTERS,
     CLAUDE_CODE,
     CODEX,
     SESSION_OVERRIDE_VARIABLE,
+    HarnessError,
     SessionIdentityClaim,
     adapter,
     native_claims,
@@ -21,8 +25,8 @@ def test_each_supported_harness_has_one_adapter() -> None:
     assert set(ADAPTERS) == {"codex", "claude-code"}
     assert adapter("codex") is CODEX
     assert adapter("claude-code") is CLAUDE_CODE
-    with pytest.raises(RuntimeError, match="unsupported harness"):
-        adapter("cursor")
+    with pytest.raises(HarnessError, match="unsupported harness"):
+        adapter(cast("Harness", "cursor"))
 
 
 def test_codex_adapter_never_treats_the_sandbox_helper_as_the_host() -> None:
@@ -76,5 +80,5 @@ def test_override_claim_is_explicit_and_validated_in_shape() -> None:
         "claude-code", "01c7-session", SESSION_OVERRIDE_VARIABLE
     )
     for raw in ("01c7-session", "cursor:abc", "codex:", "codex:bad value"):
-        with pytest.raises(RuntimeError, match=SESSION_OVERRIDE_VARIABLE):
+        with pytest.raises(HarnessError, match=SESSION_OVERRIDE_VARIABLE):
             override_claim({SESSION_OVERRIDE_VARIABLE: raw})

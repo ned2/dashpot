@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from dashpot.core.commands import non_interactive_runner
+from dashpot.core.commands import CommandError, non_interactive_runner
 from dashpot.core.git import Git
 from dashpot.repository.fetch import FETCH_ENVIRONMENT, fetch_remotes, remote_fetcher
 from factories import SequenceRunner, completed
@@ -93,7 +93,7 @@ def test_one_failing_remote_does_not_make_the_fetch_a_success() -> None:
 def test_a_timed_out_remote_is_reported_and_the_rest_still_fetched() -> None:
     runner = SequenceRunner(
         completed("origin\nupstream\n"),
-        RuntimeError("command timed out after 7s: git"),
+        CommandError("command timed out after 7s: git"),
         completed(""),
     )
 

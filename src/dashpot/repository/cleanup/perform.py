@@ -11,7 +11,6 @@ from typing import Literal
 from pydantic import computed_field
 
 from ...core.commands import non_interactive_runner
-from ...core.errors import DashpotError
 from ...core.git import Git, GitError, last_stderr_line
 from ...core.pydantic import LaxSequence, PublishedModel
 from ...sessions.processes import ProcessLookup, host_process_lookup
@@ -48,10 +47,6 @@ CHANGED_SINCE_PREVIEW = (
     "the observed state changed since the preview; confirm again against the "
     "revised preview"
 )
-
-
-class CleanupError(DashpotError, RuntimeError):
-    """A Cleanup command refused before previewing: a usage-shaped mistake."""
 
 
 @dataclass(frozen=True, slots=True)

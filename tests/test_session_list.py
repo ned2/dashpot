@@ -11,7 +11,13 @@ from rich.text import Text
 
 import factories
 from dashpot.core.issue_profile import IssueProfile
-from dashpot.core.model import AgentRun, ObservationTarget, ProjectObservation, RunState
+from dashpot.core.model import (
+    AgentRun,
+    Harness,
+    ObservationTarget,
+    ProjectObservation,
+    RunState,
+)
 from dashpot.observation.issue_list import row_key
 from dashpot.observation.list_result import ListResult
 from dashpot.observation.observation_store import WorkspaceObservationStore
@@ -79,7 +85,7 @@ def session(
     run_id: str,
     project_id: str = "project:alpha",
     *,
-    harness: str = "codex",
+    harness: Harness = "codex",
     state: RunState = "waiting",
     issue_id: str | None = None,
     hint: str | None = None,

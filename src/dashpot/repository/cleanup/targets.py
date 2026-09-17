@@ -8,8 +8,16 @@ from typing import Literal
 
 from pydantic import computed_field
 
+from ...core.errors import DashpotError
 from ...core.model import IntegrationState, integration_state
 from ...core.pydantic import LaxSequence, PublishedModel
+
+
+# The RuntimeError base predates the DashpotError contract and stays for
+# callers outside the package that catch the built-in type.
+class CleanupError(DashpotError, RuntimeError):
+    """A Cleanup command refused before previewing: a usage-shaped mistake."""
+
 
 TargetKind = Literal["local-branch", "remote-branch", "worktree"]
 

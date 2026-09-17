@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 from textual.worker import get_current_worker
 
+from ..core.errors import DashpotError
 from ..observation.keys import ObservationKey
 from ..observation.paged_store import PagedObservationStore
 from ..repository.cleanup import (
@@ -42,6 +43,10 @@ if TYPE_CHECKING:
     from .messages import ObservationFinished
 
 T = TypeVar("T")
+
+
+class RefreshError(DashpotError):
+    """A post-fetch Git observation that did not land, stated as the preview's status."""
 
 
 class CleanupHost(FlowHost, Protocol):
@@ -381,7 +386,7 @@ class CleanupFlow:
         """Wait for post-fetch Git observations before accepting refreshed evidence."""
         keys = self.observations.git_keys(project_id)
         if not keys:
-            raise RuntimeError(
+            raise RefreshError(
                 "No Git observation is available; refresh and reopen the preview."
             )
         pending = {key: self.observations.in_flight.get(key, 0) for key in keys}
@@ -399,7 +404,7 @@ class CleanupFlow:
             or project.snapshot is None
             or project.snapshot.target_status != "fresh"
         ):
-            raise RuntimeError(
+            raise RefreshError(
                 "Git observation is unavailable or stale; inspect Diagnostics and retry."
             )
 
@@ -415,7 +420,7 @@ class CleanupFlow:
                 continue
             if message.error or message.outcome is None or not message.outcome.accepted:
                 future.set_exception(
-                    RuntimeError(message.error or "Git refresh was not accepted.")
+                    RefreshError(message.error or "Git refresh was not accepted.")
                 )
             else:
                 del pending[key]

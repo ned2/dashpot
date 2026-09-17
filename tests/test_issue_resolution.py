@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 
 from dashpot.core.issue_profile import conform_issue
-from dashpot.issues.issue_resolution import describe_issue, resolve_issue, show_issue
+from dashpot.issues.issue_resolution import (
+    IssueResolutionError,
+    describe_issue,
+    resolve_issue,
+    show_issue,
+)
+from dashpot.issues.issue_sources import IssueSourceRefreshError
 from factories import WORKTREE_PROTOCOL_ISSUES, dashpot_project
 from helpers import make_issue
 
@@ -33,7 +39,7 @@ def test_full_github_reference_matches_nothing_in_a_markdown_project(
 ) -> None:
     root = repository(tmp_path / "repo")
 
-    with pytest.raises(RuntimeError, match="did not match an Issue"):
+    with pytest.raises(IssueResolutionError, match="did not match an Issue"):
         resolve_issue(root, "ned2/sim#35")
 
 
@@ -44,7 +50,7 @@ def test_a_pasted_github_url_matches_nothing_in_a_markdown_project(
     # cannot fall back to matching a Local Issue by bare number.
     root = repository(tmp_path / "repo")
 
-    with pytest.raises(RuntimeError, match="did not match an Issue"):
+    with pytest.raises(IssueResolutionError, match="did not match an Issue"):
         resolve_issue(root, "https://github.com/ned2/dashpot/issues/35")
 
 
@@ -57,21 +63,21 @@ def test_a_slug_resolves_cheaply_past_a_broken_sibling_document(
     issue = resolve_issue(root, "worktree-protocol")
 
     assert issue.id == "I_35"
-    with pytest.raises(RuntimeError, match="Issue Source is unavailable"):
+    with pytest.raises(IssueSourceRefreshError, match="Issue Source is unavailable"):
         resolve_issue(root, "35")
 
 
 def test_a_miss_is_an_actionable_error(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
 
-    with pytest.raises(RuntimeError, match="'99' did not match an Issue"):
+    with pytest.raises(IssueResolutionError, match="'99' did not match an Issue"):
         resolve_issue(root, "99")
 
 
 def test_an_unavailable_source_refuses_resolution(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo", issues_path="missing")
 
-    with pytest.raises(RuntimeError, match="Issue Source is unavailable"):
+    with pytest.raises(IssueSourceRefreshError, match="Issue Source is unavailable"):
         resolve_issue(root, "35")
 
 

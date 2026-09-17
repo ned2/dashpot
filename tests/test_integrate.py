@@ -8,16 +8,19 @@ import sysconfig
 from collections.abc import Callable
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from dashpot.core.model import Harness
+from dashpot.sessions.harnesses import HarnessError
 from dashpot.sessions.hook_records import write_hook_record
 from dashpot.sessions.integrate import (
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
     ISSUE_WORK_SKILL_MARKER,
     ISSUE_WORK_SKILL_VERSION,
+    IntegrationError,
     codex_integration_status,
     install_codex_integration,
     install_integration,
@@ -68,7 +71,7 @@ def read_hooks(home: Path) -> dict[str, Any]:
     return json.loads((home / "hooks.json").read_text())
 
 
-def installed_skill(home: Path, harness: str = "codex") -> Path:
+def installed_skill(home: Path, harness: Harness = "codex") -> Path:
     return issue_work_skill_directory(integration(harness), home)
 
 
@@ -152,7 +155,7 @@ def test_install_refuses_to_overwrite_an_unmanaged_skill(tmp_path: Path) -> None
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: dashpot-issue-work\n---\nMine.\n")
 
-    with pytest.raises(RuntimeError, match="not managed by Dashpot"):
+    with pytest.raises(IntegrationError, match="not managed by Dashpot"):
         install_codex_integration(home, command_path=publisher(tmp_path))
 
     assert not (home / "hooks.json").exists()
@@ -161,7 +164,7 @@ def test_install_refuses_to_overwrite_an_unmanaged_skill(tmp_path: Path) -> None
 
 @pytest.mark.parametrize("harness", ["codex", "claude-code"])
 def test_a_publisher_path_containing_spaces_is_executable(
-    tmp_path: Path, harness: str
+    tmp_path: Path, harness: Harness
 ) -> None:
     home = codex_home(tmp_path)
     spec = integration(harness)
@@ -271,7 +274,7 @@ def test_install_replaces_a_stale_publisher_path(tmp_path: Path) -> None:
 
 
 def test_install_requires_an_existing_codex_home(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="no Codex configuration directory"):
+    with pytest.raises(IntegrationError, match="no Codex configuration directory"):
         install_codex_integration(tmp_path / ".codex", command_path=publisher(tmp_path))
 
 
@@ -281,7 +284,7 @@ def test_malformed_hooks_file_is_an_error_and_left_untouched(
     home = codex_home(tmp_path)
     (home / "hooks.json").write_text("{not json")
 
-    with pytest.raises(RuntimeError, match="fix or move the file"):
+    with pytest.raises(IntegrationError, match="fix or move the file"):
         install_codex_integration(home, command_path=publisher(tmp_path))
 
     assert (home / "hooks.json").read_text() == "{not json"
@@ -617,7 +620,7 @@ def test_claude_code_status_and_missing_home(tmp_path: Path) -> None:
     assert "stale: Claude Code session claude-stale" in joined
     assert "no SessionEnd delivered" in joined
 
-    with pytest.raises(RuntimeError, match="no Claude Code configuration"):
+    with pytest.raises(IntegrationError, match="no Claude Code configuration"):
         install_integration("claude-code", tmp_path / "absent", command_path=command)
 
 
@@ -635,8 +638,8 @@ def test_each_harness_removal_only_touches_its_own_file(tmp_path: Path) -> None:
 
 
 def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="unsupported harness"):
-        install_integration("cursor", tmp_path)
+    with pytest.raises(HarnessError, match="unsupported harness"):
+        install_integration(cast("Harness", "cursor"), tmp_path)
 
 
 def test_status_reports_the_identity_a_sandboxed_command_would_claim(
@@ -834,7 +837,7 @@ def test_resolve_hook_command_reports_a_missing_publisher(
     monkeypatch.setattr(sysconfig, "get_path", lambda name: str(tmp_path / "absent"))
     monkeypatch.setattr(shutil, "which", lambda name: None)
 
-    with pytest.raises(RuntimeError, match="reinstall Dashpot"):
+    with pytest.raises(IntegrationError, match="reinstall Dashpot"):
         resolve_hook_command(spec)
 
 
@@ -860,7 +863,7 @@ def linked_worktree(root: Path) -> tuple[Path, Path]:
     return main.resolve(), linked.resolve()
 
 
-def environment_publisher(tree: Path, harness: str) -> Path:
+def environment_publisher(tree: Path, harness: Harness) -> Path:
     """The publisher a ``.venv`` inside ``tree`` would install."""
     command = tree / ".venv" / "bin" / integration(harness).command_name
     command.parent.mkdir(parents=True)
@@ -872,7 +875,7 @@ def environment_publisher(tree: Path, harness: str) -> Path:
 @pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
 def test_install_refuses_a_publisher_inside_a_linked_worktree(
     tmp_path: Path,
-    harness: str,
+    harness: Harness,
     make_home: Callable[[Path], Path],
     hooks_file: str,
 ) -> None:
@@ -882,7 +885,7 @@ def test_install_refuses_a_publisher_inside_a_linked_worktree(
     main, linked = linked_worktree(tmp_path)
     command = environment_publisher(linked, harness)
 
-    with pytest.raises(RuntimeError) as refusal:
+    with pytest.raises(IntegrationError) as refusal:
         install_integration(harness, home, command_path=command)
 
     message = str(refusal.value)
@@ -901,7 +904,7 @@ def test_install_refuses_a_publisher_inside_a_linked_worktree(
 @pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
 def test_install_binds_a_publisher_in_the_main_working_tree(
     tmp_path: Path,
-    harness: str,
+    harness: Harness,
     make_home: Callable[[Path], Path],
     hooks_file: str,
 ) -> None:
@@ -924,7 +927,7 @@ def test_install_binds_a_publisher_in_the_main_working_tree(
 @pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
 def test_install_binds_a_publisher_outside_any_git_working_tree(
     tmp_path: Path,
-    harness: str,
+    harness: Harness,
     make_home: Callable[[Path], Path],
     hooks_file: str,
 ) -> None:
@@ -957,7 +960,7 @@ def test_a_bare_repository_names_no_main_working_tree_to_run_from(
     home = codex_home(tmp_path)
     command = environment_publisher(checkout.resolve(), "codex")
 
-    with pytest.raises(RuntimeError) as refusal:
+    with pytest.raises(IntegrationError) as refusal:
         install_integration("codex", home, command_path=command)
 
     message = str(refusal.value)
@@ -972,7 +975,7 @@ def test_a_bare_repository_names_no_main_working_tree_to_run_from(
 @pytest.mark.parametrize(("harness", "make_home", "hooks_file"), HARNESS_HOMES)
 def test_status_warns_about_a_linked_worktree_binding_until_its_file_is_gone(
     tmp_path: Path,
-    harness: str,
+    harness: Harness,
     make_home: Callable[[Path], Path],
     hooks_file: str,
 ) -> None:

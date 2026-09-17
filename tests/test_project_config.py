@@ -13,14 +13,16 @@ from dashpot.issues.issue_resolution import configured_issue_source
 from dashpot.issues.local_markdown_issues import LocalMarkdownIssuesSource
 from dashpot.issues.pull_request_sources import UnconfiguredPullRequestSource
 from dashpot.issues.source_factories import (
+    IssueSourceError,
     build_issue_source,
     build_pull_request_source,
 )
-from dashpot.observation.collect import create_project_collector
+from dashpot.observation.collect import ObservationError, create_project_collector
 from dashpot.project.project_config import (
     PROJECT_CONFIG_NAME,
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
+    ProjectConfigError,
     load_project_config,
     parse_project_config,
 )
@@ -79,7 +81,7 @@ def test_rejects_non_positive_or_non_numeric_reconciliation_period(
 ) -> None:
     write_config(tmp_path, {"kind": "github", "reconciliationSeconds": value})
 
-    with pytest.raises(RuntimeError, match=r"issueSource\.reconciliationSeconds"):
+    with pytest.raises(ProjectConfigError, match=r"issueSource\.reconciliationSeconds"):
         load_project_config(tmp_path)
 
 
@@ -90,7 +92,7 @@ def test_rejects_overflowed_json_reconciliation_period(tmp_path: Path) -> None:
         '"issueSource":{"kind":"github","reconciliationSeconds":1e309}}'
     )
 
-    with pytest.raises(RuntimeError, match=r"issueSource\.reconciliationSeconds"):
+    with pytest.raises(ProjectConfigError, match=r"issueSource\.reconciliationSeconds"):
         parse_project_config(text, path)
 
 
@@ -148,12 +150,12 @@ def test_rejects_invalid_issue_source_configuration(
 ) -> None:
     write_config(tmp_path, source)
 
-    with pytest.raises(RuntimeError, match=message):
+    with pytest.raises(ProjectConfigError, match=message):
         load_project_config(tmp_path)
 
 
 def test_a_missing_project_configuration_names_its_path(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="Project configuration not found"):
+    with pytest.raises(ProjectConfigError, match="Project configuration not found"):
         load_project_config(tmp_path)
 
 
@@ -161,7 +163,7 @@ def test_an_unreadable_project_configuration_names_its_path(tmp_path: Path) -> N
     # A directory where the file belongs raises OSError on read, not absence.
     (tmp_path / PROJECT_CONFIG_NAME).mkdir(parents=True)
 
-    with pytest.raises(RuntimeError, match="cannot read Project configuration"):
+    with pytest.raises(ProjectConfigError, match="cannot read Project configuration"):
         load_project_config(tmp_path)
 
 
@@ -186,7 +188,7 @@ def test_an_unreadable_project_configuration_names_its_path(tmp_path: Path) -> N
 def test_rejects_malformed_project_configuration_text(
     tmp_path: Path, text: str, message: str
 ) -> None:
-    with pytest.raises(RuntimeError, match=message):
+    with pytest.raises(ProjectConfigError, match=message):
         parse_project_config(text, tmp_path / PROJECT_CONFIG_NAME)
 
 
@@ -223,12 +225,12 @@ def test_project_configuration_forbids_coercion_and_unknown_fields(
         "issueSource": {"kind": "github"},
     }
 
-    with pytest.raises(RuntimeError, match="displayLabel must be a string"):
+    with pytest.raises(ProjectConfigError, match="displayLabel must be a string"):
         parse_project_config(json.dumps(document), path)
 
     document["displayLabel"] = "Dashpot"
     document["extra"] = True
-    with pytest.raises(RuntimeError, match="has unexpected fields: extra"):
+    with pytest.raises(ProjectConfigError, match="has unexpected fields: extra"):
         parse_project_config(json.dumps(document), path)
 
 
@@ -246,7 +248,7 @@ def test_project_collector_rejects_changed_configuration(tmp_path: Path) -> None
         str(tmp_path),
     )
 
-    with pytest.raises(RuntimeError, match="configuration changed after resolving"):
+    with pytest.raises(ObservationError, match="configuration changed after resolving"):
         create_project_collector(renamed, git=git)
 
 
@@ -290,7 +292,7 @@ def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None
         completed(stderr="error: No such remote 'origin'", returncode=2),
     )
 
-    with pytest.raises(RuntimeError, match="GitHub origin remote"):
+    with pytest.raises(IssueSourceError, match="GitHub origin remote"):
         create_project_collector(project(tmp_path), git=git)
 
 
@@ -314,7 +316,7 @@ def test_build_issue_source_requires_github_repository_anchor(tmp_path: Path) ->
     write_config(tmp_path, {"kind": "github"})
     git = fake_git(completed(stderr="error: No such remote 'origin'", returncode=2))
 
-    with pytest.raises(RuntimeError, match="GitHub origin remote"):
+    with pytest.raises(IssueSourceError, match="GitHub origin remote"):
         build_issue_source(tmp_path, load_project_config(tmp_path), timeout=7, git=git)
 
 

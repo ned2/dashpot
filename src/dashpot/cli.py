@@ -1,3 +1,5 @@
+"""Define the ``dashpot`` command line and state every refusal on one line."""
+
 from __future__ import annotations
 
 import sys
@@ -14,6 +16,7 @@ from .composition import (
     run_cleanup,
 )
 from .core.errors import DashpotError
+from .core.model import Harness
 from .core.worktree_paths import worktree_root
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
@@ -61,8 +64,6 @@ from .sessions.work import (
     stop_issue_work,
 )
 from .ui.app import DashpotApp
-
-Harness = Literal["codex", "claude-code"]
 
 USAGE_EXIT_CODE = 2
 
@@ -724,11 +725,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     except CycloptsError:
         return USAGE_EXIT_CODE
-    except (DashpotError, RuntimeError) as exc:
+    except DashpotError as exc:
         # The stated error contract: every command failure is one
-        # ``dashpot: <message>`` line on stderr and exit 2. The RuntimeError
-        # arm stays while bare ``raise RuntimeError`` sites migrate onto
-        # DashpotError.
+        # ``dashpot: <message>`` line on stderr and exit 2.
         print(f"dashpot: {exc}", file=sys.stderr)
         return USAGE_EXIT_CODE
     return int(result)

@@ -1,3 +1,5 @@
+"""Observe the Observation Targets, Branches, and integration state of a Repository."""
+
 from __future__ import annotations
 
 import re

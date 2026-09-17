@@ -9,7 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.core.record_store import LockedRecordStore, replace_atomically
+from dashpot.core.record_store import (
+    LockedRecordStore,
+    RecordKeyError,
+    replace_atomically,
+)
 
 KEY = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -39,7 +43,7 @@ def test_a_replaced_record_survives_a_reread(tmp_path: Path) -> None:
 def test_unsafe_keys_are_refused_before_any_write(tmp_path: Path) -> None:
     store = store_at(tmp_path)
 
-    with pytest.raises(RuntimeError, match="record key"):
+    with pytest.raises(RecordKeyError, match="record key"):
         store.record_path("../escape")
 
     assert not (tmp_path.parent / "escape.json").exists()

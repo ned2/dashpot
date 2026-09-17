@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..core.commands import CommandRunner, run_command
+from ..core.commands import CommandError, CommandRunner, run_command
 from ..core.errors import DashpotError
 
 # Every GraphQL query Dashpot sends carries this selection beside its data,
@@ -263,8 +263,8 @@ class GitHubGateway:
     ) -> Mapping[str, Any]:
         try:
             result = self.runner(args, self.root, self.timeout)
-        except (OSError, RuntimeError) as exc:
-            # The runner maps a missing gh and a timeout to RuntimeError; any
+        except (OSError, CommandError) as exc:
+            # The runner maps a missing gh and a timeout to CommandError; any
             # other failure to run it (a permission error, an exhausted
             # process table) is the same refusal to reach GitHub.
             raise GitHubRequestError(classify_failure_text(str(exc)), str(exc)) from exc
