@@ -450,7 +450,7 @@ network access.
 ### Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests
-targeting `main`, on the merge queue's candidates, and on manual dispatch.
+targeting `main` and on manual dispatch.
 Integration into `main` does not trigger a duplicate run. It runs the all-files
 pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
 and macOS under Python 3.11 and 3.14, adds Python 3.12/3.13 on Ubuntu,
@@ -465,12 +465,14 @@ Coverage has no percentage threshold; tests and report generation must pass.
 The CI report is additional diagnostic evidence; unchanged reviewed code does
 not need another review when that report becomes available.
 
-A pull-request run checks out the exact branch head; a merge-queue run checks
-out the candidate the queue built on the current `main`, which is what lands
-([ADR 0044](docs/adr/0044-integrate-pull-requests-through-a-merge-queue.md)).
-Neither requires the branch to contain `main`. The quality job publishes the
-verified head, base, and run identity in the `ci-revision-<attempt>` artifact.
-A PR or candidate changing only root Markdown or Markdown under `docs/` or
+A pull-request run checks out the exact branch head and does not require the
+branch to contain `main`
+([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)),
+so a semantic conflict between two independently green PRs surfaces on the
+next PR run that contains both rather than before merge.
+The quality job publishes the verified head, base, and run identity in the
+`ci-revision-<attempt>` artifact.
+A PR changing only root Markdown or Markdown under `docs/` or
 `conformance/` runs the documentation lane: quality and revision-artifact
 checks still run, while tests, build, installation, and minimum-Git jobs are
 skipped. The complete diff (including both sides of renames) is classified by
@@ -486,10 +488,8 @@ See [CI and test performance](docs/ci-performance.md) for benchmark commands,
 worker selection, UI profiling, and measured results. It is the
 required-check context to configure for `main`; repository administration
 setup is described in [development integration](docs/development-integration.md).
-The merge queue is the operator's half of that setup: the `Protect main`
-ruleset needs the `merge_queue` rule with squash as its method and no
-strict up-to-date requirement, installed only after a workflow that runs on
-`merge_group` has reached `main`
+The operator's half of that setup is the `Protect main` ruleset: the
+`CI required` check without a strict up-to-date requirement
 ([configure required CI](docs/development-integration.md#configure-required-ci)).
 
 Every CI verification step has an exact local equivalent:
@@ -781,13 +781,12 @@ it:
    integration. If the branch changes, validate and review the changes and
    wait for its new CI run. `main` advancing beyond the branch's base is not
    a reason to update the branch; only a textual conflict is.
-5. Queue the PR with `gh pr merge --squash --auto <number>` following the
-   [merge queue procedure](docs/development-integration.md#integrate-a-verified-pr).
-   The queue builds a candidate on the current `main`, verifies it under the
-   `merge_group` event, and squash-merges when green; a failed candidate
-   drops the PR from the queue for the implementing agent to diagnose.
-   Verify the PR is merged, synchronize the local main checkout only through
-   an authorized fast-forward, and leave Worktree cleanup separate.
+5. Enable auto-merge with `gh pr merge --squash --auto <number>` following
+   the [integration procedure](docs/development-integration.md#integrate-a-verified-pr).
+   GitHub squash-merges the PR once every required check on its head is
+   green; the merged result is not verified before it lands. Verify the PR is
+   merged, synchronize the local main checkout only through an authorized
+   fast-forward, and leave Worktree cleanup separate.
 
 Agent sessions use the `dashpot-issue-work` skill to declare and verify the
 Issue they are working on (see
@@ -802,7 +801,7 @@ These `living` documents carry the detail this README points at:
   configuration, diagnosis, upgrades, and removal.
 - [`docs/releasing.md`](docs/releasing.md) covers release gates, publishing, and recovery.
 - [`docs/development-integration.md`](docs/development-integration.md) covers
-  Dashpot's required CI and merge queue setup and queued integration.
+  Dashpot's required CI ruleset and the integration procedure.
 - [`docs/domain-language.md`](docs/domain-language.md) defines the terms used in
   the interface, code, and documentation, including the phrasings to avoid.
 - [`docs/agent-sessions.md`](docs/agent-sessions.md) documents `dashpot

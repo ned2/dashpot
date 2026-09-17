@@ -116,16 +116,19 @@ Green CI on unchanged reviewed code finishes verification without another
 routine review. Follow the README's [integration sequence](README.md#contributing)
 and keep the Issue Binding through all delegated work and green PR CI.
 
-Pull requests integrate through GitHub's merge queue by squash merge
-([ADR 0044](docs/adr/0044-integrate-pull-requests-through-a-merge-queue.md)):
-once the PR's own CI is green, queue it with `gh pr merge --squash --auto`,
-and the queue verifies a candidate built on the current `main` before it
-lands. The branch's own commits are not what lands on `main`; the PR title and
-body are. A PR does not need to contain the current `main`, so `main`
-advancing past the branch's base is not a reason to rebase. When the branch
-conflicts with `main` textually, this Repository authorizes the rebase: rebase
-the branch onto `origin/main`, rerun the local review gate against the new
-base, and force-push the branch with an explicit lease on its previous head
+Pull requests integrate by squash merge on GitHub once the PR's own CI is
+green ([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)):
+enable auto-merge with `gh pr merge --squash --auto`. The branch's own
+commits are not what lands on `main`; the PR title and body are. A PR does
+not need to contain the current `main`, so `main` advancing past the branch's
+base is not a reason to rebase. Nothing runs CI on `main` itself, so two PRs
+that each passed on their own but conflict semantically surface on the first
+run that contains both, which is the next PR branched from the new `main`;
+the agent implementing that PR diagnoses the failure against `main` rather
+than against its own change. When the branch conflicts with `main` textually,
+this Repository authorizes the rebase: rebase the branch onto `origin/main`,
+rerun the local review gate against the new base, and force-push the branch
+with an explicit lease on its previous head
 (`--force-with-lease=refs/heads/<branch>:<old-head>`), without asking first. A
 conflict-free rebase whose diff against the old head is exactly what landed on
 `main` is content-preserving and needs no further review; a rebase that

@@ -1,9 +1,18 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-17
+amended-by: 0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md
 ---
 
 # Integrate pull requests through a merge queue
+
+Amended by
+[ADR 0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md):
+GitHub offers the `merge_queue` rule only on organization-owned repositories,
+and `ned2/dashpot` is user-owned, so the queue described here was never
+enabled. The `merge_group` workflow path has been removed and the ruleset
+drops its up-to-date requirement instead. The analysis of what the up-to-date
+rule protected, and the retirement of the routine rebase, stand.
 
 [ADR 0037](0037-review-locally-and-verify-pr-head-before-integration.md)
 verified the exact PR head before integration and required that head to
