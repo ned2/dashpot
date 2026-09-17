@@ -6,6 +6,14 @@ amended-by: 0044-integrate-pull-requests-through-a-merge-queue.md
 
 # Review locally and verify the PR head before integration
 
+Amended by [ADR 0044](0044-integrate-pull-requests-through-a-merge-queue.md):
+the requirement that a PR head contain the current `main`, the CI
+base-ancestor check, and the validated fast-forward push with exclusive
+PR-branch ownership described below are retired. Integration is a GitHub
+merge queue operation whose `merge_group` run verifies the candidate that
+lands. The local review gate, independent review, and the exact-head
+verification of the `pull_request` run remain as recorded here.
+
 Dashpot development requires independent review and successful CI before
 integration into remote `main`. The former push-then-watch sequence could
 discover failures only after integration; collecting coverage solely in CI

@@ -18,7 +18,7 @@ four independent changes needed ten CI runs instead of four.
 Squash merging already gives the ruleset's other guarantees on its own. GitHub
 creates and signs the squash commit, so `main` stays linear and signed
 whatever the branch contains. The up-to-date rule was the only one that
-serialised integration, and what it protects is that CI ran on exactly the
+serialized integration, and what it protects is that CI ran on exactly the
 content that lands.
 
 A GitHub merge queue keeps that protection without the rebase treadmill. A PR
@@ -41,7 +41,7 @@ strict up-to-date requirement; signatures, linear history, and the
 workflow change and is recorded in
 [development integration](../development-integration.md#configure-required-ci).
 
-A rebase is no longer a routine step. It remains the authorised response to a
+A rebase is no longer a routine step. It remains the authorized response to a
 textual conflict with `main`, and a conflict-resolving rebase still changes the
 reviewed diff and needs focused follow-up review. The validated fast-forward
 push that ADR 0037 described is retired: integration is a GitHub merge

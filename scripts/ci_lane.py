@@ -1,4 +1,4 @@
-"""Select CI verification from the complete candidate diff and enforce its results."""
+"""Select CI verification from the complete PR or candidate diff and enforce its results."""
 
 from __future__ import annotations
 

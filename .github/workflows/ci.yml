@@ -26,6 +26,15 @@ on:
 permissions:
   contents: read
 
+# The revision every job checks out and the quality job records. A pull
+# request run verifies the branch head as pushed; a merge queue run verifies
+# the candidate the queue built on the current main (its github.sha), which
+# is what integration lands. Neither requires the branch to contain main: the
+# queue supplies that guarantee.
+env:
+  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+
 # Rapid successive PR updates cancel superseded runs so only the
 # newest cumulative commit completes. A merge queue candidate is never
 # cancelled: the queue owns its lifecycle. Future release/tag workflows must define
@@ -43,14 +52,12 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
           fetch-depth: 0
       - name: Classify the complete PR diff
         id: classify
         env:
           FORCE_FULL: ${{ contains(toJSON(inputs), 'full-verification') }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: python scripts/ci_lane.py classify
 
   quality:
@@ -60,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
           fetch-depth: 0
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -80,15 +87,8 @@ jobs:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      # A pull request run verifies the branch head as pushed; a merge queue
-      # run verifies the candidate the queue built on the current main, which
-      # is what integration lands. Neither requires the branch to contain
-      # main: the queue supplies that guarantee.
       - name: Record the verified revision
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-        env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
           python - <<'PYREVISION'
@@ -134,7 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
@@ -192,7 +192,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -248,7 +248,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
@@ -287,7 +287,7 @@ jobs:
           apt-get install --yes --no-install-recommends git ca-certificates procps zstd
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
           persist-credentials: false
       # The container user differs from the host owner of this bind mount;
       # checkout's temporary Git config does not persist into ordinary steps.
@@ -342,7 +342,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
       - name: Require every job expected for the selected lane
         env:
           RESULTS: ${{ toJSON(needs) }}

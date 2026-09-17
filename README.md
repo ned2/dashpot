@@ -486,6 +486,11 @@ See [CI and test performance](docs/ci-performance.md) for benchmark commands,
 worker selection, UI profiling, and measured results. It is the
 required-check context to configure for `main`; repository administration
 setup is described in [development integration](docs/development-integration.md).
+The merge queue is the operator's half of that setup: the `Protect main`
+ruleset needs the `merge_queue` rule with squash as its method and no
+strict up-to-date requirement, installed only after a workflow that runs on
+`merge_group` has reached `main`
+([configure required CI](docs/development-integration.md#configure-required-ci)).
 
 Every CI verification step has an exact local equivalent:
 

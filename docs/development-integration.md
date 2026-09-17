@@ -21,8 +21,9 @@ commits, linear history, prevention of force pushes/deletion, and the existing
 empty bypass list. Require the exact job context `CI required`, not a
 workflow-name prefix. Do not require branches to be up to date: the merge
 queue below supplies that guarantee on the candidate it builds, and the
-requirement would only force a rebase before a PR could enter the queue. The aggregate explicitly
-rejects failed, cancelled, and unexpectedly skipped prerequisites. Documentation-only
+requirement would only force a rebase before a PR could enter the queue.
+The aggregate explicitly rejects failed, cancelled, and unexpectedly skipped
+prerequisites. Documentation-only
 PRs still run quality checks and publish the revision artifact, but may skip the
 test, build, installation, and minimum-Git jobs after successful classification.
 Mixed changes and manual/reusable invocations run full verification. The
