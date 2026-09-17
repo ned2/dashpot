@@ -1,8 +1,9 @@
-"""Concise, high-visibility summary of exceptional observation state.
+"""The dashboard's two readouts of exceptional state: the alert line and the Diagnostics box.
 
-The alert is a readout derived from current facts, never stored: it appears
-when something is stale, unavailable, failing, or slow, and disappears on its
-own when the facts recover. Diagnostics remains the durable detail record.
+Both are derived from current facts, never stored. The alert is the concise,
+high-visibility summary: it appears when something is stale, unavailable,
+failing, or slow, and disappears on its own when the facts recover. The
+Diagnostics box is the durable detail record, every Diagnostic in full.
 """
 
 from __future__ import annotations
@@ -82,7 +83,7 @@ class Alert:
         return "\n".join(item.display for item in self.items)
 
 
-def summarize_diagnostics(
+def list_diagnostics(
     store: WorkspaceObservationStore,
     *,
     failures: Mapping[ObservationKey, str] | None = None,

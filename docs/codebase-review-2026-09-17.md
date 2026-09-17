@@ -180,7 +180,7 @@ Ordered by signal, not by package.
   and Issue #234 already record this as deferred. Assessed by #234:
   [ADR 0047](adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)
   keeps the screen as one Textual adapter and moves the diagnostics assembly
-  to `ui/alerts.py` as `summarize_diagnostics`.
+  to `ui/alerts.py` as `list_diagnostics`.
 - **Widget-id pairing is untested:** `item_filter.py:70-84` composes
   `f"{item}-search"` while `app.py:316,325` and `dashpot.tcss:105,109` spell
   the ids literally. `dashpot.tcss:270-272` and `:546-549` repeat one rule.

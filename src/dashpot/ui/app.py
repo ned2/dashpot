@@ -35,7 +35,7 @@ from ..queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
 from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
 from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError
-from .alerts import Alert, summarize_alerts, summarize_diagnostics
+from .alerts import Alert, list_diagnostics, summarize_alerts
 from .cleanup_flow import CleanupFlow, CleanupSelection
 from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .column_editor import IssueColumnEditor
@@ -504,7 +504,7 @@ class DashboardScreen(Screen[None]):
     def update_diagnostics(self) -> None:
         """Render every Diagnostic in the Diagnostics box, then the alert above it."""
         app = self.dashpot
-        readout = summarize_diagnostics(
+        readout = list_diagnostics(
             app.store,
             failures=app.observations.errors,
             launcher_diagnostics=app.launcher_configuration.diagnostics,
@@ -514,7 +514,7 @@ class DashboardScreen(Screen[None]):
             self.query_one("#diagnostics", Static),
             readout,
             shown="-has-messages",
-            text=readout.lines if readout is not None else "",
+            text=lambda readout: readout.lines,
         )
         self.update_alert()
 
@@ -532,23 +532,32 @@ class DashboardScreen(Screen[None]):
             self.query_one("#alert", Static),
             alert,
             shown="-visible",
-            text=alert.text if alert is not None else "",
+            text=lambda alert: alert.text,
         )
 
     @staticmethod
     def paint_readout(
-        widget: Static, readout: Alert | None, *, shown: str, text: str
+        widget: Static,
+        readout: Alert | None,
+        *,
+        shown: str,
+        text: Callable[[Alert], str],
     ) -> None:
-        """Show a readout coloured by its most severe line, or hide it entirely."""
-        # Either box takes no space at all while there is nothing to report;
-        # its ``shown`` class displays it, and the box is coloured by the
-        # most severe line in it rather than by having any line at all.
+        """Show a readout coloured by its most severe line, or hide it entirely.
+
+        ``shown`` is the class that displays the box and ``text`` how the
+        readout is joined for it: one line for the alert, a line per
+        Diagnostic for the box.
+        """
+        # Either box takes no space at all while there is nothing to report,
+        # and the box is coloured by the most severe line in it rather than
+        # by having any line at all.
         widget.set_class(readout is not None, shown)
         for severity in ("error", "warning", "info"):
             widget.set_class(
                 readout is not None and readout.severity == severity, f"-{severity}"
             )
-        widget.update(text)
+        widget.update("" if readout is None else text(readout))
 
 
 class DashpotApp(App[None]):

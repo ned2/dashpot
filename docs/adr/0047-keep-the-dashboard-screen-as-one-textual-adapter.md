@@ -16,7 +16,7 @@ lifecycle — and the plain objects that already hold every decision, and each
 candidate seam would move a handler's few lines behind a protocol or callback
 the screen must still satisfy. One derivation is moved: the Diagnostics
 readout, the last content the screen assembled itself, now comes from
-`summarize_diagnostics` beside `summarize_alerts` in
+`list_diagnostics` beside `summarize_alerts` in
 [`alerts.py`](../../src/dashpot/ui/alerts.py), and the two readouts are
 painted by one method.
 
@@ -72,7 +72,7 @@ protocol or callback surface it adds.
 | A query-submission controller for the search, lifecycle and ordering handlers | Fewer `@on` handlers on the screen. | `ListQueries` already owns what a filter bar submits, for both paged kinds; each handler left is a decorated Textual dispatch target that reads one control and calls it. Moving them to a plain object leaves the same handlers forwarding to it, or a mixin that reintroduces the MRO hazard below. `order_issues_by` is the only logic left (17 lines), and its tests drive the header through the pilot. Rejected. |
 | An Issue-opening flow holding `selected_identity` and `open_when_resolved` with `open_issue`, `open_bound_issue` and `open_resolved_issue` | The wait for an off-page bound Issue becomes a plain state machine with a host protocol, as the mutating flows are. | That state lives on `DashpotApp`, not the screen, and `request_identities` also serves every refresh's bound-Issue resolution, so the flow would either own refresh identities too or split the state again. The wait is two fields and one predicate; `test_enter_resolves_a_bound_issue_off_the_page_before_opening_it` in [`test_dashboard_panes.py`](../../tests/test_dashboard_panes.py) pins it. Not warranted at this size; the first candidate to revisit if the wait grows (queued opens, a timeout, more than one pending identity). |
 | A Worktree launch flow for `request_worktree_open` and `open_worktree` | Symmetry with the Remote Fetch and Cleanup flows. | Twenty-eight lines on the app with one field of state, the table's `opening` flag, which the table owns. The refusals are already pinned through the dashboard in [`test_app_worktree_launcher.py`](../../tests/test_app_worktree_launcher.py). A flow would add a host protocol for `notify`, `off_loop` and the table. Rejected. |
-| A pure Diagnostics readout beside `summarize_alerts` | The four-source gathering, the Project prefix and the severity rank become testable without an App, in the module that owns the severity vocabulary; the screen stops repeating two rules that module already expresses as values (`Alert.severity`, `AlertItem.display`); and the two readout methods take one shape, painted by one method. | The screen still reads the observation runner, the launcher configuration, the fetch flow and the store to call it, as it does for the alert. No protocol or callback is added; the function returns the same `Alert` the alert does. Both codebase reviews named this assembly as the pure function left on the screen. **Chosen.** |
+| A pure Diagnostics readout beside `summarize_alerts` | The four-source gathering, the Project prefix and the severity rank become testable without an App, in the module that owns the severity vocabulary; the screen stops repeating two rules that module already expresses as values (`Alert.severity`, `AlertItem.display`); and the two readout methods take one shape, painted by one method. | The screen still reads the observation runner, the launcher configuration, the fetch flow and the store to call it, as it does for the alert. No protocol or callback is added; the function returns the same `Alert` the alert does. The [2026-09-13 review](../codebase-review-2026-09-13.md#apppy-decomposition) counted diagnostics rendering among the screen's cohesion problems, and the [2026-09-17 review](../codebase-review-2026-09-17.md#fresh-review-judgement-findings) called this assembly the pure function left on it. **Chosen.** |
 | Leave the screen whole | The dashboard's Textual surface is one class, its handlers thin, its decisions elsewhere. | Chosen for everything but the readout. |
 
 ## Why the screen stays cohesive
@@ -90,7 +90,7 @@ gone.
 
 Observation stays independent of the UI:
 [`test_module_boundaries.py`](../../tests/test_module_boundaries.py) requires
-the headless modules to load without Textual, and `summarize_diagnostics`
+the headless modules to load without Textual, and `list_diagnostics`
 imports only what `summarize_alerts` already did.
 
 Revisit when a screen method grows a decision of its own that the pilot
@@ -103,7 +103,7 @@ reopen this.
 
 The moved derivation is pinned twice: `test_healthy_state_has_no_diagnostics`,
 `test_diagnostics_list_the_apps_own_failures_before_every_observed_line` and
-`test_diagnostics_carry_the_severity_they_were_observed_with` in
+`test_a_project_diagnostic_keeps_its_severity_and_names_its_project` in
 [`test_alerts.py`](../../tests/test_alerts.py) assert the order, the Project
 prefix and the severity without an App, and the Diagnostics box keeps its
 existing tests through the widget —
