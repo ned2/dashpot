@@ -35,6 +35,7 @@ from .processes import (
     host_process_lookup,
     observe_agent_ancestry,
 )
+from .session_labels import work_session_label
 from .session_matching import SessionEvidence
 from .work_store import (
     SESSION_KEY,
@@ -155,7 +156,7 @@ def _process_identity(
     return AgentSessionIdentity(
         harness=harness,
         session_key=SessionEvidence(harness, session_id).storage_key(),
-        session_label=f"{harness} pid {process.pid}",
+        session_label=work_session_label(harness, session_id, pid=process.pid),
         process=process,
         session_id=session_id,
     )
@@ -168,10 +169,10 @@ def _session_identity(confirmed: ValidatedSessionIdentity) -> AgentSessionIdenti
         session_key=SessionEvidence(
             confirmed.harness, confirmed.session_id
         ).storage_key(),
-        session_label=(
-            f"{confirmed.harness} pid {confirmed.process.pid}"
-            if confirmed.process is not None
-            else f"{confirmed.harness} session {confirmed.session_id}"
+        session_label=work_session_label(
+            confirmed.harness,
+            confirmed.session_id,
+            pid=confirmed.process.pid if confirmed.process is not None else None,
         ),
         process=confirmed.process,
         session_id=confirmed.session_id,

@@ -62,6 +62,7 @@ class HookObserverTests(unittest.TestCase):
 
         self.assertEqual("waiting", runs[0].state)
         self.assertEqual("live", runs[0].session_id)
+        self.assertEqual("live hook", runs[0].process_or_session)
         self.assertIsNone(runs[0].issue_reference_hint)
         self.assertEqual([], diagnostics)
 
@@ -269,6 +270,7 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual([], diagnostics)
         self.assertEqual("claude-code-session:claude-live", runs[0].id)
         self.assertEqual("claude-code", runs[0].harness)
+        self.assertEqual("claude-live hook", runs[0].process_or_session)
         self.assertEqual("running", runs[0].state)
 
     def test_codex_and_claude_code_sessions_coexist_at_one_worktree(
@@ -471,6 +473,7 @@ class WorkObserverTests(unittest.TestCase):
                 )
 
                 self.assertEqual([work.run_id], [run.id for run in runs])
+                self.assertEqual(work.session_label, runs[0].process_or_session)
                 self.assertEqual("unknown", runs[0].state)
                 self.assertEqual(
                     ["agent-session-liveness-unknown"],
@@ -489,6 +492,7 @@ class WorkObserverTests(unittest.TestCase):
 
         self.assertEqual([], diagnostics)
         self.assertEqual("codex-session:session-b", runs[0].id)
+        self.assertEqual("session-b hook", runs[0].process_or_session)
         self.assertIsNone(runs[0].issue_id)
         self.assertEqual("running", runs[0].state)
 
@@ -607,6 +611,7 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
 
         self.assertEqual([], diagnostics)
         self.assertEqual([work.run_id], [run.id for run in runs])
+        self.assertEqual(work.session_label, runs[0].process_or_session)
         self.assertEqual("running", runs[0].state)
         self.assertEqual("I_example/project#7", runs[0].issue_id)
         self.assertEqual("2026-08-24T15:00:00Z", runs[0].last_activity_at)
@@ -668,6 +673,7 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         )
 
         self.assertEqual([work.run_id], [run.id for run in runs])
+        self.assertEqual(work.session_label, runs[0].process_or_session)
         # Session Liveness is unknown for both records, which is never
         # evidence that the session ended: the run is listed, not orphaned.
         self.assertEqual("unknown", runs[0].state)
