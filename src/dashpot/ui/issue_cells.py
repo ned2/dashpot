@@ -25,7 +25,14 @@ from ..observation.issue_list import (
     is_priority_label,
     issue_priority_label,
 )
-from .glyphs import ACTIVITY_COLUMN_GLYPH, SESSION_STATE_GLYPHS, Glyph
+from .glyphs import (
+    ACTIVITY_COLUMN_GLYPH,
+    DONE_EMPHASIS_COLORS,
+    NEUTRAL_EMPHASIS_COLORS,
+    OPEN_EMPHASIS_COLORS,
+    SESSION_STATE_GLYPHS,
+    Glyph,
+)
 
 IssueStateKind = Literal[
     "open",
@@ -35,10 +42,10 @@ IssueStateKind = Literal[
 ]
 
 GITHUB_ISSUE_STATE_COLORS: dict[IssueStateKind, tuple[str, str]] = {
-    "open": ("#1f883d", "#238636"),
-    "completed": ("#8250df", "#8957e5"),
-    "not-planned": ("#59636e", "#656c76"),
-    "duplicate": ("#59636e", "#656c76"),
+    "open": OPEN_EMPHASIS_COLORS,
+    "completed": DONE_EMPHASIS_COLORS,
+    "not-planned": NEUTRAL_EMPHASIS_COLORS,
+    "duplicate": NEUTRAL_EMPHASIS_COLORS,
 }
 # One block per Issue state; the states differ only by colour, so the Legend
 # shows every one of them.

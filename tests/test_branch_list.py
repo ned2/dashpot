@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from functools import partial
 
 from rich.text import Text
 
@@ -13,9 +14,9 @@ from dashpot.ui.branch_cells import (
     BRANCH_COLUMNS,
     branch_cells,
     branch_note,
-    build_branch_rows,
     fetch_age_text,
 )
+from dashpot.ui.list_rows import build_list_rows
 from factories import NOW, session, target, workspace
 from helpers import snapshot_of
 
@@ -251,7 +252,7 @@ def test_branch_cells_carry_every_scan_level_fact() -> None:
     assert plain(remote_only[:2]) == ["", "-"]
     assert plain(remote_only[7:]) == ["1h ago"]
 
-    rows = build_branch_rows(result, dark=True, now=CLOCK)
+    rows = build_list_rows(result.rows, partial(branch_cells, dark=True, now=CLOCK))
     assert [row.key for row in rows] == [row.key for row in result.rows]
     assert len(rows[0].cells) == len(BRANCH_COLUMNS)
     assert [column.label for column in BRANCH_COLUMNS] == [

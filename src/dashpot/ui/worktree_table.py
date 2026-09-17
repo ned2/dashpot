@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import ClassVar
 
 from rich.text import Text
@@ -22,15 +23,17 @@ class WorktreeTable(FocusCursorTable[str | Text]):
     opening = reactive(False, bindings=True)
     launch_available = reactive(False, bindings=True)
 
+    @dataclass(eq=False)
     class OpenRequested(Message):
-        def __init__(self, key: str) -> None:
-            super().__init__()
-            self.key = key
+        """Open the Worktree of the row ``key`` names, on this key press."""
 
+        key: str
+
+    @dataclass(eq=False)
     class CopyRequested(Message):
-        def __init__(self, key: str) -> None:
-            super().__init__()
-            self.key = key
+        """Copy the path of the Worktree row ``key`` names."""
+
+        key: str
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:

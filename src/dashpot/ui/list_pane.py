@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Literal, cast
 
 from rich.text import Text
@@ -41,12 +42,11 @@ __all__ = [
 class ListPane(Vertical):
     """A titled, content-sized table of every observed record of one kind."""
 
+    @dataclass(eq=False)
     class RowsChanged(Message):
         """The pane's record count changed, so the panes' shares may too."""
 
-        def __init__(self, pane: ListPane) -> None:
-            super().__init__()
-            self.pane = pane
+        pane: ListPane
 
         @property
         @override

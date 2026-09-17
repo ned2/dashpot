@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Self
 
 from rich.segment import Segment
@@ -32,6 +33,7 @@ class FocusCursorTable(DataTable[CellType]):
     # ``__init__``, whose long DataTable signature would have to be repeated.
     _header_tooltips: dict[ColumnKey, str] | None = None
 
+    @dataclass(eq=False)
     class FocusChanged(Message):
         """Recompute relationships when the visible cursor changes focus."""
 
@@ -125,17 +127,12 @@ class FocusCursorTable(DataTable[CellType]):
             row_index, column_index, base_style, width, cursor, hover
         )
 
+    @dataclass(eq=False)
     class RowBoundaryReached(Message):
         """Report a row move beyond this table so its screen may move focus."""
 
-        def __init__(
-            self,
-            table: FocusCursorTable[Any],
-            step: Literal[-1, 1],
-        ) -> None:
-            super().__init__()
-            self.table = table
-            self.step = step
+        table: FocusCursorTable[Any]
+        step: Literal[-1, 1]
 
         @property
         @override

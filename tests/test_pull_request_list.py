@@ -8,8 +8,15 @@ from datetime import UTC, datetime
 from rich.text import Text
 
 import factories
+from dashpot.observation.list_result import ListResult
 from dashpot.observation.observation_store import WorkspaceObservationStore
-from dashpot.observation.pull_request_list import PullRequestListQuery
+from dashpot.observation.pull_request_list import (
+    PullRequestListQuery,
+    PullRequestListRow,
+    PullRequestListSummary,
+)
+from dashpot.ui.glyphs import BAD_COLORS, DONE_COLORS, GOOD_COLORS, MUTED_COLORS
+from dashpot.ui.list_rows import ListRow, build_list_rows
 from dashpot.ui.pull_request_cells import (
     APPROVED_GLYPH,
     CHECKS_FAILURE_GLYPH,
@@ -18,11 +25,21 @@ from dashpot.ui.pull_request_cells import (
     DRAFT_GLYPH,
     MERGE_NOT_APPLICABLE_GLYPH,
     MERGED_GLYPH,
-    build_pull_request_rows,
+    pull_request_cells,
 )
 from helpers import snapshot_of
 
 NOW = datetime(2026, 9, 4, 4, 0, tzinfo=UTC)
+
+
+def pull_request_rows(
+    result: ListResult[PullRequestListRow, PullRequestListSummary], *, dark: bool
+) -> tuple[ListRow, ...]:
+    """The pane rows for ``result`` at ``NOW``, as the Pull Requests pane builds them."""
+    return build_list_rows(
+        result.rows,
+        lambda row: pull_request_cells(row.pull_request, dark=dark, now=NOW),
+    )
 
 
 def snapshot(*pull_requests):
@@ -147,8 +164,8 @@ def test_rows_render_draft_review_checks_mergeability_and_age_in_both_themes() -
     )
     result = WorkspaceObservationStore(snapshot(pull_request)).query_pull_requests()
 
-    dark_row = build_pull_request_rows(result, dark=True, now=NOW)[0]
-    light_row = build_pull_request_rows(result, dark=False, now=NOW)[0]
+    dark_row = pull_request_rows(result, dark=True)[0]
+    light_row = pull_request_rows(result, dark=False)[0]
 
     assert [str(cell) for cell in dark_row.cells] == [
         f"{DRAFT_GLYPH.symbol} draft",
@@ -224,7 +241,7 @@ def test_closed_rows_keep_lifecycle_and_draft_visible_in_both_themes() -> None:
         PullRequestListQuery(states=frozenset({"closed"}))
     )
     for dark in (False, True):
-        rows = build_pull_request_rows(result, dark=dark, now=NOW)
+        rows = pull_request_rows(result, dark=dark)
         for row, glyph, label in zip(
             rows, (CLOSED_GLYPH, MERGED_GLYPH), ("closed draft", "merged"), strict=True
         ):
@@ -277,17 +294,13 @@ def test_state_blocks_share_issue_character_and_use_github_foreground_colours() 
         factories.pull_request(3, state="closed", is_draft=True),
         factories.pull_request(4, state="merged"),
     )
-    colours = (
-        ("#1a7f37", "#3fb950"),
-        ("#59636e", "#9198a1"),
-        ("#d1242f", "#f85149"),
-        ("#8250df", "#ab7df8"),
-    )
+    # The state block's colours are the shared Glyph palette, never its own.
+    colours = (GOOD_COLORS, MUTED_COLORS, BAD_COLORS, DONE_COLORS)
     result = WorkspaceObservationStore(snapshot(*records)).query_pull_requests(
         PullRequestListQuery(states=frozenset({"open", "closed"}))
     )
     for dark in (False, True):
-        rows = build_pull_request_rows(result, dark=dark, now=NOW)
+        rows = pull_request_rows(result, dark=dark)
         for row, colour in zip(rows, colours, strict=True):
             cell = row.cells[0]
             assert isinstance(cell, Text)

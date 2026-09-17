@@ -9,21 +9,21 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from typing import Protocol
 
 from ..observation.issue_list import row_key
-from ..observation.list_result import ListResult
 from ..observation.paged_store import PagedObservationStore
 from ..observation.pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,
     PullRequestListRow,
-    PullRequestListSummary,
     pull_request_result_count_text,
 )
 from ..observation.related_rows import FocusedSource, RelatedRows
+from ..observation.session_list import shows_target
 from ..queries.page_navigation import PageNavigation, page_text, totals_text
 from ..queries.source_queries import ResourceKind
-from .branch_cells import BRANCH_COLUMNS, branch_note, build_branch_rows
+from .branch_cells import BRANCH_COLUMNS, branch_cells, branch_note
 from .focus_table import FocusCursorTable
 from .item_filter import LIFECYCLE_STATUSES, ItemFilterBar, lifecycle_value
 from .list_pane import (
@@ -35,13 +35,10 @@ from .list_pane import (
     ListColumn,
     ListRow,
 )
-from .pull_request_cells import PULL_REQUEST_COLUMNS, build_pull_request_rows
-from .session_cells import (
-    SESSION_COLUMNS,
-    build_session_rows,
-    session_columns,
-)
-from .worktree_cells import WORKTREE_COLUMNS, build_worktree_rows
+from .list_rows import build_list_rows
+from .pull_request_cells import PULL_REQUEST_COLUMNS, pull_request_cells
+from .session_cells import SESSION_COLUMNS, session_cells, session_columns
+from .worktree_cells import WORKTREE_COLUMNS, worktree_cells
 from .worktree_table import WorktreeTable
 
 
@@ -109,7 +106,16 @@ def session_pane_rows(context: PaneContext) -> PaneRows:
     """List every active Agent Session, with the columns its result shows."""
     sessions = context.store.query_sessions()
     return PaneRows(
-        build_session_rows(sessions, dark=context.dark),
+        build_list_rows(
+            sessions.rows,
+            partial(
+                session_cells,
+                dark=context.dark,
+                now=context.now,
+                target=shows_target(sessions),
+            ),
+            issue_id=lambda row: row.bound_issue_id,
+        ),
         columns=session_columns(sessions),
         records=sessions.rows,
     )
@@ -119,7 +125,9 @@ def branch_pane_rows(context: PaneContext) -> PaneRows:
     """List every observed Branch, noting when the remotes were last fetched."""
     branches = context.store.query_branches()
     return PaneRows(
-        build_branch_rows(branches, dark=context.dark, now=context.now),
+        build_list_rows(
+            branches.rows, partial(branch_cells, dark=context.dark, now=context.now)
+        ),
         note=branch_note(
             branches.summary.integration_refs, branches.summary.fetched_at, context.now
         ),
@@ -131,7 +139,8 @@ def worktree_pane_rows(context: PaneContext) -> PaneRows:
     """List every observed Worktree in the Repository's topology order."""
     worktrees = context.store.query_worktrees()
     return PaneRows(
-        build_worktree_rows(worktrees, dark=context.dark), records=worktrees.rows
+        build_list_rows(worktrees.rows, partial(worktree_cells, dark=context.dark)),
+        records=worktrees.rows,
     )
 
 
@@ -143,22 +152,17 @@ def pull_request_pane_rows(context: PaneContext) -> PaneRows:
     summary = totals_text(store.totals.get("pull-requests"))
     if page is None or not projects:
         return PaneRows((), title_summary=summary, empty_message="Loading page")
-    result = ListResult(
-        rows=tuple(
+    # The page is the source's answer, already filtered and ordered; the
+    # rows join each Pull Request to the Project it was asked for.
+    rows = build_list_rows(
+        (
             PullRequestListRow(row_key("pull-request", pr.id), projects[0], pr)
             for pr in page.pull_requests
         ),
-        summary=PullRequestListSummary(
-            matched_pull_request_count=page.matched_count or 0,
-            observed_pull_request_count=page.returned_count,
-            status=page.status,
-            attempted_at=page.attempted_at,
-            last_good_at=page.last_good_at,
-            open_pull_request_count=0,
-            closed_pull_request_count=0,
+        lambda row: pull_request_cells(
+            row.pull_request, dark=context.dark, now=context.now
         ),
     )
-    rows = build_pull_request_rows(result, dark=context.dark, now=context.now)
     return PaneRows(
         rows,
         title_summary=summary,

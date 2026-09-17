@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import pydantic
@@ -14,14 +15,23 @@ from dashpot.core.model import (
     TargetRole,
 )
 from dashpot.observation.issue_list import row_key
+from dashpot.observation.list_result import ListResult
 from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.observation.worktree_list import WorktreeListRow
+from dashpot.ui.list_rows import ListRow, build_list_rows
 from dashpot.ui.worktree_cells import (
     WORKTREE_COLUMNS,
-    build_worktree_rows,
     worktree_cells,
 )
 from factories import session, workspace
 from helpers import required
+
+
+def worktree_rows(
+    result: ListResult[WorktreeListRow, None], *, dark: bool, home: Path | None = None
+) -> tuple[ListRow, ...]:
+    """The pane rows for ``result``, as the Worktrees pane builds them."""
+    return build_list_rows(result.rows, partial(worktree_cells, dark=dark, home=home))
 
 
 def target(
@@ -226,7 +236,7 @@ def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> 
         workspace(alpha, runs=[session("s", "project:alpha", long_path, "running")])
     ).query_worktrees()
 
-    main_row, linked_row = build_worktree_rows(result, dark=True, home=home)
+    main_row, linked_row = worktree_rows(result, dark=True, home=home)
 
     assert result.revision == 1
     assert len(main_row.cells) == len(WORKTREE_COLUMNS)
@@ -252,7 +262,7 @@ def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> 
 
 def test_detached_targets_say_so() -> None:
     alpha = project("project:alpha", target("/project:alpha", role="main", branch=None))
-    (row,) = build_worktree_rows(
+    (row,) = worktree_rows(
         WorkspaceObservationStore(workspace(alpha)).query_worktrees(), dark=False
     )
     assert row.cells[4] == "detached @ abcdef1"
@@ -261,7 +271,7 @@ def test_detached_targets_say_so() -> None:
         "project:alpha",
         target("/project:alpha", role="main", branch=None, head=""),
     )
-    (row,) = build_worktree_rows(
+    (row,) = worktree_rows(
         WorkspaceObservationStore(workspace(without_head)).query_worktrees(), dark=False
     )
     assert row.cells[4] == "detached"

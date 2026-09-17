@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 import pydantic
@@ -12,20 +13,21 @@ import factories
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import AgentRun, ObservationTarget, ProjectObservation, RunState
 from dashpot.observation.issue_list import row_key
+from dashpot.observation.list_result import ListResult
 from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.observation.session_list import (
     OUTSIDE_PROJECT_TEXT,
     UNBOUND_ISSUE_TEXT,
     SessionListRow,
+    shows_target,
 )
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import write_hook_record
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
-from dashpot.ui.list_rows import truncate_end, truncate_start
+from dashpot.ui.list_rows import ListRow, build_list_rows, truncate_end, truncate_start
 from dashpot.ui.session_cells import (
     SESSION_COLUMNS,
-    build_session_rows,
     session_cells,
     session_columns,
 )
@@ -33,6 +35,26 @@ from factories import workspace
 from helpers import make_issue, present, required
 
 CURRENT = datetime(2026, 8, 27, 3, 5, tzinfo=UTC)
+
+
+def session_rows(
+    result: ListResult[SessionListRow, None],
+    *,
+    dark: bool,
+    home: Path | None = None,
+) -> tuple[ListRow, ...]:
+    """The pane rows for ``result`` at ``CURRENT``, as the Sessions pane builds them."""
+    return build_list_rows(
+        result.rows,
+        partial(
+            session_cells,
+            dark=dark,
+            now=CURRENT,
+            home=home,
+            target=shows_target(result),
+        ),
+        issue_id=lambda row: row.bound_issue_id,
+    )
 
 
 def issue(issue_id: str, number: int, title: str) -> IssueProfile:
@@ -266,7 +288,7 @@ def test_session_cells_carry_every_scan_level_fact_and_truncate_honestly() -> No
         workspace(alpha, runs=[run, elsewhere], issue_runs={"I_alpha#7": ["work:one"]})
     ).query_sessions()
 
-    rows = build_session_rows(result, dark=True, now=CURRENT, home=home)
+    rows = session_rows(result, dark=True, home=home)
     row = next(item for item in rows if item.key == row_key("session", "work:one"))
 
     assert row.key == row_key("session", "work:one")
@@ -303,7 +325,7 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
         workspace(project("project:alpha"), runs=[run])
     ).query_sessions()
 
-    (row,) = build_session_rows(result, dark=False, now=CURRENT, home=Path("/nowhere"))
+    (row,) = session_rows(result, dark=False, home=Path("/nowhere"))
 
     state, _harness, branch, issue_cell, directory, age = row.cells
     assert isinstance(state, Text)
@@ -318,12 +340,11 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
 
 def test_state_glyphs_are_distinct_and_themed() -> None:
     rows = {
-        state: build_session_rows(
+        state: session_rows(
             WorkspaceObservationStore(
                 workspace(project("project:alpha"), runs=[session("s", state=state)])
             ).query_sessions(),
             dark=dark,
-            now=CURRENT,
         )[0].cells[0]
         for state in ("running", "waiting", "unknown")
         for dark in (True, False)
@@ -356,7 +377,7 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
         "directory",
         "activity",
     ]
-    (row,) = build_session_rows(one_worktree, dark=True, now=CURRENT)
+    (row,) = session_rows(one_worktree, dark=True)
     assert len(row.cells) == len(SESSION_COLUMNS) - 1
 
     # Nothing else names the Worktree now, so DIRECTORY carries the whole
@@ -372,9 +393,7 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
     ).query_sessions()
     directories = {
         str(row.cells[4])
-        for row in build_session_rows(
-            collapsed, dark=True, now=CURRENT, home=Path("/home/ned")
-        )
+        for row in session_rows(collapsed, dark=True, home=Path("/home/ned"))
     }
     assert directories == {"~/projects/alpha", "~/projects/alpha/src/dashpot"}
 
@@ -387,7 +406,7 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
         assert session_columns(result) == SESSION_COLUMNS
         assert all(
             len(row.cells) == len(SESSION_COLUMNS)
-            for row in build_session_rows(result, dark=True, now=CURRENT)
+            for row in session_rows(result, dark=True)
         )
 
     # An empty pane keeps its full header rather than guessing.
@@ -406,7 +425,7 @@ def test_activity_says_which_age_it_is_showing() -> None:
         result = WorkspaceObservationStore(
             workspace(project("project:alpha"), runs=[run])
         ).query_sessions()
-        (row,) = build_session_rows(result, dark=True, now=CURRENT)
+        (row,) = session_rows(result, dark=True)
         return str(row.cells[5])
 
     running = session(

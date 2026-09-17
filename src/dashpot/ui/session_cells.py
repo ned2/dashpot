@@ -6,7 +6,7 @@ the query itself lives in ``session_list``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from rich.text import Text
@@ -32,7 +32,6 @@ from .glyphs import (
 from .list_rows import (
     ListCell,
     ListColumn,
-    ListRow,
     truncate_end,
     truncate_start,
 )
@@ -63,26 +62,6 @@ def session_columns(result: ListResult[SessionListRow, None]) -> tuple[ListColum
     if shows_target(result):
         return SESSION_COLUMNS
     return tuple(column for column in SESSION_COLUMNS if column.key != "target")
-
-
-def build_session_rows(
-    result: ListResult[SessionListRow, None],
-    *,
-    dark: bool,
-    now: datetime | None = None,
-    home: Path | None = None,
-) -> tuple[ListRow, ...]:
-    """Render the query result as pane rows carrying every scan-level fact."""
-    current = now or datetime.now(UTC)
-    target = shows_target(result)
-    return tuple(
-        ListRow(
-            row.key,
-            session_cells(row, dark=dark, now=current, home=home, target=target),
-            issue_id=row.bound_issue_id,
-        )
-        for row in result.rows
-    )
 
 
 def session_cells(
