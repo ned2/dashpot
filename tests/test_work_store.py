@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from dashpot.core.record_store import RecordKeyError
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 
 
@@ -101,7 +102,7 @@ def test_malformed_and_unversioned_records_become_diagnostics(
 def test_unsafe_session_key_is_rejected(tmp_path: Path) -> None:
     store = WorkStore(tmp_path)
 
-    with pytest.raises(RuntimeError, match="session key"):
+    with pytest.raises(RecordKeyError, match="session key"):
         store.start(
             ActiveWork(
                 session_key="../escape",

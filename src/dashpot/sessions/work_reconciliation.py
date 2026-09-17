@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from ..core.git import GitError
-from ..core.json_records import optional_string, require_string
+from ..core.json_records import optional_string, require_harness, require_string
+from ..core.record_store import RecordKeyError
 from ..core.worktree_paths import repository_worktrees, same_path
 from .hook_records import HookRecordStore
 from .hook_scan import (
@@ -55,7 +56,7 @@ def end_session_work(
         return []
     return end_session_runs(
         worktrees,
-        require_string(record.get("harness"), "harness"),
+        require_harness(record.get("harness")),
         require_string(record.get("sessionId"), "sessionId"),
         process.key if process else None,
         ended_at=optional_string(record.get("lastActivityAt")),
@@ -155,7 +156,7 @@ def complete_session_work_relocation(
         )
         try:
             return source.complete_relocation(work, WorkStore(target), relocated)
-        except (OSError, RuntimeError, ValueError):
+        except (OSError, RecordKeyError, ValueError):
             return False
 
 

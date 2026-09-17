@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.json_records import optional_string
+from ..core.model import Harness
 from .hook_records import (
     build_hook_record,
     session_directory,
@@ -37,7 +38,7 @@ def publish_hook_event(
     event: dict[str, Any],
     directory: Path | None = None,
     process: ProcessIdentity | None = None,
-    harness: str = "codex",
+    harness: Harness = "codex",
     lookup: ProcessLookup = host_process_lookup,
 ) -> Path:
     identity = process

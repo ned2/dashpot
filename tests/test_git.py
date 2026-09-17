@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.core.commands import CommandResult
+from dashpot.core.commands import CommandError, CommandResult
 from dashpot.core.git import Git, GitError
 from factories import SequenceRunner, completed
 
@@ -32,7 +32,7 @@ def test_run_returns_a_non_zero_exit_for_the_caller_to_read() -> None:
 
 
 def test_run_wraps_a_runner_failure_as_a_git_error() -> None:
-    git, _runner = adapter(RuntimeError("command not found: git"))
+    git, _runner = adapter(CommandError("command not found: git"))
 
     with pytest.raises(GitError) as caught:
         git.run("status")
@@ -76,7 +76,7 @@ def test_maybe_is_none_only_on_a_clean_non_zero_exit() -> None:
     git, _runner = adapter(
         completed("value\n"),
         completed(returncode=1),
-        RuntimeError("command timed out after 5s: git"),
+        CommandError("command timed out after 5s: git"),
     )
 
     assert git.maybe("rev-parse", "a") == "value"

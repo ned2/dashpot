@@ -30,7 +30,13 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.issue_profile import IssueProfile
-from dashpot.core.model import AgentRun, ObservationTarget, RunState, WorkspaceSnapshot
+from dashpot.core.model import (
+    AgentRun,
+    Harness,
+    ObservationTarget,
+    RunState,
+    WorkspaceSnapshot,
+)
 from dashpot.observation.issue_list import row_key
 from dashpot.ui import session_cells
 from dashpot.ui.app import DashpotApp
@@ -216,7 +222,7 @@ def session_run(
     *,
     state: str = "waiting",
     issue_id: str | None = None,
-    harness: str = "codex",
+    harness: Harness = "codex",
     last_activity_at: str | None = "2026-08-25T00:59:00Z",
     target: str = "/repo",
 ) -> AgentRun:

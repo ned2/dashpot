@@ -13,7 +13,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .errors import DashpotError
 from .file_locks import locked_path, prune_lock_file
+
+
+class RecordKeyError(DashpotError):
+    """A record key the store refuses because it could escape the directory."""
+
 
 # A writer's temporary file lives for milliseconds between creation and
 # rename; one this old was left behind by a crash and will never be renamed
@@ -71,7 +77,7 @@ class LockedRecordStore:
     def record_path(self, key: str) -> Path:
         """The key's record path, refusing keys that could escape the store."""
         if not self._key_pattern.fullmatch(key):
-            raise RuntimeError(self._key_error)
+            raise RecordKeyError(self._key_error)
         return self.directory / f"{key}.json"
 
     def lock_path(self, key: str) -> Path:

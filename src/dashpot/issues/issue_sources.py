@@ -1,3 +1,5 @@
+"""Define the Issue Source seam and parse the Issue Hints that name Issues."""
+
 from __future__ import annotations
 
 import re

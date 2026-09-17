@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.errors import DashpotError
 from ..core.git import Git
 from ..github.github_repository import github_repo_from_remote
 from ..project.project_config import (
@@ -26,6 +27,10 @@ from .pull_request_sources import (
 )
 
 
+class IssueSourceError(DashpotError):
+    """A configured Issue Source the Repository Anchor cannot serve."""
+
+
 def build_issue_source(
     root: Path,
     config: ProjectConfig,
@@ -40,7 +45,7 @@ def build_issue_source(
     """
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
         if not github_repo_from_remote(root, git):
-            raise RuntimeError(
+            raise IssueSourceError(
                 "A GitHub Issue Source requires the Repository Anchor to have "
                 "a GitHub origin remote"
             )

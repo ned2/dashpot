@@ -6,8 +6,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.errors import DashpotError
+from ..core.model import HARNESS_DISPLAY, Harness
 from ..core.worktree_paths import repository_worktrees
-from .harnesses import HARNESS_DISPLAY, SessionIdentityClaim
+from .harnesses import SessionIdentityClaim
 from .hook_scan import (
     HookRecordClassification,
     SessionLocation,
@@ -21,6 +23,10 @@ from .processes import (
 )
 
 
+class SessionClaimError(DashpotError):
+    """A claimed Agent Session Identity no live hook record confirms."""
+
+
 @dataclass(frozen=True, slots=True)
 class ValidatedSessionIdentity:
     """A claimed Agent Session Identity its harness's hook record confirmed."""
@@ -31,7 +37,7 @@ class ValidatedSessionIdentity:
     location: SessionLocation | None = None
 
     @property
-    def harness(self) -> str:
+    def harness(self) -> Harness:
         return self.claim.harness
 
     @property
@@ -52,7 +58,7 @@ def validate_session_claim(
     from ``worktree`` — those of the Repository's Worktrees and the global
     store — and must still describe a session that is live or unknown; a
     missing, unreadable, ended, gone, cross-harness, or process-mismatched
-    record raises an actionable ``RuntimeError`` so that no Issue Binding is
+    record raises an actionable ``SessionClaimError`` so that no Issue Binding is
     created from the claim. Where that record places the session is
     returned with it; whether that is ``worktree`` is the caller's question.
     """
@@ -65,12 +71,12 @@ def validate_session_claim(
             stores, lookup, harness=claim.harness, session_id=claim.session_id
         )
     except ValueError as exc:
-        raise RuntimeError(
+        raise SessionClaimError(
             f"the lifecycle hook record for {name} cannot be read: {exc}; "
             f"run 'dashpot integrate {claim.harness} --status'"
         ) from exc
     if location is None:
-        raise RuntimeError(
+        raise SessionClaimError(
             f"no lifecycle hook record for {name} at {worktree} or any other "
             f"Worktree of its Repository; the {display} hooks must be installed "
             f"and have published this session (check 'dashpot integrate "
@@ -78,19 +84,19 @@ def validate_session_claim(
         )
     record = location.record
     if record.harness != claim.harness:
-        raise RuntimeError(
+        raise SessionClaimError(
             f"{name} names a hook record published by {record.display}; the "
             f"identities of two harnesses cannot be combined"
         )
     if record.outcome in {"ended", "gone"}:
         how = "ended" if record.outcome == "ended" else "whose process is gone"
-        raise RuntimeError(
+        raise SessionClaimError(
             f"the lifecycle hook record for {name} at {location.worktree} is "
             f"stale ({how}); it identifies no running session"
         )
     process = location.process
     if claim.pid is not None and process is not None and process.pid != claim.pid:
-        raise RuntimeError(
+        raise SessionClaimError(
             f"{name} attributes the harness to pid {claim.pid}, but its hook "
             f"record was published for pid {process.pid}; the identities do "
             f"not describe one session"

@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.errors import DashpotError
 from ..core.issue_profile import IssueProfile, issue_location
 from ..core.worktree_paths import worktree_root
 from ..project.project_config import load_project_config
 from .issue_sources import IssueSource, parse_issue_hint
 from .source_factories import build_issue_source
+
+
+class IssueResolutionError(DashpotError):
+    """An Issue Hint that resolves to no Issue of this Project."""
 
 
 def configured_issue_source(root: Path, timeout: float = 10) -> IssueSource:
@@ -32,7 +37,7 @@ def resolve_issue(root: Path, hint: str, timeout: float = 10) -> IssueProfile:
     source = configured_issue_source(root, timeout)
     issue = source.find(parse_issue_hint(hint))
     if issue is None:
-        raise RuntimeError(
+        raise IssueResolutionError(
             f"Issue Reference {hint!r} did not match an Issue in this Project"
         )
     return issue

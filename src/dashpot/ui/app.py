@@ -1,3 +1,5 @@
+"""Compose the dashboard application, its screen, and its panes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +34,7 @@ from ..queries.page_navigation import totals_text
 from ..queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
 from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
-from ..repository.worktree_launcher import LauncherConfiguration
+from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError
 from .alerts import (
     SEVERITY_GLYPH,
     SEVERITY_RANK,
@@ -71,7 +73,7 @@ from .observation_runner import (
 )
 from .page_runner import PageRunner
 from .pane_layout import fit_panes, pane_wish
-from .panes import LIST_PANE_SPECS, PaneContext, PaneSpec
+from .panes import LIST_PANE_SPECS, ListPaneId, PaneContext, PaneSpec
 from .spread_table import SpreadTable
 from .worktree_table import WorktreeTable
 
@@ -191,7 +193,7 @@ class DashboardScreen(Screen[None]):
         """The Issue table; `query_one` cannot name the cell type itself."""
         return cast("SpreadTable[TableCell]", self.query_one("#queue", SpreadTable))
 
-    def list_pane(self, pane_id: str) -> ListPane:
+    def list_pane(self, pane_id: ListPaneId) -> ListPane:
         """One list pane by its spec's id."""
         return self.query_one(f"#{pane_id}", ListPane)
 
@@ -784,7 +786,7 @@ class DashpotApp(App[None]):
         assert opener is not None
         try:
             await self.off_loop(partial(opener, path))
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (OSError, ValueError, WorktreeLaunchError) as exc:
             self.notify(str(exc), title="Open Worktree", severity="error")
         else:
             self.notify("Worktree launch request completed")

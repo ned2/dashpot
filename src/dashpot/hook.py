@@ -1,9 +1,14 @@
+"""Publish one harness lifecycle hook event from standard input."""
+
 from __future__ import annotations
 
 import json
 import sys
 from typing import Any, TextIO
 
+from .core.errors import DashpotError
+from .core.json_records import HookRecordError
+from .core.model import Harness
 from .sessions.hook_publish import publish_hook_event
 
 # A failed publish is reported but never blocks the session: Claude Code reads
@@ -13,20 +18,22 @@ from .sessions.hook_publish import publish_hook_event
 NON_BLOCKING_FAILURE_EXIT_CODE = 1
 
 
-def publish_from_stream(stream: TextIO, harness: str = "codex") -> None:
+def publish_from_stream(stream: TextIO, harness: Harness = "codex") -> None:
     event: Any = json.load(stream)
     if not isinstance(event, dict):
-        raise RuntimeError("hook input must be a JSON object")
+        raise HookRecordError("hook input must be a JSON object")
     publish_hook_event(event, harness=harness)
 
 
-def _run(harness: str, label: str) -> int:
+def _run(harness: Harness, label: str) -> int:
     # ``ValueError`` is the store's refusal of an occupied destination and
     # the base of a record's Pydantic validation failure; both are reported
     # like every other failed publish rather than shown as a traceback.
+    # ``RuntimeError`` stays for Python's own runtime faults, such as a
+    # symlink loop under ``Path.resolve``: a hook must never break its harness.
     try:
         publish_from_stream(sys.stdin, harness)
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, DashpotError) as exc:
         print(f"dashpot {label} hook: {exc}", file=sys.stderr)
         return NON_BLOCKING_FAILURE_EXIT_CODE
     return 0

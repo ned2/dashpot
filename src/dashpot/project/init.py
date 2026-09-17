@@ -1,3 +1,5 @@
+"""Write a new Project configuration into the current Repository."""
+
 from __future__ import annotations
 
 import json
@@ -5,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from ..core.commands import CommandRunner, run_command
+from ..core.errors import DashpotError
 from ..core.git import Git, GitError
 from ..core.pydantic import repository_relative
 from ..core.worktree_paths import worktree_root
@@ -15,6 +18,10 @@ from ..github.github_repository import (
 from .project_config import PROJECT_CONFIG_NAME
 
 STATE_IGNORE_RULE = ".dashpot/state/"
+
+
+class InitError(DashpotError):
+    """A ``dashpot init`` refused before writing the Project configuration."""
 
 
 def initialize_project(
@@ -34,17 +41,17 @@ def initialize_project(
     try:
         root = worktree_root(current, adapter)
     except GitError as exc:
-        raise RuntimeError("dashpot init must run inside a Git repository") from exc
+        raise InitError("dashpot init must run inside a Git repository") from exc
     adapter = adapter.at(root)
     config_path = root / PROJECT_CONFIG_NAME
     if config_path.is_file():
-        raise RuntimeError(f"already configured: {config_path}")
+        raise InitError(f"already configured: {config_path}")
     reference = github_repo_from_remote(root, adapter)
     if markdown_path is not None:
         try:
             repository_relative(markdown_path)
         except ValueError as exc:
-            raise RuntimeError(f"--markdown path {exc}") from exc
+            raise InitError(f"--markdown path {exc}") from exc
         repository_id = f"repository:{uuid.uuid4()}"
         display_label = root.name
         issue_source: dict[str, str] = {"kind": "markdown", "path": markdown_path}
@@ -55,7 +62,7 @@ def initialize_project(
         display_label = observed_reference.rpartition("/")[2]
         issue_source = {"kind": "github"}
     else:
-        raise RuntimeError(
+        raise InitError(
             f"{root} has no GitHub origin remote; pass --markdown PATH to "
             f"declare a Local Issue Markdown source"
         )

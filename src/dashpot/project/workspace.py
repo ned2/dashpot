@@ -103,7 +103,11 @@ class _ResolvedAnchor:
     config: ProjectConfig
 
 
-class _AnchorResolutionError(DashpotError, RuntimeError):
+class WorkspaceConfigError(DashpotError):
+    """A Workspace inventory that is missing, unreadable, or does not validate."""
+
+
+class _AnchorResolutionError(DashpotError):
     """A Repository Anchor this Workspace cannot resolve, with its diagnostic code."""
 
     def __init__(self, code: str, message: str) -> None:
@@ -128,11 +132,15 @@ def load_workspaces(path: Path) -> WorkspaceInventory:
     try:
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise RuntimeError(f"workspace config not found: {path}") from exc
+        raise WorkspaceConfigError(f"workspace config not found: {path}") from exc
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"cannot read workspace config {path}: {exc}") from exc
+        raise WorkspaceConfigError(
+            f"cannot read workspace config {path}: {exc}"
+        ) from exc
     if not isinstance(raw, dict):
-        raise RuntimeError(f"workspace config {path} must contain a JSON object")
+        raise WorkspaceConfigError(
+            f"workspace config {path} must contain a JSON object"
+        )
     try:
         inventory = WorkspaceInventoryConfig.model_validate(raw)
     except ValidationError as exc:
@@ -141,7 +149,7 @@ def load_workspaces(path: Path) -> WorkspaceInventory:
             root=f"workspace config {path}",
             describe_path=_describe_inventory_path,
         )
-        raise RuntimeError(message) from exc
+        raise WorkspaceConfigError(message) from exc
     unknown = [f"{field}" for field in sorted(inventory.model_extra or {})]
     workspaces: list[Workspace] = []
     for index, entry in enumerate(inventory.workspaces):
@@ -217,7 +225,9 @@ def resolve_workspace_projects(
                         polling_seconds,
                     )
                 )
-            except (OSError, RuntimeError) as exc:
+            # ``RuntimeError`` is ``Path.resolve`` on a symlink loop, which an
+            # anchor path may be; it is this anchor's Diagnostic, not a crash.
+            except (OSError, RuntimeError, DashpotError) as exc:
                 diagnostics.append(
                     Diagnostic(
                         source=f"anchor:{anchor.path}",

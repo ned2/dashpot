@@ -9,6 +9,7 @@ import pytest
 from dashpot.project.workspace import (
     RepositoryAnchor,
     Workspace,
+    WorkspaceConfigError,
     WorkspaceInventory,
     WorkspaceScopeError,
     load_workspaces,
@@ -84,7 +85,7 @@ def test_workspace_config_rejects_legacy_discovery_root(tmp_path: Path) -> None:
     )
 
     with pytest.raises(
-        RuntimeError, match="workspace entry 0 is missing fields: anchors"
+        WorkspaceConfigError, match="workspace entry 0 is missing fields: anchors"
     ):
         load_workspaces(config)
 
@@ -116,7 +117,7 @@ def test_malformed_workspace_config_is_refused_by_entry(
     config = tmp_path / "workspaces.json"
     config.write_text(document)
 
-    with pytest.raises(RuntimeError, match=message):
+    with pytest.raises(WorkspaceConfigError, match=message):
         load_workspaces(config)
 
 

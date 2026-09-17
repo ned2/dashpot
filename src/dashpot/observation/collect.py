@@ -1,3 +1,5 @@
+"""Observe every configured Project's sources and publish the Workspace Snapshot."""
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -8,6 +10,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from ..core.errors import DashpotError
 from ..core.git import Git
 from ..core.issue_profile import IssueProfile
 from ..core.model import (
@@ -50,6 +53,11 @@ from ..sessions.agents import observe_agent_runs
 from ..sessions.processes import lock_holder_probe
 from .keys import AGENT_RUNS_KEY, ObservationKey, ObservationOutcome, ObservationTicket
 from .observation_store import StoreChange, WorkspaceObservationStore
+
+
+class ObservationError(DashpotError):
+    """A Project whose collector cannot be built, reported as its Diagnostic."""
+
 
 WorkspaceAgentObserver = Callable[
     [Mapping[str, Sequence[ObservationTarget]]],
@@ -201,7 +209,7 @@ def create_project_collector(
         or config.display_label != project.display_label
         or config.repository_id != project.repository_id
     ):
-        raise RuntimeError(
+        raise ObservationError(
             f"Project configuration changed after resolving Repository Anchor {root}"
         )
     collector = ProjectCollector(
@@ -507,6 +515,7 @@ class ObservationCoordinator:
                     self._agent_pending = True
                 return ObservationOutcome(ticket, accepted=True)
             if key.kind not in ("issues", "pull-requests", "targets"):
+                # A closed union with no fourth member: a programmer fault.
                 raise RuntimeError(f"unsupported observation kind: {key.kind}")
             with self._state_lock:
                 previous = self._observations.get(key)
@@ -605,7 +614,7 @@ class ObservationCoordinator:
     def _collector(self, project: ResolvedProject) -> ProjectObserver:
         root = Path(project.primary_anchor)
         if not root.is_dir():
-            raise RuntimeError(
+            raise ObservationError(
                 f"repository root does not exist or is not a directory: {root}"
             )
         with self._state_lock:

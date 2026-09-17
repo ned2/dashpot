@@ -17,8 +17,11 @@ from dashpot.core.git import GitError
 from dashpot.core.issue_profile import IssueProfileError, conform_issue
 from dashpot.core.model import WorkspaceSnapshot
 from dashpot.hook import publish_from_stream
+from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.issues.issue_sources import IssueSourceRefreshError
 from dashpot.issues.local_markdown_issues import LocalMarkdownIssueError
+from dashpot.project.init import InitError
+from dashpot.project.project_config import ProjectConfigError
 from dashpot.project.workspace import (
     RepositoryAnchor,
     ResolvedProject,
@@ -31,6 +34,7 @@ from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,
     CleanupConfirmation,
+    CleanupError,
     CleanupPreview,
     CleanupReport,
     CleanupTarget,
@@ -39,8 +43,9 @@ from dashpot.repository.cleanup import (
 )
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
-from dashpot.sessions.integrate import INTEGRATIONS
+from dashpot.sessions.integrate import INTEGRATIONS, IntegrationError
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
+from dashpot.sessions.work import IssueWorkError
 from factories import git, write_config_marker
 from helpers import issue_payload
 
@@ -346,7 +351,7 @@ def test_compact_json_mode_has_no_recurring_polling_schedule() -> None:
 def test_cli_reports_startup_error_without_traceback() -> None:
     with (
         mock.patch.object(
-            cli, "create_collector", side_effect=RuntimeError("bad config")
+            cli, "create_collector", side_effect=ProjectConfigError("bad config")
         ),
         mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
     ):
@@ -359,7 +364,7 @@ def test_cli_reports_startup_error_without_traceback() -> None:
 @pytest.mark.parametrize(
     ("argv", "seam", "error"),
     [
-        (["--json"], "create_collector", RuntimeError("bad config")),
+        (["--json"], "create_collector", ProjectConfigError("bad config")),
         (["--json"], "create_collector", DashpotError("stated refusal")),
         (
             ["--json"],
@@ -390,7 +395,7 @@ def test_cli_reports_startup_error_without_traceback() -> None:
         (
             ["worktree", "check", "/nowhere"],
             "check_worktree",
-            RuntimeError("/nowhere is not a Worktree"),
+            CleanupError("/nowhere is not a Worktree"),
         ),
     ],
 )
@@ -439,6 +444,46 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
     assert record["sessionProcess"]["pid"] == 42
 
 
+def test_a_programmer_fault_is_not_stated_as_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Only DashpotError is the contract: a bare RuntimeError is a bug, so it
+    # escapes ``main`` with its traceback instead of one ``dashpot:`` line.
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        mock.patch.object(
+            cli, "create_collector", side_effect=RuntimeError("closed union")
+        ),
+        pytest.raises(RuntimeError, match="closed union"),
+    ):
+        cli.main(["--json"])
+
+
+def test_not_a_repository_is_read_from_git_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Composition treats only Git's refusal as "not inside a repository"; a
+    # runtime fault while asking is not silently read as that answer.
+    monkeypatch.chdir(tmp_path)
+    options = composition.ObservationOptions()
+
+    with (
+        mock.patch.object(
+            composition, "worktree_root", side_effect=RuntimeError("symlink loop")
+        ),
+        pytest.raises(RuntimeError, match="symlink loop"),
+    ):
+        composition.create_collector(options)
+    with (
+        mock.patch.object(
+            composition, "worktree_root", side_effect=RuntimeError("symlink loop")
+        ),
+        pytest.raises(RuntimeError, match="symlink loop"),
+    ):
+        composition.cleanup_protection()
+
+
 def test_unconfigured_repository_error_suggests_init(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -451,7 +496,7 @@ def test_unconfigured_repository_error_suggests_init(
         mock.patch.object(
             composition, "default_workspace_config", return_value=missing
         ),
-        pytest.raises(RuntimeError, match="dashpot init"),
+        pytest.raises(ProjectConfigError, match="dashpot init"),
     ):
         composition.create_collector(options)
 
@@ -485,7 +530,7 @@ def test_init_command_reports_errors_like_observation(
     with mock.patch.object(
         cli,
         "initialize_project",
-        side_effect=RuntimeError("already configured"),
+        side_effect=InitError("already configured"),
     ):
         code = cli.main(["init"])
 
@@ -568,7 +613,7 @@ def test_work_errors_are_reported_without_traceback(
     with mock.patch.object(
         cli,
         "start_issue_work",
-        side_effect=RuntimeError("no supported agent session"),
+        side_effect=IssueWorkError("no supported agent session"),
     ):
         code = cli.main(["work", "start", "#7"])
 
@@ -610,7 +655,7 @@ def test_issue_show_prints_lines_or_the_issue_profile_json(
     assert json.loads(capsys.readouterr().out) == payload
 
     with mock.patch.object(
-        cli, "show_issue", side_effect=RuntimeError("did not match an Issue")
+        cli, "show_issue", side_effect=IssueResolutionError("did not match an Issue")
     ):
         assert cli.main(["issue", "show", "99"]) == 2
     captured = capsys.readouterr()
@@ -1203,7 +1248,7 @@ def test_integrate_errors_are_reported_without_traceback(
     with mock.patch.object(
         cli,
         "install_integration",
-        side_effect=RuntimeError("no Codex configuration directory"),
+        side_effect=IntegrationError("no Codex configuration directory"),
     ):
         code = cli.main(["integrate", "codex"])
 

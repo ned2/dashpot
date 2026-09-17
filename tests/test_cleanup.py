@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.core.commands import CommandResult, run_command
+from dashpot.core.commands import CommandError, CommandResult, run_command
 from dashpot.core.git import Git, GitError
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
@@ -942,7 +942,7 @@ def test_a_push_that_does_not_answer_is_unknown(tmp_path: Path) -> None:
 
     def hanging(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         if args[1] == "push":
-            raise RuntimeError("timed out after 5.0s")
+            raise CommandError("timed out after 5.0s")
         return run_command(args, cwd, timeout)
 
     git_ = Git(root, 5, hanging)
@@ -1055,7 +1055,7 @@ def test_a_runner_failure_while_performing_is_unknown(tmp_path: Path) -> None:
 
     def hanging(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         if list(args[1:3]) == ["worktree", "remove"]:
-            raise RuntimeError("timed out after 5.0s")
+            raise CommandError("timed out after 5.0s")
         return run_command(args, cwd, timeout)
 
     git_ = Git(root, 5, hanging)

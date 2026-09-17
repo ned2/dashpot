@@ -18,7 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
-from pydantic import AfterValidator
+from pydantic import AfterValidator, BeforeValidator
+
+from ..core.errors import DashpotError
+from ..core.model import HARNESS_DISPLAY, Harness, is_harness
 
 # ``processes`` imports this module's adapters to walk a command's ancestry,
 # and each adapter's host-process predicate is typed on the ``ProcessIdentity``
@@ -31,6 +34,10 @@ if TYPE_CHECKING:
 SESSION_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
 
 
+class HarnessError(DashpotError):
+    """A harness name Dashpot does not support, or an identity claim it cannot parse."""
+
+
 def _hook_session_identity(value: str) -> str:
     if not SESSION_ID.fullmatch(value):
         raise ValueError(
@@ -39,9 +46,18 @@ def _hook_session_identity(value: str) -> str:
     return value
 
 
+def _supported_harness(value: object) -> object:
+    if not is_harness(value):
+        raise ValueError(f"unsupported harness: {value!r}")
+    return value
+
+
 # The native session identity a harness publishes; the hook and Work Store
 # records share one rule for it.
 HookSessionIdentity = Annotated[str, AfterValidator(_hook_session_identity)]
+# A persisted harness name: the ``Harness`` union types it, and the validator
+# ahead of the union keeps the record's refusal naming the harness.
+HarnessName = Annotated[Harness, BeforeValidator(_supported_harness)]
 # Dashpot's own, documented way for a session to state its identity when the
 # harness cannot be walked to and its native claim is absent or ambiguous:
 # ``<harness>:<Agent Session Identity>``, validated like every other claim.
@@ -57,7 +73,7 @@ class SessionIdentityClaim:
     the harness, when it names one, and must agree with the record.
     """
 
-    harness: str
+    harness: Harness
     session_id: str
     source: str
     pid: int | None = None
@@ -67,7 +83,7 @@ class SessionIdentityClaim:
 class HarnessAdapter:
     """One supported harness's process and session identity contract."""
 
-    harness: str
+    harness: Harness
     display: str
     is_host_process: Callable[[ProcessIdentity], bool]
     claim_session_identity: Callable[[Mapping[str, str]], SessionIdentityClaim | None]
@@ -116,30 +132,28 @@ def _claude_code_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | Non
 
 CODEX = HarnessAdapter(
     harness="codex",
-    display="Codex",
+    display=HARNESS_DISPLAY["codex"],
     is_host_process=is_codex_host_process,
     claim_session_identity=_codex_claim,
 )
 
 CLAUDE_CODE = HarnessAdapter(
     harness="claude-code",
-    display="Claude Code",
+    display=HARNESS_DISPLAY["claude-code"],
     is_host_process=is_claude_code_host_process,
     claim_session_identity=_claude_code_claim,
 )
 
-ADAPTERS: dict[str, HarnessAdapter] = {
+ADAPTERS: dict[Harness, HarnessAdapter] = {
     adapter.harness: adapter for adapter in (CODEX, CLAUDE_CODE)
 }
 
-HARNESS_DISPLAY = {adapter.harness: adapter.display for adapter in ADAPTERS.values()}
 
-
-def adapter(harness: str) -> HarnessAdapter:
+def adapter(harness: Harness) -> HarnessAdapter:
     """The adapter for a supported harness."""
     found = ADAPTERS.get(harness)
     if found is None:
-        raise RuntimeError(f"unsupported harness: {harness}")
+        raise HarnessError(f"unsupported harness: {harness}")
     return found
 
 
@@ -149,9 +163,9 @@ def override_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
     if not raw:
         return None
     harness, separator, session_id = raw.partition(":")
-    if not separator or harness not in ADAPTERS or _identity(session_id) is None:
+    if not separator or not is_harness(harness) or _identity(session_id) is None:
         supported = ", ".join(ADAPTERS)
-        raise RuntimeError(
+        raise HarnessError(
             f"{SESSION_OVERRIDE_VARIABLE} must be '<harness>:<session id>' with "
             f"a supported harness ({supported}); got {raw!r}"
         )

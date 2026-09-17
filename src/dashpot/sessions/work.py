@@ -1,3 +1,5 @@
+"""Declare, relocate, end, and show Issue work for the enclosing Agent Session."""
+
 from __future__ import annotations
 
 import os
@@ -7,18 +9,18 @@ from pathlib import Path
 
 from ..core.errors import DashpotError
 from ..core.git import Git
-from ..core.model import Diagnostic
+from ..core.model import HARNESS_DISPLAY, Diagnostic, Harness
 from ..core.timestamps import utc_now
 from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
 from ..issues.issue_resolution import resolve_issue
 from .harnesses import (
-    HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
     SessionIdentityClaim,
     native_claims,
     override_claim,
 )
 from .hook_claims import (
+    SessionClaimError,
     ValidatedSessionIdentity,
     validate_session_claim,
 )
@@ -46,11 +48,15 @@ from .work_store import (
 )
 
 
+class IssueWorkError(DashpotError):
+    """A refusal of a work management command for the enclosing Agent Session."""
+
+
 @dataclass(frozen=True, slots=True)
 class AgentSessionIdentity:
     """Represent a confirmed Agent Session and its corroborating process evidence."""
 
-    harness: str
+    harness: Harness
     session_key: str
     session_label: str
     process: ProcessIdentity | None
@@ -81,9 +87,9 @@ def identify_agent_session(
     ancestry = observe_agent_ancestry(lookup)
     claims = _session_claims(environment)
     if not claims:
-        raise RuntimeError(_no_session_message(ancestry.unobservable_reason))
+        raise IssueWorkError(_no_session_message(ancestry.unobservable_reason))
     if worktree is None:
-        raise RuntimeError(
+        raise IssueWorkError(
             "an Agent Session Identity claimed by the environment can only be "
             "validated at a Worktree with a Project-local hook record store"
         )
@@ -94,7 +100,7 @@ def identify_agent_session(
             validated.append(
                 validate_session_claim(claim, worktree, lookup, stores=stores)
             )
-        except RuntimeError as exc:
+        except SessionClaimError as exc:
             failures.append(str(exc))
     if len(validated) == 1:
         confirmed = validated[0]
@@ -103,7 +109,7 @@ def identify_agent_session(
             if harness != confirmed.harness or (
                 confirmed.process is not None and confirmed.process.key != process.key
             ):
-                raise RuntimeError(
+                raise IssueWorkError(
                     "the claimed Agent Session Identity does not corroborate the "
                     "enclosing harness process; nothing was written"
                 )
@@ -114,12 +120,12 @@ def identify_agent_session(
             f"{HARNESS_DISPLAY[item.harness]} session {item.session_id}"
             for item in validated
         )
-        raise RuntimeError(
+        raise IssueWorkError(
             f"the environment claims more than one live Agent Session ({names}); "
             f"set {SESSION_OVERRIDE_VARIABLE}=<harness>:<session id> to say which "
             f"session this command belongs to"
         )
-    raise RuntimeError(
+    raise IssueWorkError(
         _no_session_message(ancestry.unobservable_reason) + "; " + "; ".join(failures)
     )
 
@@ -151,7 +157,7 @@ def _no_session_message(unobservable_reason: str | None) -> str:
 
 
 def _process_identity(
-    harness: str, process: ProcessIdentity, session_id: str
+    harness: Harness, process: ProcessIdentity, session_id: str
 ) -> AgentSessionIdentity:
     return AgentSessionIdentity(
         harness=harness,
@@ -197,11 +203,11 @@ def start_issue_work(
     issue = resolve_issue(root, reference, timeout)
     location = _session_location(session, stores, lookup)
     if location is None:
-        raise RuntimeError(
+        raise IssueWorkError(
             "this Agent Session has no current hook location; nothing was written"
         )
     if not same_path(location.worktree, root):
-        raise RuntimeError(
+        raise IssueWorkError(
             f"{session.session_label} is at {location.worktree} according to "
             f"its freshest {HARNESS_DISPLAY[session.harness]} hook record, not "
             f"at {root}; Issue work is declared where the session itself runs "
@@ -223,17 +229,17 @@ def start_issue_work(
             continue
         intended = Path(pending.relocation.target_worktree)
         if not same_path(intended, root):
-            raise RuntimeError(
+            raise IssueWorkError(
                 f"this Agent Run was prepared to resume at {intended}, not {root}; "
                 "the pending run was left unchanged"
             )
-        raise RuntimeError(
+        raise IssueWorkError(
             f"this Agent Run is still pending relocation from {candidate} to "
             f"{root}; its target hook has not completed the move, so nothing "
             "was written"
         )
     if session.session_id is not None and unreadable_elsewhere:
-        raise DashpotError(
+        raise IssueWorkError(
             "; ".join(item.message for item in unreadable_elsewhere)
             + "; cannot safely exclude a pending relocation for this Agent "
             "Session, so nothing was written"
@@ -243,7 +249,7 @@ def start_issue_work(
     if previous is not None:
         _check_runtime(session, previous, lookup)
     if session.session_id is not None and store_diagnostics:
-        raise DashpotError(
+        raise IssueWorkError(
             "; ".join(item.message for item in store_diagnostics)
             + "; cannot safely exclude a pending relocation for this Agent "
             "Session, so nothing was written"
@@ -252,7 +258,7 @@ def start_issue_work(
     if unreadable is not None:
         # Writing beside an unreadable record for this session's own key would
         # leave two records for one session, so this is a refusal instead.
-        raise DashpotError(
+        raise IssueWorkError(
             f"{unreadable.message}; fix or remove the record before declaring "
             f"Issue work, so this session keeps one record"
         )
@@ -273,7 +279,7 @@ def start_issue_work(
     if previous is None:
         store.start(replacement)
     elif not store.replace_current(previous, replacement):
-        raise RuntimeError(
+        raise IssueWorkError(
             "this Agent Run changed before replacement; nothing was overwritten"
         )
     # The hooks place the session here, so a run recorded at another Worktree
@@ -282,7 +288,7 @@ def start_issue_work(
     elsewhere: list[tuple[Path, ActiveWork]] = []
     for candidate, expected in selected_elsewhere:
         if not WorkStore(candidate).stop_current(expected):
-            raise RuntimeError(
+            raise IssueWorkError(
                 f"this session's earlier Agent Run at {candidate} changed; "
                 "it was not removed. Inspect 'dashpot work show' at both Worktrees"
             )
@@ -325,7 +331,7 @@ def relocate_issue_work(
     target_root = worktree_root(target)
     worktrees = repository_worktrees(root)
     if not any(same_path(target_root, worktree) for worktree in worktrees):
-        raise RuntimeError(
+        raise IssueWorkError(
             f"{target_root} is not a linked Worktree of the current Git Repository"
         )
     stores = reachable_hook_stores(worktrees)
@@ -333,19 +339,19 @@ def relocate_issue_work(
         lookup, environ=environ, worktree=root, stores=stores
     )
     if session.harness != "codex":
-        raise RuntimeError(
+        raise IssueWorkError(
             "work relocate is for a sequential Codex resume; Claude Code moves "
             "its live session with EnterWorktree"
         )
     if session.session_id is None:
-        raise RuntimeError(
+        raise IssueWorkError(
             "the Codex Agent Session Identity is not confirmed by its lifecycle "
             "hook record; run 'dashpot integrate codex --status'"
         )
     location = _session_location(session, stores, lookup)
     if location is None or not same_path(location.worktree, root):
         observed = "nowhere" if location is None else str(location.worktree)
-        raise RuntimeError(
+        raise IssueWorkError(
             f"{session.session_label} is at {observed} according to its freshest "
             f"Codex hook record, not at {root}; nothing was written"
         )
@@ -358,31 +364,31 @@ def relocate_issue_work(
         if work is not None:
             matches.append((worktree, store, work))
     if diagnostics:
-        raise DashpotError(
+        raise IssueWorkError(
             "; ".join(item.message for item in diagnostics)
             + "; repair the Work Store before preparing relocation"
         )
     if not matches:
-        raise RuntimeError(
+        raise IssueWorkError(
             "this Agent Session has no active Issue work to preserve; resume at "
             "the target and run 'dashpot work start' there"
         )
     if len(matches) != 1:
-        raise RuntimeError(
+        raise IssueWorkError(
             "this Agent Session has Issue work recorded at more than one Worktree; "
             "resolve the work-session-conflict before preparing relocation"
         )
     worktree, store, work = matches[0]
     _check_runtime(session, work, lookup)
     if not same_path(worktree, root):
-        raise RuntimeError(
+        raise IssueWorkError(
             f"this Agent Session's active Agent Run is at {worktree}, not {root}; "
             "nothing was written"
         )
     branch = Git(root, timeout=2).maybe("symbolic-ref", "--quiet", "--short", "HEAD")
     if same_path(root, target_root):
         if work.relocation is None:
-            raise RuntimeError(
+            raise IssueWorkError(
                 "the relocation target is this session's current Worktree"
             )
         _replace_current_run(
@@ -427,11 +433,11 @@ def _replace_current_run(
     try:
         replaced = store.replace_current(expected, replacement)
     except (OSError, ValueError) as exc:
-        raise DashpotError(
+        raise IssueWorkError(
             f"cannot safely update this Agent Run for relocation: {exc}"
         ) from exc
     if not replaced:
-        raise RuntimeError(
+        raise IssueWorkError(
             "this Agent Run changed while relocation was being prepared; "
             "nothing was overwritten, so inspect it with 'dashpot work show'"
         )
@@ -482,13 +488,13 @@ def stop_issue_work(
         if unreadable is not None:
             # An unreadable record cannot answer whether its session is live,
             # so ending it from outside is refused rather than guessed at.
-            raise DashpotError(
+            raise IssueWorkError(
                 f"{unreadable.message}; remove the record by hand once the "
                 f"session is confirmed over"
             )
         return [f"no active Issue work recorded for session {session_key}"]
     if _recorded_session_is_live(previous, root, lookup):
-        raise RuntimeError(
+        raise IssueWorkError(
             f"session {session_key} is still running; run 'dashpot work stop' inside it"
         )
     if not store.stop_current(previous):
@@ -522,7 +528,7 @@ def _recorded_session_is_live(
             session_id=work.session_id,
         )
     except ValueError as exc:
-        raise RuntimeError(
+        raise IssueWorkError(
             f"the lifecycle hook record for {work.session_label} cannot be "
             f"read: {exc}; run 'dashpot integrate {work.harness} --status'"
         ) from exc
@@ -568,7 +574,7 @@ def _session_location(
             process_key=session.process_key,
         )
     except ValueError as exc:
-        raise RuntimeError(
+        raise IssueWorkError(
             f"the lifecycle hook record for {session.session_label} cannot be "
             f"read: {exc}; run 'dashpot integrate {session.harness} --status'"
         ) from exc
@@ -600,13 +606,13 @@ def _stop_elsewhere(
             _check_runtime(session, work, lookup)
             selected.append((worktree, store, work))
     if selected and diagnostics:
-        raise DashpotError(
+        raise IssueWorkError(
             "unreadable Work Store records prevent safe ownership selection; nothing was removed"
         )
     stopped: list[tuple[Path, ActiveWork]] = []
     for worktree, store, work in selected:
         if not store.stop_current(work):
-            raise RuntimeError(
+            raise IssueWorkError(
                 "this Agent Run changed before stopping; the changed run was not removed"
             )
         stopped.append((worktree, work))
@@ -621,7 +627,7 @@ def _check_runtime(
     if recorded != session.process_key and (
         recorded is None or session_liveness(recorded, lookup).liveness != "gone"
     ):
-        raise RuntimeError(
+        raise IssueWorkError(
             "this Agent Session has an Agent Run owned by another live or "
             "unobservable runtime; nothing was changed"
         )
@@ -659,7 +665,7 @@ def _session_work(
     for work in active:
         relation = identity.match(work.evidence)
         if relation == "unresolved":
-            raise RuntimeError(
+            raise IssueWorkError(
                 f"ownership of legacy Agent Run {work.session_key} at {store.directory} "
                 "is unresolved; nothing was changed. After its recorded process is "
                 f"proved gone, run 'dashpot work stop --session {work.session_key}' "
@@ -668,9 +674,11 @@ def _session_work(
         if relation == "same":
             matches.append(work)
         elif work.session_key == session.session_key:
-            raise RuntimeError("the destination is occupied by a conflicting identity")
+            raise IssueWorkError(
+                "the destination is occupied by a conflicting identity"
+            )
     if len(matches) > 1:
-        raise RuntimeError(
+        raise IssueWorkError(
             "conflicting Agent Runs for this Agent Session; inspect 'dashpot work show' "
             "and end the exact obsolete run with 'dashpot work stop --session'"
         )

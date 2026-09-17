@@ -1,3 +1,5 @@
+"""Observe a local Markdown Issue Source and conform its Issues to the Issue Profile."""
+
 from __future__ import annotations
 
 import json

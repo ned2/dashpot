@@ -1,3 +1,5 @@
+"""Edit which Issue table columns the dashboard shows."""
+
 from __future__ import annotations
 
 from typing import ClassVar, cast

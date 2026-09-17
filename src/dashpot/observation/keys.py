@@ -1,3 +1,5 @@
+"""Name scheduled observations and carry their tickets and outcomes."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

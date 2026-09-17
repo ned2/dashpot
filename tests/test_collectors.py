@@ -25,7 +25,10 @@ from dashpot.core.model import (
     RepositoryStateInventory,
     WorkspaceSnapshot,
 )
-from dashpot.github.github_repository import observe_github_repository_identity
+from dashpot.github.github_repository import (
+    RepositoryIdentityError,
+    observe_github_repository_identity,
+)
 from dashpot.issues.issue_sources import (
     CollectedIssues,
     IssueSource,
@@ -212,7 +215,7 @@ class RepositoryTests(unittest.TestCase):
         for payload, reason in cases:
             with self.subTest(reason=reason):
                 runner = FixedRunner(CommandResult([], 0, json.dumps(payload), ""))
-                with self.assertRaisesRegex(RuntimeError, reason):
+                with self.assertRaisesRegex(RepositoryIdentityError, reason):
                     observe_github_repository_identity(
                         Path("/repo"), "ned2/dashpot", 7, runner
                     )

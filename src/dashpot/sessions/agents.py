@@ -6,9 +6,8 @@ import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
-from ..core.model import AgentRun, Diagnostic, ObservationTarget, RunState
+from ..core.model import AgentRun, Diagnostic, Harness, ObservationTarget, RunState
 from ..core.timestamps import observed_instant
 from ..core.worktree_paths import is_within, same_path
 from .hook_records import HookRecordStore
@@ -84,7 +83,7 @@ class ObservedActivityIndex:
 
     def adopt(
         self,
-        harness: str,
+        harness: Harness,
         session_id: str | None,
         process_key: ProcessKey | None,
     ) -> ObservedActivity | None:
@@ -425,8 +424,11 @@ def record_to_session(
     if located is None:
         return None, diagnostics
     observation_project_id, target = located
+    # A live record's state is running or waiting; ``ended`` is what a graceful
+    # SessionEnd leaves and is only ever seen with the ``ended`` outcome.
+    recorded = record.state
     state: RunState = (
-        cast(RunState, record.state) if record.outcome == "live" else "unknown"
+        recorded if record.outcome == "live" and recorded != "ended" else "unknown"
     )
     return (
         HookSessionObservation(

@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, FiniteFloat, ValidationError
 
+from ..core.errors import DashpotError
 from ..core.pydantic import (
     ConfigModel,
     NonBlankString,
@@ -17,6 +18,10 @@ from ..core.pydantic import (
 
 PROJECT_CONFIG_NAME = ".dashpot/config.json"
 DEFAULT_RECONCILIATION_SECONDS = 300.0
+
+
+class ProjectConfigError(DashpotError):
+    """A Project configuration that is missing, unreadable, or does not validate."""
 
 
 class GitHubIssueSourceConfig(ConfigModel):
@@ -63,9 +68,11 @@ def load_project_config(
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Project configuration not found: {path}") from exc
+        raise ProjectConfigError(f"Project configuration not found: {path}") from exc
     except OSError as exc:
-        raise RuntimeError(f"cannot read Project configuration {path}: {exc}") from exc
+        raise ProjectConfigError(
+            f"cannot read Project configuration {path}: {exc}"
+        ) from exc
     return parse_project_config(text, path, polling_seconds=polling_seconds)
 
 
@@ -76,9 +83,11 @@ def parse_project_config(
     try:
         raw: Any = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"cannot read Project configuration {path}: {exc}") from exc
+        raise ProjectConfigError(
+            f"cannot read Project configuration {path}: {exc}"
+        ) from exc
     if not isinstance(raw, dict):
-        raise RuntimeError(f"{path} must contain a JSON object")
+        raise ProjectConfigError(f"{path} must contain a JSON object")
     try:
         config = ProjectConfig.model_validate(raw)
     except ValidationError as exc:
@@ -89,5 +98,5 @@ def parse_project_config(
             union_tags=frozenset({"github", "markdown"}),
             union_message="kind must be 'github' or 'markdown'",
         )
-        raise RuntimeError(f"{path} {message.lstrip()}") from exc
+        raise ProjectConfigError(f"{path} {message.lstrip()}") from exc
     return config

@@ -1,8 +1,11 @@
+"""Publish the observation read model: the Workspace Snapshot and its parts."""
+
 from __future__ import annotations
 
 from typing import Annotated, Literal
 
 from pydantic import Field
+from typing_extensions import TypeIs
 
 from .issue_profile import IssueProfile
 from .pydantic import (
@@ -15,6 +18,18 @@ from .pydantic import (
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
+# The supported harnesses and how each is named to a person; every harness
+# value in the code, the persisted records, and the published model is one of
+# these, and observation reads the labels here without importing ``sessions``.
+Harness = Literal["codex", "claude-code"]
+HARNESS_DISPLAY: dict[Harness, str] = {"codex": "Codex", "claude-code": "Claude Code"}
+
+
+def is_harness(value: object) -> TypeIs[Harness]:
+    """Tell whether a value names a supported harness."""
+    return value in HARNESS_DISPLAY
+
+
 TargetAvailability = Literal["available", "unavailable"]
 # Git topology, as `git worktree list` reports it: the main working tree is
 # listed first, followed by each linked working tree.
@@ -151,7 +166,7 @@ class RepositoryStateInventory(ObservationModel):
 
 class AgentRun(ObservationModel):
     id: str
-    harness: str
+    harness: Harness
     process_or_session: str
     # Live cursor continuity does not extend the headless snapshot contract.
     session_id: str | None = Field(default=None, exclude=True)

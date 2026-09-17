@@ -6,13 +6,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .core.git import GitError
 from .core.model import Diagnostic
 from .core.worktree_paths import worktree_root
 from .observation.collect import ObservationCoordinator
-from .project.project_config import PROJECT_CONFIG_NAME
+from .project.project_config import PROJECT_CONFIG_NAME, ProjectConfigError
 from .project.workspace import (
     RepositoryAnchor,
     Workspace,
+    WorkspaceConfigError,
     default_workspace_config,
     load_workspaces,
     merge_workspaces,
@@ -84,7 +86,7 @@ def cleanup_protection() -> list[Path]:
     protected = [current]
     try:
         root = worktree_root(current)
-    except RuntimeError:
+    except GitError:
         root = None
     if root is not None and (root / PROJECT_CONFIG_NAME).is_file():
         protected.append(root)
@@ -92,7 +94,7 @@ def cleanup_protection() -> list[Path]:
     if inventory.is_file():
         try:
             workspaces = load_workspaces(inventory).workspaces
-        except RuntimeError as exc:
+        except WorkspaceConfigError as exc:
             raise CleanupError(
                 f"cannot tell which Repository Anchors to protect: {exc}"
             ) from exc
@@ -103,7 +105,7 @@ def cleanup_protection() -> list[Path]:
                 # path no Cleanup should touch.
                 try:
                     protected.append(worktree_root(path))
-                except (OSError, RuntimeError):
+                except (OSError, GitError):
                     protected.append(path)
     return list(dict.fromkeys(protected))
 
@@ -127,7 +129,7 @@ def create_collector(
         try:
             project_root = worktree_root(current)
             in_repository = True
-        except RuntimeError:
+        except GitError:
             project_root = current
             in_repository = False
         if (project_root / PROJECT_CONFIG_NAME).is_file():
@@ -140,7 +142,7 @@ def create_collector(
         else:
             inventory = default_workspace_config()
             if in_repository and not inventory.is_file():
-                raise RuntimeError(
+                raise ProjectConfigError(
                     f"this repository has no {PROJECT_CONFIG_NAME}; run "
                     f"'dashpot init' to configure it, or define Workspaces "
                     f"in {inventory}"

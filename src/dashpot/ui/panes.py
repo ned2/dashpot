@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
-from typing import Protocol
+from typing import Literal, Protocol
 
 from ..observation.issue_list import row_key
 from ..observation.paged_store import PagedObservationStore
@@ -78,6 +78,14 @@ class PaneRowsSource(Protocol):
     def __call__(self, context: PaneContext) -> PaneRows: ...
 
 
+# The widget ids of the list panes and their tables, which the stylesheet and
+# the dashboard's accessors name; a spec carries one of each.
+ListPaneId = Literal[
+    "sessions-pane", "worktrees-pane", "branches-pane", "pull-requests-pane"
+]
+ListTableId = Literal["sessions", "worktrees", "branches", "pull-requests"]
+
+
 @dataclass(frozen=True, slots=True)
 class PaneSpec:
     """Everything one list pane varies by, declared once.
@@ -91,8 +99,8 @@ class PaneSpec:
     no part in relationship emphasis.
     """
 
-    pane_id: str
-    table_id: str
+    pane_id: ListPaneId
+    table_id: ListTableId
     label: str
     columns: tuple[ListColumn, ...]
     empty_message: str

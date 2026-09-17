@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import ConfigDict, ValidationError, field_validator
 
+from ..core.errors import DashpotError
 from ..core.model import Diagnostic
 from ..core.pydantic import (
     LaxSequence,
@@ -20,6 +21,10 @@ from ..core.pydantic import (
 SETTINGS_FILE_NAME = "config.toml"
 WORKTREE_ROOT_VARIABLE = "DASHPOT_WORKTREE_ROOT"
 WORKTREE_PATH_ARGUMENT = "{path}"
+
+
+class SettingsError(DashpotError):
+    """A settings file that cannot be read or does not validate."""
 
 
 class SettingsFile(PublishedModel):
@@ -81,14 +86,14 @@ def load_settings(path: Path | None = None) -> Settings:
     except FileNotFoundError:
         return Settings()
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
-        raise RuntimeError(
+        raise SettingsError(
             f"cannot read Dashpot settings {settings_path}: {exc}"
         ) from exc
     try:
         file = SettingsFile.model_validate(raw)
     except ValidationError as exc:
         message = translate_validation_error(exc, root="")
-        raise RuntimeError(f"{settings_path} {message.lstrip()}") from exc
+        raise SettingsError(f"{settings_path} {message.lstrip()}") from exc
     unexpected = sorted(file.model_extra or {})
     diagnostics = (
         (

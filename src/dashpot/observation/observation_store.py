@@ -1,3 +1,5 @@
+"""Retain observations per Project and derive the Workspace Snapshot from them."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence

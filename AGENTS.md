@@ -182,9 +182,16 @@ The conventions the tooling enforces or the code assumes:
   handler thin and delegate to a plain method, as
   `DashpotApp.on_observation_finished` delegates to `_accept_observation`, so
   work that must follow the handler has a method to override.
-- Docstrings are one imperative line in the voice of the shared domain language
-  (`"""Identify the supported Agent Session enclosing this command."""`);
-  comments explain why, not what.
+- Every module has a docstring, a package's empty `__init__.py` aside. A
+  docstring is written in the voice of the
+  shared domain language and opens with one summary line: imperative for a
+  function that acts (`"""Identify the supported Agent Session enclosing
+  this command."""`), while a class, a property, or a function that only
+  answers a question may instead name what it is or yields (`"""A
+  management command refused before writing."""`, `"""Every record of
+  ``git worktree list``, main working tree first."""`). A body may follow
+  after a blank line when the summary cannot carry the contract alone.
+  Comments explain why, not what.
 - Tests drive public seams: `observe_agent_runs` with a fake process lookup
   rather than the process adapter, the `WorkStore` rather than its files,
   Textual screens through `App.run_test` / `pilot` and the `wait_until`

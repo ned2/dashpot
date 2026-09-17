@@ -8,7 +8,8 @@ from typing import Any
 import pytest
 
 from dashpot.core.commands import CommandResult, CommandRunner
-from dashpot.project.init import initialize_project
+from dashpot.github.github import GitHubRequestError
+from dashpot.project.init import InitError, initialize_project
 from factories import init_repository
 
 
@@ -72,12 +73,12 @@ def test_markdown_path_must_be_repository_relative(
 ) -> None:
     root = git_repository
 
-    with pytest.raises(RuntimeError, match="repository-relative"):
+    with pytest.raises(InitError, match="repository-relative"):
         initialize_project(root, markdown_path=path)
 
 
 def test_init_requires_a_git_repository(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeError, match="inside a Git repository"):
+    with pytest.raises(InitError, match="inside a Git repository"):
         initialize_project(tmp_path)
 
 
@@ -87,7 +88,7 @@ def test_init_refuses_to_overwrite_existing_configuration(
     root = git_repository
     initialize_project(root, markdown_path="issues")
 
-    with pytest.raises(RuntimeError, match="already configured"):
+    with pytest.raises(InitError, match="already configured"):
         initialize_project(root, markdown_path="issues")
 
 
@@ -96,7 +97,7 @@ def test_no_origin_without_markdown_is_an_actionable_error(
 ) -> None:
     root = git_repository
 
-    with pytest.raises(RuntimeError, match="--markdown"):
+    with pytest.raises(InitError, match="--markdown"):
         initialize_project(root)
 
     assert not (root / ".dashpot").exists()
@@ -110,7 +111,7 @@ def test_gh_failure_leaves_no_partial_configuration(tmp_path: Path) -> None:
     def runner(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         return CommandResult(list(args), 1, "", "gh: Not Found")
 
-    with pytest.raises(RuntimeError, match="cannot resolve GitHub repository"):
+    with pytest.raises(GitHubRequestError, match="cannot resolve GitHub repository"):
         initialize_project(root, runner=runner)
 
     assert not (root / ".dashpot").exists()

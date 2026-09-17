@@ -16,6 +16,7 @@ from dashpot.sessions.hook_scan import (
     sessions_at_worktree,
 )
 from dashpot.sessions.work import (
+    IssueWorkError,
     identify_agent_session,
     start_issue_work,
     stop_issue_work,
@@ -24,6 +25,7 @@ from dashpot.sessions.work_store import (
     ActiveWork,
     SessionProcess,
     WorkStore,
+    WorkStoreError,
     end_session_runs,
 )
 from factories import CLAUDE, CODEX, EARLIER, LATER, hook_record, hook_record_document
@@ -276,7 +278,7 @@ def test_unavailable_named_evidence_cannot_borrow_activity_location_or_work(
     else:
         document = hook_record_document(a, A, "codex", CODEX, state="ended")
         path.write_text(json.dumps(document))
-    with pytest.raises(RuntimeError):
+    with pytest.raises(IssueWorkError):
         start(a, A)
     runs, _ = observe_agent_runs(
         {"project:test": [target(a), target(b)]}, a / "global", lookup=present(CODEX)
@@ -336,7 +338,7 @@ def test_named_identity_agrees_across_visible_and_sandbox_routes(
 )
 def test_unconfirmed_claim_never_degrades_to_process_mutation(roots, environment):
     a, b = roots
-    with pytest.raises(RuntimeError):
+    with pytest.raises(IssueWorkError):
         start_issue_work(a, "I_a", lookup=present(CODEX), environ=environment)
     assert WorkStore(a).active()[0] == []
     assert WorkStore(b).active()[0] == []
@@ -363,7 +365,7 @@ def test_legacy_unnamed_ownership_is_refused_without_duplication(roots, process)
     a, b = roots
     legacy = recorded(b, None, process=process)
     WorkStore(b).start(legacy)
-    with pytest.raises(RuntimeError, match="ownership of legacy Agent Run"):
+    with pytest.raises(IssueWorkError, match="ownership of legacy Agent Run"):
         start(a, A)
     assert WorkStore(a).active()[0] == []
     assert WorkStore(b).active()[0] == [legacy]
@@ -376,7 +378,7 @@ def test_conflicting_candidates_are_refused_before_any_new_work(roots):
     second = replace(first, session_key="second")
     WorkStore(a).start(first)
     WorkStore(a).start(second)
-    with pytest.raises(RuntimeError, match="conflicting Agent Runs"):
+    with pytest.raises(IssueWorkError, match="conflicting Agent Runs"):
         start(a, A)
     assert WorkStore(a).active()[0] == [first, second]
 
@@ -391,7 +393,7 @@ def test_conflicting_destination_identity_is_not_overridden_by_its_filename(root
     )
     other = recorded(a, B, key=session.session_key)
     WorkStore(a).start(other)
-    with pytest.raises(RuntimeError, match="occupied"):
+    with pytest.raises(IssueWorkError, match="occupied"):
         start(a, A)
     assert WorkStore(a).active()[0] == [other]
 
@@ -423,7 +425,7 @@ def test_changed_record_is_not_replaced_or_removed_after_selection(
     if operation == "end":
         assert end_session_runs([a], "codex", A, CODEX.key) == []
     else:
-        with pytest.raises(RuntimeError, match="changed"):
+        with pytest.raises(IssueWorkError, match="changed"):
             if operation == "start":
                 start(a, A, "I_next")
             else:
@@ -467,7 +469,7 @@ def test_same_native_identity_does_not_authorize_a_live_runtime_takeover(roots):
     work = recorded(a, process=previous_process)
     WorkStore(a).start(work)
     lookup = table_lookup({CODEX.pid: CODEX, previous_process.pid: previous_process})
-    with pytest.raises(RuntimeError, match="another live or unobservable runtime"):
+    with pytest.raises(IssueWorkError, match="another live or unobservable runtime"):
         start_issue_work(a, "I_next", lookup=lookup, environ={"CODEX_THREAD_ID": A})
     assert WorkStore(a).active()[0] == [work]
 
@@ -564,7 +566,7 @@ def test_stop_preflights_legacy_ownership_before_deleting_any_run(roots):
     legacy = recorded(b, None, process=replace(CODEX, pid=5252))
     WorkStore(a).start(own)
     WorkStore(b).start(legacy)
-    with pytest.raises(RuntimeError, match="ownership of legacy Agent Run"):
+    with pytest.raises(IssueWorkError, match="ownership of legacy Agent Run"):
         stop_issue_work(a, lookup=present(CODEX), environ={"CODEX_THREAD_ID": A})
     assert WorkStore(a).active()[0] == [own]
     assert WorkStore(b).active()[0] == [legacy]
@@ -594,6 +596,6 @@ def test_work_store_start_cannot_overwrite_occupied_state(tmp_path):
         replace(before, session_id=B),
         replace(before, issue_id="I_next"),
     ):
-        with pytest.raises(RuntimeError, match="occupied"):
+        with pytest.raises(WorkStoreError, match="occupied"):
             store.start(replacement)
         assert store.active()[0] == [before]

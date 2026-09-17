@@ -12,13 +12,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .commands import CommandResult, CommandRunner, run_command
+from .commands import CommandError, CommandResult, CommandRunner, run_command
 from .errors import DashpotError
 
 
-# The RuntimeError base is transitional: it keeps the pre-adapter
-# ``except RuntimeError`` sites working while raise sites migrate to the
-# DashpotError contract.
+# The RuntimeError base predates the DashpotError contract and stays for
+# callers outside the package that catch the built-in type; Dashpot's own
+# ``except`` sites name this class.
 class GitError(DashpotError, RuntimeError):
     """A Git command that could not answer: non-zero exit, missing binary, or timeout."""
 
@@ -69,7 +69,7 @@ class Git:
         """
         try:
             return self.runner(["git", *args], self.root, self.timeout)
-        except (OSError, RuntimeError) as exc:
+        except (OSError, CommandError) as exc:
             raise GitError(args, self.root, detail=str(exc)) from exc
 
     def text(self, *args: str) -> str:

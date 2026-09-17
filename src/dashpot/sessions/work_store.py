@@ -12,7 +12,8 @@ from typing import Any, Literal, Self
 
 from pydantic import ValidationError, model_validator
 
-from ..core.model import Diagnostic
+from ..core.errors import DashpotError
+from ..core.model import Diagnostic, Harness
 from ..core.pydantic import (
     NonEmptyString,
     PersistedRecord,
@@ -22,7 +23,7 @@ from ..core.pydantic import (
 from ..core.record_store import LockedRecordStore
 from ..core.timestamps import observed_instant
 from ..core.worktree_paths import same_path
-from .harnesses import HookSessionIdentity
+from .harnesses import HarnessName, HookSessionIdentity
 from .processes import ProcessKey
 from .session_matching import SessionEvidence
 
@@ -55,7 +56,7 @@ class WorkStoreRecord(PersistedRecord):
     """One Work Store record as persisted; the session key is its filename."""
 
     version: Literal[1, 2]
-    harness: NonEmptyString
+    harness: HarnessName
     session_label: NonEmptyString
     session_process: SessionProcess | None
     issue_id: NonEmptyString
@@ -137,7 +138,7 @@ class ActiveWork:
     """One active Agent Run recorded at a Worktree's Work Store."""
 
     session_key: str
-    harness: str
+    harness: Harness
     session_label: str
     session_process: SessionProcess | None
     issue_id: str
@@ -163,6 +164,10 @@ class ActiveWork:
         return f"work:{self.harness}:{self.session_key}:{self.started_at}"
 
 
+class WorkStoreError(DashpotError):
+    """A Work Store write refused because another record occupies its destination."""
+
+
 class WorkStore(LockedRecordStore):
     """Versioned, atomic, lock-serialized Issue work state for one Worktree."""
 
@@ -180,7 +185,7 @@ class WorkStore(LockedRecordStore):
             if current is not None:
                 if current == work:
                     return self.record_path(work.session_key)
-                raise RuntimeError(
+                raise WorkStoreError(
                     "the destination is occupied; use conditional replacement"
                 )
             self.replace(
@@ -312,7 +317,7 @@ class WorkStore(LockedRecordStore):
 
 def end_session_runs(
     worktrees: Iterable[Path],
-    harness: str,
+    harness: Harness,
     session_id: str,
     process_key: ProcessKey | None,
     *,

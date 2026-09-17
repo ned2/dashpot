@@ -1,3 +1,5 @@
+"""Install, check, and describe one harness's lifecycle hook integration."""
+
 from __future__ import annotations
 
 import json
@@ -11,15 +13,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.errors import DashpotError
+from ..core.git import GitError
+from ..core.model import HARNESS_DISPLAY, Harness
 from ..core.record_store import replace_atomically
 from ..core.worktree_paths import main_worktree, worktree_records, worktree_root
 from .harnesses import (
-    HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
+    HarnessError,
     adapter,
     override_claim,
 )
-from .hook_claims import validate_session_claim
+from .hook_claims import SessionClaimError, validate_session_claim
 from .hook_records import session_directory, state_directory
 from .hook_scan import (
     SessionRecordSummary,
@@ -43,11 +48,15 @@ ISSUE_WORK_SKILL_FILES = (
 )
 
 
+class IntegrationError(DashpotError):
+    """A hook or skill installation refused with the file left as it was."""
+
+
 @dataclass(frozen=True, slots=True)
 class HarnessIntegration:
     """One supported harness's opt-in lifecycle hook installation."""
 
-    harness: str
+    harness: Harness
     display: str
     home_name: str
     hooks_file: str
@@ -82,7 +91,7 @@ def hook_label(event: str, matcher: str | None) -> str:
 
 CODEX = HarnessIntegration(
     harness="codex",
-    display="Codex",
+    display=HARNESS_DISPLAY["codex"],
     home_name=".codex",
     hooks_file="hooks.json",
     command_name="dashpot-codex-hook",
@@ -99,7 +108,7 @@ CODEX = HarnessIntegration(
 
 CLAUDE_CODE = HarnessIntegration(
     harness="claude-code",
-    display="Claude Code",
+    display=HARNESS_DISPLAY["claude-code"],
     home_name=".claude",
     hooks_file="settings.json",
     command_name="dashpot-claude-code-hook",
@@ -125,7 +134,9 @@ CLAUDE_CODE = HarnessIntegration(
     ),
 )
 
-INTEGRATIONS = {spec.harness: spec for spec in (CODEX, CLAUDE_CODE)}
+INTEGRATIONS: dict[Harness, HarnessIntegration] = {
+    spec.harness: spec for spec in (CODEX, CLAUDE_CODE)
+}
 
 HOOK_COMMAND_NAMES = frozenset(spec.command_name for spec in INTEGRATIONS.values())
 
@@ -133,10 +144,10 @@ CODEX_HOOK_EVENTS = CODEX.events
 CLAUDE_CODE_HOOK_EVENTS = CLAUDE_CODE.events
 
 
-def integration(harness: str) -> HarnessIntegration:
+def integration(harness: Harness) -> HarnessIntegration:
     spec = INTEGRATIONS.get(harness)
     if spec is None:
-        raise RuntimeError(f"unsupported harness: {harness}")
+        raise HarnessError(f"unsupported harness: {harness}")
     return spec
 
 
@@ -148,7 +159,7 @@ def resolve_hook_command(spec: HarnessIntegration) -> Path:
     found = shutil.which(spec.command_name)
     if found:
         return Path(found)
-    raise RuntimeError(
+    raise IntegrationError(
         f"cannot locate the {spec.command_name} publisher installed with "
         "Dashpot; reinstall Dashpot and retry"
     )
@@ -179,7 +190,7 @@ def linked_worktree_binding(command: Path) -> LinkedWorktreeBinding | None:
     try:
         root = worktree_root(command.parent)
         records = worktree_records(root)
-    except RuntimeError:
+    except GitError:
         return None
     main = main_worktree(records)
     if root == main:
@@ -203,7 +214,7 @@ def _linked_worktree_consequence(
 
 
 def install_integration(
-    harness: str,
+    harness: Harness,
     home: Path | None = None,
     *,
     command_path: Path | None = None,
@@ -212,7 +223,7 @@ def install_integration(
     spec = integration(harness)
     home = home or spec.default_home
     if not home.is_dir():
-        raise RuntimeError(
+        raise IntegrationError(
             f"no {spec.display} configuration directory at {home}; install "
             f"and run {spec.display} once before integrating"
         )
@@ -223,7 +234,7 @@ def install_integration(
     # the environment it names, so the file is left exactly as it was.
     binding = linked_worktree_binding(command)
     if binding is not None:
-        raise RuntimeError(
+        raise IntegrationError(
             f"cannot bind the {spec.display} hooks to {command}: "
             f"{_linked_worktree_consequence(spec, binding)}"
         )
@@ -232,7 +243,7 @@ def install_integration(
     original = json.dumps(document, sort_keys=True)
     hooks = document.setdefault("hooks", {})
     if not isinstance(hooks, dict):
-        raise RuntimeError(
+        raise IntegrationError(
             f'{path} has a non-object top-level "hooks" value; fix the file and retry'
         )
     handler = {
@@ -271,7 +282,7 @@ def install_integration(
     return messages
 
 
-def remove_integration(harness: str, home: Path | None = None) -> list[str]:
+def remove_integration(harness: Harness, home: Path | None = None) -> list[str]:
     """Remove exactly Dashpot's hooks and managed skill for one harness."""
     spec = integration(harness)
     home = home or spec.default_home
@@ -317,7 +328,7 @@ def remove_integration(harness: str, home: Path | None = None) -> list[str]:
 
 
 def integration_status(
-    harness: str,
+    harness: Harness,
     home: Path | None = None,
     *,
     state_dir: Path | None = None,
@@ -337,7 +348,7 @@ def integration_status(
     else:
         try:
             document = _load_hooks_document(spec, path)
-        except RuntimeError as exc:
+        except IntegrationError as exc:
             return [str(exc)]
         commands = _installed_commands(document)
         if not commands:
@@ -423,7 +434,7 @@ def _bundled_issue_work_skill() -> Path:
 
 def _validate_skill_destination(destination: Path) -> None:
     if destination.exists() and not destination.is_dir():
-        raise RuntimeError(
+        raise IntegrationError(
             f"cannot install the Dashpot Issue work skill at {destination}: "
             "the path is not a directory; move it and retry"
         )
@@ -433,12 +444,12 @@ def _validate_skill_destination(destination: Path) -> None:
     try:
         text = skill_file.read_text(encoding="utf-8")
     except OSError as exc:
-        raise RuntimeError(
+        raise IntegrationError(
             f"cannot install the Dashpot Issue work skill at {destination}: "
             "an existing skill is not managed by Dashpot; move it and retry"
         ) from exc
     if ISSUE_WORK_SKILL_MARKER not in text:
-        raise RuntimeError(
+        raise IntegrationError(
             f"cannot install the Dashpot Issue work skill at {destination}: "
             "an existing skill is not managed by Dashpot; move it and retry"
         )
@@ -488,7 +499,7 @@ def _remove_issue_work_skill(destination: Path) -> str:
     return f"removed the Dashpot Issue work skill from {destination}"
 
 
-def _issue_work_skill_status(destination: Path, *, harness: str) -> str:
+def _issue_work_skill_status(destination: Path, *, harness: Harness) -> str:
     skill_file = destination / "SKILL.md"
     if not skill_file.is_file():
         return f"Issue work skill not installed: no {skill_file}"
@@ -526,7 +537,7 @@ def _record_store_status(
     messages: list[str] = []
     try:
         root = worktree_root(current or Path.cwd())
-    except RuntimeError:
+    except GitError:
         root = None
     if root is not None and (root / ".dashpot" / "config.json").is_file():
         local = session_directory(root)
@@ -566,7 +577,7 @@ def _claimed_identity_status(
     environment = environ if environ is not None else os.environ
     try:
         claim = override_claim(environment)
-    except RuntimeError as exc:
+    except HarnessError as exc:
         return [f"Agent Session identity claimed here: {exc}"]
     if claim is None or claim.harness != spec.harness:
         claim = adapter(spec.harness).claim_session_identity(environment)
@@ -582,11 +593,11 @@ def _claimed_identity_status(
     )
     try:
         root = worktree_root(current or Path.cwd())
-    except RuntimeError:
+    except GitError:
         return [f"{prefix}, not validated: not inside a Git worktree"]
     try:
         validated = validate_session_claim(claim, root, lookup)
-    except RuntimeError as exc:
+    except SessionClaimError as exc:
         return [f"{prefix}, rejected: {exc}"]
     return [f"{prefix}, confirmed by its {validated.record.outcome} hook record"]
 
@@ -623,12 +634,12 @@ def _load_hooks_document(spec: HarnessIntegration, path: Path) -> dict[str, Any]
     try:
         document: Any = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(
+        raise IntegrationError(
             f"cannot read {spec.display} hooks at {path}: {exc}; fix or "
             "move the file and retry"
         ) from exc
     if not isinstance(document, dict):
-        raise RuntimeError(
+        raise IntegrationError(
             f"{path} must contain a JSON object; fix or move the file and retry"
         )
     return document

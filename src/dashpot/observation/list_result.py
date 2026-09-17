@@ -1,3 +1,5 @@
+"""Carry one list query's rows, revision, and summary together."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

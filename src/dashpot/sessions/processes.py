@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
 
+from ..core.model import Harness
 from ..core.pydantic import PublishedModel
 from .harnesses import ADAPTERS
 
@@ -195,7 +196,7 @@ def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobse
     return result.stdout
 
 
-HARNESS_HOSTS: dict[str, Callable[[ProcessIdentity], bool]] = {
+HARNESS_HOSTS: dict[Harness, Callable[[ProcessIdentity], bool]] = {
     adapter.harness: adapter.is_host_process for adapter in ADAPTERS.values()
 }
 
@@ -209,13 +210,13 @@ class AgentAncestry:
     when an ancestor could not be observed, such as ``isolated-namespace``.
     """
 
-    located: tuple[str, ProcessIdentity] | None
+    located: tuple[Harness, ProcessIdentity] | None
     unobservable_reason: str | None = None
 
 
 def observe_agent_ancestry(
     lookup: ProcessLookup = host_process_lookup,
-    harness: str | None = None,
+    harness: Harness | None = None,
 ) -> AgentAncestry:
     """Walk this command's ancestry to the nearest supported harness process.
 

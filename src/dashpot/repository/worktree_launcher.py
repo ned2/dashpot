@@ -10,14 +10,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.commands import CommandResult, CommandRunner
+from ..core.errors import DashpotError
 from ..core.model import Diagnostic
 from ..project.settings import (
     WORKTREE_PATH_ARGUMENT,
+    SettingsError,
     default_settings_path,
     load_settings,
 )
 
 WorktreeOpener = Callable[[Path], None]
+
+
+class WorktreeLaunchError(DashpotError):
+    """A launch request that could not open the Worktree, for the dashboard to show."""
 
 
 def run_launch_command(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
@@ -34,7 +40,7 @@ def run_launch_command(args: Sequence[str], cwd: Path, timeout: float) -> Comman
             start_new_session=True,
         )
     except OSError as exc:
-        raise RuntimeError(f"cannot launch {args[0]}: {exc}") from exc
+        raise WorktreeLaunchError(f"cannot launch {args[0]}: {exc}") from exc
     try:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
@@ -44,7 +50,7 @@ def run_launch_command(args: Sequence[str], cwd: Path, timeout: float) -> Comman
             if process.poll() is None:
                 process.kill()
             process.wait()
-            raise RuntimeError(
+            raise WorktreeLaunchError(
                 f"launch request timed out after {timeout:g}s; it may have opened a "
                 "terminal already. Wrappers must detach children and redirect their streams"
             ) from exc
@@ -68,7 +74,7 @@ class WorktreeLauncher:
     def __call__(self, path: Path) -> None:
         """Request a terminal at the captured Worktree path."""
         if not path.is_absolute() or not path.is_dir() or not os.access(path, os.X_OK):
-            raise RuntimeError(f"Worktree directory is unavailable: {path}")
+            raise WorktreeLaunchError(f"Worktree directory is unavailable: {path}")
         if self.command is not None:
             args = [
                 str(path) if arg == WORKTREE_PATH_ARGUMENT else arg
@@ -76,7 +82,7 @@ class WorktreeLauncher:
             ]
         elif self.inside_tmux:
             if self.tmux_pane is None or re.fullmatch(r"%\d+", self.tmux_pane) is None:
-                raise RuntimeError(
+                raise WorktreeLaunchError(
                     "Cannot identify the originating tmux pane (TMUX_PANE)"
                 )
             # tmux expands -c as a format, then its argv parser treats a final
@@ -86,14 +92,14 @@ class WorktreeLauncher:
                 literal = literal[:-1] + r"\;"
             args = ["tmux", "split-window", "-v", "-t", self.tmux_pane, "-c", literal]
         else:
-            raise RuntimeError(
+            raise WorktreeLaunchError(
                 f"Configure worktree_open_command in {self.settings_path} or run "
                 "Dashpot inside tmux; press y to copy the path"
             )
         result = self.runner(args, path, self.timeout)
         if result.returncode:
             detail = " ".join((result.stderr or result.stdout).split())[:500]
-            raise RuntimeError(f"{args[0]} exited {result.returncode}: {detail}")
+            raise WorktreeLaunchError(f"{args[0]} exited {result.returncode}: {detail}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +118,7 @@ def configure_worktree_launcher(
     source = path if path is not None else default_settings_path()
     try:
         settings = load_settings(source)
-    except RuntimeError as exc:
+    except SettingsError as exc:
         return LauncherConfiguration(
             diagnostics=(
                 Diagnostic(

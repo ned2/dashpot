@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.project.settings import Settings, default_settings_path, load_settings
+from dashpot.project.settings import (
+    Settings,
+    SettingsError,
+    default_settings_path,
+    load_settings,
+)
 
 
 def test_absent_settings_are_the_defaults(tmp_path: Path) -> None:
@@ -51,7 +56,7 @@ def test_malformed_settings_are_refused(
 ) -> None:
     path = tmp_path / "config.toml"
     path.write_text(text)
-    with pytest.raises(RuntimeError, match=message) as error:
+    with pytest.raises(SettingsError, match=message) as error:
         load_settings(path)
     assert str(path) in str(error.value)
 
@@ -65,7 +70,7 @@ def test_unreadable_settings_report_the_source(
         path.mkdir()
     else:
         path.write_bytes(content)
-    with pytest.raises(RuntimeError, match="cannot read Dashpot settings") as error:
+    with pytest.raises(SettingsError, match="cannot read Dashpot settings") as error:
         load_settings(path)
     assert str(path) in str(error.value)
 
