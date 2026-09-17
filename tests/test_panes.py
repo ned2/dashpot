@@ -40,8 +40,10 @@ def test_every_pane_is_declared_once_with_its_own_identities() -> None:
     assert len(set(pane_ids)) == len(pane_ids)
     assert len(set(table_ids)) == len(table_ids)
     for spec in LIST_PANE_SPECS:
-        # Controls and their height come together, as the pane requires.
+        # Controls and their height come together, as the pane requires, and
+        # controls filter a paged kind's query.
         assert (spec.controls is None) == (spec.controls_height == 0)
+        assert (spec.controls is None) == (spec.query_kind is None)
         # A pane in relationship emphasis names the columns that show it.
         assert (spec.related is None) == (not spec.related_columns)
 

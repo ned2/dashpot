@@ -803,7 +803,7 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
-        states = app.dashboard.issue_table.issue_view.query.states
+        states = app.dashboard.list_queries.issues.states
         app.dashboard.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
@@ -818,7 +818,7 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         # focused, its state filter unchanged.
         assert isinstance(app.screen, IssueScreen)
         assert not app.dashboard.query_one("#issue-search", Input).has_focus
-        assert app.dashboard.issue_table.issue_view.query.states == states
+        assert app.dashboard.list_queries.issues.states == states
         assert len(app.screen_stack) == 2
 
 

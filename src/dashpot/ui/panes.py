@@ -82,8 +82,10 @@ class PaneRowsSource(Protocol):
 class PaneSpec:
     """Everything one list pane varies by, declared once.
 
-    ``controls`` composes the pane's filtering controls, one per screen,
-    and ``controls_height`` is the height they take. ``related`` picks the
+    ``query_kind`` is the paged Query Source kind the pane lists, whose
+    query its ``controls`` submit; a pane over the observation store has
+    neither. ``controls`` composes the pane's filtering controls, one per
+    screen, and ``controls_height`` is the height they take. ``related`` picks the
     relationship set that holds this pane's keys, and ``related_columns``
     the columns that emphasise a related row; a pane without either takes
     no part in relationship emphasis.
@@ -96,6 +98,7 @@ class PaneSpec:
     empty_message: str
     rows: PaneRowsSource
     table_type: type[FocusCursorTable[ListCell]] = FocusCursorTable
+    query_kind: ResourceKind | None = None
     controls: Callable[[], ItemFilterBar] | None = None
     controls_height: int = 0
     related: Callable[[RelatedRows], frozenset[str]] | None = None
@@ -227,6 +230,7 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         PULL_REQUEST_COLUMNS,
         "pull requests unavailable",
         pull_request_pane_rows,
+        query_kind="pull-requests",
         controls=pull_request_filter_bar,
         controls_height=ItemFilterBar.HEIGHT,
     ),

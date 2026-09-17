@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -20,6 +19,7 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.timer import Timer
+from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Select, Static
 from textual.worker import get_current_worker
 from typing_extensions import override
@@ -27,10 +27,6 @@ from typing_extensions import override
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text, next_issue_states
 from ..observation.paged_store import PagedObservationStore
-from ..observation.pull_request_list import (
-    DEFAULT_PULL_REQUEST_QUERY,
-    PullRequestListQuery,
-)
 from ..queries.page_navigation import totals_text
 from ..queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
 from ..repository.cleanup import CleanupAdapter
@@ -51,14 +47,10 @@ from .issue_cells import TableCell, issue_state_colors
 from .issue_table import COLUMNS_BY_KEY, ColumnKey, shown_columns
 from .issue_table_controller import IssueTableController
 from .issue_view import IssueScreen
-from .item_filter import (
-    LIFECYCLE_STATUSES,
-    ItemFilterBar,
-    lifecycle_states,
-    lifecycle_value,
-)
+from .item_filter import LIFECYCLE_STATUSES, ItemFilterBar, lifecycle_value
 from .legend import LegendScreen
 from .list_pane import ISSUE_PANE_LABEL, ListPane
+from .list_queries import ListQueries
 from .messages import (
     BodyResized,
     CleanupFinished,
@@ -78,7 +70,7 @@ from .observation_runner import (
 )
 from .page_runner import PageRunner
 from .pane_layout import fit_panes, pane_wish
-from .panes import LIST_PANE_SPECS, PaneContext
+from .panes import LIST_PANE_SPECS, PaneContext, PaneSpec
 from .spread_table import SpreadTable
 from .worktree_table import WorktreeTable
 
@@ -112,8 +104,8 @@ class DashboardScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self.issue_table = IssueTableController(self)
-        self.pull_request_query = DEFAULT_PULL_REQUEST_QUERY
-        query = self.issue_table.issue_view.query
+        self.list_queries = ListQueries(self)
+        query = self.list_queries.issues
         self.issue_filter_bar = ItemFilterBar(
             "issue",
             statuses=LIFECYCLE_STATUSES,
@@ -122,12 +114,14 @@ class DashboardScreen(Screen[None]):
             placeholder="Search Issues",
             count=issue_result_count_text(0),
         )
-        # Each pane's controls, composed once from its spec.
-        self.pane_controls: dict[str, ItemFilterBar] = {
-            spec.pane_id: spec.controls()
-            for spec in LIST_PANE_SPECS
-            if spec.controls is not None
+        # The filter bar of each paged kind, composed once: the Issue table's
+        # own and each list pane's from its spec.
+        self.filter_bars: dict[ResourceKind, ItemFilterBar] = {
+            "issues": self.issue_filter_bar
         }
+        for spec in LIST_PANE_SPECS:
+            if spec.controls is not None and spec.query_kind is not None:
+                self.filter_bars[spec.query_kind] = spec.controls()
 
     @property
     def dashpot(self) -> DashpotApp:
@@ -139,10 +133,14 @@ class DashboardScreen(Screen[None]):
         return cast("DashpotApp", self.app)
 
     def page_kind(self) -> ResourceKind:
-        """Choose the page belonging to the focused query pane."""
-        return (
-            "pull-requests" if self.pull_requests_pane().has_focus_within else "issues"
-        )
+        """The paged kind of the list pane holding focus, else the Issue table's."""
+        for spec in LIST_PANE_SPECS:
+            if (
+                spec.query_kind is not None
+                and self.list_pane(spec.pane_id).has_focus_within
+            ):
+                return spec.query_kind
+        return "issues"
 
     def action_next_page(self) -> None:
         self.dashpot.queries.next_page(self.page_kind())
@@ -168,7 +166,7 @@ class DashboardScreen(Screen[None]):
                         id=spec.pane_id,
                         table_id=spec.table_id,
                         table_type=spec.table_type,
-                        controls=self.pane_controls.get(spec.pane_id),
+                        controls=self.pane_controls(spec),
                         controls_height=spec.controls_height,
                     )
             with Vertical(id="queue-pane"):
@@ -198,10 +196,17 @@ class DashboardScreen(Screen[None]):
     def pull_requests_pane(self) -> ListPane:
         return self.list_pane("pull-requests-pane")
 
-    @property
-    def pull_request_filter_bar(self) -> ItemFilterBar:
-        """The Pull Requests pane's controls, which its spec always composes."""
-        return self.pane_controls["pull-requests-pane"]
+    def pane_controls(self, spec: PaneSpec) -> ItemFilterBar | None:
+        """The filter bar composed for a pane's paged kind, when it has one."""
+        return None if spec.query_kind is None else self.filter_bars[spec.query_kind]
+
+    def filter_kind(self, control: Widget) -> ResourceKind:
+        """The paged kind whose filter bar holds ``control``."""
+        return next(
+            kind
+            for kind, bar in self.filter_bars.items()
+            if control in (bar.search, bar.state)
+        )
 
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
@@ -313,51 +318,21 @@ class DashboardScreen(Screen[None]):
         direction = "desc" if ordering == f"{column}:asc" else "asc"
         self.dashpot.submit_page("issues", ordering=f"{column}:{direction}")
 
-    @on(Input.Submitted, "#issue-search")
-    def submit_issue_search(self, event: Input.Submitted) -> None:
-        """Submit a search on Enter; editing the text alone changes nothing."""
+    @on(Input.Submitted, ".item-search")
+    def submit_search(self, event: Input.Submitted) -> None:
+        """Submit a filter bar's search on Enter, whichever paged kind it filters."""
         event.stop()
-        self.issue_table.set_issue_query(
-            replace(self.issue_table.issue_view.query, text=event.value)
-        )
-        self.dashpot.submit_page("issues", query=event.value)
+        self.list_queries.submit_search(self.filter_kind(event.input), event.value)
 
-    @on(Input.Submitted, "#pull-request-search")
-    def submit_pull_request_search(self, event: Input.Submitted) -> None:
-        """Submit a Pull Request search on Enter, as the Issue search does."""
-        event.stop()
-        self.set_pull_request_query(replace(self.pull_request_query, text=event.value))
-        self.dashpot.submit_page("pull-requests", query=event.value)
+    @on(Select.Changed, ".item-state")
+    def change_lifecycle(self, event: Select.Changed) -> None:
+        """Record a filter bar's chosen lifecycle, which submits its page."""
+        self.list_queries.change_lifecycle(self.filter_kind(event.select), event.value)
 
     def action_cycle_issue_state(self) -> None:
-        states = next_issue_states(self.issue_table.issue_view.query.states)
+        states = next_issue_states(self.list_queries.issues.states)
         # Drive the control so the header, the query, and the Select agree.
         self.issue_filter_bar.state.value = lifecycle_value(states)
-
-    @on(Select.Changed, "#issue-state")
-    def change_issue_lifecycle(self, event: Select.Changed) -> None:
-        """Record the chosen Issue lifecycle, which submits a page."""
-        states = lifecycle_states(event.value)
-        if states is not None:
-            self.issue_table.set_issue_query(
-                replace(self.issue_table.issue_view.query, states=states)
-            )
-
-    @on(Select.Changed, "#pull-request-state")
-    def change_pull_request_lifecycle(self, event: Select.Changed) -> None:
-        """Record the chosen Pull Request lifecycle, which submits a page."""
-        states = lifecycle_states(event.value)
-        if states is not None:
-            self.set_pull_request_query(replace(self.pull_request_query, states=states))
-
-    def set_pull_request_query(self, query: PullRequestListQuery) -> None:
-        """Record the submitted Pull Request query; a lifecycle change submits a page."""
-        previous = self.pull_request_query
-        self.pull_request_query = query
-        if query.states != previous.states:
-            self.dashpot.submit_page(
-                "pull-requests", state=lifecycle_value(query.states)
-            )
 
     def update_issue_inventory(self) -> None:
         """Title the Issue pane with the Project's totals, never the page's length."""
@@ -688,10 +663,7 @@ class DashpotApp(App[None]):
         dashboard.query_one(WorktreeTable).launch_available = (
             self.launcher_configuration.opener is not None
         )
-        for kind, bar in (
-            ("issues", dashboard.issue_filter_bar),
-            ("pull-requests", dashboard.pull_request_filter_bar),
-        ):
+        for kind, bar in dashboard.filter_bars.items():
             bar.search.placeholder = self.queries.sources[kind].search_prompt
         if not self.store.has_observations:
             dashboard.queue_table().loading = True
