@@ -106,13 +106,13 @@ channels. This does not establish a Dashpot-owned external sending endpoint.
 
 ## Repository gaps
 
-- `src/dashpot/work.py` identifies the calling session, accepts Codex only,
+- `src/dashpot/sessions/work.py` identifies the calling session, accepts Codex only,
   and requires an active Agent Run. It cannot be invoked by the dashboard as
   authority over an arbitrary occupant. An unbound session has no suitable
   record on which to declare the existing Relocation Intent.
-- `src/dashpot/hook_records.py` completes only Codex relocation. Its target
+- `src/dashpot/sessions/hook_records.py` completes only Codex relocation. Its target
   evidence and competing-client checks should remain authoritative.
-- `src/dashpot/work.py` starts/switches Issue work. Calling it after a Claude
+- `src/dashpot/sessions/work.py` starts/switches Issue work. Calling it after a Claude
   move recreates the run with a new start time; that cannot satisfy #148's
   preservation of Agent Run identity and start time.
 - `src/dashpot/cleanup.py` uses Worktree occupancy as a blocker. Management

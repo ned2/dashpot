@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.core.model import ProjectObservation, ProjectSnapshot
-from dashpot.processes import (
+from dashpot.sessions.processes import (
     ProcessAbsent,
     ProcessIdentity,
     ProcessLookup,

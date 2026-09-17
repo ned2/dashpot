@@ -20,7 +20,7 @@ READ_MODELS = frozenset(
 # What the CLI, the hook lifecycle and the observation store import; none of
 # it needs a terminal.
 HEADLESS_MODULES = (
-    "dashpot.work",
+    "dashpot.sessions.work",
     "dashpot.worktrees",
     "dashpot.collect",
     "dashpot.cleanup",

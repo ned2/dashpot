@@ -7,8 +7,8 @@ from unittest import mock
 
 from dashpot.core.git import Git
 from dashpot.core.model import Diagnostic
-from dashpot.processes import ProcessLiveness
 from dashpot.repository import observe_observation_targets, same_path
+from dashpot.sessions.processes import ProcessLiveness
 from factories import SequenceRunner, completed, git
 
 

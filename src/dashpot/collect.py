@@ -8,8 +8,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
-from .agent_bindings import bind_issue_runs
-from .agents import observe_agent_runs
 from .core.git import Git
 from .core.issue_profile import IssueProfile
 from .core.model import (
@@ -25,6 +23,7 @@ from .core.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
+from .core.timestamps import utc_now
 from .issues.issue_sources import (
     IssueSource,
     IssueSourceObservation,
@@ -40,7 +39,6 @@ from .issues.source_factories import (
 )
 from .observation_errors import OBSERVATION_FAILURES
 from .observation_store import StoreChange, WorkspaceObservationStore
-from .processes import lock_holder_probe
 from .project.project_config import load_project_config
 from .project.workspace import ResolvedProject
 from .queries.query_source import configured_query_source
@@ -51,7 +49,9 @@ from .repository import (
     observe_observation_targets,
     worktree_root,
 )
-from .timestamps import utc_now
+from .sessions.agent_bindings import bind_issue_runs
+from .sessions.agents import observe_agent_runs
+from .sessions.processes import lock_holder_probe
 
 WorkspaceAgentObserver = Callable[
     [Mapping[str, Sequence[ObservationTarget]]],

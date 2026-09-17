@@ -30,8 +30,8 @@ from dashpot.core.model import (
     TargetRole,
     WorkspaceSnapshot,
 )
-from dashpot.hook_records import session_directory, write_hook_record
-from dashpot.processes import ProcessIdentity
+from dashpot.sessions.hook_records import session_directory, write_hook_record
+from dashpot.sessions.processes import ProcessIdentity
 
 NOW = "2026-08-27T03:00:00Z"
 

@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..repository import repository_worktrees
 from .harnesses import (
     HARNESS_DISPLAY,
     SessionIdentityClaim,
@@ -21,7 +22,6 @@ from .processes import (
     ProcessLookup,
     host_process_lookup,
 )
-from .repository import repository_worktrees
 
 
 @dataclass(frozen=True, slots=True)

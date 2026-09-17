@@ -12,13 +12,14 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field
 
-from .core.git import Git, GitError
-from .core.json_records import optional_string, require_string
-from .core.pydantic import (
+from ..core.git import Git, GitError
+from ..core.json_records import optional_string, require_string
+from ..core.pydantic import (
     NonEmptyString,
     PersistedRecord,
 )
-from .core.record_store import LockedRecordStore
+from ..core.record_store import LockedRecordStore
+from ..core.timestamps import observed_instant, utc_now
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_ID,
@@ -29,7 +30,6 @@ from .processes import (
     SessionProcessRecord,
 )
 from .session_matching import SessionEvidence
-from .timestamps import observed_instant, utc_now
 
 EVENT_STATES: dict[str, str] = {
     "SessionStart": "running",

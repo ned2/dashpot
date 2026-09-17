@@ -5,9 +5,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .core.errors import DashpotError
-from .core.git import Git
-from .core.model import Diagnostic
+from ..core.errors import DashpotError
+from ..core.git import Git
+from ..core.model import Diagnostic
+from ..core.timestamps import utc_now
+from ..issues.issue_resolution import resolve_issue
+from ..repository import repository_worktrees, same_path, worktree_root
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
@@ -21,7 +24,6 @@ from .hook_scan import (
     locate_agent_session,
     reachable_hook_stores,
 )
-from .issues.issue_resolution import resolve_issue
 from .liveness import session_liveness
 from .processes import (
     ProcessIdentity,
@@ -30,9 +32,7 @@ from .processes import (
     host_process_lookup,
     observe_agent_ancestry,
 )
-from .repository import repository_worktrees, same_path, worktree_root
 from .session_matching import SessionEvidence
-from .timestamps import utc_now
 from .work_store import (
     SESSION_KEY,
     ActiveWork,

@@ -8,8 +8,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from .core.git import GitError
-from .core.json_records import optional_string, require_string
+from ..core.git import GitError
+from ..core.json_records import optional_string, require_string
+from ..repository import repository_worktrees, same_path
 from .hook_records import HookRecordStore
 from .hook_scan import (
     reachable_hook_stores,
@@ -22,7 +23,6 @@ from .processes import (
     ProcessLookup,
     host_process_lookup,
 )
-from .repository import repository_worktrees, same_path
 from .session_matching import SessionEvidence
 from .work_store import (
     ActiveWork,

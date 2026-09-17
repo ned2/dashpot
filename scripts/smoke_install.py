@@ -60,7 +60,7 @@ async def check_tui(root: Path) -> None:
 
 def check_integrations(root: Path) -> None:
     """Execute installed publishers and preserve unrelated harness settings."""
-    from dashpot.integrate import (
+    from dashpot.sessions.integrate import (
         ISSUE_WORK_SKILL_VERSION,
         install_integration,
         integration,

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from dashpot.processes import (
+from dashpot.sessions.processes import (
     AgentAncestry,
     ProcessAbsent,
     ProcessIdentity,
@@ -29,7 +29,7 @@ class ProcessLookupTests(unittest.TestCase):
         codex = ProcessIdentity(30, 1, "codex", "Tue Aug 25 00:58:00 2026")
         chain = {10: shell, 20: claude, 30: codex}
 
-        with mock.patch("dashpot.processes.os.getppid", return_value=10):
+        with mock.patch("dashpot.sessions.processes.os.getppid", return_value=10):
             result = observe_agent_ancestry(table_lookup(chain))
 
         self.assertEqual(AgentAncestry(("claude-code", claude)), result)
@@ -50,7 +50,7 @@ class ProcessLookupTests(unittest.TestCase):
             "/usr/bin/codex",
         )
 
-        with mock.patch("dashpot.processes.os.getppid", return_value=10):
+        with mock.patch("dashpot.sessions.processes.os.getppid", return_value=10):
             result = observe_agent_ancestry(
                 table_lookup({10: sandbox, 20: host}), harness="codex"
             )
@@ -69,10 +69,13 @@ class ProcessLookupTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "dashpot.processes.process_namespace_is_isolated", return_value=False
+                "dashpot.sessions.processes.process_namespace_is_isolated",
+                return_value=False,
             ),
-            mock.patch("dashpot.processes.os.kill") as kill,
-            mock.patch("dashpot.processes.subprocess.run", side_effect=probes) as run,
+            mock.patch("dashpot.sessions.processes.os.kill") as kill,
+            mock.patch(
+                "dashpot.sessions.processes.subprocess.run", side_effect=probes
+            ) as run,
         ):
             result = host_process_lookup(42)
 
@@ -111,10 +114,11 @@ class ProcessLookupTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "dashpot.processes.process_namespace_is_isolated", return_value=False
+                "dashpot.sessions.processes.process_namespace_is_isolated",
+                return_value=False,
             ),
-            mock.patch("dashpot.processes.os.kill"),
-            mock.patch("dashpot.processes.subprocess.run", side_effect=probes),
+            mock.patch("dashpot.sessions.processes.os.kill"),
+            mock.patch("dashpot.sessions.processes.subprocess.run", side_effect=probes),
         ):
             result = host_process_lookup(42)
 
@@ -130,10 +134,13 @@ class ProcessLookupTests(unittest.TestCase):
     def test_host_process_lookup_reports_a_missing_pid_as_absent(self) -> None:
         with (
             mock.patch(
-                "dashpot.processes.process_namespace_is_isolated", return_value=False
+                "dashpot.sessions.processes.process_namespace_is_isolated",
+                return_value=False,
             ),
-            mock.patch("dashpot.processes.os.kill", side_effect=ProcessLookupError),
-            mock.patch("dashpot.processes.subprocess.run") as run,
+            mock.patch(
+                "dashpot.sessions.processes.os.kill", side_effect=ProcessLookupError
+            ),
+            mock.patch("dashpot.sessions.processes.subprocess.run") as run,
         ):
             result = host_process_lookup(42)
 
@@ -150,10 +157,13 @@ class ProcessLookupTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "dashpot.processes.process_namespace_is_isolated", return_value=False
+                "dashpot.sessions.processes.process_namespace_is_isolated",
+                return_value=False,
             ),
-            mock.patch("dashpot.processes.os.kill", side_effect=PermissionError),
-            mock.patch("dashpot.processes.subprocess.run", side_effect=probes),
+            mock.patch(
+                "dashpot.sessions.processes.os.kill", side_effect=PermissionError
+            ),
+            mock.patch("dashpot.sessions.processes.subprocess.run", side_effect=probes),
         ):
             result = host_process_lookup(42)
 
@@ -181,11 +191,13 @@ class ProcessLookupTests(unittest.TestCase):
                 )
                 with (
                     mock.patch(
-                        "dashpot.processes.process_namespace_is_isolated",
+                        "dashpot.sessions.processes.process_namespace_is_isolated",
                         return_value=False,
                     ),
-                    mock.patch("dashpot.processes.os.kill"),
-                    mock.patch("dashpot.processes.subprocess.run", **run_kwargs),
+                    mock.patch("dashpot.sessions.processes.os.kill"),
+                    mock.patch(
+                        "dashpot.sessions.processes.subprocess.run", **run_kwargs
+                    ),
                 ):
                     result = host_process_lookup(42)
 
@@ -199,10 +211,11 @@ class ProcessLookupTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "dashpot.processes.process_namespace_is_isolated", return_value=False
+                "dashpot.sessions.processes.process_namespace_is_isolated",
+                return_value=False,
             ),
-            mock.patch("dashpot.processes.os.kill"),
-            mock.patch("dashpot.processes.subprocess.run", side_effect=probes),
+            mock.patch("dashpot.sessions.processes.os.kill"),
+            mock.patch("dashpot.sessions.processes.subprocess.run", side_effect=probes),
         ):
             result = host_process_lookup(42)
 
@@ -211,10 +224,13 @@ class ProcessLookupTests(unittest.TestCase):
     def test_host_process_lookup_reports_a_kill_probe_failure(self) -> None:
         with (
             mock.patch(
-                "dashpot.processes.process_namespace_is_isolated", return_value=False
+                "dashpot.sessions.processes.process_namespace_is_isolated",
+                return_value=False,
             ),
-            mock.patch("dashpot.processes.os.kill", side_effect=OSError("EINVAL")),
-            mock.patch("dashpot.processes.subprocess.run") as run,
+            mock.patch(
+                "dashpot.sessions.processes.os.kill", side_effect=OSError("EINVAL")
+            ),
+            mock.patch("dashpot.sessions.processes.subprocess.run") as run,
         ):
             self.assertEqual(
                 ProcessUnobservable(42, "kill-failed"), host_process_lookup(42)
@@ -224,10 +240,11 @@ class ProcessLookupTests(unittest.TestCase):
     def test_host_process_lookup_never_probes_an_isolated_namespace(self) -> None:
         with (
             mock.patch(
-                "dashpot.processes.process_namespace_is_isolated", return_value=True
+                "dashpot.sessions.processes.process_namespace_is_isolated",
+                return_value=True,
             ),
-            mock.patch("dashpot.processes.os.kill") as kill,
-            mock.patch("dashpot.processes.subprocess.run") as run,
+            mock.patch("dashpot.sessions.processes.os.kill") as kill,
+            mock.patch("dashpot.sessions.processes.subprocess.run") as run,
         ):
             result = host_process_lookup(42)
 
@@ -243,7 +260,7 @@ class AgentAncestryTests(unittest.TestCase):
         codex = ProcessIdentity(30, 1, "codex", "Tue Aug 25 00:58:00 2026")
         chain = {10: shell, 20: claude, 30: codex}
 
-        with mock.patch("dashpot.processes.os.getppid", return_value=10):
+        with mock.patch("dashpot.sessions.processes.os.getppid", return_value=10):
             result = observe_agent_ancestry(table_lookup(chain), harness="codex")
 
         self.assertEqual(("codex", codex), result.located)
@@ -251,7 +268,7 @@ class AgentAncestryTests(unittest.TestCase):
     def test_a_filtered_walk_keeps_the_unobservable_reason(self) -> None:
         # One walk serves the filtered and unfiltered questions, so being
         # sandboxed is never read as "no harness here" (issue #77 O-N1).
-        with mock.patch("dashpot.processes.os.getppid", return_value=10):
+        with mock.patch("dashpot.sessions.processes.os.getppid", return_value=10):
             filtered = observe_agent_ancestry(
                 unobservable("isolated-namespace"), harness="codex"
             )
@@ -259,7 +276,7 @@ class AgentAncestryTests(unittest.TestCase):
         self.assertEqual(AgentAncestry(None, "isolated-namespace"), filtered)
 
     def test_ancestry_reports_why_the_walk_stopped_short(self) -> None:
-        with mock.patch("dashpot.processes.os.getppid", return_value=10):
+        with mock.patch("dashpot.sessions.processes.os.getppid", return_value=10):
             isolated = observe_agent_ancestry(unobservable("isolated-namespace"))
             gone = observe_agent_ancestry(absent())
             helper = ProcessIdentity(10, 1, "bwrap", "x", "bwrap --unshare-pid sh")
@@ -352,6 +369,6 @@ class LockHolderProbeTests(unittest.TestCase):
         ):
             with (
                 self.subTest(expected=expected),
-                mock.patch("dashpot.processes.host_process_lookup", lookup),
+                mock.patch("dashpot.sessions.processes.host_process_lookup", lookup),
             ):
                 self.assertEqual(expected, lock_holder_probe(42))

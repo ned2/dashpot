@@ -16,8 +16,8 @@ from .core.model import (
     RepositoryStateInventory,
     TargetRole,
 )
-from .processes import ProcessLiveness
-from .timestamps import utc_timestamp
+from .core.timestamps import utc_timestamp
+from .sessions.processes import ProcessLiveness
 
 # The fields `git for-each-ref` reports per ref; the Git adapter's records()
 # separates them with NUL so a value can never be mistaken for a separator.

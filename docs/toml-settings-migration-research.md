@@ -64,7 +64,7 @@ select machine-local settings. Naming the new file `config.toml` must not
 silently repurpose that option. Relevant boundaries are
 [workspace.py](../src/dashpot/project/workspace.py),
 [project_config.py](../src/dashpot/project/project_config.py),
-[cli.py](../src/dashpot/cli.py), and [integrate.py](../src/dashpot/integrate.py).
+[cli.py](../src/dashpot/cli.py), and [integrate.py](../src/dashpot/sessions/integrate.py).
 
 ## Parser, validation, and dependencies
 

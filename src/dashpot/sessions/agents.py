@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from .core.model import AgentRun, Diagnostic, ObservationTarget, RunState
+from ..core.model import AgentRun, Diagnostic, ObservationTarget, RunState
+from ..core.timestamps import observed_instant
+from ..repository import is_within, same_path
 from .hook_records import HookRecordStore
 from .hook_scan import (
     HookRecordClassification,
@@ -18,9 +20,7 @@ from .hook_scan import (
 )
 from .liveness import LivenessObservation, LivenessProbe
 from .processes import ProcessKey, ProcessLookup, host_process_lookup
-from .repository import is_within, same_path
 from .session_matching import SessionEvidence
-from .timestamps import observed_instant
 from .work_store import ActiveWork, WorkStore
 
 # Diagnostics about hook Agent Session records are harness-neutral.

@@ -132,7 +132,7 @@ separates execution location from Issue membership across transfers
 (`docs/adr/0001-own-project-and-issue-model.md:65-71`). The resolver searches
 persisted Issue Identity across all observed Projects, while only resolving a
 new mutable hint within the run's observed Project
-(`src/dashpot/agent_bindings.py:39-126`).
+(`src/dashpot/sessions/agent_bindings.py:39-126`).
 
 Tests prove that a run still correlates after its Issue transfers from Project A
 to Project B (`tests/test_agent_bindings.py:65-79`,

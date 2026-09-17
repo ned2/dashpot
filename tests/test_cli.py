@@ -26,10 +26,8 @@ from dashpot.core.git import GitError
 from dashpot.core.issue_profile import IssueProfileError, conform_issue
 from dashpot.core.model import WorkspaceSnapshot
 from dashpot.hook import publish_from_stream
-from dashpot.integrate import INTEGRATIONS
 from dashpot.issues.issue_sources import IssueSourceRefreshError
 from dashpot.issues.local_markdown_issues import LocalMarkdownIssueError
-from dashpot.processes import AgentAncestry, ProcessIdentity
 from dashpot.project.workspace import (
     RepositoryAnchor,
     ResolvedProject,
@@ -37,6 +35,8 @@ from dashpot.project.workspace import (
     WorkspaceInventory,
     WorkspaceResolution,
 )
+from dashpot.sessions.integrate import INTEGRATIONS
+from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.worktrees import CleanupBlocker, WorktreePlan, WorktreeRemovability
 from factories import git, write_config_marker
 from helpers import issue_payload
@@ -421,10 +421,11 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
 
     with (
         mock.patch(
-            "dashpot.hook_publish.state_directory", return_value=tmp_path / "state"
+            "dashpot.sessions.hook_publish.state_directory",
+            return_value=tmp_path / "state",
         ),
         mock.patch(
-            "dashpot.hook_publish.observe_agent_ancestry",
+            "dashpot.sessions.hook_publish.observe_agent_ancestry",
             return_value=AgentAncestry(("codex", process)),
         ),
     ):
