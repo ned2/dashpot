@@ -24,12 +24,8 @@ from typing_extensions import override
 from ..core.ages import relative_age
 from ..core.issue_profile import IssueProfile, issue_location
 from ..core.model import ProjectObservation
-from ..observation.issue_list import (
-    IssueListRow,
-    is_priority_label,
-    issue_activity,
-    issue_priority,
-)
+from ..issues.ordering import is_priority_label, issue_activity, issue_priority
+from ..observation.issue_list import IssueListRow
 from .detail_fields import DetailFields, DetailItem
 from .issue_cells import (
     issue_state_chip,

@@ -12,7 +12,7 @@ import pydantic
 from dashpot.core.commands import CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue, issue_location
 from dashpot.github.github import RefreshBudget
-from dashpot.github.github_issues import GitHubIssuesSource, normalize_github_issue
+from dashpot.issues.github_issues import GitHubIssuesSource, normalize_github_issue
 from dashpot.issues.issue_sources import IssueSourceRefreshError, parse_issue_hint
 from issue_source_conformance import (
     assert_duplicate_identity_is_refused,

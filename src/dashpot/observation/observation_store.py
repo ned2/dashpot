@@ -72,7 +72,9 @@ class ObservedDiagnostic:
 
 
 @dataclass(frozen=True, slots=True)
-class _StoreState:
+class StoreState:
+    """Hold one accepted revision of the indexed observations, replaced whole on commit."""
+
     revision: int
     collected_at: str
     elapsed_ms: int
@@ -90,7 +92,7 @@ class WorkspaceObservationStore:
     """Own the latest accepted workspace observations and their read models."""
 
     def __init__(self, snapshot: WorkspaceSnapshot | None = None) -> None:
-        self._state = _StoreState(
+        self._state = StoreState(
             revision=0,
             collected_at="",
             elapsed_ms=0,
@@ -143,7 +145,7 @@ class WorkspaceObservationStore:
         )
 
         return self._commit(
-            _StoreState(
+            StoreState(
                 revision=before.revision,
                 collected_at=snapshot.collected_at,
                 elapsed_ms=snapshot.elapsed_ms,
@@ -385,7 +387,7 @@ class WorkspaceObservationStore:
             retained_issue_ids,
         )
 
-    def _commit(self, candidate: _StoreState) -> StoreChange:
+    def _commit(self, candidate: StoreState) -> StoreChange:
         before = self._state
         after = replace(candidate, revision=before.revision + 1)
         change = _store_change(before, after)
@@ -394,7 +396,7 @@ class WorkspaceObservationStore:
 
 
 def _metadata_updates(
-    before: _StoreState, collected_at: str | None, elapsed_ms: int | None
+    before: StoreState, collected_at: str | None, elapsed_ms: int | None
 ) -> dict[str, Any]:
     updates: dict[str, Any] = {}
     if collected_at is not None:
@@ -404,7 +406,7 @@ def _metadata_updates(
     return updates
 
 
-def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
+def _checkpoint(state: StoreState) -> WorkspaceSnapshot:
     # Every value is frozen, so a checkpoint is detached by construction.
     return WorkspaceSnapshot(
         collected_at=state.collected_at,
@@ -417,7 +419,7 @@ def _checkpoint(state: _StoreState) -> WorkspaceSnapshot:
 
 
 def _issue_detail(
-    state: _StoreState, row: IssueListRow, issue: IssueProfile
+    state: StoreState, row: IssueListRow, issue: IssueProfile
 ) -> IssueListRow | None:
     issue_id = issue.id
     if row.key == row_key("issue", issue_id):
@@ -456,7 +458,7 @@ def _issue_detail(
     )
 
 
-def _issue_contexts(state: _StoreState, issue_id: str) -> list[IssueContext]:
+def _issue_contexts(state: StoreState, issue_id: str) -> list[IssueContext]:
     observed_runs = tuple(
         state.agent_runs[run_id]
         for run_id in state.issue_runs.get(issue_id, [])
@@ -469,7 +471,7 @@ def _issue_contexts(state: _StoreState, issue_id: str) -> list[IssueContext]:
     ]
 
 
-def _store_change(before: _StoreState, after: _StoreState) -> StoreChange:
+def _store_change(before: StoreState, after: StoreState) -> StoreChange:
     project_ids = _changed_keys(before.projects, after.projects)
     agent_dependency_project_ids = {
         project_id
@@ -533,7 +535,7 @@ def _agent_project_projection(
 
 
 def _workspace_metadata(
-    state: _StoreState,
+    state: StoreState,
 ) -> tuple[str, int, tuple[Diagnostic, ...]]:
     return state.collected_at, state.elapsed_ms, state.diagnostics
 

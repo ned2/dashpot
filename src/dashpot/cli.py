@@ -14,6 +14,7 @@ from .composition import (
     run_cleanup,
 )
 from .core.errors import DashpotError
+from .core.worktree_paths import worktree_root
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
 from .project.workspace import RepositoryAnchor, Workspace
@@ -29,7 +30,6 @@ from .repository.cleanup import (
     describe_cleanup_report,
 )
 from .repository.fetch import remote_fetcher
-from .repository.repository import worktree_root
 from .repository.worktree_launcher import configure_worktree_launcher
 from .repository.worktrees.create import (
     create_issue_worktree,

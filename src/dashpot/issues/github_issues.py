@@ -13,14 +13,7 @@ from typing_extensions import override
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue
 from ..core.model import Diagnostic, IssueActivity, LinkedPullRequest
-from ..issues.issue_sources import (
-    CollectedIssues,
-    IssueHint,
-    IssueSource,
-    IssueSourceRefreshError,
-)
-from ..issues.retaining_source import Clock
-from .github import (
+from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,
     NOT_FOUND,
@@ -32,7 +25,14 @@ from .github import (
     RefreshBudget,
     RefreshMeter,
 )
-from .github_wire import ISSUE_NODE_FIELDS, PULL_REQUEST_STATES
+from ..github.github_wire import ISSUE_NODE_FIELDS, PULL_REQUEST_STATES
+from .issue_sources import (
+    CollectedIssues,
+    IssueHint,
+    IssueSource,
+    IssueSourceRefreshError,
+)
+from .retaining_source import Clock
 
 _PAGE_SIZE = 100
 

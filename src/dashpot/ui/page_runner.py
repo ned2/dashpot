@@ -17,7 +17,14 @@ from typing import TYPE_CHECKING, TypeVar
 
 from ..observation.paged_store import PagedObservationStore
 from ..queries.page_navigation import PageNavigation, PageTicket
-from ..queries.source_queries import QueryRequest, QuerySource, ResourceKind
+from ..queries.source_queries import (
+    PAGED_KINDS,
+    QUERY_SOURCE_KEYS,
+    QueryRequest,
+    QuerySource,
+    ResourceKind,
+    totals_key,
+)
 from .messages import (
     IdentitiesFinished,
     OffLoopHost,
@@ -27,22 +34,6 @@ from .messages import (
 
 if TYPE_CHECKING:
     from textual.message import Message
-
-PAGED_KINDS: tuple[ResourceKind, ...] = ("issues", "pull-requests")
-
-
-def totals_key(kind: ResourceKind) -> str:
-    """Name the query key of a kind's Project Totals."""
-    return f"totals:{kind}"
-
-
-# The Query Sources the shipped app consults, one per concurrent consumer:
-# each key runs on its own executor thread against its own source instance.
-QUERY_SOURCE_KEYS: tuple[str, ...] = (
-    *PAGED_KINDS,
-    *(totals_key(kind) for kind in PAGED_KINDS),
-    "identities",
-)
 
 T = TypeVar("T")
 

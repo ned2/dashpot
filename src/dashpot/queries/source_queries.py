@@ -29,6 +29,21 @@ from ..core.pydantic import (
 
 ResourceKind = Literal["issues", "pull-requests"]
 Lifecycle = Literal["open", "closed", "all"]
+PAGED_KINDS: tuple[ResourceKind, ...] = ("issues", "pull-requests")
+
+
+def totals_key(kind: ResourceKind) -> str:
+    """Name the query key of a kind's Project Totals."""
+    return f"totals:{kind}"
+
+
+# The Query Sources the shipped app consults, one per concurrent consumer:
+# each key runs against its own source instance.
+QUERY_SOURCE_KEYS: tuple[str, ...] = (
+    *PAGED_KINDS,
+    *(totals_key(kind) for kind in PAGED_KINDS),
+    "identities",
+)
 
 
 class QueryRequest(ObservationModel):

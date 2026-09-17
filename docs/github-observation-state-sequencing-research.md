@@ -71,7 +71,7 @@ The GitHub Issue observation now has four distinct layers of state:
    Pull Request High-Water Marks; last successful Reconciliation time; any
    unexplained reported count; and whether a fallback sweep is due. The source
    replaces it only after the merged collection passes its invariants
-   ([`github_issues.py`](../src/dashpot/github/github_issues.py)).
+   ([`github_issues.py`](../src/dashpot/issues/github_issues.py)).
 3. The general `IssueSource` retains the last successfully published complete
    Issue collection and returns it as stale after a refresh failure
    ([`issue_sources.py`](../src/dashpot/issues/issue_sources.py),
@@ -92,7 +92,7 @@ The recently completed
 [#83](https://github.com/ned2/dashpot/issues/83) also changes #123's premise.
 `GitHubPullRequestsSource` now independently sweeps every open Pull Request on
 each of its observations, with its own Refresh Budget and last-good state
-([`github_pull_requests.py`](../src/dashpot/github/github_pull_requests.py)). A second
+([`github_pull_requests.py`](../src/dashpot/issues/github_pull_requests.py)). A second
 Pull Request observation inside the Issue Source would duplicate work and blur
 the deliberately separate failure states.
 

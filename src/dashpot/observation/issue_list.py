@@ -1,9 +1,9 @@
 """The Issues pane read model: every visible Issue of the Project, once.
 
 A row is one Issue joined to its Project, its bound Agent Runs and their
-states. The Issue facts a Query Page is ordered by — priority, comment
-activity, dates — are derived here, the one place a source that orders
-locally consults; the rendered values themselves live in ``issue_cells``.
+states. The Issue facts a row is searched and ordered by come from
+``issues.search`` and ``issues.ordering``, which a source that orders locally
+consults too; the rendered values themselves live in ``issue_cells``.
 """
 
 from __future__ import annotations
@@ -12,100 +12,26 @@ import json
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
-from enum import StrEnum
-from typing import TYPE_CHECKING, Literal, TypeAlias, TypeGuard
+from typing import Literal
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import (
     AgentRun,
-    IssueActivity,
     ProjectObservation,
     RunState,
 )
-from ..issues.search import parse_search
+from ..issues.ordering import (
+    IssueSortColumn,
+    SortValue,
+    issue_activity,
+    issue_sort_value,
+    sort_by_column,
+)
+from ..issues.search import IssueSearchField, matches_issue_search, parse_search
 from ..queries.source_queries import AuxiliaryObservation
 from .list_result import ListResult
 
-if TYPE_CHECKING:
-    from _typeshed import SupportsRichComparison
-
 IssueState = Literal["open", "closed"]
-# What a column yields for ordering: something Python can compare, or nothing.
-SortValue: TypeAlias = "SupportsRichComparison | None"
-# The compact P-level a recognized priority label stands for.
-PriorityLevel = Literal["P0", "P1", "P2", "P3"]
-PRIORITY_BY_LABEL: dict[str, PriorityLevel] = {
-    "priority/p0": "P0",
-    "priority/p1": "P1",
-    "priority/p2": "P2",
-    "priority/p3": "P3",
-    "critical": "P0",
-    "high": "P1",
-    "medium": "P2",
-    "low": "P3",
-}
-# The Issue facts a list can be ordered by, named as the table's columns.
-IssueSortColumn = Literal[
-    "number",
-    "priority",
-    "labels",
-    "project",
-    "assignees",
-    "author",
-    "milestone",
-    "type",
-    "comments",
-    "created",
-    "last_action",
-]
-ISSUE_SORT_COLUMNS: tuple[IssueSortColumn, ...] = (
-    "number",
-    "priority",
-    "labels",
-    "project",
-    "assignees",
-    "author",
-    "milestone",
-    "type",
-    "comments",
-    "created",
-    "last_action",
-)
-
-
-class IssueSearchField(StrEnum):
-    PROJECT = "project"
-    NUMBER = "number"
-    ASSIGNEES = "assignees"
-    LABELS = "labels"
-    AUTHOR = "author"
-    MILESTONE = "milestone"
-    TYPE = "type"
-    TITLE = "title"
-
-    def values(
-        self, issue: IssueProfile, project: ProjectObservation
-    ) -> tuple[str, ...]:
-        if self is IssueSearchField.PROJECT:
-            return (project.display_label,)
-        if self is IssueSearchField.NUMBER:
-            return (f"#{issue.number}",)
-        if self is IssueSearchField.ASSIGNEES:
-            return issue.assignees
-        if self is IssueSearchField.LABELS:
-            return issue.labels
-        if self is IssueSearchField.AUTHOR:
-            return _optional_value(issue.author)
-        if self is IssueSearchField.MILESTONE:
-            return _optional_value(issue.milestone)
-        if self is IssueSearchField.TYPE:
-            return _optional_value(issue.issue_type)
-        return (issue.title,)
-
-
-def _optional_value(value: str | None) -> tuple[str, ...]:
-    return (value,) if value else ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,128 +173,28 @@ def empty_issue_message(query: IssueListQuery) -> str:
     return "no Issues match the current filters"
 
 
-def _searchable_issue_text(
-    issue: IssueProfile,
-    project: ProjectObservation,
-    fields: frozenset[IssueSearchField],
-) -> str:
-    values = [value for field in fields for value in field.values(issue, project)]
-    return "\n".join(values).casefold()
-
-
-def matches_issue_search(
-    issue: IssueProfile,
-    project: ProjectObservation,
-    fields: frozenset[IssueSearchField],
-    terms: tuple[str, ...],
-) -> bool:
-    if not terms:
-        return True
-    searchable = _searchable_issue_text(issue, project, fields)
-    return all(term in searchable for term in terms)
-
-
-def is_priority_label(label: str) -> bool:
-    """Tell whether a label declares an Issue priority."""
-    return label.casefold() in PRIORITY_BY_LABEL
-
-
-def issue_priority_label(issue: IssueProfile) -> str | None:
-    """The recognized label that sets the Issue's priority: the most urgent one."""
-    labels = [label for label in issue.labels if is_priority_label(label)]
-    if not labels:
-        return None
-    return min(labels, key=lambda label: PRIORITY_BY_LABEL[label.casefold()])
-
-
-def issue_priority(issue: IssueProfile) -> PriorityLevel | None:
-    """The Issue's compact priority, or nothing when no label declares one."""
-    label = issue_priority_label(issue)
-    return None if label is None else PRIORITY_BY_LABEL[label.casefold()]
-
-
-def issue_activity(issue: IssueProfile, project: ProjectObservation) -> IssueActivity:
-    """The Issue's observed comment and linked Pull Request activity, if any."""
-    if project.snapshot is None:
-        return IssueActivity()
-    return project.snapshot.issue_activity.get(issue.id, IssueActivity())
-
-
-def is_issue_sort_column(column: str) -> TypeGuard[IssueSortColumn]:
-    """Tell whether a submitted ordering names an Issue fact a list sorts by."""
-    return column in ISSUE_SORT_COLUMNS
-
-
-def issue_sort_value(row: IssueListRow, column: IssueSortColumn) -> SortValue:
+def row_sort_value(row: IssueListRow, column: IssueSortColumn) -> SortValue:
     """Derive the value ``column`` orders the row by, or nothing when it has none."""
-    issue = row.issue
-    if column == "number":
-        return issue.number
-    if column == "priority":
-        priority = issue_priority(issue)
-        return None if priority is None else int(priority[1:])
-    if column == "labels":
-        labels = tuple(
-            label.casefold() for label in issue.labels if not is_priority_label(label)
-        )
-        return labels or None
-    if column == "project":
-        return row.project.display_label.casefold()
-    if column == "assignees":
-        return tuple(assignee.casefold() for assignee in issue.assignees)
-    if column == "author":
-        return _optional_text_value(issue.author)
-    if column == "milestone":
-        return _optional_text_value(issue.milestone)
-    if column == "type":
-        return _optional_text_value(issue.issue_type)
-    if column == "comments":
-        return _comment_count(row)
-    if column == "created":
-        return _timestamp_value(issue.created_at)
-    return _timestamp_value(issue.updated_at)
+    return issue_sort_value(
+        row.issue, row.project, column, comment_count=_comment_count(row)
+    )
 
 
 def sort_issue_rows(
     rows: Iterable[IssueListRow], column: IssueSortColumn, *, descending: bool = False
 ) -> list[IssueListRow]:
-    """Order rows by one column, rows without a value last either way.
-
-    Ties keep Project, Issue Number and key order in both directions, so a
-    Query Page ordered here lists the same Issues in the same order whichever
-    way it is asked for.
-    """
-    ordered = sorted(rows, key=row_tie_break)
-    ordered.sort(
-        key=lambda row: rank_missing_last(
-            issue_sort_value(row, column), descending=descending
-        ),
-        reverse=descending,
+    """Order rows by one column, ties by Project, Issue Number and key."""
+    return sort_by_column(
+        rows,
+        value=lambda row: row_sort_value(row, column),
+        tie_break=row_tie_break,
+        descending=descending,
     )
-    return ordered
 
 
 def row_tie_break(row: IssueListRow) -> tuple[str, int, str]:
     """Order rows that share a sort value by Project, Issue Number and key."""
     return row.project.project_id.casefold(), row.issue.number, row.key
-
-
-def rank_missing_last(
-    value: SortValue, *, descending: bool
-) -> tuple[int, SupportsRichComparison]:
-    """Rank a sort value so a missing one follows every present one either way.
-
-    The reversal a descending sort applies then only reorders the present
-    values.
-    """
-    missing = value is None
-    if descending:
-        return (0 if missing else 1, 0 if missing else value)
-    return (1 if missing else 0, 0 if missing else value)
-
-
-def _optional_text_value(value: str | None) -> str | None:
-    return None if value is None else value.casefold()
 
 
 def _comment_count(row: IssueListRow) -> int | None:
@@ -379,9 +205,3 @@ def _comment_count(row: IssueListRow) -> int | None:
     if row.auxiliary is not None and row.auxiliary.activity is not None:
         return row.auxiliary.activity.comment_count
     return None
-
-
-def _timestamp_value(timestamp: str | None) -> float | None:
-    if timestamp is None:
-        return None
-    return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()

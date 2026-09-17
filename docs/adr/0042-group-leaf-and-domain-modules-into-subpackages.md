@@ -136,15 +136,64 @@ assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
 
 | Package | Owned modules (excluding initializers) |
 | --- | --- |
-| `core` | `ages`, `commands`, `errors`, `file_locks`, `git`, `issue_profile`, `json_records`, `model`, `observation_errors`, `pydantic`, `record_store`, `timestamps` |
-| `github` | `github`, `github_issues`, `github_pull_requests`, `github_repository`, `github_wire` |
-| `issues` | `issue_resolution`, `issue_sources`, `local_markdown_issues`, `pull_request_search`, `pull_request_sources`, `retaining_source`, `search`, `source_factories` |
+| `core` | `ages`, `commands`, `errors`, `file_locks`, `git`, `issue_profile`, `json_records`, `model`, `observation_errors`, `pydantic`, `record_store`, `timestamps`, `worktree_paths` |
+| `github` | `github`, `github_repository`, `github_wire` |
+| `issues` | `github_issues`, `github_pull_requests`, `issue_resolution`, `issue_sources`, `local_markdown_issues`, `ordering`, `pull_request_search`, `pull_request_sources`, `retaining_source`, `search`, `source_factories` |
 | `observation` | `branch_list`, `collect`, `issue_list`, `keys`, `list_result`, `observation_store`, `paged_store`, `pull_request_list`, `related_rows`, `session_list`, `worktree_list` |
 | `project` | `init`, `project_config`, `settings`, `workspace` |
 | `queries` | `github_queries`, `markdown_queries`, `page_navigation`, `query_source`, `source_queries` |
 | `repository` | `cleanup/adapter`, `cleanup/obstacles`, `cleanup/perform`, `cleanup/preview`, `cleanup/selection`, `cleanup/targets`, `fetch`, `repository`, `worktree_launcher`, `worktrees/base`, `worktrees/create`, `worktrees/records`, `worktrees/removability` |
 | `sessions` | `agent_bindings`, `agents`, `harnesses`, `hook_claims`, `hook_publish`, `hook_records`, `hook_scan`, `integrate`, `liveness`, `processes`, `session_labels`, `session_matching`, `work`, `work_reconciliation`, `work_store` |
-| `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `legend`, `list_pane`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
+| `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `legend`, `list_pane`, `list_queries`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
+
+## Package layering
+
+[Issue #238](https://github.com/ned2/dashpot/issues/238) makes the runtime
+import graph over these packages acyclic and keeps it so. The
+[2026-09-17 review](../codebase-review-2026-09-17.md#audit-what-did-not-land-or-landed-differently)
+found five package cycles beneath the delivered layout; Python resolves
+modules, never packages, so none of them raised at import time and nothing
+prevented more. `tests/test_module_boundaries.py` now asserts acyclicity over
+the runtime edges (a `TYPE_CHECKING` import is not an edge; an import inside a
+function is), that `core` imports no other package, and that no module imports
+a `_private` name from another. The layers, from the fan-in floor up:
+
+- `core` imports nothing else. The Worktree topology helpers — `worktree_root`,
+  `worktree_records`, `worktree_paths`, `main_worktree`, `repository_worktrees`,
+  `is_within`, `same_path` — live in `core/worktree_paths.py`, since sessions,
+  Issue resolution, Project setup, and Git observation all locate paths and
+  none of them should load Git observation to do so. This alone removed the
+  `sessions <-> repository`, `issues <-> repository`, and
+  `project <-> repository` cycles; `repository` still imports `sessions` for
+  process liveness, in one direction.
+- `github` holds the gateway, the wire shapes, and Repository identity, and
+  imports only `core`. The GitHub collection adapters `github_issues` and
+  `github_pull_requests` belong to `issues`, beside the source contracts they
+  implement, the Markdown adapter, and the factories that construct them — as
+  `queries/github_queries.py` already sits with the query family
+  ([ADR 0043](0043-retain-distinct-query-and-collection-adapters.md)).
+  Leaving them in `github` was considered and rejected: the base classes and
+  factories both sit in `issues`, and because `project` needs Repository
+  identity from `github` while `issues` needs Project configuration, the
+  `github <-> issues` cycle also closed `project -> github -> issues -> project`,
+  a three-package component that would have had to be allowlisted.
+- `project` imports `core` and `github`; `issues` imports those and `project`.
+- `queries` imports the layers above and never `observation`. The Issue facts
+  a Query Page is searched and ordered by live in `issues/search.py`
+  (`IssueSearchField`, `matches_issue_search`) and `issues/ordering.py`
+  (priority, sort columns, `issue_sort_value`, `sort_issues`, `sort_by_column`),
+  so `markdown_queries` orders a page without loading the Issues pane read
+  model; `observation/issue_list.py` derives its row-level `row_sort_value` and
+  `sort_issue_rows` from the same seam. `QUERY_SOURCE_KEYS`, `PAGED_KINDS`, and
+  `totals_key` belong to `queries/source_queries.py`, so `composition.py` no
+  longer loads `ui` or Textual to name the configured Query Sources; the
+  boundary test covers that path.
+- `sessions`, `repository`, `observation`, and `ui` follow in that order; the
+  root entry points sit above them all.
+
+`observation_store.StoreState` is the public revision the store commits and
+`PagedObservationStore` extends; it was the private `_StoreState` the
+private-reach test now forbids importing across modules.
 
 
 ## Residual review suggestions

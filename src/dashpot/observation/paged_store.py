@@ -36,8 +36,8 @@ from .observation_store import (
     IssueContext,
     ObservedDiagnostic,
     StoreChange,
+    StoreState,
     WorkspaceObservationStore,
-    _StoreState,
 )
 from .session_list import SessionListRow, query_indexed_session_list
 
@@ -68,7 +68,7 @@ class PagedObservationStore(WorkspaceObservationStore):
         return self.revision + self.source_revision
 
     @override
-    def _commit(self, candidate: _StoreState) -> StoreChange:
+    def _commit(self, candidate: StoreState) -> StoreChange:
         change = super()._commit(candidate)
         if change.project_ids:
             self._join_projects()

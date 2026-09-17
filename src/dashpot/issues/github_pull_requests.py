@@ -23,13 +23,7 @@ from ..core.pydantic import (
     Rfc3339Timestamp,
     WireModel,
 )
-from ..issues.pull_request_sources import (
-    CollectedPullRequests,
-    PullRequestSource,
-    PullRequestSourceRefreshError,
-)
-from ..issues.retaining_source import Clock
-from .github import (
+from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,
     RATE_LIMIT_SELECTION,
@@ -38,11 +32,17 @@ from .github import (
     GitHubRequestError,
     RefreshBudget,
 )
-from .github_wire import (
+from ..github.github_wire import (
     PULL_REQUEST_FIELDS,
     PULL_REQUEST_STATES,
     PageInfo,
 )
+from .pull_request_sources import (
+    CollectedPullRequests,
+    PullRequestSource,
+    PullRequestSourceRefreshError,
+)
+from .retaining_source import Clock
 
 _PAGE_SIZE = 100
 

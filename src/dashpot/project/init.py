@@ -7,11 +7,11 @@ from pathlib import Path
 from ..core.commands import CommandRunner, run_command
 from ..core.git import Git, GitError
 from ..core.pydantic import repository_relative
+from ..core.worktree_paths import worktree_root
 from ..github.github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
 )
-from ..repository.repository import worktree_root
 from .project_config import PROJECT_CONFIG_NAME
 
 STATE_IGNORE_RULE = ".dashpot/state/"

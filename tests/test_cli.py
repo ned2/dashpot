@@ -26,6 +26,7 @@ from dashpot.project.workspace import (
     WorkspaceInventory,
     WorkspaceResolution,
 )
+from dashpot.queries.source_queries import QUERY_SOURCE_KEYS
 from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,
@@ -40,7 +41,6 @@ from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
 from dashpot.sessions.integrate import INTEGRATIONS
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
-from dashpot.ui.page_runner import QUERY_SOURCE_KEYS
 from factories import git, write_config_marker
 from helpers import issue_payload
 

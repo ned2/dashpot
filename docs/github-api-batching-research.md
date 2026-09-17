@@ -9,7 +9,7 @@ Research dates: 2026-09-04–2026-09-05.
 
 This note establishes what GitHub's API offers for batching and bulk queries
 and records the evidence behind the accepted Incremental Refresh designs for
-[`GitHubIssuesSource`](../src/dashpot/github/github_issues.py). It records evidence,
+[`GitHubIssuesSource`](../src/dashpot/issues/github_issues.py). It records evidence,
 not decisions. Every claim is checked against GitHub's documentation, the live
 GraphQL schema (introspected through `gh api graphql`), the `cli/cli` and
 `cli/go-gh` source at the installed release, or a read-only experiment
@@ -211,7 +211,7 @@ Established: aliases resolve independently; a missing alias is `null` in
 ["repository", "<alias>"]`; a pull request number is indistinguishable from a
 missing number by `type` or wording; siblings keep their data. The current
 adapter's substring test `"could not resolve to an issue"` in
-[`find`](../src/dashpot/github/github_issues.py) matches this message.
+[`find`](../src/dashpot/issues/github_issues.py) matches this message.
 
 Alias count: 100, 300, and 600 trivially-selected aliases were all accepted
 (`exit=1` only because the pull-request numbers among 1–N are `NOT_FOUND`;
