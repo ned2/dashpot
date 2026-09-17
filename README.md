@@ -450,8 +450,8 @@ network access.
 ### Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests
-targeting `main` and on manual dispatch. Integration into `main` does not
-trigger a duplicate run. It runs the all-files
+targeting `main`, on the merge queue's candidates, and on manual dispatch.
+Integration into `main` does not trigger a duplicate run. It runs the all-files
 pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
 and macOS under Python 3.11 and 3.14, adds Python 3.12/3.13 on Ubuntu,
 exercises Debian 12’s maintained Git 2.39.x package in a container, and builds
@@ -465,12 +465,15 @@ Coverage has no percentage threshold; tests and report generation must pass.
 The CI report is additional diagnostic evidence; unchanged reviewed code does
 not need another review when that report becomes available.
 
-PR jobs check out the exact head commit and verify that the event's base is
-its ancestor. The quality job publishes those commits and the run identity in
-the `ci-revision-<attempt>` artifact. A PR changing only root Markdown or Markdown under `docs/` or `conformance/`
-runs the documentation lane: quality and revision-artifact checks still run,
-while tests, build, installation, and minimum-Git jobs are skipped. The complete
-PR diff (including both sides of renames) is classified by
+A pull-request run checks out the exact branch head; a merge-queue run checks
+out the candidate the queue built on the current `main`, which is what lands
+([ADR 0044](docs/adr/0044-integrate-pull-requests-through-a-merge-queue.md)).
+Neither requires the branch to contain `main`. The quality job publishes the
+verified head, base, and run identity in the `ci-revision-<attempt>` artifact.
+A PR or candidate changing only root Markdown or Markdown under `docs/` or
+`conformance/` runs the documentation lane: quality and revision-artifact
+checks still run, while tests, build, installation, and minimum-Git jobs are
+skipped. The complete diff (including both sides of renames) is classified by
 [`scripts/ci_lane.py`](scripts/ci_lane.py). Mixed, empty, unavailable, or
 non-Markdown diffs run full verification; manual and reusable invocations do too.
 `CI required` accepts only successful jobs and the exact skips authorized by a
@@ -483,6 +486,11 @@ See [CI and test performance](docs/ci-performance.md) for benchmark commands,
 worker selection, UI profiling, and measured results. It is the
 required-check context to configure for `main`; repository administration
 setup is described in [development integration](docs/development-integration.md).
+The merge queue is the operator's half of that setup: the `Protect main`
+ruleset needs the `merge_queue` rule with squash as its method and no
+strict up-to-date requirement, installed only after a workflow that runs on
+`merge_group` has reached `main`
+([configure required CI](docs/development-integration.md#configure-required-ci)).
 
 Every CI verification step has an exact local equivalent:
 
@@ -771,16 +779,15 @@ it:
 4. Watch the latest pull-request CI run to completion with
    `gh run watch <id> --exit-status`. Every required job must pass before
    integration. If the branch changes, validate and review the changes and
-   wait for its new CI run. If `main` advances beyond the branch's base,
-   update the branch and repeat those checks before integration.
-5. Use the [validated fast-forward procedure](docs/development-integration.md#integrate-a-verified-pr)
-   to update remote `main` to the reviewed commit. It verifies the current PR,
-   successful CI, and recorded head/base under exclusive PR-branch ownership,
-   then uses an explicit expected remote base to reject concurrent base
-   changes. Verify remote `main` points to that
-   commit; this push does not trigger another CI run. Synchronize the local
-   main checkout only through an authorized fast-forward, and leave Worktree
-   cleanup separate.
+   wait for its new CI run. `main` advancing beyond the branch's base is not
+   a reason to update the branch; only a textual conflict is.
+5. Queue the PR with `gh pr merge --squash --auto <number>` following the
+   [merge queue procedure](docs/development-integration.md#integrate-a-verified-pr).
+   The queue builds a candidate on the current `main`, verifies it under the
+   `merge_group` event, and squash-merges when green; a failed candidate
+   drops the PR from the queue for the implementing agent to diagnose.
+   Verify the PR is merged, synchronize the local main checkout only through
+   an authorized fast-forward, and leave Worktree cleanup separate.
 
 Agent sessions use the `dashpot-issue-work` skill to declare and verify the
 Issue they are working on (see
@@ -795,7 +802,7 @@ These `living` documents carry the detail this README points at:
   configuration, diagnosis, upgrades, and removal.
 - [`docs/releasing.md`](docs/releasing.md) covers release gates, publishing, and recovery.
 - [`docs/development-integration.md`](docs/development-integration.md) covers
-  Dashpot's required CI setup and validated fast-forward integration.
+  Dashpot's required CI and merge queue setup and queued integration.
 - [`docs/domain-language.md`](docs/domain-language.md) defines the terms used in
   the interface, code, and documentation, including the phrasings to avoid.
 - [`docs/agent-sessions.md`](docs/agent-sessions.md) documents `dashpot
