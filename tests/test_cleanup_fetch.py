@@ -12,8 +12,8 @@ from app_harness import (
     first_load_landed,
     with_first_project_snapshot,
 )
-from dashpot.cleanup_view import CleanupScreen
 from dashpot.repository.fetch import FetchReport, RemoteFetch
+from dashpot.ui.cleanup_view import CleanupScreen
 from helpers import wait_until
 from test_dashboard_cleanup import (
     ANCHOR,
@@ -428,7 +428,7 @@ async def test_grouped_branch_targets_require_explicit_concrete_choices(blocked_
 
 @pytest.mark.asyncio
 async def test_partial_fetch_labels_repository_age_and_retained_remote_facts():
-    from dashpot.cleanup_view import CleanupTargetView
+    from dashpot.ui.cleanup_view import CleanupTargetView
 
     timestamp = "2026-09-12T00:00:00+00:00"
     origin = REMOTE.model_copy(update={"blockers": (), "observed_at": timestamp})

@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-from .collect import ObservationKey
-from .core.ages import relative_age
-from .core.model import ProjectObservation
+from ..core.ages import relative_age
+from ..core.model import ProjectObservation
+from ..observation.keys import ObservationKey
+from ..observation.observation_store import WorkspaceObservationStore
+from ..queries.source_queries import QueryPage, ResourceKind
 from .glyphs import Glyph
-from .observation_store import WorkspaceObservationStore
-from .queries.source_queries import QueryPage, ResourceKind
 
 AlertSeverity = Literal["error", "warning", "info"]
 

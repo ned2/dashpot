@@ -14,15 +14,15 @@ from app_harness import (
     issue,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
-from dashpot.collect import ObservationCoordinator
 from dashpot.core.model import RepositoryStateInventory, WorkspaceSnapshot
-from dashpot.legend import LegendScreen
-from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.page_runner import QUERY_SOURCE_KEYS
+from dashpot.observation.collect import ObservationCoordinator
+from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.project.workspace import ResolvedProject
 from dashpot.queries.page_navigation import PageNavigation, page_text, totals_text
 from dashpot.queries.source_queries import QueryRequest
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.legend import LegendScreen
+from dashpot.ui.page_runner import QUERY_SOURCE_KEYS
 from helpers import wait_until
 from test_source_queries import markdown
 
@@ -195,7 +195,7 @@ async def test_page_publishes_while_totals_are_delayed(tmp_path):
 
 @pytest.mark.asyncio
 async def test_bound_issue_remains_visible_outside_query_and_opens_details(tmp_path):
-    from dashpot.issue_view import IssueScreen
+    from dashpot.ui.issue_view import IssueScreen
     from factories import agent_run
 
     app = application(tmp_path)
@@ -222,7 +222,7 @@ async def test_bound_issue_remains_visible_outside_query_and_opens_details(tmp_p
 
 @pytest.mark.asyncio
 async def test_bound_issue_off_the_page_opens_once_its_identity_resolves(tmp_path):
-    from dashpot.issue_view import IssueScreen
+    from dashpot.ui.issue_view import IssueScreen
     from factories import agent_run
 
     app = application(tmp_path)

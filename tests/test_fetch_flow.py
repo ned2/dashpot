@@ -20,11 +20,11 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.model import Branch, WorkspaceSnapshot
-from dashpot.fetch_flow import RemoteFetchFlow
-from dashpot.messages import FetchFinished
-from dashpot.observation_runner import ObservationRunner
-from dashpot.paged_store import PagedObservationStore
+from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.repository.fetch import FetchReport, RemoteFetch
+from dashpot.ui.fetch_flow import RemoteFetchFlow
+from dashpot.ui.messages import FetchFinished
+from dashpot.ui.observation_runner import ObservationRunner
 
 ANCHOR = "/repo"
 LABEL = "Test Repository"

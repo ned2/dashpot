@@ -14,13 +14,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core.issue_profile import IssueProfile
-from .core.model import AgentRun, ProjectObservation, WorkspaceSnapshot
-from .glyphs import SESSION_STATE_ORDER
+from ..core.issue_profile import IssueProfile
+from ..core.model import AgentRun, ProjectObservation, RunState
 from .issue_list import row_key
+from .list_result import ListResult
 
 HARNESS_LABELS = {"codex": "Codex", "claude-code": "Claude Code"}
-STATE_ORDER = SESSION_STATE_ORDER
+SESSION_STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
 OUTSIDE_PROJECT_TEXT = "outside Project"
 UNBOUND_ISSUE_TEXT = "no active Issue work"
 
@@ -41,44 +41,6 @@ class SessionListRow:
         return self.session.issue_id
 
 
-@dataclass(frozen=True, slots=True)
-class SessionListResult:
-    rows: tuple[SessionListRow, ...]
-    revision: int = 0
-
-    @property
-    def count(self) -> int:
-        return len(self.rows)
-
-
-def query_session_list(
-    snapshot: WorkspaceSnapshot, *, revision: int = 0
-) -> SessionListResult:
-    """Query the Sessions pane rows from complete observed state."""
-    projects: dict[str, ProjectObservation] = {}
-    issues: dict[tuple[str, str], IssueProfile] = {}
-    for project in snapshot.projects:
-        if project.project_id in projects:
-            raise ValueError(f"Duplicate Project Identity {project.project_id}")
-        projects[project.project_id] = project
-        if project.snapshot is None:
-            continue
-        for issue in project.snapshot.issues:
-            issues[project.project_id, issue.id] = issue
-    agent_runs: dict[str, AgentRun] = {}
-    for run in snapshot.agent_runs:
-        if run.id in agent_runs:
-            raise ValueError(f"Duplicate Agent Run Identity {run.id}")
-        agent_runs[run.id] = run
-    return query_indexed_session_list(
-        projects=projects,
-        issues=issues,
-        agent_runs=agent_runs,
-        issue_runs=snapshot.issue_runs,
-        revision=revision,
-    )
-
-
 def query_indexed_session_list(
     *,
     projects: Mapping[str, ProjectObservation],
@@ -86,7 +48,7 @@ def query_indexed_session_list(
     agent_runs: Mapping[str, AgentRun],
     issue_runs: Mapping[str, Sequence[str]],
     revision: int,
-) -> SessionListResult:
+) -> ListResult[SessionListRow, None]:
     # Accepted bindings win over the record's own hint so the pane agrees
     # with the Issue table about which Issue a session is working on.
     bound_issue_by_run = {
@@ -118,7 +80,7 @@ def query_indexed_session_list(
         )
         rows.append(SessionListRow(key, run, project, issue))
     rows.sort(key=_sort_key)
-    return SessionListResult(tuple(rows), revision)
+    return ListResult(rows=tuple(rows), summary=None, revision=revision)
 
 
 def _sort_key(row: SessionListRow) -> tuple[int, int, str, str]:
@@ -126,7 +88,7 @@ def _sort_key(row: SessionListRow) -> tuple[int, int, str, str]:
     session = row.session
     activity = session.last_activity_at
     return (
-        STATE_ORDER[session.state],
+        SESSION_STATE_ORDER[session.state],
         0 if activity else 1,
         _descending(activity or ""),
         session.id,
@@ -138,7 +100,7 @@ def _descending(value: str) -> str:
     return "".join(chr(0x10FFFF - ord(character)) for character in value)
 
 
-def shows_target(result: SessionListResult) -> bool:
+def shows_target(result: ListResult[SessionListRow, None]) -> bool:
     """Whether TARGET tells the rows apart, or repeats one checkout on each.
 
     A Project is usually one Worktree, and then the column is the same path

@@ -13,7 +13,10 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
-from dashpot.issue_cells import (
+from dashpot.issues.local_markdown_issues import parse_local_markdown_issue
+from dashpot.observation.issue_list import row_key
+from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.ui.issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
     IssueNumberCell,
@@ -23,8 +26,7 @@ from dashpot.issue_cells import (
     agent_state_cell,
     date_cell,
 )
-from dashpot.issue_list import query_issue_list, row_key
-from dashpot.issue_table import (
+from dashpot.ui.issue_table import (
     COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
     TITLE_LIMIT,
@@ -33,7 +35,6 @@ from dashpot.issue_table import (
     searchable_columns,
     shown_columns,
 )
-from dashpot.issues.local_markdown_issues import parse_local_markdown_issue
 from helpers import snapshot_of
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +48,7 @@ def test_row_projection_respects_visible_column_order() -> None:
     )
 
     contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(selected_issue)),
+        WorkspaceObservationStore(workspace_snapshot(selected_issue)).query_issues(),
         columns=("title", "assignees", "project"),
     )
 
@@ -62,7 +63,8 @@ def test_a_long_title_is_clipped_with_an_ellipsis_at_the_limit() -> None:
     overlong = issue("test/repo#2", long_title)
 
     contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(exact, overlong)), columns=("title",)
+        WorkspaceObservationStore(workspace_snapshot(exact, overlong)).query_issues(),
+        columns=("title",),
     )
 
     assert cells[row_key("issue", exact.id)] == ("y" * TITLE_LIMIT,)
@@ -82,7 +84,9 @@ def test_author_column_is_hidden_by_default_and_marks_a_missing_author() -> None
     )
 
     _contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(authored, anonymous)),
+        WorkspaceObservationStore(
+            workspace_snapshot(authored, anonymous)
+        ).query_issues(),
         columns=("author",),
     )
 
@@ -101,7 +105,7 @@ def test_milestone_and_type_columns_are_hidden_by_default_and_optional() -> None
     )
 
     _contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(classified, plain)),
+        WorkspaceObservationStore(workspace_snapshot(classified, plain)).query_issues(),
         columns=("milestone", "type"),
     )
 
@@ -135,7 +139,9 @@ def test_comments_column_shows_engagement_only_when_present() -> None:
         },
     )
 
-    contexts, cells = build_rows(query_issue_list(snapshot), columns=("comments",))
+    contexts, cells = build_rows(
+        WorkspaceObservationStore(snapshot).query_issues(), columns=("comments",)
+    )
 
     assert "comments" not in DEFAULT_COLUMNS
     assert cells[row_key("issue", discussed.id)] == ("4",)
@@ -159,7 +165,7 @@ def test_issue_number_column_uses_the_bare_project_local_number() -> None:
     selected_issue = issue("test/repo#17", "Reference test")
 
     _contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(selected_issue)),
+        WorkspaceObservationStore(workspace_snapshot(selected_issue)).query_issues(),
         columns=("number",),
     )
 
@@ -178,7 +184,7 @@ def test_issue_date_columns_render_iso_dates() -> None:
     )
 
     _contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(selected_issue)),
+        WorkspaceObservationStore(workspace_snapshot(selected_issue)).query_issues(),
         columns=("created", "last_action"),
     )
 
@@ -205,7 +211,9 @@ def test_labels_column_renders_tracker_coloured_chips_and_carries_names() -> Non
         label_colors={"bug": "d73a4a", "enhancement": "a2eeef"},
     )
 
-    _contexts, cells = build_rows(query_issue_list(snapshot), columns=("labels",))
+    _contexts, cells = build_rows(
+        WorkspaceObservationStore(snapshot).query_issues(), columns=("labels",)
+    )
 
     chips = cells[row_key("issue", labelled.id)][0]
     assert isinstance(chips, LabelsCell)
@@ -241,7 +249,7 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
             "priority/p3": "0e8a16",
         },
     )
-    result = query_issue_list(snapshot)
+    result = WorkspaceObservationStore(snapshot).query_issues()
 
     assert "priority" in DEFAULT_COLUMNS
     assert shown_columns(DEFAULT_COLUMNS, result.rows) == DEFAULT_COLUMNS
@@ -274,7 +282,9 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
     )
     without_priority = tuple(key for key in DEFAULT_COLUMNS if key != "priority")
 
-    mixed = query_issue_list(workspace_snapshot(prioritised, unlabelled))
+    mixed = WorkspaceObservationStore(
+        workspace_snapshot(prioritised, unlabelled)
+    ).query_issues()
     assert shown_columns(DEFAULT_COLUMNS, mixed.rows) == DEFAULT_COLUMNS
     _contexts, cells = build_rows(mixed, columns=("priority",))
     # An Issue without a priority label shows nothing and carries no
@@ -289,7 +299,7 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
         row_key("issue", unlabelled.id),
     ]
 
-    plain = query_issue_list(workspace_snapshot(unlabelled))
+    plain = WorkspaceObservationStore(workspace_snapshot(unlabelled)).query_issues()
     assert shown_columns(DEFAULT_COLUMNS, plain.rows) == without_priority
     assert shown_columns(DEFAULT_COLUMNS, ()) == without_priority
     assert shown_columns(("title", "labels"), plain.rows) == ("title", "labels")
@@ -311,7 +321,7 @@ def test_local_markdown_number_is_the_table_id() -> None:
     )
 
     _contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(local_issue)),
+        WorkspaceObservationStore(workspace_snapshot(local_issue)).query_issues(),
         columns=("number",),
     )
 
@@ -384,7 +394,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
         update={"issue_runs": {**snapshot.issue_runs, selected_issue.id: (run.id,)}}
     )
 
-    contexts, cells = build_rows(query_issue_list(snapshot))
+    contexts, cells = build_rows(WorkspaceObservationStore(snapshot).query_issues())
 
     selected_key = row_key("issue", selected_issue.id)
     assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
@@ -416,7 +426,7 @@ def test_duplicate_issue_identities_get_distinct_project_qualified_rows() -> Non
     )
     snapshot = snapshot.model_copy(update={"projects": (*snapshot.projects, second)})
 
-    contexts, cells = build_rows(query_issue_list(snapshot))
+    contexts, cells = build_rows(WorkspaceObservationStore(snapshot).query_issues())
 
     expected = {
         row_key("issue", "project:test-repo", duplicated.id),
@@ -441,7 +451,9 @@ def test_default_issue_filter_shows_only_open_issues() -> None:
     )
 
     contexts, cells = build_rows(
-        query_issue_list(workspace_snapshot(open_issue, closed_issue))
+        WorkspaceObservationStore(
+            workspace_snapshot(open_issue, closed_issue)
+        ).query_issues()
     )
 
     assert set(contexts) == set(cells) == {row_key("issue", open_issue.id)}
@@ -459,7 +471,9 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
         closedAt="2026-08-27T01:00:00Z",
     )
 
-    contexts, cells = build_rows(query_issue_list(workspace_snapshot(closed_issue)))
+    contexts, cells = build_rows(
+        WorkspaceObservationStore(workspace_snapshot(closed_issue)).query_issues()
+    )
 
     assert contexts == {}
     assert cells == {}

@@ -13,14 +13,14 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ..observation.paged_store import PagedObservationStore
 from .messages import FetchFinished, OffLoopHost
 from .observation_runner import ObservationRunner
-from .paged_store import PagedObservationStore
 
 if TYPE_CHECKING:
     from textual.notifications import SeverityLevel
 
-    from .repository.fetch import RemoteFetcher
+    from ..repository.fetch import RemoteFetcher
 
 
 class FlowHost(OffLoopHost, Protocol):

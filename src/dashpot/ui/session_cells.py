@@ -11,9 +11,24 @@ from pathlib import Path
 
 from rich.text import Text
 
-from .core.ages import relative_age
-from .core.model import AgentRun, RunState
-from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_WIDTH, SESSION_STATE_GLYPHS
+from ..core.ages import relative_age
+from ..core.model import AgentRun, RunState
+from ..observation.list_result import ListResult
+from ..observation.session_list import (
+    HARNESS_LABELS,
+    OUTSIDE_PROJECT_TEXT,
+    SESSION_STATE_ORDER,
+    UNBOUND_ISSUE_TEXT,
+    SessionListRow,
+    abbreviate_path,
+    directory_within_target,
+    shows_target,
+)
+from .glyphs import (
+    ACTIVITY_COLUMN_GLYPH,
+    ACTIVITY_WIDTH,
+    SESSION_STATE_GLYPHS,
+)
 from .list_rows import (
     ListCell,
     ListColumn,
@@ -21,20 +36,9 @@ from .list_rows import (
     truncate_end,
     truncate_start,
 )
-from .session_list import (
-    HARNESS_LABELS,
-    OUTSIDE_PROJECT_TEXT,
-    STATE_ORDER,
-    UNBOUND_ISSUE_TEXT,
-    SessionListResult,
-    SessionListRow,
-    abbreviate_path,
-    directory_within_target,
-    shows_target,
-)
 
 STATE_GLYPHS = SESSION_STATE_GLYPHS
-LEGEND = tuple(STATE_GLYPHS[state] for state in STATE_ORDER)
+LEGEND = tuple(STATE_GLYPHS[state] for state in SESSION_STATE_ORDER)
 # Long values are clipped so a row stays scannable; the scan-level fact is
 # the tail of a path and the head of a branch or title.
 PATH_LIMIT = 28
@@ -54,7 +58,7 @@ SESSION_COLUMNS: tuple[ListColumn, ...] = (
 )
 
 
-def session_columns(result: SessionListResult) -> tuple[ListColumn, ...]:
+def session_columns(result: ListResult[SessionListRow, None]) -> tuple[ListColumn, ...]:
     """The pane's columns for this result, without the ones it cannot vary."""
     if shows_target(result):
         return SESSION_COLUMNS
@@ -62,7 +66,7 @@ def session_columns(result: SessionListResult) -> tuple[ListColumn, ...]:
 
 
 def build_session_rows(
-    result: SessionListResult,
+    result: ListResult[SessionListRow, None],
     *,
     dark: bool,
     now: datetime | None = None,

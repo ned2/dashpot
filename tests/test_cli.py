@@ -19,7 +19,6 @@ from dashpot.core.model import WorkspaceSnapshot
 from dashpot.hook import publish_from_stream
 from dashpot.issues.issue_sources import IssueSourceRefreshError
 from dashpot.issues.local_markdown_issues import LocalMarkdownIssueError
-from dashpot.page_runner import QUERY_SOURCE_KEYS
 from dashpot.project.workspace import (
     RepositoryAnchor,
     ResolvedProject,
@@ -43,6 +42,7 @@ from dashpot.repository.worktrees.removability import (
 )
 from dashpot.sessions.integrate import INTEGRATIONS
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
+from dashpot.ui.page_runner import QUERY_SOURCE_KEYS
 from factories import git, write_config_marker
 from helpers import issue_payload
 

@@ -11,11 +11,7 @@ from typing import Any
 from typing_extensions import override
 
 from ..core.commands import CommandRunner, run_command
-from ..core.issue_profile import (
-    IssueProfile,
-    IssueProfileError,
-    conform_issue,
-)
+from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue
 from ..core.model import Diagnostic, IssueActivity, LinkedPullRequest
 from ..issues.issue_sources import (
     CollectedIssues,
@@ -23,7 +19,7 @@ from ..issues.issue_sources import (
     IssueSource,
     IssueSourceRefreshError,
 )
-from ..retaining_source import Clock
+from ..issues.retaining_source import Clock
 from .github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,

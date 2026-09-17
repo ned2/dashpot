@@ -28,18 +28,13 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot import session_cells
-from dashpot.app import DashpotApp
 from dashpot.core.issue_profile import IssueProfile
-from dashpot.core.model import (
-    AgentRun,
-    ObservationTarget,
-    RunState,
-    WorkspaceSnapshot,
-)
-from dashpot.issue_list import row_key
-from dashpot.issue_view import IssueScreen
-from dashpot.messages import ObservationTrigger
+from dashpot.core.model import AgentRun, ObservationTarget, RunState, WorkspaceSnapshot
+from dashpot.observation.issue_list import row_key
+from dashpot.ui import session_cells
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.issue_view import IssueScreen
+from dashpot.ui.messages import ObservationTrigger
 from helpers import snapshot_of, wait_until
 
 

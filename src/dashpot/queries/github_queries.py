@@ -12,6 +12,7 @@ from typing_extensions import override
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile
 from ..core.model import Diagnostic, PullRequest
+from ..core.observation_errors import QUERY_OBSERVATION_FAILURES
 from ..core.pydantic import WireModel
 from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
@@ -38,7 +39,6 @@ from ..github.github_wire import (
     Repository,
     SearchConnection,
 )
-from ..observation_errors import QUERY_OBSERVATION_FAILURES
 from ..project.project_config import ProjectConfig, load_project_config
 from .query_source import CachedQuerySource
 from .source_queries import (

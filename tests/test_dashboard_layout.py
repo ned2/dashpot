@@ -25,10 +25,10 @@ from app_harness import (
     prepare_pane,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
-from dashpot.item_filter import ItemFilterBar
-from dashpot.list_pane import ListColumn, ListPane, ListRow
-from dashpot.pane_layout import PANE_MARGIN
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.item_filter import ItemFilterBar
+from dashpot.ui.list_pane import ListColumn, ListPane, ListRow
+from dashpot.ui.pane_layout import PANE_MARGIN
 from helpers import wait_until
 
 

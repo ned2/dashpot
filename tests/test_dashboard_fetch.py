@@ -26,11 +26,11 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
 from dashpot.core.git import Git
 from dashpot.core.model import Branch, WorkspaceSnapshot
-from dashpot.legend import LegendScreen
 from dashpot.repository.fetch import FetchReport, RemoteFetch, fetch_remotes
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.legend import LegendScreen
 from factories import SequenceRunner, completed
 from helpers import wait_until
 

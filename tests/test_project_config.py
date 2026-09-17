@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from dashpot.collect import create_project_collector
 from dashpot.github.github_issues import GitHubIssuesSource
 from dashpot.github.github_pull_requests import GitHubPullRequestsSource
 from dashpot.issues.issue_resolution import configured_issue_source
@@ -17,6 +16,7 @@ from dashpot.issues.source_factories import (
     build_issue_source,
     build_pull_request_source,
 )
+from dashpot.observation.collect import create_project_collector
 from dashpot.project.project_config import (
     PROJECT_CONFIG_NAME,
     GitHubIssueSourceConfig,

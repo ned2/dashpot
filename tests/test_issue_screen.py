@@ -28,22 +28,23 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot import session_cells
-from dashpot.app import DashpotApp
-from dashpot.column_editor import IssueColumnEditor
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
-from dashpot.detail_fields import DetailFields, detail_items_text
-from dashpot.issue_cells import IssueStateCell
-from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
-from dashpot.issue_view import (
+from dashpot.observation.issue_list import IssueListQuery, row_key
+from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.ui import session_cells
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.column_editor import IssueColumnEditor
+from dashpot.ui.detail_fields import DetailFields, detail_items_text
+from dashpot.ui.issue_cells import IssueStateCell
+from dashpot.ui.issue_view import (
     IssueScreen,
     issue_byline,
     issue_location,
     issue_metadata_items,
     issue_state_class,
 )
-from dashpot.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
+from dashpot.ui.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
 from helpers import wait_until
 
 
@@ -292,7 +293,11 @@ def test_issue_metadata_excludes_labels_used_as_priority() -> None:
             "low",
         ],
     )
-    context = query_issue_list(workspace_snapshot(selected_issue)).rows[0]
+    context = (
+        WorkspaceObservationStore(workspace_snapshot(selected_issue))
+        .query_issues()
+        .rows[0]
+    )
 
     detail = issue_metadata_text(context)
 
@@ -309,7 +314,11 @@ def test_issue_metadata_excludes_labels_used_as_priority() -> None:
         "Second",
         labels=["bug"],
     )
-    context = query_issue_list(workspace_snapshot(unprioritised)).rows[0]
+    context = (
+        WorkspaceObservationStore(workspace_snapshot(unprioritised))
+        .query_issues()
+        .rows[0]
+    )
 
     assert "Priority: -" in issue_metadata_text(context)
 
@@ -341,8 +350,6 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
             lambda: app.dashboard.issue_table.selected_row_key == selected_key
         )
         await pilot.pause()
-        stale_row = app.dashboard.issue_table.rows_by_key[selected_key]
-        assert stale_row.project_runs == ()
 
         app.store.replace_agent_runs(
             [observed_run], {selected_issue.id: [observed_run.id]}
@@ -642,7 +649,11 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
             )
         },
     )
-    context = next(row for row in query_issue_list(snapshot).rows if row.issue is child)
+    context = next(
+        row
+        for row in WorkspaceObservationStore(snapshot).query_issues().rows
+        if row.issue is child
+    )
 
     text = detail_items_text(issue_metadata_items(context, now=now))
 
@@ -687,9 +698,11 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
         stateReason="not-planned",
         closedAt="2026-08-29T11:00:00Z",
     )
-    bare_context = query_issue_list(
-        workspace_snapshot(bare), IssueListQuery(states=frozenset({"closed"}))
-    ).rows[0]
+    bare_context = (
+        WorkspaceObservationStore(workspace_snapshot(bare))
+        .query_issues(IssueListQuery(states=frozenset({"closed"})))
+        .rows[0]
+    )
 
     bare_text = detail_items_text(issue_metadata_items(bare_context, now=now))
 
@@ -713,7 +726,7 @@ def test_issue_view_renders_labels_as_tracker_coloured_chips() -> None:
     snapshot = with_first_project_snapshot(
         workspace_snapshot(labelled), label_colors={"bug": "d73a4a"}
     )
-    context = query_issue_list(snapshot).rows[0]
+    context = WorkspaceObservationStore(snapshot).query_issues().rows[0]
 
     items = issue_metadata_items(context)
     labels = next(item for item in items if item.label == "Labels")

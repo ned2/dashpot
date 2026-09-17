@@ -5,12 +5,14 @@ date: 2026-09-17
 
 # Design
 
-The leaf and domain layers live in seven packages: `core` for shared
+The leaf and domain layers live in nine packages: `core` for shared
 infrastructure and observation values, `project` for configuration and Workspace
 resolution, `github` for the gateway and wire adapters, `issues` for Issue
 Sources and resolution, `queries` for source queries and page navigation, and `sessions` for Agent
 Session observation, the Work Store, Issue work, and integration; and
-`repository` for Git observation, Remote Fetch, Worktree operations, and Cleanup.
+`repository` for Git observation, Remote Fetch, Worktree operations, and Cleanup;
+`observation` for coordination, stores, and read models; and `ui` for Textual
+widgets, rendering, and runners.
 [ADR 0042](adr/0042-group-leaf-and-domain-modules-into-subpackages.md) records
 the layout and its staged scope. Pydantic bases live in
 [`core/pydantic.py`](../src/dashpot/core/pydantic.py); observation models in
@@ -32,7 +34,7 @@ Observation is scheduled per key rather than as one refresh: the Project's
 Issue Source, Pull Request source and Repository State are observed
 independently. Agent Runs are observed once per Workspace after a Project
 publishes a changed binding input; Pull Request-only changes do not trigger
-them. An [`ObservationCoordinator`](../src/dashpot/collect.py) tracks a
+them. An [`ObservationCoordinator`](../src/dashpot/observation/collect.py) tracks a
 generation per key so a superseded observation can never overwrite a newer
 one, retains the last good result per key when a refresh fails, and composes
 each Project from its latest accepted parts. The Issue Source and Pull
@@ -56,7 +58,7 @@ one Project per run is the observed Project, and restarts both submitted source 
 and relevant identities. It never fetches: `f`
 mutates, a Remote Fetch of the Repository Anchor whose refs
 supplied the Branch observation ([`fetch.py`](../src/dashpot/repository/fetch.py),
-[`fetch_flow.py`](../src/dashpot/fetch_flow.py),
+[`fetch_flow.py`](../src/dashpot/ui/fetch_flow.py),
 [ADR 0014](adr/0014-fetch-remotes-on-explicit-key-press.md)). It runs
 off the event loop, once per Project at a time, and once any remote has been
 fetched it schedules the passive Git observation of that Project, so the
@@ -65,8 +67,8 @@ result without anything being inferred from the fetch itself.
 
 `x` is the other mutating key, a Cleanup
 ([`cleanup.py`](../src/dashpot/repository/cleanup/),
-[`cleanup_flow.py`](../src/dashpot/cleanup_flow.py),
-[`cleanup_view.py`](../src/dashpot/cleanup_view.py),
+[`cleanup_flow.py`](../src/dashpot/ui/cleanup_flow.py),
+[`cleanup_view.py`](../src/dashpot/ui/cleanup_view.py),
 [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
 The highlighted Branches or Worktrees row is resolved through the observation
 store into a request against its Repository Anchor, the read-only preview is
@@ -111,19 +113,19 @@ observations have a separate budget and availability. The declared lowest-number
 twenty Linked Pull Requests require deliberate connection completion when more
 exist; there is no incremental bookkeeping or counterpart expansion.
 
-The dashboard ([app.py](../src/dashpot/app.py)) schedules Issue pages,
+The dashboard ([app.py](../src/dashpot/ui/app.py)) schedules Issue pages,
 Pull Request pages, both kinds of Project Totals, targeted identities and local
 observations independently: the page runner
-([page_runner.py](../src/dashpot/page_runner.py)) runs one source query per
+([page_runner.py](../src/dashpot/ui/page_runner.py)) runs one source query per
 key at a time and keeps each paged kind's navigation, and the observation
-runner ([observation_runner.py](../src/dashpot/observation_runner.py)) observes
+runner ([observation_runner.py](../src/dashpot/ui/observation_runner.py)) observes
 each key at most once at a time, coalescing requests onto the observation in
 flight ([ADR 0020](adr/0020-coalesce-requests-onto-the-observation-in-flight.md)).
 Each drives the app through a narrow host protocol — run work off the loop
 and, for the observation runner, start a timer and redraw the alert — so
 their scheduling is tested without a running app. The two mutating flows
-([`fetch_flow.py`](../src/dashpot/fetch_flow.py),
-[`cleanup_flow.py`](../src/dashpot/cleanup_flow.py)) drive the app through
+([`fetch_flow.py`](../src/dashpot/ui/fetch_flow.py),
+[`cleanup_flow.py`](../src/dashpot/ui/cleanup_flow.py)) drive the app through
 host protocols of their own: the Remote Fetch flow keeps the Projects being
 fetched and the last failure per Project, and the Cleanup flow keeps the
 Projects held from preview to report with the preview each holds, waits on
@@ -131,7 +133,7 @@ the observation runner's landings for the post-fetch Git facts, and asks the
 app only to notify, push its screens and run its workers. Their refusals are
 tested without a running app too; the previews and confirmations are driven
 through the dashboard. Configured Projects are published before remote work.
-The page store ([paged_store.py](../src/dashpot/paged_store.py)) never puts partial
+The page store ([paged_store.py](../src/dashpot/observation/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total or
 identity goes through a method that advances its `source_revision`, so a read
 model's `revision` changes whenever what it was built from does. It joins Agent
@@ -208,17 +210,17 @@ of the heading line, `opened 3d ago by ned2` on the right, and both panes'
 borders in the Issue's state colour), and `Enter` on a session with an Issue
 Binding opens that Issue through targeted resolution; `Enter` is unbound on a Pull
 Request. Each list pane is declared once as a spec in
-[`panes.py`](../src/dashpot/panes.py) — its columns, empty state, the read
+[`panes.py`](../src/dashpot/ui/panes.py) — its columns, empty state, the read
 model it lists, its filtering controls, and how its rows take part in
 relationship emphasis — so the dashboard composes, refreshes and cycles the
 panes from that one tuple; the Issue table's query state and rows belong to
-[`issue_table_controller.py`](../src/dashpot/issue_table_controller.py), and
+[`issue_table_controller.py`](../src/dashpot/ui/issue_table_controller.py), and
 the messages the dashboard posts to itself — the outcomes of off-loop work
 and the body's layout — are the dataclass messages of
-[`messages.py`](../src/dashpot/messages.py). The Sessions pane is its own read model
-([`session_list.py`](../src/dashpot/session_list.py), queried through
+[`messages.py`](../src/dashpot/ui/messages.py). The Sessions pane is its own read model
+([`session_list.py`](../src/dashpot/observation/session_list.py), queried through
 `WorkspaceObservationStore.query_sessions` and rendered by
-[`session_cells.py`](../src/dashpot/session_cells.py)): every active Agent Session of the
+[`session_cells.py`](../src/dashpot/ui/session_cells.py)): every active Agent Session of the
 observed Project exactly once, sorted running → waiting → unknown and then by
 most recent activity, with any bound Issue joined from the Work Store's
 accepted bindings, an `outside Project` marker in place of a target the
@@ -240,9 +242,9 @@ Work Store start time is reported as the different fact it is. Activity is
 observed at turn boundaries and not within a turn, which is a measured
 decision rather than an omission
 ([ADR 0006](adr/0006-observe-agent-activity-at-turn-boundaries.md)). The Worktrees pane
-is likewise its own read model ([`worktree_list.py`](../src/dashpot/worktree_list.py),
+is likewise its own read model ([`worktree_list.py`](../src/dashpot/observation/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`, rendered by
-[`worktree_cells.py`](../src/dashpot/worktree_cells.py)): every observed Observation
+[`worktree_cells.py`](../src/dashpot/ui/worktree_cells.py)): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
 and sorted main before linked, then path, with its Git topology kind (`main` or
 `linked`) reported in its own column,
@@ -257,9 +259,9 @@ the full home-abbreviated path and the table scrolls horizontally when its
 content is wider than the pane. Healthy rows
 do not repeat `available`. Target-specific diagnostics stay in Diagnostics
 and the alert line; the row only points there. The
-Branches pane ([`branch_list.py`](../src/dashpot/branch_list.py),
+Branches pane ([`branch_list.py`](../src/dashpot/observation/branch_list.py),
 `WorkspaceObservationStore.query_branches`, rendered by
-[`branch_cells.py`](../src/dashpot/branch_cells.py)) joins the local ref and the
+[`branch_cells.py`](../src/dashpot/ui/branch_cells.py)) joins the local ref and the
 Remote-Tracking Branches of one branch name into one row, so a branch is
 never listed twice and never needs a second pane. `LOCAL` and `REMOTE` show
 `✓` when a ref exists in that namespace: `LOCAL` is a ref under `refs/heads`,
@@ -301,7 +303,7 @@ fetches and prunes that anchor's remotes on request
 ([ADR 0014](adr/0014-fetch-remotes-on-explicit-key-press.md)).
 
 The panes trade words for Glyphs to stay narrow, and `?` opens the Legend
-that explains every one of them ([`legend.py`](../src/dashpot/legend.py)). Its
+that explains every one of them ([`legend.py`](../src/dashpot/ui/legend.py)). Its
 sections follow the screen top to bottom and name the column a Glyph appears
 in: the Sessions family `●` running, `◐` waiting and `○` unknown (also
 leading the Agent Session count in the Branches and Worktrees `SESSIONS`
@@ -312,7 +314,7 @@ duplicate), its `◈` Agent Run state column (`▶` running, `Ⅱ` waiting, `?`
 unknown, blank for no Agent Run), the `↕ ↑ ↓` sort markers on its headers,
 and the `✖` error, `⚠` warning and `↻` observation severities the alert line
 and Diagnostics share. The Legend is generated from the `Glyph` values the
-cells render with ([`glyphs.py`](../src/dashpot/glyphs.py)), each pane owning
+cells render with ([`glyphs.py`](../src/dashpot/ui/glyphs.py)), each pane owning
 its own vocabulary, and a test scans the source for any symbol the Legend
 does not explain, so a Glyph cannot be added without appearing there and no
 symbol carries two meanings
@@ -321,7 +323,7 @@ symbol carries two meanings
 each read on its own surface
 ([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)). Its
 mouse complement is a header tooltip, offered by the shared
-`FocusCursorTable` ([`focus_table.py`](../src/dashpot/focus_table.py)) from
+`FocusCursorTable` ([`focus_table.py`](../src/dashpot/ui/focus_table.py)) from
 the segment meta the header render stamps, so it follows the hovered header
 through scrolling and column redeclaration and clears over the body and on
 leaving: the Issues table's `◉` and `◈` headers read the same
@@ -335,3 +337,9 @@ the Cleanup preview's per-target checks — where the person deciding what to
 delete reads it. See
 [`textual-implementation-notes.md`](textual-implementation-notes.md) for
 the framework research behind the current implementation.
+
+The completed [module ownership map](adr/0042-group-leaf-and-domain-modules-into-subpackages.md#completed-layout)
+places coordination, accepted stores, and query read models in `observation/`,
+and Textual runners, messages, widgets, and rendering in `ui/`. Observation
+imports no UI modules. Shared list results carry typed summaries, and the
+Workspace observation store owns snapshot indexing.

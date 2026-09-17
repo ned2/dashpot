@@ -9,11 +9,6 @@ from typing import Any
 import pytest
 from typing_extensions import override
 
-from dashpot.collect import (
-    AGENT_RUNS_KEY,
-    ObservationCoordinator,
-    ObservationKey,
-)
 from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.core.model import (
     AgentRun,
@@ -23,7 +18,9 @@ from dashpot.core.model import (
 )
 from dashpot.issues.issue_sources import CollectedIssues, IssueSource
 from dashpot.issues.pull_request_sources import PullRequestSourceObservation
-from dashpot.observation_store import StoreChange, WorkspaceObservationStore
+from dashpot.observation.collect import ObservationCoordinator
+from dashpot.observation.keys import AGENT_RUNS_KEY, ObservationKey
+from dashpot.observation.observation_store import StoreChange, WorkspaceObservationStore
 from dashpot.project.workspace import ResolvedProject
 
 ROOT = Path(__file__).resolve().parents[1]

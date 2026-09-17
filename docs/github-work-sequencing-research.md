@@ -16,8 +16,8 @@ does not expose them in the Issue table, Issue pane, search grammar, or a
 and arbitrary table sorting are presentation order, not workflow order
 ([GitHub collection](../src/dashpot/github/github_issues.py),
 [Issue profile](../src/dashpot/core/issue_profile.py),
-[table state](../src/dashpot/issue_table.py),
-[Issue pane](../src/dashpot/app.py)).
+[table state](../src/dashpot/ui/issue_table.py),
+[Issue pane](../src/dashpot/ui/app.py)).
 
 GitHub Issues can represent **partial work order** directly with native Issue
 dependencies: Issue B can be marked as blocked by Issue A. GitHub shows blocked

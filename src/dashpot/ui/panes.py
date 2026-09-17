@@ -11,9 +11,20 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from ..observation.issue_list import row_key
+from ..observation.list_result import ListResult
+from ..observation.paged_store import PagedObservationStore
+from ..observation.pull_request_list import (
+    DEFAULT_PULL_REQUEST_QUERY,
+    PullRequestListRow,
+    PullRequestListSummary,
+    pull_request_result_count_text,
+)
+from ..observation.related_rows import FocusedSource, RelatedRows
+from ..queries.page_navigation import PageNavigation, page_text, totals_text
+from ..queries.source_queries import ResourceKind
 from .branch_cells import BRANCH_COLUMNS, branch_note, build_branch_rows
 from .focus_table import FocusCursorTable
-from .issue_list import row_key
 from .item_filter import LIFECYCLE_STATUSES, ItemFilterBar, lifecycle_value
 from .list_pane import (
     BRANCHES_PANE_LABEL,
@@ -24,18 +35,12 @@ from .list_pane import (
     ListColumn,
     ListRow,
 )
-from .paged_store import PagedObservationStore
 from .pull_request_cells import PULL_REQUEST_COLUMNS, build_pull_request_rows
-from .pull_request_list import (
-    DEFAULT_PULL_REQUEST_QUERY,
-    PullRequestListResult,
-    PullRequestListRow,
-    pull_request_result_count_text,
+from .session_cells import (
+    SESSION_COLUMNS,
+    build_session_rows,
+    session_columns,
 )
-from .queries.page_navigation import PageNavigation, page_text, totals_text
-from .queries.source_queries import ResourceKind
-from .related_rows import FocusedSource, RelatedRows
-from .session_cells import SESSION_COLUMNS, build_session_rows, session_columns
 from .worktree_cells import WORKTREE_COLUMNS, build_worktree_rows
 from .worktree_table import WorktreeTable
 
@@ -55,7 +60,6 @@ class PaneRows:
     columns: tuple[ListColumn, ...] | None = None
     note: str | None = None
     empty_message: str | None = None
-    title_count: int | None = None
     title_summary: str | None = None
     filter_count: str | None = None
     records: tuple[FocusedSource, ...] = ()
@@ -116,7 +120,9 @@ def branch_pane_rows(context: PaneContext) -> PaneRows:
     branches = context.store.query_branches()
     return PaneRows(
         build_branch_rows(branches, dark=context.dark, now=context.now),
-        note=branch_note(branches.integration_refs, branches.fetched_at, context.now),
+        note=branch_note(
+            branches.summary.integration_refs, branches.summary.fetched_at, context.now
+        ),
         records=branches.rows,
     )
 
@@ -137,18 +143,20 @@ def pull_request_pane_rows(context: PaneContext) -> PaneRows:
     summary = totals_text(store.totals.get("pull-requests"))
     if page is None or not projects:
         return PaneRows((), title_summary=summary, empty_message="Loading page")
-    result = PullRequestListResult(
-        tuple(
+    result = ListResult(
+        rows=tuple(
             PullRequestListRow(row_key("pull-request", pr.id), projects[0], pr)
             for pr in page.pull_requests
         ),
-        page.matched_count or 0,
-        page.returned_count,
-        page.status,
-        page.attempted_at,
-        page.last_good_at,
-        0,
-        0,
+        summary=PullRequestListSummary(
+            matched_pull_request_count=page.matched_count or 0,
+            observed_pull_request_count=page.returned_count,
+            status=page.status,
+            attempted_at=page.attempted_at,
+            last_good_at=page.last_good_at,
+            open_pull_request_count=0,
+            closed_pull_request_count=0,
+        ),
     )
     rows = build_pull_request_rows(result, dark=context.dark, now=context.now)
     return PaneRows(

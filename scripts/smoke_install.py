@@ -32,13 +32,13 @@ async def check_tui(root: Path) -> None:
     """Collect and quit the installed TUI at compact and wide sizes."""
     from textual.widgets import DataTable
 
-    from dashpot.app import DashpotApp
     from dashpot.composition import (
         ObservationOptions,
         create_collector,
         create_query_sources,
     )
     from dashpot.project.workspace import RepositoryAnchor, Workspace
+    from dashpot.ui.app import DashpotApp
 
     for size in ((60, 20), (120, 40)):
         collector = create_collector(

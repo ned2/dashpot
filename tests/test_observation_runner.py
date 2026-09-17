@@ -10,13 +10,15 @@ import pytest
 from textual.message import Message
 
 from app_harness import issue, workspace_snapshot
-from dashpot.collect import (
+from dashpot.observation.keys import (
     ObservationKey,
     ObservationOutcome,
     ObservationTicket,
 )
-from dashpot.messages import ObservationFinished, ObservationTrigger
-from dashpot.observation_runner import (
+from dashpot.observation.observation_store import StoreChange, WorkspaceObservationStore
+from dashpot.observation.paged_store import PagedObservationStore
+from dashpot.ui.messages import ObservationFinished, ObservationTrigger
+from dashpot.ui.observation_runner import (
     COALESCED_TRIGGERS,
     Acceptance,
     DroppedObservation,
@@ -25,8 +27,6 @@ from dashpot.observation_runner import (
     PublishedObservation,
     refresh_pool_size,
 )
-from dashpot.observation_store import StoreChange, WorkspaceObservationStore
-from dashpot.paged_store import PagedObservationStore
 
 ALPHA = ObservationKey("issues", "alpha")
 BETA = ObservationKey("issues", "beta")

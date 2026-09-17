@@ -10,31 +10,25 @@ from rich.text import Text
 
 import factories
 from dashpot.core.issue_profile import IssueProfile
-from dashpot.core.model import (
-    AgentRun,
-    ObservationTarget,
-    ProjectObservation,
-    RunState,
-)
-from dashpot.issue_list import row_key
-from dashpot.list_rows import truncate_end, truncate_start
-from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.session_cells import (
-    SESSION_COLUMNS,
-    build_session_rows,
-    session_cells,
-    session_columns,
-)
-from dashpot.session_list import (
+from dashpot.core.model import AgentRun, ObservationTarget, ProjectObservation, RunState
+from dashpot.observation.issue_list import row_key
+from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.observation.session_list import (
     OUTSIDE_PROJECT_TEXT,
     UNBOUND_ISSUE_TEXT,
     SessionListRow,
-    query_session_list,
 )
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import write_hook_record
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
+from dashpot.ui.list_rows import truncate_end, truncate_start
+from dashpot.ui.session_cells import (
+    SESSION_COLUMNS,
+    build_session_rows,
+    session_cells,
+    session_columns,
+)
 from factories import workspace
 from helpers import make_issue, present, required
 
@@ -137,7 +131,9 @@ def test_sessions_sort_by_state_then_most_recent_activity_then_identity() -> Non
         session("waiting-new", state="waiting", last_activity_at="2026-08-27T02:59Z"),
     ]
 
-    result = query_session_list(workspace(project("project:alpha"), runs=runs))
+    result = WorkspaceObservationStore(
+        workspace(project("project:alpha"), runs=runs)
+    ).query_sessions()
 
     assert [row.session.id for row in result.rows] == [
         "running-new",
@@ -174,7 +170,9 @@ def test_accepted_binding_wins_over_the_record_hint_and_unknown_issues_keep_it()
 def test_a_session_without_a_project_observation_still_lists() -> None:
     orphan = session("work:one", "project:missing")
 
-    result = query_session_list(workspace(project("project:alpha"), runs=[orphan]))
+    result = WorkspaceObservationStore(
+        workspace(project("project:alpha"), runs=[orphan])
+    ).query_sessions()
 
     assert result.count == 1
     assert result.rows[0].project is None
@@ -264,9 +262,9 @@ def test_session_cells_carry_every_scan_level_fact_and_truncate_honestly() -> No
         last_activity_at="2026-08-27T02:00:00Z",
     )
     elsewhere = session("work:two", target_path="/projects/other/worktree")
-    result = query_session_list(
+    result = WorkspaceObservationStore(
         workspace(alpha, runs=[run, elsewhere], issue_runs={"I_alpha#7": ["work:one"]})
-    )
+    ).query_sessions()
 
     rows = build_session_rows(result, dark=True, now=CURRENT, home=home)
     row = next(item for item in rows if item.key == row_key("session", "work:one"))
@@ -301,7 +299,9 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
         branch=None,
         last_activity_at=None,
     ).model_copy(update={"working_directory": None})
-    result = query_session_list(workspace(project("project:alpha"), runs=[run]))
+    result = WorkspaceObservationStore(
+        workspace(project("project:alpha"), runs=[run])
+    ).query_sessions()
 
     (row,) = build_session_rows(result, dark=False, now=CURRENT, home=Path("/nowhere"))
 
@@ -319,9 +319,9 @@ def test_unbound_detached_and_quiet_sessions_render_intentional_values() -> None
 def test_state_glyphs_are_distinct_and_themed() -> None:
     rows = {
         state: build_session_rows(
-            query_session_list(
+            WorkspaceObservationStore(
                 workspace(project("project:alpha"), runs=[session("s", state=state)])
-            ),
+            ).query_sessions(),
             dark=dark,
             now=CURRENT,
         )[0].cells[0]
@@ -345,7 +345,9 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
     elsewhere = session("work:two", target_path="/project:alpha/wt/issue-42")
     outside = session("work:three", "project:missing")
 
-    one_worktree = query_session_list(workspace(alpha, runs=[here]))
+    one_worktree = WorkspaceObservationStore(
+        workspace(alpha, runs=[here])
+    ).query_sessions()
     assert [column.key for column in session_columns(one_worktree)] == [
         "state",
         "harness",
@@ -365,7 +367,9 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
         target_path="/home/ned/projects/alpha",
         working_directory="/home/ned/projects/alpha/src/dashpot",
     )
-    collapsed = query_session_list(workspace(alpha, runs=[at_root, deeper]))
+    collapsed = WorkspaceObservationStore(
+        workspace(alpha, runs=[at_root, deeper])
+    ).query_sessions()
     directories = {
         str(row.cells[4])
         for row in build_session_rows(
@@ -377,7 +381,9 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
     # A linked Worktree, or a session that is not in the Project at all, is
     # what the column exists to tell apart.
     for runs in ([here, elsewhere], [here, outside]):
-        result = query_session_list(workspace(alpha, runs=list(runs)))
+        result = WorkspaceObservationStore(
+            workspace(alpha, runs=list(runs))
+        ).query_sessions()
         assert session_columns(result) == SESSION_COLUMNS
         assert all(
             len(row.cells) == len(SESSION_COLUMNS)
@@ -385,7 +391,10 @@ def test_target_collapses_when_every_session_shares_one_worktree() -> None:
         )
 
     # An empty pane keeps its full header rather than guessing.
-    assert session_columns(query_session_list(workspace(alpha))) == SESSION_COLUMNS
+    assert (
+        session_columns(WorkspaceObservationStore(workspace(alpha)).query_sessions())
+        == SESSION_COLUMNS
+    )
 
 
 def test_activity_says_which_age_it_is_showing() -> None:
@@ -394,7 +403,9 @@ def test_activity_says_which_age_it_is_showing() -> None:
     activity = "2026-08-27T03:00:00Z"
 
     def cell(run: AgentRun) -> str:
-        result = query_session_list(workspace(project("project:alpha"), runs=[run]))
+        result = WorkspaceObservationStore(
+            workspace(project("project:alpha"), runs=[run])
+        ).query_sessions()
         (row,) = build_session_rows(result, dark=True, now=CURRENT)
         return str(row.cells[5])
 

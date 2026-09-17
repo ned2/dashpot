@@ -14,6 +14,15 @@ from typing import Literal
 
 from rich.text import Text
 
+from ..observation.issue_list import (
+    IssueListQuery,
+    IssueListRow,
+    IssueListSummary,
+    IssueSearchField,
+    issue_activity,
+    issue_priority,
+)
+from ..observation.list_result import ListResult
 from .issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
@@ -27,14 +36,6 @@ from .issue_cells import (
     labels_cell,
     optional_text_cell,
     priority_cell,
-)
-from .issue_list import (
-    IssueListQuery,
-    IssueListResult,
-    IssueListRow,
-    IssueSearchField,
-    issue_activity,
-    issue_priority,
 )
 from .list_rows import truncate_end
 
@@ -246,7 +247,7 @@ def column_header(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> Text:
 
 
 def build_rows(
-    result: IssueListResult,
+    result: ListResult[IssueListRow, IssueListSummary],
     *,
     columns: tuple[ColumnKey, ...] = DEFAULT_COLUMNS,
     dark: bool = True,

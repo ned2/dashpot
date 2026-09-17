@@ -42,7 +42,7 @@ projection shared by both panes.
 
 Dashpot pins `textual==8.2.8` in `pyproject.toml` and `uv.lock`. The current
 Project Status and selection panes each update one vertically scrollable
-`Static` with newline-delimited `Field: value` strings in `src/dashpot/app.py`.
+`Static` with newline-delimited `Field: value` strings in `src/dashpot/ui/app.py`.
 
 `Static` is not a wrong primitive: it accepts strings, Textual `Content`, and
 Rich renderables, and `update()` supports the same content types.

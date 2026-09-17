@@ -164,7 +164,7 @@ The conventions the tooling enforces or the code assumes:
   opaque and never derived from labels or paths.
 - A boolean toggle in the dashboard shows its state by the presence of its
   `X`, never by its colour: build it from `MarkedSelectionList` or
-  `MarkedCheckbox` in `src/dashpot/marked_widgets.py`, not from Textual's
+  `MarkedCheckbox` in `src/dashpot/ui/marked_widgets.py`, not from Textual's
   stock `SelectionList` or `Checkbox`, whose `X` is always drawn and only
   recoloured, and give its button states one colour in `dashpot.tcss`.
 - Textual runs a message handler (`on_ready`, `on_observation_finished`, …)

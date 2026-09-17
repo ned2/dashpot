@@ -88,7 +88,7 @@ Dashpot.
 ## Current Dashpot implementation
 
 Dashpot already follows several important Textual practices in
-[`app.py`](../src/dashpot/app.py):
+[`app.py`](../src/dashpot/ui/app.py):
 
 - it uses explicit column keys and collision-safe, stable row keys;
 - `build_rows()` is a projection from `WorkspaceSnapshot`, rather than treating

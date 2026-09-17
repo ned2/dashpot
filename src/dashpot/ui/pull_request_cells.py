@@ -10,8 +10,13 @@ from datetime import UTC, datetime
 
 from rich.text import Text
 
-from .core.ages import relative_age
-from .core.model import PullRequest
+from ..core.ages import relative_age
+from ..core.model import PullRequest
+from ..observation.list_result import ListResult
+from ..observation.pull_request_list import (
+    PullRequestListRow,
+    PullRequestListSummary,
+)
 from .glyphs import (
     ATTENTION_COLORS,
     BAD_COLORS,
@@ -20,7 +25,6 @@ from .glyphs import (
     Glyph,
 )
 from .list_rows import ListCell, ListColumn, ListRow, truncate_end
-from .pull_request_list import PullRequestListResult
 
 OPEN_GLYPH = Glyph("■", "an open Pull Request", GOOD_COLORS)
 DRAFT_GLYPH = Glyph("■", "a draft Pull Request", ("#59636e", "#9198a1"))
@@ -93,7 +97,7 @@ PULL_REQUEST_COLUMNS: tuple[ListColumn, ...] = (
 
 
 def build_pull_request_rows(
-    result: PullRequestListResult,
+    result: ListResult[PullRequestListRow, PullRequestListSummary],
     *,
     dark: bool,
     now: datetime | None = None,

@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from .perform import CleanupConfirmation, CleanupReport, cleanup_git, perform_cleanup
+from .perform import (
+    CleanupConfirmation,
+    CleanupReport,
+    cleanup_git,
+    perform_cleanup,
+)
 from .preview import inspect_cleanup
 from .targets import CleanupPreview, CleanupRequest
 

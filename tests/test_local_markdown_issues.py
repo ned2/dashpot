@@ -6,10 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from dashpot.core.issue_profile import (
-    IssueProfile,
-    conform_issue,
-)
+from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.issues.issue_sources import IssueSourceRefreshError, parse_issue_hint
 from dashpot.issues.local_markdown_issues import LocalMarkdownIssuesSource
 from factories import local_issue_document

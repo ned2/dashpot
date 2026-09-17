@@ -9,7 +9,7 @@ from typing_extensions import override
 from ..core.issue_profile import IssueProfile, issue_location
 from ..core.model import Diagnostic, IssueActivity, SourceStatus
 from ..core.pydantic import FrozenDict
-from ..retaining_source import RetainingSource, SourceRefreshError
+from .retaining_source import RetainingSource, SourceRefreshError
 
 
 @dataclass(frozen=True, slots=True)

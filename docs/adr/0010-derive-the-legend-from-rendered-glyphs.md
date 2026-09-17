@@ -23,11 +23,11 @@ column and *unpushed* in `SYNC` a few rows away.
 
 Dashpot now renders every Glyph from a `Glyph` value that pairs the symbol
 with its meaning and, where the cell colours it, its light and dark colour
-([`glyphs.py`](../../src/dashpot/glyphs.py)). Each pane keeps its own
+([`glyphs.py`](../../src/dashpot/ui/glyphs.py)). Each pane keeps its own
 vocabulary — `STATE_GLYPHS`, `SEVERITY_GLYPH`, `ISSUE_STATE_GLYPHS`,
 `AGENT_STATE_GLYPHS`, the `SYNC` constants — keyed by the `Literal` union it
 already renders from, and exports the tuple the Legend shows for it. The
-Legend ([`legend.py`](../../src/dashpot/legend.py)) concatenates those
+Legend ([`legend.py`](../../src/dashpot/ui/legend.py)) concatenates those
 tuples into sections that follow the main screen top to bottom and name the
 column a Glyph appears in, and a `?` modal renders them with the colour the
 cell would use. A test scans every string constant in `src/dashpot/` and

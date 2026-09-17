@@ -4,9 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
-from .branch_list import BranchListResult, query_indexed_branch_list
-from .core.issue_profile import IssueProfile
-from .core.model import (
+from ..core.issue_profile import IssueProfile
+from ..core.model import (
     AgentRun,
     Branch,
     Diagnostic,
@@ -15,21 +14,31 @@ from .core.model import (
     PullRequest,
     WorkspaceSnapshot,
 )
+from .branch_list import (
+    BranchListRow,
+    BranchListSummary,
+    query_indexed_branch_list,
+)
 from .issue_list import (
     IssueListQuery,
-    IssueListResult,
     IssueListRow,
+    IssueListSummary,
     query_indexed_issue_list,
     row_key,
 )
+from .list_result import ListResult
 from .pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,
     PullRequestListQuery,
-    PullRequestListResult,
+    PullRequestListRow,
+    PullRequestListSummary,
     query_indexed_pull_request_list,
 )
-from .session_list import SessionListResult, query_indexed_session_list
-from .worktree_list import WorktreeListResult, query_indexed_worktree_list
+from .session_list import SessionListRow, query_indexed_session_list
+from .worktree_list import (
+    WorktreeListRow,
+    query_indexed_worktree_list,
+)
 
 StoreChangeKind = Literal["workspace", "projects", "agent-runs"]
 Key = TypeVar("Key")
@@ -214,7 +223,9 @@ class WorkspaceObservationStore:
             )
         )
 
-    def query_issues(self, query: IssueListQuery = IssueListQuery()) -> IssueListResult:
+    def query_issues(
+        self, query: IssueListQuery = IssueListQuery()
+    ) -> ListResult[IssueListRow, IssueListSummary]:
         state = self._state
         result = query_indexed_issue_list(
             projects=state.projects,
@@ -226,7 +237,7 @@ class WorkspaceObservationStore:
         )
         return result
 
-    def query_sessions(self) -> SessionListResult:
+    def query_sessions(self) -> ListResult[SessionListRow, None]:
         """Query every active Agent Session, with its Project and Issue joined."""
         state = self._state
         result = query_indexed_session_list(
@@ -238,7 +249,7 @@ class WorkspaceObservationStore:
         )
         return result
 
-    def query_worktrees(self) -> WorktreeListResult:
+    def query_worktrees(self) -> ListResult[WorktreeListRow, None]:
         """Query every observed Observation Target with its located sessions."""
         state = self._state
         result = query_indexed_worktree_list(
@@ -249,7 +260,7 @@ class WorkspaceObservationStore:
         )
         return result
 
-    def query_branches(self) -> BranchListResult:
+    def query_branches(self) -> ListResult[BranchListRow, BranchListSummary]:
         """Query every observed Branch by name, with its refs and locations joined."""
         state = self._state
         result = query_indexed_branch_list(
@@ -263,7 +274,7 @@ class WorkspaceObservationStore:
 
     def query_pull_requests(
         self, query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY
-    ) -> PullRequestListResult:
+    ) -> ListResult[PullRequestListRow, PullRequestListSummary]:
         """Query every Pull Request with its independent freshness."""
         state = self._state
         return query_indexed_pull_request_list(
@@ -299,7 +310,7 @@ class WorkspaceObservationStore:
     def detail_for(self, row: IssueListRow) -> IssueListRow | None:
         """Resolve a queried row's identity against the current state."""
         state = self._state
-        return _issue_detail(state, row, row.issue) if row.kind == "issue" else None
+        return _issue_detail(state, row, row.issue)
 
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
         state = self._state
@@ -438,20 +449,10 @@ def _issue_detail(
     )
     return IssueListRow(
         key=row.key,
-        kind=row.kind,
         project=project,
         issue=current_issue,
         observed_runs=observed_runs,
-        project_runs=_project_runs(state, project_id),
         session_states=session_states,
-    )
-
-
-def _project_runs(state: _StoreState, project_id: str) -> tuple[AgentRun, ...]:
-    return tuple(
-        run
-        for run in state.agent_runs.values()
-        if run.observation_project_id == project_id
     )
 
 

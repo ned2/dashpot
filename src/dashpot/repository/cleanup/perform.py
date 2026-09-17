@@ -22,7 +22,12 @@ from ..repository import (
     same_path,
 )
 from .preview import describe_cleanup_preview, inspect_cleanup
-from .targets import CleanupPreview, CleanupRequest, CleanupTarget, TargetKind
+from .targets import (
+    CleanupPreview,
+    CleanupRequest,
+    CleanupTarget,
+    TargetKind,
+)
 
 Outcome = Literal["deleted", "already-absent", "refused", "unknown"]
 

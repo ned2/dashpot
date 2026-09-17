@@ -6,9 +6,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Generic, Protocol, TypeVar
 
-from .core.errors import DashpotError
-from .core.model import Diagnostic, SourceStatus
-from .core.timestamps import utc_now
+from ..core.errors import DashpotError
+from ..core.model import Diagnostic, SourceStatus
+from ..core.timestamps import utc_now
 
 Clock = Callable[[], str]
 

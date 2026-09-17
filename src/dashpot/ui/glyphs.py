@@ -11,7 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from .core.model import RunState
+from ..core.model import RunState
+from ..observation.session_list import SESSION_STATE_ORDER
 
 # GitHub Primer emphasis colours the list panes share; each pair is
 # (light theme, dark theme).
@@ -56,7 +57,6 @@ class LegendSection:
 
 ACTIVITY_COLUMN_GLYPH = Glyph("◈", "the agent activity column")
 ACTIVITY_WIDTH = 1
-SESSION_STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
 SESSION_STATE_GLYPHS: dict[RunState, Glyph] = {
     "running": Glyph("●", "an Agent Session is running", GOOD_COLORS),
     "waiting": Glyph("◐", "an Agent Session is waiting", ATTENTION_COLORS),

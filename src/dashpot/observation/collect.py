@@ -6,11 +6,11 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
-from .core.git import Git
-from .core.issue_profile import IssueProfile
-from .core.model import (
+from ..core.git import Git
+from ..core.issue_profile import IssueProfile
+from ..core.model import (
     AgentRun,
     Branch,
     Diagnostic,
@@ -23,35 +23,33 @@ from .core.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
-from .core.timestamps import utc_now
-from .issues.issue_sources import (
-    IssueSource,
-    IssueSourceObservation,
-)
-from .issues.pull_request_sources import (
+from ..core.observation_errors import OBSERVATION_FAILURES
+from ..core.timestamps import utc_now
+from ..issues.issue_sources import IssueSource, IssueSourceObservation
+from ..issues.pull_request_sources import (
     PullRequestSource,
     PullRequestSourceObservation,
     UnconfiguredPullRequestSource,
 )
-from .issues.source_factories import (
+from ..issues.source_factories import (
     build_issue_source,
     build_pull_request_source,
 )
-from .observation_errors import OBSERVATION_FAILURES
-from .observation_store import StoreChange, WorkspaceObservationStore
-from .project.project_config import load_project_config
-from .project.workspace import ResolvedProject
-from .queries.query_source import configured_query_source
-from .queries.source_queries import QuerySource
-from .repository.repository import (
+from ..project.project_config import load_project_config
+from ..project.workspace import ResolvedProject
+from ..queries.query_source import configured_query_source
+from ..queries.source_queries import QuerySource
+from ..repository.repository import (
     BranchObservation,
     observe_branches,
     observe_observation_targets,
     worktree_root,
 )
-from .sessions.agent_bindings import bind_issue_runs
-from .sessions.agents import observe_agent_runs
-from .sessions.processes import lock_holder_probe
+from ..sessions.agent_bindings import bind_issue_runs
+from ..sessions.agents import observe_agent_runs
+from ..sessions.processes import lock_holder_probe
+from .keys import AGENT_RUNS_KEY, ObservationKey, ObservationOutcome, ObservationTicket
+from .observation_store import StoreChange, WorkspaceObservationStore
 
 WorkspaceAgentObserver = Callable[
     [Mapping[str, Sequence[ObservationTarget]]],
@@ -59,48 +57,6 @@ WorkspaceAgentObserver = Callable[
 ]
 ObservationTargetObserver = Callable[[Sequence[Path]], RepositoryStateInventory]
 BranchObserver = Callable[[Sequence[Path]], BranchObservation]
-
-ScheduledObservationKind = Literal[
-    "issues", "pull-requests", "targets", "agent-runs", "workspace"
-]
-WORKSPACE_SCOPE = "*"
-
-
-@dataclass(frozen=True, slots=True)
-class ObservationKey:
-    """One independently scheduled observation: a kind for one Project."""
-
-    kind: ScheduledObservationKind
-    project_id: str = WORKSPACE_SCOPE
-
-    @property
-    def group(self) -> str:
-        return f"{self.kind}:{self.project_id}"
-
-
-AGENT_RUNS_KEY = ObservationKey("agent-runs")
-WORKSPACE_KEY = ObservationKey("workspace")
-
-
-@dataclass(frozen=True, slots=True)
-class ObservationTicket:
-    """A request for one observation; only the newest ticket per key is accepted."""
-
-    key: ObservationKey
-    generation: int
-
-
-@dataclass(frozen=True, slots=True)
-class ObservationOutcome:
-    """What happened to a ticket after its observation ran.
-
-    ``accepted`` is false when a newer ticket for the same key superseded it.
-    An accepted observation is held by the scheduler until ``publish`` moves
-    it into a store, so publishing can stay on the consumer's thread.
-    """
-
-    ticket: ObservationTicket
-    accepted: bool
 
 
 @runtime_checkable

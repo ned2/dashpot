@@ -12,16 +12,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .core.model import (
+from ..core.model import (
     AgentRun,
     Branch,
     IntegrationState,
     ObservationTarget,
     ProjectObservation,
-    WorkspaceSnapshot,
     integration_state,
 )
 from .issue_list import row_key
+from .list_result import ListResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,53 +47,9 @@ class BranchListRow:
 
 
 @dataclass(frozen=True, slots=True)
-class BranchListResult:
-    rows: tuple[BranchListRow, ...]
-    revision: int = 0
-    # When the Remote-Tracking Branches were last fetched; Dashpot reports
-    # the age rather than fetching.
+class BranchListSummary:
     fetched_at: str | None = None
     integration_refs: tuple[str, ...] = ()
-
-    @property
-    def count(self) -> int:
-        return len(self.rows)
-
-
-def query_branch_list(
-    snapshot: WorkspaceSnapshot, *, revision: int = 0
-) -> BranchListResult:
-    """Query the Branches pane rows from complete observed state."""
-    projects: dict[str, ProjectObservation] = {}
-    branches: dict[tuple[str, str], Branch] = {}
-    targets: dict[tuple[str, str], ObservationTarget] = {}
-    for project in snapshot.projects:
-        if project.project_id in projects:
-            raise ValueError(f"Duplicate Project Identity {project.project_id}")
-        projects[project.project_id] = project
-        if project.snapshot is None:
-            continue
-        for branch in project.snapshot.branches:
-            key = (project.project_id, branch.refname)
-            if key in branches:
-                raise ValueError(
-                    f"Duplicate Branch {branch.refname} in {project.project_id}"
-                )
-            branches[key] = branch
-        for target in project.snapshot.observation_targets:
-            targets[project.project_id, target.path] = target
-    agent_runs: dict[str, AgentRun] = {}
-    for run in snapshot.agent_runs:
-        if run.id in agent_runs:
-            raise ValueError(f"Duplicate Agent Run Identity {run.id}")
-        agent_runs[run.id] = run
-    return query_indexed_branch_list(
-        projects=projects,
-        branches=branches,
-        observation_targets=targets,
-        agent_runs=agent_runs,
-        revision=revision,
-    )
 
 
 def query_indexed_branch_list(
@@ -103,7 +59,7 @@ def query_indexed_branch_list(
     observation_targets: Mapping[tuple[str, str], ObservationTarget],
     agent_runs: Mapping[str, AgentRun],
     revision: int,
-) -> BranchListResult:
+) -> ListResult[BranchListRow, BranchListSummary]:
     locals_by_name: dict[tuple[str, str], Branch] = {}
     remotes_by_name: dict[tuple[str, str], list[Branch]] = {}
     for (project_id, _refname), branch in branches.items():
@@ -160,11 +116,13 @@ def query_indexed_branch_list(
             and project.snapshot.integration_ref is not None
         }
     )
-    return BranchListResult(
-        tuple(rows),
-        revision,
-        fetched_at=max(fetched, default=None),
-        integration_refs=tuple(integration_refs),
+    return ListResult(
+        rows=tuple(rows),
+        revision=revision,
+        summary=BranchListSummary(
+            fetched_at=max(fetched, default=None),
+            integration_refs=tuple(integration_refs),
+        ),
     )
 
 

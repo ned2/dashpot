@@ -10,6 +10,12 @@ the interface they describe: they target Textual 8.2.8, the pinned version, and
 are updated when the dashboard's shape changes. They are implementation
 guidance, not a claim that Textual is permanently locked in.
 
+The final [module map](adr/0042-group-leaf-and-domain-modules-into-subpackages.md#completed-layout)
+places all Textual rendering and runners under `ui/`. Query read models and
+stores live under `observation/`; scheduling values live in `observation/keys.py`.
+The UI consumes these modules, never the reverse. `ui/app.py` loads the package
+root stylesheet via `../dashpot.tcss`.
+
 ## Recommended shape
 
 Build one `App` whose one long-lived default screen is the `DashboardScreen`
@@ -225,7 +231,7 @@ flexible columns "planned" since 2023 ([discussion #2136](https://github.com/Tex
 community workaround is the same in every thread: on resize, set
 `auto_width=False` and compute each `column.width` yourself, then `refresh()`
 ([discussion #1942](https://github.com/Textualize/textual/discussions/1942)).
-[`spread_table.py`](../src/dashpot/spread_table.py) is that workaround as a
+[`spread_table.py`](../src/dashpot/ui/spread_table.py) is that workaround as a
 subclass used by the Issues table (the list panes stay content-sized, which
 reads better for their short columns): after the base class measures content
 (`_update_dimensions`) and on every resize, each column gets its content width

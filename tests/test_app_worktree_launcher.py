@@ -18,7 +18,7 @@ from dashpot.repository.worktree_launcher import (
     LauncherConfiguration,
     configure_worktree_launcher,
 )
-from dashpot.worktree_table import WorktreeTable
+from dashpot.ui.worktree_table import WorktreeTable
 from factories import target
 from helpers import wait_until
 from test_paged_app import LocalOnlyCollector, application

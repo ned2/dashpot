@@ -16,9 +16,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 from typing_extensions import override
 
-from .branch_cells import fetch_age_text
-from .marked_widgets import MarkedCheckbox
-from .repository.cleanup import (
+from ..repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     CleanupBlocker,
     CleanupConfirmation,
@@ -28,7 +26,9 @@ from .repository.cleanup import (
     CleanupTarget,
     describe_cleanup_report,
 )
-from .repository.cleanup_selection import primary_target, retained_choices
+from ..repository.cleanup_selection import primary_target, retained_choices
+from .branch_cells import fetch_age_text
+from .marked_widgets import MarkedCheckbox
 
 CHANGED_HELP = (
     f"{CHANGED_SINCE_PREVIEW[0].upper()}{CHANGED_SINCE_PREVIEW[1:]}. "

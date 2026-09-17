@@ -61,10 +61,10 @@ result, then observed Agent Runs, resolved and persisted Issue bindings, and
 finally returned one `WorkspaceSnapshot`. The lock was necessary because a
 cancelled Textual worker cannot stop its synchronous executor call and each
 Issue Source owns a mutable in-process last-good cache. Stage 3 below has since
-been implemented as the [`ObservationCoordinator`](../src/dashpot/collect.py),
+been implemented as the [`ObservationCoordinator`](../src/dashpot/observation/collect.py),
 which keeps that per-source serialization at key granularity.
 
-Each [`ProjectCollector`](../src/dashpot/collect.py) refreshes its Issue Source and
+Each [`ProjectCollector`](../src/dashpot/observation/collect.py) refreshes its Issue Source and
 then discovers and inspects every Git worktree. These have different costs and
 useful cadences, but they are one refresh unit. GitHub collection walks every
 Issue page and every nested connection before returning; Local Markdown
@@ -87,7 +87,7 @@ The consequences are:
 
 ### Application state and projection
 
-[`DashpotApp`](../src/dashpot/app.py) owns the last accepted
+[`DashpotApp`](../src/dashpot/ui/app.py) owns the last accepted
 `WorkspaceSnapshot`. One exclusive worker runs the whole collector, and a
 generation check rejects obsolete results. `build_rows()` then scans all observed
 Issues, applies the current hard-coded open-state predicate, joins Agent Runs,

@@ -8,8 +8,9 @@ from datetime import UTC, datetime
 from rich.text import Text
 
 import factories
-from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.pull_request_cells import (
+from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.observation.pull_request_list import PullRequestListQuery
+from dashpot.ui.pull_request_cells import (
     APPROVED_GLYPH,
     CHECKS_FAILURE_GLYPH,
     CLOSED_GLYPH,
@@ -18,10 +19,6 @@ from dashpot.pull_request_cells import (
     MERGE_NOT_APPLICABLE_GLYPH,
     MERGED_GLYPH,
     build_pull_request_rows,
-)
-from dashpot.pull_request_list import (
-    PullRequestListQuery,
-    query_pull_request_list,
 )
 from helpers import snapshot_of
 
@@ -52,7 +49,9 @@ def test_query_orders_by_update_then_number_and_keys_by_opaque_identity() -> Non
         2, pull_request_id="opaque/c", updated_at="2026-09-04T00:00:00Z"
     )
 
-    result = query_pull_request_list(snapshot(older, newer_high, newer_low))
+    result = WorkspaceObservationStore(
+        snapshot(older, newer_high, newer_low)
+    ).query_pull_requests()
 
     assert [row.pull_request.id for row in result.rows] == [
         "opaque/c",
@@ -60,14 +59,19 @@ def test_query_orders_by_update_then_number_and_keys_by_opaque_identity() -> Non
         "opaque/b",
     ]
     assert result.rows[0].key == '["pull-request","project:one","opaque/c"]'
-    assert result.status == "fresh"
+    assert result.summary.status == "fresh"
 
 
-def test_store_query_matches_the_standalone_read_model() -> None:
-    observed = snapshot(factories.pull_request(7))
-    store = WorkspaceObservationStore(observed)
+def test_store_query_tracks_replacement_revision_and_rows() -> None:
+    store = WorkspaceObservationStore(snapshot(factories.pull_request(7)))
+    before = store.query_pull_requests()
+    store.replace(snapshot(factories.pull_request(8)))
+    after = store.query_pull_requests()
 
-    assert store.query_pull_requests() == query_pull_request_list(observed, revision=1)
+    assert before.revision == 1
+    assert after.revision == store.revision == 2
+    assert [row.pull_request.number for row in before.rows] == [7]
+    assert [row.pull_request.number for row in after.rows] == [8]
 
 
 def test_status_and_lexical_filters_preserve_the_complete_inventory_count() -> None:
@@ -75,14 +79,13 @@ def test_status_and_lexical_filters_preserve_the_complete_inventory_count() -> N
     draft = factories.pull_request(2, title="Clipboard experiment", is_draft=True)
     observed = snapshot(ready, draft)
 
-    result = query_pull_request_list(
-        observed,
-        PullRequestListQuery(text="clipboard alice draft:false"),
+    result = WorkspaceObservationStore(observed).query_pull_requests(
+        PullRequestListQuery(text="clipboard alice draft:false")
     )
 
     assert [row.pull_request.number for row in result.rows] == [1]
-    assert result.matched_pull_request_count == 1
-    assert result.observed_pull_request_count == 2
+    assert result.summary.matched_pull_request_count == 1
+    assert result.summary.observed_pull_request_count == 2
 
 
 def test_qualifiers_match_observed_pull_request_facts_with_github_semantics() -> None:
@@ -98,14 +101,10 @@ def test_qualifiers_match_observed_pull_request_facts_with_github_semantics() ->
     hidden = factories.pull_request(2, author="bob", check_status="success")
     observed = snapshot(matching, hidden)
 
-    result = query_pull_request_list(
-        observed,
+    result = WorkspaceObservationStore(observed).query_pull_requests(
         PullRequestListQuery(
-            text=(
-                "author:alice head:feature/search base:release is:draft "
-                "review:changes_requested status:pending"
-            )
-        ),
+            text="author:alice head:feature/search base:release is:draft review:changes_requested status:pending"
+        )
     )
 
     assert [row.pull_request.number for row in result.rows] == [1]
@@ -124,15 +123,15 @@ def test_search_sort_qualifier_overrides_updated_first_order() -> None:
     )
     observed = snapshot(created_first, created_last)
 
-    default = query_pull_request_list(observed)
-    created = query_pull_request_list(
-        observed, PullRequestListQuery(text="sort:created-asc")
+    default = WorkspaceObservationStore(observed).query_pull_requests()
+    created = WorkspaceObservationStore(observed).query_pull_requests(
+        PullRequestListQuery(text="sort:created-asc")
     )
 
     assert [row.pull_request.number for row in default.rows] == [1, 2]
     assert [row.pull_request.number for row in created.rows] == [1, 2]
-    descending = query_pull_request_list(
-        observed, PullRequestListQuery(text="sort:created")
+    descending = WorkspaceObservationStore(observed).query_pull_requests(
+        PullRequestListQuery(text="sort:created")
     )
     assert [row.pull_request.number for row in descending.rows] == [2, 1]
 
@@ -146,7 +145,7 @@ def test_rows_render_draft_review_checks_mergeability_and_age_in_both_themes() -
         mergeability="conflicting",
         updated_at="2026-09-04T03:00:00Z",
     )
-    result = query_pull_request_list(snapshot(pull_request))
+    result = WorkspaceObservationStore(snapshot(pull_request)).query_pull_requests()
 
     dark_row = build_pull_request_rows(result, dark=True, now=NOW)[0]
     light_row = build_pull_request_rows(result, dark=False, now=NOW)[0]
@@ -184,24 +183,33 @@ def test_lifecycle_selection_groups_merged_with_closed_and_scopes_counters() -> 
         factories.pull_request(4, state="merged", author="alice"),
         factories.pull_request(5, state="merged", author="bob"),
     )
-    default = query_pull_request_list(observed)
+    default = WorkspaceObservationStore(observed).query_pull_requests()
     assert [row.pull_request.number for row in default.rows] == [1, 2]
-    assert (default.open_pull_request_count, default.closed_pull_request_count) == (
+    assert (
+        default.summary.open_pull_request_count,
+        default.summary.closed_pull_request_count,
+    ) == (
         2,
         3,
     )
 
     query = PullRequestListQuery(states=frozenset({"closed"}), text="author:alice")
-    closed = query_pull_request_list(observed, query)
+    closed = WorkspaceObservationStore(observed).query_pull_requests(query)
     assert [row.pull_request.number for row in closed.rows] == [3, 4]
-    assert (closed.open_pull_request_count, closed.closed_pull_request_count) == (2, 2)
-    draft = query_pull_request_list(
-        observed, replace(query, text="author:alice draft:true")
+    assert (
+        closed.summary.open_pull_request_count,
+        closed.summary.closed_pull_request_count,
+    ) == (2, 2)
+    draft = WorkspaceObservationStore(observed).query_pull_requests(
+        replace(query, text="author:alice draft:true")
     )
     assert [row.pull_request.number for row in draft.rows] == [3]
-    assert (draft.open_pull_request_count, draft.closed_pull_request_count) == (1, 1)
-    all_rows = query_pull_request_list(
-        observed, replace(query, states=frozenset({"open", "closed"}))
+    assert (
+        draft.summary.open_pull_request_count,
+        draft.summary.closed_pull_request_count,
+    ) == (1, 1)
+    all_rows = WorkspaceObservationStore(observed).query_pull_requests(
+        replace(query, states=frozenset({"open", "closed"}))
     )
     assert all_rows.count == 4
 
@@ -212,8 +220,8 @@ def test_closed_rows_keep_lifecycle_and_draft_visible_in_both_themes() -> None:
         factories.pull_request(1, state="closed", is_draft=True),
         factories.pull_request(2, state="merged"),
     )
-    result = query_pull_request_list(
-        observed, PullRequestListQuery(states=frozenset({"closed"}))
+    result = WorkspaceObservationStore(observed).query_pull_requests(
+        PullRequestListQuery(states=frozenset({"closed"}))
     )
     for dark in (False, True):
         rows = build_pull_request_rows(result, dark=dark, now=NOW)
@@ -247,23 +255,21 @@ def test_lifecycle_and_draft_search_qualifiers_and_negations() -> None:
         "is:closed draft:true": [3],
     }
     for text, expected in cases.items():
-        result = query_pull_request_list(
-            observed,
-            PullRequestListQuery(states=frozenset({"open", "closed"}), text=text),
+        result = WorkspaceObservationStore(observed).query_pull_requests(
+            PullRequestListQuery(states=frozenset({"open", "closed"}), text=text)
         )
         assert [row.pull_request.number for row in result.rows] == expected, text
-    closed_search = query_pull_request_list(
-        observed,
-        PullRequestListQuery(states=frozenset({"closed"}), text="is:closed draft:true"),
+    closed_search = WorkspaceObservationStore(observed).query_pull_requests(
+        PullRequestListQuery(states=frozenset({"closed"}), text="is:closed draft:true")
     )
     assert (
-        closed_search.open_pull_request_count,
-        closed_search.closed_pull_request_count,
+        closed_search.summary.open_pull_request_count,
+        closed_search.summary.closed_pull_request_count,
     ) == (1, 1)
 
 
 def test_state_blocks_share_issue_character_and_use_github_foreground_colours() -> None:
-    from dashpot.issue_cells import ISSUE_STATE_GLYPHS
+    from dashpot.ui.issue_cells import ISSUE_STATE_GLYPHS
 
     records = (
         factories.pull_request(1),
@@ -277,8 +283,8 @@ def test_state_blocks_share_issue_character_and_use_github_foreground_colours() 
         ("#d1242f", "#f85149"),
         ("#8250df", "#ab7df8"),
     )
-    result = query_pull_request_list(
-        snapshot(*records), PullRequestListQuery(states=frozenset({"open", "closed"}))
+    result = WorkspaceObservationStore(snapshot(*records)).query_pull_requests(
+        PullRequestListQuery(states=frozenset({"open", "closed"}))
     )
     for dark in (False, True):
         rows = build_pull_request_rows(result, dark=dark, now=NOW)

@@ -9,7 +9,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.model import WorkspaceSnapshot
-from dashpot.paged_store import PagedObservationStore
+from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.source_queries import QueryPage, QueryRequest
 from helpers import snapshot_of
 

@@ -15,15 +15,15 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import TYPE_CHECKING, TypeVar
 
+from ..observation.paged_store import PagedObservationStore
+from ..queries.page_navigation import PageNavigation, PageTicket
+from ..queries.source_queries import QueryRequest, QuerySource, ResourceKind
 from .messages import (
     IdentitiesFinished,
     OffLoopHost,
     PageFinished,
     TotalsFinished,
 )
-from .paged_store import PagedObservationStore
-from .queries.page_navigation import PageNavigation, PageTicket
-from .queries.source_queries import QueryRequest, QuerySource, ResourceKind
 
 if TYPE_CHECKING:
     from textual.message import Message

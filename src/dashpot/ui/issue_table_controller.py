@@ -16,10 +16,18 @@ from typing import TYPE_CHECKING, cast
 from rich.text import Text
 from textual.widgets import DataTable
 
+from ..observation.issue_list import (
+    IssueListQuery,
+    IssueListRow,
+    IssueListSummary,
+)
+from ..observation.list_result import ListResult
+from ..observation.related_rows import FocusedSource, query_related_rows
+from ..queries.page_navigation import page_text
+from ..queries.source_queries import QueryRequest
 from .focus_table import FocusCursorTable
 from .glyphs import ACTIVITY_WIDTH
 from .issue_cells import TableCell
-from .issue_list import IssueListQuery, IssueListResult, IssueListRow
 from .issue_table import (
     COLUMNS_BY_KEY,
     ColumnKey,
@@ -34,9 +42,6 @@ from .issue_table import (
 from .item_filter import lifecycle_value
 from .keyed_table import capture_selection, restore_selection
 from .panes import LIST_PANE_SPECS
-from .queries.page_navigation import page_text
-from .queries.source_queries import QueryRequest
-from .related_rows import FocusedSource, query_related_rows
 from .spread_table import SpreadTable
 
 if TYPE_CHECKING:
@@ -151,7 +156,7 @@ class IssueTableController:
         )
         self.screen.issue_filter_bar.count.tooltip = page_text(navigation)
 
-    def reconcile_rows(self) -> IssueListResult:
+    def reconcile_rows(self) -> ListResult[IssueListRow, IssueListSummary]:
         """Rebuild the table from the accepted page and return the query result."""
         app = self.screen.dashpot
         table = self.table

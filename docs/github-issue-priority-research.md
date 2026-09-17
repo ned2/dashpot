@@ -230,7 +230,7 @@ who may change it, document the default/unprioritized state, and diagnose
 multiple recognized labels. Dashpot currently chooses the highest recognized
 priority and defaults an unlabelled Issue to P2; that is deterministic but
 hides malformed multi-priority labelling and conflates `unset` with `P2`
-([Dashpot priority interpretation](../src/dashpot/issue_table.py)).
+([Dashpot priority interpretation](../src/dashpot/ui/issue_table.py)).
 
 ### Numeric scores
 

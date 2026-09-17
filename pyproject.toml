@@ -97,8 +97,8 @@ preview = true
 # Frozen dataclasses are immutable, so calling them in argument and dataclass
 # defaults is safe (B008, RUF009).
 extend-immutable-calls = [
-  "dashpot.issue_list.IssueListQuery",
-  "dashpot.issue_table.IssueTableViewState",
+  "dashpot.observation.issue_list.IssueListQuery",
+  "dashpot.ui.issue_table.IssueTableViewState",
 ]
 
 [tool.ty.environment]

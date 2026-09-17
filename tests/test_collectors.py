@@ -12,7 +12,6 @@ from typing import Any
 
 from typing_extensions import override
 
-from dashpot.collect import ObservationCoordinator, ProjectCollector
 from dashpot.core.commands import CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.core.model import (
@@ -33,6 +32,7 @@ from dashpot.issues.issue_sources import (
     IssueSourceObservation,
 )
 from dashpot.issues.pull_request_sources import PullRequestSourceObservation
+from dashpot.observation.collect import ObservationCoordinator, ProjectCollector
 from dashpot.project.workspace import ResolvedProject
 from dashpot.repository.repository import BranchObservation
 from factories import observation_target

@@ -9,12 +9,8 @@ import pytest
 import factories
 from app_harness import with_first_project_snapshot
 from dashpot.core.issue_profile import IssueProfile
-from dashpot.core.model import (
-    AgentRun,
-    IssueActivity,
-    WorkspaceSnapshot,
-)
-from dashpot.issue_list import (
+from dashpot.core.model import AgentRun, IssueActivity, WorkspaceSnapshot
+from dashpot.observation.issue_list import (
     ISSUE_SORT_COLUMNS,
     IssueListQuery,
     IssueSortColumn,
@@ -23,11 +19,11 @@ from dashpot.issue_list import (
     issue_result_count_text,
     issue_sort_value,
     next_issue_states,
-    query_issue_list,
     sort_issue_rows,
 )
-from dashpot.issue_table import COLUMN_SPECS
+from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.queries.source_queries import AuxiliaryObservation
+from dashpot.ui.issue_table import COLUMN_SPECS
 from helpers import make_issue
 
 NOW = "2026-08-27T00:00:00Z"
@@ -74,11 +70,11 @@ def workspace(
 def test_default_query_returns_open_issues_without_forgetting_observed_count() -> None:
     observed = workspace(issue("I_open", "open"), issue("I_closed", "closed"))
 
-    result = query_issue_list(observed)
+    result = WorkspaceObservationStore(observed).query_issues()
 
-    assert result.observed_issue_count == 2
-    assert result.matched_issue_count == 1
-    assert [(row.kind, row.issue.id) for row in result.rows] == [("issue", "I_open")]
+    assert result.summary.observed_issue_count == 2
+    assert result.summary.matched_issue_count == 1
+    assert [row.issue.id for row in result.rows] == ["I_open"]
 
 
 def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
@@ -90,31 +86,29 @@ def test_query_joins_bound_runs_and_keeps_unbound_runs_off_the_list() -> None:
         issue_runs={"I_open": [bound.id]},
     )
 
-    result = query_issue_list(observed)
+    result = WorkspaceObservationStore(observed).query_issues()
 
-    assert [row.kind for row in result.rows] == ["issue"]
+    assert len(result.rows) == 1
     assert result.rows[0].observed_runs == (bound,)
-    # The unbound session is still a Project fact, not a Work row.
-    assert result.rows[0].project_runs == (bound, unbound)
 
 
 def test_project_with_only_unbound_runs_has_no_rows() -> None:
     unbound = agent_run("unbound", issue_id=None)
     observed = workspace(issue("I_closed", "closed"), runs=[unbound])
 
-    result = query_issue_list(observed)
+    result = WorkspaceObservationStore(observed).query_issues()
 
     assert result.rows == ()
-    assert result.observed_issue_count == 1
+    assert result.summary.observed_issue_count == 1
 
 
 def test_default_query_lists_no_rows_for_only_closed_issues() -> None:
     observed = workspace(issue("I_closed", "closed"))
 
-    result = query_issue_list(observed)
+    result = WorkspaceObservationStore(observed).query_issues()
 
-    assert result.observed_issue_count == 1
-    assert result.matched_issue_count == 0
+    assert result.summary.observed_issue_count == 1
+    assert result.summary.matched_issue_count == 0
     assert result.rows == ()
     assert empty_issue_message(IssueListQuery()) == "no open Issues"
     assert (
@@ -136,10 +130,12 @@ def test_text_query_matches_catalogued_fields_and_preserves_observed_count() -> 
     hidden = issue("I_hidden", "open", body="navigation-owner")
     observed = workspace(matching, hidden)
 
-    result = query_issue_list(observed, IssueListQuery(text="NAVIGATION-OWNER"))
+    result = WorkspaceObservationStore(observed).query_issues(
+        IssueListQuery(text="NAVIGATION-OWNER")
+    )
 
-    assert result.matched_issue_count == 1
-    assert result.observed_issue_count == 2
+    assert result.summary.matched_issue_count == 1
+    assert result.summary.observed_issue_count == 2
     assert [row.issue.id for row in result.rows] == ["I_matching"]
 
 
@@ -147,8 +143,8 @@ def test_text_query_matches_labels_like_the_tracker_feed() -> None:
     matching = issue("I_matching", "open", labels=["good first issue", "priority/P3"])
     hidden = issue("I_hidden", "open")
 
-    result = query_issue_list(
-        workspace(matching, hidden), IssueListQuery(text='"good first"')
+    result = WorkspaceObservationStore(workspace(matching, hidden)).query_issues(
+        IssueListQuery(text='"good first"')
     )
 
     assert [row.issue.id for row in result.rows] == ["I_matching"]
@@ -158,8 +154,8 @@ def test_text_query_matches_the_author_without_requiring_one() -> None:
     matching = issue("I_matching", "open", author="octocat")
     hidden = issue("I_hidden", "open")
 
-    result = query_issue_list(
-        workspace(matching, hidden), IssueListQuery(text="octocat")
+    result = WorkspaceObservationStore(workspace(matching, hidden)).query_issues(
+        IssueListQuery(text="octocat")
     )
 
     assert [row.issue.id for row in result.rows] == ["I_matching"]
@@ -170,30 +166,44 @@ def test_lifecycle_counts_ignore_the_query_and_result_text_singularizes() -> Non
         issue("I_one", "open"), issue("I_two", "open"), issue("I_done", "closed")
     )
     views = [
-        (query_issue_list(observed), "2 issues"),
-        (query_issue_list(observed, IssueListQuery(text="I_one")), "1 issue"),
-        (query_issue_list(observed, IssueListQuery(text="nothing-here")), "0 issues"),
+        (WorkspaceObservationStore(observed).query_issues(), "2 issues"),
         (
-            query_issue_list(observed, IssueListQuery(states=frozenset({"closed"}))),
+            WorkspaceObservationStore(observed).query_issues(
+                IssueListQuery(text="I_one")
+            ),
             "1 issue",
         ),
         (
-            query_issue_list(
-                observed, IssueListQuery(states=frozenset({"open", "closed"}))
+            WorkspaceObservationStore(observed).query_issues(
+                IssueListQuery(text="nothing-here")
+            ),
+            "0 issues",
+        ),
+        (
+            WorkspaceObservationStore(observed).query_issues(
+                IssueListQuery(states=frozenset({"closed"}))
+            ),
+            "1 issue",
+        ),
+        (
+            WorkspaceObservationStore(observed).query_issues(
+                IssueListQuery(states=frozenset({"open", "closed"}))
             ),
             "3 issues",
         ),
         (
-            query_issue_list(
-                observed,
-                IssueListQuery(states=frozenset({"open", "closed"}), text="I_done"),
+            WorkspaceObservationStore(observed).query_issues(
+                IssueListQuery(states=frozenset({"open", "closed"}), text="I_done")
             ),
             "1 issue",
         ),
     ]
 
     for view, expected in views:
-        assert (view.open_issue_count, view.closed_issue_count) == (2, 1)
+        assert (view.summary.open_issue_count, view.summary.closed_issue_count) == (
+            2,
+            1,
+        )
         assert issue_result_count_text(len(view.rows)) == expected
     for text in (issue_result_count_text(n) for n in range(4)):
         assert " of " not in text
@@ -213,8 +223,10 @@ def test_text_query_matches_milestone_and_issue_type() -> None:
     hidden = issue("I_hidden", "open")
     observed = workspace(by_milestone, by_type, hidden)
 
-    milestones = query_issue_list(observed, IssueListQuery(text="v1.0"))
-    types = query_issue_list(observed, IssueListQuery(text="bug"))
+    milestones = WorkspaceObservationStore(observed).query_issues(
+        IssueListQuery(text="v1.0")
+    )
+    types = WorkspaceObservationStore(observed).query_issues(IssueListQuery(text="bug"))
 
     assert [row.issue.id for row in milestones.rows] == ["I_milestone"]
     assert [row.issue.id for row in types.rows] == ["I_type"]
@@ -224,7 +236,9 @@ def test_text_query_matches_the_rendered_issue_number() -> None:
     matching = issue("I_matching", "open", number=17)
     hidden = issue("I_hidden", "open", number=18)
 
-    result = query_issue_list(workspace(matching, hidden), IssueListQuery(text="#17"))
+    result = WorkspaceObservationStore(workspace(matching, hidden)).query_issues(
+        IssueListQuery(text="#17")
+    )
 
     assert [row.issue.id for row in result.rows] == ["I_matching"]
 
@@ -238,10 +252,9 @@ def test_unquoted_search_terms_are_anded_without_requiring_a_phrase() -> None:
     )
     missing_term = issue("I_missing", "open", title="Clipboard behavior")
 
-    result = query_issue_list(
-        workspace(matching, wrong_order, missing_term),
-        IssueListQuery(text="clipboard failure"),
-    )
+    result = WorkspaceObservationStore(
+        workspace(matching, wrong_order, missing_term)
+    ).query_issues(IssueListQuery(text="clipboard failure"))
 
     assert [row.issue.id for row in result.rows] == [
         "I_matching",
@@ -255,9 +268,8 @@ def test_quoted_search_phrase_still_requires_contiguous_text() -> None:
         "I_separated", "open", title="Clipboard support for terminal failure"
     )
 
-    result = query_issue_list(
-        workspace(matching, separated),
-        IssueListQuery(text='"clipboard failure"'),
+    result = WorkspaceObservationStore(workspace(matching, separated)).query_issues(
+        IssueListQuery(text='"clipboard failure"')
     )
 
     assert [row.issue.id for row in result.rows] == ["I_matching"]
@@ -266,7 +278,9 @@ def test_quoted_search_phrase_still_requires_contiguous_text() -> None:
 def test_sort_qualifier_does_not_participate_in_lexical_matching() -> None:
     observed = workspace(issue("I_open", "open"))
 
-    result = query_issue_list(observed, IssueListQuery(text="sort:created-asc"))
+    result = WorkspaceObservationStore(observed).query_issues(
+        IssueListQuery(text="sort:created-asc")
+    )
 
     assert [row.issue.id for row in result.rows] == ["I_open"]
 
@@ -278,7 +292,7 @@ def test_query_rejects_duplicate_project_identities() -> None:
     )
 
     with pytest.raises(ValueError, match="Duplicate Project Identity"):
-        query_issue_list(observed)
+        WorkspaceObservationStore(observed).query_issues()
 
 
 def test_query_rejects_duplicate_issue_identities_within_project() -> None:
@@ -286,7 +300,7 @@ def test_query_rejects_duplicate_issue_identities_within_project() -> None:
     observed = workspace(duplicated, copy.deepcopy(duplicated))
 
     with pytest.raises(ValueError, match="Duplicate Issue Identity"):
-        query_issue_list(observed)
+        WorkspaceObservationStore(observed).query_issues()
 
 
 def test_query_rejects_duplicate_agent_run_identities() -> None:
@@ -297,7 +311,7 @@ def test_query_rejects_duplicate_agent_run_identities() -> None:
     )
 
     with pytest.raises(ValueError, match="Duplicate Agent Run Identity"):
-        query_issue_list(observed)
+        WorkspaceObservationStore(observed).query_issues()
 
 
 def agent_run(session_id: str, *, issue_id: str | None) -> AgentRun:
@@ -413,7 +427,7 @@ def test_sort_issue_rows_orders_every_column_with_missing_values_last(
             issues[2].id: IssueActivity(comment_count=7),
         },
     )
-    result = query_issue_list(snapshot)
+    result = WorkspaceObservationStore(snapshot).query_issues()
 
     ascending = sort_issue_rows(result.rows, column)
     descending = sort_issue_rows(result.rows, column, descending=True)
@@ -432,7 +446,7 @@ def test_sort_columns_are_the_sortable_table_columns() -> None:
 
 
 def test_missing_sort_values_rank_last_in_either_direction() -> None:
-    result = query_issue_list(workspace(*varied_issues()))
+    result = WorkspaceObservationStore(workspace(*varied_issues())).query_issues()
 
     ascending = sort_issue_rows(result.rows, "author")
     descending = sort_issue_rows(result.rows, "author", descending=True)
@@ -442,7 +456,7 @@ def test_missing_sort_values_rank_last_in_either_direction() -> None:
 
 
 def test_queried_comment_activity_sorts_by_count_or_ranks_last() -> None:
-    result = query_issue_list(workspace(*varied_issues()[:2]))
+    result = WorkspaceObservationStore(workspace(*varied_issues()[:2])).query_issues()
     fetched, unfetched = (
         replace(
             row,

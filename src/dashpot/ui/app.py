@@ -24,6 +24,18 @@ from textual.widgets import DataTable, Footer, Input, Select, Static
 from textual.worker import get_current_worker
 from typing_extensions import override
 
+from ..observation.collect import ObservationScheduler
+from ..observation.issue_list import issue_result_count_text, next_issue_states
+from ..observation.paged_store import PagedObservationStore
+from ..observation.pull_request_list import (
+    DEFAULT_PULL_REQUEST_QUERY,
+    PullRequestListQuery,
+)
+from ..queries.page_navigation import totals_text
+from ..queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
+from ..repository.cleanup import CleanupAdapter
+from ..repository.fetch import RemoteFetcher
+from ..repository.worktree_launcher import LauncherConfiguration
 from .alerts import (
     SEVERITY_GLYPH,
     SEVERITY_RANK,
@@ -32,15 +44,10 @@ from .alerts import (
 )
 from .cleanup_flow import CleanupFlow, CleanupSelection
 from .cleanup_view import CleanupScreen
-from .collect import ObservationScheduler
 from .column_editor import IssueColumnEditor
 from .fetch_flow import RemoteFetchFlow
 from .focus_table import FocusCursorTable
 from .issue_cells import TableCell, issue_state_colors
-from .issue_list import (
-    issue_result_count_text,
-    next_issue_states,
-)
 from .issue_table import COLUMNS_BY_KEY, ColumnKey, shown_columns
 from .issue_table_controller import IssueTableController
 from .issue_view import IssueScreen
@@ -70,17 +77,8 @@ from .observation_runner import (
     ObservationRunner,
 )
 from .page_runner import PageRunner
-from .paged_store import PagedObservationStore
 from .pane_layout import fit_panes, pane_wish
 from .panes import LIST_PANE_SPECS, PaneContext
-from .pull_request_list import DEFAULT_PULL_REQUEST_QUERY, PullRequestListQuery
-from .queries.page_navigation import totals_text
-from .queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
-from .repository.cleanup import (
-    CleanupAdapter,
-)
-from .repository.fetch import RemoteFetcher
-from .repository.worktree_launcher import LauncherConfiguration
 from .spread_table import SpreadTable
 from .worktree_table import WorktreeTable
 
@@ -422,7 +420,6 @@ class DashboardScreen(Screen[None]):
                 columns=view.columns,
                 note=view.note,
                 empty_message=view.empty_message,
-                title_count=view.title_count,
                 title_summary=view.title_summary,
                 filter_count=view.filter_count,
             )
@@ -581,7 +578,7 @@ class DashboardScreen(Screen[None]):
 
 class DashpotApp(App[None]):
     TITLE = "Dashpot"
-    CSS_PATH = "dashpot.tcss"
+    CSS_PATH = "../dashpot.tcss"
     # Textual declares this as an instance attribute, so ClassVar is not an
     # option; the list is never mutated.
     HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]  # ruff: ignore[mutable-class-default]

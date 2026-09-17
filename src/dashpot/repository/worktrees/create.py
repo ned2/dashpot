@@ -27,7 +27,11 @@ from ..repository import (
     worktree_root,
 )
 from .base import BaseSource, commit_of, resolve_base
-from .records import INITIALIZING_LOCK, registered_at, short_branch
+from .records import (
+    INITIALIZING_LOCK,
+    registered_at,
+    short_branch,
+)
 
 WorktreeRootSource = Literal[
     "--worktree-root", "DASHPOT_WORKTREE_ROOT", "settings", "default-sibling"

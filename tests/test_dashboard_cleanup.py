@@ -28,12 +28,8 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot.app import DashpotApp
-from dashpot.cleanup_view import CleanupReportScreen, CleanupScreen
 from dashpot.core.model import Branch, WorkspaceSnapshot
-from dashpot.issue_list import row_key
-from dashpot.legend import LegendScreen
-from dashpot.list_pane import ListPane
+from dashpot.observation.issue_list import row_key
 from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,
@@ -48,6 +44,10 @@ from dashpot.repository.cleanup import (
     WorktreeCleanupRequest,
 )
 from dashpot.repository.fetch import FetchReport
+from dashpot.ui.app import DashpotApp
+from dashpot.ui.cleanup_view import CleanupReportScreen, CleanupScreen
+from dashpot.ui.legend import LegendScreen
+from dashpot.ui.list_pane import ListPane
 from helpers import wait_until
 
 ANCHOR = "/repo"

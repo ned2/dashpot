@@ -15,8 +15,8 @@ from dashpot.core.model import (
     ProjectObservation,
     SourceStatus,
 )
-from dashpot.issue_list import IssueListQuery, query_issue_list, row_key
-from dashpot.observation_store import WorkspaceObservationStore
+from dashpot.observation.issue_list import IssueListQuery, row_key
+from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.serialization import snapshot_document
 from factories import NOW, workspace
 from helpers import make_issue, required, snapshot_of
@@ -162,7 +162,7 @@ def test_unavailable_project_replacement_retains_last_good_snapshot() -> None:
     assert checkpoint.projects[0].snapshot is not None
     assert snapshot_of(checkpoint.projects[0]).issues[0].title == "Last good"
     assert checkpoint.projects[0].diagnostics == unavailable.diagnostics
-    assert store.query_issues().observed_issue_count == 1
+    assert store.query_issues().summary.observed_issue_count == 1
 
 
 def test_unavailable_issue_source_uses_store_last_good_with_current_attempt() -> None:
@@ -233,7 +233,7 @@ def test_fresh_empty_issue_source_clears_prior_issues() -> None:
 
     store.replace_project(empty)
 
-    assert store.query_issues().observed_issue_count == 0
+    assert store.query_issues().summary.observed_issue_count == 0
     assert store.issue("I_one") is None
 
 
@@ -577,7 +577,6 @@ def test_detail_for_refreshes_all_issue_and_project_run_fields() -> None:
 
     assert detail is not None
     assert detail.observed_runs == (observed_run,)
-    assert detail.project_runs == (observed_run,)
     assert detail.session_states == ("waiting", "unknown")
 
 
@@ -630,7 +629,7 @@ def test_detail_for_returns_none_for_disappeared_domain_identities() -> None:
     assert issue_store.detail_for(issue_row) is None
 
 
-def test_store_query_matches_standalone_query_across_rich_state() -> None:
+def test_checkpoint_round_trip_preserves_queries_across_rich_state() -> None:
     shared = issue("I_shared", "Shared")
     closed = issue("I_closed", "Closed navigation", state="closed")
     bound = run("codex:bound", "project:one", "I_shared")
@@ -654,11 +653,9 @@ def test_store_query_matches_standalone_query_across_rich_state() -> None:
     )
 
     for query in queries:
-        assert store.query_issues(query) == query_issue_list(
-            store.checkpoint(),
-            query,
-            revision=store.revision,
-        )
+        assert store.query_issues(query) == WorkspaceObservationStore(
+            store.checkpoint()
+        ).query_issues(query)
 
 
 def test_store_query_result_cannot_mutate_owned_observations() -> None:

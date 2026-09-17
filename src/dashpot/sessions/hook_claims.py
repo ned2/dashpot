@@ -7,10 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..repository.repository import repository_worktrees
-from .harnesses import (
-    HARNESS_DISPLAY,
-    SessionIdentityClaim,
-)
+from .harnesses import HARNESS_DISPLAY, SessionIdentityClaim
 from .hook_scan import (
     HookRecordClassification,
     SessionLocation,
