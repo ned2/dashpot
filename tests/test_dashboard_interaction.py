@@ -65,6 +65,13 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         assert str(count.render()) == "2 pull requests"
         assert pane_title(app, "#pull-requests-pane") == inventory
 
+        # Page keys follow the pane holding focus: the Pull Requests pane
+        # pages Pull Requests, and anywhere else pages Issues.
+        pane.table.focus()
+        await wait_until(lambda: app.dashboard.page_kind() == "pull-requests")
+        app.dashboard.queue_table().focus()
+        await wait_until(lambda: app.dashboard.page_kind() == "issues")
+
         # Typing submits nothing; Enter submits the whole text to the source.
         search.value = "draft:true"
         await pilot.pause()
