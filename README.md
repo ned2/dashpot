@@ -467,7 +467,9 @@ not need another review when that report becomes available.
 
 A pull-request run checks out the exact branch head and does not require the
 branch to contain `main`
-([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)).
+([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)),
+so a semantic conflict between two independently green PRs surfaces on the
+next PR run that contains both rather than before merge.
 The quality job publishes the verified head, base, and run identity in the
 `ci-revision-<attempt>` artifact.
 A PR changing only root Markdown or Markdown under `docs/` or
@@ -782,8 +784,9 @@ it:
 5. Enable auto-merge with `gh pr merge --squash --auto <number>` following
    the [integration procedure](docs/development-integration.md#integrate-a-verified-pr).
    GitHub squash-merges the PR once every required check on its head is
-   green. Verify the PR is merged, synchronize the local main checkout only
-   through an authorized fast-forward, and leave Worktree cleanup separate.
+   green; the merged result is not verified before it lands. Verify the PR is
+   merged, synchronize the local main checkout only through an authorized
+   fast-forward, and leave Worktree cleanup separate.
 
 Agent sessions use the `dashpot-issue-work` skill to declare and verify the
 Issue they are working on (see

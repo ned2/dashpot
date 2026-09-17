@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-13
-amended-by: 0044-integrate-pull-requests-through-a-merge-queue.md
+amended-by: 0044-integrate-pull-requests-through-a-merge-queue.md, 0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md
 ---
 
 # Review locally and verify the PR head before integration

@@ -26,11 +26,13 @@ its own green `pull_request` run, enabled with `gh pr merge --squash --auto`.
 Signatures, linear history, and the `CI required` check stay; the squash
 commit GitHub creates is signed and keeps `main` linear whatever the branch
 contains. What is given up is narrow: two PRs that each pass on their own but
-conflict semantically now surface on `main`'s next run rather than before
-merge. Textual conflicts still block the merge and are still resolved by the
-authorized rebase with focused follow-up review. For a project of this size
-and change rate that exposure is smaller than the cost of the treadmill, and
-`main` breaking is visible and cheap to fix forward.
+conflict semantically now surface after both have merged, on the first run
+that contains both, which is the next PR branched from the new `main` or a
+manual dispatch, since nothing runs on `main` itself. Textual conflicts still
+block the merge and are still resolved by the authorized rebase with focused
+follow-up review. For a project of this size and change rate that exposure is
+smaller than the cost of the treadmill, and a broken `main` is visible and
+cheap to fix forward.
 
 The `merge_group` trigger, the candidate branches of the verified-revision
 expressions, and the lane classifier's `merge_group` handling are removed

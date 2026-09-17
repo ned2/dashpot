@@ -82,10 +82,12 @@ authority to arbitrary agent sessions.
    squash-merges the PR once every required check on the head is green. A
    new head after that point needs its own validation, review, and CI before
    it merges. The branch need not contain the current `main`: CI verified the
-   branch head, and the merged result is first exercised by whatever runs on
-   `main` next. A semantic conflict between two PRs that each passed on their
-   own therefore surfaces after integration; the implementing agent of the
-   later PR diagnoses it against `main`.
+   branch head, and no run exercises `main` itself. A semantic conflict
+   between two PRs that each passed on their own therefore surfaces on the
+   first later run that contains both, which is the next PR branched from
+   the new `main` or a manual dispatch; the
+   [agent instructions](../AGENTS.md#independent-review-before-integration)
+   say who diagnoses it.
 4. Verify the PR is merged and remote `main` carries its squash commit. There
    is no ordinary main-push CI run to wait for. Update the local main checkout
    with an authorized fast-forward when applicable, then finish Issue work.

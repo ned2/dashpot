@@ -117,17 +117,18 @@ routine review. Follow the README's [integration sequence](README.md#contributin
 and keep the Issue Binding through all delegated work and green PR CI.
 
 Pull requests integrate by squash merge on GitHub once the PR's own CI is
-green
-([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)):
-enable auto-merge with `gh pr merge --squash --auto`, and GitHub merges when
-every required check on the head passes. The branch's own commits are not
-what lands on `main`; the PR title and body are. A PR does not need to
-contain the current `main`, so `main` advancing past the branch's base is not
-a reason to rebase; CI on the merged result runs on `main` after integration,
-not before. When the branch conflicts with `main` textually, this Repository
-authorizes the rebase: rebase
-the branch onto `origin/main`, rerun the local review gate against the new
-base, and force-push the branch with an explicit lease on its previous head
+green ([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)):
+enable auto-merge with `gh pr merge --squash --auto`. The branch's own
+commits are not what lands on `main`; the PR title and body are. A PR does
+not need to contain the current `main`, so `main` advancing past the branch's
+base is not a reason to rebase. Nothing runs CI on `main` itself, so two PRs
+that each passed on their own but conflict semantically surface on the first
+run that contains both, which is the next PR branched from the new `main`;
+the agent implementing that PR diagnoses the failure against `main` rather
+than against its own change. When the branch conflicts with `main` textually,
+this Repository authorizes the rebase: rebase the branch onto `origin/main`,
+rerun the local review gate against the new base, and force-push the branch
+with an explicit lease on its previous head
 (`--force-with-lease=refs/heads/<branch>:<old-head>`), without asking first. A
 conflict-free rebase whose diff against the old head is exactly what landed on
 `main` is content-preserving and needs no further review; a rebase that
