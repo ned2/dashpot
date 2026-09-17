@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-13
+amended-by: 0044-integrate-pull-requests-through-a-merge-queue.md
 ---
 
 # Review locally and verify the PR head before integration

@@ -59,12 +59,13 @@ def checkout(tmp_path, monkeypatch):
         ("docs/odd\nname.md", "docs"),
     ],
 )
-def test_complete_diff_classification(checkout, name, expected):
+@pytest.mark.parametrize("event", ["pull_request", "merge_group"])
+def test_complete_diff_classification(checkout, event, name, expected):
     root, base = checkout
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("Changed\n")
-    assert ci_lane.classify("pull_request", base, commit(root)) == expected
+    assert ci_lane.classify(event, base, commit(root)) == expected
 
 
 def test_earlier_code_change_is_not_hidden_by_latest_docs_commit(checkout):
@@ -83,8 +84,10 @@ def test_rename_from_code_to_documentation_still_requires_full_ci(checkout):
     assert ci_lane.classify("pull_request", base, commit(root)) == "full"
 
 
-@pytest.mark.parametrize("event", ["workflow_dispatch", "workflow_call", "push", ""])
-def test_non_pr_invocations_always_run_full(checkout, event):
+@pytest.mark.parametrize(
+    "event", ["workflow_dispatch", "workflow_call", "push", "merge_group_x", ""]
+)
+def test_invocations_without_a_candidate_diff_always_run_full(checkout, event):
     root, base = checkout
     (root / "README.md").write_text("Docs\n")
     assert ci_lane.classify(event, base, commit(root)) == "full"

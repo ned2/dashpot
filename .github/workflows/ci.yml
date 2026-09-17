@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       test-workers:
@@ -25,7 +27,8 @@ permissions:
   contents: read
 
 # Rapid successive PR updates cancel superseded runs so only the
-# newest cumulative commit completes. Future release/tag workflows must define
+# newest cumulative commit completes. A merge queue candidate is never
+# cancelled: the queue owns its lifecycle. Future release/tag workflows must define
 # their own concurrency policy without cancel-in-progress.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
@@ -46,8 +49,8 @@ jobs:
         id: classify
         env:
           FORCE_FULL: ${{ contains(toJSON(inputs), 'full-verification') }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: python scripts/ci_lane.py classify
 
   quality:
@@ -77,14 +80,17 @@ jobs:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: Verify the PR integration candidate
-        if: github.event_name == 'pull_request'
+      # A pull request run verifies the branch head as pushed; a merge queue
+      # run verifies the candidate the queue built on the current main, which
+      # is what integration lands. Neither requires the branch to contain
+      # main: the queue supplies that guarantee.
+      - name: Record the verified revision
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
-          git merge-base --is-ancestor "$PR_BASE_SHA" "$PR_HEAD_SHA"
           python - <<'PYREVISION'
           import json, os
           from pathlib import Path
@@ -97,8 +103,8 @@ jobs:
       - name: Run the all-files quality gate
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
-      - name: Publish the validated PR revision
-        if: github.event_name == 'pull_request'
+      - name: Publish the verified revision
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ci-revision-${{ github.run_attempt }}
