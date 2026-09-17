@@ -35,12 +35,7 @@ from ..queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
 from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
 from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError
-from .alerts import (
-    SEVERITY_GLYPH,
-    SEVERITY_RANK,
-    AlertSeverity,
-    summarize_alerts,
-)
+from .alerts import Alert, summarize_alerts, summarize_diagnostics
 from .cleanup_flow import CleanupFlow, CleanupSelection
 from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .column_editor import IssueColumnEditor
@@ -507,46 +502,19 @@ class DashboardScreen(Screen[None]):
         self.call_after_refresh(self.issue_table.update_related_rows)
 
     def update_diagnostics(self) -> None:
-        # A refresh failure and a search error are the app's own errors; a
-        # Project's diagnostics carry the severity they were observed with.
-        entries: list[tuple[AlertSeverity, str]] = [
-            ("error", message) for message in self.dashpot.observations.errors.values()
-        ]
-        entries.extend(
-            (diagnostic.severity, diagnostic.message)
-            for diagnostic in self.dashpot.launcher_configuration.diagnostics
+        """Render every Diagnostic in the Diagnostics box, then the alert above it."""
+        app = self.dashpot
+        readout = summarize_diagnostics(
+            app.store,
+            failures=app.observations.errors,
+            launcher_diagnostics=app.launcher_configuration.diagnostics,
+            fetch_failures=app.fetches.errors,
         )
-        entries.extend(
-            ("error", message) for message in self.dashpot.fetches.errors.values()
-        )
-        entries.extend(
-            (
-                entry.diagnostic.severity,
-                f"{entry.project_label} · {entry.diagnostic.source}: "
-                f"{entry.diagnostic.message}"
-                if entry.project_label is not None
-                else f"{entry.diagnostic.source}: {entry.diagnostic.message}",
-            )
-            for entry in self.dashpot.store.diagnostics()
-        )
-        # The Diagnostics box takes no space at all while there is nothing to
-        # report; `-has-messages` displays it, and the box is coloured by the
-        # most severe line in it rather than by having any line at all.
-        diagnostics = self.query_one("#diagnostics", Static)
-        diagnostics.set_class(bool(entries), "-has-messages")
-        severity = min(
-            (item for item, _message in entries),
-            key=lambda item: SEVERITY_RANK[item],
-            default="info",
-        )
-        for candidate in ("error", "warning", "info"):
-            diagnostics.set_class(
-                bool(entries) and severity == candidate, f"-{candidate}"
-            )
-        diagnostics.update(
-            "\n".join(
-                f"{SEVERITY_GLYPH[item].symbol} {message}" for item, message in entries
-            )
+        self.paint_readout(
+            self.query_one("#diagnostics", Static),
+            readout,
+            shown="-has-messages",
+            text=readout.lines if readout is not None else "",
         )
         self.update_alert()
 
@@ -560,13 +528,27 @@ class DashboardScreen(Screen[None]):
             fetching=tuple(app.fetches.fetching),
             source_pages=app.store.pages,
         )
-        widget = self.query_one("#alert", Static)
-        widget.set_class(alert is not None, "-visible")
+        self.paint_readout(
+            self.query_one("#alert", Static),
+            alert,
+            shown="-visible",
+            text=alert.text if alert is not None else "",
+        )
+
+    @staticmethod
+    def paint_readout(
+        widget: Static, readout: Alert | None, *, shown: str, text: str
+    ) -> None:
+        """Show a readout coloured by its most severe line, or hide it entirely."""
+        # Either box takes no space at all while there is nothing to report;
+        # its ``shown`` class displays it, and the box is coloured by the
+        # most severe line in it rather than by having any line at all.
+        widget.set_class(readout is not None, shown)
         for severity in ("error", "warning", "info"):
             widget.set_class(
-                alert is not None and alert.severity == severity, f"-{severity}"
+                readout is not None and readout.severity == severity, f"-{severity}"
             )
-        widget.update(alert.text if alert is not None else "")
+        widget.update(text)
 
 
 class DashpotApp(App[None]):

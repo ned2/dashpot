@@ -221,10 +221,15 @@ judgement suggestion is mandatory. These dispositions accompany #191:
   the stored label unchanged. Harness display names in Diagnostics remain at
   their existing seams. Labels never select identity, bindings, or liveness;
   this extraction changes no wording or persisted records.
-- Further `DashboardScreen` extraction is optional and deferred. Its flow,
-  runner, pane, and Issue-table-controller extractions already establish the
-  planned seams. The remaining composition, focus, layout, and delegation do
-  not justify another extraction in this Issue.
+- Further `DashboardScreen` extraction was assessed in
+  [#234](https://github.com/ned2/dashpot/issues/234).
+  [ADR 0047](0047-keep-the-dashboard-screen-as-one-textual-adapter.md) keeps
+  the screen as the one Textual adapter — its flow, runner, pane,
+  Issue-table-controller and list-query extractions already hold every
+  decision — and moves the one derivation left on it, the Diagnostics
+  readout, beside the alert's in `ui/alerts.py`. The assessment is complete;
+  a layout, focus, query-submission or Issue-opening seam is rejected until a
+  screen method grows a decision the pilot cannot reach.
 - The review's proposed compatibility re-export shims are superseded by the
   alpha internal-interface decision above. Other point-in-time judgement
   smells remain advisory; they do not reopen the structural arc.
