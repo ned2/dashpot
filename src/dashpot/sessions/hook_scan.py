@@ -15,7 +15,7 @@ from ..core.pydantic import (
     validate_degrading,
 )
 from ..core.timestamps import observed_instant
-from ..repository import same_path
+from ..repository.repository import same_path
 from .harnesses import (
     HARNESS_DISPLAY,
 )
@@ -26,7 +26,11 @@ from .hook_records import (
     session_directory,
     state_directory,
 )
-from .liveness import LivenessObservation, LivenessProbe, SessionLiveness
+from .liveness import (
+    LivenessObservation,
+    LivenessProbe,
+    SessionLiveness,
+)
 from .processes import (
     ProcessIdentity,
     ProcessKey,

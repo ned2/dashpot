@@ -13,7 +13,7 @@ from app_harness import (
     with_first_project_snapshot,
 )
 from dashpot.cleanup_view import CleanupScreen
-from dashpot.fetch import FetchReport, RemoteFetch
+from dashpot.repository.fetch import FetchReport, RemoteFetch
 from helpers import wait_until
 from test_dashboard_cleanup import (
     ANCHOR,
@@ -304,7 +304,7 @@ async def test_prefetch_observation_cannot_release_the_confirmation_barrier():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["worktree", "branch"])
 async def test_fetch_can_unblock_the_fixed_primary(kind):
-    from dashpot.cleanup import CleanupBlocker
+    from dashpot.repository.cleanup import CleanupBlocker
 
     ready = WORKTREE_PREVIEW if kind == "worktree" else BRANCH_PREVIEW
     ready = ready.model_copy(update={"ignored": ()})
@@ -391,7 +391,7 @@ async def test_missing_primary_never_promotes_remaining_remote():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("blocked_local", [False, True])
 async def test_grouped_branch_targets_require_explicit_concrete_choices(blocked_local):
-    from dashpot.cleanup import CleanupBlocker
+    from dashpot.repository.cleanup import CleanupBlocker
 
     remote = REMOTE.model_copy(update={"blockers": ()})
     other = remote.model_copy(
@@ -468,7 +468,7 @@ async def test_partial_fetch_labels_repository_age_and_retained_remote_facts():
 async def test_worktree_fetch_age_covers_detached_and_independent_branch_blockers(
     detached,
 ):
-    from dashpot.cleanup import CleanupBlocker
+    from dashpot.repository.cleanup import CleanupBlocker
 
     branch = ATTACHED.model_copy(
         update={

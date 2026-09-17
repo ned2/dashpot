@@ -43,7 +43,7 @@ intermediate file model and reported, not rewritten to disk. `worktreeRoot`
 strings are stripped, `~` expands, and relative roots resolve against the
 settings file's parent directory.
 
-Only [Worktree preparation](../src/dashpot/worktrees.py) currently calls
+Only [Worktree preparation](../src/dashpot/repository/worktrees/create.py) currently calls
 `load_settings`; the dashboard does not load this file. The current precedence
 is `--worktree-root`, then `DASHPOT_WORKTREE_ROOT`, then the machine setting,
 then the sibling default described in [Issue Worktrees](../README.md#issue-worktrees).

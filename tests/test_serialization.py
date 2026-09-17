@@ -11,6 +11,11 @@ import json
 from pathlib import Path
 
 from dashpot.core.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
+from dashpot.repository.worktrees.create import WorktreePlan
+from dashpot.repository.worktrees.removability import (
+    CleanupBlocker,
+    WorktreeRemovability,
+)
 from dashpot.serialization import (
     issue_document,
     removability_document,
@@ -18,7 +23,6 @@ from dashpot.serialization import (
     snapshot_document,
     worktree_plan_document,
 )
-from dashpot.worktrees import CleanupBlocker, WorktreePlan, WorktreeRemovability
 from factories import agent_run, project, pull_request, target, workspace
 from helpers import make_issue
 

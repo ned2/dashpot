@@ -14,11 +14,23 @@ from pathlib import Path
 
 import pytest
 
-from dashpot import worktrees
 from dashpot.core.commands import CommandResult, run_command
 from dashpot.core.git import Git
 from dashpot.core.model import Diagnostic
 from dashpot.project.settings import Settings
+from dashpot.repository.worktrees import create as worktrees
+from dashpot.repository.worktrees.create import (
+    create_issue_worktree,
+    default_branch_name,
+    describe_worktree_plan,
+    resolve_worktree_root,
+    title_slug,
+)
+from dashpot.repository.worktrees.removability import (
+    check_worktree,
+    describe_removability,
+    linked_worktrees,
+)
 from dashpot.serialization import (
     removability_document,
     worktree_plan_document,
@@ -26,15 +38,6 @@ from dashpot.serialization import (
 from dashpot.sessions.hook_records import session_directory, write_hook_record
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
-from dashpot.worktrees import (
-    check_worktree,
-    create_issue_worktree,
-    default_branch_name,
-    describe_removability,
-    describe_worktree_plan,
-    resolve_worktree_root,
-    title_slug,
-)
 from factories import WORKTREE_PROTOCOL_ISSUES, git, write_issues
 from helpers import absent, make_issue, table_lookup
 
@@ -974,12 +977,12 @@ def test_linked_worktrees_lists_every_linked_worktree_but_the_main(
     tmp_path: Path,
 ) -> None:
     root = sim(tmp_path)
-    assert worktrees.linked_worktrees(root) == []
+    assert linked_worktrees(root) == []
 
     first = create(root)
     second = create(root, "36")
 
-    listed = worktrees.linked_worktrees(Path(second.path))
+    listed = linked_worktrees(Path(second.path))
     assert listed == sorted([Path(first.path).resolve(), Path(second.path).resolve()])
 
 

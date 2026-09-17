@@ -10,7 +10,7 @@ from typing import cast
 
 from ..core.model import AgentRun, Diagnostic, ObservationTarget, RunState
 from ..core.timestamps import observed_instant
-from ..repository import is_within, same_path
+from ..repository.repository import is_within, same_path
 from .hook_records import HookRecordStore
 from .hook_scan import (
     HookRecordClassification,

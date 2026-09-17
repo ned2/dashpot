@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dashpot.core.commands import non_interactive_runner
 from dashpot.core.git import Git
-from dashpot.fetch import FETCH_ENVIRONMENT, fetch_remotes, remote_fetcher
+from dashpot.repository.fetch import FETCH_ENVIRONMENT, fetch_remotes, remote_fetcher
 from factories import SequenceRunner, completed
 
 

@@ -10,7 +10,7 @@ from typing import Any
 
 from ..core.git import GitError
 from ..core.json_records import optional_string, require_string
-from ..repository import repository_worktrees, same_path
+from ..repository.repository import repository_worktrees, same_path
 from .hook_records import HookRecordStore
 from .hook_scan import (
     reachable_hook_stores,

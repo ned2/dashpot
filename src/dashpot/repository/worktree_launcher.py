@@ -9,9 +9,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core.commands import CommandResult, CommandRunner
-from .core.model import Diagnostic
-from .project.settings import (
+from ..core.commands import CommandResult, CommandRunner
+from ..core.model import Diagnostic
+from ..project.settings import (
     WORKTREE_PATH_ARGUMENT,
     default_settings_path,
     load_settings,

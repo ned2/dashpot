@@ -15,10 +15,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .cleanup import CleanupPreview, CleanupReport
 from .core.issue_profile import IssueProfile
 from .core.model import WorkspaceSnapshot
-from .worktrees import WorktreePlan, WorktreeRemovability
+from .repository.cleanup import CleanupPreview, CleanupReport
+from .repository.worktrees.create import WorktreePlan
+from .repository.worktrees.removability import WorktreeRemovability
 
 
 def _document(value: BaseModel) -> dict[str, Any]:

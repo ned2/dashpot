@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from dashpot.core.git import Git
-from dashpot.repository import observe_branches
+from dashpot.repository.repository import observe_branches
 from factories import SequenceRunner, completed, git, ref_stream
 
 

@@ -8,7 +8,7 @@ import pytest
 
 from dashpot.core.commands import CommandResult
 from dashpot.project.settings import SettingsFile, load_settings
-from dashpot.worktree_launcher import (
+from dashpot.repository.worktree_launcher import (
     WorktreeLauncher,
     configure_worktree_launcher,
     run_launch_command,
@@ -150,7 +150,7 @@ def test_request_with_persistent_child_is_bounded_and_child_is_not_killed(
     script = r"""
 import ctypes, os, signal, subprocess, sys, time
 from pathlib import Path
-from dashpot.worktree_launcher import run_launch_command
+from dashpot.repository.worktree_launcher import run_launch_command
 assert ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0
 root=Path(sys.argv[1]); redirect=sys.argv[2]=='True'
 pidfile=root/'child.pid'

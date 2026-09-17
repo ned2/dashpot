@@ -30,14 +30,10 @@ from .alerts import (
     AlertSeverity,
     summarize_alerts,
 )
-from .cleanup import (
-    CleanupAdapter,
-)
 from .cleanup_flow import CleanupFlow, CleanupSelection
 from .cleanup_view import CleanupScreen
 from .collect import ObservationScheduler
 from .column_editor import IssueColumnEditor
-from .fetch import RemoteFetcher
 from .fetch_flow import RemoteFetchFlow
 from .focus_table import FocusCursorTable
 from .issue_cells import TableCell, issue_state_colors
@@ -80,8 +76,12 @@ from .panes import LIST_PANE_SPECS, PaneContext
 from .pull_request_list import DEFAULT_PULL_REQUEST_QUERY, PullRequestListQuery
 from .queries.page_navigation import totals_text
 from .queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
+from .repository.cleanup import (
+    CleanupAdapter,
+)
+from .repository.fetch import RemoteFetcher
+from .repository.worktree_launcher import LauncherConfiguration
 from .spread_table import SpreadTable
-from .worktree_launcher import LauncherConfiguration
 from .worktree_table import WorktreeTable
 
 T = TypeVar("T")
