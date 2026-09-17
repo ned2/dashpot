@@ -608,7 +608,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
 
     from dashpot.core.model import RepositoryStateInventory
     from factories import target
-    from test_paged_app import LocalOnlyCollector, application
+    from test_app_query_pages import LocalOnlyCollector, application
 
     class Collector(LocalOnlyCollector):
         def __init__(self):

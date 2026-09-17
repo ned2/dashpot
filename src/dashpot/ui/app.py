@@ -40,7 +40,7 @@ from .alerts import (
     summarize_alerts,
 )
 from .cleanup_flow import CleanupFlow, CleanupSelection
-from .cleanup_view import CleanupScreen
+from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .column_editor import IssueColumnEditor
 from .fetch_flow import RemoteFetchFlow
 from .focus_table import FocusCursorTable
@@ -49,7 +49,7 @@ from .issue_table import COLUMNS_BY_KEY, ColumnKey, shown_columns
 from .issue_table_controller import IssueTableController
 from .issue_view import IssueScreen
 from .item_filter import LIFECYCLE_STATUSES, ItemFilterBar, lifecycle_value
-from .legend import LegendScreen
+from .legend import KeyGroup, LegendScreen
 from .list_pane import ISSUE_PANE_LABEL, ListPane
 from .list_queries import ListQueries
 from .messages import (
@@ -76,6 +76,13 @@ from .spread_table import SpreadTable
 from .worktree_table import WorktreeTable
 
 T = TypeVar("T")
+
+# The focus cycle is an override of Textual's own hidden Tab bindings, not a
+# Binding of the dashboard's; the Legend lists it as the keys a person presses.
+FOCUS_CYCLE_BINDINGS: tuple[BindingType, ...] = (
+    ("tab", "focus_next", "Next list"),
+    ("shift+tab", "focus_previous", "Previous list"),
+)
 
 
 class DashboardBody(Container):
@@ -652,17 +659,7 @@ class DashpotApp(App[None]):
         """Explain every Glyph on screen; a second ``?`` is absorbed by the Legend."""
         if isinstance(self.screen, LegendScreen):
             return
-        # The Legend lists the app's keys, the dashboard's, and the Worktrees
-        # table's own, wherever it was opened from.
-        self.push_screen(
-            LegendScreen(
-                bindings=[
-                    *self.BINDINGS,
-                    *DashboardScreen.BINDINGS,
-                    *WorktreeTable.BINDINGS,
-                ]
-            )
-        )
+        self.push_screen(LegendScreen(legend_keys()))
 
     def on_ready(self) -> None:
         dashboard = self.dashboard
@@ -945,3 +942,25 @@ class DashpotApp(App[None]):
             dashboard.update_issue_inventory()
             dashboard.reconcile_list_panes()
         dashboard.update_diagnostics()
+
+
+def legend_keys() -> tuple[KeyGroup, ...]:
+    """Every shipped key, grouped by where it is pressed, for the Legend.
+
+    The dashboard group is the app's keys, the dashboard's and the focus
+    cycle; the Worktrees table's own keys and each modal screen's are listed
+    under their own names, wherever the Legend was opened from, so Enter on
+    a Worktree is never confused with Enter on an Issue.
+    """
+    return (
+        KeyGroup(
+            "dashboard",
+            (*DashpotApp.BINDINGS, *DashboardScreen.BINDINGS, *FOCUS_CYCLE_BINDINGS),
+        ),
+        KeyGroup("Worktrees pane", tuple(WorktreeTable.BINDINGS)),
+        KeyGroup("Issue view", tuple(IssueScreen.BINDINGS)),
+        KeyGroup("column editor", tuple(IssueColumnEditor.BINDINGS)),
+        KeyGroup("Cleanup preview", tuple(CleanupScreen.BINDINGS)),
+        KeyGroup("Cleanup report", tuple(CleanupReportScreen.BINDINGS)),
+        KeyGroup("Legend", tuple(LegendScreen.BINDINGS)),
+    )

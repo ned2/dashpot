@@ -22,8 +22,8 @@ from dashpot.ui.keyed_table import capture_selection
 from dashpot.ui.marked_widgets import MarkedSelectionList
 from factories import agent_run, hook_record_document, target
 from helpers import present, wait_until
+from test_app_query_pages import application
 from test_app_worktree_launcher import WorktreeCollector
-from test_paged_app import application
 from test_related_rows import query_source, related, related_snapshot
 
 

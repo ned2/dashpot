@@ -17,6 +17,7 @@ from app_harness import (
     pane_title,
     prepare_pane,
     serve_snapshot,
+    toasts,
     workspace_snapshot,
 )
 from dashpot.observation.issue_list import row_key
@@ -229,7 +230,7 @@ async def test_a_header_the_source_cannot_order_by_leaves_the_query_alone() -> N
             assert app.queries.navigation["issues"].request == request
             assert str(table.columns[fixed_key].label) == label
         # Each refusal is explained once, and nothing was queried for it.
-        assert len(app._notifications) == 3
+        assert len(toasts(app)) == 3
         assert titles(app) == ["Zebra", "Alpha"]
 
 
@@ -780,7 +781,8 @@ async def test_hovering_a_glyph_header_shows_its_meaning() -> None:
             assert await pilot.hover("#pull-request-search")
             await wait_until(lambda: not tooltip.display)
             assert await pilot.hover("#queue", offset=(x, y))
-            await pilot.pause(0.05)
+            # The table offered its header's tooltip, now shown, or none.
+            await wait_until(lambda: tooltip.display or table.tooltip is None)
 
         await hover_table(0, 0)
         await wait_until(lambda: tooltip.display)

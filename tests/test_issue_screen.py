@@ -33,7 +33,7 @@ from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
 from dashpot.observation.issue_list import IssueListQuery, row_key
 from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.ui import session_cells
-from dashpot.ui.app import DashpotApp
+from dashpot.ui.app import DashpotApp, legend_keys
 from dashpot.ui.column_editor import IssueColumnEditor
 from dashpot.ui.detail_fields import DetailFields, detail_items_text
 from dashpot.ui.issue_cells import IssueStateCell
@@ -754,8 +754,14 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
             str(heading.render()) for heading in screen.query(".legend-heading")
         ]
         assert headings[0] == "SESSIONS · ◈"
-        assert headings[-1] == "KEYS"
-        assert headings[:-1] == [section_heading(section) for section in LEGEND]
+        assert headings[: len(LEGEND)] == [
+            section_heading(section) for section in LEGEND
+        ]
+        # The keys follow the Glyphs, grouped by where they are pressed.
+        assert headings[len(LEGEND) :] == [
+            f"KEYS · {group.label}" for group in legend_keys()
+        ]
+        assert headings[len(LEGEND)] == "KEYS · dashboard"
         rendered = "\n".join(
             str(section.render()) for section in screen.query(".legend-section")
         )

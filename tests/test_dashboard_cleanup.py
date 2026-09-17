@@ -24,6 +24,9 @@ from app_harness import (
     first_load_landed,
     footer_keys,
     issue,
+    legend_keys_text,
+    toast_titles,
+    toasts,
     with_first_project,
     with_first_project_snapshot,
     workspace_snapshot,
@@ -267,14 +270,6 @@ class FakeCleaner:
             raise answer
         assert isinstance(answer, CleanupReport)
         return answer
-
-
-def toasts(app: DashpotApp) -> list[str]:
-    return [notification.message for notification in app._notifications]
-
-
-def toast_titles(app: DashpotApp) -> list[str]:
-    return [notification.title for notification in app._notifications]
 
 
 async def focus_row(
@@ -755,9 +750,7 @@ async def test_x_is_listed_in_the_footer_and_the_legend() -> None:
         await pilot.press("question_mark")
         await pilot.pause()
         assert isinstance(app.screen, LegendScreen)
-        assert "Delete Branch/Worktree" in str(
-            app.screen.query_one("#legend-keys", Static).render()
-        )
+        assert "Delete Branch/Worktree" in legend_keys_text(app)
 
 
 @pytest.mark.asyncio

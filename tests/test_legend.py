@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import ast
+import importlib
+import pkgutil
 from pathlib import Path
-from typing import get_args
+from typing import cast, get_args
+
+from textual.binding import Binding, BindingType
 
 import dashpot
 from dashpot.core.model import RunState
 from dashpot.ui import alerts, branch_cells, glyphs, issue_cells, legend, session_cells
 from dashpot.ui.alerts import AlertSeverity
+from dashpot.ui.app import FOCUS_CYCLE_BINDINGS, legend_keys
 from dashpot.ui.glyphs import Glyph, LegendSection
 from dashpot.ui.issue_cells import IssueStateKind
 from dashpot.ui.list_rows import ListColumn, column_help
@@ -252,3 +257,55 @@ def test_section_text_renders_symbols_in_their_colour() -> None:
     severity = legend.LEGEND[-1]
     themed = legend.section_text(severity, dark=True, theme={"error": "#ff0000"})
     assert str(themed.spans[0].style) == "#ff0000"
+
+
+def shipped_bindings() -> set[tuple[str, str]]:
+    """Every shown ``(key, description)`` a class under ``dashpot.ui`` binds."""
+    found: set[tuple[str, str]] = set()
+    for module_info in pkgutil.iter_modules(
+        [str(SOURCE_DIR / "ui")], prefix="dashpot.ui."
+    ):
+        module = importlib.import_module(module_info.name)
+        for value in vars(module).values():
+            if (
+                not isinstance(value, type)
+                or value.__module__ != module_info.name
+                or "BINDINGS" not in vars(value)
+            ):
+                continue
+            bindings = vars(value)["BINDINGS"]
+            assert isinstance(bindings, list)
+            found.update(
+                (binding.key, binding.description)
+                for binding in Binding.make_bindings(
+                    cast("list[BindingType]", bindings)
+                )
+                if binding.show
+            )
+    return found
+
+
+def test_the_legend_lists_every_shipped_key_and_the_focus_cycle() -> None:
+    """A key on any screen or widget is explained, including Tab's override."""
+    listed = {
+        (binding.key, binding.description)
+        for group in legend_keys()
+        for binding in Binding.make_bindings(group.bindings)
+    }
+    shipped = shipped_bindings()
+
+    assert shipped, "no shipped BINDINGS were found under dashpot.ui"
+    assert shipped <= listed
+    assert {
+        (binding.key, binding.description)
+        for binding in Binding.make_bindings(FOCUS_CYCLE_BINDINGS)
+    } == {("tab", "Next list"), ("shift+tab", "Previous list")}
+    assert ("tab", "Next list") in listed
+    assert ("shift+tab", "Previous list") in listed
+    # Each group is named for where its keys are pressed, and no key is
+    # listed twice within its group.
+    labels = [group.label for group in legend_keys()]
+    assert len(set(labels)) == len(labels)
+    for group in legend_keys():
+        keys = [binding.key for binding in Binding.make_bindings(group.bindings)]
+        assert len(set(keys)) == len(keys), group.label

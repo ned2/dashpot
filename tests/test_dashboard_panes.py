@@ -25,6 +25,7 @@ from app_harness import (
     prepare_pane,
     selected_title,
     serve_snapshot,
+    toasts,
     with_first_project_snapshot,
     workspace_snapshot,
 )
@@ -422,7 +423,7 @@ async def test_enter_resolves_a_bound_issue_off_the_page_before_opening_it() -> 
         await pilot.press("enter")
         await wait_until(lambda: "I_gone" in app.store.resolved)
         await pilot.pause()
-        assert [notification.message for notification in app._notifications] == [
+        assert toasts(app) == [
             "Resolving bound Issue details",
             "Bound Issue details are unavailable",
         ]

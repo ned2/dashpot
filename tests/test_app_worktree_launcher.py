@@ -21,7 +21,7 @@ from dashpot.repository.worktree_launcher import (
 from dashpot.ui.worktree_table import WorktreeTable
 from factories import target
 from helpers import wait_until
-from test_paged_app import LocalOnlyCollector, application
+from test_app_query_pages import LocalOnlyCollector, application
 
 
 class WorktreeCollector(LocalOnlyCollector):

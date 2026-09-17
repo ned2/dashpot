@@ -697,3 +697,24 @@ def pane_chrome(pane: ListPane) -> int:
 
 def footer_keys(app: DashpotApp) -> set[str]:
     return {binding.key for _, binding, *_ in app.screen.active_bindings.values()}
+
+
+def toasts(app: DashpotApp) -> list[str]:
+    """The messages of every toast the app has shown, oldest first.
+
+    Textual keeps its notifications private; this is the one place a test
+    reads them.
+    """
+    return [notification.message for notification in app._notifications]
+
+
+def toast_titles(app: DashpotApp) -> list[str]:
+    """The titles of every toast the app has shown, oldest first."""
+    return [notification.title for notification in app._notifications]
+
+
+def legend_keys_text(app: DashpotApp) -> str:
+    """Every key line the open Legend lists, across its groups."""
+    return "\n".join(
+        str(section.render()) for section in app.screen.query(".legend-keys")
+    )
