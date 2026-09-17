@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from .core.issue_profile import IssueProfile
 from .core.model import WorkspaceSnapshot
+from .queries.source_queries import ProjectTotals, QueryPage
 from .repository.cleanup import CleanupPreview, CleanupReport
 from .repository.worktrees.create import WorktreePlan
 from .repository.worktrees.removability import WorktreeRemovability
@@ -34,6 +35,11 @@ def snapshot_document(snapshot: WorkspaceSnapshot) -> dict[str, Any]:
 def issue_document(issue: IssueProfile) -> dict[str, Any]:
     """The ``dashpot issue show --json`` document: the complete Issue Profile."""
     return _document(issue)
+
+
+def list_page_document(page: QueryPage, totals: ProjectTotals) -> dict[str, Any]:
+    """The ``issue list``/``pr list --json`` document: Query Page and Project Totals."""
+    return {"page": _document(page), "totals": _document(totals)}
 
 
 def worktree_plan_document(plan: WorktreePlan) -> dict[str, Any]:

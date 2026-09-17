@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from dashpot.core.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
+from dashpot.queries.source_queries import QueryRequest
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import (
     CleanupBlocker,
@@ -18,6 +19,7 @@ from dashpot.repository.worktrees.removability import (
 )
 from dashpot.serialization import (
     issue_document,
+    list_page_document,
     removability_document,
     render_json,
     snapshot_document,
@@ -25,6 +27,7 @@ from dashpot.serialization import (
 )
 from factories import agent_run, project, pull_request, target, workspace
 from helpers import make_issue
+from test_source_queries import markdown
 
 SNAPSHOT_KEYS = {
     "collectedAt",
@@ -178,6 +181,37 @@ REMOVABILITY_KEYS = {
     "removeCommands",
 }
 REMOVAL_OBSTACLE_KEYS = {"kind", "detail", "command"}
+LIST_PAGE_KEYS = {"page", "totals"}
+OBSERVATION_FACT_KEYS = {"status", "attemptedAt", "lastGoodAt", "diagnostics"}
+QUERY_PAGE_KEYS = OBSERVATION_FACT_KEYS | {
+    "context",
+    "request",
+    "effectiveOrdering",
+    "issues",
+    "pullRequests",
+    "auxiliary",
+    "returnedCount",
+    "matchedCount",
+    "nextCursor",
+    "continuation",
+    "resultLimit",
+}
+PROJECT_TOTALS_KEYS = OBSERVATION_FACT_KEYS | {
+    "context",
+    "kind",
+    "openCount",
+    "closedCount",
+}
+SOURCE_CONTEXT_KEYS = {
+    "projectId",
+    "repositoryId",
+    "source",
+    "location",
+    "principal",
+    "revision",
+    "configuration",
+}
+QUERY_REQUEST_KEYS = {"kind", "query", "state", "ordering", "pageSize", "cursor"}
 
 
 def test_the_snapshot_document_pins_every_nested_shape() -> None:
@@ -339,6 +373,32 @@ def test_the_removability_document_keeps_its_keys_and_nulls() -> None:
     assert set(obstacle) == REMOVAL_OBSTACLE_KEYS
     assert obstacle["command"] is None
     assert document["removeCommands"] == []
+
+
+def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None:
+    source = markdown(tmp_path)
+    page = source.query_page(QueryRequest(kind="issues", page_size=1))
+    totals = source.totals("pull-requests")
+
+    document = list_page_document(page, totals)
+
+    assert set(document) == LIST_PAGE_KEYS
+    page_document = document["page"]
+    assert set(page_document) == QUERY_PAGE_KEYS
+    assert set(page_document["context"]) == SOURCE_CONTEXT_KEYS
+    assert set(page_document["request"]) == QUERY_REQUEST_KEYS
+    assert page_document["request"]["cursor"] is None
+    assert page_document["pullRequests"] == []
+    (issue_profile,) = page_document["issues"]
+    assert set(issue_profile) == ISSUE_PROFILE_KEYS
+    assert page_document["resultLimit"] is None
+    assert page_document["lastGoodAt"] is not None
+    totals_document = document["totals"]
+    assert set(totals_document) == PROJECT_TOTALS_KEYS
+    assert totals_document["kind"] == "pull-requests"
+    assert totals_document["status"] == "unavailable"
+    assert totals_document["openCount"] is None
+    assert totals_document["lastGoodAt"] is None
 
 
 def test_render_json_is_indented_unless_compact() -> None:

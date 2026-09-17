@@ -60,20 +60,17 @@ class FocusCursorTable(DataTable[CellType]):
             self.tooltip = None
         return self
 
-    @override
-    def _on_mouse_move(self, event: events.MouseMove) -> None:
-        super()._on_mouse_move(event)
+    # Textual runs ``DataTable._on_mouse_move`` and ``_on_leave`` by name on
+    # their own class, so these handlers add to them rather than overriding
+    # and calling them, which would run the base handlers twice.
+    def on_mouse_move(self, event: events.MouseMove) -> None:
         # Textual resolves one tooltip per widget when its hover timer fires,
         # and the headers are painted rather than composed, so the table
         # reads the hovered column from the segment meta the header render
         # stamps and offers that column's tooltip as its own.
         self.tooltip = self.header_tooltip_at(event.style.meta)
 
-    # The parameter is ``_`` because Textual's ``DataTable._on_leave`` names
-    # it so, and ty holds an override to the same parameter names.
-    @override
-    def _on_leave(self, _: events.Leave) -> None:
-        super()._on_leave(_)
+    def on_leave(self, _: events.Leave) -> None:
         self.tooltip = None
 
     def header_tooltip_at(self, meta: Mapping[str, object]) -> str | None:

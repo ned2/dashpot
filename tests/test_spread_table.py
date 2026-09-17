@@ -1,6 +1,62 @@
 from __future__ import annotations
 
-from dashpot.ui.spread_table import proportional_shares, spread_widths
+from collections.abc import Callable
+from typing import Any
+
+import pytest
+from textual import events
+from textual.app import App, ComposeResult
+from textual.widgets import DataTable, Static
+from typing_extensions import override
+
+from dashpot.ui.spread_table import SpreadTable, proportional_shares, spread_widths
+
+
+class SpreadTableApp(App[None]):
+    """One dashboard table alone on the screen."""
+
+    @override
+    def compose(self) -> ComposeResult:
+        yield Static("away", id="away")
+        yield SpreadTable(id="table")
+
+
+def counting(monkeypatch: pytest.MonkeyPatch, calls: dict[str, int], name: str) -> None:
+    # Nothing public reports how often Textual ran a handler, so the count
+    # wraps DataTable's own ``_on_*`` handler that the class dispatch reads.
+    original: Callable[..., Any] = getattr(DataTable, name)
+
+    def counted(self: DataTable[Any], event: events.Event) -> None:
+        calls[name] = calls.get(name, 0) + 1
+        original(self, event)
+
+    monkeypatch.setattr(DataTable, name, counted)
+
+
+@pytest.mark.asyncio
+async def test_a_dashboard_table_runs_each_base_handler_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Textual dispatches a handler by name on every class of the MRO, so a
+    # subclass handler that also called the base would run it twice.
+    calls: dict[str, int] = {}
+    for name in ("_on_resize", "_on_mouse_move", "_on_leave"):
+        counting(monkeypatch, calls, name)
+    app = SpreadTableApp()
+
+    async with app.run_test(size=(40, 10)) as pilot:
+        table = app.query_one("#table", SpreadTable)
+        table.add_column("ALPHA", key="alpha")
+        table.add_row("a")
+        await pilot.pause()
+        calls.clear()
+
+        await pilot.resize_terminal(60, 10)
+        await pilot.hover("#table", (1, 1))
+        await pilot.hover("#away")
+        await pilot.pause()
+
+        assert calls == {"_on_resize": 1, "_on_mouse_move": 1, "_on_leave": 1}
 
 
 def test_shares_follow_the_weights_and_sum_exactly() -> None:

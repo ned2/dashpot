@@ -78,9 +78,9 @@ class SpreadTable(FocusCursorTable[CellType]):
                 column.content_width = measure(console, column.label, 1)
         return self
 
-    @override
-    def _on_resize(self, _: events.Resize) -> None:
-        super()._on_resize(_)
+    # Textual runs ``DataTable._on_resize`` by name on its own class, so this
+    # handler adds to it rather than overriding and calling it.
+    def on_resize(self, _: events.Resize) -> None:
         self.spread_columns()
 
     @override
