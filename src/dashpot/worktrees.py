@@ -21,11 +21,7 @@ from typing import Literal
 from .core.git import Git, GitError
 from .core.issue_profile import IssueProfile
 from .core.pydantic import LaxSequence, PublishedModel
-from .harnesses import HARNESS_DISPLAY
-from .hook_scan import reachable_hook_stores, sessions_at_worktree
 from .issues.issue_resolution import resolve_issue
-from .liveness import session_liveness
-from .processes import ProcessLookup, host_process_lookup
 from .project.project_config import (
     PROJECT_CONFIG_NAME,
     ProjectConfig,
@@ -45,7 +41,11 @@ from .repository import (
     worktree_paths,
     worktree_root,
 )
-from .work_store import WorkStore
+from .sessions.harnesses import HARNESS_DISPLAY
+from .sessions.hook_scan import reachable_hook_stores, sessions_at_worktree
+from .sessions.liveness import session_liveness
+from .sessions.processes import ProcessLookup, host_process_lookup
+from .sessions.work_store import WorkStore
 
 WorktreeRootSource = Literal[
     "--worktree-root", "DASHPOT_WORKTREE_ROOT", "settings", "default-sibling"

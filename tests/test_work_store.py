@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
+from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 
 
 def work(

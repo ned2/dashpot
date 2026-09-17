@@ -10,10 +10,12 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
-from .core.pydantic import (
+from ..core.pydantic import (
     describe_validation_error,
     validate_degrading,
 )
+from ..core.timestamps import observed_instant
+from ..repository import same_path
 from .harnesses import (
     HARNESS_DISPLAY,
 )
@@ -31,9 +33,7 @@ from .processes import (
     ProcessLookup,
     host_process_lookup,
 )
-from .repository import same_path
 from .session_matching import SessionEvidence
-from .timestamps import observed_instant
 
 # A hook record's outcome is its Session Liveness, plus the one fact liveness
 # cannot express: a graceful SessionEnd, which is a record state, not a probe.

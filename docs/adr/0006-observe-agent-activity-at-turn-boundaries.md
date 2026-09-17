@@ -21,7 +21,7 @@ a session that has gone quiet while still running. It was prototyped against
 the real hook command and rejected on the measurements.
 
 One invocation costs a median 89 ms: ~11 ms to start the interpreter, ~26 ms
-more to import `dashpot.agents`, ~42 ms more for `nearest_harness_process` to
+more to import `dashpot.sessions.agents`, ~42 ms more for `nearest_harness_process` to
 walk the process tree, and ~2 ms for the two Git probes. Measured against 108
 local Claude Code transcripts — 1276 turns, 13369 tool calls, mean 10.5 per
 turn — that is 0.9 s of hook time on an average turn, 2.6 s at p90 and 11.6 s

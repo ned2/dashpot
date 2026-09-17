@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .core.json_records import optional_string
+from ..core.json_records import optional_string
 from .hook_records import (
     build_hook_record,
     session_directory,

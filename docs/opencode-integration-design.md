@@ -516,16 +516,16 @@ proposed. The following separates the completed correction from that future work
 
 | Existing seam | Current behavior and remaining work |
 | --- | --- |
-| [work.py](../src/dashpot/work.py): `identify_agent_session`, `_session_identity` | Hook-confirmed native identity is required on visible and sandboxed routes; new named runs use harness-scoped digest keys. Add OpenCode command corroboration under its proposed publication contract |
-| [work.py](../src/dashpot/work.py): `_session_work`, `start_issue_work`, `stop_issue_work` | Native mismatch never falls back to process; unresolved legacy ownership refuses mutation, and runtime takeover requires gone evidence. OpenCode acknowledgment revalidation remains proposed |
-| [agents.py](../src/dashpot/agents.py): `ObservedActivityIndex.adopt` | Missing named evidence produces unknown activity; unnamed legacy runs do not adopt process activity. OpenCode must additionally validate its recorded backend association |
-| [agents.py](../src/dashpot/agents.py): `run_identities` | Conflict detection uses harness-scoped native identity; shared processes do not make named runs duplicates |
-| [hook_scan.py](../src/dashpot/hook_scan.py): `locate_agent_session`; [hook_records.py](../src/dashpot/hook_records.py): `HookRecordStore` | Named lookup validates full identity; colliding native labels across harnesses use separate checked filenames. A publisher generation ordering contract remains proposed |
-| [work_store.py](../src/dashpot/work_store.py): `end_session_runs`, `replace_current`, `stop_current` | SessionEnd matches native identity and runtime; replacement and deletion compare expected state under lock. Reuse this conditional mutation seam for future retryable end reconciliation |
+| [work.py](../src/dashpot/sessions/work.py): `identify_agent_session`, `_session_identity` | Hook-confirmed native identity is required on visible and sandboxed routes; new named runs use harness-scoped digest keys. Add OpenCode command corroboration under its proposed publication contract |
+| [work.py](../src/dashpot/sessions/work.py): `_session_work`, `start_issue_work`, `stop_issue_work` | Native mismatch never falls back to process; unresolved legacy ownership refuses mutation, and runtime takeover requires gone evidence. OpenCode acknowledgment revalidation remains proposed |
+| [agents.py](../src/dashpot/sessions/agents.py): `ObservedActivityIndex.adopt` | Missing named evidence produces unknown activity; unnamed legacy runs do not adopt process activity. OpenCode must additionally validate its recorded backend association |
+| [agents.py](../src/dashpot/sessions/agents.py): `run_identities` | Conflict detection uses harness-scoped native identity; shared processes do not make named runs duplicates |
+| [hook_scan.py](../src/dashpot/sessions/hook_scan.py): `locate_agent_session`; [hook_records.py](../src/dashpot/sessions/hook_records.py): `HookRecordStore` | Named lookup validates full identity; colliding native labels across harnesses use separate checked filenames. A publisher generation ordering contract remains proposed |
+| [work_store.py](../src/dashpot/sessions/work_store.py): `end_session_runs`, `replace_current`, `stop_current` | SessionEnd matches native identity and runtime; replacement and deletion compare expected state under lock. Reuse this conditional mutation seam for future retryable end reconciliation |
 | [record_store.py](../src/dashpot/core/record_store.py): `LockedRecordStore.replace`, `locked` | One-file durable replacement is reusable; repository coordination and deadline-aware acquisition remain additional requirements |
-| [liveness.py](../src/dashpot/liveness.py): `session_liveness`, `LivenessProbe` | Reuse PID/start-time proof and per-pass memoization; unknown never authorizes takeover or orphan recovery |
-| [harnesses.py](../src/dashpot/harnesses.py) | Reuse native-identity requirements without treating backend recognition as session identification |
-| [integrate.py](../src/dashpot/integrate.py) | Add managed OpenCode plugin installation/status/removal without assuming every harness uses hook JSON |
+| [liveness.py](../src/dashpot/sessions/liveness.py): `session_liveness`, `LivenessProbe` | Reuse PID/start-time proof and per-pass memoization; unknown never authorizes takeover or orphan recovery |
+| [harnesses.py](../src/dashpot/sessions/harnesses.py) | Reuse native-identity requirements without treating backend recognition as session identification |
+| [integrate.py](../src/dashpot/sessions/integrate.py) | Add managed OpenCode plugin installation/status/removal without assuming every harness uses hook JSON |
 
 Use Pydantic models on the shared base for new publication and persisted shapes;
 normalize to frozen, slotted dataclasses internally. Decide versioning and
@@ -688,8 +688,8 @@ recommendations to resolve before implementing support:
   artifact to JSON hooks or an OpenCode plugin. Share atomic replacement,
   ownership checks, repair and version diagnostics. Test roundtrips with
   unrelated files, shared skills, stale paths and unsupported runtime modes.
-- Registration is repeated in [harnesses.py](../src/dashpot/harnesses.py),
-  [integrate.py](../src/dashpot/integrate.py), the
+- Registration is repeated in [harnesses.py](../src/dashpot/sessions/harnesses.py),
+  [integrate.py](../src/dashpot/sessions/integrate.py), the
   [CLI harness union](../src/dashpot/cli.py), and
   [session labels](../src/dashpot/session_list.py). A registry could connect
   narrow identity, publisher, installer and display concerns; evaluate that

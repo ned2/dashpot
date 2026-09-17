@@ -5,10 +5,11 @@ date: 2026-09-17
 
 # Design
 
-The leaf and domain layers live in five packages: `core` for shared
+The leaf and domain layers live in six packages: `core` for shared
 infrastructure and observation values, `project` for configuration and Workspace
 resolution, `github` for the gateway and wire adapters, `issues` for Issue
-Sources and resolution, and `queries` for source queries and page navigation.
+Sources and resolution, `queries` for source queries and page navigation, and `sessions` for Agent
+Session observation, the Work Store, Issue work, and integration.
 [ADR 0042](adr/0042-group-leaf-and-domain-modules-into-subpackages.md) records
 the layout and its staged scope. Pydantic bases live in
 [`core/pydantic.py`](../src/dashpot/core/pydantic.py); observation models in

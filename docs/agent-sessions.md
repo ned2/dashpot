@@ -197,7 +197,7 @@ instead.
 `dashpot work start`, `work relocate`, and `work stop` identify the enclosing
 Agent Session through one harness-neutral seam with a
 [Harness Adapter](domain-language.md) per supported harness
-(`src/dashpot/harnesses.py`). Both visible and sandboxed commands require a
+(`src/dashpot/sessions/harnesses.py`). Both visible and sandboxed commands require a
 native identity claim confirmed by its freshest hook record of the same
 harness across the Repository's reachable hook stores. The record must describe
 a live or unknown session. Visible host ancestry corroborates the harness and

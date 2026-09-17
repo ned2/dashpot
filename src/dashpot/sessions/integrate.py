@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .core.record_store import replace_atomically
+from ..core.record_store import replace_atomically
+from ..repository import main_worktree, worktree_records, worktree_root
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
@@ -26,7 +27,6 @@ from .hook_scan import (
     summarize_session_records,
 )
 from .processes import ProcessLookup, host_process_lookup
-from .repository import main_worktree, worktree_records, worktree_root
 
 HOOK_TIMEOUT = 3
 # Inline hook definitions live under ``[hooks]`` or ``[[hooks.<Event>]]``.
@@ -418,7 +418,7 @@ def issue_work_skill_directory(spec: HarnessIntegration, home: Path) -> Path:
 
 
 def _bundled_issue_work_skill() -> Path:
-    return Path(__file__).with_name("skills") / ISSUE_WORK_SKILL_NAME
+    return Path(__file__).parents[1] / "skills" / ISSUE_WORK_SKILL_NAME
 
 
 def _validate_skill_destination(destination: Path) -> None:

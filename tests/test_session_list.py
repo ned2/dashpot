@@ -9,7 +9,6 @@ import pytest
 from rich.text import Text
 
 import factories
-from dashpot.agents import observe_agent_runs
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import (
     AgentRun,
@@ -17,11 +16,9 @@ from dashpot.core.model import (
     ProjectObservation,
     RunState,
 )
-from dashpot.hook_records import write_hook_record
 from dashpot.issue_list import row_key
 from dashpot.list_rows import truncate_end, truncate_start
 from dashpot.observation_store import WorkspaceObservationStore
-from dashpot.processes import ProcessIdentity
 from dashpot.session_cells import (
     SESSION_COLUMNS,
     build_session_rows,
@@ -34,7 +31,10 @@ from dashpot.session_list import (
     SessionListRow,
     query_session_list,
 )
-from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
+from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.hook_records import write_hook_record
+from dashpot.sessions.processes import ProcessIdentity
+from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import workspace
 from helpers import make_issue, present, required
 

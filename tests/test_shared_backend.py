@@ -7,16 +7,25 @@ from types import SimpleNamespace
 
 import pytest
 
-import dashpot.work as work_module
-from dashpot.agents import observe_agent_runs
-from dashpot.hook_records import HookRecordStore, session_directory
-from dashpot.hook_scan import (
+import dashpot.sessions.work as work_module
+from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.hook_records import HookRecordStore, session_directory
+from dashpot.sessions.hook_scan import (
     locate_agent_session,
     read_hook_record,
     sessions_at_worktree,
 )
-from dashpot.work import identify_agent_session, start_issue_work, stop_issue_work
-from dashpot.work_store import ActiveWork, SessionProcess, WorkStore, end_session_runs
+from dashpot.sessions.work import (
+    identify_agent_session,
+    start_issue_work,
+    stop_issue_work,
+)
+from dashpot.sessions.work_store import (
+    ActiveWork,
+    SessionProcess,
+    WorkStore,
+    end_session_runs,
+)
 from factories import CLAUDE, CODEX, EARLIER, LATER, hook_record, hook_record_document
 from helpers import present, table_lookup, unobservable
 from test_work import target
@@ -88,8 +97,8 @@ def test_session_end_preserves_different_session_on_same_backend(tmp_path):
 def test_start_preserves_other_sessions_issue_binding(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
-    import dashpot.work as work_module
-    from dashpot.work import start_issue_work
+    import dashpot.sessions.work as work_module
+    from dashpot.sessions.work import start_issue_work
 
     a, b, stores = setup_sessions(tmp_path)
     monkeypatch.setattr(work_module, "worktree_root", lambda path: path)
@@ -404,7 +413,7 @@ def test_changed_record_is_not_replaced_or_removed_after_selection(
         if not changed:
             changed = True
             with original(store, key):
-                from dashpot.work_store import WorkStoreRecord
+                from dashpot.sessions.work_store import WorkStoreRecord
 
                 store.replace(key, WorkStoreRecord.of(after).model_dump(by_alias=True))
         with original(store, key):
@@ -509,8 +518,8 @@ def test_equal_native_ids_from_two_harnesses_coexist_in_one_hook_store(tmp_path)
 def test_relocation_requires_an_unoccupied_session_destination(
     roots, monkeypatch, competing
 ):
-    import dashpot.work_reconciliation as hooks
-    from dashpot.work_store import RelocationIntent
+    import dashpot.sessions.work_reconciliation as hooks
+    from dashpot.sessions.work_store import RelocationIntent
 
     a, b = roots
     resumed = replace(CODEX, pid=5252)

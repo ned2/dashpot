@@ -59,7 +59,7 @@ Textual. At the import level they are not:
   [`issue_resolution.py`](../src/dashpot/issues/issue_resolution.py#L7) imports
   `collect.build_issue_source`; `work.py` and `worktrees.py` import
   `issue_resolution`.
-- Consequently `import dashpot.work`, `import dashpot.worktrees`, and
+- Consequently `import dashpot.sessions.work`, `import dashpot.worktrees`, and
   `import dashpot.collect` each load `textual` (checked in the checkout's
   `.venv`). `dashpot work start` — the hook-lifecycle path — pays for
   Textual. `hook_records` is still clean.

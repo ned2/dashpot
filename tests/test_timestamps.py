@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from dashpot.timestamps import observed_instant, utc_now, utc_timestamp
+from dashpot.core.timestamps import observed_instant, utc_now, utc_timestamp
 
 
 def test_the_clock_stamps_a_fixed_width_utc_instant() -> None:

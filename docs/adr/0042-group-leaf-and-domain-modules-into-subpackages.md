@@ -23,10 +23,25 @@ No old-path re-export shims are added: Python internals are outside the
 [alpha compatibility contract](0034-publish-an-alpha-with-patch-compatible-interfaces.md).
 The existing top-level exports retain their names.
 
-This stage leaves sessions, repository observation, and UI modules at the root
-for the following Issues, as #188's explicit scope requires. Its acceptance
+The first stage left sessions, repository observation, and UI modules at the
+root for the following Issues, as #188's explicit scope required. Its acceptance
 bullet describing a root containing only entry points, assets, and packages is
 the eventual layout after those later moves. The CLI and hook entry points,
 serialization, stylesheet, skills, and `py.typed` remain at their existing paths.
 Tests, tools, and documentation follow moved modules; fresh-interpreter checks
 continue to protect headless and lightweight import paths.
+
+
+[Issue #189](https://github.com/ned2/dashpot/issues/189) implements the next
+stage: `sessions` owns harness adapters, process and liveness observation,
+session matching, the Work Store, hook records and publishing, claim validation,
+scanning and Work Store reconciliation, Agent Run observation and binding,
+Issue work, and integration installation. Shared timestamp helpers live in
+`core/timestamps.py` because sessions, repository observation, and source
+adapters all consume them. The `sessions` initializer stays empty and consumers
+import each owning module directly, with no old-path shims.
+
+`hook.py` remains the root entry point. Integration resolves the bundled
+`skills/` from the package root rather than beside its relocated module, so
+installed hook publishers and skill installation retain their existing paths
+and behavior. Repository observation and UI moves remain with #190 and #191.

@@ -27,12 +27,16 @@ from dashpot.cleanup import (
 )
 from dashpot.core.commands import CommandResult, run_command
 from dashpot.core.git import Git, GitError
-from dashpot.hook_records import session_directory, write_hook_record
-from dashpot.processes import ProcessIdentity, ProcessLookup, host_process_lookup
 from dashpot.repository import LockHolderProbe
 from dashpot.serialization import (
     cleanup_preview_document,
     cleanup_report_document,
+)
+from dashpot.sessions.hook_records import session_directory, write_hook_record
+from dashpot.sessions.processes import (
+    ProcessIdentity,
+    ProcessLookup,
+    host_process_lookup,
 )
 from dashpot.worktrees import check_worktree
 from factories import git

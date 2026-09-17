@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from dashpot.hook_records import write_hook_record
-from dashpot.integrate import (
+from dashpot.sessions.hook_records import write_hook_record
+from dashpot.sessions.integrate import (
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
     ISSUE_WORK_SKILL_MARKER,
@@ -642,8 +642,8 @@ def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
 def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     tmp_path: Path,
 ) -> None:
-    from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
-    from dashpot.hook_records import session_directory
+    from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE
+    from dashpot.sessions.hook_records import session_directory
 
     home = codex_home(tmp_path)
     root = tmp_path / "repo"
@@ -698,7 +698,7 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
 
 
 def test_status_of_the_other_harness_does_not_borrow_a_claim(tmp_path: Path) -> None:
-    from dashpot.harnesses import SESSION_OVERRIDE_VARIABLE
+    from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE
 
     home = tmp_path / ".claude"
     home.mkdir()

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import factories
-from dashpot.agent_bindings import bind_issue_runs
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import (
     AgentRun,
     ProjectObservation,
     SourceStatus,
 )
+from dashpot.sessions.agent_bindings import bind_issue_runs
 from helpers import make_issue
 
 NOW = "2026-08-27T00:00:00Z"

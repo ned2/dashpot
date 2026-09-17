@@ -8,8 +8,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ..core.model import Diagnostic
+from ..core.timestamps import utc_now
 from ..observation_errors import QUERY_OBSERVATION_FAILURES
-from ..timestamps import utc_now
 from .source_queries import (
     Continuation,
     InvalidContinuation,

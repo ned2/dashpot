@@ -34,7 +34,6 @@ from .core.errors import DashpotError
 from .core.git import Git, GitError, last_stderr_line
 from .core.model import IntegrationState, integration_state
 from .core.pydantic import LaxSequence, PublishedModel
-from .processes import ProcessLookup, host_process_lookup
 from .repository import (
     LOCAL_REF_PREFIX,
     ORIGIN_HEAD_REF,
@@ -46,6 +45,7 @@ from .repository import (
     same_path,
     worktree_root,
 )
+from .sessions.processes import ProcessLookup, host_process_lookup
 from .worktrees import (
     BlockerKind,
     CleanupBlocker,

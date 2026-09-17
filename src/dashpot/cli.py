@@ -26,11 +26,6 @@ from .collect import ObservationCoordinator
 from .core.errors import DashpotError
 from .core.model import Diagnostic
 from .fetch import remote_fetcher
-from .integrate import (
-    install_integration,
-    integration_status,
-    remove_integration,
-)
 from .issues.issue_resolution import describe_issue, show_issue
 from .page_runner import QUERY_SOURCE_KEYS
 from .project.init import initialize_project
@@ -54,7 +49,12 @@ from .serialization import (
     snapshot_document,
     worktree_plan_document,
 )
-from .work import (
+from .sessions.integrate import (
+    install_integration,
+    integration_status,
+    remove_integration,
+)
+from .sessions.work import (
     relocate_issue_work,
     show_issue_work,
     start_issue_work,

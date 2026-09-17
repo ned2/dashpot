@@ -8,11 +8,11 @@ from pathlib import Path
 
 from typing_extensions import override
 
-from dashpot.agents import observe_agent_runs
 from dashpot.core.model import ObservationTarget
-from dashpot.hook_records import write_hook_record
-from dashpot.processes import ProcessIdentity
-from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
+from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.hook_records import write_hook_record
+from dashpot.sessions.processes import ProcessIdentity
+from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import hook_record_document, observation_target
 from helpers import absent, present, table_lookup, unobservable
 

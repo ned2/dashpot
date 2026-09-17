@@ -18,14 +18,14 @@ from dashpot import worktrees
 from dashpot.core.commands import CommandResult, run_command
 from dashpot.core.git import Git
 from dashpot.core.model import Diagnostic
-from dashpot.hook_records import session_directory, write_hook_record
-from dashpot.processes import ProcessIdentity
 from dashpot.project.settings import Settings
 from dashpot.serialization import (
     removability_document,
     worktree_plan_document,
 )
-from dashpot.work_store import ActiveWork, SessionProcess, WorkStore
+from dashpot.sessions.hook_records import session_directory, write_hook_record
+from dashpot.sessions.processes import ProcessIdentity
+from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.worktrees import (
     check_worktree,
     create_issue_worktree,

@@ -10,12 +10,20 @@ from unittest import mock
 
 from typing_extensions import override
 
-from dashpot.agents import observe_agent_runs
 from dashpot.core.model import ObservationTarget
-from dashpot.hook_publish import publish_hook_event
-from dashpot.hook_records import HookRecordStore, session_directory, write_hook_record
-from dashpot.processes import AgentAncestry, ProcessIdentity, SessionProcessRecord
-from dashpot.timestamps import utc_now
+from dashpot.core.timestamps import utc_now
+from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.hook_publish import publish_hook_event
+from dashpot.sessions.hook_records import (
+    HookRecordStore,
+    session_directory,
+    write_hook_record,
+)
+from dashpot.sessions.processes import (
+    AgentAncestry,
+    ProcessIdentity,
+    SessionProcessRecord,
+)
 from factories import hook_record_document, observation_target, write_config_marker
 from helpers import present
 
@@ -349,7 +357,7 @@ class HookRecordStoreTests(unittest.TestCase):
         # A hook that cannot see its own harness process records the reason,
         # so a sandboxed session is never mistaken for one with no harness.
         with mock.patch(
-            "dashpot.hook_publish.observe_agent_ancestry",
+            "dashpot.sessions.hook_publish.observe_agent_ancestry",
             return_value=AgentAncestry(None, "isolated-namespace"),
         ):
             publish_hook_event(
@@ -428,7 +436,7 @@ class HookRoutingTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=self.worktree, check=True)
 
         with mock.patch(
-            "dashpot.hook_publish.state_directory", return_value=self.state_dir
+            "dashpot.sessions.hook_publish.state_directory", return_value=self.state_dir
         ):
             written = publish_hook_event(
                 {

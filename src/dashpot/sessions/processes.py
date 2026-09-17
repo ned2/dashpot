@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
 
-from .core.pydantic import PublishedModel
+from ..core.pydantic import PublishedModel
 from .harnesses import ADAPTERS
 
 ProcessKey = tuple[int, str]

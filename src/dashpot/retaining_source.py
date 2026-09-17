@@ -8,7 +8,7 @@ from typing import Generic, Protocol, TypeVar
 
 from .core.errors import DashpotError
 from .core.model import Diagnostic, SourceStatus
-from .timestamps import utc_now
+from .core.timestamps import utc_now
 
 Clock = Callable[[], str]
 
