@@ -9,8 +9,8 @@ Pull Request page is submitted from.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
+from typing import Protocol
 
 from ..observation.issue_list import IssueListQuery
 from ..observation.pull_request_list import (
@@ -20,8 +20,11 @@ from ..observation.pull_request_list import (
 from ..queries.source_queries import ResourceKind
 from .item_filter import lifecycle_states, lifecycle_value
 
-# What a submitted page is handed: its paged kind and the changed fields.
-SubmitPage = Callable[..., None]
+
+class SubmitPage(Protocol):
+    """Submit a page for one paged kind with the fields that changed."""
+
+    def __call__(self, kind: ResourceKind, /, **updates: str) -> None: ...
 
 
 class ListQueries:

@@ -112,7 +112,7 @@ class DashboardScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self.issue_table = IssueTableController(self)
-        # The app is reached lazily: a screen has none until it is pushed.
+        # The app is looked up when a page is submitted, not held from here.
         self.list_queries = ListQueries(
             lambda kind, **updates: self.dashpot.submit_page(kind, **updates)
         )

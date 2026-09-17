@@ -59,8 +59,9 @@ nothing from the widget layer; the cells half (`session_cells`,
 table `issue_cells` with the column catalogue and `build_rows` in
 `issue_table`) holds the Glyphs, the columns and the `*_cells` renderers, and imports
 the query half. `list_rows` carries the widget-free `ListColumn`,
-`ListRow` and `ListCell` shapes the cells halves and `list_pane` share,
-and the one `build_list_rows` every pane's rows go through, and `ages.relative_age` is the shared age formatter.
+`ListRow` and `ListCell` shapes the cells halves and `list_pane` share
+and the one `build_list_rows` every pane's rows go through, and
+`ages.relative_age` is the shared age formatter.
 The observation store, the CLI and the hook lifecycle import only query
 halves, and `tests/test_module_boundaries.py` fails when any of them loads
 Textual or reaches into a read model's private names. Inject a scheduler into the app, compose the widget tree once, and update those
