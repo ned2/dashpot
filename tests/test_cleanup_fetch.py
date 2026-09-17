@@ -555,6 +555,14 @@ async def test_post_fetch_observation_failure_never_reenables_old_preview(failur
             assert not screen.preview_valid
             assert screen.query_one("#cleanup-confirm", Button).disabled
             assert "Could not refresh" in screen.fetch_status
+            # Each failure is named: the observation's own error, or the
+            # wait for it running out, which carries no text of its own.
+            reason = (
+                "observation denied"
+                if failure == "error"
+                else "Refresh timed out; retry or cancel."
+            )
+            assert reason in screen.fetch_status
             collector.release_observation.set()
             await app.workers.wait_for_complete()
             assert not screen.preview_valid and len(cleaner.requests) == 1

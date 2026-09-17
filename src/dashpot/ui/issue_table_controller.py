@@ -78,9 +78,6 @@ class IssueTableController:
         self.issue_view = IssueTableViewState()
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
-        # Each list pane's read-model records from its last refresh, by pane
-        # id, so relationship emphasis never queries the store per cursor move.
-        self.pane_records: dict[str, tuple[FocusedSource, ...]] = {}
 
     @property
     def table(self) -> SpreadTable[TableCell]:
@@ -184,14 +181,14 @@ class IssueTableController:
     def records(self) -> tuple[FocusedSource, ...]:
         """Every pane's records and the Issue rows, as last listed."""
         return (
-            *chain.from_iterable(self.pane_records.values()),
+            *chain.from_iterable(pane.records for pane in self.screen.list_panes()),
             *self.rows_by_key.values(),
         )
 
     def update_related_rows(self, *, clear: bool = False) -> None:
         """Emphasize direct relationships of the visible focused cursor."""
         screen = self.screen
-        if not screen.is_mounted or not screen._update_widgets_mounted():
+        if not screen.is_mounted or not screen.surfaces_mounted():
             return
         records = self.records()
         source: FocusedSource | None = None

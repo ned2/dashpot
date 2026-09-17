@@ -27,6 +27,7 @@ from typing_extensions import override
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text, next_issue_states
 from ..observation.paged_store import PagedObservationStore
+from ..observation.worktree_list import WorktreeListRow
 from ..queries.page_navigation import totals_text
 from ..queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
 from ..repository.cleanup import CleanupAdapter
@@ -216,8 +217,13 @@ class DashboardScreen(Screen[None]):
         """Return the dashboard tables in their composed reading order."""
         return tuple(self.query_one("#body").query(FocusCursorTable))
 
-    def _update_widgets_mounted(self) -> bool:
-        """Report whether dashboard updates can still reach every surface."""
+    def surfaces_mounted(self) -> bool:
+        """Report whether dashboard updates can still reach every surface.
+
+        Every entry point that renders into the panes, the alert or the
+        diagnostics asks first: a late message can be dispatched during
+        shutdown while the widgets are being unmounted one by one.
+        """
         try:
             self.queue_table()
             for pane in self.list_panes():
@@ -343,7 +349,7 @@ class DashboardScreen(Screen[None]):
     def on_body_resized(self, message: BodyResized) -> None:
         # The last layout of a closing app can report after the screen has
         # been torn down; the panes it would fit are already gone.
-        if not self.is_mounted or not self._update_widgets_mounted():
+        if not self.is_mounted or not self.surfaces_mounted():
             return
         self.fit_list_panes(message.size)
         self.issue_table.update_page_summary()
@@ -351,7 +357,7 @@ class DashboardScreen(Screen[None]):
     def on_list_pane_rows_changed(self, _message: ListPane.RowsChanged) -> None:
         # A pane's share depends on what every pane wants, so any change of
         # records refits them all.
-        if not self.is_mounted or not self._update_widgets_mounted():
+        if not self.is_mounted or not self.surfaces_mounted():
             return
         self.refresh_bindings()
         self.fit_list_panes(self.query_one("#body").size)
@@ -389,7 +395,6 @@ class DashboardScreen(Screen[None]):
         )
         for spec in LIST_PANE_SPECS:
             view = spec.rows(context)
-            self.issue_table.pane_records[spec.pane_id] = view.records
             self.list_pane(spec.pane_id).show_rows(
                 view.rows,
                 columns=view.columns,
@@ -397,6 +402,7 @@ class DashboardScreen(Screen[None]):
                 empty_message=view.empty_message,
                 title_summary=view.title_summary,
                 filter_count=view.filter_count,
+                records=view.records,
             )
         self.issue_table.update_related_rows()
 
@@ -750,13 +756,11 @@ class DashpotApp(App[None]):
             self.post_message(message)
 
     def worktree_path(self, key: str) -> Path | None:
-        """Resolve a visible Worktree row against its accepted observation."""
-        if self.dashboard.worktrees_pane().row(key) is None:
+        """The observed path of a listed Worktree row, from the pane's own records."""
+        record = self.dashboard.worktrees_pane().record(key)
+        if not isinstance(record, WorktreeListRow):
             return None
-        row = next(
-            (row for row in self.store.query_worktrees().rows if row.key == key), None
-        )
-        return Path(row.target.path) if row is not None else None
+        return Path(record.target.path)
 
     def request_worktree_open(self, key: str) -> None:
         """Capture one Worktree launch and exclude duplicate dispatch."""
@@ -907,7 +911,7 @@ class DashpotApp(App[None]):
         # has nowhere to go and is dropped.
         if self.closing:
             return
-        if not self.dashboard._update_widgets_mounted():
+        if not self.dashboard.surfaces_mounted():
             return
         self.observations.finish(message, partial(self._accept_observation, message))
 
