@@ -54,7 +54,7 @@ Once the first release is published, install Dashpot in an isolated tool environ
 uv tool install --python 3.14 dashpot
 ```
 
-The release targets CPython 3.11–3.14 on Linux x86-64 and Apple Silicon macOS,
+The release targets CPython 3.12–3.14 on Linux x86-64 and Apple Silicon macOS,
 Git 2.39+, and gh 2.100.0+ for GitHub-backed Projects. See
 [installation and support](docs/installation.md) for current host-validation
 status, candidate installation before publication, PATH setup, harness setup,
@@ -338,7 +338,7 @@ phrasings to avoid, are defined in [`docs/domain-language.md`](docs/domain-langu
 
 ## Development setup
 
-Dashpot requires Python 3.11 or newer and uses
+Dashpot requires Python 3.12 or newer and uses
 [uv](https://docs.astral.sh/uv/) for its locked development environment.
 
 ```bash
@@ -453,7 +453,7 @@ network access.
 targeting `main` and on manual dispatch.
 Integration into `main` does not trigger a duplicate run. It runs the all-files
 pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
-and macOS under Python 3.11 and 3.14, adds Python 3.12/3.13 on Ubuntu,
+and macOS under Python 3.12 and 3.14, adds Python 3.13 on Ubuntu,
 exercises Debian 12’s maintained Git 2.39.x package in a container, and builds
 the package once per run. Installed-artifact jobs
 install the wheel and source distribution

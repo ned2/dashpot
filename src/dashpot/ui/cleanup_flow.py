@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from textual.worker import get_current_worker
 
@@ -41,8 +41,6 @@ if TYPE_CHECKING:
     from textual.screen import Screen
 
     from .messages import ObservationFinished
-
-T = TypeVar("T")
 
 
 class RefreshError(DashpotError):
@@ -71,7 +69,7 @@ class CleanupHost(FlowHost, Protocol):
         exit_on_error: bool = True,
     ) -> object: ...
 
-    async def off_loop(self, operation: Callable[[], T]) -> T: ...
+    async def off_loop[T](self, operation: Callable[[], T]) -> T: ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Annotated, NoReturn, TypeVar
+from typing import Annotated, NoReturn
 
 from pydantic import (
     AfterValidator,
@@ -17,7 +17,6 @@ from pydantic import (
     ValidationError,
 )
 from pydantic.alias_generators import to_camel
-from typing_extensions import TypeAliasType
 
 
 class DashpotModel(BaseModel):
@@ -182,12 +181,9 @@ def _describe_detail(detail: Mapping[str, object]) -> str:
     return f"{path} {message}" if path else message
 
 
-_M = TypeVar("_M", bound=BaseModel)
-
-
-def validate_degrading(
-    model: type[_M], raw: Mapping[str, object], *, fatal: frozenset[str]
-) -> tuple[_M, tuple[str, ...]]:
+def validate_degrading[M: BaseModel](
+    model: type[M], raw: Mapping[str, object], *, fatal: frozenset[str]
+) -> tuple[M, tuple[str, ...]]:
     """Validate a record, dropping malformed non-fatal fields to their defaults.
 
     A record that keeps observing something is worth more than one that is
@@ -222,21 +218,12 @@ def _tuple_from_list(value: object) -> object:
     return value
 
 
-_T = TypeVar("_T")
-
 # ``Sequence`` is the declared seam so producers may pass lists or tuples;
 # the validator makes every stored value a tuple.
-LaxSequence = TypeAliasType(
-    "LaxSequence",
-    Annotated[Sequence[_T], BeforeValidator(_tuple_from_list)],
-    type_params=(_T,),
-)
-
-_K = TypeVar("_K")
-_V = TypeVar("_V")
+type LaxSequence[T] = Annotated[Sequence[T], BeforeValidator(_tuple_from_list)]
 
 
-class FrozenDict(dict[_K, _V]):
+class FrozenDict[K, V](dict[K, V]):
     """Reject in-place mutation of a published model's mapping field.
 
     A ``dict`` subclass so serialization and strict validation treat it as a
@@ -257,18 +244,14 @@ class FrozenDict(dict[_K, _V]):
     update = _reject
 
 
-def _frozen_mapping(value: Mapping[_K, _V]) -> FrozenDict[_K, _V]:
+def _frozen_mapping[K, V](value: Mapping[K, V]) -> FrozenDict[K, V]:
     return FrozenDict(value)
 
 
 # ``Mapping`` is the declared seam so producers may pass any mapping and
 # readers get a read-only view; the validator makes every stored value a
 # ``FrozenDict``.
-FrozenMapping = TypeAliasType(
-    "FrozenMapping",
-    Annotated[Mapping[_K, _V], AfterValidator(_frozen_mapping)],
-    type_params=(_K, _V),
-)
+type FrozenMapping[K, V] = Annotated[Mapping[K, V], AfterValidator(_frozen_mapping)]
 
 # The hour range is in the pattern because RFC 3339 forbids ISO 8601's
 # end-of-day 24:00:00, which `fromisoformat` accepts on some Python versions.

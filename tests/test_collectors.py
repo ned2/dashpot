@@ -8,9 +8,7 @@ import threading
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
-
-from typing_extensions import override
+from typing import Any, override
 
 from dashpot.core.commands import CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue

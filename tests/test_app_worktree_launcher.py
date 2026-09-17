@@ -1,9 +1,9 @@
 from threading import Event
+from typing import override
 from unittest.mock import Mock
 
 import pytest
 from textual.widgets import Static
-from typing_extensions import override
 
 from app_harness import (
     SequenceCollector,

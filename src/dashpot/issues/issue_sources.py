@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-
-from typing_extensions import override
+from typing import override
 
 from ..core.issue_profile import IssueProfile, issue_location
 from ..core.model import Diagnostic, IssueActivity, SourceStatus

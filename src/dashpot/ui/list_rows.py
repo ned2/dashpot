@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Literal, Protocol, TypeVar
+from typing import Literal, Protocol
 
 from rich.text import Text
 
@@ -75,10 +75,7 @@ class ListRecord(Protocol):
     def key(self) -> str: ...
 
 
-Record = TypeVar("Record", bound=ListRecord)
-
-
-def build_list_rows(
+def build_list_rows[Record: ListRecord](
     records: Iterable[Record],
     cells: Callable[[Record], tuple[ListCell, ...]],
     *,

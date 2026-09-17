@@ -9,7 +9,7 @@ that travel beside it.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import ClassVar
+from typing import ClassVar, override
 
 from textual import events
 from textual.app import ComposeResult
@@ -19,7 +19,6 @@ from textual.content import Content
 from textual.screen import Screen
 from textual.theme import Theme
 from textual.widgets import Footer, Markdown, Static
-from typing_extensions import override
 
 from ..core.ages import relative_age
 from ..core.issue_profile import IssueProfile, issue_location

@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
+from typing import override
 
 import pytest
-from typing_extensions import override
 
 from dashpot.core.issue_profile import conform_issue
 from dashpot.issues.issue_sources import (

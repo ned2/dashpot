@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, override
 
 from rich.text import TextType
 from textual import events
 from textual.geometry import Size
 from textual.render import measure
 from textual.widgets.data_table import ColumnKey, RowKey
-from typing_extensions import override
 
 from .focus_table import FocusCursorTable
 

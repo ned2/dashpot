@@ -8,9 +8,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-from typing_extensions import override
+from typing import Any, override
 
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue

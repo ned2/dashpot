@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, override
 
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Static
-from typing_extensions import override
 
 DetailKind = Literal["field", "heading", "section", "list", "message"]
 

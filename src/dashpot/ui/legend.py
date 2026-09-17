@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, override
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -21,7 +21,6 @@ from textual.color import Color
 from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
-from typing_extensions import override
 
 from . import alerts, issue_cells, pull_request_cells
 from .branch_cells import BRANCH_COLUMNS

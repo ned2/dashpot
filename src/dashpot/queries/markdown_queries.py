@@ -5,8 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from pathlib import Path
-
-from typing_extensions import override
+from typing import override
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import Diagnostic, ProjectObservation

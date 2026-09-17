@@ -8,9 +8,10 @@ collections must reject mutation outright.
 
 from __future__ import annotations
 
+from typing import override
+
 import pytest
 from pydantic import ValidationError
-from typing_extensions import override
 
 import factories
 from dashpot.core.issue_profile import IssueProfile

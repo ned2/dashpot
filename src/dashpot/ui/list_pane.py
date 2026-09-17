@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal, cast, override
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -12,7 +12,6 @@ from textual.containers import Vertical
 from textual.content import Content
 from textual.message import Message
 from textual.widgets import Static
-from typing_extensions import override
 
 from ..observation.related_rows import FocusedSource
 from .focus_table import FocusCursorTable

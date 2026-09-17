@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self, override
 
 from rich.segment import Segment
 from rich.style import Style
@@ -14,7 +14,6 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import DataTable
 from textual.widgets.data_table import CellType, ColumnKey
-from typing_extensions import override
 
 
 class FocusCursorTable(DataTable[CellType]):

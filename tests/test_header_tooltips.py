@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, override
 
 import pytest
 from textual.app import App, ComposeResult
 from textual.pilot import Pilot
 from textual.widgets import DataTable, Static, Tooltip
-from typing_extensions import override
 
 from app_harness import (
     SequenceCollector,

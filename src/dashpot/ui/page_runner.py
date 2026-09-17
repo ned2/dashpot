@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 from ..observation.paged_store import PagedObservationStore
 from ..queries.page_navigation import PageNavigation, PageTicket
@@ -34,8 +34,6 @@ from .messages import (
 
 if TYPE_CHECKING:
     from textual.message import Message
-
-T = TypeVar("T")
 
 
 class PageRunner:
@@ -128,7 +126,7 @@ class PageRunner:
             IdentitiesFinished,
         )
 
-    def _launch(
+    def _launch[T](
         self,
         key: str,
         operation: Callable[[], T],

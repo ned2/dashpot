@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Generic, Protocol, TypeVar
+from typing import Protocol
 
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic, SourceStatus
@@ -26,11 +26,7 @@ class Collection(Protocol):
     def diagnostics(self) -> tuple[Diagnostic, ...]: ...
 
 
-Collected = TypeVar("Collected", bound=Collection)
-Observation = TypeVar("Observation")
-
-
-class RetainingSource(ABC, Generic[Collected, Observation]):
+class RetainingSource[Collected: Collection, Observation](ABC):
     """Publish complete collections and retain their last good value on failure."""
 
     def __init__(self, *, clock: Clock | None = None) -> None:

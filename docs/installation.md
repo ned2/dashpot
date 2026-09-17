@@ -14,7 +14,7 @@ with `uv tool install /absolute/path/to/dashpot-0.1.0-py3-none-any.whl`.
 
 | Component | Release target and evidence |
 | --- | --- |
-| Python | CPython 3.11–3.14. CI tests 3.11/3.14 on Linux and macOS, and 3.12/3.13 on Linux. Later Python versions remain unvalidated. |
+| Python | CPython 3.12–3.14. CI tests 3.12/3.14 on Linux and macOS, and 3.13 on Linux. Later Python versions remain unvalidated. |
 | Linux | x86-64; Ubuntu CI plus a real-host checklist before publication. |
 | macOS | Apple Silicon; macOS CI plus real-host acceptance on `omar` in [#5](https://github.com/ned2/dashpot/issues/5). Host acceptance is pending. |
 | Git | 2.39 or newer, with current vendor patches. The minimum-version CI leg exercises the full suite with Debian 12’s packaged Git 2.39.x, including content-based Branch integration. |
