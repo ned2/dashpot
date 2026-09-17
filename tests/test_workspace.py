@@ -6,8 +6,9 @@ from typing import Any
 
 import pytest
 
-from dashpot.model import RepositoryAnchor, Workspace
-from dashpot.workspace import (
+from dashpot.project.workspace import (
+    RepositoryAnchor,
+    Workspace,
     WorkspaceInventory,
     WorkspaceScopeError,
     load_workspaces,

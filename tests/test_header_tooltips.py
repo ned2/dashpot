@@ -20,10 +20,10 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.branch_cells import BRANCH_COLUMNS
+from dashpot.core.model import Branch
 from dashpot.focus_table import FocusCursorTable
 from dashpot.list_pane import ListPane
 from dashpot.list_rows import column_help
-from dashpot.model import Branch
 from helpers import required, wait_until
 
 # A zero delay divides by zero inside Textual's Timer; a short one is prompt.

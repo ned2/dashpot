@@ -13,8 +13,9 @@ from datetime import UTC, datetime
 
 from rich.text import Text
 
-from .ages import relative_age
 from .branch_list import BranchListResult, BranchListRow, integration_summary
+from .core.ages import relative_age
+from .core.model import Branch, IntegrationState
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
     ACTIVITY_LEGEND,
@@ -24,7 +25,6 @@ from .glyphs import (
     Glyph,
 )
 from .list_rows import ListCell, ListColumn, ListRow, truncate_end
-from .model import Branch, IntegrationState
 from .worktree_cells import (
     activity_cell,
     activity_description,

@@ -24,7 +24,6 @@ from .list_pane import (
     ListColumn,
     ListRow,
 )
-from .page_navigation import PageNavigation, page_text, totals_text
 from .paged_store import PagedObservationStore
 from .pull_request_cells import PULL_REQUEST_COLUMNS, build_pull_request_rows
 from .pull_request_list import (
@@ -33,9 +32,10 @@ from .pull_request_list import (
     PullRequestListRow,
     pull_request_result_count_text,
 )
+from .queries.page_navigation import PageNavigation, page_text, totals_text
+from .queries.source_queries import ResourceKind
 from .related_rows import FocusedSource, RelatedRows
 from .session_cells import SESSION_COLUMNS, build_session_rows, session_columns
-from .source_queries import ResourceKind
 from .worktree_cells import WORKTREE_COLUMNS, build_worktree_rows
 from .worktree_table import WorktreeTable
 

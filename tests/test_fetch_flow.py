@@ -19,10 +19,10 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
+from dashpot.core.model import Branch, WorkspaceSnapshot
 from dashpot.fetch import FetchReport, RemoteFetch
 from dashpot.fetch_flow import RemoteFetchFlow
 from dashpot.messages import FetchFinished
-from dashpot.model import Branch, WorkspaceSnapshot
 from dashpot.observation_runner import ObservationRunner
 from dashpot.paged_store import PagedObservationStore
 

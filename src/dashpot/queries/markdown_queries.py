@@ -8,7 +8,9 @@ from pathlib import Path
 
 from typing_extensions import override
 
-from .issue_list import (
+from ..core.issue_profile import IssueProfile
+from ..core.model import Diagnostic, ProjectObservation
+from ..issue_list import (
     IssueListRow,
     IssueSearchField,
     is_issue_sort_column,
@@ -16,16 +18,17 @@ from .issue_list import (
     row_key,
     sort_issue_rows,
 )
-from .issue_profile import IssueProfile
-from .local_markdown_issues import LocalMarkdownIssuesSource, parse_local_markdown_issue
-from .model import Diagnostic, ProjectObservation
-from .project_config import (
+from ..issues.local_markdown_issues import (
+    LocalMarkdownIssuesSource,
+    parse_local_markdown_issue,
+)
+from ..issues.search import parse_search
+from ..project.project_config import (
     LocalMarkdownIssueSourceConfig,
     ProjectConfig,
     load_project_config,
 )
 from .query_source import CachedQuerySource
-from .search import parse_search
 from .source_queries import (
     Continuation,
     InvalidContinuation,

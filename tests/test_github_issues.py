@@ -9,14 +9,14 @@ from typing import Any
 
 import pydantic
 
-from dashpot.commands import CommandResult
-from dashpot.github import RefreshBudget
-from dashpot.github_issues import (
+from dashpot.core.commands import CommandResult
+from dashpot.core.issue_profile import IssueProfile, conform_issue, issue_location
+from dashpot.github.github import RefreshBudget
+from dashpot.github.github_issues import (
     GitHubIssuesSource,
     normalize_github_issue,
 )
-from dashpot.issue_profile import IssueProfile, conform_issue, issue_location
-from dashpot.issue_sources import IssueSourceRefreshError, parse_issue_hint
+from dashpot.issues.issue_sources import IssueSourceRefreshError, parse_issue_hint
 from issue_source_conformance import (
     assert_duplicate_identity_is_refused,
     assert_duplicate_number_is_refused,

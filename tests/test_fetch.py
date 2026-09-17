@@ -6,9 +6,9 @@ import os
 import sys
 from pathlib import Path
 
-from dashpot.commands import non_interactive_runner
+from dashpot.core.commands import non_interactive_runner
+from dashpot.core.git import Git
 from dashpot.fetch import FETCH_ENVIRONMENT, fetch_remotes, remote_fetcher
-from dashpot.git import Git
 from factories import SequenceRunner, completed
 
 

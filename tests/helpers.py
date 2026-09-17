@@ -16,8 +16,8 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from dashpot.issue_profile import IssueProfile, conform_issue
-from dashpot.model import ProjectObservation, ProjectSnapshot
+from dashpot.core.issue_profile import IssueProfile, conform_issue
+from dashpot.core.model import ProjectObservation, ProjectSnapshot
 from dashpot.processes import (
     ProcessAbsent,
     ProcessIdentity,

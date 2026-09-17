@@ -11,14 +11,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .issue_list import row_key
-from .model import (
+from .core.model import (
     AgentRun,
     ObservationTarget,
     ProjectObservation,
     TargetRole,
     WorkspaceSnapshot,
 )
+from .issue_list import row_key
 
 ROLE_ORDER: dict[TargetRole, int] = {"main": 0, "linked": 1}
 

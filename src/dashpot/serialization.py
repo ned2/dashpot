@@ -16,8 +16,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from .cleanup import CleanupPreview, CleanupReport
-from .issue_profile import IssueProfile
-from .model import WorkspaceSnapshot
+from .core.issue_profile import IssueProfile
+from .core.model import WorkspaceSnapshot
 from .worktrees import WorktreePlan, WorktreeRemovability
 
 

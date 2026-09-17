@@ -43,11 +43,11 @@ from dashpot.cleanup import (
     WorktreeCleanupRequest,
 )
 from dashpot.cleanup_view import CleanupReportScreen, CleanupScreen
+from dashpot.core.model import Branch, WorkspaceSnapshot
 from dashpot.fetch import FetchReport
 from dashpot.issue_list import row_key
 from dashpot.legend import LegendScreen
 from dashpot.list_pane import ListPane
-from dashpot.model import Branch, WorkspaceSnapshot
 from helpers import wait_until
 
 ANCHOR = "/repo"

@@ -12,6 +12,7 @@ from app_harness import (
     with_first_project_snapshot,
     workspace_snapshot,
 )
+from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
 from dashpot.issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
@@ -32,8 +33,7 @@ from dashpot.issue_table import (
     searchable_columns,
     shown_columns,
 )
-from dashpot.local_markdown_issues import parse_local_markdown_issue
-from dashpot.model import AgentRun, IssueActivity, LinkedPullRequest
+from dashpot.issues.local_markdown_issues import parse_local_markdown_issue
 from helpers import snapshot_of
 
 ROOT = Path(__file__).resolve().parents[1]

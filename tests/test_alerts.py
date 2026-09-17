@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import factories
 from dashpot.alerts import summarize_alerts
 from dashpot.collect import AGENT_RUNS_KEY, ObservationKey
-from dashpot.model import (
+from dashpot.core.model import (
     Diagnostic,
     ObservationTarget,
     ProjectObservation,

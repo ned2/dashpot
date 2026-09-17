@@ -1,9 +1,19 @@
 ---
 status: living
-date: 2026-09-16
+date: 2026-09-17
 ---
 
 # Design
+
+The leaf and domain layers live in five packages: `core` for shared
+infrastructure and observation values, `project` for configuration and Workspace
+resolution, `github` for the gateway and wire adapters, `issues` for Issue
+Sources and resolution, and `queries` for source queries and page navigation.
+[ADR 0042](adr/0042-group-leaf-and-domain-modules-into-subpackages.md) records
+the layout and its staged scope. Pydantic bases live in
+[`core/pydantic.py`](../src/dashpot/core/pydantic.py); observation models in
+[`core/model.py`](../src/dashpot/core/model.py); trusted Workspace values in
+[`project/workspace.py`](../src/dashpot/project/workspace.py).
 
 Observation is scheduled per key rather than as one refresh: the Project's
 Issue Source, Pull Request source and Repository State are observed
@@ -14,7 +24,7 @@ generation per key so a superseded observation can never overwrite a newer
 one, retains the last good result per key when a refresh fails, and composes
 each Project from its latest accepted parts. The Issue Source and Pull
 Request source a Project's configuration declares are built by
-[`source_factories.py`](../src/dashpot/source_factories.py), the one module
+[`source_factories.py`](../src/dashpot/issues/source_factories.py), the one module
 the coordinator and Issue resolution both go through, so resolving an Issue
 Hint never loads the coordinator. The Textual interface publishes
 every accepted observation into a process-local `WorkspaceObservationStore`
@@ -78,8 +88,8 @@ whose Branch the forge deleted after a squash merge, a merged Branch still at
 own, and a dirty Worktree on a Branch named unlike its directory.
 
 The configured source owns Query Pages, Project Totals, identity resolution and
-explicit Source Enumeration ([source_queries.py](../src/dashpot/source_queries.py),
-[query_source.py](../src/dashpot/query_source.py)). GitHub searches use advanced
+explicit Source Enumeration ([source_queries.py](../src/dashpot/queries/source_queries.py),
+[query_source.py](../src/dashpot/queries/query_source.py)). GitHub searches use advanced
 syntax, scoped by current Repository name and validated by opaque identity and
 resource type. Search pages contain IDs for Issues, completed in batches of 24;
 Pull Requests carry their existing complete compact records. Each required page

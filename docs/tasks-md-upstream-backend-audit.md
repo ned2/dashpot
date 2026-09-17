@@ -503,8 +503,8 @@ independent adapters:
 - GitHub runs `gh issue list` directly and builds its own projection.
 
 That split is visible in
-`sources.py` (since split into [`local_markdown_issues.py`](../src/dashpot/local_markdown_issues.py)
-and [`github_issues.py`](../src/dashpot/github_issues.py)): the local adapter requests the CLI's
+`sources.py` (since split into [`local_markdown_issues.py`](../src/dashpot/issues/local_markdown_issues.py)
+and [`github_issues.py`](../src/dashpot/github/github_issues.py)): the local adapter requests the CLI's
 `summary`/`file`/`line` fields, while the GitHub adapter requests only
 `number,title,labels,assignees,url`. It means some discrepancies are inherited
 from tasks.md, while others are introduced by Dashpot itself.
@@ -530,14 +530,14 @@ There are two important positives in Dashpot's own seam:
 
 - `TaskSource.refresh()` consistently preserves last-good data and distinguishes
   fresh, stale, and unavailable observations
-  ([implementation, now `IssueSource.refresh`](../src/dashpot/issue_sources.py)); and
+  ([implementation, now `IssueSource.refresh`](../src/dashpot/issues/issue_sources.py)); and
 - unlike upstream's GitHub adapter, Dashpot does not convert a failed `gh issue
   list` call to an empty queue
-  ([GitHub collection, now `GitHubIssuesSource`](../src/dashpot/github_issues.py)).
+  ([GitHub collection, now `GitHubIssuesSource`](../src/dashpot/github/github_issues.py)).
 
 The seam is nevertheless too implicit for issue #9:
 
-- [`Task`](../src/dashpot/model.py#L27-L37) combines identity, reference,
+- [`Task`](../src/dashpot/core/model.py#L27-L37) combines identity, reference,
   presentation fields, source facts, location, and correlated observations in
   one record;
 - `BlockedState = bool | "unknown"` cannot distinguish unsupported,

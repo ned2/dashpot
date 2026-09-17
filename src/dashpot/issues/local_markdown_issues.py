@@ -6,15 +6,15 @@ from typing import Any
 
 from typing_extensions import override
 
-from .errors import DashpotError
-from .issue_profile import IssueProfile, IssueProfileError, conform_issue
+from ..core.errors import DashpotError
+from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue
+from ..retaining_source import Clock
 from .issue_sources import (
     CollectedIssues,
     IssueHint,
     IssueSource,
     IssueSourceRefreshError,
 )
-from .retaining_source import Clock
 
 _LOCAL_METADATA_KEYS = {
     "id",

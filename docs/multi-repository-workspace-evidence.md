@@ -59,8 +59,8 @@ and showed two different named paths in one command (commit `ff57ecf`,
 `README.md:38-47` in that commit). The current CLI still accepts repeated
 `--workspace [NAME=]PATH` arguments (`src/dashpot/cli.py:54-69`) and the global
 inventory accepts any non-empty list of repository anchors
-(`src/dashpot/workspace.py:51-101`). Resolution groups anchors by Project
-Identity and returns a list of resolved Projects (`src/dashpot/workspace.py:122-211`).
+(`src/dashpot/project/workspace.py:51-101`). Resolution groups anchors by Project
+Identity and returns a list of resolved Projects (`src/dashpot/project/workspace.py:122-211`).
 
 The collector refreshes all resolved Projects concurrently and returns them in
 one Workspace checkpoint (`src/dashpot/collect.py:149-226`). The Issue read model
@@ -93,7 +93,7 @@ it is `first-clone` and `second-clone` under the same Workspace name
 presented as one Project, with the first anchor authoritative for Issue
 collection (`README.md:75-79`).
 
-The resolver implements that grouping (`src/dashpot/workspace.py:154-210`), and
+The resolver implements that grouping (`src/dashpot/project/workspace.py:154-210`), and
 tests prove that two independent clones become one Project with one primary
 anchor (`tests/test_workspace.py:86-107`). Collection observes every anchor but
 refreshes the Project Issue Source only once (`tests/test_collectors.py:210-251`,
@@ -184,7 +184,7 @@ than decisive evidence for one combined Workspace.
 user interaction is specified.**
 
 The model allows a Project to belong to several named Workspaces
-(`src/dashpot/model.py:73-86`), and a test demonstrates the same Project in
+(`src/dashpot/core/model.py:73-86`), and a test demonstrates the same Project in
 `personal` and `client` (`tests/test_workspace.py:109-127`). ADR 0001 says named
 Workspaces “earn their place only as saved Project groupings”
 (`docs/adr/0001-own-project-and-issue-model.md:77-78`).

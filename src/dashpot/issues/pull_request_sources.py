@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 from typing_extensions import override
 
-from .model import Diagnostic, PullRequest, SourceStatus
-from .retaining_source import Clock, RetainingSource, SourceRefreshError
-from .timestamps import utc_now
+from ..core.model import Diagnostic, PullRequest, SourceStatus
+from ..retaining_source import Clock, RetainingSource, SourceRefreshError
+from ..timestamps import utc_now
 
 
 @dataclass(frozen=True, slots=True)

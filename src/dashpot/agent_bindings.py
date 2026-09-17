@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from .issue_profile import IssueProfile
-from .model import AgentRun, Diagnostic, ProjectObservation
+from .core.issue_profile import IssueProfile
+from .core.model import AgentRun, Diagnostic, ProjectObservation
 
 
 @dataclass(frozen=True, slots=True)

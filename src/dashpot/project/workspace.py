@@ -12,30 +12,47 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, ConfigDict, ValidationError
 
-from .errors import DashpotError
-from .git import Git
-from .github_repository import (
-    github_repo_from_remote,
-    observe_github_repository_identity,
-)
-from .model import (
-    Diagnostic,
-    RepositoryAnchor,
-    ResolvedProject,
-    Workspace,
-)
-from .models import (
+from ..core.errors import DashpotError
+from ..core.git import Git
+from ..core.model import Diagnostic
+from ..core.pydantic import (
     LaxSequence,
     NonBlankString,
     PublishedModel,
     translate_validation_error,
 )
+from ..github.github_repository import (
+    github_repo_from_remote,
+    observe_github_repository_identity,
+)
+from ..repository import worktree_root
 from .project_config import (
     GitHubIssueSourceConfig,
     ProjectConfig,
     load_project_config,
 )
-from .repository import worktree_root
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryAnchor:
+    path: str
+
+
+@dataclass(frozen=True, slots=True)
+class Workspace:
+    name: str
+    anchors: tuple[RepositoryAnchor, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedProject:
+    project_id: str
+    display_label: str
+    repository_id: str
+    workspaces: tuple[str, ...]
+    anchors: tuple[str, ...]
+    primary_anchor: str
+
 
 RootObserver = Callable[[Path], Path]
 GitHubIdentityObserver = Callable[[Path, str, float], tuple[str, str]]

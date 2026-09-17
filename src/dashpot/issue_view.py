@@ -21,7 +21,9 @@ from textual.theme import Theme
 from textual.widgets import Footer, Markdown, Static
 from typing_extensions import override
 
-from .ages import relative_age
+from .core.ages import relative_age
+from .core.issue_profile import IssueProfile, issue_location
+from .core.model import ProjectObservation
 from .detail_fields import DetailFields, DetailItem
 from .issue_cells import (
     issue_state_chip,
@@ -35,8 +37,6 @@ from .issue_list import (
     issue_activity,
     issue_priority,
 )
-from .issue_profile import IssueProfile, issue_location
-from .model import ProjectObservation
 
 EMPTY_BODY_MESSAGE = "This Issue has no description."
 

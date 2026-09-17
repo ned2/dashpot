@@ -9,8 +9,11 @@ from typing import Any
 
 from typing_extensions import override
 
-from .commands import CommandRunner, run_command
-from .github import (
+from ..core.commands import CommandRunner, run_command
+from ..core.issue_profile import IssueProfile
+from ..core.model import Diagnostic, PullRequest
+from ..core.pydantic import WireModel
+from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
     GitHubGateway,
     GitHubRequestError,
@@ -18,28 +21,25 @@ from .github import (
     RefreshBudget,
     RefreshMeter,
 )
-from .github_issues import (
+from ..github.github_issues import (
     GitHubIssuesSource,
     issue_activity,
     label_colors,
     normalize_github_issue,
 )
-from .github_pull_requests import (
+from ..github.github_pull_requests import (
     GitHubPullRequestsSource,
     normalize_github_pull_request,
 )
-from .github_wire import (
+from ..github.github_wire import (
     ISSUE_NODE_FIELDS,
     PULL_REQUEST_FIELDS,
     Identity,
     Repository,
     SearchConnection,
 )
-from .issue_profile import IssueProfile
-from .model import Diagnostic, PullRequest
-from .models import WireModel
-from .observation_errors import QUERY_OBSERVATION_FAILURES
-from .project_config import ProjectConfig, load_project_config
+from ..observation_errors import QUERY_OBSERVATION_FAILURES
+from ..project.project_config import ProjectConfig, load_project_config
 from .query_source import CachedQuerySource
 from .source_queries import (
     AuxiliaryObservation,

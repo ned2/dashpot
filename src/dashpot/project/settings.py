@@ -9,8 +9,8 @@ from pathlib import Path
 
 from pydantic import ConfigDict, ValidationError, field_validator
 
-from .model import Diagnostic
-from .models import (
+from ..core.model import Diagnostic
+from ..core.pydantic import (
     LaxSequence,
     NonBlankString,
     PublishedModel,

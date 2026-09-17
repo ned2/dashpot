@@ -12,8 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .issue_list import row_key
-from .model import (
+from .core.model import (
     AgentRun,
     Branch,
     IntegrationState,
@@ -22,6 +21,7 @@ from .model import (
     WorkspaceSnapshot,
     integration_state,
 )
+from .issue_list import row_key
 
 
 @dataclass(frozen=True, slots=True)

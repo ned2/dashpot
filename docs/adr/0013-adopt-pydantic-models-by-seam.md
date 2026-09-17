@@ -27,7 +27,7 @@ replacement.
 ## The Dashpot model convention
 
 All Pydantic models derive from one shared base (or an equivalent shared
-`model_config`) in a new `src/dashpot/models.py`, with per-seam variants:
+`model_config`) in a new `src/dashpot/core/pydantic.py`, with per-seam variants:
 
 - **Strict by default, with two stated exceptions.** `strict=True` and
   `validate_default=True` (strict mode alone leaves defaults unvalidated):
@@ -273,7 +273,7 @@ gh transport classification: selected GraphQL response models use `WireModel`,
 while the Issue adapter retains its documented hand-parsing semantics. Published
 query values use `ObservationModel` with their existing closed key contracts.
 
-- `src/dashpot/models.py` (shared base, the lax-sequence and
+- `src/dashpot/core/pydantic.py` (shared base, the lax-sequence and
   frozen-mapping types, the timestamp type) and, at step 8,
   `src/dashpot/serialization.py` exist; Pydantic v2 joins the runtime
   dependencies and `jsonschema` the dev group (step 2, its own change).

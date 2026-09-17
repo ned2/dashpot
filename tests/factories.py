@@ -13,11 +13,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from dashpot.commands import CommandResult
-from dashpot.git import Git
-from dashpot.hook_records import session_directory, write_hook_record
-from dashpot.issue_profile import IssueProfile
-from dashpot.model import (
+from dashpot.core.commands import CommandResult
+from dashpot.core.git import Git
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.core.model import (
     AgentRun,
     Branch,
     Diagnostic,
@@ -31,6 +30,7 @@ from dashpot.model import (
     TargetRole,
     WorkspaceSnapshot,
 )
+from dashpot.hook_records import session_directory, write_hook_record
 from dashpot.processes import ProcessIdentity
 
 NOW = "2026-08-27T03:00:00Z"

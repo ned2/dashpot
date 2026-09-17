@@ -52,7 +52,7 @@ Workspaces only as secondary composition
 ([ADR 0003](adr/0003-prefer-project-local-dashpot-state.md)). Main still:
 
 - loads `PROJECT_CONFIG_NAME = ".dashpot.json"`
-  ([project_config.py](../src/dashpot/project_config.py));
+  ([project_config.py](../src/dashpot/project/project_config.py));
 - discovers that filename in no-argument CLI startup and exposes a global
   `--state-dir` override ([cli.py](../src/dashpot/cli.py));
 - publishes all Codex records to a platform-global application-state directory
@@ -61,7 +61,7 @@ Workspaces only as secondary composition
 - does not ignore `.dashpot/state/` ([.gitignore](../.gitignore)).
 
 The current `AgentRun` also represents a whole observed Codex session and stores
-its Issue binding directly ([model.py](../src/dashpot/model.py)). The publisher
+its Issue binding directly ([model.py](../src/dashpot/core/model.py)). The publisher
 copies `DASHPOT_ISSUE_ID` or `DASHPOT_ISSUE_REF` from the environment when the
 hook event is emitted; once identity is present, `HookRecordStore` rejects a
 different binding ([agents.py](../src/dashpot/agents.py)). That supports binding

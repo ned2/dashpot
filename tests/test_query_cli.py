@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from dashpot import cli, query_source
+from dashpot import cli
+from dashpot.queries import query_source
 from test_source_queries import markdown
 
 

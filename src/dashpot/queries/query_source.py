@@ -7,8 +7,9 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from .model import Diagnostic
-from .observation_errors import QUERY_OBSERVATION_FAILURES
+from ..core.model import Diagnostic
+from ..observation_errors import QUERY_OBSERVATION_FAILURES
+from ..timestamps import utc_now
 from .source_queries import (
     Continuation,
     InvalidContinuation,
@@ -23,7 +24,6 @@ from .source_queries import (
     decode_continuation,
     verify_continuation,
 )
-from .timestamps import utc_now
 
 
 class CachedQuerySource(ABC):
@@ -213,9 +213,12 @@ class CachedQuerySource(ABC):
 
 def configured_query_source(root: Path, *, timeout: float = 10) -> CachedQuerySource:
     """Build the configured source for both dashboard and CLI query consumers."""
+    from ..project.project_config import (
+        GitHubIssueSourceConfig,
+        load_project_config,
+    )
     from .github_queries import GitHubQuerySource
     from .markdown_queries import MarkdownQuerySource
-    from .project_config import GitHubIssueSourceConfig, load_project_config
 
     config = load_project_config(root)
     if isinstance(config.issue_source, GitHubIssueSourceConfig):

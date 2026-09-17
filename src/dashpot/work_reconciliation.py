@@ -8,10 +8,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from .git import GitError
+from .core.git import GitError
+from .core.json_records import optional_string, require_string
 from .hook_records import HookRecordStore
-from .hook_scan import reachable_hook_stores, scan_hook_stores, session_record_named
-from .json_records import optional_string, require_string
+from .hook_scan import (
+    reachable_hook_stores,
+    scan_hook_stores,
+    session_record_named,
+)
 from .liveness import LivenessProbe
 from .processes import (
     ProcessIdentity,

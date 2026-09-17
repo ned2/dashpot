@@ -29,11 +29,11 @@ from typing import Literal, Protocol
 
 from pydantic import computed_field
 
-from .commands import non_interactive_runner
-from .errors import DashpotError
-from .git import Git, GitError, last_stderr_line
-from .model import IntegrationState, integration_state
-from .models import LaxSequence, PublishedModel
+from .core.commands import non_interactive_runner
+from .core.errors import DashpotError
+from .core.git import Git, GitError, last_stderr_line
+from .core.model import IntegrationState, integration_state
+from .core.pydantic import LaxSequence, PublishedModel
 from .processes import ProcessLookup, host_process_lookup
 from .repository import (
     LOCAL_REF_PREFIX,

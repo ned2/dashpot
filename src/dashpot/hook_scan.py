@@ -10,6 +10,10 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from .core.pydantic import (
+    describe_validation_error,
+    validate_degrading,
+)
 from .harnesses import (
     HARNESS_DISPLAY,
 )
@@ -21,10 +25,6 @@ from .hook_records import (
     state_directory,
 )
 from .liveness import LivenessObservation, LivenessProbe, SessionLiveness
-from .models import (
-    describe_validation_error,
-    validate_degrading,
-)
 from .processes import (
     ProcessIdentity,
     ProcessKey,

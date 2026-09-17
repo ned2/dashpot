@@ -816,6 +816,8 @@ development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
 a point-in-time survey of clean-code uplifts, package boundaries, and
 decomposition seams for the largest modules.
+[ADR 0042](docs/adr/0042-group-leaf-and-domain-modules-into-subpackages.md)
+records the first implemented package groups and the remaining moves.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

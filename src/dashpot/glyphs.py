@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from .model import RunState
+from .core.model import RunState
 
 # GitHub Primer emphasis colours the list panes share; each pair is
 # (light theme, dark theme).

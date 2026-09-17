@@ -12,8 +12,8 @@ from typing import Any, Literal
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
 
+from .core.pydantic import PublishedModel
 from .harnesses import ADAPTERS
-from .models import PublishedModel
 
 ProcessKey = tuple[int, str]
 # Whether the process holding a Worktree lock is still running: the answer the

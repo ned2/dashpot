@@ -16,16 +16,16 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, TypeAlias, TypeGuard
 
-from .issue_profile import IssueProfile
-from .model import (
+from .core.issue_profile import IssueProfile
+from .core.model import (
     AgentRun,
     IssueActivity,
     ProjectObservation,
     RunState,
     WorkspaceSnapshot,
 )
-from .search import parse_search
-from .source_queries import AuxiliaryObservation
+from .issues.search import parse_search
+from .queries.source_queries import AuxiliaryObservation
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparison

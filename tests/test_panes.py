@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 import factories
 from app_harness import NOW, SnapshotQuerySource, issue, workspace_snapshot
 from dashpot.item_filter import ItemFilterBar
-from dashpot.page_navigation import PageNavigation
 from dashpot.paged_store import PagedObservationStore
 from dashpot.panes import (
     LIST_PANE_SPECS,
@@ -18,8 +17,9 @@ from dashpot.panes import (
     session_pane_rows,
     worktree_pane_rows,
 )
+from dashpot.queries.page_navigation import PageNavigation
+from dashpot.queries.source_queries import QueryRequest, ResourceKind
 from dashpot.related_rows import RelatedRows
-from dashpot.source_queries import QueryRequest, ResourceKind
 
 REFRESHED_AT = datetime.fromisoformat(NOW).astimezone(UTC)
 

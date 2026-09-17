@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dashpot.pull_request_search import parse_pull_request_search
-from dashpot.search import SearchSort
+from dashpot.issues.pull_request_search import parse_pull_request_search
+from dashpot.issues.search import SearchSort
 
 
 def test_separates_lexical_terms_from_supported_qualifiers_and_sorting() -> None:

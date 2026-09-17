@@ -13,8 +13,8 @@ from dashpot.branch_cells import (
     fetch_age_text,
 )
 from dashpot.branch_list import integration_summary, query_branch_list
+from dashpot.core.model import Branch, ObservationTarget, ProjectObservation
 from dashpot.issue_list import row_key
-from dashpot.model import Branch, ObservationTarget, ProjectObservation
 from dashpot.observation_store import WorkspaceObservationStore
 from factories import NOW, session, target, workspace
 from helpers import snapshot_of

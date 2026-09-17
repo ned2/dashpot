@@ -12,9 +12,14 @@ from pathlib import Path
 
 from rich.text import Text
 
-from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_WIDTH, ATTENTION_COLORS, BAD_COLORS
+from .core.model import ObservationTarget, RunState
+from .glyphs import (
+    ACTIVITY_COLUMN_GLYPH,
+    ACTIVITY_WIDTH,
+    ATTENTION_COLORS,
+    BAD_COLORS,
+)
 from .list_rows import ListCell, ListColumn, ListRow, truncate_end
-from .model import ObservationTarget, RunState
 from .session_cells import STATE_GLYPHS
 from .session_list import STATE_ORDER, abbreviate_path
 from .worktree_list import WorktreeListResult, WorktreeListRow

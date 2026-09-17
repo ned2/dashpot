@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from .core.model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .hook_records import HookRecordStore
 from .hook_scan import (
     HookRecordClassification,
@@ -16,7 +17,6 @@ from .hook_scan import (
     session_record_named,
 )
 from .liveness import LivenessObservation, LivenessProbe
-from .model import AgentRun, Diagnostic, ObservationTarget, RunState
 from .processes import ProcessKey, ProcessLookup, host_process_lookup
 from .repository import is_within, same_path
 from .session_matching import SessionEvidence

@@ -23,19 +23,28 @@ from .cleanup import (
     perform_cleanup,
 )
 from .collect import ObservationCoordinator
-from .errors import DashpotError
+from .core.errors import DashpotError
+from .core.model import Diagnostic
 from .fetch import remote_fetcher
-from .init import initialize_project
 from .integrate import (
     install_integration,
     integration_status,
     remove_integration,
 )
-from .issue_resolution import describe_issue, show_issue
-from .model import Diagnostic, RepositoryAnchor, Workspace
+from .issues.issue_resolution import describe_issue, show_issue
 from .page_runner import QUERY_SOURCE_KEYS
-from .project_config import PROJECT_CONFIG_NAME
-from .query_source import configured_query_source
+from .project.init import initialize_project
+from .project.project_config import PROJECT_CONFIG_NAME
+from .project.workspace import (
+    RepositoryAnchor,
+    Workspace,
+    default_workspace_config,
+    load_workspaces,
+    merge_workspaces,
+    resolve_workspace_projects,
+)
+from .queries.query_source import configured_query_source
+from .queries.source_queries import QuerySource
 from .repository import worktree_root
 from .serialization import (
     cleanup_report_document,
@@ -45,18 +54,11 @@ from .serialization import (
     snapshot_document,
     worktree_plan_document,
 )
-from .source_queries import QuerySource
 from .work import (
     relocate_issue_work,
     show_issue_work,
     start_issue_work,
     stop_issue_work,
-)
-from .workspace import (
-    default_workspace_config,
-    load_workspaces,
-    merge_workspaces,
-    resolve_workspace_projects,
 )
 from .worktree_launcher import configure_worktree_launcher
 from .worktrees import (
@@ -369,8 +371,8 @@ def _list_page(
     timeout: float,
 ) -> int:
     """Emit one Query Page and independently scoped Project Totals."""
-    from .query_source import configured_query_source
-    from .source_queries import QueryRequest
+    from .queries.query_source import configured_query_source
+    from .queries.source_queries import QueryRequest
 
     root = worktree_root(Path.cwd().resolve())
     source = configured_query_source(root, timeout=timeout)

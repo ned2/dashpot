@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import factories
 from dashpot.agent_bindings import bind_issue_runs
-from dashpot.issue_profile import IssueProfile
-from dashpot.model import (
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.core.model import (
     AgentRun,
     ProjectObservation,
     SourceStatus,

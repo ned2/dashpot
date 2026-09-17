@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.issue_profile import conform_issue
-from dashpot.issue_resolution import describe_issue, resolve_issue, show_issue
+from dashpot.core.issue_profile import conform_issue
+from dashpot.issues.issue_resolution import describe_issue, resolve_issue, show_issue
 from factories import WORKTREE_PROTOCOL_ISSUES, dashpot_project
 from helpers import make_issue
 

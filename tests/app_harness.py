@@ -31,6 +31,15 @@ from dashpot.collect import (
     ObservationScheduler,
     ObservationTicket,
 )
+from dashpot.core.issue_profile import IssueProfile, conform_issue
+from dashpot.core.model import (
+    AgentRun,
+    Diagnostic,
+    ProjectObservation,
+    PullRequest,
+    SourceStatus,
+    WorkspaceSnapshot,
+)
 from dashpot.detail_fields import detail_items_text
 from dashpot.fetch import RemoteFetcher
 from dashpot.issue_list import (
@@ -41,17 +50,9 @@ from dashpot.issue_list import (
     row_key,
     sort_issue_rows,
 )
-from dashpot.issue_profile import IssueProfile, conform_issue
 from dashpot.issue_view import IssueScreen, issue_metadata_items, selection_title
+from dashpot.issues.search import parse_search
 from dashpot.list_pane import ListPane, ListRow
-from dashpot.model import (
-    AgentRun,
-    Diagnostic,
-    ProjectObservation,
-    PullRequest,
-    SourceStatus,
-    WorkspaceSnapshot,
-)
 from dashpot.observation_store import StoreChange, WorkspaceObservationStore
 from dashpot.page_runner import QUERY_SOURCE_KEYS
 from dashpot.pull_request_list import (
@@ -59,8 +60,7 @@ from dashpot.pull_request_list import (
     PullRequestListQuery,
     query_pull_request_list,
 )
-from dashpot.search import parse_search
-from dashpot.source_queries import (
+from dashpot.queries.source_queries import (
     AuxiliaryObservation,
     Continuation,
     ProjectTotals,

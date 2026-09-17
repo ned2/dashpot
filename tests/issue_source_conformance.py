@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from dashpot.issue_profile import IssueProfile
-from dashpot.issue_sources import IssueSourceObservation
+from dashpot.core.issue_profile import IssueProfile
+from dashpot.issues.issue_sources import IssueSourceObservation
 
 
 def assert_fresh_observation(

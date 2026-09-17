@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, FiniteFloat, ValidationError
 
-from .models import (
+from ..core.pydantic import (
     ConfigModel,
     NonBlankString,
     repository_relative,

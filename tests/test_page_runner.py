@@ -12,7 +12,7 @@ from app_harness import SnapshotQuerySource, issue, workspace_snapshot
 from dashpot.messages import IdentitiesFinished, PageFinished, TotalsFinished
 from dashpot.page_runner import QUERY_SOURCE_KEYS, PageRunner
 from dashpot.paged_store import PagedObservationStore
-from dashpot.source_queries import QueryRequest
+from dashpot.queries.source_queries import QueryRequest
 
 
 @dataclass

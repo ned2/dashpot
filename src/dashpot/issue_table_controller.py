@@ -33,10 +33,10 @@ from .issue_table import (
 )
 from .item_filter import lifecycle_value
 from .keyed_table import capture_selection, restore_selection
-from .page_navigation import page_text
 from .panes import LIST_PANE_SPECS
+from .queries.page_navigation import page_text
+from .queries.source_queries import QueryRequest
 from .related_rows import FocusedSource, query_related_rows
-from .source_queries import QueryRequest
 from .spread_table import SpreadTable
 
 if TYPE_CHECKING:

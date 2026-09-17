@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from typing_extensions import override
 
-from dashpot.issue_profile import conform_issue
-from dashpot.issue_sources import (
+from dashpot.core.issue_profile import conform_issue
+from dashpot.issues.issue_sources import (
     CollectedIssues,
     IssueHint,
     IssueSource,

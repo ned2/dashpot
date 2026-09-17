@@ -6,8 +6,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from dashpot.commands import CommandResult
-from dashpot.settings import SettingsFile, load_settings
+from dashpot.core.commands import CommandResult
+from dashpot.project.settings import SettingsFile, load_settings
 from dashpot.worktree_launcher import (
     WorktreeLauncher,
     configure_worktree_launcher,

@@ -4,11 +4,11 @@ import json
 
 import pytest
 
-from dashpot.github import GitHubRequestError
-from dashpot.github_queries import GitHubQuerySource, validate_grouping
-from dashpot.markdown_queries import MarkdownQuerySource
-from dashpot.project_config import load_project_config
-from dashpot.source_queries import InvalidContinuation, QueryPage, QueryRequest
+from dashpot.github.github import GitHubRequestError
+from dashpot.project.project_config import load_project_config
+from dashpot.queries.github_queries import GitHubQuerySource, validate_grouping
+from dashpot.queries.markdown_queries import MarkdownQuerySource
+from dashpot.queries.source_queries import InvalidContinuation, QueryPage, QueryRequest
 from factories import (
     SequenceRunner,
     completed,
@@ -266,7 +266,7 @@ def test_context_observation_failure_does_not_assert_mismatch(tmp_path):
 
 
 def test_provider_limit_is_distinct_from_end(tmp_path):
-    from dashpot.source_queries import (
+    from dashpot.queries.source_queries import (
         Continuation,
         context_fingerprint,
         cursor_digest,
@@ -433,7 +433,7 @@ def test_unattributable_error_never_becomes_known_absence(tmp_path):
 
 
 def test_nested_profile_completion_spends_page_budget_and_is_atomic(tmp_path):
-    from dashpot.github import RefreshBudget
+    from dashpot.github.github import RefreshBudget
 
     first = node(1)
     first["subIssues"] = {
@@ -466,7 +466,7 @@ def test_nested_profile_completion_spends_page_budget_and_is_atomic(tmp_path):
 
 
 def test_single_record_page_sizes_can_carry_full_search_cursor_history():
-    from dashpot.source_queries import (
+    from dashpot.queries.source_queries import (
         Continuation,
         cursor_digest,
         decode_continuation,

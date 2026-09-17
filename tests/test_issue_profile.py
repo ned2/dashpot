@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from dashpot.issue_profile import (
+from dashpot.core.issue_profile import (
     GitHubIssueOrigin,
     IssueProfileError,
     MarkdownIssueLocation,

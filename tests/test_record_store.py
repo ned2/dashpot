@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.record_store import LockedRecordStore, replace_atomically
+from dashpot.core.record_store import LockedRecordStore, replace_atomically
 
 KEY = re.compile(r"^[A-Za-z0-9._-]+$")
 

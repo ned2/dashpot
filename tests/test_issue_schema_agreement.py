@@ -11,7 +11,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from dashpot.issue_profile import (
+from dashpot.core.issue_profile import (
     GitHubIssueLocation,
     GitHubIssueOrigin,
     IssueProfile,

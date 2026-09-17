@@ -17,6 +17,8 @@ from typing import Literal
 
 from rich.text import Text
 
+from .core.issue_profile import IssueProfile
+from .core.model import IssueActivity, ProjectObservation, RunState
 from .glyphs import ACTIVITY_COLUMN_GLYPH, SESSION_STATE_GLYPHS, Glyph
 from .issue_list import (
     PRIORITY_BY_LABEL,
@@ -24,8 +26,6 @@ from .issue_list import (
     is_priority_label,
     issue_priority_label,
 )
-from .issue_profile import IssueProfile
-from .model import IssueActivity, ProjectObservation, RunState
 
 IssueStateKind = Literal[
     "open",

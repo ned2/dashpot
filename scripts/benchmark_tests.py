@@ -12,7 +12,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from dashpot.models import ConfigModel
+from dashpot.core.pydantic import ConfigModel
 
 
 class BenchmarkRun(ConfigModel):

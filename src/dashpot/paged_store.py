@@ -17,8 +17,8 @@ from dataclasses import replace
 
 from typing_extensions import override
 
+from .core.model import Diagnostic, ProjectObservation, WorkspaceSnapshot
 from .issue_list import IssueListQuery, IssueListResult, IssueListRow, row_key
-from .model import Diagnostic, ProjectObservation, WorkspaceSnapshot
 from .observation_store import (
     IssueContext,
     ObservedDiagnostic,
@@ -26,14 +26,14 @@ from .observation_store import (
     WorkspaceObservationStore,
     _StoreState,
 )
-from .session_list import SessionListResult, query_indexed_session_list
-from .source_queries import (
+from .queries.source_queries import (
     AuxiliaryObservation,
     ProjectTotals,
     QueryPage,
     ResolvedIssue,
     ResourceKind,
 )
+from .session_list import SessionListResult, query_indexed_session_list
 
 
 class PagedObservationStore(WorkspaceObservationStore):

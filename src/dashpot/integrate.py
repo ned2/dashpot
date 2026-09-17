@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .core.record_store import replace_atomically
 from .harnesses import (
     HARNESS_DISPLAY,
     SESSION_OVERRIDE_VARIABLE,
@@ -25,7 +26,6 @@ from .hook_scan import (
     summarize_session_records,
 )
 from .processes import ProcessLookup, host_process_lookup
-from .record_store import replace_atomically
 from .repository import main_worktree, worktree_records, worktree_root
 
 HOOK_TIMEOUT = 3

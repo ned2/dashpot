@@ -26,7 +26,7 @@ HEADLESS_MODULES = (
     "dashpot.cleanup",
     "dashpot.observation_store",
     "dashpot.paged_store",
-    "dashpot.markdown_queries",
+    "dashpot.queries.markdown_queries",
     *(f"dashpot.{name}" for name in sorted(READ_MODELS)),
 )
 
@@ -35,8 +35,8 @@ HEADLESS_MODULES = (
 # Issue Hint serves ``work`` and ``worktree``. Neither observes a Project, so
 # neither loads the coordinator, and the hook never loads the GitHub gateway.
 LIGHT_PATHS = (
-    ("dashpot.hook", ("dashpot.github", "dashpot.collect")),
-    ("dashpot.issue_resolution", ("dashpot.collect",)),
+    ("dashpot.hook", ("dashpot.github.github", "dashpot.collect")),
+    ("dashpot.issues.issue_resolution", ("dashpot.collect",)),
 )
 
 
@@ -77,8 +77,8 @@ def private_read_model_imports(path: Path) -> list[str]:
 
 @pytest.mark.parametrize(
     "path",
-    sorted(path for path in SOURCE_DIR.glob("*.py") if path.stem not in READ_MODELS),
-    ids=lambda path: path.stem,
+    sorted(path for path in SOURCE_DIR.rglob("*.py") if path.stem not in READ_MODELS),
+    ids=lambda path: str(path.relative_to(SOURCE_DIR)),
 )
 def test_no_module_reaches_into_a_read_model_private_name(path: Path) -> None:
     assert private_read_model_imports(path) == []
