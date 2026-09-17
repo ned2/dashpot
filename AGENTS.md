@@ -117,9 +117,10 @@ routine review. Follow the README's [integration sequence](README.md#contributin
 and keep the Issue Binding through all delegated work and green PR CI.
 
 Pull requests integrate by squash merge on GitHub once the PR's own CI is
-green ([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)):
-enable auto-merge with `gh pr merge --squash --auto`. The branch's own
-commits are not what lands on `main`; the PR title and body are. A PR does
+green ([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)),
+so the branch's own commits are not what lands on `main`; the PR title and
+body are. The agent's work ends with the PR open, its validation section
+recorded, and CI green; the operator reviews and merges. A PR does
 not need to contain the current `main`, so `main` advancing past the branch's
 base is not a reason to rebase. Nothing runs CI on `main` itself, so two PRs
 that each passed on their own but conflict semantically surface on the first
