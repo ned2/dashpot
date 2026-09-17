@@ -133,10 +133,12 @@ judgement suggestion is mandatory. These dispositions accompany #191:
   #175, #179, #212, #213, and #182; the review's sequencing section records the
   earlier helper consolidations in #186. This change completes the shared
   result and store-index consolidation.
-- Parallel Query Source and complete-collection source adapter families are
-  deliberately deferred. They serve different page/find and export contracts;
-  collapsing them needs its own behavioral design and validation, beyond a
-  package move. The shared retaining implementation remains owned by Issues.
+- Parallel Query Source and complete-collection source adapter families were
+  assessed in [#232](https://github.com/ned2/dashpot/issues/232).
+  [ADR 0043](0043-retain-distinct-query-and-collection-adapters.md) retains their
+  distinct cache, failure, lookup, and export contracts with the existing shared
+  implementation. The assessment is complete; a generic consolidation is rejected
+  without evidence that it simplifies those contracts.
 - Session-label formatting is deliberately deferred. The Work commands and
   hook records still format related labels at different seams; consolidating
   their fallback wording is a small independent change, not a dependency of
