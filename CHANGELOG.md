@@ -23,7 +23,7 @@ remain compatible within 0.1.x. Breaking changes require a new minor version and
 release notes. Python internals and exact terminal layout are not extension
 interfaces.
 
-The release targets Linux x86-64 and Apple Silicon macOS, CPython 3.11–3.14,
+The release targets Linux x86-64 and Apple Silicon macOS, CPython 3.12–3.14,
 Git 2.38+, and gh 2.100.0+ for GitHub-backed Projects. See
 [installation and support](docs/installation.md) for the required host/harness
 acceptance and [the release checklist](docs/releasing.md) for publication gates.

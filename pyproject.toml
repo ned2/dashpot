@@ -6,7 +6,7 @@ readme = "README-pypi.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Ned Letcher" }]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = ["tui", "textual", "github", "issues", "git", "worktree", "coding-agent"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -15,7 +15,6 @@ classifiers = [
   "Operating System :: MacOS",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
@@ -65,7 +64,7 @@ packages = ["src/dashpot"]
 exclude = ["/.codex", "/.dashpot"]
 
 [tool.ruff]
-# Everything Ruff sees is Python 3.11+ (from requires-python). `src` lets isort
+# Everything Ruff sees is Python 3.12+ (from requires-python). `src` lets isort
 # recognise the package and the tests' shared helper modules as first-party.
 src = ["src", "tests"]
 
@@ -102,7 +101,7 @@ extend-immutable-calls = [
 ]
 
 [tool.ty.environment]
-python-version = "3.11"
+python-version = "3.12"
 
 [tool.ty.analysis]
 # Dashpot validates untyped JSON by `isinstance` narrowing; strict generic

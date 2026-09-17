@@ -19,7 +19,7 @@ uv tool install --python 3.14 dashpot
 dashpot --version
 ```
 
-The first release targets Linux and Apple Silicon macOS with CPython 3.11–3.14.
+The first release targets Linux and Apple Silicon macOS with CPython 3.12–3.14.
 Git 2.39 or newer is required. GitHub-backed Projects also require authenticated
 GitHub CLI (`gh`); the release baseline is gh 2.100.0. See the
 [support and installation guide](https://github.com/ned2/dashpot/blob/main/docs/installation.md)
