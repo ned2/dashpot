@@ -502,19 +502,26 @@ def test_detached_worktree_needs_a_durable_ref(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("origin", "second_default", "integration_ref"),
+    ("origin", "origin_head", "second_default", "integration_ref"),
     [
-        (True, False, "refs/remotes/origin/main"),
-        (False, False, "refs/heads/main"),
-        (False, True, None),
+        (True, None, False, "refs/remotes/origin/main"),
+        (False, "refs/heads/main", True, "refs/heads/main"),
+        (False, None, False, "refs/heads/main"),
+        (False, None, True, None),
     ],
-    ids=["origin-head", "local-default", "no-integration-branch"],
+    ids=["origin-head", "origin-head-at-local", "local-default", "none"],
 )
 def test_preview_and_removability_agree_on_the_integration_branch(
-    tmp_path: Path, origin: bool, second_default: bool, integration_ref: str | None
+    tmp_path: Path,
+    origin: bool,
+    origin_head: str | None,
+    second_default: bool,
+    integration_ref: str | None,
 ) -> None:
     root = repo(tmp_path, origin=origin)
     branch(root, "feat")
+    if origin_head is not None:
+        git(root, "symbolic-ref", "refs/remotes/origin/HEAD", origin_head)
     if second_default:
         git(root, "branch", "master", "main")
     worktree = tmp_path / "wt"

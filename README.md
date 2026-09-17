@@ -685,7 +685,7 @@ with its reason and whether the holding process is alive (`initializing`
 names the forced removal), Agent Sessions whose hooks place them there,
 Agent Runs recorded there (an Orphaned Agent Run names its
 `dashpot work stop --session` command), and commits not on the upstream or
-the base Branch. `check` removes nothing.
+the Integration Branch. `check` removes nothing.
 
 `worktree remove PATH` and `branch delete NAME` are the Cleanup commands of
 [ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).

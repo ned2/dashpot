@@ -54,7 +54,7 @@ def check_worktree(
 
     Everything here is observed: Git's dirty state and locks, the Agent
     Sessions whose hooks place them at the Worktree, the Agent Runs recorded
-    there, and commits its Branch has that no upstream or base Branch has.
+    there, and commits its Branch has that no upstream or Integration Branch has.
     Dashpot removes nothing; each obstacle names the command that acts on it.
     """
     located = locate_worktree(current, target, timeout=timeout)

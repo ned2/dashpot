@@ -1,4 +1,4 @@
-"""Expose Cleanup preview and confirmed execution through one public seam."""
+"""Expose Cleanup preview, retained choices, and confirmed execution through one seam."""
 
 from .adapter import CleanupAdapter as CleanupAdapter
 from .adapter import GitCleanupAdapter as GitCleanupAdapter

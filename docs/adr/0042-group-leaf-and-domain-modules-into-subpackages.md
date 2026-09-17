@@ -72,8 +72,8 @@ HEAD, ignored content, and the per-ref integration fact); and
 `worktrees/removability` report composes those assessments into
 `WorktreeRemovability` for `dashpot worktree check`, so the dependency runs
 from the report to the Cleanup package and never back: the Cleanup facade
-loads no `worktrees` module but `base` and `records`, which keeps the import
-graph acyclic and the creation module unloaded.
+loads no `worktrees` module but `records`, which keeps the import graph
+acyclic and the creation module unloaded.
 
 One Integration Branch rule remains, `repository.choose_integration_ref`
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md)), applied to
