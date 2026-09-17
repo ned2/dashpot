@@ -21,7 +21,7 @@ def repository_worktrees(
 
     Git reports the main working tree first and every linked one after it;
     a bare entry is not a Worktree. Independent clones are not reached
-    ([ADR 0003](../../docs/adr/0003-prefer-project-local-dashpot-state.md)).
+    ([ADR 0003](../../../docs/adr/0003-prefer-project-local-dashpot-state.md)).
     """
     return worktree_paths(worktree_records(root, timeout=timeout, git=git))
 

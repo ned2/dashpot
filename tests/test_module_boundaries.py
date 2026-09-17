@@ -23,6 +23,10 @@ import dashpot
 
 SOURCE_DIR = Path(dashpot.__file__).parent
 SOURCE_MODULES = sorted(SOURCE_DIR.rglob("*.py"))
+# The ADR 0042 packages; a root module is not one of them.
+PACKAGES = frozenset(
+    path.parent.name for path in SOURCE_DIR.glob("*/__init__.py") if path.is_file()
+)
 # What the CLI, the hook lifecycle and the observation store import; none of
 # it needs a terminal.
 HEADLESS_MODULES = (
@@ -93,9 +97,13 @@ def module_name(path: Path) -> str:
 
 
 def package_of(module: str) -> str:
-    """The ADR 0042 package owning a module; root modules form their own layer."""
+    """The ADR 0042 package owning a module; root modules form their own layer.
+
+    A bare ``dashpot.<package>`` names the package itself, so an import of the
+    package rather than one of its modules still draws an edge to it.
+    """
     parts = module.split(".")
-    return parts[1] if len(parts) > 2 else "dashpot"
+    return parts[1] if len(parts) > 1 and parts[1] in PACKAGES else "dashpot"
 
 
 def dashpot_imports(
