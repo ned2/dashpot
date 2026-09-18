@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, FiniteFloat, ValidationError
+from typing_extensions import deprecated
 
 from ..core.errors import DashpotError
 from ..core.pydantic import (
@@ -29,10 +30,19 @@ class GitHubIssueSourceConfig(ConfigModel):
 
     kind: Literal["github"]
     # Retired with Reconciliation (ADR 0033): still parsed, never read, so a
-    # config written for an earlier alpha keeps loading (ADR 0034).
-    reconciliation_seconds: Annotated[FiniteFloat, Field(gt=0)] = (
-        DEFAULT_RECONCILIATION_SECONDS
-    )
+    # config written for an earlier alpha keeps loading (ADR 0034). The
+    # deprecation makes "never read" a contract: reading the field warns, and
+    # the suite treats a warning as a failure.
+    reconciliation_seconds: Annotated[
+        FiniteFloat,
+        Field(
+            gt=0,
+            deprecated=deprecated(
+                "reconciliationSeconds is retired with Reconciliation (ADR 0033); "
+                "Dashpot parses it for compatibility and never reads it."
+            ),
+        ),
+    ] = DEFAULT_RECONCILIATION_SECONDS
 
 
 class LocalMarkdownIssueSourceConfig(ConfigModel):

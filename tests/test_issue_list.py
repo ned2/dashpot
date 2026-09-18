@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
-from typing import get_args
+from typing import Literal, assert_type, get_args
 
 import pytest
 
@@ -469,6 +469,21 @@ def test_sort_columns_are_the_sortable_table_columns() -> None:
     }
     assert is_issue_sort_column("number")
     assert not is_issue_sort_column("title")
+
+
+def test_sort_column_predicate_narrows_both_branches() -> None:
+    # A ``TypeIs`` narrows the rejected branch too, which a ``TypeGuard`` could
+    # not: ty checks these ``assert_type`` calls as part of the gate, and the
+    # runtime assertions pin the predicate's answers to the same contract.
+    def classify(column: IssueSortColumn | Literal["title"]) -> str:
+        if is_issue_sort_column(column):
+            assert_type(column, IssueSortColumn)
+            return "sortable"
+        assert_type(column, Literal["title"])
+        return "fixed"
+
+    assert classify("number") == "sortable"
+    assert classify("title") == "fixed"
 
 
 def test_missing_sort_values_rank_last_in_either_direction() -> None:
