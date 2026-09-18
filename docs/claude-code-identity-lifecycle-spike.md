@@ -153,7 +153,7 @@ Trace references below are the `receipt` field, not file line assumptions.
 | Abrupt worker exit | SIGKILL of worker A under a live supervisor: about ten seconds later the listing shows the same `sessionId` with a new `pid` and a later `startedAt`, the new pid's `/proc` start time is later than the old one's, and the only new hook is `SessionStart` with `source` = `resume` from the new pid. No `SessionEnd`. | 130–138 |
 | Supervisor replacement | `daemon stop --any --keep-workers` exits the supervisor; `daemon status` reports it not running with three workers in `roster.json`; `agents --json` still lists them with unchanged pids. Dispatching worker C starts a new supervisor pid that adopts all three (`bg adopt: adopted=3`); pids and session IDs are unchanged and no `SessionEnd` fired. Worker B's turn, started under the first supervisor, publishes its `Stop` under the second from its original pid. | 139–177, 209 |
 | Explicit stop and respawn | `claude stop` publishes `SessionEnd` with `reason` = `other` from the worker pid; the listing shows `state` = `stopped` and no pid. `claude respawn` starts a new pid for the same `sessionId`, with a later `startedAt` and `SessionStart.source` = `resume`. | 178–194 |
-| Supervisor stop | `daemon stop --any` terminates the four workers, each publishing `SessionEnd` `other`; every job lists as `stopped`, with `startedAt` at its dispatch time rather than its last worker's start. Five `bg-pty-host` processes outlived the stop until the runner killed them. | 195–208 |
+| Supervisor stop | `daemon stop --any` terminates the four workers, each publishing `SessionEnd` `other`; every job lists as `stopped`, with a `startedAt` earlier than any of its workers had. Five `bg-pty-host` processes outlived the stop until the runner killed them. | 195–208 |
 | Remote Control eligibility | `claude remote-control` exits 1: "You must be logged in to use Remote Control … only available with claude.ai subscriptions". | 210–212 |
 
 The supervised topology and the adoption on restart agree with the documented
@@ -176,7 +176,7 @@ one.
   stable identity, corroborated by `agents --json` for background workers.
 - A worker's pid and start time change on abrupt death and on `respawn`,
   while its session ID, name, and cwd persist and the listing had the new pid
-  by the runner's next read, about two seconds after the restart hook. A
+  by the runner's next read, two to three seconds after the restart hook. A
   process-keyed record that treats a new pid as a new Agent Session would
   split one conversation; a record keyed by session ID must still expect
   `CLAUDE_PID` to change.

@@ -475,7 +475,8 @@ because a worker claimed from a pre-warmed spare (`claude bg-spare …`) names
 no session while a directly spawned worker carries `--session-id`. A live
 job's `startedAt` is the current worker's start and moves forward when the
 worker is replaced, as does the worker's `/proc` start time with its pid; a
-stopped job listed with `--all` reports its dispatch time instead.
+stopped job listed with `--all` reports an earlier `startedAt` than any of its
+workers had, presumably the job's own creation.
 
 Under the native installer every supervised process — supervisor, PTY host,
 and worker — runs the versioned executable, so its `comm` is `2.1.276`, while

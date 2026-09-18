@@ -147,7 +147,7 @@ const endedSessions = new Set(shutdown.newHooks.filter((event) => event[0] === "
 assert(endedSessions.has(workers.a.job.sessionId) && endedSessions.has(workers.b.job.sessionId), "supervisor stop ends the surviving workers");
 const finalJobs = of("workers.final")[0].jobs;
 assert(finalJobs.every((job) => job.state === "stopped" && job.pid === undefined));
-assert(finalJobs.find((job) => job.id === workers.a.job.id).startedAt <= workers.a.job.startedAt, "a stopped job lists its dispatch time");
+assert(finalJobs.find((job) => job.id === workers.a.job.id).startedAt <= workers.a.job.startedAt, "a stopped job lists an earlier startedAt than its live worker");
 assert.equal(finalJobs.find((job) => job.id === edit.d.id).cwd, projectDir, "a stopped job lists its dispatch directory");
 assert(!shutdown.processes.some((entry) => [killed.a.pid, respawned.b.pid, edit.d.pid].includes(entry[0])), "no worker outlives the supervisor stop");
 assert(of("daemon.log")[0].lines.some((line) => line.includes("bg adopt: adopted=3")), "the replacement supervisor adopted the three survivors");
