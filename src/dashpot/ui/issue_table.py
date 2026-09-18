@@ -3,7 +3,10 @@
 The rendered values themselves — cell types, Glyphs and chip formatting —
 live in ``issue_cells``; this module decides which columns are shown, heads
 them for the ordering the source accepted, and assembles each queried row
-into cells. The source orders every page, so nothing here sorts.
+into cells. The source orders every page, so nothing here sorts. Each
+column carries its own Column Description and the Glyphs its cells render,
+from which its header tooltip and Legend section are built, as every list
+pane's columns do.
 """
 
 from __future__ import annotations
@@ -14,13 +17,21 @@ from typing import Literal
 
 from rich.text import Text
 
-from ..issues.ordering import issue_activity, issue_priority
+from ..issues.ordering import (
+    PRIORITY_BY_LABEL,
+    PriorityLevel,
+    issue_activity,
+    issue_priority,
+)
 from ..issues.search import IssueSearchField
 from ..observation.issue_list import IssueListRow, IssueListSummary
 from ..observation.list_result import ListResult
+from .glyphs import Glyph
 from .issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
+    LEGEND_AGENT_STATE,
+    LEGEND_ISSUE_STATE,
     SORT_GLYPHS,
     IssueNumberCell,
     TableCell,
@@ -54,8 +65,17 @@ ColumnKey = Literal[
 
 @dataclass(frozen=True, slots=True)
 class ColumnSpec:
+    """One Issue table column: its identity, heading, layout, and what it means.
+
+    ``description`` and ``glyphs`` are the column's Column Description, as
+    ``list_rows.DescribedColumn`` reads it for the header tooltip and the
+    Legend; every column has one, optional or not.
+    """
+
     key: ColumnKey
     label: str
+    description: str
+    glyphs: tuple[Glyph, ...] = ()
     sortable: bool = True
     update_width: bool = False
     header_justify: Literal["left", "center", "right", "full"] | None = None
@@ -63,9 +83,6 @@ class ColumnSpec:
     # ``0`` keeps the column at its content, as for a one-glyph icon.
     spread_weight: int | None = None
     search_field: IssueSearchField | None = None
-    # What a mouse resting on the header is told, for a one-glyph heading
-    # whose meaning the Legend also explains.
-    tooltip: str | None = None
     # A conditional column is shown only while some row satisfies this; a
     # column without one is shown whenever it is chosen.
     shown_when: Callable[[IssueListRow], bool] | None = None
@@ -81,74 +98,147 @@ def _has_priority(row: IssueListRow) -> bool:
     return issue_priority(row.issue) is not None
 
 
+# What each column shows, said once for the header tooltip and the Legend.
+# The agent-activity column here summarizes the Agent Runs bound to the
+# Issue, which is a different fact from the Sessions, Worktrees and
+# Branches columns of the same Glyph, so its description says so.
+AGENT_STATE_DESCRIPTION = (
+    "the liveliest Agent Run explicitly bound to this Issue by an accepted "
+    "Issue Binding, running before waiting before unknown, or blank when "
+    "none is; an Agent Session located on a Worktree or Branch named for the "
+    "Issue does not count until it opts in with work start"
+)
+ISSUE_STATE_DESCRIPTION = (
+    "the Issue's state on its Issue Source, as a block in the state's colour: "
+    "open, or closed as completed, not planned, or duplicate; the same colour "
+    "frames the Issue view, and o cycles which states the table lists"
+)
+NUMBER_DESCRIPTION = "the Issue's number in its Issue Source"
+TITLE_DESCRIPTION = (
+    f"the Issue's title, clipped past {TITLE_LIMIT} characters; Enter opens "
+    "the Issue view with the whole of it"
+)
+
+
+def _priority_labels() -> str:
+    """Which labels set which priority level, most urgent first."""
+    by_level: dict[PriorityLevel, list[str]] = {}
+    for label, level in PRIORITY_BY_LABEL.items():
+        by_level.setdefault(level, []).append(label)
+    return ", ".join(
+        f"{' or '.join(labels)} for {level}"
+        for level, labels in sorted(by_level.items())
+    )
+
+
+PRIORITY_DESCRIPTION = (
+    "the Issue's priority as a chip in the colour of the label that sets it, "
+    "the most urgent of its priority labels, which are "
+    f"{_priority_labels()}; shown only while some listed Issue carries one, "
+    "and blank for an Issue that does not"
+)
+LABELS_DESCRIPTION = (
+    "the Issue's labels as chips in the tracker's colours, a priority label "
+    "excepted because it is the PRIORITY cell; - when none"
+)
+PROJECT_DESCRIPTION = "the Project the Issue belongs to, by its configured label"
+ASSIGNEES_DESCRIPTION = "the logins assigned to the Issue, or unassigned"
+AUTHOR_DESCRIPTION = (
+    "the login that opened the Issue, or - when the Issue Source reports none"
+)
+MILESTONE_DESCRIPTION = "the Issue's milestone, or - when it has none"
+TYPE_DESCRIPTION = (
+    "the Issue's type as its Issue Source classifies it, or - when it has none"
+)
+COMMENTS_DESCRIPTION = (
+    "how many comments the Issue Source reports on the Issue, or - when none; "
+    "not fetched while the page carried no engagement facts, and unavailable "
+    "when fetching them failed"
+)
+CREATED_DESCRIPTION = "the date the Issue was opened, or - when unknown"
+LAST_ACTION_DESCRIPTION = (
+    "the date of the Issue's last update on its Issue Source, which any edit, "
+    "comment, or state change moves; - when unknown"
+)
+
 COLUMN_SPECS = (
     ColumnSpec(
         "agent_state",
         AGENT_STATE_COLUMN_GLYPH.symbol,
+        AGENT_STATE_DESCRIPTION,
+        glyphs=LEGEND_AGENT_STATE,
         sortable=False,
         spread_weight=0,
-        tooltip=AGENT_STATE_COLUMN_GLYPH.meaning,
     ),
     ColumnSpec(
         "issue_state",
         ISSUE_STATE_COLUMN_GLYPH.symbol,
+        ISSUE_STATE_DESCRIPTION,
+        glyphs=LEGEND_ISSUE_STATE,
         sortable=False,
         spread_weight=0,
-        tooltip=ISSUE_STATE_COLUMN_GLYPH.meaning,
     ),
     ColumnSpec(
         "number",
         "#",
+        NUMBER_DESCRIPTION,
         header_justify="right",
         search_field=IssueSearchField.NUMBER,
     ),
     ColumnSpec(
         "title",
         "TITLE",
+        TITLE_DESCRIPTION,
         sortable=False,
         update_width=True,
         search_field=IssueSearchField.TITLE,
     ),
-    ColumnSpec("priority", "PRIORITY", shown_when=_has_priority),
+    ColumnSpec("priority", "PRIORITY", PRIORITY_DESCRIPTION, shown_when=_has_priority),
     ColumnSpec(
         "labels",
         "LABELS",
+        LABELS_DESCRIPTION,
         update_width=True,
         search_field=IssueSearchField.LABELS,
     ),
     ColumnSpec(
         "project",
         "PROJECT",
+        PROJECT_DESCRIPTION,
         update_width=True,
         search_field=IssueSearchField.PROJECT,
     ),
     ColumnSpec(
         "assignees",
         "ASSIGNEES",
+        ASSIGNEES_DESCRIPTION,
         update_width=True,
         search_field=IssueSearchField.ASSIGNEES,
     ),
     ColumnSpec(
         "author",
         "AUTHOR",
+        AUTHOR_DESCRIPTION,
         update_width=True,
         search_field=IssueSearchField.AUTHOR,
     ),
     ColumnSpec(
         "milestone",
         "MILESTONE",
+        MILESTONE_DESCRIPTION,
         update_width=True,
         search_field=IssueSearchField.MILESTONE,
     ),
     ColumnSpec(
         "type",
         "TYPE",
+        TYPE_DESCRIPTION,
         update_width=True,
         search_field=IssueSearchField.TYPE,
     ),
-    ColumnSpec("comments", "COMMENTS"),
-    ColumnSpec("created", "CREATED"),
-    ColumnSpec("last_action", "LAST ACTION"),
+    ColumnSpec("comments", "COMMENTS", COMMENTS_DESCRIPTION),
+    ColumnSpec("created", "CREATED", CREATED_DESCRIPTION),
+    ColumnSpec("last_action", "LAST ACTION", LAST_ACTION_DESCRIPTION),
 )
 COLUMN_KEYS: tuple[ColumnKey, ...] = tuple(spec.key for spec in COLUMN_SPECS)
 DEFAULT_COLUMNS: tuple[ColumnKey, ...] = tuple(

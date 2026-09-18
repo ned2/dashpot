@@ -2,7 +2,9 @@
 
 Everything here turns a queried `WorktreeListRow` into what the pane shows;
 the query itself lives in ``worktree_list``. The Branches pane shares the
-activity and session-count cells, so they are defined here once.
+activity and session-count cells and their descriptions, so they are
+defined here once. Each column carries its own Column Description, from
+which its header tooltip and Legend section are built.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from ..observation.session_list import SESSION_STATE_ORDER, abbreviate_path
 from ..observation.worktree_list import WorktreeListRow
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
+    ACTIVITY_LEGEND,
     ACTIVITY_WIDTH,
     ATTENTION_COLORS,
     BAD_COLORS,
@@ -27,15 +30,70 @@ from .session_cells import STATE_GLYPHS
 BRANCH_LIMIT = 24
 SHORT_HEAD = 7
 
+
+def activity_description(where: str) -> str:
+    """Describe the activity column for the rows located ``where``.
+
+    A located session is one whose Observation Target is the row, whatever
+    Issue it works on; the Issues table's column of the same Glyph summarizes
+    bound Agent Runs instead.
+    """
+    return (
+        f"the liveliest Agent Session located {where}, running before waiting "
+        "before unknown, or blank when none is; a session counts by where "
+        "its harness runs, not by any Issue it is bound to"
+    )
+
+
+def sessions_description(where: str) -> str:
+    """Describe the SESSIONS count column for the rows located ``where``."""
+    return (
+        f"how many active Agent Sessions are located {where}, whatever their "
+        "state, or - when none is"
+    )
+
+
+# What each column shows, said once for the header tooltip and the Legend.
+ACTIVITY_DESCRIPTION = activity_description("at this Worktree")
+SESSIONS_DESCRIPTION = sessions_description("at this Worktree")
+PATH_DESCRIPTION = (
+    "the Worktree's path, ~-abbreviated and never clipped, so the pane "
+    "scrolls sideways for a long one; followed by stale while the topology "
+    "is retained from an earlier observation, or unavailable when observing "
+    "the Worktree failed, either detailed in Diagnostics"
+)
+KIND_DESCRIPTION = (
+    "the Worktree's place in Git's topology: main is the Repository's main "
+    "working tree, and linked a working tree added beside it; the pane lists "
+    "main first, then linked by path"
+)
+BRANCH_DESCRIPTION = (
+    "the Branch checked out at the Worktree, clipped past "
+    f"{BRANCH_LIMIT} characters, or detached @ with the {SHORT_HEAD}-character "
+    "HEAD of a detached checkout, detached alone when that HEAD is unknown"
+)
+TREE_DESCRIPTION = (
+    "whether the working tree carries uncommitted changes: clean, dirty, or "
+    "unknown when Git could not answer; a Cleanup removes only a clean linked "
+    "Worktree"
+)
+
 WORKTREE_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn(
-        "activity", ACTIVITY_COLUMN_GLYPH.symbol, width=ACTIVITY_WIDTH, frozen=True
+        "activity",
+        ACTIVITY_COLUMN_GLYPH.symbol,
+        width=ACTIVITY_WIDTH,
+        frozen=True,
+        description=ACTIVITY_DESCRIPTION,
+        glyphs=ACTIVITY_LEGEND,
     ),
-    ListColumn("sessions", "SESSIONS", justify="center"),
-    ListColumn("path", "PATH"),
-    ListColumn("kind", "KIND"),
-    ListColumn("branch", "BRANCH"),
-    ListColumn("tree", "TREE"),
+    ListColumn(
+        "sessions", "SESSIONS", justify="center", description=SESSIONS_DESCRIPTION
+    ),
+    ListColumn("path", "PATH", description=PATH_DESCRIPTION),
+    ListColumn("kind", "KIND", description=KIND_DESCRIPTION),
+    ListColumn("branch", "BRANCH", description=BRANCH_DESCRIPTION),
+    ListColumn("tree", "TREE", description=TREE_DESCRIPTION),
 )
 
 
@@ -87,16 +145,6 @@ def freshness_color(freshness: str, *, dark: bool) -> str:
     if freshness == "unavailable":
         return BAD_COLORS[dark]
     return ATTENTION_COLORS[dark]
-
-
-def activity_description(where: str) -> str:
-    """Describe the activity column for the rows located ``where``."""
-    return f"the liveliest Agent Session located {where}, or blank when none is"
-
-
-def sessions_description(where: str) -> str:
-    """Describe the SESSIONS count column for the rows located ``where``."""
-    return f"how many Agent Sessions are located {where}, or - when none"
 
 
 def sessions_cell(states: Sequence[RunState], *, dark: bool) -> ListCell:

@@ -1,4 +1,4 @@
-"""The Legend is derived from the Glyphs the panes render, and misses none."""
+"""The Legend is derived from the panes' columns and Glyphs, and misses none."""
 
 from __future__ import annotations
 
@@ -8,16 +8,30 @@ import pkgutil
 from pathlib import Path
 from typing import cast, get_args
 
+import pytest
 from textual.binding import Binding, BindingType
 
 import dashpot
 from dashpot.core.model import RunState
-from dashpot.ui import alerts, branch_cells, glyphs, issue_cells, legend, session_cells
+from dashpot.ui import (
+    alerts,
+    branch_cells,
+    glyphs,
+    issue_cells,
+    issue_table,
+    legend,
+    pull_request_cells,
+    session_cells,
+    worktree_cells,
+)
 from dashpot.ui.alerts import AlertSeverity
 from dashpot.ui.app import FOCUS_CYCLE_BINDINGS, legend_keys
 from dashpot.ui.glyphs import Glyph, LegendSection
 from dashpot.ui.issue_cells import IssueStateKind
-from dashpot.ui.list_rows import ListColumn, column_help
+from dashpot.ui.issue_table import COLUMN_SPECS, DEFAULT_COLUMNS
+from dashpot.ui.list_pane import ISSUE_PANE_LABEL
+from dashpot.ui.list_rows import DescribedColumn, ListColumn, column_help
+from dashpot.ui.panes import LIST_PANE_SPECS
 from helpers import required
 
 SOURCE_DIR = Path(dashpot.__file__).parent
@@ -96,6 +110,7 @@ def test_legend_follows_the_screen_top_to_bottom() -> None:
         "BRANCHES",
         "PULL REQUESTS",
         "ISSUES",
+        legend.RELATED_ROWS_LABEL,
         legend.DIAGNOSTICS_LABEL,
     ]
 
@@ -143,23 +158,58 @@ def test_every_glyph_in_the_source_is_explained() -> None:
     assert unexplained == {}
 
 
+def pane_sections(pane: str) -> list[LegendSection]:
+    return [section for section in legend.LEGEND if section.pane == pane]
+
+
 def branches_sections() -> dict[str, LegendSection]:
-    return {
-        section.column: section
-        for section in legend.LEGEND
-        if section.pane == "BRANCHES"
-    }
+    return {section.column: section for section in pane_sections("BRANCHES")}
 
 
-def test_every_branches_column_is_in_the_legend_from_its_own_definition() -> None:
-    """The Legend's Branches sections are the pane's columns, tooltips included."""
-    sections = [section for section in legend.LEGEND if section.pane == "BRANCHES"]
+# Every pane's column catalogue, read from the pane specs the dashboard is
+# composed from and the Issue table's own catalogue, so a column added to
+# either is checked here without a list of labels to maintain.
+COLUMN_INVENTORY: tuple[tuple[str, tuple[DescribedColumn, ...]], ...] = (
+    *((spec.label, spec.columns) for spec in LIST_PANE_SPECS),
+    (ISSUE_PANE_LABEL, COLUMN_SPECS),
+)
+# The sections that are not one column of the pane they sit under.
+EXTRA_SECTIONS = {
+    ("WORKTREES", legend.WORKTREE_ACTIONS_SECTION),
+    (ISSUE_PANE_LABEL, legend.ISSUE_COLUMNS_SECTION),
+}
 
-    assert [section.column for section in sections] == [
-        column.label for column in branch_cells.BRANCH_COLUMNS
-    ]
-    for section, column in zip(sections, branch_cells.BRANCH_COLUMNS, strict=True):
-        assert column.description
+
+@pytest.mark.parametrize(
+    ("pane", "columns"), COLUMN_INVENTORY, ids=[pane for pane, _ in COLUMN_INVENTORY]
+)
+def test_every_column_is_in_the_legend_from_its_own_definition(
+    pane: str, columns: tuple[DescribedColumn, ...]
+) -> None:
+    """Each pane's Legend sections are its columns, tooltips included.
+
+    The Issue table's optional columns are listed whether or not they are
+    shown, so the Legend explains what a column a person has not chosen
+    would tell them.
+    """
+    sections = pane_sections(pane)
+    labels = [column.label for column in columns]
+
+    assert columns, pane
+    assert [section.column for section in sections if section.column in labels] == (
+        labels
+    )
+    assert {
+        (section.pane, section.column)
+        for section in sections
+        if section.column not in labels
+    } <= EXTRA_SECTIONS
+    for section, column in zip(
+        [section for section in sections if section.column in labels],
+        columns,
+        strict=True,
+    ):
+        assert column.description, (pane, column.label)
         assert section.note == column.description
         assert section.glyphs == column.glyphs
         # The header tooltip is the same description and the same Glyph
@@ -174,7 +224,11 @@ def test_every_branches_column_is_in_the_legend_from_its_own_definition() -> Non
         assert rendered.endswith(column.description)
         for glyph in column.glyphs:
             assert glyph.meaning in rendered
+
+
+def test_the_branches_sections_carry_the_panes_glyph_vocabularies() -> None:
     by_column = branches_sections()
+
     assert by_column["◈"].glyphs == glyphs.ACTIVITY_LEGEND
     assert by_column["LOCAL"].glyphs == branch_cells.PRESENCE_LEGEND
     assert by_column["UPSTREAM"].glyphs == branch_cells.UPSTREAM_LEGEND
@@ -186,6 +240,71 @@ def test_every_branches_column_is_in_the_legend_from_its_own_definition() -> Non
         == branch_cells.NAME_DESCRIPTION
     )
     assert column_help(ListColumn("bare", "BARE")) is None
+
+
+def test_the_activity_column_means_what_each_pane_shows() -> None:
+    """One Glyph heads four columns, and each says which fact it summarizes."""
+    sections = {(section.pane, section.column): section for section in legend.LEGEND}
+    activity = [
+        sections[pane, glyphs.ACTIVITY_COLUMN_GLYPH.symbol]
+        for pane in ("SESSIONS", "WORKTREES", "BRANCHES", ISSUE_PANE_LABEL)
+    ]
+    notes = [required(section.note) for section in activity]
+
+    # The Glyph meanings are the shared ones; the descriptions are not.
+    assert all(section.glyphs == glyphs.ACTIVITY_LEGEND for section in activity)
+    assert len(set(notes)) == len(notes)
+    assert notes[0] == session_cells.STATE_DESCRIPTION
+    assert "this Agent Session's own" in notes[0]
+    assert notes[1] == worktree_cells.activity_description("at this Worktree")
+    assert notes[2] == worktree_cells.activity_description("on this Branch")
+    assert notes[3] == issue_table.AGENT_STATE_DESCRIPTION
+    assert "the liveliest Agent Run explicitly bound" in notes[3]
+    assert "Issue Binding" in notes[3]
+    # The count column beside the located ones says where it counts too.
+    assert sections["WORKTREES", "SESSIONS"].note == (
+        worktree_cells.sessions_description("at this Worktree")
+    )
+    assert sections["BRANCHES", "SESSIONS"].note == (
+        worktree_cells.sessions_description("on this Branch")
+    )
+    assert sections["SESSIONS", "ISSUE"].note == session_cells.ISSUE_DESCRIPTION
+    assert "Issue Hint, not a binding" in session_cells.ISSUE_DESCRIPTION
+    assert "turn boundaries" in session_cells.ACTIVITY_DESCRIPTION
+    assert "running 14m" in session_cells.ACTIVITY_DESCRIPTION
+
+
+def test_pull_request_observations_say_what_they_establish() -> None:
+    sections = {section.column: section for section in pane_sections("PULL REQUESTS")}
+
+    assert sections["STATE"].glyphs == pull_request_cells.STATE_LEGEND
+    assert sections["REVIEW"].glyphs == pull_request_cells.REVIEW_LEGEND
+    assert sections["CHECKS"].glyphs == pull_request_cells.CHECKS_LEGEND
+    assert sections["MERGE"].glyphs == pull_request_cells.MERGE_LEGEND
+    for column, words in (
+        ("REVIEW", ("protection rules", "not whether the Pull Request may merge")),
+        ("CHECKS", ("checks and commit statuses", "not a gate")),
+        ("MERGE", ("without conflicts", "n/a for a closed or merged")),
+        ("UPDATED", ("as of the page's query",)),
+    ):
+        rendered = legend.section_text(sections[column], dark=False).plain
+        for word in words:
+            assert word in rendered, column
+
+
+def test_the_issue_columns_note_lists_the_optional_columns() -> None:
+    section = next(
+        section
+        for section in pane_sections(ISSUE_PANE_LABEL)
+        if section.column == legend.ISSUE_COLUMNS_SECTION
+    )
+    optional = [spec.label for spec in COLUMN_SPECS if spec.key not in DEFAULT_COLUMNS]
+
+    assert section.glyphs == issue_cells.LEGEND_SORT
+    assert optional
+    assert ", ".join(optional) in required(section.note)
+    assert "c chooses" in required(section.note)
+    assert "PRIORITY" in required(section.note)
 
 
 def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
@@ -203,15 +322,17 @@ def test_remote_presence_is_qualified_as_the_last_fetch() -> None:
 
 
 def test_the_cleanup_gate_is_stated_where_x_reads_it() -> None:
-    """The INTEGRATED and Worktree SESSIONS notes separate the row from x's checks."""
+    """The INTEGRATED and Worktree actions notes separate a row from x's checks."""
     sections = {(section.pane, section.column): section for section in legend.LEGEND}
     integrated = sections["BRANCHES", "INTEGRATED"]
-    worktrees = sections["WORKTREES", "◈"]
+    worktrees = sections["WORKTREES", legend.WORKTREE_ACTIONS_SECTION]
 
     assert integrated.glyphs == branch_cells.INTEGRATION_LEGEND
     assert integrated.note == branch_cells.INTEGRATION_DESCRIPTION
-    assert worktrees.note == legend.WORKTREE_SESSIONS_NOTE
-    assert required(worktrees.note).startswith(legend.SESSIONS_COUNT_NOTE)
+    assert worktrees.glyphs == ()
+    assert worktrees.note == legend.WORKTREE_ACTIONS_NOTE
+    assert sections["WORKTREES", "TREE"].note == worktree_cells.TREE_DESCRIPTION
+    assert "only a clean linked Worktree" in worktree_cells.TREE_DESCRIPTION
     for section, words in (
         (
             integrated,
@@ -235,6 +356,8 @@ def test_the_cleanup_gate_is_stated_where_x_reads_it() -> None:
                 "clean",
                 "no Agent Session or Agent Run",
                 "retains its Branch",
+                "Enter opens",
+                "y sends its full path",
             ),
         ),
     ):

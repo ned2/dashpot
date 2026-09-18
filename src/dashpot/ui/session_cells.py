@@ -1,7 +1,9 @@
 """The Sessions pane's rendered values: its columns, state Glyphs and cells.
 
 Everything here turns a queried `SessionListRow` into what the pane shows;
-the query itself lives in ``session_list``.
+the query itself lives in ``session_list``. Each column carries its own
+Column Description, from which its header tooltip and Legend section are
+built.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from ..observation.session_list import (
 )
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
+    ACTIVITY_LEGEND,
     ACTIVITY_WIDTH,
     SESSION_STATE_GLYPHS,
 )
@@ -43,16 +46,73 @@ PATH_LIMIT = 28
 BRANCH_LIMIT = 24
 ISSUE_LIMIT = 36
 
+# What each column shows, said once for the header tooltip and the Legend.
+# The pane lists Agent Sessions, so its activity column is the session's own
+# state, unlike the Worktrees and Branches columns that summarize the
+# sessions located on a row and the Issues column that summarizes the Agent
+# Runs bound to one.
+STATE_DESCRIPTION = (
+    "this Agent Session's own lifecycle state, observed at turn boundaries: "
+    "running while a turn is in progress, waiting while idle between turns, "
+    "and unknown when no lifecycle hook has reported it or its liveness "
+    "cannot be confirmed; the pane lists "
+    "running sessions first, then waiting, then unknown, each by most recent "
+    "activity"
+)
+HARNESS_DESCRIPTION = (
+    "the harness whose conversation this Agent Session is: "
+    f"{' or '.join(HARNESS_DISPLAY.values())}"
+)
+TARGET_DESCRIPTION = (
+    "the Observation Target the session is located at, ~-abbreviated and "
+    f"clipped from the left past {PATH_LIMIT} characters, or "
+    f"{OUTSIDE_PROJECT_TEXT} when the observed Project owns no such Worktree; "
+    "the column is dropped while every listed session shares one Target and "
+    "none is outside the Project, and DIRECTORY then carries the whole path"
+)
+BRANCH_DESCRIPTION = (
+    "the Branch checked out where the session is located, clipped past "
+    f"{BRANCH_LIMIT} characters, or detached when no Branch is"
+)
+ISSUE_DESCRIPTION = (
+    "the Issue the session's active Agent Run is bound to by the Work Store's "
+    "accepted Issue Binding, with the number and title the Issue Source "
+    "shows for it, or its reference or identity alone while the Issue Source "
+    "has not shown that Issue; "
+    f"{UNBOUND_ISSUE_TEXT} when the session has not opted in; clipped past "
+    f"{ISSUE_LIMIT} characters. A Worktree or Branch named for an Issue is an "
+    "Issue Hint, not a binding"
+)
+DIRECTORY_DESCRIPTION = (
+    "the session's working directory relative to its Observation Target, or "
+    "the whole ~-abbreviated path while TARGET is dropped or the directory "
+    "lies outside the Target; - when the harness reported none; clipped from "
+    f"the left past {PATH_LIMIT} characters"
+)
+ACTIVITY_DESCRIPTION = (
+    "how long the session has been doing what it is doing, observed at turn "
+    "boundaries rather than within a turn: running 14m is the current turn's "
+    "duration so far, or running alone when the turn's start is unknown, "
+    "idle 14m how long it has been quiet since its last observed event, and "
+    "started 3d ago an Agent Run no hook has observed yet, dated from its "
+    "Work Store start; - when none of those is known"
+)
+
 SESSION_COLUMNS: tuple[ListColumn, ...] = (
     ListColumn(
-        "state", ACTIVITY_COLUMN_GLYPH.symbol, width=ACTIVITY_WIDTH, frozen=True
+        "state",
+        ACTIVITY_COLUMN_GLYPH.symbol,
+        width=ACTIVITY_WIDTH,
+        frozen=True,
+        description=STATE_DESCRIPTION,
+        glyphs=ACTIVITY_LEGEND,
     ),
-    ListColumn("harness", "HARNESS"),
-    ListColumn("target", "TARGET"),
-    ListColumn("branch", "BRANCH"),
-    ListColumn("issue", "ISSUE"),
-    ListColumn("directory", "DIRECTORY"),
-    ListColumn("activity", "ACTIVITY"),
+    ListColumn("harness", "HARNESS", description=HARNESS_DESCRIPTION),
+    ListColumn("target", "TARGET", description=TARGET_DESCRIPTION),
+    ListColumn("branch", "BRANCH", description=BRANCH_DESCRIPTION),
+    ListColumn("issue", "ISSUE", description=ISSUE_DESCRIPTION),
+    ListColumn("directory", "DIRECTORY", description=DIRECTORY_DESCRIPTION),
+    ListColumn("activity", "ACTIVITY", description=ACTIVITY_DESCRIPTION),
 )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from textual.pilot import Pilot
-from textual.widgets import DataTable, Input, Select, Static, Tooltip
+from textual.widgets import DataTable, Input, Select, Static
 
 import factories
 from app_harness import (
@@ -22,11 +22,7 @@ from app_harness import (
 )
 from dashpot.observation.issue_list import row_key
 from dashpot.ui.app import DashpotApp
-from dashpot.ui.issue_cells import (
-    AGENT_STATE_COLUMN_GLYPH,
-    ISSUE_STATE_COLUMN_GLYPH,
-    PriorityCell,
-)
+from dashpot.ui.issue_cells import PriorityCell
 from dashpot.ui.issue_table import DEFAULT_COLUMNS
 from dashpot.ui.issue_view import IssueScreen
 from dashpot.ui.list_pane import ListRow
@@ -761,51 +757,6 @@ async def test_arrows_cross_empty_lists_in_composed_order() -> None:
         for table in reversed(tables):
             await pilot.press("up")
             assert table.has_focus
-
-
-@pytest.mark.asyncio
-async def test_hovering_a_glyph_header_shows_its_meaning() -> None:
-    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
-    app = dashboard_app(SequenceCollector(snapshot))
-    # A zero delay divides by zero inside Textual's Timer; a short one is prompt.
-    app.TOOLTIP_DELAY = 0.01
-
-    # Tooltips are off under run_test unless asked for; without this the
-    # test would pass vacuously.
-    async with app.run_test(size=(100, 28), tooltips=True) as pilot:
-        await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
-        table = app.query_one("#queue", DataTable)
-        tooltip = app.screen.query_one(Tooltip)
-        widths = [column.get_render_width(table) for column in table.columns.values()]
-        issue_state_x = widths[0]
-        number_x = widths[0] + widths[1]
-
-        async def hover_table(x: int, y: int) -> None:
-            # Leave the table first: Textual hides a showing tooltip on any
-            # further move within the same widget without restarting the
-            # timer, so a fresh entry is what shows the next one.
-            assert await pilot.hover("#pull-request-search")
-            await wait_until(lambda: not tooltip.display)
-            assert await pilot.hover("#queue", offset=(x, y))
-            # The table offered its header's tooltip, now shown, or none.
-            await wait_until(lambda: tooltip.display or table.tooltip is None)
-
-        await hover_table(0, 0)
-        await wait_until(lambda: tooltip.display)
-        assert str(tooltip.content) == AGENT_STATE_COLUMN_GLYPH.meaning
-
-        await hover_table(issue_state_x, 0)
-        await wait_until(lambda: tooltip.display)
-        assert str(tooltip.content) == ISSUE_STATE_COLUMN_GLYPH.meaning
-
-        # Other headers and the cells beneath carry no tooltip.
-        await hover_table(number_x, 0)
-        assert not tooltip.display
-        assert table.tooltip is None
-        await hover_table(0, 1)
-        assert not tooltip.display
-        assert table.tooltip is None
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-30
-amended-by: 0040-summarize-integration-across-a-branch-rows-refs.md
+amended-by: 0040-summarize-integration-across-a-branch-rows-refs.md, 0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md
 ---
 
 # Derive the Legend from the Glyphs the panes render
@@ -74,6 +74,11 @@ is because its fill is the liveliness.
   marker `↑` are the one symbol the Legend lists with two meanings, read on
   surfaces where neither can be mistaken for the other; the single-meaning
   test names that pair as its only exemption.
+- Amended by
+  [ADR 0050](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md):
+  the Legend derives from the panes' column definitions as well as their
+  Glyph values, one section per column whether or not it renders a Glyph,
+  and an inventory test holds every column of every pane to it.
 - Severity Glyphs carry no colour of their own; they name the theme variable
   the alert and Diagnostics stylesheets use, so the Legend's swatch and the
   boxes stay in step without a second hex value.

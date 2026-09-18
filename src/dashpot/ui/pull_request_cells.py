@@ -1,7 +1,9 @@
 """The Pull Requests pane's rendered values: its columns, Glyphs and cells.
 
 Everything here turns a queried Pull Request into what the pane shows; the
-query itself lives in ``pull_request_list``.
+query itself lives in ``pull_request_list``. Each column carries its own
+Column Description and the Glyphs its cells render, from which its header
+tooltip and Legend section are built.
 """
 
 from __future__ import annotations
@@ -76,17 +78,71 @@ LEGEND = STATE_LEGEND + REVIEW_LEGEND + CHECKS_LEGEND + MERGE_LEGEND
 TITLE_LIMIT = 56
 BRANCH_LIMIT = 32
 
+# What each column shows, said once for the header tooltip and the Legend.
+# Every fact is GitHub's answer as of the page's query, so REVIEW, CHECKS
+# and MERGE each say what they establish and what they leave to the base
+# Branch's protection rules, which the pane does not observe.
+STATE_DESCRIPTION = (
+    "the Pull Request's lifecycle as GitHub reports it: open, draft, closed "
+    "without merging, or merged, a closed draft keeping the word draft; the "
+    "pane's Open/Closed/All filter selects by it"
+)
+NUMBER_DESCRIPTION = "the Pull Request's number in its Repository"
+TITLE_DESCRIPTION = f"the Pull Request's title, clipped past {TITLE_LIMIT} characters"
+HEAD_DESCRIPTION = (
+    "the Branch the Pull Request proposes, by the head ref name GitHub "
+    "reports, which does not say whether a fork holds it; clipped past "
+    f"{BRANCH_LIMIT} characters"
+)
+BASE_DESCRIPTION = (
+    "the Branch the Pull Request would merge into, clipped past "
+    f"{BRANCH_LIMIT} characters"
+)
+AUTHOR_DESCRIPTION = (
+    "the login that opened the Pull Request, or - when GitHub reports none, "
+    "as for a deleted account"
+)
+REVIEW_DESCRIPTION = (
+    "GitHub's review decision: approved, changes requested, or review "
+    "required by the base Branch's protection rules; none when GitHub "
+    "reports no decision. It reports the reviews' standing, not whether "
+    "the Pull Request may merge"
+)
+CHECKS_DESCRIPTION = (
+    "the combined result of the head commit's checks and commit statuses, as "
+    "GitHub rolls them up: passing, pending, failing, error, or expected but "
+    "not yet reported; none when nothing reports on the commit. It is the "
+    "latest result, not a gate: whether it blocks merging is the base "
+    "Branch's protection"
+)
+MERGE_DESCRIPTION = (
+    "whether GitHub can merge the head into the base without conflicts: "
+    "mergeable, conflicts, or calculating while GitHub is still determining "
+    "it; n/a for a closed or merged Pull Request. It says nothing about "
+    "reviews, checks, or the base Branch's other rules"
+)
+UPDATED_DESCRIPTION = (
+    "the age of the Pull Request's last update on GitHub, which any edit, "
+    "comment, review, or push moves, as of the page's query, or - when the "
+    "page reports no usable time; the pane border carries the page's own "
+    "freshness"
+)
+
 PULL_REQUEST_COLUMNS: tuple[ListColumn, ...] = (
-    ListColumn("state", "STATE"),
-    ListColumn("number", "#", justify="right"),
-    ListColumn("title", "TITLE"),
-    ListColumn("head", "HEAD"),
-    ListColumn("base", "BASE"),
-    ListColumn("author", "AUTHOR"),
-    ListColumn("review", "REVIEW"),
-    ListColumn("checks", "CHECKS"),
-    ListColumn("merge", "MERGE"),
-    ListColumn("updated", "UPDATED"),
+    ListColumn("state", "STATE", description=STATE_DESCRIPTION, glyphs=STATE_LEGEND),
+    ListColumn("number", "#", justify="right", description=NUMBER_DESCRIPTION),
+    ListColumn("title", "TITLE", description=TITLE_DESCRIPTION),
+    ListColumn("head", "HEAD", description=HEAD_DESCRIPTION),
+    ListColumn("base", "BASE", description=BASE_DESCRIPTION),
+    ListColumn("author", "AUTHOR", description=AUTHOR_DESCRIPTION),
+    ListColumn(
+        "review", "REVIEW", description=REVIEW_DESCRIPTION, glyphs=REVIEW_LEGEND
+    ),
+    ListColumn(
+        "checks", "CHECKS", description=CHECKS_DESCRIPTION, glyphs=CHECKS_LEGEND
+    ),
+    ListColumn("merge", "MERGE", description=MERGE_DESCRIPTION, glyphs=MERGE_LEGEND),
+    ListColumn("updated", "UPDATED", description=UPDATED_DESCRIPTION),
 )
 
 

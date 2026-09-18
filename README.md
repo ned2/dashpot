@@ -121,7 +121,7 @@ the management commands `init`, `integrate`,
 | `c` | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, highlighting the first row in the newly focused pane |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
-| `?` | Open the Legend: every Glyph, every Branches column's description, and the keys; `Escape` closes. Resting the mouse on a Branches header, or the Issues `◉` / `◈` headers, shows the same description as a tooltip |
+| `?` | Open the Legend: every column's description with its Glyphs, pane by pane, and the keys; `Escape` closes, `End` and `Home` scroll. Resting the mouse on any column header shows the same description as a tooltip |
 | `q` | Quit |
 
 Entering a pane highlights its first row and scrolls it into view. Passive
@@ -247,7 +247,8 @@ The columns are `STATE`, `#`, `TITLE`, `HEAD`, `BASE`, `AUTHOR`, `REVIEW`,
 Issues, with GitHub's foreground colours: green for open, grey for draft, red
 for closed without merging, and purple for merged. State labels remain visible,
 including closed drafts. Mergeability is not applicable after closure. The
-Legend explains the Glyphs, and long content scrolls horizontally.
+Legend and the header tooltips explain every column and its Glyphs, and long
+content scrolls horizontally.
 
 Complete history is collected only by explicit `--json` / `--compact-json`
 Workspace Snapshot export, using repository pagination under a Refresh Budget.
@@ -834,9 +835,12 @@ records why query and complete-collection adapters retain distinct contracts,
 and [ADR 0047](docs/adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)
 why the dashboard screen stays one Textual adapter.
 [ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)
-records which Python 3.13 typing backports the 3.12 baseline adopts, and
+records which Python 3.13 typing backports the 3.12 baseline adopts,
 [ADR 0049](docs/adr/0049-interrupt-observation-commands-at-dashboard-exit.md)
-why quitting interrupts the observation commands in flight.
+why quitting interrupts the observation commands in flight, and
+[ADR 0050](docs/adr/0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md)
+why every pane column describes itself once for both its header tooltip and
+the Legend.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

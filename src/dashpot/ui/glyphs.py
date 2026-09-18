@@ -51,13 +51,15 @@ class Glyph:
 
 @dataclass(frozen=True, slots=True)
 class LegendSection:
-    """The Glyphs one column of one pane renders, in the order they are ranked."""
+    """One Legend entry: a pane column's Glyphs, ranked, and its Column Description.
+
+    A section that is not a column, such as a pane's key actions, names
+    itself in ``column`` and carries no Glyphs.
+    """
 
     pane: str
     column: str
     glyphs: tuple[Glyph, ...]
-    # What the column shows around the Glyph, when the symbol is not the
-    # whole cell.
     note: str | None = None
 
 

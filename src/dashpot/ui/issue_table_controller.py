@@ -36,6 +36,7 @@ from .issue_table import (
     shown_columns,
 )
 from .keyed_table import capture_selection, restore_selection
+from .list_rows import column_help
 from .panes import LIST_PANE_SPECS
 from .spread_table import SpreadTable
 
@@ -102,7 +103,7 @@ class IssueTableController:
                 key=column.key,
                 width=ACTIVITY_WIDTH if column.key == "agent_state" else None,
                 spread_weight=column.spread_weight,
-                tooltip=column.tooltip,
+                tooltip=column_help(column),
             )
 
     def column_label(self, name: ColumnKey) -> Text:

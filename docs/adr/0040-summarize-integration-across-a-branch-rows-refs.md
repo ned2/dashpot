@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-13
+amended-by: 0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md
 ---
 
 # Summarize integration across a Branch row's refs
@@ -121,3 +122,9 @@ unchanged. Hovering, opening the Legend and refreshing remain passive.
   remote-only rows it replaces; and ADR 0010, whose single-meaning rule now
   admits the shared `↑`. Per-ref assessment under those decisions is
   unchanged.
+- Amended by
+  [ADR 0050](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md):
+  the Issues tooltips are no longer unchanged. Every pane's columns, the
+  Issue table's included, carry the Column Description this decision gave
+  the Branches columns, through one `DescribedColumn` seam, and the Legend
+  lists every column of every pane.
