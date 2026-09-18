@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 from rich.text import Text
+from textual.containers import VerticalScroll
 from textual.content import Content
 from textual.dom import DOMNode
 from textual.style import Style
@@ -37,6 +38,7 @@ from dashpot.ui.app import DashpotApp, legend_keys
 from dashpot.ui.column_editor import IssueColumnEditor
 from dashpot.ui.detail_fields import DetailFields, detail_items_text
 from dashpot.ui.issue_cells import IssueStateCell
+from dashpot.ui.issue_table import COLUMN_SPECS
 from dashpot.ui.issue_view import (
     IssueScreen,
     issue_byline,
@@ -45,7 +47,9 @@ from dashpot.ui.issue_view import (
     issue_state_class,
 )
 from dashpot.ui.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
-from helpers import wait_until
+from dashpot.ui.list_pane import ISSUE_PANE_LABEL
+from dashpot.ui.panes import LIST_PANE_SPECS
+from helpers import required, wait_until
 
 
 @pytest.mark.parametrize(
@@ -794,6 +798,57 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, LegendScreen))
         assert app.query_one("#sessions", DataTable).has_focus
+
+
+@pytest.mark.asyncio
+async def test_the_legend_scrolls_through_every_column_description() -> None:
+    """The keyboard reads every column's help without a mouse to hover with."""
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First")))
+    )
+
+    async with app.run_test(size=(100, 30)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await pilot.pause()
+        await pilot.press("question_mark")
+        await wait_until(lambda: isinstance(app.screen, LegendScreen))
+        screen = app.screen
+        dialog = screen.query_one("#legend-dialog", VerticalScroll)
+        sections = list(screen.query(".legend-section"))
+        rendered = [str(section.render()) for section in sections]
+
+        # Every column of every pane, shown or not, is explained in its own
+        # section under its pane and column, as its header tooltip is.
+        for pane, columns in (
+            *((spec.label, spec.columns) for spec in LIST_PANE_SPECS),
+            (ISSUE_PANE_LABEL, COLUMN_SPECS),
+        ):
+            for column in columns:
+                index = LEGEND.index(
+                    next(
+                        section
+                        for section in LEGEND
+                        if section.pane == pane and section.column == column.label
+                    )
+                )
+                assert rendered[index].endswith(required(column.description)), (
+                    pane,
+                    column.label,
+                )
+        # More than fits, so the dialog scrolls; End reaches the keys at the
+        # bottom and Home returns to the first pane.
+        assert dialog.has_focus
+        assert dialog.max_scroll_y > 0
+        assert dialog.scroll_y == 0
+        await pilot.press("end")
+        await wait_until(lambda: dialog.scroll_y == dialog.max_scroll_y)
+        last = screen.query(".legend-heading").last()
+        assert str(last.render()).startswith("KEYS")
+        assert last.region.y < dialog.region.bottom
+        await pilot.press("home")
+        await wait_until(lambda: dialog.scroll_y == 0)
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, LegendScreen))
 
 
 @pytest.mark.asyncio

@@ -1,16 +1,18 @@
-"""The Legend: every Glyph the main screen renders, explained where it is seen.
+"""The Legend: every column and Glyph the main screen renders, explained.
 
-The Legend is generated from the Glyph values the panes render with, so it is
-never a second list to keep in step. Its sections follow the main screen top
-to bottom and name the column a Glyph appears in, because the reader's
-question is always about the cell in front of them. The Branches sections
-are the pane's own column definitions, whose descriptions and Glyphs the
-header tooltips read too.
+The Legend is generated from the same column definitions the panes build
+their tables from and the same Glyph values their cells render with, so it
+is never a second list to keep in step. Its sections follow the main screen
+top to bottom, one per column of each pane whether or not the column
+renders a Glyph, because the reader's question is always about the cell in
+front of them; each section is the column's Column Description, which its
+header tooltip reads too. The Issue table's optional columns are listed
+whether or not they are shown.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, override
 
@@ -22,16 +24,10 @@ from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from . import alerts, issue_cells, pull_request_cells
+from . import alerts, issue_cells
 from .branch_cells import BRANCH_COLUMNS
-from .glyphs import (
-    ACTIVITY_COLUMN_GLYPH,
-    ACTIVITY_LEGEND,
-    MEANING_GUTTER,
-    Glyph,
-    LegendSection,
-    align_symbols,
-)
+from .glyphs import MEANING_GUTTER, Glyph, LegendSection, align_symbols
+from .issue_table import COLUMN_SPECS, DEFAULT_COLUMNS
 from .list_pane import (
     BRANCHES_PANE_LABEL,
     ISSUE_PANE_LABEL,
@@ -39,15 +35,19 @@ from .list_pane import (
     SESSIONS_PANE_LABEL,
     WORKTREES_PANE_LABEL,
 )
-from .worktree_cells import activity_description, sessions_description
+from .list_rows import DescribedColumn
+from .pull_request_cells import PULL_REQUEST_COLUMNS
+from .session_cells import SESSION_COLUMNS
+from .worktree_cells import WORKTREE_COLUMNS
 
 DIAGNOSTICS_LABEL = "ALERT · DIAGNOSTICS"
 KEYS_LABEL = "KEYS"
-SESSIONS_COUNT_NOTE = (
-    f"the activity Glyph shows {activity_description('here')}; the next "
-    f"SESSIONS column shows {sessions_description('here')}"
-)
-AGENT_STATE_NOTE = "the liveliest explicitly bound Agent Run; blank when none"
+RELATED_ROWS_LABEL = "RELATED ROWS"
+# The sections that are not one column: a pane's keys, the Issue table's
+# choice of columns, and the emphasis the panes share.
+WORKTREE_ACTIONS_SECTION = "x · Enter · y"
+ISSUE_COLUMNS_SECTION = "column headers"
+RELATED_ROWS_SECTION = "emphasis"
 RELATED_ROWS_NOTE = (
     "Sessions, Worktrees, Branches, and Issues emphasize direct relationships "
     "from the focused cursor with a background and bold identifying cells "
@@ -61,51 +61,68 @@ RELATED_ROWS_NOTE = (
     "Other cursors, filters, scroll positions, activity Glyphs, and counts stay "
     "unchanged; selection performs no observation or mutation"
 )
-WORKTREE_SESSIONS_NOTE = (
-    f"{SESSIONS_COUNT_NOTE}; x removes a linked Worktree only when it is clean, "
-    "unlocked, and no Agent Session or Agent Run is here, and retains its Branch "
-    "unless that is selected too; the primary Worktree needs no checkbox, and f "
-    "fetches and rebuilds the preview before confirmation; Enter opens the selected Worktree in tmux or a "
-    "custom launcher, and y sends its full path to the terminal clipboard"
+WORKTREE_ACTIONS_NOTE = (
+    "x removes a linked Worktree only when it is clean, unlocked, and no Agent "
+    "Session or Agent Run is here, and retains its Branch unless that is "
+    "selected too; the primary Worktree needs no checkbox, and f fetches and "
+    "rebuilds the preview before confirmation; Enter opens the selected "
+    "Worktree in tmux or a custom launcher, and y sends its full path to the "
+    "terminal clipboard"
 )
 
+
+def _issue_columns_note() -> str:
+    """What the Issue headers and c offer, listing the columns by default and on request."""
+    default = [
+        spec.label
+        for spec in COLUMN_SPECS
+        if spec.key in DEFAULT_COLUMNS and spec.key != "agent_state"
+    ]
+    optional = [spec.label for spec in COLUMN_SPECS if spec.key not in DEFAULT_COLUMNS]
+    return (
+        "a marked header orders the page by its column when selected, and again "
+        "reverses it, where the Issue Source can order by that column; c chooses "
+        f"and orders the columns after {issue_cells.AGENT_STATE_COLUMN_GLYPH.symbol}, "
+        f"which are {', '.join(default)} until chosen otherwise and "
+        f"{', '.join(optional)} on request"
+    )
+
+
+ISSUE_COLUMNS_NOTE = _issue_columns_note()
+
+
+def column_sections(
+    pane: str, columns: Iterable[DescribedColumn]
+) -> tuple[LegendSection, ...]:
+    """One Legend section per column, from the column's own definition.
+
+    The section's Glyph lines and note are the column's Column Description,
+    which is also what its header tooltip reads, so neither can drift.
+    """
+    return tuple(
+        LegendSection(pane, column.label, column.glyphs, column.description)
+        for column in columns
+    )
+
+
 LEGEND: tuple[LegendSection, ...] = (
+    *column_sections(SESSIONS_PANE_LABEL, SESSION_COLUMNS),
+    *column_sections(WORKTREES_PANE_LABEL, WORKTREE_COLUMNS),
     LegendSection(
-        SESSIONS_PANE_LABEL,
-        ACTIVITY_COLUMN_GLYPH.symbol,
-        ACTIVITY_LEGEND,
-        RELATED_ROWS_NOTE,
+        WORKTREES_PANE_LABEL, WORKTREE_ACTIONS_SECTION, (), WORKTREE_ACTIONS_NOTE
     ),
-    LegendSection(
-        WORKTREES_PANE_LABEL,
-        ACTIVITY_COLUMN_GLYPH.symbol,
-        ACTIVITY_LEGEND,
-        WORKTREE_SESSIONS_NOTE,
-    ),
-    # Every Branches column, Glyphs or not, in the order the pane shows them:
-    # the section is the column's own definition, as its header tooltip is.
-    *(
-        LegendSection(
-            BRANCHES_PANE_LABEL, column.label, column.glyphs, column.description
-        )
-        for column in BRANCH_COLUMNS
-    ),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "STATE", pull_request_cells.STATE_LEGEND),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "REVIEW", pull_request_cells.REVIEW_LEGEND),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "CHECKS", pull_request_cells.CHECKS_LEGEND),
-    LegendSection(PULL_REQUESTS_PANE_LABEL, "MERGE", pull_request_cells.MERGE_LEGEND),
+    *column_sections(BRANCHES_PANE_LABEL, BRANCH_COLUMNS),
+    *column_sections(PULL_REQUESTS_PANE_LABEL, PULL_REQUEST_COLUMNS),
+    # Every Issue table column, chosen or not: the Legend is where a person
+    # learns what a column they have not shown would tell them.
+    *column_sections(ISSUE_PANE_LABEL, COLUMN_SPECS),
     LegendSection(
         ISSUE_PANE_LABEL,
-        issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol,
-        issue_cells.LEGEND_ISSUE_STATE,
+        ISSUE_COLUMNS_SECTION,
+        issue_cells.LEGEND_SORT,
+        ISSUE_COLUMNS_NOTE,
     ),
-    LegendSection(
-        ISSUE_PANE_LABEL,
-        issue_cells.AGENT_STATE_COLUMN_GLYPH.symbol,
-        issue_cells.LEGEND_AGENT_STATE,
-        AGENT_STATE_NOTE,
-    ),
-    LegendSection(ISSUE_PANE_LABEL, "column headers", issue_cells.LEGEND_SORT),
+    LegendSection(RELATED_ROWS_LABEL, RELATED_ROWS_SECTION, (), RELATED_ROWS_NOTE),
     LegendSection(DIAGNOSTICS_LABEL, "severity", alerts.LEGEND),
 )
 
@@ -175,7 +192,7 @@ def section_text(
 
 
 class LegendScreen(ModalScreen[None]):
-    """Explain every Glyph and key binding without leaving the keyboard."""
+    """Explain every column, Glyph and key binding without leaving the keyboard."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("escape", "close", "Close"),

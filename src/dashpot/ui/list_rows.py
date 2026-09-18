@@ -20,14 +20,32 @@ ListCell = str | Text
 ELLIPSIS = "…"
 
 
+class DescribedColumn(Protocol):
+    """What one column of any pane says about itself: its Column Description.
+
+    ``label`` heads the column, ``description`` says what it shows, and
+    ``glyphs`` are the Glyphs its cells render, in Legend order. The header
+    tooltip and the Legend's section for the column are both built from
+    these fields, so neither can drift from the other. The list panes'
+    ``ListColumn`` and the Issue table's ``ColumnSpec`` both carry them.
+    """
+
+    @property
+    def label(self) -> str: ...
+
+    @property
+    def description(self) -> str | None: ...
+
+    @property
+    def glyphs(self) -> tuple[Glyph, ...]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ListColumn:
     """One pane column: its identity, heading, layout, and what it means.
 
-    ``description`` says what the column shows, and ``glyphs`` are the
-    Glyphs its cells render, in Legend order. The header tooltip and the
-    Legend's section for the column are both built from these two fields,
-    so neither can drift from the other.
+    ``description`` and ``glyphs`` are the column's Column Description, as
+    ``DescribedColumn`` reads it.
     """
 
     key: str
@@ -39,7 +57,7 @@ class ListColumn:
     glyphs: tuple[Glyph, ...] = ()
 
 
-def column_help(column: ListColumn) -> str | None:
+def column_help(column: DescribedColumn) -> str | None:
     """The column's description with its Glyph meanings, for a header tooltip.
 
     Nothing when the column carries no description: a Glyph alone is

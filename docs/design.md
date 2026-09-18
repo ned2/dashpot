@@ -315,41 +315,62 @@ fetches and prunes that anchor's remotes on request
 ([ADR 0014](adr/0014-fetch-remotes-on-explicit-key-press.md)).
 
 The panes trade words for Glyphs to stay narrow, and `?` opens the Legend
-that explains every one of them ([`legend.py`](../src/dashpot/ui/legend.py)). Its
-sections follow the screen top to bottom and name the column a Glyph appears
-in: the Sessions family `●` running, `◐` waiting and `○` unknown (also
-leading the Agent Session count in the Branches and Worktrees `SESSIONS`
-columns), the Branches presence, `UPSTREAM`, and `INTEGRATED` vocabularies
-above, the Issues table's `◉` Issue
-state column (`■` in the state colour: open, completed, not planned or
-duplicate), its `◈` Agent Run state column (the Sessions family's `●`
-running, `◐` waiting and `○` unknown, blank for no Agent Run), the `↕ ↑ ↓`
-sort markers on its headers,
-and the `✖` error, `⚠` warning and `↻` observation severities the alert line
-and Diagnostics share. The Legend is generated from the `Glyph` values the
-cells render with ([`glyphs.py`](../src/dashpot/ui/glyphs.py)), each pane owning
-its own vocabulary, and a test scans the source for any symbol the Legend
-does not explain, so a Glyph cannot be added without appearing there and no
-symbol carries two meanings
+that explains every column and every Glyph
+([`legend.py`](../src/dashpot/ui/legend.py)). Its sections follow the screen
+top to bottom, one per column of each pane — Sessions, Worktrees, Branches,
+Pull Requests, and the Issue table, its optional columns included whether or
+not they are chosen — each headed by the pane and the column and holding the
+column's Column Description: the Glyphs its cells render, one line each in
+the colour the cell shows, followed by what the column reports. So the
+Sessions family `●` running, `◐` waiting and `○` unknown appears under the
+Sessions `◈` column, which describes the session's own state, and again
+under the Worktrees, Branches, and Issues `◈` columns, which describe the
+liveliest located Agent Session or, for Issues, the liveliest explicitly
+bound Agent Run — one Glyph vocabulary, four facts, each named where it is
+seen. The Branches presence, `UPSTREAM`, and `INTEGRATED` vocabularies, the
+Pull Requests `STATE`, `REVIEW`, `CHECKS`, and `MERGE` vocabularies, the
+Issues `◉` Issue state column (`■` in the state colour: open, completed, not
+planned or duplicate) sit under their columns the same way, and the `✖`
+error, `⚠` warning and `↻` observation severities the alert line and
+Diagnostics share close the list. What is not a column has a section of
+its own: the Worktrees pane's `x · Enter · y` actions, the Issues
+`column headers` note that carries the `↕ ↑ ↓` sort markers and lists the
+columns `c` can add, and the relationship emphasis under `RELATED ROWS`. The Legend is generated from the same column
+definitions the panes build their tables from and the `Glyph` values the
+cells render with ([`glyphs.py`](../src/dashpot/ui/glyphs.py)), each pane
+owning its own vocabulary; a test scans the source for any symbol the
+Legend does not explain, so a Glyph cannot be added without appearing there
+and no symbol carries two meanings
 ([ADR 0010](adr/0010-derive-the-legend-from-rendered-glyphs.md)) — save the
 `↑` that the Branches `INTEGRATED` cell and the Issues sort marker share,
 each read on its own surface
-([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)). Its
-mouse complement is a header tooltip, offered by the shared
+([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)) —
+and an inventory test reads the pane specs and the Issue column catalogue,
+so a column declared without a description or missing from the Legend fails
+the gate
+([ADR 0050](adr/0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md)).
+Its mouse complement is a header tooltip, offered by the shared
 `FocusCursorTable` ([`focus_table.py`](../src/dashpot/ui/focus_table.py)) from
 the segment meta the header render stamps, so it follows the hovered header
-through scrolling and column redeclaration and clears over the body and on
-leaving: the Issues table's `◉` and `◈` headers read the same
-`Glyph.meaning` the Legend shows, and every Branches header reads its
-column's description and Glyph meanings from the same `ListColumn` the
-Legend's Branches sections are built from, so neither can drift. The Legend
-lists all eight Branches columns, Glyphs or not. It also lists every shipped
-key, grouped by where it is pressed — the dashboard with its `Tab` focus
-cycle, the Worktrees pane, and each modal screen — and a test holds it to
-every `BINDINGS` under `ui/`; the Branches `INTEGRATED` and Worktrees
-`SESSIONS` notes say what `x` checks — the `INTEGRATED` note distinguishing the row summary from
-the Cleanup preview's per-target checks — where the person deciding what to
-delete reads it. See
+through scrolling, resizing, column choice and redeclaration, and the
+conditional `PRIORITY` column, and clears over the body and on leaving.
+Every header of every pane reads its column's description and Glyph
+meanings from the same definition its Legend section is built from — the
+list panes' `ListColumn` and the Issue table's `ColumnSpec` through the
+`DescribedColumn` protocol in
+[`list_rows.py`](../src/dashpot/ui/list_rows.py) — so neither can drift.
+The descriptions are derived from the read models: each names the absent or
+unknown value (`-`, `detached`, `no active Issue work`, `not fetched`,
+`n/a`), which time an `ACTIVITY` or `UPDATED` age or a `LAST ACTION` date
+names, and how fresh the fact is, and the Pull Requests `REVIEW`, `CHECKS`,
+and `MERGE` descriptions say what each observation establishes and what it
+leaves to the base Branch's protection rules. The Legend also lists every
+shipped key, grouped by where it is pressed — the dashboard with its `Tab`
+focus cycle, the Worktrees pane, and each modal screen — and a test holds
+it to every `BINDINGS` under `ui/`; the Branches `INTEGRATED` description
+and the Worktrees actions note say what `x` checks — the `INTEGRATED` one
+distinguishing the row summary from the Cleanup preview's per-target
+checks — where the person deciding what to delete reads it. See
 [`textual-implementation-notes.md`](textual-implementation-notes.md) for
 the framework research behind the current implementation.
 

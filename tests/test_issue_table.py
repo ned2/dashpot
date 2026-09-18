@@ -19,6 +19,8 @@ from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.ui.issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
+    LEGEND_AGENT_STATE,
+    LEGEND_ISSUE_STATE,
     IssueNumberCell,
     IssueStateCell,
     LabelsCell,
@@ -27,6 +29,7 @@ from dashpot.ui.issue_cells import (
     date_cell,
 )
 from dashpot.ui.issue_table import (
+    COLUMN_SPECS,
     COLUMNS_BY_KEY,
     DEFAULT_COLUMNS,
     TITLE_LIMIT,
@@ -35,7 +38,8 @@ from dashpot.ui.issue_table import (
     searchable_columns,
     shown_columns,
 )
-from helpers import snapshot_of
+from dashpot.ui.list_rows import column_help
+from helpers import required, snapshot_of
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -479,10 +483,23 @@ def test_project_with_only_closed_issues_has_no_open_issues_row() -> None:
     assert cells == {}
 
 
-def test_glyph_header_tooltips_are_the_meanings_the_legend_shows() -> None:
-    assert COLUMNS_BY_KEY["issue_state"].tooltip == ISSUE_STATE_COLUMN_GLYPH.meaning
-    assert COLUMNS_BY_KEY["agent_state"].tooltip == AGENT_STATE_COLUMN_GLYPH.meaning
-    assert {key for key, spec in COLUMNS_BY_KEY.items() if spec.tooltip} == {
+def test_every_column_help_is_its_description_and_the_legend_glyphs() -> None:
+    """A header tooltip is the column's own definition, Glyph columns included."""
+    for spec in COLUMN_SPECS:
+        help_text = column_help(spec)
+        assert help_text is not None
+        assert help_text.startswith(spec.description), spec.key
+    assert {spec.key for spec in COLUMN_SPECS if spec.glyphs} == {
         "issue_state",
         "agent_state",
     }
+    assert COLUMNS_BY_KEY["issue_state"].glyphs == LEGEND_ISSUE_STATE
+    assert COLUMNS_BY_KEY["agent_state"].glyphs == LEGEND_AGENT_STATE
+    agent_help = required(column_help(COLUMNS_BY_KEY["agent_state"]))
+    assert ISSUE_STATE_COLUMN_GLYPH.meaning in required(
+        column_help(COLUMNS_BY_KEY["issue_state"])
+    )
+    assert AGENT_STATE_COLUMN_GLYPH.meaning in agent_help
+    # The Issue column summarizes bound Agent Runs, which its help says.
+    assert "Issue Binding" in agent_help
+    assert f"clipped past {TITLE_LIMIT}" in COLUMNS_BY_KEY["title"].description

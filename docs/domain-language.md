@@ -404,11 +404,15 @@ or mutates Issue work.
 _Avoid_: icon or symbol for the value; the symbol is one field of a Glyph
 
 **Legend**:
-The listing of every Glyph the main screen renders, generated from the same
-`Glyph` values the cells render, organised by the pane and column the Glyph
-appears in and reachable with `?` from inside the app. Its Branches sections
-are that pane's Column Descriptions, one per column whether or not the
-column renders a Glyph.
+The listing of every column and every Glyph the main screen renders,
+generated from the same column definitions the panes build their tables
+from and the same `Glyph` values the cells render, organised by pane and
+column and reachable with `?` from inside the app. Each pane's sections are
+its Column Descriptions, one per column whether or not the column renders a
+Glyph and whether or not an optional Issue column is currently shown; what
+is not a column — the Worktrees pane's actions, the Issue table's choice of
+columns, relationship emphasis — has a section of its own
+([ADR 0050](adr/0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md)).
 _Avoid_: help screen; the Legend also lists the keys, but it explains what is
 on screen rather than how to use the app
 
@@ -417,9 +421,17 @@ What one pane column shows, declared once on the column beside the Glyphs
 its cells render, and read by both the column's header tooltip and its
 Legend section, so the mouse and the keyboard are told the same thing from
 one source
-([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)).
+([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md),
+[ADR 0050](adr/0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md)).
+It is derived from the read model and the cell, not from the label: it says
+what the observed value is, what its absent or unknown value means, which
+time an age names, and how fresh the fact is. Every column of every pane
+carries one, the list panes' `ListColumn` and the Issue table's
+`ColumnSpec` alike, through the `DescribedColumn` protocol.
 _Avoid_: tooltip text or Legend note as a separate string; each is a
-presentation of the Column Description
+presentation of the Column Description. A description shared between
+columns that show different facts, such as the activity column's located
+Agent Sessions and the Issue table's bound Agent Runs
 
 ## Source queries
 
