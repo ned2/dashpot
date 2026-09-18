@@ -113,6 +113,14 @@ def fetch_remotes(anchor: Path, *, git: Git) -> FetchReport:
 
 
 def remote_fetcher(timeout: float) -> RemoteFetcher:
-    """The production fetcher: a non-interactive Git adapter with Dashpot's timeout."""
-    git = Git(Path.cwd(), timeout, non_interactive_runner(FETCH_ENVIRONMENT))
+    """The production fetcher: a non-interactive Git adapter with Dashpot's timeout.
+
+    A Remote Fetch is a named mutation, so a dashboard exit lets it finish
+    rather than interrupting it as it would an observation.
+    """
+    git = Git(
+        Path.cwd(),
+        timeout,
+        non_interactive_runner(FETCH_ENVIRONMENT, interruptible=False),
+    )
     return lambda anchor: fetch_remotes(anchor, git=git)

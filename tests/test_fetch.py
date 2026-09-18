@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import os
 import sys
+from contextvars import copy_context
 from pathlib import Path
 
-from dashpot.core.commands import CommandError, non_interactive_runner
+from dashpot.core.commands import CommandError, RunningCommands, non_interactive_runner
 from dashpot.core.git import Git
-from dashpot.repository.fetch import FETCH_ENVIRONMENT, fetch_remotes, remote_fetcher
+from dashpot.repository.fetch import (
+    FETCH_ENVIRONMENT,
+    FetchReport,
+    fetch_remotes,
+    remote_fetcher,
+)
 from factories import SequenceRunner, completed
 
 
@@ -147,4 +153,24 @@ def test_the_production_fetcher_fetches_at_the_anchor_it_is_given(
     report = remote_fetcher(timeout=10)(anchor)
 
     assert report.anchor == str(anchor)
+    assert report.refusal == "no remote is configured"
+
+
+def test_the_production_fetcher_finishes_through_a_dashboard_exit(
+    tmp_path: Path,
+) -> None:
+    # A Remote Fetch is a named mutation: on a thread whose registry an exit
+    # has closed, it still runs Git rather than being refused.
+    anchor = tmp_path / "repo"
+    anchor.mkdir()
+    Git(anchor).text("init", "-q")
+    running = RunningCommands()
+    running.interrupt()
+
+    def fetch() -> FetchReport:
+        running.adopt()
+        return remote_fetcher(timeout=10)(anchor)
+
+    report = copy_context().run(fetch)
+
     assert report.refusal == "no remote is configured"

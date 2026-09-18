@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-17
+date: 2026-09-18
 ---
 
 # Textual implementation notes for Dashpot
@@ -194,6 +194,15 @@ API](https://textual.textualize.io/api/message_pump/#textual.message_pump.Messag
 On normal app exit, Textual cancels workers tied to the app/DOM node. Still retain
 collector command timeouts and cancellation checks because executor work is not
 force-cancellable. [Workers: lifetime](https://textual.textualize.io/guide/workers/#worker-lifetime)
+
+Nor does shutting the executor down release a thread inside a command, and
+interpreter exit joins every pool thread, so a `git` or `gh` child in flight at
+quit would hold the process open until it finished. What holds the thread is the
+child, so `on_unmount()` also interrupts the running observation and query
+commands through the app's `RunningCommands` registry in `core/commands.py`,
+which both pools' threads adopt as they start, after shutting the pools down;
+the registry stays closed, and a confirmed mutation opts out and finishes
+([ADR 0049](adr/0049-interrupt-observation-commands-at-dashboard-exit.md)).
 
 ## Updating the `DataTable`
 

@@ -11,10 +11,10 @@ store write goes through a method that advances the store's revision.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import TYPE_CHECKING
 
+from ..core.commands import RunningCommands, start_pool
 from ..observation.paged_store import PagedObservationStore
 from ..queries.page_navigation import PageNavigation, PageTicket
 from ..queries.source_queries import (
@@ -44,6 +44,8 @@ class PageRunner:
         sources: Mapping[str, QuerySource],
         store: PagedObservationStore,
         host: OffLoopHost,
+        *,
+        running: RunningCommands | None = None,
     ) -> None:
         self.sources = dict(sources)
         self.store = store
@@ -51,8 +53,10 @@ class PageRunner:
         self.navigation: dict[ResourceKind, PageNavigation] = {
             kind: PageNavigation(QueryRequest(kind=kind)) for kind in PAGED_KINDS
         }
-        self.executor = ThreadPoolExecutor(
-            max_workers=len(QUERY_SOURCE_KEYS), thread_name_prefix="dashpot-query"
+        self.executor = start_pool(
+            running,
+            max_workers=len(QUERY_SOURCE_KEYS),
+            thread_name_prefix="dashpot-query",
         )
         self.busy: set[str] = set()
         # Only the latest request for a busy key is worth running once the

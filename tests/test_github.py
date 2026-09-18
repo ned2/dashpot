@@ -5,9 +5,17 @@ from __future__ import annotations
 import json
 import threading
 import unittest
+from collections.abc import Mapping, Sequence
+from contextvars import copy_context
 from pathlib import Path
+from typing import Any
 
-from dashpot.core.commands import CommandError, CommandResult
+from dashpot.core.commands import (
+    CommandError,
+    CommandResult,
+    RunningCommands,
+    adopted_commands,
+)
 from dashpot.github.github import (
     CursorTrail,
     GitHubGateway,
@@ -328,6 +336,27 @@ class ManyRequestsTests(unittest.TestCase):
             gate.graphql_many(QUERY, [{"n": str(n)} for n in range(6)])
 
         self.assertEqual("github-timeout", caught.exception.code)
+
+    def test_each_request_runs_in_the_calling_threads_context(self) -> None:
+        # The registry a dashboard exit interrupts reaches a thread through
+        # its context, so the fanned-out requests must carry the caller's.
+        running = RunningCommands()
+        seen: list[RunningCommands | None] = []
+        answer = completed(json.dumps({"data": {"n": "0"}}))
+
+        def runner(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+            seen.append(adopted_commands())
+            return answer
+
+        gate = GitHubGateway(Path("/repo"), runner=runner)
+
+        def ask() -> list[Mapping[str, Any]]:
+            running.adopt()
+            return gate.graphql_many(QUERY, [{"n": "0"}] * 6)
+
+        self.assertEqual(6, len(copy_context().run(ask)))
+        self.assertEqual([running] * 6, seen)
+        self.assertIsNone(adopted_commands())
 
 
 class CursorTrailTests(unittest.TestCase):
