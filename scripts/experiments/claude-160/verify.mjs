@@ -6,13 +6,14 @@ import { readFileSync } from "node:fs";
 
 const tracePath = process.argv[2];
 assert(tracePath, "Pass the trace.jsonl path");
+const expectedVersion = process.argv[3] ?? "2.1.276";
 const records = readFileSync(tracePath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 const of = (kind) => records.filter((record) => record.kind === kind);
 const hooks = of("hook");
 const commands = of("command").filter((record) => record.phase === "start");
 const environment = records[0];
 assert.equal(environment.kind, "environment");
-assert.match(environment.version, /^2\.1\.276 /);
+assert.equal(environment.version, `${expectedVersion} (Claude Code)`);
 const scenarios = of("scenario").map((record) => record.name);
 for (const name of ["headless-baseline", "headless-resume", "headless-fork", "headless-subagent", "background-workers", "background-worker-edit", "worker-abrupt-exit", "supervisor-replacement", "worker-stop-respawn", "supervisor-stop", "remote-control-eligibility"]) {
   assert(scenarios.includes(name), `scenario ${name} ran`);
@@ -67,6 +68,15 @@ for (const worker of [workers.a, workers.b]) {
   assert.equal(worker.ancestry.find((entry) => entry.pid === worker.job.pid).comm, workers.supervisor.comm, "worker and supervisor share the versioned executable name");
 }
 assert.notEqual(workers.supervisor.comm, "claude");
+assert.equal(workers.supervisor.ppid, 1, "the transient supervisor is reparented to init");
+assert(workers.supervisor.cmdline.includes("daemon run --origin transient"));
+for (const worker of [workers.a, workers.b]) {
+  const host = worker.ancestry.find((entry) => entry.pid === worker.ancestry.find((item) => item.pid === worker.job.pid).ppid);
+  assert(host.cmdline.startsWith("claude bg-pty-host ") && host.ppid === workers.supervisor.pid, "a PTY host sits between worker and supervisor");
+  assert.equal(worker.env.CLAUDE_JOB_DIR !== undefined, true, "worker shells carry CLAUDE_JOB_DIR");
+}
+assert(hooks.concat(commands).every((record) => record.env.CLAUDE_CODE_SESSION_KIND === undefined && record.env.CLAUDE_BG_BACKEND === undefined), "session-kind variables stay in the worker process");
+assert(of("processes").some((record) => record.processes.some((entry) => entry.env.CLAUDE_CODE_SESSION_KIND === "bg")), "a worker process carries CLAUDE_CODE_SESSION_KIND=bg");
 // The worker's argv is not a session carrier: a worker spawned directly names
 // its session with --session-id, one claimed from a pre-warmed spare does not.
 for (const worker of [workers.a, workers.b]) {
@@ -85,7 +95,7 @@ assert.notEqual(edit.d.cwd, projectDir);
 assert(edit.worktrees.includes(edit.d.cwd), "the listing's cwd is a linked Worktree of the fixture");
 assert.deepEqual(edit.hooks.map((event) => event[1] === projectDir), [true, true, true, false, false, false, false], "hook cwd follows the relocation from PostToolUse on");
 assert(edit.hooks.slice(3).every((event) => event[1] === edit.d.cwd), "hooks after EnterWorktree report the linked Worktree");
-assert(edit.hooks.every((event) => event[5] === projectDir), "CLAUDE_PROJECT_DIR stays at the dispatch Repository");
+assert(edit.hooks.every((event) => event[5] === projectDir), "CLAUDE_PROJECT_DIR stays at the dispatch directory");
 assert(!hooks.some((record) => record.event === "CwdChanged"), "no CwdChanged hook was delivered for EnterWorktree");
 assert.equal(edit.commandCwd, edit.d.cwd);
 assert.equal(edit.commandSession, edit.d.sessionId);
@@ -101,6 +111,9 @@ const killed = of("worker.after-kill")[0];
 assert.equal(killed.restartSource, "resume");
 assert.equal(killed.a.sessionId, workers.a.job.sessionId);
 assert.notEqual(killed.a.pid, workers.a.job.pid);
+assert(killed.a.startedAt > workers.a.job.startedAt, "the restarted worker lists a later startedAt");
+const startTimeOf = (pid) => hooks.flatMap((record) => record.ancestry).find((entry) => entry.pid === pid).startTime;
+assert(startTimeOf(killed.a.pid) > startTimeOf(workers.a.job.pid), "the new worker pid has a later /proc start time");
 assert(!killed.newHooks.some((event) => event[0] === "SessionEnd"), "no SessionEnd for a killed worker");
 
 // Supervisor replacement: workers keep pid and session; no SessionEnd.
@@ -126,12 +139,18 @@ const respawned = of("worker.after-respawn")[0];
 assert.equal(respawned.source, "resume");
 assert.equal(respawned.b.sessionId, workers.b.job.sessionId);
 assert.notEqual(respawned.b.pid, workers.b.job.pid);
+assert(respawned.b.startedAt > workers.b.job.startedAt);
 
 // Stopping the supervisor without --keep-workers ends every worker.
 const shutdown = of("workers.after-supervisor-stop")[0];
 const endedSessions = new Set(shutdown.newHooks.filter((event) => event[0] === "SessionEnd").map((event) => event[1]));
 assert(endedSessions.has(workers.a.job.sessionId) && endedSessions.has(workers.b.job.sessionId), "supervisor stop ends the surviving workers");
-assert(of("workers.final")[0].jobs.every((job) => job.state === "stopped" && job.pid === undefined));
+const finalJobs = of("workers.final")[0].jobs;
+assert(finalJobs.every((job) => job.state === "stopped" && job.pid === undefined));
+assert(finalJobs.find((job) => job.id === workers.a.job.id).startedAt <= workers.a.job.startedAt, "a stopped job lists its dispatch time");
+assert.equal(finalJobs.find((job) => job.id === edit.d.id).cwd, projectDir, "a stopped job lists its dispatch directory");
+assert(!shutdown.processes.some((entry) => [killed.a.pid, respawned.b.pid, edit.d.pid].includes(entry[0])), "no worker outlives the supervisor stop");
+assert(of("daemon.log")[0].lines.some((line) => line.includes("bg adopt: adopted=3")), "the replacement supervisor adopted the three survivors");
 
 // Remote Control server mode refuses API-key credentials outright.
 const remote = of("remote-control")[0];

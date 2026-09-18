@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, readdirSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -48,6 +48,8 @@ const env = {
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   CLAUDE_CODE_DISABLE_TERMINAL_TITLE: "1",
   TERM: "dumb",
+  // Ancestry walks from hooks and shells end at this runner.
+  SPIKE_STOP_PID: String(process.pid),
 };
 for (const dir of [fixture, env.HOME, env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, env.XDG_CACHE_HOME,
   env.XDG_STATE_HOME, env.TMPDIR, env.CLAUDE_CONFIG_DIR]) mkdirSync(dir, { recursive: true });
@@ -198,6 +200,8 @@ const daemonStatus = async (label) => {
   return result;
 };
 const hooks = () => records.filter((record) => record.kind === "hook");
+// The lifecycle summary of every hook received after a point in the trace.
+const hooksSince = (count) => hooks().slice(count).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source, record.env.CLAUDE_PID]);
 const commands = () => records.filter((record) => record.kind === "command");
 const waitFor = async (predicate, label, timeout = 60000) => {
   const end = Date.now() + timeout;
@@ -321,7 +325,7 @@ try {
   await delay(1500);
   trace("attach", { worker: "b", attachPid: attach.pid, attachAlive, attachCode, attachSignal, outputSample: attachOutput.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\s+/g, " ").slice(-400),
     listingWhileAttached: attachedListing.find((entry) => entry.id === jobB.id), workerAlive: claudeProcesses().some((entry) => entry.pid === jobB.pid),
-    newHooks: hooks().slice(hooksBeforeAttach).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source, record.env.CLAUDE_PID]) });
+    newHooks: hooksSince(hooksBeforeAttach) });
   assert(claudeProcesses().some((entry) => entry.pid === jobB.pid), "worker b survives its attached terminal dying");
   const afterA = await agentsJSON("a-finished-b-running");
   const stillB = afterA.find((entry) => entry.id === jobB.id);
@@ -352,6 +356,7 @@ try {
   // Scenario 5: a settled worker dies abruptly while the supervisor runs.
   trace("scenario", { name: "worker-abrupt-exit" });
   const hooksBeforeKill = hooks().length;
+  assert(claudeProcesses().some((entry) => entry.pid === jobA.pid), "worker a is a fixture process");
   process.kill(jobA.pid, "SIGKILL");
   trace("action.kill", { worker: "a", pid: jobA.pid, signal: "SIGKILL", supervisor: daemonAtDispatch.pid });
   let restartedA = null;
@@ -364,7 +369,7 @@ try {
   snapshot("after-worker-a-killed");
   const killedA = afterKill.find((entry) => entry.id === jobA.id);
   trace("worker.after-kill", { a: killedA, restartSource: restartedA?.payload.source ?? null, restartPid: restartedA?.env.CLAUDE_PID ?? null,
-    newHooks: hooks().slice(hooksBeforeKill).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source, record.env.CLAUDE_PID]) });
+    newHooks: hooksSince(hooksBeforeKill) });
   assert(!hooks().slice(hooksBeforeKill).some((record) => record.event === "SessionEnd" && record.payload.session_id === jobA.sessionId), "no SessionEnd for a killed worker");
   assert(hooks().slice(hooksBeforeKill).every((record) => record.payload.session_id !== jobB.sessionId || record.event !== "SessionEnd"), "worker b untouched by worker a's death");
 
@@ -393,7 +398,7 @@ try {
   const reattachedB = relisted.find((entry) => entry.id === jobB.id);
   const jobC = relisted.find((entry) => entry.name === "fixture-c");
   trace("workers.after-replacement", { supervisor: newDaemon, a: relisted.find((entry) => entry.id === jobA.id), b: reattachedB, c: jobC, bParent: claudeProcesses().find((entry) => entry.pid === jobB.pid)?.ppid,
-    newHooks: hooks().slice(hooksBeforeReplace).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source, record.env.CLAUDE_PID]) });
+    newHooks: hooksSince(hooksBeforeReplace) });
   assert(newDaemon && newDaemon.pid !== daemonAtDispatch.pid, "replacement supervisor running");
   assert(reattachedB && reattachedB.pid === jobB.pid && reattachedB.sessionId === jobB.sessionId, "worker b listed with same pid and session after replacement");
   assert(!hooks().slice(hooksBeforeReplace).some((record) => record.event === "SessionEnd" && [jobA.sessionId, jobB.sessionId].includes(record.payload.session_id)), "no SessionEnd during supervisor replacement");
@@ -412,7 +417,7 @@ try {
   await delay(2500);
   const afterStop = await agentsJSON("after-worker-b-stopped", true);
   snapshot("after-worker-b-stopped");
-  trace("worker.after-stop", { b: afterStop.find((entry) => entry.id === jobB.id), newHooks: hooks().slice(hooksBeforeStop).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source, record.env.CLAUDE_PID]) });
+  trace("worker.after-stop", { b: afterStop.find((entry) => entry.id === jobB.id), newHooks: hooksSince(hooksBeforeStop) });
   assert(!claudeProcesses().some((entry) => entry.pid === jobB.pid), "worker b process gone after stop");
   const hooksBeforeRespawn = hooks().length;
   const respawned = await claude(["respawn", jobB.id], { timeout: 30000 });
@@ -423,7 +428,7 @@ try {
   snapshot("after-worker-b-respawned");
   const respawnedB = afterRespawn.find((entry) => entry.id === jobB.id);
   const respawnStart = hooks().slice(hooksBeforeRespawn).find((record) => record.event === "SessionStart" && record.payload.session_id === jobB.sessionId);
-  trace("worker.after-respawn", { b: respawnedB, source: respawnStart.payload.source, hookPid: respawnStart.env.CLAUDE_PID, newHooks: hooks().slice(hooksBeforeRespawn).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source, record.env.CLAUDE_PID]) });
+  trace("worker.after-respawn", { b: respawnedB, source: respawnStart.payload.source, hookPid: respawnStart.env.CLAUDE_PID, newHooks: hooksSince(hooksBeforeRespawn) });
   assert(respawnedB && respawnedB.sessionId === jobB.sessionId && respawnedB.pid !== jobB.pid, "respawned worker keeps its conversation with a new pid");
 
   // Scenario 8: stop the supervisor together with its workers.
@@ -433,7 +438,7 @@ try {
   trace("daemon.stop", { keepWorkers: false, status: stopAll.status, stdout: stopAll.stdout, stderr: stopAll.stderr });
   await delay(3000);
   snapshot("supervisor-and-workers-stopped");
-  trace("workers.after-supervisor-stop", { newHooks: hooks().slice(hooksBeforeDaemonStop).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source, record.env.CLAUDE_PID]), processes: claudeProcesses().map((entry) => [entry.pid, entry.cmdline]) });
+  trace("workers.after-supervisor-stop", { newHooks: hooksSince(hooksBeforeDaemonStop), processes: claudeProcesses().map((entry) => [entry.pid, entry.cmdline]) });
   const finalListing = await agentsJSON("after-supervisor-stop", true);
   snapshot("listing-after-supervisor-stop");
   trace("workers.final", { jobs: finalListing.filter((entry) => entry.kind === "background") });

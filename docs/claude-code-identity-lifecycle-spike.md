@@ -16,10 +16,10 @@ dated evidence record with its fixtures and trace.
 
 Two findings matter most for Dashpot. A background worker keeps its native
 session identity across its own abrupt death, an explicit `respawn`, and the
-replacement of the supervisor above it, so a worker's process key is not the
-conversation's identity. And every process the supervisor spawns — supervisor,
+replacement of the supervisor above it, so a worker's process identity is not
+the conversation's identity. And every process the supervisor spawns — supervisor,
 PTY host, and worker — carries the versioned executable name `2.1.276` rather
-than `claude`, so the executable-name test Dashpot applies to an interactive
+than `claude`, so the executable-name test Dashpot applies to a launcher-started
 Claude Code process does not recognise a supervised worker.
 
 This is evidence for the shared lifecycle design, not an accepted ADR or a
@@ -30,7 +30,8 @@ Issue-work commands, installation, or dashboard.
 
 The retained experiment uses Node built-ins, an installed Claude Code 2.1.276,
 Git, and `script` from util-linux. The runner rejects another Claude Code
-version unless a second argument names it. No model credentials or external
+version unless a second argument names it; the verifier takes the same
+optional argument. No model credentials or external
 model service are needed: a deterministic loopback Messages API returns tool
 calls to the real Claude Code execution loop.
 
@@ -60,7 +61,8 @@ command-scoped exception for the runner. The verifier needs no network.
   `CLAUDE*` environment, and ancestry.
 - [Ancestry reader](../scripts/experiments/claude-160/ancestry.mjs) walks
   `/proc` upwards, recording pid, parent, `comm`, start time, cwd, and the first
-  six arguments of each process.
+  six arguments of each process, and stops at the runner so the operator's own
+  session above it stays out of the trace.
 - [Independent trace verifier](../scripts/experiments/claude-160/verify.mjs)
   checks the emitted evidence against the identity and lifecycle claims without
   importing the runner or publisher.
@@ -78,9 +80,10 @@ the isolated `.claude.json` with completed onboarding, accepted bypass
 permissions, an approved fixture API key, and trust for the fixture. The
 approved key matters: a supervised worker takes its credentials from the
 supervisor's keychain check, and without the approval record the workers sit
-at a login prompt. No ordinary configuration, credentials, Agent Sessions,
-Git metadata, or sibling Worktrees are copied or modified, and the runner only
-ever signals processes whose environment names the fixture `CLAUDE_CONFIG_DIR`.
+at a login prompt. No ordinary configuration, credentials, saved
+conversations, Git metadata, or sibling Worktrees are copied or modified, and
+the runner only ever signals processes whose environment names the fixture
+`CLAUDE_CONFIG_DIR`.
 
 The runner stops the fixture supervisor, kills any process it left behind,
 and closes both loopback servers in `finally`. It retains its fixture for
@@ -126,9 +129,12 @@ prefix relationship.
 
 Interactive terminal sessions, Remote Control attachment (`--remote-control`)
 and server mode, the Agent SDK, agent teams, cloud sessions, idle worker
-eviction, other releases, and other operating systems remain untested.
-Remote Control is recorded as blocked: with only an API key the server refuses
-to start, and the operator's claude.ai account was not used.
+eviction, other releases, and other operating systems remain untested. The
+interactive terminal was left out of this run rather than blocked: the
+`attach` scenario shows a `script`-hosted PTY can drive the TUI, so a
+follow-up can measure it the same way. Remote Control is recorded as blocked:
+with only an API key the server refuses to start, and the operator's claude.ai
+account was not used.
 
 ## Scenario results
 
@@ -140,14 +146,14 @@ Trace references below are the `receipt` field, not file line assumptions.
 | Resume | `--resume <id>` in a new process keeps the session ID; `SessionStart.source` = `resume` with a different `CLAUDE_PID`. | 16–29 |
 | Fork | `--resume <id> --fork-session` yields a new session ID; `SessionStart.source` = `fork`; the payload names no parent. | 30–43 |
 | Subagent | The Agent tool's child shares the parent's `session_id` and `CLAUDE_PID`; `SubagentStart`, its tool hooks, and `SubagentStop` add `agent_id` and `agent_type`. `CLAUDE_CODE_CHILD_SESSION=1` is present in every measured shell, so it does not mark a subagent. | 44–67 |
-| Two background workers | `claude --bg` in the fixture and in the other Worktree starts one transient supervisor (`daemon run --origin transient`, parent pid 1) and two workers with distinct `sessionId` and `pid`; job `id` is the first eight characters of `sessionId`. Each worker runs as `bg-pty-host` → worker → shell; the shell's `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` equal the listing's `sessionId` and `pid`, and its cwd and every hook `cwd` equal the listing's `cwd`. Every supervised process has `comm` `2.1.276`, the interactive launcher `claude`. | 68–105 |
+| Two background workers | `claude --bg` in the fixture and in the other Worktree starts one transient supervisor (`daemon run --origin transient`, parent pid 1) and two workers with distinct `sessionId` and `pid`; job `id` is the first eight characters of `sessionId`. Each worker runs as `bg-pty-host` → worker → shell; the shell's `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` equal the listing's `sessionId` and `pid`, and its cwd and every hook `cwd` equal the listing's `cwd`. Every supervised process has `comm` `2.1.276`; the headless processes started through the launcher symlink have `comm` `claude`. A worker's shells carry `CLAUDE_JOB_DIR`, while `CLAUDE_CODE_SESSION_KIND=bg` and `CLAUDE_BG_BACKEND` stay in the worker process's own environment. | 68–105 |
 | Worker argv | Worker A was spawned directly with `--session-id <sessionId>` in argv; worker B was claimed from a pre-warmed spare whose argv is `claude bg-spare …` and names no session. | 97 |
 | Attached terminal dies | `claude attach` under `script` is killed with SIGTERM; the worker keeps its pid and no lifecycle hook fires. | 101 |
 | Worker relocation | A worker asked to edit calls `EnterWorktree`; the listing's `cwd`, every later hook `cwd`, and the shell cwd move to `.claude/worktrees/<name>` while `session_id`, `pid`, and `CLAUDE_PROJECT_DIR` stay. No `CwdChanged` hook fired. After the supervisor stop, `agents --json --all` reports the stopped job at its dispatch directory again. | 106–129, 208 |
-| Abrupt worker exit | SIGKILL of worker A under a live supervisor: about ten seconds later the listing shows the same `sessionId` with a new `pid`, and the only new hook is `SessionStart` with `source` = `resume` from the new pid. No `SessionEnd`. | 130–138 |
+| Abrupt worker exit | SIGKILL of worker A under a live supervisor: about ten seconds later the listing shows the same `sessionId` with a new `pid` and a later `startedAt`, the new pid's `/proc` start time is later than the old one's, and the only new hook is `SessionStart` with `source` = `resume` from the new pid. No `SessionEnd`. | 130–138 |
 | Supervisor replacement | `daemon stop --any --keep-workers` exits the supervisor; `daemon status` reports it not running with three workers in `roster.json`; `agents --json` still lists them with unchanged pids. Dispatching worker C starts a new supervisor pid that adopts all three (`bg adopt: adopted=3`); pids and session IDs are unchanged and no `SessionEnd` fired. Worker B's turn, started under the first supervisor, publishes its `Stop` under the second from its original pid. | 139–177, 209 |
-| Explicit stop and respawn | `claude stop` publishes `SessionEnd` with `reason` = `other` from the worker pid; the listing shows `state` = `stopped` and no pid. `claude respawn` starts a new pid for the same `sessionId` with `SessionStart.source` = `resume`. | 178–194 |
-| Supervisor stop | `daemon stop --any` terminates the four workers, each publishing `SessionEnd` `other`; every job lists as `stopped`. Five `bg-pty-host` processes outlived the stop until the runner killed them. | 195–208 |
+| Explicit stop and respawn | `claude stop` publishes `SessionEnd` with `reason` = `other` from the worker pid; the listing shows `state` = `stopped` and no pid. `claude respawn` starts a new pid for the same `sessionId`, with a later `startedAt` and `SessionStart.source` = `resume`. | 178–194 |
+| Supervisor stop | `daemon stop --any` terminates the four workers, each publishing `SessionEnd` `other`; every job lists as `stopped`, with `startedAt` at its dispatch time rather than its last worker's start. Five `bg-pty-host` processes outlived the stop until the runner killed them. | 195–208 |
 | Remote Control eligibility | `claude remote-control` exits 1: "You must be logged in to use Remote Control … only available with claude.ai subscriptions". | 210–212 |
 
 The supervised topology and the adoption on restart agree with the documented
@@ -168,10 +174,11 @@ one.
   The versioned name is an installer artefact, not a contract; the shell claim
   `CLAUDE_CODE_SESSION_ID` / `CLAUDE_PID` and the hook `session_id` are the
   stable identity, corroborated by `agents --json` for background workers.
-- A worker's pid changes on abrupt death and on `respawn`, while its session
-  ID, name, and cwd persist and the listing reflects the change within a
-  second. A process-keyed record that treats a new pid as a new Agent Session
-  would split one conversation; a record keyed by session ID must still expect
+- A worker's pid and start time change on abrupt death and on `respawn`,
+  while its session ID, name, and cwd persist and the listing had the new pid
+  by the runner's next read, about two seconds after the restart hook. A
+  process-keyed record that treats a new pid as a new Agent Session would
+  split one conversation; a record keyed by session ID must still expect
   `CLAUDE_PID` to change.
 - Supervisor replacement is invisible to hooks. Observation that waits for
   `SessionEnd` before retiring a run sees the right thing here, and observation
@@ -180,7 +187,7 @@ one.
   and changes nothing.
 - `EnterWorktree` relocates a background worker without a `CwdChanged` hook;
   the next hook's `cwd` and the listing carry the new location while
-  `CLAUDE_PROJECT_DIR` keeps the dispatch Repository.
+  `CLAUDE_PROJECT_DIR` keeps the dispatch directory.
 
 ## Validation
 

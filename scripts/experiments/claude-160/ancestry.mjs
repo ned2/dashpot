@@ -1,4 +1,6 @@
-// Walk /proc upwards from a PID, recording each ancestor's identity.
+// Walk /proc upwards from a PID, recording each ancestor's identity. The
+// walk ends at the experiment runner (SPIKE_STOP_PID) so the operator's own
+// session above it never enters the trace.
 import { readFileSync, readlinkSync } from "node:fs";
 
 export const describe = (pid) => {
@@ -13,13 +15,14 @@ export const describe = (pid) => {
   return { pid, ppid: Number(fields[1]), comm, startTime: Number(fields[19]), cmdline, cwd };
 };
 
-export const ancestry = (pid, limit = 12) => {
+export const ancestry = (pid, limit = 12, stop = Number(process.env.SPIKE_STOP_PID ?? 1)) => {
   const chain = [];
   let current = pid;
   while (current > 1 && chain.length < limit) {
     let entry;
     try { entry = describe(current); } catch { break; }
     chain.push(entry);
+    if (current === stop) break;
     current = entry.ppid;
   }
   return chain;

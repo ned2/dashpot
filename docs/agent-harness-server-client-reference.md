@@ -468,20 +468,25 @@ worker's `pid`, `sessionId`, `cwd`, `name`, `status`, and `state`; the short
 job `id` is the first eight characters of `sessionId`. The shell claim
 `CLAUDE_CODE_SESSION_ID` equals `sessionId`, `CLAUDE_PID` equals the worker
 `pid`, and the shell's cwd and every hook `cwd` equal the listing's `cwd`.
-Worker shells also carry `CLAUDE_CODE_SESSION_KIND=bg`, `CLAUDE_BG_BACKEND`,
-and `CLAUDE_JOB_DIR`; a worker's argv is not a session carrier, because a
-worker claimed from a pre-warmed spare (`claude bg-spare …`) names no
-session while a directly spawned worker carries `--session-id`.
+A worker's shells carry `CLAUDE_JOB_DIR` as well; `CLAUDE_CODE_SESSION_KIND=bg`
+and `CLAUDE_BG_BACKEND` sit in the worker process's own environment and reach
+neither its shells nor its hooks. A worker's argv is not a session carrier,
+because a worker claimed from a pre-warmed spare (`claude bg-spare …`) names
+no session while a directly spawned worker carries `--session-id`. A live
+job's `startedAt` is the current worker's start and moves forward when the
+worker is replaced, as does the worker's `/proc` start time with its pid; a
+stopped job listed with `--all` reports its dispatch time instead.
 
 Under the native installer every supervised process — supervisor, PTY host,
 and worker — runs the versioned executable, so its `comm` is `2.1.276`, while
-the interactive launcher's is `claude`. An executable-name test written for
-the interactive process does not recognise a supervised worker.
+a headless process started through the launcher symlink has `comm` `claude`.
+An executable-name test written for that launcher does not recognise a
+supervised worker; the interactive terminal process was not measured.
 
 | Lifecycle event | Measured effect on the worker | Hooks delivered |
 | --- | --- | --- |
 | Attached terminal killed | Worker keeps its pid and continues | None |
-| Worker killed with SIGKILL under a live supervisor | Same `sessionId`, new `pid`, listed again about ten seconds later | `SessionStart` with `source` = `resume` from the new pid; no `SessionEnd` |
+| Worker killed with SIGKILL under a live supervisor | Same `sessionId`, new `pid` and later `startedAt`, listed again about ten seconds later | `SessionStart` with `source` = `resume` from the new pid; no `SessionEnd` |
 | `daemon stop --any --keep-workers` | Workers keep their pids; `agents --json` still lists them from the roster with the supervisor absent | None |
 | Next `claude --bg` after that stop | A new supervisor pid adopts every surviving worker; a turn begun under the old supervisor ends under the new one from the original pid | None for the adoption; the turn's `Stop` arrives as usual |
 | `claude stop <id>` | Listed as `state` = `stopped` with no pid | `SessionEnd` with `reason` = `other` from the worker pid |
