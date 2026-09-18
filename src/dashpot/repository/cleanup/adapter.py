@@ -46,7 +46,7 @@ class GitCleanupAdapter:
             request,
             protected=protected,
             timeout=self.timeout,
-            git=cleanup_git(self.timeout),
+            git=cleanup_git(self.timeout, preview=True),
         )
 
     def perform(

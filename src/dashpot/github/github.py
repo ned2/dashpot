@@ -13,6 +13,7 @@ import re
 import time
 from collections.abc import Callable, Container, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import Context, copy_context
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -244,9 +245,13 @@ class GitHubGateway:
         with ThreadPoolExecutor(
             max_workers=min(MAX_IN_FLIGHT, len(variables)), thread_name_prefix="gh"
         ) as executor:
+            # Each request runs in its own copy of this thread's context, so
+            # the registry an exit interrupts reaches the fanned-out commands.
+            def request(context: Context, each: GraphQLVariables) -> Mapping[str, Any]:
+                return context.run(self.graphql, query, each, tolerated=tolerated)
+
             futures = [
-                executor.submit(self.graphql, query, each, tolerated=tolerated)
-                for each in variables
+                executor.submit(request, copy_context(), each) for each in variables
             ]
             try:
                 return [future.result() for future in futures]

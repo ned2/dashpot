@@ -834,7 +834,9 @@ records why query and complete-collection adapters retain distinct contracts,
 and [ADR 0047](docs/adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)
 why the dashboard screen stays one Textual adapter.
 [ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)
-records which Python 3.13 typing backports the 3.12 baseline adopts.
+records which Python 3.13 typing backports the 3.12 baseline adopts, and
+[ADR 0049](docs/adr/0049-interrupt-observation-commands-at-dashboard-exit.md)
+why quitting interrupts the observation commands in flight.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

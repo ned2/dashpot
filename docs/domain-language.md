@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-17
+date: 2026-09-18
 ---
 
 # Domain language
@@ -229,6 +229,19 @@ ever published
 ([ADR 0002](adr/0002-require-complete-issue-profile-snapshots.md),
 [ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md),
 [ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).
+
+**Interruptible Command**:
+A `git` or `gh` child an observation or query runs, which the dashboard's
+exit may stop rather than wait for: it is held in the registry the thread
+running it adopted, and an exit closes that registry and sends every held
+child a termination request. An interrupted command is a failed command,
+never an answer, so its observation is discarded whole. Every observation
+and query command is interruptible; the named mutations — a Remote Fetch, a
+Cleanup — opt out and run to completion
+([ADR 0049](adr/0049-interrupt-observation-commands-at-dashboard-exit.md)).
+_Avoid_: cancel for an interruption, which is what a Textual worker does to
+work not yet started; kill for the termination request, which lets Git
+remove its lock files
 
 **Snapshot Seed**, **Incremental Refresh**, **High-Water Mark**, **Reconciliation**:
 Historical complete-inventory mechanisms retired by

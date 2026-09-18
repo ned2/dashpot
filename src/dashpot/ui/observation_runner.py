@@ -11,11 +11,11 @@ so the coalescing runs, and is tested, without a running app.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from typing import Protocol
 
+from ..core.commands import RunningCommands, start_pool
 from ..observation.collect import ObservationScheduler
 from ..observation.keys import ObservationKey, ObservationTicket
 from ..observation.observation_store import StoreChange, WorkspaceObservationStore
@@ -100,6 +100,7 @@ class ObservationRunner:
         host: ObservationHost,
         *,
         indicator_seconds: float = 0.75,
+        running: RunningCommands | None = None,
     ) -> None:
         self.scheduler = scheduler
         self.store = store
@@ -121,8 +122,10 @@ class ObservationRunner:
         self.refreshing_visible = False
         # A key is observed at most once at a time, so a pool sized to the
         # keys lets every key run concurrently and a slow Issue Source never
-        # holds a thread the Git or Agent Run observation needs.
-        self.executor = ThreadPoolExecutor(
+        # holds a thread the Git or Agent Run observation needs. The pool's
+        # threads adopt the app's registry so an exit can stop their commands.
+        self.executor = start_pool(
+            running,
             max_workers=refresh_pool_size(len(scheduler.keys())),
             thread_name_prefix="dashpot-refresh",
         )

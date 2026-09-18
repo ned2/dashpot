@@ -8,17 +8,25 @@ are written with ``update-ref`` so nothing talks to the network.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextvars import copy_context
 from pathlib import Path
 
 import pytest
 
-from dashpot.core.commands import CommandError, CommandResult, run_command
+from dashpot.core.commands import (
+    CommandError,
+    CommandResult,
+    RunningCommands,
+    non_interactive_runner,
+    run_command,
+)
 from dashpot.core.git import Git, GitError
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     BranchCleanupRequest,
     CleanupConfirmation,
     CleanupPreview,
+    CleanupReport,
     CleanupRequest,
     CleanupTarget,
     WorktreeCleanupRequest,
@@ -27,6 +35,7 @@ from dashpot.repository.cleanup import (
     inspect_cleanup,
     perform_cleanup,
 )
+from dashpot.repository.cleanup.adapter import GitCleanupAdapter
 from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH
 from dashpot.repository.repository import LockHolderProbe
 from dashpot.repository.worktrees.removability import check_worktree
@@ -656,6 +665,34 @@ def test_a_runner_failure_is_never_read_as_absence(tmp_path: Path) -> None:
 
     with pytest.raises(GitError, match="git is missing"):
         inspect_cleanup(BranchCleanupRequest(root, "feat"), git=Git(root, 5, failing))
+
+
+def test_only_the_confirmed_cleanup_runs_through_a_dashboard_exit(
+    tmp_path: Path,
+) -> None:
+    # On a thread whose registry an exit has closed, the preview's adapter is
+    # refused like any observation while the removal's still runs.
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    request = BranchCleanupRequest(root, "feat")
+    adapter = GitCleanupAdapter(5)
+    running = RunningCommands()
+    running.interrupt()
+
+    def preview_then_perform() -> CleanupReport:
+        running.adopt()
+        with pytest.raises(GitError, match="interrupted at shutdown"):
+            adapter.inspect(request, protected=())
+        finishing = Git(root, 5, non_interactive_runner(interruptible=False))
+        preview = inspect_cleanup(request, git=finishing)
+        (local,) = preview.targets
+        return adapter.perform(confirm(request, preview, local.identity), protected=())
+
+    report = copy_context().run(preview_then_perform)
+
+    assert report.succeeded is True
+    assert "refs/heads/feat" not in git(root, "for-each-ref")
 
 
 # --- Performing -----------------------------------------------------------

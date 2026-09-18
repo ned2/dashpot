@@ -106,9 +106,19 @@ class CleanupReport(PublishedModel):
         )
 
 
-def cleanup_git(timeout: float) -> Git:
-    """The production adapter for a Cleanup: non-interactive, with Dashpot's timeout."""
-    return Git(Path.cwd(), timeout, non_interactive_runner(CLEANUP_ENVIRONMENT))
+def cleanup_git(timeout: float, *, preview: bool = False) -> Git:
+    """The production adapter for a Cleanup: non-interactive, with Dashpot's timeout.
+
+    A confirmed removal runs to completion: a dashboard exit interrupts
+    observations, never a mutation half-way through a Worktree. A preview
+    only reads, so an adapter built for the preview alone is interruptible
+    like any other observation.
+    """
+    return Git(
+        Path.cwd(),
+        timeout,
+        non_interactive_runner(CLEANUP_ENVIRONMENT, interruptible=preview),
+    )
 
 
 def perform_cleanup(

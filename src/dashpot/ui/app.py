@@ -25,6 +25,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Input, Select, Static
 from textual.worker import get_current_worker
 
+from ..core.commands import RunningCommands
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text, next_issue_states
 from ..observation.paged_store import PagedObservationStore
@@ -586,6 +587,10 @@ class DashpotApp(App[None]):
     ) -> None:
         super().__init__()
         self.launcher_configuration = launcher_configuration or LauncherConfiguration()
+        # The observation and query commands an exit interrupts, so a pool
+        # thread inside one releases before interpreter exit joins it; both
+        # pools below adopt it.
+        self.running_commands = RunningCommands()
         self.refresh_seconds = refresh_seconds
         self.refresh_timer: Timer | None = None
         self.store = PagedObservationStore()
@@ -593,9 +598,15 @@ class DashpotApp(App[None]):
         # the page runner: the source queries behind the pages, totals and
         # identities, and each paged kind's navigation.
         self.observations = ObservationRunner(
-            scheduler, self.store, self, indicator_seconds=refresh_indicator_seconds
+            scheduler,
+            self.store,
+            self,
+            indicator_seconds=refresh_indicator_seconds,
+            running=self.running_commands,
         )
-        self.queries = PageRunner(sources, self.store, self)
+        self.queries = PageRunner(
+            sources, self.store, self, running=self.running_commands
+        )
         # The two named mutations, each holding its Projects while it runs:
         # the Remote Fetch behind ``f`` and the Cleanup behind ``x``.
         self.fetches = RemoteFetchFlow(fetcher, self.store, self.observations, self)
@@ -676,6 +687,9 @@ class DashpotApp(App[None]):
     def on_unmount(self) -> None:
         self.observations.shutdown()
         self.queries.shutdown()
+        # Shutting a pool down leaves a running command to finish; the
+        # command itself is what holds the thread, so it is told to stop.
+        self.running_commands.interrupt()
 
     async def off_loop[T](
         self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
