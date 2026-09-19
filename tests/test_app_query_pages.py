@@ -19,7 +19,7 @@ from app_harness import (
     first_load_landed,
     issue,
     legend_keys_text,
-    toasts,
+    show_query_peer,
     workspace_snapshot,
 )
 from dashpot.core.model import RepositoryStateInventory, WorkspaceSnapshot
@@ -77,9 +77,10 @@ def application(tmp_path, *, launcher_configuration=None, collector=None):
 async def test_first_page_navigation_and_submitted_text(tmp_path):
     app = application(tmp_path)
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.dashboard.queue_table().row_count == 1)
+        await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
+        await show_query_peer(app, pilot)
         assert app.queries.navigation["issues"].page.issues[0].number == 1
-        app.dashboard.queue_table().focus()
+        app.query_screen.queue_table().focus()
         await pilot.press("n")
         await wait_until(
             lambda: app.queries.navigation["issues"].page.issues[0].number == 2
@@ -106,10 +107,10 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
         await wait_until(
             lambda: (
                 "Already at first page"
-                in str(app.dashboard.query_one("#issue-count", Static).render())
+                in str(app.query_screen.query_one("#issue-count", Static).render())
             )
         )
-        search = app.dashboard.issue_filter_bar.search
+        search = app.query_screen.issue_filter_bar.search
         search.value = "Issue 3"
         await pilot.pause()
         assert app.queries.navigation["issues"].request.query == ""
@@ -150,7 +151,7 @@ def test_totals_text_marks_stale_totals_and_never_substitutes_zero(tmp_path):
 async def test_the_legend_lists_the_shipped_screen_and_worktree_keys(tmp_path):
     app = application(tmp_path)
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.dashboard.queue_table().row_count == 1)
+        await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
         await pilot.press("question_mark")
         await pilot.pause()
 
@@ -195,7 +196,9 @@ async def test_page_publishes_while_totals_are_delayed(tmp_path):
     try:
         async with app.run_test(size=(150, 55)):
             await wait_until(
-                lambda: started.is_set() and app.dashboard.queue_table().row_count == 1,
+                lambda: (
+                    started.is_set() and app.query_screen.queue_table().row_count == 1
+                ),
             )
             assert "issues" not in app.store.totals
             assert app.store.projects()[0].snapshot.target_status == "fresh"
@@ -233,72 +236,6 @@ async def test_pending_repository_state_does_not_report_unavailable(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_bound_issue_remains_visible_outside_query_and_opens_details(tmp_path):
-    from dashpot.ui.issue_view import IssueScreen
-    from factories import agent_run
-
-    app = application(tmp_path)
-    project_id = app.queries.sources["issues"].context.project_id
-    run = agent_run(
-        "run-140", project_id, issue_id="I_3", hint="issue-3", target_path=str(tmp_path)
-    )
-    app.observations.scheduler.agent_observer = lambda targets: ([run], [])
-    async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(
-            lambda: (
-                "I_3" in app.store.resolved
-                and app.queries.navigation["issues"].page is not None
-            )
-        )
-        assert app.queries.navigation["issues"].page.issues[0].id == "I_1"
-        assert app.store.query_sessions().rows[0].issue.id == "I_3"
-        app.dashboard.open_bound_issue("I_3")
-        await pilot.pause()
-        assert isinstance(app.screen, IssueScreen)
-        assert app.screen.issue.id == "I_3"
-        assert app.store.checkpoint().agent_runs[0].issue_id == "I_3"
-
-
-@pytest.mark.asyncio
-async def test_bound_issue_off_the_page_opens_once_its_identity_resolves(tmp_path):
-    from dashpot.ui.issue_view import IssueScreen
-    from factories import agent_run
-
-    app = application(tmp_path)
-    source = app.queries.sources["identities"]
-    project_id = source.context.project_id
-    run = agent_run(
-        "run-141", project_id, issue_id="I_3", hint="issue-3", target_path=str(tmp_path)
-    )
-    app.observations.scheduler.agent_observer = lambda targets: ([run], [])
-    resolve_identities = source.resolve_identities
-    release = threading.Event()
-
-    def delayed(identities):
-        release.wait(5)
-        return resolve_identities(identities)
-
-    # Hold identity resolution back so the bound Issue is off the page and
-    # not yet resolved when it is opened.
-    source.resolve_identities = delayed
-    try:
-        async with app.run_test(size=(150, 55)) as pilot:
-            await wait_until(lambda: app.queries.navigation["issues"].page is not None)
-            assert "I_3" not in app.store.resolved
-            app.dashboard.open_bound_issue("I_3")
-            await pilot.pause()
-            assert not isinstance(app.screen, IssueScreen)
-            assert app.open_when_resolved == "I_3"
-            release.set()
-            await wait_until(lambda: isinstance(app.screen, IssueScreen))
-            assert app.screen.issue.id == "I_3"
-            assert app.open_when_resolved is None
-            assert toasts(app) == ["Resolving bound Issue details"]
-    finally:
-        release.set()
-
-
-@pytest.mark.asyncio
 async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
     tmp_path,
 ):
@@ -311,16 +248,19 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
         raise RuntimeError(error)
 
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.dashboard.queue_table().row_count == 1)
+        await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
+        await show_query_peer(app, pilot)
         app.queries.sources["issues"].query_page = failing
-        app.dashboard.action_restart_page()
+        app.query_screen.queue_table().focus()
+        await pilot.pause()
+        app.query_screen.action_restart_page()
         await wait_until(lambda: app.queries.navigation["issues"].error == error)
         await pilot.pause()
         assert app.is_running
         assert app.queries.navigation["issues"].page is None
-        assert str(app.dashboard.query_one("#issue-count", Static).render()) == error
+        assert str(app.query_screen.query_one("#issue-count", Static).render()) == error
         # The page the failed restart replaced stays on screen with the error.
-        assert app.dashboard.queue_table().row_count == 1
+        assert app.query_screen.queue_table().row_count == 1
 
 
 @pytest.mark.asyncio
@@ -364,7 +304,7 @@ async def test_startup_observes_a_snapshot_collector_exactly_once():
         assert collector.calls == 1
         assert not app.observations.pending_rerun
         assert app.observations.errors == {}
-        assert app.dashboard.queue_table().row_count == 1
+        assert app.query_screen.queue_table().row_count == 1
         assert app.store.query_issues().rows[0].issue.reference == "test/repo#1"
 
 

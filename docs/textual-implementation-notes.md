@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-18
+date: 2026-09-20
 ---
 
 # Textual implementation notes for Dashpot
@@ -18,36 +18,41 @@ root stylesheet via `../dashpot.tcss`.
 
 ## Recommended shape
 
-Build one `App` whose one long-lived default screen is the `DashboardScreen`
-(returned by `DashpotApp.get_default_screen`, so it sits at `screen_stack[0]`
-from startup): the screen owns composition, the panes and the dashboard key
-bindings, while the app keeps the scheduler, the store and screen navigation.
+Build one `App` with two installed long-lived Peer Screens. `DashboardScreen`
+is the default mode; `IssuesPullRequestsScreen` is its direct peer. Each owns
+its composition, panes and contextual bindings, while the app keeps the
+scheduler, store, shared status facts and mode navigation. Both screens are
+mounted before collection starts so inactive widgets receive accepted results.
 
 ```text
 DashpotApp
-└── DashboardScreen
-    ├── body (DashboardBody)
-    │   ├── list-row
-    │   │   ├── sessions-pane (ListPane)
-    │   │   │   └── FocusCursorTable
-    │   │   ├── worktrees-pane (ListPane)
-    │   │   │   └── WorktreeTable
-    │   │   ├── branches-pane (ListPane)
-    │   │   │   └── FocusCursorTable
-    │   │   └── pull-requests-pane (ListPane)
-    │   │       ├── ItemFilterBar
-    │   │       └── FocusCursorTable
+├── DashboardScreen
+│   ├── PeerStatusBar
+│   ├── body (PeerBody)
+│   │   └── list-row
+│   │       ├── sessions-pane (ListPane)
+│   │       ├── worktrees-pane (ListPane / WorktreeTable)
+│   │       └── branches-pane (ListPane)
+│   ├── alert / diagnostics
+│   └── Footer
+└── IssuesPullRequestsScreen
+    ├── PeerStatusBar
+    ├── query-body (PeerBody)
+    │   ├── query-list-row
+    │   │   └── pull-requests-pane (ListPane / ItemFilterBar)
     │   └── queue-pane
     │       ├── ItemFilterBar
-    │       └── SpreadTable (#queue, the Issue table)
-    ├── alert
-    ├── diagnostics
+    │       └── IssueTable (#queue)
+    ├── alert / diagnostics
     └── Footer
 ```
 
-The list panes come from `LIST_PANE_SPECS` in `ui/panes.py`, each a
-`PaneSpec` composed once; every `ListPane` also holds the `Static` it shows
-while empty. The Issue detail is a pushed `IssueScreen`, not a pane.
+The list panes come from `DASHBOARD_PANE_SPECS` and `QUERY_PANE_SPECS` in
+`ui/panes.py`, each a `PaneSpec` composed once; `LIST_PANE_SPECS` is their
+combined Legend catalogue. Every `ListPane` also holds the `Static` it shows
+while empty. Issue Detail is pushed over the active mode, not composed as a
+pane, so dismissing it returns to the Peer Screen that opened it. Peer switches
+use `switch_mode`, not `push_screen`, and therefore create no Back history.
 
 Keep the headless `ObservationCoordinator` and its snapshots independent of
 Textual. Each pane read model is therefore two modules: the query half

@@ -10,6 +10,7 @@ from app_harness import (
     dashboard_app,
     first_load_landed,
     issue,
+    show_query_peer,
     with_first_target,
     workspace_snapshot,
 )
@@ -67,7 +68,8 @@ async def test_worktree_enter_and_copy_are_scoped_and_mouse_does_not_launch(tmp_
         await pilot.press("enter", "y")
         assert app.screen is app.dashboard
         assert opener.call_count == 1 and clipboard.call_count == 1
-        search = app.dashboard.issue_filter_bar.search
+        await show_query_peer(app, pilot)
+        search = app.query_screen.issue_filter_bar.search
         search.focus()
         await pilot.press("y")
         assert search.value == "y"
@@ -99,7 +101,7 @@ async def test_pending_request_keeps_captured_path_and_refuses_duplicates(tmp_pa
             await wait_until(lambda: len(captured) == 1)
             await pilot.press("enter", "enter")
             assert captured == [first] and table.opening
-            app.dashboard.queue_table().focus()
+            app.query_screen.queue_table().focus()
             release.set()
             await wait_until(lambda: not table.opening)
     finally:

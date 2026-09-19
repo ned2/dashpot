@@ -140,21 +140,21 @@ the observation runner's landings for the post-fetch Git facts, and asks the
 app only to notify, push its screens and run its workers. Their refusals are
 tested without a running app too; the previews and confirmations are driven
 through the dashboard. Configured Projects are published before remote work.
-The shipped screen is the one Textual adapter over those objects: its
-handlers gather widget facts, call the module that owns the decision and
-paint the result, and both readouts — the alert line and the Diagnostics
-box — are derived by [`alerts.py`](../src/dashpot/ui/alerts.py)
-([ADR 0047](adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)).
-The accepted multi-screen target below qualifies that decision as one thin
-adapter per long-lived peer rather than one adapter for the whole interface
-([ADR 0051](adr/0051-adopt-long-lived-peer-dashboard-screens.md)).
+The shipped Dashboard and Issues & Pull Requests peers are two thin Textual
+adapters over those objects: their handlers gather widget facts, call the
+module that owns the decision and paint the result. Both readouts — the alert
+line and the Diagnostics box — are derived by
+[`alerts.py`](../src/dashpot/ui/alerts.py). [ADR 0047](adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)
+set the thin-adapter rule, and [ADR 0051](adr/0051-adopt-long-lived-peer-dashboard-screens.md)
+qualifies it as one adapter per long-lived peer rather than one for the whole
+interface.
 The page store ([paged_store.py](../src/dashpot/observation/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total or
 identity goes through a method that advances its `source_revision`, so a read
 model's `revision` changes whenever what it was built from does. It joins Agent
 Runs to targeted identity evidence without changing Work Store Issue Bindings.
-Opening a bound Issue works independently of page membership; selected
-relationship titles are resolved one level deep. Relevant identities are
+Opening a selected Issue works from the Issues table; relationship titles in
+Issue Detail are resolved one level deep. Relevant identities are
 refreshed directly, including relationship changes without an Issue timestamp
 change.
 
@@ -197,15 +197,10 @@ reconciled by stable row keys.
 
 ## Accepted multi-screen target
 
-[Issue #262](https://github.com/ned2/dashpot/issues/262) accepts the first
-additional long-lived screen as one vertical design: navigation, state
-restoration, the destination's contents and the primary screen's awareness of
-them ship together. This section records the accepted target before its
-implementation in [Issue #270](https://github.com/ned2/dashpot/issues/270)
-lands. The current single-screen interface remains described
-under [Shipped dashboard during the transition](#shipped-dashboard-during-the-transition),
-and the implementation replaces that transitional account rather than leaving
-two claimed current states.
+[Issue #262](https://github.com/ned2/dashpot/issues/262) accepted the first
+additional long-lived screen as one vertical design. [Issue #270](https://github.com/ned2/dashpot/issues/270)
+ships that design: navigation, state restoration, both peers' contents and the
+shared status summary are one coherent interface.
 
 ### Screen topology and layout
 
@@ -219,9 +214,9 @@ does not add Back history.
 The persistent top row is Dashpot's own status bar, not Textual's default
 `Header`. It names both peers, marks the active one without relying on colour,
 and makes each complete label clickable. `1` and `2` are the equivalent direct
-keyboard paths. The marker, borders, colours and two freshness Glyphs are
-implementation styling choices; these wireframes use brackets for current
-location and `<fresh>` or `<stale>` for the semantic Glyph.
+keyboard paths. The shipped current-location marker uses brackets. `◆` marks
+fresh displayed totals and `◇` marks a retained stale total; the wireframes
+spell those marks as `<fresh>` and `<stale>` for clarity.
 
 A representative wide Dashboard is:
 
@@ -263,8 +258,7 @@ The wide Issues & Pull Requests peer keeps both queries visible:
 
 At compact widths the same status bar may wrap instead of abbreviating a
 screen name or hiding the summary. The wrapped summary prefers the left edge;
-the precise breakpoint and whether Textual needs a different natural alignment
-are implementation choices:
+the shipped breakpoint is 100 columns:
 
 ```text
 +----------------------------------------------------------+
@@ -385,7 +379,7 @@ Diagnostics, while the one binary Glyph says only whether the numbers actually
 shown are fresh or stale. Colour may reinforce but never carry either state by
 itself.
 
-### Adapter shape and delivery
+### Adapter shape
 
 Each peer remains a thin Textual adapter over app-owned runners and stores and
 screen-owned presentation collaborators. Shared chrome and summary derivation
@@ -396,38 +390,25 @@ handler. This is the second-screen condition that
 would qualify its single-adapter conclusion; [ADR 0051](adr/0051-adopt-long-lived-peer-dashboard-screens.md)
 records the selected ownership and rejected alternatives.
 
-[Issue #270](https://github.com/ned2/dashpot/issues/270) delivers the vertical
-feature through internal checkpoints: peer topology and shared chrome;
-query-pane migration; navigation and state restoration; the Project Totals
-summary; and responsive layout, Legend, Footer, documentation and end-to-end
-coverage. Exact Glyphs, colours, border treatment, breakpoint and row cap are
-resolved against Textual's native layout abstractions during that
-implementation rather than by adding a second design Issue.
+## Pane read models and presentation
 
-## Shipped dashboard during the transition
+Dashboard lists every active Agent Session, observed Worktree and Branch in
+three full-width panes. Issues & Pull Requests keeps both query panes visible:
+Pull Requests is content-sized to its cap and Issues receives the remaining
+height. Both query pane titles show independently observed Project Totals.
+Lifecycle selection constrains source results before pagination. Draft
+filtering uses `draft:true` or `draft:false` in the query. Both search boxes
+submit on Enter; clearing search submits the default source query. GitHub owns
+advanced syntax and ordering; Markdown uses local lexical matching and local
+ordering before pagination.
 
-Until that implementation lands, the main screen is a single pane of glass
-with no Header, so every row
-belongs to a list: from the top,
-the full-width `SESSIONS`, `WORKTREES`, `BRANCHES` and `PULL REQUESTS` panes
-stack above the full-width `ISSUES` table. Nothing is switched to: every
-active Agent Session, every observed Worktree, every Branch and every active
-Pull Request is listed in its pane by default, with
-an honest one-line empty state. Both query pane titles show independently observed Project Totals. Lifecycle
-selection constrains source results before pagination. Draft filtering uses `draft:true` or `draft:false` in
-the query. Both search boxes submit on Enter; clearing search submits the default source
-query. GitHub owns advanced syntax and ordering; Markdown uses local lexical
-matching and local ordering before pagination.
-The panes are sized to their content rather than sharing the flex height: each asks for the
-rows it has up to a cap of eight and scrolls beyond it, the smallest wish is
-granted first so an ordinary empty pane costs three lines, and the caps shrink
-before the Issue table would drop below its minimum height, so the panes only ever
-cost the Issue table what they actually use. The Sessions list starts with
-focus, `Tab` and `Shift+Tab` cycle focus Sessions → Worktrees → Branches →
-Pull Requests → Issues. `/` moves from the Pull Request table to its search and
-from elsewhere to the Issue search. `Down` at the
-last row and `Up` at the first row cycle focus through the same order; an empty
-list moves on immediately, and each list keeps its row cursor when focus
+Dashboard's panes are sized to their content. Pull Requests asks for its rows
+up to a cap of eight and scrolls beyond it; the cap shrinks before the Issue
+table would drop below its minimum height. An ordinary empty list pane costs
+three lines. The Sessions list starts with focus on Dashboard and Pull Requests
+starts with focus on the query peer. `Tab`, `Shift+Tab`, `Down` at the last row
+and `Up` at the first row cycle within the active peer only; an empty list moves
+on immediately, and each list keeps its row cursor when focus
 returns — from another pane or from the terminal after a window switch, which
 Textual reports as `AppBlur` and `AppFocus` and which a table cannot tell from
 pane entry, so the cursor is left where a stock `DataTable` leaves it
@@ -437,13 +418,12 @@ copying and refresh scope (`r`); only
 the Issue table drives the Issue selection, `Enter`
 on an Issue opens it in the full-screen Issue view (its location on the left
 of the heading line, `opened 3d ago by ned2` on the right, and both panes'
-borders in the Issue's state colour), and `Enter` on a session with an Issue
-Binding opens that Issue through targeted resolution; `Enter` is unbound on a Pull
-Request. Each list pane is declared once as a spec in
+borders in the Issue's state colour). `Enter` is unbound on Sessions and Pull
+Requests. Each list pane is declared once as a spec in
 [`panes.py`](../src/dashpot/ui/panes.py) — its columns, empty state, the read
 model it lists, its filtering controls, and how its rows take part in
-relationship emphasis — so the dashboard composes, refreshes and cycles the
-panes from that one tuple; the Issue table's query state and rows belong to
+relationship emphasis — so each peer composes, refreshes and cycles its own
+spec tuple; the Issue table's query state and rows belong to
 [`issue_table_controller.py`](../src/dashpot/ui/issue_table_controller.py), and
 the messages the dashboard posts to itself — the outcomes of off-loop work
 and the body's layout — are the dataclass messages of
@@ -472,7 +452,8 @@ Work Store start time is reported as the different fact it is. Activity is
 observed at turn boundaries and not within a turn, which is a measured
 decision rather than an omission
 ([ADR 0006](adr/0006-observe-agent-activity-at-turn-boundaries.md)). The Worktrees pane
-is likewise its own read model ([`worktree_list.py`](../src/dashpot/observation/worktree_list.py),
+is likewise its own read model
+([`worktree_list.py`](../src/dashpot/observation/worktree_list.py),
 `WorkspaceObservationStore.query_worktrees`, rendered by
 [`worktree_cells.py`](../src/dashpot/ui/worktree_cells.py)): every observed Observation
 Target of the Project, identified by `(Project Identity, target path)`
@@ -534,10 +515,11 @@ fetches and prunes that anchor's remotes on request
 
 The panes trade words for Glyphs to stay narrow, and `?` opens the Legend
 that explains every column and every Glyph
-([`legend.py`](../src/dashpot/ui/legend.py)). Its sections follow the screen
-top to bottom, one per column of each pane — Sessions, Worktrees, Branches,
-Pull Requests, and the Issue table, its optional columns included whether or
-not they are chosen — each headed by the pane and the column and holding the
+([`legend.py`](../src/dashpot/ui/legend.py)). Its sections follow the peers in
+reading order, starting with status-bar freshness and then one per column of
+each pane — Sessions, Worktrees, Branches, Pull Requests, and the Issue table,
+its optional columns included whether or not they are chosen — each headed by
+the surface and the column and holding the
 column's Column Description: the Glyphs its cells render, one line each in
 the colour the cell shows, followed by what the column reports. So the
 Sessions family `●` running, `◐` waiting and `○` unknown appears under the
@@ -583,8 +565,8 @@ unknown value (`-`, `detached`, `no active Issue work`, `not fetched`,
 names, and how fresh the fact is, and the Pull Requests `REVIEW`, `CHECKS`,
 and `MERGE` descriptions say what each observation establishes and what it
 leaves to the base Branch's protection rules. The Legend also lists every
-shipped key, grouped by where it is pressed — the dashboard with its `Tab`
-focus cycle, the Worktrees pane, and each modal screen — and a test holds
+shipped key, grouped by where it is pressed — global keys, each peer, the
+Worktrees pane, and each temporary screen — and a test holds
 it to every `BINDINGS` under `ui/`; the Branches `INTEGRATED` description
 and the Worktrees actions note say what `x` checks — the `INTEGRATED` one
 distinguishing the row summary from the Cleanup preview's per-target

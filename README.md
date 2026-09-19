@@ -110,23 +110,35 @@ the management commands `init`, `integrate`,
 
 | Key | Action |
 |---|---|
+| `1` / `2` | Switch directly between Dashboard and Issues & Pull Requests; the complete labels in the top status bar are clickable too |
 | `r` | Restart both submitted queries from page one, refresh Project Totals, relevant Issue identities and local observations |
 | `Enter` in Worktrees | Open the selected Worktree in a new tmux pane or through the configured launcher |
 | `y` in Worktrees | Send the full Worktree path to the terminal clipboard |
-| `f` | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane; also available inside both Cleanup dialogs |
-| `x` | Preview removing the highlighted Worktree or deleting the highlighted Branch, then confirm; `Escape` cancels. Optional additional targets start unchecked ([ADR 0036](docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)) |
-| `Tab` / `Shift+Tab` | Cycle through the Sessions, Worktrees, Branches, Pull Requests, and Issues lists |
-| `/` | Focus the Pull Request search when its table has focus; otherwise focus the Issue search |
+| `f` on Dashboard | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane; also available inside both Cleanup dialogs |
+| `x` on Dashboard | Preview removing the highlighted Worktree or deleting the highlighted Branch, then confirm; `Escape` cancels. Optional additional targets start unchecked ([ADR 0036](docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)) |
+| `Tab` / `Shift+Tab` | Cycle through only the active peer's tables: Sessions → Worktrees → Branches, or Pull Requests → Issues |
+| `/` on Issues & Pull Requests | Focus the active query pane's search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
-| `c` | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
-| Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues; the newly focused pane's cursor is where it was last left |
-| `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
+| `c` with Issues focused | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
+| Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle within the active peer; the newly focused pane's cursor is where it was last left |
+| `Enter` | On an Issue, read it full-screen (`Escape` returns); opens a Worktree only from the Worktrees pane and is unbound on Sessions and Pull Requests |
 | `?` | Open the Legend: every column's description with its Glyphs, pane by pane, and the keys; `Escape` closes, `End` and `Home` scroll. Resting the mouse on any column header shows the same description as a tooltip |
 | `q` | Quit |
 
-Each pane keeps its row cursor across focus changes, whether you move between
-panes or switch terminal windows and come back; a pane's first entry starts at
-its first row. Passive refreshes preserve the selected row.
+Dashboard is the default peer. Its Sessions, Worktrees and Branches panes are
+separate from the Pull Requests and Issues query peer. Each long-lived peer
+keeps its focused control, row cursors, scroll positions, lifecycle choices,
+submitted queries and unsubmitted search text while the other is active; a
+pane's first entry starts at its first row. Passive refreshes preserve selected
+row identity. Issue Detail, Legend and Cleanup cover their originating peer,
+and `Escape` returns there; `1` and `2` are inactive on those temporary screens
+and insert text normally while an editable input has focus.
+
+The shared status bar shows exactly `Open Issues: N | Open PRs: N` from Project
+Totals. `-` means a total is unavailable. `◆` means every displayed number is
+fresh and `◇` means at least one is retained and stale; no freshness mark is
+shown when neither total is numeric. At compact widths the summary wraps below
+the complete peer labels.
 
 Cleanup previews show the concrete primary target without a redundant checkbox.
 Removing a Worktree retains its attached local Branch unless you select that
@@ -180,24 +192,24 @@ Issues summarizes explicitly bound Agent Runs, without a count. An empty
 aggregate has a blank Glyph. The Issue column editor always keeps agent
 activity first and preserves the order of your other choices.
 
-While Sessions, Worktrees, Branches, or Issues has keyboard focus, the row under
-its cursor emphasizes direct relationships in the other supported panes with a
-subtle background and bold identifying cells (HARNESS and TARGET for Sessions).
-Sessions emphasizes its observed Worktree, Branch, and bound Issue. Worktrees
-emphasizes its located Sessions, checked-out Branch, and those Sessions' bound
-Issues. Branches emphasizes its Worktrees, directly associated Sessions, and
-their bound Issues. Issues emphasizes only its explicitly bound Sessions and
-their observed Worktrees and Branches. Worktree–Branch topology also works
+While Sessions, Worktrees, or Branches has keyboard focus on Dashboard, the row
+under its cursor emphasizes direct relationships in the other Dashboard panes
+with a subtle background and bold identifying cells (HARNESS and TARGET for
+Sessions).
+Sessions emphasizes its observed Worktree and Branch. Worktrees emphasizes its
+located Sessions and checked-out Branch. Branches emphasizes its Worktrees and
+directly associated Sessions. Worktree–Branch topology also works
 without Sessions; shared locations never recursively add unrelated Sessions.
 
 Arrow keys and mouse selection update this cue. Entering or re-entering a pane
 re-emphasizes from the row its cursor stayed on; refresh preserves a surviving
 cursor key.
-Search/filter controls, Pull Requests, and modals clear emphasis. Pull Requests
-are never sources or destinations. Other cursors, filters, pagination, scroll
-positions, activity Glyphs, and counts stay unchanged. Selection performs no
-observation or mutation. Paths and Branch names are scoped to Project Identity;
-Issues match opaque Issue Identity through accepted Agent Run memberships.
+Controls, the query peer, and temporary screens clear Dashboard emphasis.
+Issues and Pull Requests are never sources or destinations. Other cursors,
+filters, pagination, scroll positions, activity Glyphs, and counts stay
+unchanged. Selection performs no observation or mutation. Paths and Branch
+names are scoped to Project Identity; associations use accepted Agent Run
+membership.
 Distinct native Agent Session identities remain separate even on a shared
 backend. Issue Hints and process identities do not establish relationships.
 

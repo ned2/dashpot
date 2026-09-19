@@ -8,7 +8,6 @@ import pytest
 from rich.text import Text
 from textual.coordinate import Coordinate
 from textual.pilot import Pilot
-from textual.widgets import DataTable
 
 import factories
 from app_harness import (
@@ -25,7 +24,7 @@ from app_harness import (
     prepare_pane,
     selected_title,
     serve_snapshot,
-    toasts,
+    show_query_peer,
     with_first_project_snapshot,
     workspace_snapshot,
 )
@@ -80,7 +79,8 @@ async def refresh_over_a_moved_pull_request(
     """Select the second Pull Request, then observe a page that moves it to the top."""
     _first, second = refreshed_pull_request_snapshots()
     await wait_until(lambda: first_load_landed(app))
-    pane = app.dashboard.pull_requests_pane()
+    await show_query_peer(app, pilot)
+    pane = app.query_screen.pull_requests_pane()
     pane.table.focus()
     await pilot.pause()
     await pilot.press("down")
@@ -104,10 +104,10 @@ async def test_pull_requests_pane_refreshes_and_keeps_its_cursor_by_identity() -
 
     async with app.run_test(size=(160, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        pane = app.dashboard.pull_requests_pane()
+        pane = app.query_screen.pull_requests_pane()
         await pilot.pause()
         assert (
-            pane_title(app, "#pull-requests-pane")
+            pane_title(app.query_screen, "#pull-requests-pane")
             == "PULL REQUESTS · Open 2 · Closed 0"
         )
         assert [str(column.label) for column in pane.table.columns.values()] == [
@@ -167,20 +167,22 @@ async def test_an_empty_pull_request_page_names_its_status_in_the_summary() -> N
         # The empty message only tells fresh from not; the page summary is
         # where a stale page keeps its last good observation apart from an
         # unavailable one.
-        empty = app.query_one("#pull-requests-pane .list-pane-empty")
+        empty = app.query_screen.query_one("#pull-requests-pane .list-pane-empty")
         assert str(empty.render()) == "Pull Requests unavailable"
         assert (
-            pane_subtitle(app, "#pull-requests-pane")
+            pane_subtitle(app.query_screen, "#pull-requests-pane")
             == "0 shown · 0 matches · stale · observed 2026-08-25T00:00:00Z"
         )
 
     unavailable_app = dashboard_app(SequenceCollector(unavailable))
     async with unavailable_app.run_test(size=(120, 32)):
         await wait_until(lambda: first_load_landed(unavailable_app))
-        empty = unavailable_app.query_one("#pull-requests-pane .list-pane-empty")
+        empty = unavailable_app.query_screen.query_one(
+            "#pull-requests-pane .list-pane-empty"
+        )
         assert str(empty.render()) == "Pull Requests unavailable"
         assert (
-            pane_subtitle(unavailable_app, "#pull-requests-pane")
+            pane_subtitle(unavailable_app.query_screen, "#pull-requests-pane")
             == UNAVAILABLE_PAGE_SUMMARY
         )
 
@@ -363,7 +365,7 @@ async def test_a_theme_change_repaints_the_list_panes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_enter_on_a_bound_session_opens_its_issue_and_unbound_is_safe() -> None:
+async def test_enter_on_a_session_does_not_open_or_select_an_issue() -> None:
     issues = (issue("test/repo#1", "First"), issue("test/repo#2", "Second"))
     snapshot = sessions_snapshot(
         session_run("work:codex:bound", state="running", issue_id="I_test/repo#2"),
@@ -380,10 +382,13 @@ async def test_enter_on_a_bound_session_opens_its_issue_and_unbound_is_safe() ->
         table = app.dashboard.sessions_pane().table
         assert str(table.get_row_at(0)[3]) == "#2 Second"
 
+        # Session activation stays within the Dashboard peer. In particular,
+        # it neither opens the bound Issue nor changes the query peer's own
+        # native table selection.
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
-        assert app.dashboard.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
         assert selected_title(app) == "#1: First"
@@ -391,62 +396,11 @@ async def test_enter_on_a_bound_session_opens_its_issue_and_unbound_is_safe() ->
 
         await pilot.press("up")
         await pilot.press("enter")
-        await wait_until(lambda: isinstance(app.screen, IssueScreen))
-        details = app.screen
-        assert isinstance(details, IssueScreen)
-        assert details.issue.id == "I_test/repo#2"
-        # The Issue table keeps its own selection; the details came by identity.
-        assert app.dashboard.issue_table.selected_row_key == row_key(
+        await pilot.pause()
+        assert app.screen is app.dashboard
+        assert app.query_screen.issue_table.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
-
-
-@pytest.mark.asyncio
-async def test_enter_resolves_a_bound_issue_off_the_page_before_opening_it() -> None:
-    closed_issue = issue(
-        "test/repo#2",
-        "Second",
-        state="closed",
-        stateReason="completed",
-        closedAt="2026-08-24T00:00:00Z",
-    )
-    snapshot = sessions_snapshot(
-        session_run("work:codex:closed", state="running", issue_id="I_test/repo#2"),
-        session_run("work:codex:gone", state="waiting", issue_id="I_gone"),
-        issues=(issue("test/repo#1", "First"), closed_issue),
-    )
-    app = dashboard_app(SequenceCollector(snapshot))
-
-    async with app.run_test(size=(160, 40)) as pilot:
-        await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
-        assert selected_title(app) == "#1: First"
-        pane = app.dashboard.sessions_pane()
-        keys = session_pane_keys(app)
-
-        # A bound Issue the Issue Source no longer knows is reported, not opened.
-        pane.table.move_cursor(row=keys.index(row_key("session", "work:codex:gone")))
-        await pilot.press("enter")
-        await wait_until(lambda: "I_gone" in app.store.resolved)
-        await pilot.pause()
-        assert toasts(app) == [
-            "Resolving bound Issue details",
-            "Bound Issue details are unavailable",
-        ]
-        assert not isinstance(app.screen, IssueScreen)
-
-        # A closed Issue is off the open page, so Enter resolves it by identity
-        # and opens its details once they are in; the Issue table's cursor stays.
-        pane.table.move_cursor(row=keys.index(row_key("session", "work:codex:closed")))
-        await pilot.press("enter")
-        await wait_until(lambda: isinstance(app.screen, IssueScreen))
-        details = app.screen
-        assert isinstance(details, IssueScreen)
-        assert details.issue.id == "I_test/repo#2"
-        assert app.dashboard.issue_table.selected_row_key == row_key(
-            "issue", "I_test/repo#1"
-        )
-        assert app.query_one("#queue", DataTable).cursor_row == 0
 
 
 @pytest.mark.asyncio
@@ -565,7 +519,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert selected_title(app) == "#1: First"
         await pilot.press("enter")
         await pilot.pause()
-        assert app.dashboard.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
         assert not isinstance(app.screen, IssueScreen)
