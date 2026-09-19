@@ -235,9 +235,11 @@ server, and tool execution host need not be the same machine. A client's local
 checkout and environment should not be assumed to configure remote execution;
 the exact remote configuration and hook execution mapping remains unmeasured.
 With the default local host on Linux at `0.155.1`, every measured shell and
-hook was a direct descendant of the single `codex app-server` process and no
-other process ran under the fixture `CODEX_HOME`, so the local Code Mode host
-is not a separate process in that configuration; `--code-mode-host` was not
+hook was a direct child of the single `codex app-server` process, and process
+sweeps of the fixture `CODEX_HOME` taken while the threads were idle found no
+other process; that the local Code Mode host is not a separate process in
+that configuration is an inference from those idle snapshots, since a helper
+alive only during a turn would not appear in them. `--code-mode-host` was not
 exercised. [Code Mode host][server]
 
 Shell `CODEX_THREAD_ID`, hook `session_id`, per-conversation `thread.id`,
@@ -829,7 +831,7 @@ available, preserving release and mode boundaries.
 | Question | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- |
 | Does one selected host PID distinguish conversations? | No for app-server, measured at `0.155.1`: one `codex` process hosted two root threads, a fork, and a sub-agent thread, with every shell and hook below it; yes for `codex exec`, which is one process per thread; interactive TUI unmeasured | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No in the tested backend |
-| Does client disconnect stop execution? | Measured at `0.155.1`: a departing client's command ran to completion with no hook, and the last unsubscription unloaded the thread with `SessionEnd` after 60,067 ms (sixty seconds by code default at `0.154.0`); the embedded TUI's shutdown on exit is source reading | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | Attached CLI exit did not stop its command |
+| Does client disconnect stop execution? | Measured at `0.155.1`: a departing client's command ran to completion with its ordinary tool hooks and `Stop` and no `Interrupt` or `SessionEnd`, and the last unsubscription unloaded the thread with `SessionEnd` after 60,067 ms (sixty seconds by code default at `0.154.0`); the embedded TUI's shutdown on exit is source reading | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | Attached CLI exit did not stop its command |
 | Does process restart erase history? | Measured at `0.155.1`: after SIGKILL of the server a replacement server resumed the stored thread at another cwd under the same id, with `SessionStart` `resume` at the first turn and no `SessionEnd` for the kill; the stale lock file did not block it | Measured: a killed or respawned worker and a replaced supervisor keep the session ID; `SessionStart` reports `resume` for the new worker pid | Same native ID resumed after backend replacement |
 | Are hook/command IDs fully mapped? | Measured at `0.155.1` for app-server and `exec`: root and fork hook `session_id` = `thread.id` = `thread.sessionId` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; a sub-agent's shell claims its own id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID`, and its hooks carry the root `session_id` plus `agent_id`; hook processes carry no thread variable; Code Mode remote host unmeasured | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |
 | Is native parentage equivalent to fork origin? | No, measured at `0.155.1`: `thread/read` reports `forkedFromId` and `SessionStart` reports `source` = `fork`, but the payload has no parent field (`startup` for a fork at `0.154.0` by source reading); a sub-agent's `parentThreadId` is delegation, not fork origin | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No: measured fork lacked child `parentID` |

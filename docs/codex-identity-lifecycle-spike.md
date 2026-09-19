@@ -48,9 +48,10 @@ node scripts/experiments/codex-160/verify.mjs /tmp/dashpot-codex-160-SUFFIX/trac
 ```
 
 Replace the second path with the exact fixture path printed by the runner.
-The run takes approximately one minute and fifty seconds, one minute of which
-is the default thread unload delay measured in the `unsubscribe-unload-wait`
-scenario. The binary must be an absolute path because the fixture environment
+The retained trace spans about eighty seconds from its first record to its
+last, sixty of them the default thread unload delay measured in the
+`unsubscribe-unload-wait` scenario; fixture setup and teardown add a little
+either side. The binary must be an absolute path because the fixture environment
 carries no `PATH` entry for the operator's tools. A sandbox that blocks
 loopback needs a command-scoped exception for the runner. The verifier needs
 no network.
@@ -79,8 +80,8 @@ no network.
   record includes SHA-256 hashes of the five experimental source files.
 
 The runner creates a new `/tmp/dashpot-codex-160-*` root, an independent Git
-Repository with an empty fixture commit, and one linked fixture Worktree used as
-another location. These are disposable experiment resources, not durable task
+Repository with an empty fixture commit, whose primary checkout is the first
+location, and one linked fixture Worktree used as another location. These are disposable experiment resources, not durable task
 Worktrees. It supplies an allowlisted child environment with an isolated home,
 XDG directories, temporary directory, and `CODEX_HOME`, and writes a
 `config.toml` there that selects the loopback provider with `wire_api =
@@ -118,7 +119,7 @@ run created, including when assertions fail.
 | Delegation | The model's `multi_agent_v1` `spawn_agent` and `wait_agent` tools, one child at depth 1 |
 | Model | Loopback Responses API streaming fixture selected by a custom `model_provider` |
 | Hooks | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart`, `SubagentStop`, `SessionEnd`, `Interrupt`, each a `command` hook trusted through `[hooks.state]` |
-| Other settings | Exact `config.toml` in the runner; isolation environment in trace record 1 |
+| Other settings | Exact `config.toml` and allowlisted environment in the runner's `env` object; trace record 1 names the fixture `CODEX_HOME` |
 
 Only metadata crosses the experimental observation boundary: hook event names
 and their identity fields (`session_id`, `turn_id`, `cwd`, `source`, `reason`,
@@ -129,8 +130,10 @@ thread summaries from the app-server (ids, cwd, `source`, `status`,
 `originator`), loaded-thread and writer-lock listings, JSON-RPC error codes
 and messages, command exit status, and the first six arguments of each
 process. The mock model records scenario labels, request counts, and
-advertised tool names, not messages. Prompt text, transcripts, tool inputs and
-responses, and full environments are not retained. Codex's own disposable data
+advertised tool names, not messages. The fixture prompts are content-free
+`SPIKE:<label>` markers, which the trace keeps as turn labels and `codex exec`
+arguments. Prompt text, transcripts, tool inputs and responses, and full
+environments are not retained. Codex's own disposable data
 under the fixture `CODEX_HOME` can contain the synthetic conversation; it is
 not part of the retained evidence.
 
@@ -141,7 +144,11 @@ The interactive terminal (`codex`, `codex --remote`, `/cd`, the managed
 `/worktree` command), Remote Control and the managed daemon, the optional Code
 Mode remote host (`--code-mode-host`), MCP-hosted clients, the stdio
 app-server transport, other releases, and other operating systems remain
-untested. The interactive terminal was left out of this run rather than
+untested. Two app-server paths the Issue names are also unmeasured: a
+`turn/start` with a `cwd` override on a loaded thread, and a `thread/resume`
+whose overrides are ignored because the thread is loaded and subscribed; the
+only override exercised was `thread/resume` with `cwd` on a `notLoaded`
+thread. The interactive terminal was left out of this run rather than
 blocked; a PTY-hosted follow-up can measure it the same way. The reference's
 [pinned source reading](agent-harness-server-client-reference.md#codex-cli-and-app-server)
 remains the only account of those modes, and the reference labels each row
@@ -150,25 +157,25 @@ accordingly.
 ## Scenario results
 
 Trace references below are the `receipt` field, not file line assumptions.
-Thread A is the first root thread at the fixture Repository, thread B the
-second at the other Worktree, F the fork of A, and "child" the sub-agent A
+Thread A is the first root thread at the fixture's primary checkout, thread B
+the second at the other Worktree, F the fork of A, and "child" the sub-agent A
 spawned.
 
 | Scenario | Observed result | Evidence |
 | --- | --- | --- |
 | Hook trust | Freshly written hooks list as `untrusted`; after their `currentHash` values are recorded under `[hooks.state]` in `config.toml`, the same server lists them `trusted` without a restart. | 5–6 |
-| Two root threads | One app-server process (`comm` `codex`) holds A and B loaded at two cwds with no second Codex process. For each thread `thread.id` = `thread.sessionId` = hook `session_id` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; hook cwd and shell cwd equal the thread cwd; every hook and shell descends from the app-server pid. `SessionStart` (`source` = `startup`) fires at the first turn, not at `thread/start`. Hook processes carry only `CODEX_HOME`, never a thread id. | 8–35 |
+| Two root threads | One app-server process (`comm` `codex`) holds A and B loaded at two cwds, and idle process sweeps of the fixture `CODEX_HOME` found no second process. For each thread `thread.id` = `thread.sessionId` = hook `session_id` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; hook cwd and shell cwd equal the thread cwd; every hook and shell is a direct child of the app-server pid. `SessionStart` (`source` = `startup`) fires at the first turn, not at `thread/start`, by receipt order (8, 9, 10 and 8, 20, 21). Hook processes carry only `CODEX_HOME`, never a thread id. | 8–35 |
 | Fork | `thread/fork` of A yields a new `id` with `sessionId` equal to its own id and `forkedFromId` = A. Its first turn publishes `SessionStart` with `source` = `fork`; the payload names no parent. The fork's shell claims the fork id in both variables. | 37–49 |
 | Sub-agent | `spawn_agent` from A creates a child that appears in `thread/loaded/list`; `thread/read` reports `parentThreadId` = A, `sessionId` = A, and a `subAgent.thread_spawn` source at depth 1. The child's shell carries `CODEX_THREAD_ID` = child id and `CODEX_SESSION_ID` = A. `SubagentStart`, the child's `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `SubagentStop` all carry `session_id` = A, `agent_id` = child id, `agent_type` = `default`, and a `turn_id` distinct from A's turn. No `SessionStart` fired for the child, and no `SessionEnd` ever did. The child held its own writer lock. | 51–72, 124 |
-| Second client attaches | A second WebSocket client's `thread/resume` of the loaded A and B returns the same ids and publishes no hook. | 74–75 |
+| Second client attaches | A second WebSocket client's `thread/resume` of the loaded A, B, and F returns the same ids and publishes no hook; this second subscription is what the later unload scenario releases. | 74–75 |
 | Client departs mid-turn | The first client's socket closes (code 1006) while B's command holds; the command runs to completion, the second client receives `turn/completed`, and no `Interrupt` or `SessionEnd` fires. | 76–86 |
 | Interrupt | `turn/interrupt` on B ends the turn with status `interrupted`; the held command is killed before its end report; `Interrupt` carries `session_id` and `turn_id`; no `PostToolUse` or `Stop` follows. | 88–94 |
-| `codex exec` | A separate `codex` process hosts its own thread; its shell and hooks descend from that pid, not the app-server. The thread id from `thread.started` equals the shell's two claims and the hook `session_id`. Hooks run `SessionStart` `startup` through `Stop`, then `SessionEnd` `other` at process exit. | 98–109 |
+| `codex exec` | A separate `codex` process hosts its own thread; its shell and hooks descend from that pid, not the app-server. The thread id from `thread.started` equals the shell's two claims and the hook `session_id`. Hooks run `SessionStart` `startup` through `Stop`, then `SessionEnd` `other` at process exit. Both `exec` runs emitted three `item.completed` events of type `error` before `turn.started`; their content was not retained and they are unexplained. | 98–109 |
 | `codex exec resume` from another cwd | Resuming that thread from the other Worktree keeps its id, publishes `SessionStart` with `source` = `resume`, and every hook cwd and the shell cwd are the resuming process's cwd. | 110–121 |
 | Competing resume | While the primary server holds A, `codex exec resume A` exits 1 with `thread-store conflict: thread … already has an active writer`; no command ran and no hook fired. A second app-server's `thread/resume A` fails with JSON-RPC `-32600` and the same message, while its `thread/read A` succeeds with status `notLoaded`. The lock directory then held `.coordination.lock` and one lock per loaded thread, the child included. | 123–128 |
-| Unsubscribe and unload | After the last subscriber's `thread/unsubscribe` of F, `SessionEnd` `other` fired after 60,067 ms, F left the loaded list, and `thread/closed` still reached the unsubscribed client. The idle child unloaded about eight seconds earlier with `thread/closed` and no hook. | 96, 130–131 |
+| Unsubscribe and unload | After the last subscriber's `thread/unsubscribe` of F, `SessionEnd` `other` fired after 60,067 ms, F left the loaded list, its lock was gone by the next lock listing, and `thread/closed` still reached the unsubscribed client. The idle child unloaded about eight seconds earlier with `thread/closed` and no hook. | 96, 130–131, 133 |
 | Abrupt server exit | SIGKILL of the primary server with A and B loaded: exit by signal, client close 1006, no hook of any kind, `.coordination.lock` and both thread locks left on disk, no leftover fixture process. | 133–136 |
-| Stored thread resume | A replacement server's `thread/read A` returns the stored Repository cwd with status `notLoaded`. `thread/resume A` with `cwd` = the other Worktree succeeds despite the stale lock and publishes no hook. The next turn publishes `SessionStart` `resume`; hook cwd and shell cwd are the other Worktree, the shell claims A in both variables, and the shell descends from the replacement pid. | 138–152 |
+| Stored thread resume | A replacement server's `thread/read A` returns the stored primary-checkout cwd with status `notLoaded`. `thread/resume A` with `cwd` = the other Worktree succeeds despite the stale lock and publishes no hook. The next turn publishes `SessionStart` `resume`; hook cwd and shell cwd are the other Worktree, the shell claims A in both variables, and the shell descends from the replacement pid. | 138–152 |
 | Graceful server exit | SIGTERM of the replacement server: exit 0, `SessionEnd` `other` for A with the overridden cwd, A's lock removed, only `.coordination.lock` left. | 154–156 |
 
 The fork `source` confirms the post-`0.154.0` change the reference had cited
@@ -185,16 +192,16 @@ origin thread's; the sub-agent case is where `sessionId` differs from `id`.
   child for a sub-agent's shells. `0.155.1` adds `CODEX_SESSION_ID`, which
   names the root in both cases and is the value that agrees with every hook's
   `session_id`. A sub-agent's shell claim therefore does not match the
-  session key that hooks publish for the same work; a Harness Adapter that
-  wants one key per conversation should prefer `CODEX_SESSION_ID` when it is
-  present.
+  native session ID that hooks publish for the same work; `CODEX_SESSION_ID`,
+  when present, is the shell value that agrees with the hooks.
 - A hook's `session_id` is a parent-scoped identity. The executing child is
   named only by `agent_id` in the sub-agent hooks, and never by a
   `SessionStart` or `SessionEnd` of its own.
 - `is_codex_host_process` accepts a process named `codex`, which matched the
   app-server and the `codex exec` process alike; every hook and shell in this
-  run descended from one or the other, and no Code Mode or other helper
-  process appeared.
+  run was a direct child of one or the other, and the idle process sweeps
+  found no Code Mode or other helper process. Whether a helper runs during a
+  turn was not measured.
 - An app-server thread outlives its clients. A departing client changes
   nothing; only the last subscriber's departure starts the unload timer, and
   `SessionEnd` arrives a minute later. Observation that retires a run on a
