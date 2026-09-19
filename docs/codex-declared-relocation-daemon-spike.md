@@ -111,7 +111,9 @@ fields, the names of other payload keys, the `CODEX*` environment, process
 ancestry, thread summaries (id, cwd, `source`, `status`, `ephemeral`),
 loaded-thread and writer-lock listings, JSON-RPC error codes, daemon command
 output, command exit status, and two booleans per resumed terminal saying
-whether its screen showed a read-only notice or the session picker. The mock
+whether its screen showed a read-only notice or the session picker, matched
+by a pattern over the whitespace-stripped screen; the stronger evidence that
+a resume was live is the writer lock it holds and the two turns it ran. The mock
 model records scenario labels and request counts, not messages. The fixture
 prompts are content-free `SPIKE:<label>` markers. Prompt text, transcripts,
 tool inputs and responses, terminal screen text, and full environments are
@@ -122,7 +124,7 @@ resume, with no sub-agent, background terminal, second subscriber, or
 competing client; permissions bypassed (`approval_policy = "never"`); the
 positional prompt as the resumed terminal's first turn; and no conversation
 canary, so identity preservation is the thread id, not the history. The
-in-window resume was launched 84 ms after the first terminal's exit, one point
+in-window resume was launched 98 ms after the first terminal's exit, one point
 in the sixty-second window; a resume launched while the old terminal is still
 attached, a terminal started before the daemon, `--remote` resumes, `/cd`,
 other operating systems, and other releases are unmeasured. Dashpot's own
@@ -141,9 +143,9 @@ watches ninety seconds for a late `SessionEnd`; the resumed terminal types
 | Scenario | Observed result | Evidence |
 | --- | --- | --- |
 | Hook trust and control setup | The daemon started, listed the nine fixture hooks, and after `[hooks.state]` was written listed them `trusted`; `daemon stop` then left no fixture process and no control socket. | 2–7 |
-| No daemon (ADR 0029's control) | The plain terminal hosted its own thread: the shell's `codex` ancestor was the terminal process, nothing was loaded anywhere, and no daemon appeared. `/exit` ran `SessionEnd` `other` at `other` before the process ended and released the writer lock. `codex resume <id> -C third` 17 ms later was a new process; its first hook was `SessionStart` `resume` at `third` (375 ms after launch), the turn and the typed second turn ran at `third` under the same thread id, and no read-only notice or picker was shown. No `SessionEnd` arrived while the resumed terminal lived; its `/exit` ran `SessionEnd` `other` at `third` at once. | 8–50 |
-| Daemon-hosted, resume inside the unload window | With the daemon restarted, the plain terminal's thread was hosted in it: the shell descended from the daemon pid and `thread/loaded/list` included the thread. `/exit` ran no hook; 84 ms later the thread was still loaded, `idle` at `other`, with its writer lock held, when `codex resume <id> -C third` launched. The resumed terminal was daemon-hosted too. Its hooks, in order: `SessionEnd` `other` at **`other`** 200 ms after launch (294 ms after the first terminal's exit), then `SessionStart` `resume` at `third` 307 ms after launch, then the turn at `third`; `thread/read` reported cwd `third`, `idle`. The typed second turn ran at `third`. No later `SessionEnd` arrived during the ninety-second watch, and the thread stayed loaded. `/exit` ran no hook; `SessionEnd` `other` at `third` fired 60,034 ms later, after which the thread was unloaded and its lock released. Both `SessionEnd` hooks descended from the daemon pid. | 54–95 |
-| Daemon-hosted, resume after the unload | `/exit` ran no hook; `SessionEnd` `other` at `other` fired 60,039 ms later, after which `thread/read` reported `notLoaded` at `other` with no lock. `codex resume <id> -C third` then behaved as the stored-thread resume the [#160 experiment](codex-identity-lifecycle-spike.md#scenario-results) measured: daemon-hosted, `SessionStart` `resume` at `third` first (223 ms after launch), the turn and second turn at `third` under the same thread id, no late `SessionEnd`, and `SessionEnd` `other` at `third` 60,039 ms after the final `/exit`. | 96–137 |
+| No daemon (ADR 0029's control) | The plain terminal hosted its own thread: the shell's `codex` ancestor was the terminal process, nothing was loaded anywhere, and no daemon appeared. `/exit` ran `SessionEnd` `other` at `other` before the process ended and released the writer lock. `codex resume <id> -C third` launched 92 ms after the exit was a new process; its first hook was `SessionStart` `resume` at `third` (458 ms after launch), the turn and the typed second turn ran at `third` under the same thread id, and no read-only notice or picker was shown. No `SessionEnd` arrived while the resumed terminal lived; its `/exit` ran `SessionEnd` `other` at `third` at once. | 8–50 |
+| Daemon-hosted, resume inside the unload window | With the daemon restarted, the plain terminal's thread was hosted in it: the shell descended from the daemon pid and `thread/loaded/list` included the thread. `/exit` ran no hook; the thread was still loaded, `idle` at `other`, with its writer lock held, when `codex resume <id> -C third` launched 98 ms after the exit. The resumed terminal was daemon-hosted too. Its hooks, in order: `SessionEnd` `other` at **`other`** 212 ms after launch (310 ms after the first terminal's exit), then `SessionStart` `resume` at `third` 314 ms after launch, then the turn at `third`; `thread/read` reported cwd `third`, `idle`. The typed second turn ran at `third`. No later `SessionEnd` arrived during the ninety-second watch, and the thread stayed loaded. `/exit` ran no hook; `SessionEnd` `other` at `third` fired 60,041 ms later, after which the thread was unloaded and its lock released. Both `SessionEnd` hooks descended from the daemon pid. | 51–95 |
+| Daemon-hosted, resume after the unload | `/exit` ran no hook; `SessionEnd` `other` at `other` fired 60,035 ms later, after which `thread/read` reported `notLoaded` at `other` with no lock. `codex resume <id> -C third` then behaved as the stored-thread resume the [#160 experiment](codex-identity-lifecycle-spike.md#scenario-results) measured: daemon-hosted, `SessionStart` `resume` at `third` first (356 ms after launch), the turn and second turn at `third` under the same thread id, no late `SessionEnd`, and `SessionEnd` `other` at `third` 60,047 ms after the final `/exit`. | 96–137 |
 
 The hook order at each resume, under one thread id throughout:
 
@@ -160,7 +162,7 @@ The hook order at each resume, under one thread id throughout:
   Session Identity at the intended target completes the relocation — is met
   in the same order on every route. On the daemon route the `SessionEnd`
   that ends the origin record and the `SessionStart` that completes the move
-  are 107 ms apart and both come from the daemon process, so the completion
+  are 102 ms apart and both come from the daemon process, so the completion
   relies on the origin record being `ended`, not on the host process being
   gone; that is the branch
   [`_sequential_target_is_confirmed`](../src/dashpot/sessions/work_reconciliation.py)

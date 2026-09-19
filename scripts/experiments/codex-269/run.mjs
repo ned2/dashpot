@@ -300,6 +300,8 @@ const measure = async (name, client, resumeAfter) => {
 
   const hooksAtExit = hooks().length;
   const exitedAt = await exitTerminal(first);
+  // `resumeDelayMs` is when the scenario released the resume; the launch
+  // itself follows the state snapshot below, and `resume.outcome` records it.
   const resumeDelayMs = await resumeAfter({ threadId, hooksAtExit, exitedAt });
   trace("first.exit", { scenario: name, threadId, exited: first.exited, resumeDelayMs, hooksSinceExit: hooksSince(hooksAtExit, exitedAt), locks: lockFiles(), loaded: await loadedThreads(client), thread: await readThread(client, threadId), processes: processList() });
 
@@ -309,7 +311,7 @@ const measure = async (name, client, resumeAfter) => {
   const ran = await waitQuietly(() => command(`${name}-resumed`) || resumed.exited, 90000);
   const resumedShell = command(`${name}-resumed`);
   if (resumedShell) await waitQuietly(() => hooks().slice(hooksAtResume).some((record) => record.event === "Stop" && record.receiptTime > resumedShell.receiptTime), 60000);
-  trace("resume.outcome", { scenario: name, threadId, ran: Boolean(resumedShell), exited: resumed.exited, screen: screenState(resumed), shellCwd: resumedShell?.cwd ?? null, shellEnv: resumedShell?.env ?? null, host: hostOf(resumedShell),
+  trace("resume.outcome", { scenario: name, threadId, launchDelayMs: resumedAt - exitedAt, ran: Boolean(resumedShell), exited: resumed.exited, screen: screenState(resumed), shellCwd: resumedShell?.cwd ?? null, shellEnv: resumedShell?.env ?? null, host: hostOf(resumedShell),
     sameThread: resumedShell ? resumedShell.env.CODEX_SESSION_ID === threadId : null, hooks: hooksSince(hooksAtResume, resumedAt), loaded: await loadedThreads(client), thread: await readThread(client, threadId), locks: lockFiles(), processes: processList() });
   assert(ran && resumedShell, `${name}: the resumed terminal ran its prompt`);
 

@@ -480,14 +480,14 @@ The [declared-relocation experiment](codex-declared-relocation-daemon-spike.md#s
 then measured the sequential `codex resume <id> -C <path>` route on the
 daemon. When the old plain terminal has typed `/exit` and the thread is still
 loaded, idle, and locked with no subscriber, a `codex resume` of it launched
-84 ms later is daemon-hosted and does not reattach in the old directory: the
+98 ms later is daemon-hosted and does not reattach in the old directory: the
 daemon shuts the cached runtime down, running `SessionEnd` `other` at the
 **old** cwd, and cold-resumes the thread with the override, running
-`SessionStart` `resume` at the new cwd 107 ms later, then the turn there,
+`SessionStart` `resume` at the new cwd 102 ms later, then the turn there,
 all under the same thread id; `thread/read` reports the new cwd, the
 terminal's own next turn runs there, no later `SessionEnd` arrives while the
 resumed terminal lives, and its `/exit` starts the ordinary unload delay
-(60,034 ms measured). This is the cold-resume branch of the loaded-thread
+(60,041 ms measured). This is the cold-resume branch of the loaded-thread
 override rule above, reached because the exited terminal was the only
 subscriber; the feasibility experiment's ignored override was of a thread
 its terminal still subscribed to. A resume after the unload behaves as the

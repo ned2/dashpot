@@ -114,7 +114,7 @@ thread loaded until its unload delay elapses (sixty seconds by code default at
 resume inside that window would stay read-only until the unload; the
 [declared-relocation experiment](codex-declared-relocation-daemon-spike.md#scenario-results)
 of 2026-09-20 measured otherwise on `0.155.1`. A `codex resume <id> -C <path>`
-launched 84 ms after the old terminal's `/exit` is hosted in the daemon and
+launched 98 ms after the old terminal's `/exit` is hosted in the daemon and
 takes the cold-resume path, because the exited terminal was the thread's only
 subscriber: the daemon runs `SessionEnd` `other` at the old Worktree, then
 `SessionStart` `resume` at the new one, under the same thread id, with no

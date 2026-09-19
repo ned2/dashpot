@@ -2,7 +2,12 @@
 // Checks the recorded hosting, hook, shell, and protocol evidence against the
 // declared-relocation claims without importing the runner or the publisher.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 const tracePath = process.argv[2];
 assert(tracePath, "Pass the trace.jsonl path");
@@ -14,6 +19,11 @@ const hooks = of("hook");
 const environment = records[0];
 assert.equal(environment.kind, "environment");
 assert.equal(environment.version, `codex-cli ${expectedVersion}`);
+// The trace names the exact sources that produced it, this file included.
+assert.deepEqual(Object.keys(environment.sourceSHA256).sort(), ["ancestry.mjs", "command.mjs", "hook.mjs", "run.mjs", "uds-websocket.mjs", "verify.mjs"]);
+for (const [file, digest] of Object.entries(environment.sourceSHA256)) {
+  assert.equal(createHash("sha256").update(readFileSync(path.join(here, file))).digest("hex"), digest, `${file} matches the hash the run recorded`);
+}
 const { other, third, socketPath } = environment;
 assert.deepEqual(of("scenario").map((record) => record.name), ["hook-trust", "no-daemon", "in-window", "after-unload"]);
 assert.equal(of("hooks.list")[0].after.every(([, trust]) => trust === "trusted"), true);
@@ -98,14 +108,15 @@ const hooksOfThread = (threadId) => hooks.filter((record) => record.payload.sess
 const hostedBy = (record, pid) => record.ancestry.some((entry) => entry.pid === pid);
 
 // Control: with no daemon, each terminal is its own host. `/exit` ran
-// `SessionEnd` at `other` before the process ended; the resume 6 ms later
-// was a fresh process whose first hook was `SessionStart` `resume` at `third`.
+// `SessionEnd` at `other` before the process ended; the resume launched
+// within a second was a fresh process whose first hook was `SessionStart`
+// `resume` at `third`.
 {
   const { threadId, first, exit, resume, second, watch, final } = scenarios["no-daemon"];
   assert.equal(first.host.daemonHosted, false);
   assert.deepEqual(first.loaded, []);
   assert.deepEqual(exit.hooksSinceExit.map(([event, session, reason, cwd]) => [event, session, reason, cwd]), [["SessionEnd", threadId, "other", other]]);
-  assert(exit.resumeDelayMs < 15000, `resume followed the exit promptly: ${exit.resumeDelayMs}`);
+  assert(resume.launchDelayMs < 1000, `resume launched promptly after the exit: ${resume.launchDelayMs}`);
   assert.deepEqual(exit.processes, [], "no fixture process outlived the first terminal");
   assert(!exit.locks.includes(`${threadId}.lock`), "the writer lock left with the process");
   assert.equal(resume.host.daemonHosted, false);
@@ -120,7 +131,7 @@ const hostedBy = (record, pid) => record.ancestry.some((entry) => entry.pid === 
 }
 
 // Inside the unload window: the daemon still held the idle thread at `other`
-// with its lock when the resume was launched within two seconds of the exit.
+// with its lock when the resume was launched within a second of the exit.
 // The daemon-hosted resume shut that runtime down — `SessionEnd` `other` at
 // `other` — and cold-resumed it at `third`, `SessionStart` `resume` following
 // the end; no SessionEnd arrived later while the resumed terminal lived.
@@ -130,7 +141,8 @@ const hostedBy = (record, pid) => record.ancestry.some((entry) => entry.pid === 
   assert.equal(first.host.hostPid, daemonPid);
   assert(first.loaded.includes(threadId));
   assert.deepEqual(exit.hooksSinceExit, [], "the terminal's exit ran no hook");
-  assert(exit.resumeDelayMs < 2000, `resume inside the unload window: ${exit.resumeDelayMs}`);
+  assert(resume.launchDelayMs < 1000, `resume launched inside the unload window: ${resume.launchDelayMs}`);
+  assert(resume.hooks[0][4] > 0, "the origin SessionEnd came after the launch, not before it");
   assert(exit.loaded.includes(threadId) && exit.locks.includes(`${threadId}.lock`), "thread still loaded and locked at resume time");
   assert.deepEqual([exit.thread.cwd, exit.thread.status.type], [other, "idle"]);
   assert.equal(resume.host.daemonHosted, true);
@@ -158,7 +170,7 @@ const hostedBy = (record, pid) => record.ancestry.some((entry) => entry.pid === 
   assert.equal(first.host.daemonHosted, true);
   assert.deepEqual(exit.hooksSinceExit.map(([event, session, reason, cwd]) => [event, session, reason, cwd]), [["SessionEnd", threadId, "other", other]]);
   assert(exit.hooksSinceExit[0][4] >= 55000 && exit.hooksSinceExit[0][4] < 90000, `unload SessionEnd after about a minute: ${exit.hooksSinceExit[0][4]}`);
-  assert(exit.resumeDelayMs >= exit.hooksSinceExit[0][4], "the resume waited for SessionEnd");
+  assert(resume.launchDelayMs >= exit.hooksSinceExit[0][4], "the resume launched after SessionEnd");
   assert(!exit.loaded.includes(threadId) && !exit.locks.includes(`${threadId}.lock`), "thread unloaded and unlocked before the resume");
   assert.deepEqual([exit.thread.cwd, exit.thread.status.type], [other, "notLoaded"]);
   assert.equal(resume.host.daemonHosted, true);
