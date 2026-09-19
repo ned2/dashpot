@@ -817,6 +817,11 @@ These `living` documents carry the detail this README points at:
   identity, and lifecycle, with source and experiment boundaries.
 - [`docs/design.md`](docs/design.md) describes how the pieces fit — the
   observation pipeline, the read model, and the seams beneath the interface.
+- [`docs/design-research/README.md`](docs/design-research/README.md) indexes
+  the design research — the research and analysis behind Dashpot's
+  direction: keeping understanding of a codebase, held by a person and by a
+  team, as agents author more of it; the friction that keeps it; and the
+  work rather than the session as the unit.
 
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
 decision. The other files in [`docs/`](docs/) are research, audits, and
