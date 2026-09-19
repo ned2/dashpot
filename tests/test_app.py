@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from threading import Event, Lock
+from typing import override
 from unittest import mock
 
 import pytest
@@ -16,6 +17,7 @@ import factories
 from app_harness import (
     NOW,
     SequenceCollector,
+    SnapshotQuerySource,
     assert_panes_stack_above_full_width_queue,
     dashboard_app,
     first_load_landed,
@@ -39,6 +41,7 @@ from dashpot.observation.keys import (
     ObservationOutcome,
     ObservationTicket,
 )
+from dashpot.queries.source_queries import QueryPage, QueryRequest
 from dashpot.ui.app import DashboardScreen, DashpotApp
 from dashpot.ui.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.ui.issue_view import selection_title
@@ -136,6 +139,90 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert diagnostics.region.height == 0
     # Private loop state is the only witness that the executor was released.
     assert asyncio.get_running_loop()._default_executor is None  # ty: ignore[unresolved-attribute]
+
+
+@pytest.mark.asyncio
+async def test_initial_queries_do_not_report_unavailable_while_loading() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    release = Event()
+    app = dashboard_app(SequenceCollector(snapshot), release=release)
+
+    try:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await wait_until(
+                lambda: (
+                    app.store.revision == 1
+                    and {"issues", "pull-requests"} <= app.queries.busy
+                )
+            )
+            await pilot.pause()
+
+            assert "Unavailable Issues" not in alert_text(app)
+            assert "Unavailable Pull Requests" not in alert_text(app)
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_first_query_failure_reports_issues_unavailable() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = dashboard_app(SequenceCollector(snapshot))
+
+    class FailingSource(SnapshotQuerySource):
+        @override
+        def query_page(self, request: QueryRequest) -> QueryPage:
+            del request
+            raise RuntimeError("Issue Source exploded")
+
+    app.queries.sources["issues"] = FailingSource(snapshot)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(
+            lambda: app.queries.navigation["issues"].error == "Issue Source exploded"
+        )
+        await pilot.pause()
+
+        assert "Unavailable Issues: Test Repository" in alert_text(app)
+        assert "Unavailable Pull Requests" not in alert_text(app)
+
+
+@pytest.mark.asyncio
+async def test_query_kinds_report_unavailable_independently() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    unavailable_pull_requests = with_first_project_snapshot(
+        snapshot,
+        pull_request_status="unavailable",
+        pull_request_attempted_at="2026-08-27T04:00:00Z",
+        pull_request_last_good_at=None,
+        pull_requests=(),
+    )
+    app = dashboard_app(SequenceCollector(snapshot))
+    release = Event()
+    source = app.queries.sources["pull-requests"]
+    assert isinstance(source, SnapshotQuerySource)
+    source.serve(unavailable_pull_requests)
+    source.release = release
+
+    try:
+        async with app.run_test(size=(80, 24)) as pilot:
+            await wait_until(
+                lambda: (
+                    "issues" in app.store.pages
+                    and app.queries.page_states["pull-requests"].in_flight
+                )
+            )
+            await pilot.pause()
+            assert "Unavailable Pull Requests" not in alert_text(app)
+
+            release.set()
+            await wait_until(
+                lambda: (
+                    (page := app.store.pages.get("pull-requests")) is not None
+                    and page.status == "unavailable"
+                )
+            )
+            assert "Unavailable Pull Requests: Test Repository" in alert_text(app)
+    finally:
+        release.set()
 
 
 @pytest.mark.asyncio
@@ -352,7 +439,7 @@ async def test_unavailable_issue_source_empties_the_page_but_not_the_store() -> 
         ),
     )
     unavailable = with_first_project(unavailable, status="unavailable")
-    app = dashboard_app(SequenceCollector(first, unavailable))
+    app = dashboard_app(SequenceCollector(first, unavailable, unavailable))
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
@@ -375,6 +462,18 @@ async def test_unavailable_issue_source_empties_the_page_but_not_the_store() -> 
             "I_test/repo#1"
         ]
         assert app.store.checkpoint().agent_runs[0].issue_id == "I_test/repo#1"
+
+        gate = hold_sources(app)
+        try:
+            await app.run_action("refresh")
+            await wait_until(
+                lambda: all(
+                    state.in_flight for state in app.queries.page_states.values()
+                )
+            )
+            assert "Unavailable Issues: Test Repository" in alert_text(app)
+        finally:
+            gate.set()
 
 
 @pytest.mark.asyncio

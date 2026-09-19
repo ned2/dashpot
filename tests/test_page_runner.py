@@ -135,6 +135,15 @@ def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
     pages.finish_page(failed)
     assert pages.navigation["issues"].error == "Issue Source exploded"
     assert pages.navigation["issues"].page is None
+    assert pages.page_states["issues"].failed_without_page
+
+    pages.submit("issues", query="First")
+    assert pages.page_states["issues"].in_flight
+    assert pages.page_states["issues"].status == "unavailable"
+    recovered = host.pop_call("issues").land()
+    assert isinstance(recovered, PageFinished)
+    pages.finish_page(recovered)
+    assert not pages.page_states["issues"].failed_without_page
 
 
 def test_a_request_for_a_busy_key_waits_and_only_the_latest_runs() -> None:
@@ -151,6 +160,7 @@ def test_a_request_for_a_busy_key_waits_and_only_the_latest_runs() -> None:
     pages.finish_page(superseded)
     # The stale ticket's page is rejected; the latest submission runs next.
     assert pages.navigation["issues"].page is None
+    assert pages.page_states["issues"].in_flight
     latest = host.pop_call("issues").land()
     assert isinstance(latest, PageFinished)
     assert latest.ticket.request.query == "Sec"

@@ -20,7 +20,8 @@ from ..observation.observation_store import (
     ObservedDiagnostic,
     WorkspaceObservationStore,
 )
-from ..queries.source_queries import QueryPage, ResourceKind
+from ..queries.page_navigation import PageQueryState
+from ..queries.source_queries import ResourceKind
 from .glyphs import Glyph
 
 AlertSeverity = Literal["error", "warning", "info"]
@@ -127,14 +128,18 @@ def summarize_alerts(
     refreshing: Iterable[ObservationKey] = (),
     fetching: Iterable[str] = (),
     now: Callable[[], datetime] | None = None,
-    source_pages: Mapping[ResourceKind, QueryPage] | None = None,
+    page_states: Mapping[ResourceKind, PageQueryState] | None = None,
+    first_observations_in_flight: Iterable[ObservationKey] = (),
 ) -> Alert | None:
     """Summarize the impact of exceptional state, most severe first.
 
     ``failures`` are refresh failures or UI-boundary exceptions per
     observation key; ``refreshing`` lists keys whose observation has been in
     flight long enough to be worth showing; ``fetching`` names the Projects
-    whose remotes an explicit fetch is fetching right now.
+    whose remotes an explicit fetch is fetching right now. ``page_states``
+    distinguishes an accepted Query Page from a first query still in flight or
+    one that failed without a page. ``first_observations_in_flight`` names
+    pending observation placeholders that are not yet unavailable evidence.
     """
     items: list[AlertItem] = []
     # Frozen observations make these reads cheap shared views, not copies.
@@ -142,6 +147,7 @@ def summarize_alerts(
     workspace_diagnostics = store.checkpoint().diagnostics
     labels = _labels(projects)
     current = (now or _utc_now)()
+    pending_observations = frozenset(first_observations_in_flight)
 
     failed_scopes = _ordered_scopes(failures or {}, labels)
     if failed_scopes:
@@ -161,18 +167,20 @@ def summarize_alerts(
         if snapshot is None:
             unavailable_projects.append(label)
             continue
-        issue_page = source_pages.get("issues") if source_pages is not None else None
-        pull_page = (
-            source_pages.get("pull-requests") if source_pages is not None else None
+        issue_state = page_states.get("issues") if page_states is not None else None
+        pull_state = (
+            page_states.get("pull-requests") if page_states is not None else None
         )
+        issue_page = issue_state.page if issue_state else None
+        pull_page = pull_state.page if pull_state else None
         issue_status = (
-            (issue_page.status if issue_page else "unavailable")
-            if source_pages is not None
+            issue_state.status
+            if page_states is not None and issue_state is not None
             else snapshot.issue_source_status
         )
         pull_status = (
-            (pull_page.status if pull_page else "unavailable")
-            if source_pages is not None
+            pull_state.status
+            if page_states is not None and pull_state is not None
             else snapshot.pull_request_status
         )
         if issue_status == "unavailable":
@@ -203,7 +211,10 @@ def summarize_alerts(
                     else snapshot.pull_request_last_good_at,
                 )
             )
-        if snapshot.target_status == "unavailable":
+        targets_pending = (
+            ObservationKey("targets", project.project_id) in pending_observations
+        )
+        if snapshot.target_status == "unavailable" and not targets_pending:
             unavailable_scans.append(label)
         elif snapshot.target_status == "stale":
             stale_scans.append(label)

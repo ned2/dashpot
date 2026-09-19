@@ -524,7 +524,10 @@ class DashboardScreen(Screen[None]):
             failures=app.observations.errors,
             refreshing=app.observations.refreshing,
             fetching=tuple(app.fetches.fetching),
-            source_pages=app.store.pages,
+            page_states=app.queries.page_states,
+            first_observations_in_flight=(
+                app.observations.first_observations_in_flight
+            ),
         )
         self.paint_readout(
             self.query_one("#alert", Static),

@@ -12,6 +12,8 @@ from dashpot.core.model import (
 )
 from dashpot.observation.keys import AGENT_RUNS_KEY, ObservationKey
 from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.queries.page_navigation import PageQueryState
+from dashpot.queries.source_queries import ResourceKind
 from dashpot.ui.alerts import list_diagnostics, summarize_alerts
 
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
@@ -63,6 +65,38 @@ def clock() -> datetime:
 def test_healthy_state_has_no_alert() -> None:
     assert summarize_alerts(store(project("alpha")), now=clock) is None
     assert summarize_alerts(WorkspaceObservationStore(), now=clock) is None
+
+
+def test_an_absent_query_page_is_unavailable_only_after_a_failed_attempt() -> None:
+    observed = store(project("alpha"))
+
+    never_started: dict[ResourceKind, PageQueryState] = {
+        "issues": PageQueryState(None),
+        "pull-requests": PageQueryState(None),
+    }
+    assert summarize_alerts(observed, page_states=never_started, now=clock) is None
+    assert (
+        summarize_alerts(
+            observed,
+            page_states={
+                "issues": PageQueryState(None, in_flight=True),
+                "pull-requests": PageQueryState(None, in_flight=True),
+            },
+            now=clock,
+        )
+        is None
+    )
+    failed = summarize_alerts(
+        observed,
+        page_states={
+            "issues": PageQueryState(None, failed_without_page=True),
+            "pull-requests": PageQueryState(None),
+        },
+        now=clock,
+    )
+
+    assert failed is not None
+    assert [item.text for item in failed.items] == ["Unavailable Issues: Alpha"]
 
 
 def test_stale_issue_source_names_the_project_and_its_age() -> None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..core.model import SourceStatus
 from .source_queries import ProjectTotals, QueryPage, QueryRequest
 
 
@@ -16,6 +17,24 @@ class PageTicket:
     generation: int
     request: QueryRequest
     navigation: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PageQueryState:
+    """The accepted Query Page and the transient state of its replacement."""
+
+    page: QueryPage | None
+    in_flight: bool = False
+    failed_without_page: bool = False
+
+    @property
+    def status(self) -> SourceStatus | None:
+        """The accepted status, or unavailable after a page-less failure."""
+        if self.page is not None:
+            return self.page.status
+        if self.failed_without_page:
+            return "unavailable"
+        return None
 
 
 class PageNavigation:

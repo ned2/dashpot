@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from ..core.commands import RunningCommands, start_pool
 from ..observation.paged_store import PagedObservationStore
-from ..queries.page_navigation import PageNavigation, PageTicket
+from ..queries.page_navigation import PageNavigation, PageQueryState, PageTicket
 from ..queries.source_queries import (
     PAGED_KINDS,
     QUERY_SOURCE_KEYS,
@@ -59,6 +59,7 @@ class PageRunner:
             thread_name_prefix="dashpot-query",
         )
         self.busy: set[str] = set()
+        self._page_failures: set[ResourceKind] = set()
         # Only the latest request for a busy key is worth running once the
         # key is free; an earlier one would answer a superseded ticket.
         self.queued: dict[str, Callable[[], None]] = {}
@@ -66,6 +67,18 @@ class PageRunner:
     def shutdown(self) -> None:
         """Release the pool without waiting for queries still running."""
         self.executor.shutdown(wait=False, cancel_futures=True)
+
+    @property
+    def page_states(self) -> dict[ResourceKind, PageQueryState]:
+        """The accepted and transient state of every Query Page kind."""
+        return {
+            kind: PageQueryState(
+                self.navigation[kind].shown,
+                in_flight=kind in self.busy,
+                failed_without_page=kind in self._page_failures,
+            )
+            for kind in PAGED_KINDS
+        }
 
     def refresh(self, *, restart: bool) -> None:
         """Re-query every page and every total.
@@ -154,9 +167,14 @@ class PageRunner:
 
     def finish_page(self, message: PageFinished) -> None:
         """Land a page on its navigation, which rejects a superseded ticket."""
-        self.navigation[message.kind].accept(
+        accepted = self.navigation[message.kind].accept(
             message.ticket, message.page, message.error
         )
+        if accepted:
+            if message.page is None:
+                self._page_failures.add(message.kind)
+            else:
+                self._page_failures.discard(message.kind)
         self._release(message.kind)
 
     def finish_totals(self, message: TotalsFinished) -> None:

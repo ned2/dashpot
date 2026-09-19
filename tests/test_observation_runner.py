@@ -200,6 +200,19 @@ def test_distinct_keys_run_independently() -> None:
     assert scheduler.generations == {ALPHA: 2, BETA: 1}
 
 
+def test_only_the_first_observation_of_a_key_is_pending() -> None:
+    observations, _scheduler, host = runner()
+    observations.schedule([TARGETS], "initial")
+    first = host.pop_call(TARGETS)
+    assert observations.first_observations_in_flight == (TARGETS,)
+
+    landed(observations, first.land())
+    observations.schedule([TARGETS], "timer")
+    host.pop_call(TARGETS)
+
+    assert observations.first_observations_in_flight == ()
+
+
 @pytest.mark.parametrize("trigger", sorted(COALESCED_TRIGGERS))
 def test_a_coalesced_trigger_queues_no_rerun(trigger: ObservationTrigger) -> None:
     observations, scheduler, host = runner()
