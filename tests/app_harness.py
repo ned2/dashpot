@@ -65,7 +65,7 @@ from dashpot.queries.source_queries import (
 from dashpot.repository.cleanup import CleanupAdapter
 from dashpot.repository.fetch import RemoteFetcher
 from dashpot.repository.worktree_launcher import LauncherConfiguration
-from dashpot.ui.app import DashpotApp
+from dashpot.ui.app import DashpotApp, IssuesPullRequestsScreen
 from dashpot.ui.detail_fields import detail_items_text
 from dashpot.ui.issue_view import IssueScreen, issue_metadata_items, selection_title
 from dashpot.ui.list_pane import ListPane, ListRow
@@ -563,9 +563,19 @@ def first_load_landed(app: DashpotApp) -> bool:
     return observation_landed(app, 1)
 
 
+async def show_query_peer(
+    app: DashpotApp, pilot: Pilot[None]
+) -> IssuesPullRequestsScreen:
+    """Switch directly to the query peer and wait for its first layout."""
+    await pilot.press("2")
+    await wait_until(lambda: app.screen is app.query_screen)
+    await pilot.pause()
+    return app.query_screen
+
+
 async def show_issue_states(app: DashpotApp, state: str) -> None:
     """Choose an Issue lifecycle filter and wait for its page to land."""
-    app.query_one("#issue-state", Select).value = state
+    app.query_screen.query_one("#issue-state", Select).value = state
     await wait_until(
         lambda: (
             (page := app.store.pages.get("issues")) is not None
@@ -581,7 +591,9 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     recomposes once they land, replacing its panes; a test that read them
     earlier would hold the old widgets.
     """
-    app.dashboard.queue_table().focus()
+    if app.screen is not app.query_screen:
+        await show_query_peer(app, pilot)
+    app.query_screen.queue_table().focus()
     await pilot.press("enter")
     await wait_until(
         lambda: isinstance(app.screen, IssueScreen) and not app.queries.busy
@@ -606,21 +618,15 @@ async def await_resolved_identities(app: DashpotApp, *issue_ids: str) -> None:
 
 
 def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
-    """The list panes stack in reading order above the full-width Issue table."""
-    body = app.query_one("#body")
-    list_row = app.query_one("#list-row")
-    sessions = app.query_one("#sessions-pane")
-    branches = app.query_one("#branches-pane")
-    pull_requests = app.query_one("#pull-requests-pane")
-    worktrees = app.query_one("#worktrees-pane")
-    queue_pane = app.query_one("#queue-pane")
+    """The Pull Requests pane stacks above the full-width Issue table."""
+    body = app.query_screen.query_one("#query-body")
+    list_row = app.query_screen.query_one("#query-list-row")
+    pull_requests = app.query_screen.query_one("#pull-requests-pane")
+    queue_pane = app.query_screen.query_one("#queue-pane")
 
-    assert sessions.region.y == list_row.region.y
-    assert sessions.region.bottom <= worktrees.region.y
-    assert worktrees.region.bottom <= branches.region.y
-    assert branches.region.bottom <= pull_requests.region.y
-    assert pull_requests.region.bottom <= list_row.region.bottom <= queue_pane.region.y
-    for pane in (sessions, worktrees, branches, pull_requests, queue_pane):
+    assert pull_requests.region.y == list_row.region.y
+    assert pull_requests.region.bottom <= queue_pane.region.y
+    for pane in (pull_requests, queue_pane):
         assert pane.region.x == body.region.x
         assert pane.region.width == body.region.width
     assert queue_pane.region.height >= 6
@@ -631,10 +637,10 @@ def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
 
 def selected_title(app: DashpotApp) -> str:
     """The compact label of the Issue the table cursor is on."""
-    assert app.dashboard.issue_table.selected_row_key is not None
+    assert app.query_screen.issue_table.selected_row_key is not None
     return selection_title(
-        app.dashboard.issue_table.rows_by_key[
-            app.dashboard.issue_table.selected_row_key
+        app.query_screen.issue_table.rows_by_key[
+            app.query_screen.issue_table.selected_row_key
         ]
     )
 

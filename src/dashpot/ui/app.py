@@ -1,4 +1,4 @@
-"""Compose the dashboard application, its screen, and its panes."""
+"""Compose the application, its long-lived peer screens, and their panes."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from functools import partial
+from itertools import chain
 from pathlib import Path
 from typing import Any, ClassVar, cast, override
 
@@ -29,9 +30,10 @@ from ..core.commands import RunningCommands
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text, next_issue_states
 from ..observation.paged_store import PagedObservationStore
+from ..observation.related_rows import FocusedSource, query_related_rows
 from ..observation.worktree_list import WorktreeListRow
 from ..queries.page_navigation import totals_text
-from ..queries.source_queries import QuerySource, ResolvedIssue, ResourceKind
+from ..queries.source_queries import QuerySource, ResourceKind
 from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
 from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError
@@ -41,11 +43,12 @@ from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .column_editor import IssueColumnEditor
 from .fetch_flow import RemoteFetchFlow
 from .focus_table import FocusCursorTable
-from .issue_cells import TableCell, issue_state_colors
-from .issue_table import COLUMNS_BY_KEY, ColumnKey, shown_columns
+from .issue_cells import issue_state_colors
+from .issue_table import COLUMNS_BY_KEY, ColumnKey, IssueTable, shown_columns
 from .issue_table_controller import IssueTableController
 from .issue_view import IssueScreen
 from .item_filter import LIFECYCLE_STATUSES, ItemFilterBar, lifecycle_value
+from .keyed_table import capture_selection
 from .legend import KeyGroup, LegendScreen
 from .list_pane import ISSUE_PANE_LABEL, ListPane
 from .list_queries import ListQueries
@@ -60,6 +63,7 @@ from .messages import (
     PageFinished,
     TotalsFinished,
 )
+from .navigation_summary import navigation_summary
 from .observation_runner import (
     Acceptance,
     DroppedObservation,
@@ -68,8 +72,14 @@ from .observation_runner import (
 )
 from .page_runner import PageRunner
 from .pane_layout import fit_panes, pane_wish
-from .panes import LIST_PANE_SPECS, ListPaneId, PaneContext, PaneSpec
-from .spread_table import SpreadTable
+from .panes import (
+    DASHBOARD_PANE_SPECS,
+    QUERY_PANE_SPECS,
+    ListPaneId,
+    PaneContext,
+    PaneSpec,
+)
+from .status_bar import PeerName, PeerSelected, PeerStatusBar
 from .worktree_table import WorktreeTable
 
 # The focus cycle is an override of Textual's own hidden Tab bindings, not a
@@ -80,20 +90,294 @@ FOCUS_CYCLE_BINDINGS: tuple[BindingType, ...] = (
 )
 
 
-class DashboardBody(Container):
-    """The pane stack; its height is the budget the list panes fit into."""
+class PeerBody(Container):
+    """One peer's pane stack and the height budget its list panes fit into."""
 
     def on_resize(self, event: events.Resize) -> None:
         self.post_message(BodyResized(event.size))
 
 
+def paint_readout(
+    widget: Static,
+    readout: Alert | None,
+    *,
+    shown: str,
+    text: Callable[[Alert], str],
+) -> None:
+    """Show one shared readout with its severity, or hide it entirely."""
+    widget.set_class(readout is not None, shown)
+    for severity in ("error", "warning", "info"):
+        widget.set_class(
+            readout is not None and readout.severity == severity, f"-{severity}"
+        )
+    widget.update("" if readout is None else text(readout))
+
+
 class DashboardScreen(Screen[None]):
-    """Own the dashboard: composition, the panes, their keys, and the Issue table's controller."""
+    """Present Sessions, Worktrees and Branches as the default long-lived peer."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("f", "fetch", "Fetch & prune remotes"),
+        ("x", "cleanup", "Delete Branch/Worktree"),
+    ]
+
+    @property
+    def dashpot(self) -> DashpotApp:
+        """The application that owns shared observations and mutations."""
+        return cast("DashpotApp", self.app)
+
+    @override
+    def compose(self) -> ComposeResult:
+        yield PeerStatusBar("dashboard")
+        with PeerBody(id="body"), Container(id="list-row"):
+            for spec in DASHBOARD_PANE_SPECS:
+                yield ListPane(
+                    spec.label,
+                    columns=spec.columns,
+                    empty_message=spec.empty_message,
+                    id=spec.pane_id,
+                    table_id=spec.table_id,
+                    table_type=spec.table_type,
+                    controls_height=spec.controls_height,
+                )
+        yield Static("", id="alert")
+        yield Static("", id="diagnostics")
+        yield Footer()
+
+    def status_bar(self) -> PeerStatusBar:
+        """The persistent peer navigation chrome on this screen."""
+        return self.query_one(PeerStatusBar)
+
+    def list_pane(self, pane_id: ListPaneId) -> ListPane:
+        """One Dashboard list pane by its declared id."""
+        return self.query_one(f"#{pane_id}", ListPane)
+
+    def sessions_pane(self) -> ListPane:
+        return self.list_pane("sessions-pane")
+
+    def branches_pane(self) -> ListPane:
+        return self.list_pane("branches-pane")
+
+    def worktrees_pane(self) -> ListPane:
+        return self.list_pane("worktrees-pane")
+
+    def list_panes(self) -> tuple[ListPane, ...]:
+        """The Dashboard panes in reading order."""
+        return tuple(self.list_pane(spec.pane_id) for spec in DASHBOARD_PANE_SPECS)
+
+    def focus_tables(self) -> tuple[FocusCursorTable[Any], ...]:
+        """The Dashboard tables in composition order."""
+        return tuple(self.query_one("#body").query(FocusCursorTable))
+
+    def surfaces_mounted(self) -> bool:
+        """Report whether updates can still reach every Dashboard surface."""
+        try:
+            self.status_bar()
+            for pane in self.list_panes():
+                if not pane.table.is_mounted:
+                    return False
+            self.query_one("#alert", Static)
+            self.query_one("#diagnostics", Static)
+        except NoMatches:
+            return False
+        return True
+
+    def on_mount(self) -> None:
+        self.sessions_pane().table.focus()
+        self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
+        self.update_status()
+
+    def on_theme_changed(self, _theme: Theme) -> None:
+        """Re-render semantic colours for the new theme brightness."""
+        if self.dashpot.store.has_observations:
+            self.reconcile_list_panes()
+        self.update_status()
+
+    def action_fetch(self) -> None:
+        """Fetch the remotes behind the Branches pane, on explicit invocation."""
+        self.dashpot.request_fetch()
+
+    def action_cleanup(self) -> None:
+        """Preview a Cleanup of the selected Branch or Worktree."""
+        self.dashpot.request_cleanup(self.cleanup_selection())
+
+    def cleanup_selection(self) -> CleanupSelection | None:
+        """The selected Branch or Worktree row, when either pane owns focus."""
+        for kind, pane in (
+            ("branch", self.branches_pane()),
+            ("worktree", self.worktrees_pane()),
+        ):
+            if self.focused is pane.table:
+                key, _index = pane.highlighted()
+                return None if key is None else CleanupSelection(kind, key)
+        return None
+
+    def cycle_list_focus(self, step: int) -> bool:
+        """Move focus within the Dashboard table cycle when one owns it."""
+        tables = self.focus_tables()
+        focused = self.focused
+        if focused not in tables:
+            return False
+        tables[(tables.index(focused) + step) % len(tables)].focus()
+        return True
+
+    def on_focus_cursor_table_row_boundary_reached(
+        self, event: FocusCursorTable.RowBoundaryReached
+    ) -> None:
+        """Move focus when the current Dashboard table reaches a row boundary."""
+        if self.focused is event.control:
+            self.cycle_list_focus(event.step)
+
+    def on_body_resized(self, message: BodyResized) -> None:
+        if not self.is_mounted or not self.surfaces_mounted():
+            return
+        self.fit_list_panes(message.size)
+
+    def on_list_pane_rows_changed(self, _message: ListPane.RowsChanged) -> None:
+        if not self.is_mounted or not self.surfaces_mounted():
+            return
+        self.refresh_bindings()
+        self.fit_list_panes(self.query_one("#body").size)
+
+    def fit_list_panes(self, body: Size) -> None:
+        """Fit Dashboard lists to their content cap within the peer body."""
+        panes = self.list_panes()
+        caps = fit_panes(
+            body.height,
+            0,
+            tuple(pane_wish(pane.count) for pane in panes),
+        )
+        for pane, row_cap in zip(panes, caps, strict=True):
+            pane.fit_rows(row_cap)
+
+    def reconcile_list_panes(self) -> None:
+        """Re-list every Dashboard record from the shared store."""
+        context = PaneContext(
+            self.dashpot.store,
+            self.dashpot.queries.navigation,
+            dark=self.app.current_theme.dark,
+            now=datetime.now(UTC),
+        )
+        for spec in DASHBOARD_PANE_SPECS:
+            view = spec.rows(context)
+            self.list_pane(spec.pane_id).show_rows(
+                view.rows,
+                columns=view.columns,
+                note=view.note,
+                empty_message=view.empty_message,
+                title_summary=view.title_summary,
+                filter_count=view.filter_count,
+                records=view.records,
+            )
+        self.update_related_rows()
+
+    def records(self) -> tuple[FocusedSource, ...]:
+        """The Dashboard records last rendered into its three panes."""
+        return tuple(chain.from_iterable(pane.records for pane in self.list_panes()))
+
+    def update_related_rows(self, *, clear: bool = False) -> None:
+        """Emphasize relationships that stay entirely within Dashboard."""
+        if not self.is_mounted or not self.surfaces_mounted():
+            return
+        records = self.records()
+        source: FocusedSource | None = None
+        focused = self.focused
+        if (
+            not clear
+            and self.app.screen is self
+            and isinstance(focused, FocusCursorTable)
+        ):
+            key, _index = capture_selection(focused)
+            source = next((record for record in records if record.key == key), None)
+        related = query_related_rows(source, records)
+        for spec in DASHBOARD_PANE_SPECS:
+            if spec.related is not None:
+                self.list_pane(spec.pane_id).table.set_related_rows(
+                    spec.related(related), spec.related_columns
+                )
+
+    @on(DataTable.RowHighlighted)
+    def follow_cursor(self, event: DataTable.RowHighlighted) -> None:
+        """Re-emphasise Dashboard relationships when its focused cursor moves."""
+        if self.is_mounted and event.data_table.has_focus:
+            self.update_related_rows()
+
+    def on_focus_cursor_table_focus_changed(
+        self, _event: FocusCursorTable.FocusChanged
+    ) -> None:
+        self.update_related_rows()
+
+    def on_screen_suspend(self, _: events.ScreenSuspend) -> None:
+        self.update_related_rows(clear=True)
+
+    def on_screen_resume(self, _: events.ScreenResume) -> None:
+        self.call_after_refresh(self.update_related_rows)
+
+    def on_worktree_table_open_requested(
+        self, event: WorktreeTable.OpenRequested
+    ) -> None:
+        """Launch the Worktree captured by keyboard activation."""
+        self.dashpot.request_worktree_open(event.key)
+
+    def on_worktree_table_copy_requested(
+        self, event: WorktreeTable.CopyRequested
+    ) -> None:
+        """Send the complete observed Worktree path to the terminal clipboard."""
+        path = self.dashpot.worktree_path(event.key)
+        if path is not None:
+            self.app.copy_to_clipboard(str(path))
+            self.app.notify("Path sent to clipboard")
+
+    def update_status(self) -> None:
+        """Render current location and the shared Project Totals summary."""
+        if self.is_mounted:
+            self.status_bar().show_summary(
+                navigation_summary(self.dashpot.store.totals)
+            )
+
+    def update_diagnostics(self) -> None:
+        """Render every Diagnostic and the exceptional-state alert."""
+        app = self.dashpot
+        readout = list_diagnostics(
+            app.store,
+            failures=app.observations.errors,
+            launcher_diagnostics=app.launcher_configuration.diagnostics,
+            fetch_failures=app.fetches.errors,
+        )
+        paint_readout(
+            self.query_one("#diagnostics", Static),
+            readout,
+            shown="-has-messages",
+            text=lambda value: value.lines,
+        )
+        self.update_alert()
+
+    def update_alert(self) -> None:
+        """Render the shared exceptional-state readout, or hide it."""
+        app = self.dashpot
+        alert = summarize_alerts(
+            app.store,
+            failures=app.observations.errors,
+            refreshing=app.observations.refreshing,
+            fetching=tuple(app.fetches.fetching),
+            page_states=app.queries.page_states,
+            first_observations_in_flight=(
+                app.observations.first_observations_in_flight
+            ),
+        )
+        paint_readout(
+            self.query_one("#alert", Static),
+            alert,
+            shown="-visible",
+            text=lambda value: value.text,
+        )
+
+
+class IssuesPullRequestsScreen(Screen[None]):
+    """Own the Pull Request and Issue query panes and their contextual actions."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("enter", "open_issue", "Open Issue"),
-        ("f", "fetch", "Fetch & prune remotes"),
-        ("x", "cleanup", "Delete Branch/Worktree"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Open/Closed/All"),
@@ -125,7 +409,7 @@ class DashboardScreen(Screen[None]):
         self.filter_bars: dict[ResourceKind, ItemFilterBar] = {
             "issues": self.issue_filter_bar
         }
-        for spec in LIST_PANE_SPECS:
+        for spec in QUERY_PANE_SPECS:
             if spec.controls is not None and spec.query_kind is not None:
                 self.filter_bars[spec.query_kind] = spec.controls()
 
@@ -140,7 +424,7 @@ class DashboardScreen(Screen[None]):
 
     def page_kind(self) -> ResourceKind:
         """The paged kind of the list pane holding focus, else the Issue table's."""
-        for spec in LIST_PANE_SPECS:
+        for spec in QUERY_PANE_SPECS:
             if (
                 spec.query_kind is not None
                 and self.list_pane(spec.pane_id).has_focus_within
@@ -162,42 +446,37 @@ class DashboardScreen(Screen[None]):
 
     @override
     def compose(self) -> ComposeResult:
-        with DashboardBody(id="body"):
-            with Container(id="list-row"):
-                for spec in LIST_PANE_SPECS:
-                    yield ListPane(
-                        spec.label,
-                        columns=spec.columns,
-                        empty_message=spec.empty_message,
-                        id=spec.pane_id,
-                        table_id=spec.table_id,
-                        table_type=spec.table_type,
-                        controls=self.pane_controls(spec),
-                        controls_height=spec.controls_height,
-                    )
+        yield PeerStatusBar("issues-pull-requests")
+        with PeerBody(id="query-body"), Container(id="query-list-row"):
+            for spec in QUERY_PANE_SPECS:
+                yield ListPane(
+                    spec.label,
+                    columns=spec.columns,
+                    empty_message=spec.empty_message,
+                    id=spec.pane_id,
+                    table_id=spec.table_id,
+                    table_type=spec.table_type,
+                    controls=self.pane_controls(spec),
+                    controls_height=spec.controls_height,
+                )
             with Vertical(id="queue-pane"):
                 yield self.issue_filter_bar
-                yield SpreadTable(id="queue", cursor_type="row", zebra_stripes=False)
+                yield IssueTable(id="queue", cursor_type="row", zebra_stripes=False)
         yield Static("", id="alert")
         yield Static("", id="diagnostics")
         yield Footer()
 
-    def queue_table(self) -> SpreadTable[TableCell]:
+    def queue_table(self) -> IssueTable:
         """The Issue table; `query_one` cannot name the cell type itself."""
-        return cast("SpreadTable[TableCell]", self.query_one("#queue", SpreadTable))
+        return self.query_one("#queue", IssueTable)
+
+    def status_bar(self) -> PeerStatusBar:
+        """The persistent peer navigation chrome on this screen."""
+        return self.query_one(PeerStatusBar)
 
     def list_pane(self, pane_id: ListPaneId) -> ListPane:
         """One list pane by its spec's id."""
         return self.query_one(f"#{pane_id}", ListPane)
-
-    def sessions_pane(self) -> ListPane:
-        return self.list_pane("sessions-pane")
-
-    def branches_pane(self) -> ListPane:
-        return self.list_pane("branches-pane")
-
-    def worktrees_pane(self) -> ListPane:
-        return self.list_pane("worktrees-pane")
 
     def pull_requests_pane(self) -> ListPane:
         return self.list_pane("pull-requests-pane")
@@ -216,11 +495,11 @@ class DashboardScreen(Screen[None]):
 
     def list_panes(self) -> tuple[ListPane, ...]:
         """The content-sized panes in reading order."""
-        return tuple(self.list_pane(spec.pane_id) for spec in LIST_PANE_SPECS)
+        return tuple(self.list_pane(spec.pane_id) for spec in QUERY_PANE_SPECS)
 
     def focus_tables(self) -> tuple[FocusCursorTable[Any], ...]:
-        """Return the dashboard tables in their composed reading order."""
-        return tuple(self.query_one("#body").query(FocusCursorTable))
+        """Return the query peer's tables in their composed reading order."""
+        return tuple(self.query_one("#query-body").query(FocusCursorTable))
 
     def surfaces_mounted(self) -> bool:
         """Report whether dashboard updates can still reach every surface.
@@ -230,6 +509,7 @@ class DashboardScreen(Screen[None]):
         shutdown while the widgets are being unmounted one by one.
         """
         try:
+            self.status_bar()
             self.queue_table()
             for pane in self.list_panes():
                 if not pane.table.is_mounted:
@@ -243,29 +523,10 @@ class DashboardScreen(Screen[None]):
     def action_focus_search(self) -> None:
         """Focus the search of the focused pane's controls, else the Issue search."""
         for pane in self.list_panes():
-            if pane.table.has_focus and pane.controls is not None:
+            if pane.has_focus_within and pane.controls is not None:
                 pane.controls.search.focus()
                 return
         self.issue_filter_bar.search.focus()
-
-    def action_fetch(self) -> None:
-        """Fetch the remotes behind the Branches pane, on this explicit key."""
-        self.dashpot.request_fetch()
-
-    def action_cleanup(self) -> None:
-        """Preview deleting the highlighted Branch or Worktree; never delete here."""
-        self.dashpot.request_cleanup(self.cleanup_selection())
-
-    def cleanup_selection(self) -> CleanupSelection | None:
-        """The highlighted row of the Branches or Worktrees pane, when one has focus."""
-        for kind, pane in (
-            ("branch", self.branches_pane()),
-            ("worktree", self.worktrees_pane()),
-        ):
-            if self.focused is pane.table:
-                key, _index = pane.highlighted()
-                return None if key is None else CleanupSelection(kind, key)
-        return None
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus to the next list when a list has it; otherwise decline."""
@@ -283,13 +544,30 @@ class DashboardScreen(Screen[None]):
         if self.focused is event.control:
             self.cycle_list_focus(event.step)
 
+    def on_focus_cursor_table_focus_changed(
+        self, _event: FocusCursorTable.FocusChanged
+    ) -> None:
+        self.refresh_bindings()
+
     def on_mount(self) -> None:
         self.query_one("#queue-pane").border_title = Content(ISSUE_PANE_LABEL)
         self.issue_table.show_table_columns(
             shown_columns(self.issue_table.issue_view.columns, ())
         )
-        self.sessions_pane().table.focus()
+        self.pull_requests_pane().table.focus()
         self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
+        for kind, bar in self.filter_bars.items():
+            bar.search.placeholder = self.dashpot.queries.sources[kind].search_prompt
+        self.update_status()
+        self.call_after_refresh(self.update_status)
+        if self.dashpot.store.pages:
+            self.queue_table().loading = False
+            self.issue_table.reconcile_rows()
+            self.update_issue_inventory()
+            self.reconcile_list_panes()
+            self.update_diagnostics()
+        else:
+            self.queue_table().loading = True
 
     def on_theme_changed(self, _theme: Theme) -> None:
         """Re-render semantic table colors for the new theme brightness."""
@@ -301,10 +579,29 @@ class DashboardScreen(Screen[None]):
             self.reconcile_list_panes()
 
     def action_columns(self) -> None:
+        if self.page_kind() != "issues":
+            return
         self.app.push_screen(
             IssueColumnEditor(self.issue_table.issue_view.columns),
             self.issue_table.apply_issue_columns,
         )
+
+    @override
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Expose only actions meaningful for the focused query pane."""
+        if isinstance(self.focused, Input):
+            return None
+        if action in {"columns", "open_issue"} and not self.surfaces_mounted():
+            return None
+        if action == "columns":
+            return True if self.query_one("#queue-pane").has_focus_within else None
+        if action == "open_issue":
+            available = (
+                self.queue_table().has_focus
+                and self.issue_table.selected_row_key is not None
+            )
+            return True if available else None
+        return True
 
     @on(DataTable.HeaderSelected, "#queue")
     def submit_column_ordering(self, event: DataTable.HeaderSelected) -> None:
@@ -341,9 +638,11 @@ class DashboardScreen(Screen[None]):
         self.list_queries.change_lifecycle(self.filter_kind(event.select), event.value)
 
     def action_cycle_issue_state(self) -> None:
-        states = next_issue_states(self.list_queries.issues.states)
-        # Drive the control so the header, the query, and the Select agree.
-        self.issue_filter_bar.state.value = lifecycle_value(states)
+        kind = self.page_kind()
+        query = self.list_queries.query(kind)
+        states = next_issue_states(query.states)
+        # Drive the owning control so the label, query and Select agree.
+        self.filter_bars[kind].state.value = lifecycle_value(states)
 
     def update_issue_inventory(self) -> None:
         """Title the Issue pane with the Project's totals, never the page's length."""
@@ -365,7 +664,7 @@ class DashboardScreen(Screen[None]):
         if not self.is_mounted or not self.surfaces_mounted():
             return
         self.refresh_bindings()
-        self.fit_list_panes(self.query_one("#body").size)
+        self.fit_list_panes(self.query_one("#query-body").size)
 
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
@@ -398,7 +697,7 @@ class DashboardScreen(Screen[None]):
             dark=self.app.current_theme.dark,
             now=datetime.now(UTC),
         )
-        for spec in LIST_PANE_SPECS:
+        for spec in QUERY_PANE_SPECS:
             view = spec.rows(context)
             self.list_pane(spec.pane_id).show_rows(
                 view.rows,
@@ -409,53 +708,16 @@ class DashboardScreen(Screen[None]):
                 filter_count=view.filter_count,
                 records=view.records,
             )
-        self.issue_table.update_related_rows()
 
     @on(DataTable.RowSelected, "#queue")
     def open_selected_issue(self, event: DataTable.RowSelected) -> None:
         """Open the Issue a person selected in the Issue table."""
         self.open_issue(str(event.row_key.value))
 
-    @on(DataTable.RowSelected, "#sessions")
-    def open_session_issue(self, event: DataTable.RowSelected) -> None:
-        """Open the Issue bound to the selected Agent Session, when it has one."""
-        row = self.sessions_pane().row(str(event.row_key.value))
-        if row is not None:
-            self.open_bound_issue(row.issue_id)
-
-    def open_bound_issue(self, issue_id: str | None) -> None:
-        """Read a bound Issue full-screen, resolving it first when the page lacks it."""
-        if issue_id is None:
-            return
-        app = self.dashpot
-        app.selected_identity = issue_id
-        row = app.store.row_for(issue_id)
-        if row:
-            self.app.push_screen(IssueScreen(row))
-        else:
-            self.notify("Resolving bound Issue details")
-            app.open_when_resolved = issue_id
-        app.request_identities()
-
     def action_open_issue(self) -> None:
         selected = self.issue_table.selected_row_key
         if self.queue_table().has_focus and selected is not None:
             self.open_issue(selected)
-
-    def on_worktree_table_open_requested(
-        self, event: WorktreeTable.OpenRequested
-    ) -> None:
-        """Launch the Worktree captured by keyboard activation."""
-        self.dashpot.request_worktree_open(event.key)
-
-    def on_worktree_table_copy_requested(
-        self, event: WorktreeTable.CopyRequested
-    ) -> None:
-        """Send the complete observed Worktree path to the terminal clipboard."""
-        path = self.dashpot.worktree_path(event.key)
-        if path is not None:
-            self.app.copy_to_clipboard(str(path))
-            self.app.notify("Path sent to clipboard")
 
     def open_issue(self, key: str) -> None:
         """Read the Issue full-screen; nothing happens without an Issue row."""
@@ -470,16 +732,6 @@ class DashboardScreen(Screen[None]):
         self.dashpot.selected_identity = row.issue.id
         self.dashpot.request_identities()
 
-    @on(DataTable.RowHighlighted)
-    def follow_cursor(self, event: DataTable.RowHighlighted) -> None:
-        """Re-emphasise relationships when the focused table's cursor moves."""
-        # A queued highlight can be dispatched during app shutdown, after the
-        # screen and its panes have been unmounted.
-        if not self.is_mounted:
-            return
-        if event.data_table.has_focus:
-            self.issue_table.update_related_rows()
-
     @on(DataTable.RowHighlighted, "#queue")
     def select_highlighted_issue(self, event: DataTable.RowHighlighted) -> None:
         """Select the Issue under the cursor; other tables' cursors select nothing."""
@@ -488,16 +740,12 @@ class DashboardScreen(Screen[None]):
         if self.is_mounted:
             self.issue_table.show_row(str(event.row_key.value))
 
-    def on_focus_cursor_table_focus_changed(
-        self, event: FocusCursorTable.FocusChanged
-    ) -> None:
-        self.issue_table.update_related_rows()
-
-    def on_screen_suspend(self, _: events.ScreenSuspend) -> None:
-        self.issue_table.update_related_rows(clear=True)
-
-    def on_screen_resume(self, _: events.ScreenResume) -> None:
-        self.call_after_refresh(self.issue_table.update_related_rows)
+    def update_status(self) -> None:
+        """Render current location and the shared Project Totals summary."""
+        if self.is_mounted:
+            self.status_bar().show_summary(
+                navigation_summary(self.dashpot.store.totals)
+            )
 
     def update_diagnostics(self) -> None:
         """Render every Diagnostic in the Diagnostics box, then the alert above it."""
@@ -508,7 +756,7 @@ class DashboardScreen(Screen[None]):
             launcher_diagnostics=app.launcher_configuration.diagnostics,
             fetch_failures=app.fetches.errors,
         )
-        self.paint_readout(
+        paint_readout(
             self.query_one("#diagnostics", Static),
             readout,
             shown="-has-messages",
@@ -529,41 +777,22 @@ class DashboardScreen(Screen[None]):
                 app.observations.first_observations_in_flight
             ),
         )
-        self.paint_readout(
+        paint_readout(
             self.query_one("#alert", Static),
             alert,
             shown="-visible",
             text=lambda alert: alert.text,
         )
 
-    @staticmethod
-    def paint_readout(
-        widget: Static,
-        readout: Alert | None,
-        *,
-        shown: str,
-        text: Callable[[Alert], str],
-    ) -> None:
-        """Show a readout coloured by its most severe line, or hide it entirely.
-
-        ``shown`` is the class that displays the box and ``text`` how the
-        readout is joined for it: one line for the alert, a line per
-        Diagnostic for the box.
-        """
-        # Either box takes no space at all while there is nothing to report,
-        # and the box is coloured by the most severe line in it rather than
-        # by having any line at all.
-        widget.set_class(readout is not None, shown)
-        for severity in ("error", "warning", "info"):
-            widget.set_class(
-                readout is not None and readout.severity == severity, f"-{severity}"
-            )
-        widget.update("" if readout is None else text(readout))
-
 
 class DashpotApp(App[None]):
     TITLE = "Dashpot"
     CSS_PATH = "../dashpot.tcss"
+    MODES: ClassVar[dict[str, str]] = {
+        "dashboard": "dashboard",
+        "issues-pull-requests": "issues-pull-requests",
+    }
+    DEFAULT_MODE = "dashboard"
     # Textual declares this as an instance attribute, so ClassVar is not an
     # option; the list is never mutated.
     HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]  # ruff: ignore[mutable-class-default]
@@ -572,6 +801,8 @@ class DashpotApp(App[None]):
     ALLOW_SELECT = True
 
     BINDINGS: ClassVar[list[BindingType]] = [
+        ("1", "show_dashboard", "Dashboard"),
+        ("2", "show_issues_pull_requests", "Issues & Pull Requests"),
         ("q", "quit", "Quit"),
         ("question_mark", "legend", "Legend"),
         ("r", "refresh", "Refresh"),
@@ -589,6 +820,10 @@ class DashpotApp(App[None]):
         launcher_configuration: LauncherConfiguration | None = None,
     ) -> None:
         super().__init__()
+        self._dashboard = DashboardScreen()
+        self._query_screen = IssuesPullRequestsScreen()
+        self.install_screen(self._dashboard, "dashboard")
+        self.install_screen(self._query_screen, "issues-pull-requests")
         self.launcher_configuration = launcher_configuration or LauncherConfiguration()
         # The observation and query commands an exit interrupts, so a pool
         # thread inside one releases before interpreter exit joins it; both
@@ -617,7 +852,6 @@ class DashpotApp(App[None]):
             cleaner, self.store, self.observations, self.fetches, self
         )
         self.selected_identity: str | None = None
-        self.open_when_resolved: str | None = None
         # A local-only coordinator composes a placeholder for every Project
         # at construction; publishing it now names the Projects before their
         # first observation lands.
@@ -625,13 +859,51 @@ class DashpotApp(App[None]):
 
     @override
     def get_default_screen(self) -> DashboardScreen:
-        """Root the app on the dashboard, its one long-lived screen."""
-        return DashboardScreen()
+        """Start on the Dashboard peer."""
+        return self._dashboard
 
     @property
     def dashboard(self) -> DashboardScreen:
-        """The dashboard screen, whatever is stacked above it."""
-        return cast("DashboardScreen", self.screen_stack[0])
+        """The installed Dashboard peer, whether active or inactive."""
+        return self._dashboard
+
+    @property
+    def query_screen(self) -> IssuesPullRequestsScreen:
+        """The installed Issues & Pull Requests peer."""
+        return self._query_screen
+
+    def peer_screens(self) -> tuple[DashboardScreen, IssuesPullRequestsScreen]:
+        """Both long-lived peers in direct-navigation order."""
+        return self.dashboard, self.query_screen
+
+    def show_peer(self, peer: PeerName) -> None:
+        """Replace the active peer directly without adding Back history."""
+        if self.screen not in self.peer_screens():
+            return
+        if self.current_mode != peer:
+            self.switch_mode(peer)
+
+    def action_show_dashboard(self) -> None:
+        """Switch directly to Dashboard when a peer is active."""
+        self.show_peer("dashboard")
+
+    def action_show_issues_pull_requests(self) -> None:
+        """Switch directly to Issues & Pull Requests when a peer is active."""
+        self.show_peer("issues-pull-requests")
+
+    def on_peer_selected(self, message: PeerSelected) -> None:
+        """Switch to the complete peer label a person clicked."""
+        self.show_peer(message.peer)
+
+    @override
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Hide direct peer keys while they type or a temporary screen is active."""
+        if action in {"show_dashboard", "show_issues_pull_requests"}:
+            peer = self.screen
+            available = isinstance(peer, DashboardScreen | IssuesPullRequestsScreen)
+            available = available and not isinstance(peer.focused, Input)
+            return True if available else None
+        return True
 
     @override
     def get_css_variables(self) -> dict[str, str]:
@@ -645,13 +917,17 @@ class DashpotApp(App[None]):
     def action_focus_next(self) -> None:
         # Textual's tab binding names `app.focus_next`, so list-focus cycling
         # is forwarded to the dashboard whenever it is the visible screen.
-        if self.screen is self.dashboard and self.dashboard.cycle_list_focus(1):
+        if isinstance(self.screen, DashboardScreen | IssuesPullRequestsScreen) and (
+            self.screen.cycle_list_focus(1)
+        ):
             return
         super().action_focus_next()
 
     @override
     def action_focus_previous(self) -> None:
-        if self.screen is self.dashboard and self.dashboard.cycle_list_focus(-1):
+        if isinstance(self.screen, DashboardScreen | IssuesPullRequestsScreen) and (
+            self.screen.cycle_list_focus(-1)
+        ):
             return
         super().action_focus_previous()
 
@@ -668,15 +944,16 @@ class DashpotApp(App[None]):
             return
         self.push_screen(LegendScreen(legend_keys()))
 
-    def on_ready(self) -> None:
+    async def on_ready(self) -> None:
+        # Mount both installed peers before collection starts, then restore the
+        # default peer. Their long-lived widgets can accept every result even
+        # before a person first switches screens.
+        await self.switch_mode("issues-pull-requests")
+        await self.switch_mode("dashboard")
         dashboard = self.dashboard
         dashboard.query_one(WorktreeTable).launch_available = (
             self.launcher_configuration.opener is not None
         )
-        for kind, bar in dashboard.filter_bars.items():
-            bar.search.placeholder = self.queries.sources[kind].search_prompt
-        if not self.store.has_observations:
-            dashboard.queue_table().loading = True
         # The first pages render whatever the store already holds, so a
         # seeded store needs no rendering of its own before they are asked for.
         self.request_refresh("initial")
@@ -715,11 +992,15 @@ class DashpotApp(App[None]):
         # the app not running before it removes screens or closes messages.
         if not self.is_running or self.closing:
             return
-        self.dashboard.update_alert()
+        for peer in self.peer_screens():
+            if peer.is_mounted and peer.surfaces_mounted():
+                peer.update_alert()
 
     def update_diagnostics(self) -> None:
         """Redraw the diagnostics readout after a flow recorded a failure."""
-        self.dashboard.update_diagnostics()
+        for peer in self.peer_screens():
+            if peer.is_mounted and peer.surfaces_mounted():
+                peer.update_diagnostics()
 
     def run_off_loop[T](
         self,
@@ -858,33 +1139,26 @@ class DashpotApp(App[None]):
 
     def on_identities_finished(self, message: IdentitiesFinished) -> None:
         self.queries.finish_identities(message)
-        if message.outcomes is not None:
-            self.open_resolved_issue(message.outcomes)
         self.render_pages()
 
-    def open_resolved_issue(self, outcomes: tuple[ResolvedIssue, ...]) -> None:
-        """Open the bound Issue a person is waiting on once its identity resolves."""
-        if not self.open_when_resolved or all(
-            outcome.issue_id != self.open_when_resolved for outcome in outcomes
-        ):
-            return
-        row = self.store.row_for(self.open_when_resolved)
-        if row:
-            self.push_screen(IssueScreen(row))
-        else:
-            self.notify("Bound Issue details are unavailable", severity="warning")
-        self.open_when_resolved = None
-
     def render_pages(self) -> None:
-        """Publish each navigation's page to the store and redraw the dashboard."""
+        """Publish pages and redraw every mounted peer that reads them."""
         self.queries.publish()
-        if not self.is_running or not self.dashboard.is_mounted:
+        if not self.is_running:
             return
-        self.dashboard.queue_table().loading = False
-        self.dashboard.issue_table.reconcile_rows()
-        self.dashboard.update_issue_inventory()
-        self.dashboard.reconcile_list_panes()
-        self.dashboard.update_diagnostics()
+        dashboard = self.dashboard
+        if dashboard.is_mounted and dashboard.surfaces_mounted():
+            dashboard.reconcile_list_panes()
+        query_screen = self.query_screen
+        if query_screen.is_mounted and query_screen.surfaces_mounted():
+            query_screen.queue_table().loading = False
+            query_screen.issue_table.reconcile_rows()
+            query_screen.update_issue_inventory()
+            query_screen.reconcile_list_panes()
+        self.update_diagnostics()
+        for peer in self.peer_screens():
+            if peer.is_mounted and peer.surfaces_mounted():
+                peer.update_status()
         if isinstance(self.screen, IssueScreen):
             context = self.store.detail_for(self.screen.context)
             if context:
@@ -918,8 +1192,6 @@ class DashpotApp(App[None]):
         # has nowhere to go and is dropped.
         if self.closing:
             return
-        if not self.dashboard.surfaces_mounted():
-            return
         self.observations.finish(message, partial(self._accept_observation, message))
 
     def _accept_observation(
@@ -934,12 +1206,8 @@ class DashpotApp(App[None]):
         """Render what a landed observation changed; a dropped one changes nothing."""
         if isinstance(landed, DroppedObservation):
             return
-        dashboard = self.dashboard
-        # An accepted observation ends the cold load even when an earlier
-        # publish already carried its change; the spinner must not outlive it.
-        dashboard.queue_table().loading = False
         if isinstance(landed, FailedObservation):
-            dashboard.update_diagnostics()
+            self.update_diagnostics()
             if landed.announced:
                 self.notify(landed.error, severity="error", title="Dashpot refresh")
             return
@@ -948,24 +1216,40 @@ class DashpotApp(App[None]):
                 "Refresh succeeded", severity="information", title="Dashpot refresh"
             )
         if landed.changes:
-            dashboard.issue_table.reconcile_rows()
-            dashboard.update_issue_inventory()
-            dashboard.reconcile_list_panes()
-        dashboard.update_diagnostics()
+            if self.dashboard.is_mounted and self.dashboard.surfaces_mounted():
+                self.dashboard.reconcile_list_panes()
+            query_screen = self.query_screen
+            if query_screen.is_mounted and query_screen.surfaces_mounted():
+                query_screen.queue_table().loading = False
+                query_screen.issue_table.reconcile_rows()
+                query_screen.update_issue_inventory()
+                query_screen.reconcile_list_panes()
+        for peer in self.peer_screens():
+            if peer.is_mounted and peer.surfaces_mounted():
+                peer.update_status()
+        self.update_diagnostics()
 
 
 def legend_keys() -> tuple[KeyGroup, ...]:
     """Every shipped key, grouped by where it is pressed, for the Legend.
 
-    The dashboard group is the app's keys, the dashboard's and the focus
-    cycle; the Worktrees table's own keys and each modal screen's are listed
+    The global group is the app's keys and the focus cycle. Each peer,
+    the Worktrees table and each temporary screen are listed
     under their own names, wherever the Legend was opened from, so Enter on
     a Worktree is never confused with Enter on an Issue.
     """
     return (
         KeyGroup(
-            "dashboard",
-            (*DashpotApp.BINDINGS, *DashboardScreen.BINDINGS, *FOCUS_CYCLE_BINDINGS),
+            "global",
+            (*DashpotApp.BINDINGS, *FOCUS_CYCLE_BINDINGS),
+        ),
+        KeyGroup(
+            "Dashboard",
+            tuple(DashboardScreen.BINDINGS),
+        ),
+        KeyGroup(
+            "Issues & Pull Requests",
+            tuple(IssuesPullRequestsScreen.BINDINGS),
         ),
         KeyGroup("Worktrees pane", tuple(WorktreeTable.BINDINGS)),
         KeyGroup("Issue view", tuple(IssueScreen.BINDINGS)),

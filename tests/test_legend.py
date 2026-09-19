@@ -105,6 +105,7 @@ def test_a_symbol_carries_one_meaning() -> None:
 def test_legend_follows_the_screen_top_to_bottom() -> None:
     panes = [section.pane for section in legend.LEGEND]
     order = [
+        legend.STATUS_BAR_LABEL,
         "SESSIONS",
         "WORKTREES",
         "BRANCHES",
@@ -367,7 +368,7 @@ def test_the_cleanup_gate_is_stated_where_x_reads_it() -> None:
 
 
 def test_section_text_renders_symbols_in_their_colour() -> None:
-    section = legend.LEGEND[0]
+    section = next(section for section in legend.LEGEND if section.pane == "SESSIONS")
     text = legend.section_text(section, dark=True)
     lines = text.plain.splitlines()
 

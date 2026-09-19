@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, Any, Self, override
+from typing import Self, override
 
 from rich.text import TextType
 from textual import events
 from textual.geometry import Size
 from textual.render import measure
-from textual.widgets.data_table import ColumnKey, RowKey
+from textual.widgets.data_table import CellType, ColumnKey, RowKey
 
 from .focus_table import FocusCursorTable
-
-if TYPE_CHECKING:
-    from textual.widgets.data_table import CellType
-else:  # The generic parameter is only spelled at type-check time.
-    CellType = Any
 
 
 class SpreadTable(FocusCursorTable[CellType]):

@@ -24,6 +24,7 @@ from app_harness import (
     issue,
     observation_landed,
     serve_snapshot,
+    show_query_peer,
     with_first_project_snapshot,
     workspace_snapshot,
 )
@@ -395,8 +396,9 @@ async def test_every_pull_requests_header_shows_its_help() -> None:
 
     async with app.run_test(size=(160, 40), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
-        pane = app.query_one("#pull-requests-pane", ListPane)
+        pane = app.query_screen.query_one("#pull-requests-pane", ListPane)
         assert pane.count == 2
         assert pane.columns == PULL_REQUEST_COLUMNS
         await assert_every_header_shows_its_help(
@@ -410,7 +412,9 @@ async def test_every_pull_requests_header_shows_its_help() -> None:
 
 def issue_columns(app: DashpotApp) -> tuple[ColumnKey, ...]:
     """The Issue table's columns as shown, conditional ones included."""
-    return app.dashboard.issue_table.table_columns(app.query_one("#queue", DataTable))
+    return app.query_screen.issue_table.table_columns(
+        app.query_screen.query_one("#queue", DataTable)
+    )
 
 
 @pytest.mark.asyncio
@@ -425,8 +429,9 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
 
     async with app.run_test(size=(160, 40), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
-        table = app.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#queue", DataTable)
         tooltip = app.screen.query_one(Tooltip)
         # No listed Issue carries a priority, so PRIORITY is not shown yet.
         assert issue_columns(app) == tuple(
@@ -465,7 +470,7 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
 
         # Choosing and reordering columns rebuilds the table; each header
         # explains the column now under it.
-        app.dashboard.issue_table.apply_issue_columns(("title", "number", "author"))
+        app.query_screen.issue_table.apply_issue_columns(("title", "number", "author"))
         await pilot.pause()
         assert issue_columns(app) == ("agent_state", "title", "number", "author")
         await assert_every_header_shows_its_help(
@@ -474,7 +479,7 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
 
         # A prioritised Issue arrives and the conditional PRIORITY column
         # with it, explained like the rest.
-        app.dashboard.issue_table.apply_issue_columns(DEFAULT_COLUMNS)
+        app.query_screen.issue_table.apply_issue_columns(DEFAULT_COLUMNS)
         serve_snapshot(app, second)
         await app.run_action("refresh")
         await wait_until(lambda: observation_landed(app, 2))
@@ -507,8 +512,9 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
 
     async with app.run_test(size=(100, 30), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
-        table = app.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#queue", DataTable)
         tooltip = app.screen.query_one(Tooltip)
         assert table.row_count == 0
         assert table.show_header
@@ -519,7 +525,7 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
         )
 
         # Every column but PRIORITY, which no listed Issue gives a value.
-        app.dashboard.issue_table.apply_issue_columns(COLUMN_KEYS)
+        app.query_screen.issue_table.apply_issue_columns(COLUMN_KEYS)
         await pilot.pause()
         assert issue_columns(app) == shown_columns(COLUMN_KEYS, ())
         assert "priority" not in issue_columns(app)

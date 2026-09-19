@@ -26,6 +26,7 @@ from app_harness import (
     pane_title,
     serve_snapshot,
     show_issue_states,
+    show_query_peer,
     with_first_project_snapshot,
     workspace_snapshot,
 )
@@ -86,9 +87,10 @@ async def test_issue_view_tracks_github_issue_state_colors(
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await show_issue_states(app, "all")
         await pilot.pause()
-        table = app.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#queue", DataTable)
         issue_key = row_key("issue", selected_issue.id)
         state_cell = table.get_cell(issue_key, "issue_state")
         assert isinstance(state_cell, IssueStateCell)
@@ -172,10 +174,11 @@ async def test_issue_view_color_follows_the_opened_issue() -> None:
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await show_issue_states(app, "all")
         await pilot.pause()
 
-        app.dashboard.open_issue(row_key("issue", open_issue.id))
+        app.query_screen.open_issue(row_key("issue", open_issue.id))
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
         view = app.screen.query_one("#issue-view")
@@ -184,7 +187,7 @@ async def test_issue_view_color_follows_the_opened_issue() -> None:
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        app.dashboard.open_issue(row_key("issue", completed_issue.id))
+        app.query_screen.open_issue(row_key("issue", completed_issue.id))
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
         view = app.screen.query_one("#issue-view")
@@ -205,13 +208,15 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
 
     async with app.run_test(size=(100, 30)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        table = app.query_one("#queue", DataTable)
+        await show_query_peer(app, pilot)
+        table = app.query_screen.query_one("#queue", DataTable)
         selected_key = row_key("issue", "I_test/repo#2")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(
-            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+            lambda: app.query_screen.issue_table.selected_row_key == selected_key
         )
 
+        table.focus()
         await pilot.press("c")
         editor = app.screen
         assert isinstance(editor, IssueColumnEditor)
@@ -230,7 +235,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         assert await pilot.click("#column-apply")
         await pilot.pause()
 
-        assert app.dashboard.issue_table.issue_view.columns == (
+        assert app.query_screen.issue_table.issue_view.columns == (
             "agent_state",
             "issue_state",
             "number",
@@ -241,9 +246,9 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "project",
         )
         assert [key.value for key in table.columns] == list(
-            app.dashboard.issue_table.issue_view.columns
+            app.query_screen.issue_table.issue_view.columns
         )
-        assert app.dashboard.issue_table.selected_row_key == selected_key
+        assert app.query_screen.issue_table.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
 
@@ -351,14 +356,14 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
     async with app.run_test(size=(80, 24)) as pilot:
         selected_key = row_key("issue", selected_issue.id)
         await wait_until(
-            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+            lambda: app.query_screen.issue_table.selected_row_key == selected_key
         )
         await pilot.pause()
 
         app.store.replace_agent_runs(
             [observed_run], {selected_issue.id: [observed_run.id]}
         )
-        app.dashboard.open_issue(selected_key)
+        app.query_screen.open_issue(selected_key)
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.pause()
 
@@ -388,14 +393,15 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        table = app.query_one("#queue", DataTable)
-        search = app.query_one("#issue-search", Input)
+        await show_query_peer(app, pilot)
+        table = app.query_screen.query_one("#queue", DataTable)
+        search = app.query_screen.query_one("#issue-search", Input)
         selected_key = row_key("issue", second.id)
         table.focus()
         await pilot.pause()
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(
-            lambda: app.dashboard.issue_table.selected_row_key == selected_key
+            lambda: app.query_screen.issue_table.selected_row_key == selected_key
         )
         search.value = "s"
         await pilot.pause()
@@ -432,16 +438,16 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         assert (
             body.styles.border_title_color
             == metadata.styles.border_title_color
-            == app.dashboard.query_one("#queue-pane").styles.border_title_color
+            == app.query_screen.query_one("#queue-pane").styles.border_title_color
         )
         assert body.styles.border_top[0] == metadata.styles.border_top[0] == "round"
         assert not view.stacked
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        assert app.dashboard.issue_table.selected_row_key == selected_key
+        assert app.query_screen.issue_table.selected_row_key == selected_key
         # Typed but unsubmitted text is still there to submit or clear.
-        assert app.query_one("#issue-search", Input).value == "s"
+        assert app.query_screen.query_one("#issue-search", Input).value == "s"
         assert app.queries.navigation["issues"].request.query == ""
         assert table.cursor_row == table.get_row_index(selected_key)
         assert table.has_focus
@@ -454,7 +460,9 @@ async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() ->
     app = _issue_view_app(issue("test/repo#1", "First"))
 
     async with app.run_test(size=(70, 30)) as pilot:
-        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        await wait_until(
+            lambda: app.query_screen.issue_table.selected_row_key is not None
+        )
         view = await open_issue_view(app, pilot)
         body = view.query_one("#issue-view-body")
         metadata = view.query_one("#issue-view-metadata")
@@ -482,7 +490,9 @@ async def test_a_newer_projection_keeps_the_pane_a_person_is_reading() -> None:
     app = _issue_view_app(issue("test/repo#1", "First"))
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        await wait_until(
+            lambda: app.query_screen.issue_table.selected_row_key is not None
+        )
         view = await open_issue_view(app, pilot)
         await pilot.press("tab")
         metadata = view.query_one("#issue-view-metadata")
@@ -506,7 +516,9 @@ async def test_a_recompose_after_the_view_closed_is_a_no_op() -> None:
     app = _issue_view_app(issue("test/repo#1", "First"))
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        await wait_until(
+            lambda: app.query_screen.issue_table.selected_row_key is not None
+        )
         view = await open_issue_view(app, pilot)
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
@@ -523,7 +535,9 @@ async def test_the_issue_view_stacks_its_details_when_the_terminal_narrows() -> 
     app = _issue_view_app(issue("test/repo#1", "Compact"))
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        await wait_until(
+            lambda: app.query_screen.issue_table.selected_row_key is not None
+        )
         view = await open_issue_view(app, pilot)
         body = view.query_one("#issue-view-body")
         metadata = view.query_one("#issue-view-metadata")
@@ -551,7 +565,8 @@ async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() ->
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
             lambda: (
-                app.dashboard.issue_table.selected_row_key == row_key("issue", blank.id)
+                app.query_screen.issue_table.selected_row_key
+                == row_key("issue", blank.id)
             )
         )
         view = await open_issue_view(app, pilot)
@@ -568,9 +583,10 @@ async def test_issue_view_does_nothing_without_an_issue_row() -> None:
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
-        assert app.dashboard.issue_table.selected_row_key is None
-        app.dashboard.queue_table().focus()
+        assert app.query_screen.issue_table.selected_row_key is None
+        app.query_screen.queue_table().focus()
         await pilot.press("enter")
         await pilot.pause()
         await app.run_action("screen.open_issue")
@@ -587,14 +603,16 @@ async def test_refresh_while_the_issue_view_is_open_reaches_both_screens() -> No
     app = dashboard_app(SequenceCollector(before, after))
 
     async with app.run_test(size=(120, 36)) as pilot:
-        await wait_until(lambda: app.dashboard.issue_table.selected_row_key is not None)
+        await wait_until(
+            lambda: app.query_screen.issue_table.selected_row_key is not None
+        )
         view = await open_issue_view(app, pilot)
         assert view.issue.title == "Before"
 
         serve_snapshot(app, after)
         await app.run_action("refresh")
         await wait_until(
-            lambda: app.dashboard.query_one("#queue", DataTable).row_count == 2
+            lambda: app.query_screen.query_one("#queue", DataTable).row_count == 2
         )
         assert app.screen is view
         # The open Issue follows the page it came from.
@@ -602,7 +620,7 @@ async def test_refresh_while_the_issue_view_is_open_reaches_both_screens() -> No
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        assert app.query_one("#queue", DataTable).row_count == 2
+        assert app.query_screen.query_one("#queue", DataTable).row_count == 2
 
 
 def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
@@ -748,6 +766,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
 
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
         assert "question_mark" in footer_keys(app)
 
@@ -757,7 +776,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         headings = [
             str(heading.render()) for heading in screen.query(".legend-heading")
         ]
-        assert headings[0] == "SESSIONS · ◈"
+        assert headings[:2] == ["STATUS BAR · freshness", "SESSIONS · ◈"]
         assert headings[: len(LEGEND)] == [
             section_heading(section) for section in LEGEND
         ]
@@ -765,7 +784,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         assert headings[len(LEGEND) :] == [
             f"KEYS · {group.label}" for group in legend_keys()
         ]
-        assert headings[len(LEGEND)] == "KEYS · dashboard"
+        assert headings[len(LEGEND)] == "KEYS · global"
         rendered = "\n".join(
             str(section.render()) for section in screen.query(".legend-section")
         )
@@ -809,6 +828,7 @@ async def test_the_legend_scrolls_through_every_column_description() -> None:
 
     async with app.run_test(size=(100, 30)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
         await pilot.press("question_mark")
         await wait_until(lambda: isinstance(app.screen, LegendScreen))
@@ -863,9 +883,10 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
 
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
-        states = app.dashboard.list_queries.issues.states
-        app.dashboard.queue_table().focus()
+        states = app.query_screen.list_queries.issues.states
+        app.query_screen.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -873,13 +894,12 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
             await pilot.press(key)
             await pilot.pause()
 
-        # The dashboard keys live on the DashboardScreen, which is below the
-        # Issue view in the screen stack, so they are never dispatched here:
-        # no editor stacked over the Issue view, the dashboard's search not
+        # Peer keys live on the covered query screen, so they are never
+        # dispatched here: no editor stacked over the Issue view, the search not
         # focused, its state filter unchanged.
         assert isinstance(app.screen, IssueScreen)
-        assert not app.dashboard.query_one("#issue-search", Input).has_focus
-        assert app.dashboard.list_queries.issues.states == states
+        assert not app.query_screen.query_one("#issue-search", Input).has_focus
+        assert app.query_screen.list_queries.issues.states == states
         assert len(app.screen_stack) == 2
 
 
@@ -891,8 +911,9 @@ async def test_legend_is_reachable_from_the_issue_view() -> None:
 
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         await pilot.pause()
-        app.dashboard.queue_table().focus()
+        app.query_screen.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 

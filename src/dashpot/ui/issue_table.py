@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import ClassVar, Literal, override
 
 from rich.text import Text
+from textual.binding import BindingType
 
 from ..issues.ordering import (
     PRIORITY_BY_LABEL,
@@ -44,6 +45,7 @@ from .issue_cells import (
     priority_cell,
 )
 from .list_rows import truncate_end
+from .spread_table import SpreadTable
 
 ColumnKey = Literal[
     "issue_state",
@@ -61,6 +63,20 @@ ColumnKey = Literal[
     "created",
     "last_action",
 ]
+
+
+class IssueTable(SpreadTable[TableCell]):
+    """The Issue query table with its contextual activation binding."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("enter", "select_cursor", "Open Issue"),
+    ]
+
+    @override
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "select_cursor":
+            return True if self.row_count else None
+        return True
 
 
 @dataclass(frozen=True, slots=True)

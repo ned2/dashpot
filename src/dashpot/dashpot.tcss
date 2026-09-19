@@ -2,6 +2,50 @@ Screen {
     layout: vertical;
 }
 
+FooterKey.-disabled {
+    display: none;
+}
+
+PeerStatusBar {
+    width: 1fr;
+    height: 1;
+    layout: horizontal;
+    background: $surface;
+}
+
+#peer-status-screens {
+    width: auto;
+    height: 1;
+}
+
+PeerLink {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    text-style: bold;
+}
+
+PeerLink:hover {
+    background: $boost;
+}
+
+#peer-summary {
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
+    text-align: right;
+    color: $text-muted;
+}
+
+Screen.-compact PeerStatusBar {
+    height: 2;
+    layout: vertical;
+}
+
+Screen.-compact #peer-summary {
+    text-align: left;
+}
+
 FocusCursorTable > .datatable--related-row {
     background: #d99a2b 30%;
 }
@@ -13,7 +57,8 @@ Tooltip {
     max-width: 72;
 }
 
-#body {
+#body,
+#query-body {
     height: 1fr;
     layout: vertical;
     overflow-x: auto;
@@ -24,7 +69,8 @@ Tooltip {
    scrolls beyond it, so the Issue table only pays for rows in use. Each pane
    carries the blank line below it, which separates it from the next pane and,
    for the last one, from the Issue table. */
-#list-row {
+#list-row,
+#query-list-row {
     width: 1fr;
     height: auto;
     layout: vertical;

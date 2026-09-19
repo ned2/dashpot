@@ -1,7 +1,7 @@
-"""Pure height arithmetic for sharing the dashboard body between list panes.
+"""Pure height arithmetic for fitting list panes within a Peer Screen.
 
-The dashboard gathers the widget facts — the body's height, the Issue
-table's stylesheet minimum, each pane's record count — and this module
+The owning Peer Screen gathers the widget facts — the body's height, any
+flexible table's stylesheet minimum, each pane's record count — and this module
 decides how many records each pane may show. Nothing here touches a widget,
 so the arithmetic is unit-testable without an App.
 """
@@ -45,7 +45,7 @@ def fit_panes(
 ) -> tuple[int, ...]:
     """Cap each pane's records to the height left after the fixed minimums.
 
-    ``minimum`` is the height the Issue table keeps; whatever remains is
+    ``minimum`` is the height a flexible table keeps; whatever remains is
     shared between the panes, and a pane that wishes for less than its share
     (an empty one, or one with few records) leaves the rest to the panes
     that wish for more. The returned caps follow the order of ``wishes``; a
