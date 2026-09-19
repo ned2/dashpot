@@ -817,6 +817,11 @@ These `living` documents carry the detail this README points at:
   identity, and lifecycle, with source and experiment boundaries.
 - [`docs/design.md`](docs/design.md) describes how the pieces fit — the
   observation pipeline, the read model, and the seams beneath the interface.
+- [`docs/design-research/README.md`](docs/design-research/README.md) indexes
+  the design research — the research and analysis behind Dashpot's
+  direction: keeping understanding of a codebase, held by a person and by a
+  team, as agents author more of it; the friction that keeps it; and the
+  work rather than the session as the unit.
 
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
 decision. The other files in [`docs/`](docs/) are research, audits, and
@@ -853,10 +858,6 @@ the Legend, and
 [ADR 0051](docs/adr/0051-adopt-long-lived-peer-dashboard-screens.md)
 why the dashboard adopts two long-lived peer screens over shared application
 state.
-The [design research](docs/design-research/README.md) is the research and
-analysis behind Dashpot's direction: keeping understanding of a codebase —
-held by a person and by a team — as agents author more of it, the friction
-that keeps it, and the work rather than the session as the unit.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

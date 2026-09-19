@@ -736,6 +736,11 @@ the notes, not about the wider literature.
 
 ## Corrections proposed
 
+(added 2026-09-20: every item below was applied inline at the target
+sentence it names, marked `(corrected 2026-09-15: …)`, `(qualified 2026-09-15: …)`,
+or `(added 2026-09-15: …)` there. The target's marker is the authoritative
+copy; this list is the proposal as made and is not updated after it.)
+
 1. **unfamiliar-code-and-shared-models.md, Team cognition research**: "Ryan and O'Connor
    (2013), tacit knowledge in software teams. 48 teams from 46 Irish and UK SMEs, 181 people.
    Transactive memory (Lewis scale) and quality of social interaction both predicted team

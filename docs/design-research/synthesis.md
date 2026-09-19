@@ -1,15 +1,20 @@
 ---
-status: research
-date: 2026-09-13
+status: living
+date: 2026-09-20
 ---
 
-# Cognitive debt: synthesis
+# Design research: synthesis
 
-A documentary map of the sixteen cognitive-debt notes in this directory
-(the [team lens](README.md#the-team-lens) note was researched separately
-and is cited where it bears on a tension; the ten Phase C notes on the
-lifecycle and the team are summarised in
-[their own section](#what-phase-c-adds-added-2026-09-15) below): what the sources say the loss
+A documentary map of the twenty-seven research notes in this directory.
+The body below maps the sixteen notes of Phase A, Phase B, and the gap
+passes as they stood on 2026-09-13; the [team lens](README.md#the-team-lens) note, researched
+separately, is cited where it bears on a tension; and the ten Phase C
+notes on the lifecycle and the team are summarised in
+[their own section](#what-phase-c-adds-added-2026-09-15). The map is
+`living`: each later pass adds to it under a dated heading or marker
+rather than rewriting what an earlier pass said, and the
+[provenance section](#provenance-of-this-corpus) records every pass. It
+holds what the sources say the loss
 is, where each remedy sits, what each demands of the person, how much
 evidence stands behind each cell of that map, the tensions the sources
 state without resolving, and the gaps every pass left. It ranks nothing and
@@ -525,5 +530,22 @@ Corrections are inline, marked `(corrected 2026-09-13: …)`,
 revision are both visible. The team-lens note was researched separately on
 2026-09-14; the ten Phase C notes on 2026-09-15 in a third session — eleven
 agents, ten writing and one verifying the Finding paragraphs against their
-sources — which proposed nine further corrections, all applied. The
-[index](README.md) lists the notes in reading order.
+sources — which proposed nine further corrections, all applied.
+
+The thematic analysis ran on 2026-09-16 on the
+twenty-seven research notes as they then stood: a
+[plan](thematic-analysis-plan.md) fixed the method before extraction; a
+[claim inventory](claim-inventory.md) of 3,931 cards was extracted blind
+to the frame, one file per note; four blind clusterings and one
+mechanical clustering were run and matched, by the scripts and agent
+instructions kept under [`scripts/`](scripts/README.md); and the
+[themes note](themes.md) records the robust groups, the six emergent
+themes, and the departures from the plan. Its section 8 fed the same-day
+revision of the [analysis](analysis.md), whose changes are marked inline
+*Added 2026-09-16:* and *Revised 2026-09-16:*. The
+[candidates note](candidates.md) followed on 2026-09-17: four drafting
+agents, one per group of three lifecycle stages,
+produced the candidates from the analysis, the themes, and the inventory,
+and the session walked each through the eleven lenses. This map's own
+body was not revised by either pass; it describes the corpus the analysis
+read. The [index](README.md) lists the notes in reading order.

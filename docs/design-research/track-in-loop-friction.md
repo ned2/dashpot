@@ -3,9 +3,9 @@ status: research
 date: 2026-09-13
 ---
 
-# In-loop friction: deep pass
+# In-loop friction
 
-Phase B deep pass on one feature idea from the cognitive-debt research: friction placed inside
+Phase B deep pass on one feature idea from the design research: friction placed inside
 the development loop — at task start and at every step — rather than at hand-off or merge. The
 hand-off variant (quizzes, explain-it-back, merge gates) is covered separately in
 [track-hand-off-checks.md](track-hand-off-checks.md). This note reads the primary sources

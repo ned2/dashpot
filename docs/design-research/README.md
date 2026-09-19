@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-16
+date: 2026-09-20
 ---
 
 # Design research
@@ -15,11 +15,16 @@ understanding held by one person, in a session. The research notes are the
 exploration phase of a design effort and assess no fit for Dashpot or for
 any particular flavour of agentic engineering; only the
 [analysis](analysis.md) takes a position. Each research note is a dated
-`research` document: true as of its date,
-corrections marked inline as `(corrected 2026-09-13: …)`, and every claim
-cited to a primary source, with dead ends recorded so a later pass does not
-repeat them. Notes cite one another with relative links rather than
-repeating material.
+`research` document: true as of its date, revised only by dated inline
+markers, and every claim cited to a primary source, with dead ends
+recorded so a later pass does not repeat them. A marker is one of `(corrected YYYY-MM-DD: …)` for a claim
+that was wrong, `(qualified YYYY-MM-DD: …)` for one that stands with a
+limit added, `(added YYYY-MM-DD: …)` for material a later pass supplied,
+`(verified YYYY-MM-DD: …)` for a claim checked against its source, and
+`(updated YYYY-MM-DD: …)` for a source that changed after it was read;
+each carries its date, and the original text stays beside it.
+Notes cite one another with relative links rather than repeating
+material.
 
 ## How this was produced
 
@@ -70,7 +75,7 @@ provenance of each pass.
 - [Rationale as artifact](track-rationale-as-artifact.md) — living
   documentation, provenance capture, the dialog as artifact, and shared
   spaces.
-- [Knowing it works](track-measurement.md) — instruments, proxies, survey
+- [Measuring understanding and its loss](track-measurement.md) — instruments, proxies, survey
   items, metric proposals, and the arguments against measuring.
 
 ## Gap pass
@@ -189,7 +194,11 @@ takes a position.
   drawn: a claim inventory, replicated blind clusterings by mechanism and
   by tension, a framed placement of every card, a mechanical clustering,
   and a reconciliation that separates the themes the frame already names
-  from the cross-cutting ones it scatters.
+  from the cross-cutting ones it scatters. Executed 2026-09-16 and
+  `superseded` by the two notes that follow; kept as the method's
+  statement before the results were known. The scripts and agent
+  instructions that ran it are kept as they ran under
+  [`scripts/`](scripts/README.md).
 - [Claim inventory](claim-inventory.md) — the plan's first deliverable:
   every research note decomposed into atomic idea cards (3,931 across the
   27 notes, one file per note under `claim-inventory/`), each in the

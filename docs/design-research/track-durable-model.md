@@ -3,7 +3,7 @@ status: research
 date: 2026-09-13
 ---
 
-# Track: a durable model of the codebase over time
+# A durable model of the codebase over time
 
 Research date: 2026-09-13
 
@@ -1190,7 +1190,8 @@ Stated by the sources themselves, not by this note.
   UBC page lists it only as "submitted for ACM TOSEM (invited paper)", the
   UZH pages 404, and ZORA sits behind a bot challenge). The ICSE 2010 paper
   on the author's site — the full ten-page paper, not a two-page summary
-  (corrected 2026-09-13) — supplied the formula, re-verified against its
+  (corrected 2026-09-13) (qualified 2026-09-20: that marker was left bare;
+  its explanation was not recorded) — supplied the formula, re-verified against its
   text.
 - **Anki FSRS page** at `docs.ankiweb.net/fsrs.html` is 404; FSRS material is
   in `deck-options.html`. The original `fsrs4anki` wiki page redirects to the

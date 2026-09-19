@@ -67,6 +67,10 @@ exclude = ["/.codex", "/.dashpot"]
 # Everything Ruff sees is Python 3.12+ (from requires-python). `src` lets isort
 # recognise the package and the tests' shared helper modules as first-party.
 src = ["src", "tests"]
+# The thematic-analysis scripts under docs/design-research/scripts/ are a
+# record of what ran, kept as run; they are not maintained code.
+extend-exclude = ["docs/design-research/scripts"]
+force-exclude = true
 
 [tool.ruff.lint]
 # An explicit rule set: pyflakes/pycodestyle errors, import ordering, bugbear,

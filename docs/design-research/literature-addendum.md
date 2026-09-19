@@ -716,6 +716,11 @@ motivation.
 
 ## Corrections proposed
 
+(added 2026-09-20: every item below was applied inline at the target
+sentence it names, marked `(corrected 2026-09-13: …)`, `(qualified 2026-09-13: …)`,
+or `(added 2026-09-13: …)` there. The target's marker is the authoritative
+copy; this list is the proposal as made and is not updated after it.)
+
 Wrong or superseded sentences in the existing notes, with the evidence. Each
 is a proposal; the notes are not edited here.
 

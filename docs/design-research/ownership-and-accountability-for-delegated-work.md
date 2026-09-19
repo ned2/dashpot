@@ -725,6 +725,11 @@ responsibility rule to code.
 
 ## Corrections proposed
 
+(added 2026-09-20: every item below was applied inline at the target
+sentence it names, marked `(corrected 2026-09-15: …)`, `(qualified 2026-09-15: …)`,
+or `(added 2026-09-15: …)` there. The target's marker is the authoritative
+copy; this list is the proposal as made and is not updated after it.)
+
 1. **literature-addendum.md, Target 1 (Seo et al. entry)**: "Seo et al.'s design and sample
    are therefore unknown here." — The design is now readable: the OpenAlex record of
    [doi:10.1145/3742413.3789121](https://api.openalex.org/works/https://doi.org/10.1145/3742413.3789121)

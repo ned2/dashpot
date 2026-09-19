@@ -3,9 +3,9 @@ status: research
 date: 2026-09-13
 ---
 
-# Hand-off comprehension checks: deep pass
+# Hand-off comprehension checks
 
-Phase B deep pass on one feature idea from the cognitive-debt research: friction that bookends
+Phase B deep pass on one feature idea from the design research: friction that bookends
 agent work — after the agent finishes and before commit, review, or merge — in the form of
 generated quizzes, explain-it-back gates, "understand every line" policies, and
 diff-comprehension aids. This note reads the primary sources behind every Phase A item in this

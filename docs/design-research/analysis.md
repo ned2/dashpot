@@ -1,6 +1,6 @@
 ---
 status: proposal
-date: 2026-09-16
+date: 2026-09-20
 ---
 
 # Design analysis
@@ -22,8 +22,9 @@ candidates, their assumptions, and the tests are in the
 Revised 2026-09-16 after the [thematic analysis](themes.md) of the whole
 corpus, which tested this document's frame against blind clusterings of
 every claim in the notes. The changes it asked for are marked where they
-apply: six principles gain a clause, the map gains a cell and a
-caveat, three of the four Phase C principles are marked as single-note,
+apply: the five principles it names gain a clause, principle 15 gains a
+sixth from the authorship-inference theme it filed under the lens, the
+map gains a cell and a caveat, three of the four Phase C principles are marked as single-note,
 and the method gains two lenses and widens one
 ([themes, what this changes](themes.md#8-what-this-changes-in-the-analysis)).
 
@@ -150,8 +151,8 @@ by the CSCW definition Dashpot is a *workspace awareness* tool — the
 up-to-the-moment understanding of who is acting, on what, where, with
 their histories — and the awareness literature found no tool that treats
 an automated actor as an awareness subject whose who/what/where must be
-shown to people. Dashpot's Agent Run — a session, bound to an Issue, at a
-Worktree, live or gone — is exactly that, which the awareness literature
+shown to people. Dashpot's Agent Run — an Agent Session's declared work on one
+Issue, at a Worktree, live or gone — is exactly that, which the awareness literature
 says is instrumental: when the people whose work depends on each other's
 know it, changes resolve faster and fail less
 ([awareness, finding](workspace-awareness-and-coordination.md#finding)).
@@ -167,7 +168,7 @@ evidence marks as where the model is built, held, or lost:
 
 | Stage | Why the evidence wants it | Nearest thing today |
 | --- | --- | --- |
-| **Task start: restate the problem** | Generation before exposure is the demanding end of the mechanism table; plan approval is the only task-start gate agents ship, and it is the one people reject (39% plan rejection versus 3% per permission) | Plan modes; AGENTS.md ([in-loop friction, Claude Code](track-in-loop-friction.md#claude-code)) |
+| **Issue declared: restate the problem** | Generation before exposure is the demanding end of the mechanism table; plan approval is the only task-start gate agents ship, and it is the one people reject (39% plan rejection versus 3% per permission) | Plan modes; AGENTS.md ([in-loop friction, Claude Code](track-in-loop-friction.md#claude-code)) |
 | **In-loop step: promote, not accept** | The only tool inverting the authorship default is a notebook; no editor or agent CLI has ported it | Per-command permission gates ([in-loop friction, inversion](track-in-loop-friction.md#inversion-outside-notebooks)) |
 | **Hand-off: explain it back** | The single causal result in the corpus: 61.5% versus 23.1% later unassisted repair, at d = 1.52 velocity cost | Nothing between "agent done" and "PR opened" ([hand-off checks, Sankaranarayanan](track-hand-off-checks.md#sankaranarayanan-2026-in-full)) |
 | **Review as transfer** | Pre-AI, reviewing spread the files a developer "knows" by 66–150%; AI-era review telemetry is disputed in direction (habituation in one study, scrutiny rising in another); batch size at review is the one place team friction meets comprehension evidence (59% versus 35% effectiveness for small versus large changes) | Review decision glyph on a PR row ([unfamiliar code, practices](unfamiliar-code-and-shared-models.md#practices-that-transfer-the-model); [flow, finding](flow-wip-limits-and-constraints.md#finding)) |
@@ -178,7 +179,7 @@ evidence marks as where the model is built, held, or lost:
 | **Module revisit** | No tool connects a change to a review schedule; SRS on a repository has never been built | Integration facts per Branch ([durable model, scheduling](track-durable-model.md#who-has-connected-change-detection-to-review-scheduling)) |
 | **Periodic: what did I lose** | Every measure in the corpus is a single session; the one deployed instrument is a self-report item | Nothing ([measurement, arguments against](track-measurement.md#arguments-against-measuring)) |
 | **A person joining, or handing over** | The model was held by the team; onboarding's answer is mentor + small task + running it; apprenticeship ran on the routine work agents now do, and "seniors can no longer observe whether juniors are learning or just prompting"; no AI-era item touches this stage | Nothing ([unfamiliar code, convergence](unfamiliar-code-and-shared-models.md#what-the-newcomer-studies-converge-on); [apprenticeship, finding](apprenticeship-under-agents.md#finding)) |
-| **Who signs** | Every policy read places accountability for an agent change on a named person; ownership predicted quality at Microsoft; agent code is 15.8 points less likely to be modified later under an untested "no clear owner" hypothesis | Issue Binding names the session, not a person; PR author and reviewers are observed ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)) |
+| **Who signs** | Every policy read places accountability for an agent change on a named person; ownership predicted quality at Microsoft; agent code is 15.8 points less likely to be modified later under an untested "no clear owner" hypothesis | Issue Binding names the Agent Run, not a person; PR author and reviewers are observed ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)) |
 
 ### The map: lifecycle stage against demand
 
@@ -240,7 +241,8 @@ Added 2026-09-16, from the [thematic analysis](themes.md):
 - The **artifact column is stale by default.** Each artifact cell now
   names its change signal or says it has none (principle 6); the cells
   with none are the ones a candidate must couple or schedule.
-- The **Issue declared row is the thinnest.** Task start places 89 of
+- The **Issue declared row is the thinnest.** The placement's task-start
+  stage (W1), which is this row, holds 89 of
   3,465 cards against review's 534: the corpus was collected around the
   loop, the hand-off, and review, and a candidate in the first row is a
   bet in the same sense as an in-loop one (principle 2).
@@ -507,7 +509,7 @@ are among the most evenly sourced robust groups in the corpus
     fail ([ownership, finding](ownership-and-accountability-for-delegated-work.md#finding)).
     *Commits to:* every act Dashpot records under principle 6 attaching to
     a person's identity as well as to the shared object — an Issue Binding
-    names a session; the accountable party is a person — and to the
+    names an Agent Run; the accountable party is a person — and to the
     "who knows what" question having a person's name as its answer, not a
     transcript's
     ([expert finding, finding](expert-finding-and-transactive-memory.md#finding)).

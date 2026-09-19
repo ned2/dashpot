@@ -3,7 +3,7 @@ status: research
 date: 2026-09-13
 ---
 
-# Track: explorable maps and micro-worlds
+# Explorable maps and micro-worlds
 
 Phase B deep pass on one feature idea from the Phase A sweep: an explorable, annotated
 representation of a codebase (tree, graph, wiki, diagram) that a person can navigate and put a

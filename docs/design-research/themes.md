@@ -723,7 +723,14 @@ analysis may use them only as such.
 ## 8. What this changes in the analysis
 
 Addressed to the [analysis](analysis.md), which is revised in its own
-commit. In order of how much they move.
+commit. In order of how much they move. (added 2026-09-20: each item is
+the consequence a finding above has for the frame the analysis fixed —
+what a principle, lens, or map cell would have to say to stay consistent
+with what the corpus contains — and not a position on Dashpot or on any
+candidate; the "should" in each is addressed to the analysis's text. The
+analysis took every item up on 2026-09-16 and marks each where it
+applies, so the analysis, not this section, is the current statement of
+each principle.)
 
 1. **Principle 7 names its instrument.** "Nothing measures a codebase
    model over weeks" is true only as a conjunction (5.6). The principle
@@ -828,3 +835,28 @@ Departures from the plan, for a reader checking it against what ran:
   supplemented with the top-note share, which the plan did not ask for
   and which turned out to separate the confirmations that mean something
   from those that recover one note.
+- (added 2026-09-20, from the session transcript) Calibration ran as the
+  plan asked: six extractors on the same short note
+  (`chat-centric-agents-vs-team-sdlc.md`, N05) yielded 42, 46, 44, 50,
+  44, and 45 cards with near-identical per-section counts and a mean of
+  29–31 words per card, a max-to-min ratio of 1.19 against the plan's
+  bound of about 1.5, so the extraction rules were dispatched unchanged
+  and run D's cards were adopted as N05's.
+- (added 2026-09-20) The yield was 3,931 cards against the plan's
+  expectation of 1,800–2,500. Density was 13–24 cards per thousand
+  words across notes, consistent with the calibration runs, so the
+  extractors did not cut finer than agreed; the plan's estimate was low.
+- (added 2026-09-20) The inventory is one file per note under
+  `claim-inventory/`, linked from the key, rather than the plan's one
+  `##` section per note in a single file: 3,931 list items with a link
+  each exceeded what one document can carry and be read, and a per-note
+  file keeps each card's anchor stable when another note's cards change.
+- (added 2026-09-20) The scripts — link graph, calibration comparison,
+  card validation and inventory build, mechanical clustering with its
+  silhouette scores, and the reconciliation that computes the NMI and
+  ARI reported above — were written to the analysing session's
+  scratchpad and are now kept as they ran under
+  [`scripts/`](scripts/README.md), with the agent instructions. Their
+  working data — the card JSON and the clustering agents' output — is
+  not tracked, so the figures here trace to the code that computed them
+  but rerunning it means re-extracting and re-clustering per the plan.

@@ -7,8 +7,8 @@ date: 2026-09-13
 
 Research date: 2026-09-13
 
-This note is the evidence and mechanism foundation for Dashpot's cognitive-debt
-research phase. Part 1 asks whether the loss of a developer's conceptual model
+This note is the evidence and mechanism foundation for Dashpot's design
+research, under its cognitive-debt theme. Part 1 asks whether the loss of a developer's conceptual model
 of a codebase under agentic delegation is real and what it is made of; Part 2
 asks what learning science says would counter it. Terminal citations are
 primary: the paper, the study's own page or preprint, the manual or repository.

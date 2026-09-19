@@ -545,6 +545,11 @@ default; the one search aimed at such announcements returned only the Visual Stu
 
 ## Corrections proposed
 
+(added 2026-09-20: every item below was applied inline at the target
+sentence it names, marked `(corrected 2026-09-13: …)`, `(qualified 2026-09-13: …)`,
+or `(added 2026-09-13: …)` there. The target's marker is the authoritative
+copy; this list is the proposal as made and is not updated after it.)
+
 None of the existing notes is edited here. Each item names the file, the exact sentence, and the
 evidence.
 

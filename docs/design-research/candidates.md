@@ -38,7 +38,7 @@ used in candidate ids:
 drafted from the corpus, including the obvious ones the map's cells name, so
 that a rejection is on record with its reason rather than implied by
 absence. Drafting was delegated to four agents, one per group of three
-stages, each given the analysis, the themes, the domain language, the
+stages, each given the analysis, the [themes](themes.md), the domain language, the
 current observation model, and the claim inventory, and asked to ground
 every mechanism and every figure in a card id and to take no position. The
 lens walk and the verdicts are the session's, and every card id a verdict
@@ -311,7 +311,7 @@ cheapest test of each assumption, in the final section.
 - **Without AI**: Yes — assignment predates agents.
 - **Coordination cost**: None.
 - **Social form**: Named person.
-- **Verdict**: *Shortlist.* The prerequisite for the whole family: every act principle 6 records needs a person to attach to, the Issue Binding today names a session, and principle 15 is among the best-sourced in the corpus. The act is a signature; the instrument is the comment's author at the Issue Source, or a person field in the Work Store record. Cheap, pre-AI, and it fixes what Linear's model gets right that Dashpot's Issue Binding does not.
+- **Verdict**: *Shortlist.* The prerequisite for the whole family: every act principle 6 records needs a person to attach to, the Issue Binding today names an Agent Run, and principle 15 is among the best-sourced in the corpus. The act is a signature; the instrument is the comment's author at the Issue Source, or a person field in the Work Store record. Cheap, pre-AI, and it fixes what Linear's model gets right that Dashpot's Issue Binding does not.
 
 #### ST-7 Inject a generated codebase summary at SessionStart
 - **Stage and cell**: Session/work starts / Read-navigate (N).
@@ -329,7 +329,7 @@ cheapest test of each assumption, in the final section.
 - **Without AI**: The summary needs a generator.
 - **Coordination cost**: None.
 - **Social form**: Individual.
-- **Verdict**: *Reject*, on demand and decay. No act, an uncoupled generated artifact (themes 5.1), and no human evaluation of any generated wiki (gap G3).
+- **Verdict**: *Reject*, on demand and decay. No act, an uncoupled generated artifact ([themes 5.1](themes.md#51-staleness-without-a-trigger)), and no human evaluation of any generated wiki (gap G3).
 
 ### In-loop step (IL)
 
@@ -1316,7 +1316,7 @@ cheapest test of each assumption, in the final section.
 - **Grain**: Module, person, session.
 - **Demand**: Read-or-navigate, "ask"; the recorded act is the ask and its target.
 - **Enforcement and relocation**: E1 display plus E3 practice; relocates an interruption onto the asked colleague (N26:77).
-- **Decay**: Asks fall to the cheapest answerer over time (themes 5.4, inference); the record would show the drift.
+- **Decay**: Asks fall to the cheapest answerer over time ([themes 5.4](themes.md#54-the-question-routing-economy), inference); the record would show the drift.
 - **Verifiability**: Ratio of asks to people against asks to models per return, over months — the directory-in-use measure G15 lacks.
 - **Evidence source**: Independent field mining (Cataldo) and self-report surveys (N09:76).
 - **Lifecycle hook**: Observed (sessions per Worktree and Branch over time) plus a new observation of the ask.
@@ -1375,7 +1375,7 @@ cheapest test of each assumption, in the final section.
 - **Grain**: File set of a module; trigger at commit grain.
 - **Demand**: Recall (or Verify if the re-verification is a read attestation only); recorded act is the re-verification with ref.
 - **Enforcement and relocation**: Optional; a step toward default is a PR check that a changed module has at least one non-author re-verification. Moves reading onto whoever last verified.
-- **Decay**: Risk of click-through habituation as with "Viewed" (N23:83; themes §5.2). Month six: ratio of re-verifications that include an answer to bare clicks.
+- **Decay**: Risk of click-through habituation as with "Viewed" (N23:83; [themes 5.2](themes.md#52-habituation-of-repeated-friction)). Month six: ratio of re-verifications that include an answer to bare clicks.
 - **Verifiability**: Hidden-answer question at re-verification scored against the diff (N23:39–45 rubric); horizon one release.
 - **Evidence source**: Vendor mechanics (N19:120–124, N24:39); no independent study that a verifier mark changes a reader's model (N24:188).
 - **Lifecycle hook**: New observation (verified-at-ref per person per module) derived from existing Branch and PR observation; surfaced via skill or SessionStart. No mutation.
@@ -1458,7 +1458,7 @@ cheapest test of each assumption, in the final section.
 - **Without AI**: The metric predates agents and was weak then (N23:59–63).
 - **Coordination cost**: Low.
 - **Social form**: Team dashboard; attaches to file; infers rather than records who knows what (principle 15).
-- **Verdict**: *Reject*, on authorless code. An authorship-derived proxy for understanding (principle 15, themes 5.5): when the last modifier is an Agent Run the metric has no one to assign knowledge to, and its validity was R² = .25 before any agent wrote code. The rejection the widened lens needed on record.
+- **Verdict**: *Reject*, on authorless code. An authorship-derived proxy for understanding (principle 15, [themes 5.5](themes.md#55-the-authorship-inference)): when the last modifier is an Agent Run the metric has no one to assign knowledge to, and its validity was R² = .25 before any agent wrote code. The rejection the widened lens needed on record.
 
 #### MR-7 Interleaved retrieval across parallel modules
 
@@ -1745,7 +1745,7 @@ cheapest test of each assumption, in the final section.
 - **Evidence source**: Independent field studies; AI-era figures are self-report (N09:75).
 - **Lifecycle hook**: New observation; Issue comments are outside Dashpot's current channels.
 - **Without AI**: Yes.
-- **Coordination cost**: The answerer's interruption; makes the question-routing economy visible (themes §5.4).
+- **Coordination cost**: The answerer's interruption; makes the question-routing economy visible ([themes 5.4](themes.md#54-the-question-routing-economy)).
 - **Social form**: Team; attaches to Issue and module.
 - **Verdict**: *Shortlist, folded into the ask family with IS-4.* The same act at a different boundary: the ask and its answer recorded against module and Issue. Where the last change was an Agent Run the record points at a transcript that no study shows anyone reads (N09:102), which the card states and which is the family's open question.
 
@@ -1944,7 +1944,7 @@ Request body at hand-off, compared.
 **Head** IS-4; folds HO-5, JN-5, RT-6; RV-2 shared with F4; AR-8 shared
 with F10. An ask, by a named person of a named person, about a module,
 recorded on the Issue or Pull Request with its target — a person, a
-document, a model. The directory in use, made observable (themes 5.4).
+document, a model. The directory in use, made observable ([themes 5.4](themes.md#54-the-question-routing-economy)).
 
 - *Who is asked is a fact people will record.* Test: the skill offers
   the record at the binding, hand-off, and return boundaries for a

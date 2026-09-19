@@ -5,7 +5,7 @@ date: 2026-09-13
 
 # Rationale as artifact
 
-A Phase B deep pass on one feature idea from the cognitive-debt research: capturing and
+A Phase B deep pass on one feature idea from the design research: capturing and
 maintaining the *why* of a codebase — Naur's "theory", the world-to-code mapping and the
 design rationale — as a durable artifact that survives the agent finishing and the author
 forgetting. The note is documentary. It records what exists, what each source claims, and

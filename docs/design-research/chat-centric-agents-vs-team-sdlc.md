@@ -11,6 +11,20 @@ date: 2026-09-14
   durable work around repositories, issues, branches, pull requests, review,
   CI, and shared ownership?
 
+(added 2026-09-20: it is documentary — it records who is writing about
+the mismatch and what each source claims, and does not evaluate fit for
+Dashpot or any tool. This note was researched on its own on 2026-09-14,
+before the Phase C notes; where one of those later takes up a source it
+cites, the deeper treatment is linked — the agentic-PR adoption study in
+[review capacity and volume](review-capacity-and-volume.md), Linear's
+assignment model in
+[ownership and accountability](ownership-and-accountability-for-delegated-work.md),
+issue trackers as coordination objects in
+[workspace awareness and coordination](workspace-awareness-and-coordination.md),
+and per-task worktrees in
+[integration frequency and parallel branches](integration-frequency-and-parallel-branches.md).
+The [synthesis](synthesis.md) cites this note where it bears on a tension.)
+
 ## Bottom line
 
 Yes. The exact vocabulary is not settled, but the tension is explicit in
@@ -261,7 +275,15 @@ and [Codex issue #36472](https://github.com/openai/codex/issues/36472).
 
 ## Synthesis
 
-The user's discomfort is not idiosyncratic. There is an emerging design split:
+(added 2026-09-20: this section opened by addressing the question's
+author and closed on a claim of its own; it is reworded to report the
+split the sources describe, and the position it implies is taken in the
+[analysis](analysis.md#1-thesis), not here. The heading is kept because
+the [inventory](claim-inventory/N05-chat-centric-agents-vs-team-sdlc.md)
+cites it.)
+
+The discomfort in the question is not idiosyncratic. The sources describe
+an emerging design split:
 
 ```text
 Personal-agent model
@@ -272,16 +294,24 @@ Repository/project -> issue/change -> accountable owner(s)
                    -> agent session(s) -> branch/PR -> review/CI/merge
 ```
 
-The strongest team-shaped products do not eliminate conversation. They demote
-it from **the identity of the work** to **a shared execution log and control
-surface attached to the work**. The issue records intent and ownership; Git and
+The team-shaped products above do not eliminate conversation. As their own
+writing describes it, they demote it from **the identity of the work** to
+**a shared execution log and control surface attached to the work**. The issue records intent and ownership; Git and
 the PR record the proposed change and reviewable history; CI records evidence;
 the session records how an agent attempted the work.
 
-There is one important qualification: adopting issue-shaped UI cannot by itself
-create collaboration. The empirical evidence shows agent PRs can still be
-privately supervised by one developer even when they end in a shared GitHub PR.
-Team-shaped agent development also needs explicit human ownership, independent
-review rules, shared context, and visibility into active work. But a private
-chat as the top-level durable object makes those properties harder to express
-and easier to omit.
+One qualification the sources themselves supply: adopting issue-shaped UI
+does not by itself create collaboration. Raida and Hou's data show agent PRs
+still privately supervised by one developer even when they end in a shared
+GitHub PR, and the product writing pairs the issue-shaped surface with
+explicit human ownership, independent review rules, shared context, and
+visibility into active work. Whether a private chat as the top-level durable
+object makes those properties harder to express is the question the analysis
+takes up; the sources here assert it without measuring it.
+
+## Dead ends
+
+(added 2026-09-20: no dead ends were recorded when this note was
+researched; its search history was not kept, so the sources it tried and
+failed to reach are unknown. A later pass that extends it should record
+its own.)

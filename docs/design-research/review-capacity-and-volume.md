@@ -781,7 +781,14 @@ the notes, not about the wider literature.
 
 ## Corrections proposed
 
-Documentary; no existing note was edited.
+(added 2026-09-20: every item below was applied inline at the target
+sentence it names, marked `(corrected 2026-09-15: …)`, `(qualified 2026-09-15: …)`,
+or `(added 2026-09-15: …)` there. The target's marker is the authoritative
+copy; this list is the proposal as made and is not updated after it.)
+
+Documentary. (corrected 2026-09-20: this line read "no existing note was
+edited", but correction 1 below was applied inline in the same commit at
+[evidence-and-mechanisms, surveys](evidence-and-mechanisms.md#surveys-trust-and-verification-not-comprehension).)
 
 1. **evidence-and-mechanisms.md, Surveys: trust and verification, not comprehension**: "DORA
    frames a 'verification tax' and AI as an amplifier of existing organisational strengths

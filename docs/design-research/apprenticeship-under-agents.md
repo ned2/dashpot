@@ -700,6 +700,11 @@ about the notes, not about the wider literature.
 
 ## Corrections proposed
 
+(added 2026-09-20: every item below was applied inline at the target
+sentence it names, marked `(corrected 2026-09-15: …)`, `(qualified 2026-09-15: …)`,
+or `(added 2026-09-15: …)` there. The target's marker is the authoritative
+copy; this list is the proposal as made and is not updated after it.)
+
 1. **literature-addendum.md, Target 1**: "adopters 'merged roughly 24% more pull requests
    than they would have otherwise' (95% CI 14.5–33.7% per the search summary; not verified
    in the PDF)" — the interval is now verified: the arXiv HTML full text of 2607.01418

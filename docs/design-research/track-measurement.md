@@ -3,11 +3,11 @@ status: research
 date: 2026-09-13
 ---
 
-# Knowing it works: measuring understanding and its loss
+# Measuring understanding and its loss
 
 Research date: 2026-09-13
 
-This note is the Phase B deep pass on measurement for Dashpot's cognitive-debt research. It
+This note is the Phase B deep pass on measurement for Dashpot's design research. It
 documents how a developer's understanding of a codebase, and its erosion under agentic
 delegation, has been detected or measured, and how an intervention's effect on
 understanding has been or could be evaluated. It records instruments as the studies
