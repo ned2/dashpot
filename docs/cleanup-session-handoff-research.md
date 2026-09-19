@@ -1,11 +1,15 @@
 ---
-status: research
+status: superseded
+superseded-by: cleanup-session-handoff-feasibility-spike.md
 date: 2026-09-12
 ---
 
 # Cleanup session handoff feasibility
 
-Read-only investigation for Issue #148. Installed CLI help reports Codex
+Read-only investigation for Issue #148. The
+[feasibility experiment](cleanup-session-handoff-feasibility-spike.md) of
+2026-09-19 has since measured both controller arrangements proposed below in
+disposable fixtures and supersedes this note's finding. Installed CLI help reports Codex
 0.154.0 and Claude Code 2.1.261. No live session, terminal pane, Worktree, Git
 metadata, or Issue Binding was changed. No private transcripts or credentials
 were inspected. The mechanisms below are documented capabilities or proposed

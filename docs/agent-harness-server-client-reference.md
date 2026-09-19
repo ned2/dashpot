@@ -22,13 +22,13 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | Interactive TUI (`codex`, `--remote`, `/cd`, `/worktree`), Remote Control and the managed daemon, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; current official docs and Python SDK source | Interactive terminal, Remote Control attachment, SDK, agent teams, cloud, and idle eviction untested; Remote Control server mode refused to start without a claude.ai login |
+| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; Remote Control server mode refused to start without a claude.ai login |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
-2026-09-12, Claude Code measurements on 2026-09-18, and Codex measurements on
-2026-09-19. Current documentation
+2026-09-12, Claude Code measurements on 2026-09-18 and 2026-09-19, and Codex
+measurements on 2026-09-19. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -37,8 +37,10 @@ unverified are not runtime findings.
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
 the [OpenCode experiment](opencode-identity-lifecycle-spike.md), the
-[Claude Code experiment](claude-code-identity-lifecycle-spike.md), and the
-[Codex experiment](codex-identity-lifecycle-spike.md). Each
+[Claude Code experiment](claude-code-identity-lifecycle-spike.md), the
+[Codex experiment](codex-identity-lifecycle-spike.md), and the
+[Cleanup handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md)
+on both. Each
 experiment remains a dated evidence record with its fixtures and trace;
 maintain general server/client facts here instead of creating another
 comparison note.
@@ -99,14 +101,17 @@ custom protocol listeners serve different integrations.
 [Developer commands][commands] The
 [Codex experiment](codex-identity-lifecycle-spike.md) exercised
 `codex app-server --listen` with raw protocol clients, `codex exec`, and
-`codex exec resume` on `0.155.1`; the interactive, `--remote`, and Remote
-Control forms are documented and source-read, not measured.
+`codex exec resume` on `0.155.1`; the
+[handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md)
+measured `codex --remote` and plain `codex` terminals on the managed daemon
+at the same release; Remote Control pairing is documented and source-read,
+not measured.
 
 Installed `0.154.0` help additionally exposes `codex agents` for browsing the
 shared local daemon, and `codex app-server daemon` with `start`, `restart`,
 `stop`, `version`, `bootstrap`, and Remote Control enable/disable subcommands.
-This is local command-surface evidence from `codex --help` and
-`codex app-server daemon --help`, not a daemon-lifecycle experiment.
+See [the managed daemon](#the-managed-daemon-and-attached-terminals-at-01551)
+for what `0.155.1` measured of it.
 
 ### Documented server model
 
@@ -402,9 +407,17 @@ and no hook. A replacement server resumed a `notLoaded` thread with a `cwd`
 override; the resume ran no hook, and the first turn's `SessionStart`
 (`source` = `resume`) and every later hook and shell reported the new cwd
 under the same thread id. `codex exec resume` from another directory behaved
-the same way for a stored `exec` thread. The turn-level `cwd` override and
-the loaded-thread override-ignored path were not exercised
+the same way for a stored `exec` thread
 ([measured lifecycle](codex-identity-lifecycle-spike.md#scenario-results)).
+The [handoff experiment](cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
+then exercised the two remaining paths on the managed daemon: `thread/resume`
+of a loaded, terminal-subscribed thread ignored its `cwd` override and ran no
+hook, while `turn/start` with a `cwd` override ran that turn's hooks and shell
+at the new directory, `thread/read` reported it afterwards, and the terminal's
+own next turn ran there too, all under the same thread id. A `turn/start`
+issued while a turn was running was accepted `inProgress`, ran after the
+active turn in that turn's directory, and only then did `thread/read` report
+the requested one.
 
 ### Measured lifecycle at 0.155.1
 
@@ -429,6 +442,37 @@ scenario table.
 | Server SIGKILL with loaded threads | Client close 1006; lock files remain; no leftover process | None |
 | Replacement server `thread/resume` with `cwd` override | Stored thread reported `notLoaded` at its old cwd; resume succeeds despite the stale lock file | None at resume; `SessionStart` `resume` with the new cwd at the first turn |
 | Server SIGTERM with a loaded thread | Exit 0; thread lock removed | `SessionEnd` `other` with the current cwd |
+
+### The managed daemon and attached terminals at 0.155.1
+
+The [handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
+started `codex app-server daemon start` in an isolated `CODEX_HOME`. The
+command runs only the installer-managed standalone release at
+`<CODEX_HOME>/packages/standalone/current`, refusing any other binary, and
+reports `managedCodexVersion` and `appServerVersion`. It leaves one
+`codex app-server --listen unix:// --managed-daemon` process, reparented to
+pid 1, whose control socket is
+`<CODEX_HOME>/app-server-control/app-server-control.sock`. That socket speaks
+WebSocket over a Unix domain socket: a plain JSON line receives no answer, an
+HTTP upgrade answers `101 Switching Protocols`, and `codex app-server proxy
+--sock` only relays bytes, so a stdio client of the proxy must still speak
+WebSocket. The daemon accepts the same JSON-RPC methods as an explicit
+listener; `hooks/list` trust through `[hooks.state]` behaves as measured on
+`--listen`.
+
+A terminal launched under that `CODEX_HOME` while the daemon runs hosts its
+thread in the daemon, whether attached explicitly with
+`codex --remote unix://<socket>` or launched as plain `codex`: the thread
+appears in `thread/loaded/list`, its shells' ancestry is the daemon pid rather
+than the terminal, and a second client's `thread/resume` subscribes to it.
+The daemon also lists the terminals' helper threads, each `ephemeral: true`
+with `historyMode` `legacy`; a listing that counts conversations filters
+them. A terminal's `/exit` runs no hook and neither unloads the thread nor
+releases its writer lock while another subscriber remains; the last
+`thread/unsubscribe` starts the unload delay, after which `SessionEnd` `other`
+fires at the thread's current cwd (60,092 ms measured). `daemon stop` ends the
+remaining loaded threads with `SessionEnd` `other`. A terminal launched before
+the daemon starts, and `codex agents`, were not measured.
 
 ### Changes on `main` after `rust-v0.154.0`
 
@@ -496,8 +540,11 @@ These are documented commands
 ([CLI reference](https://code.claude.com/docs/en/cli-reference)). The
 [Claude Code experiment](claude-code-identity-lifecycle-spike.md) exercised
 the headless, `--resume`, `--fork-session`, `--bg`, `agents --json`,
-`attach`, `stop`, `respawn`, and `daemon` forms on `2.1.276`; the interactive
-terminal form is documented, not measured.
+`attach`, `stop`, `respawn`, and `daemon` forms on `2.1.276`; the
+[handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md)
+measured the interactive terminal on `2.1.278` with a development channel
+loaded and the two worktree tools
+([channels and worktree tools](#channels-and-worktree-tools-at-21278)).
 
 ### Remote Control has both attachment and server modes
 
@@ -599,6 +646,47 @@ supervised worker; the interactive terminal process was not measured.
 a crash, a respawn, or a supervisor replacement, none of which end the
 conversation. Idle eviction of an unattached worker, documented at about an
 hour, was not measured.
+
+### Channels and worktree tools at 2.1.278
+
+Channels are the documented route for an external event source to reach a
+running session
+([channels](https://code.claude.com/docs/en/channels)). The
+[handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md#scenario-results-claude-code)
+measured a development channel on `2.1.278`: an ordinary stdio MCP server
+whose `initialize` result declares the `claude/channel` experimental
+capability, loaded with `--mcp-config`, `--strict-mcp-config`, and
+`--dangerously-load-development-channels server:<name>`. That flag is parsed
+only for an interactive session, shows a `WARNING: Loading development
+channels` confirmation at every launch, and the feature is gated by the
+remotely served `tengu_harbor` flag, which an isolated fixture must seed from
+its cache; without it the session logs `Channel notifications skipped:
+channels feature is not currently available`. The channel process is a child
+of the session pid and receives `CLAUDE_CODE_SESSION_ID`,
+`CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_MESSAGING_SOCKET`, and
+`CLAUDE_CONFIG_DIR` in its environment, so a channel can be bound to one
+session by identity. A `notifications/claude/channel` notification with
+`content` and `meta` reaches the model as the next user turn, wrapped in a
+`<channel>` element and preceded by `UserPromptSubmit`; one pushed during a
+turn is queued and delivered after it, with one `Stop` between the two turns.
+The plugin-distributed form (`--channels plugin:...`), which needs no
+per-launch confirmation, was not measured.
+
+The worktree tools reach a directory from one side only. From a session
+launched directly in a linked worktree, `EnterWorktree` of the main working
+tree is refused (`is the main working tree, not a linked worktree`),
+`EnterWorktree` of a sibling linked worktree succeeds and isolates the
+session there, and `ExitWorktree` is a no-op. From a session isolated by
+`EnterWorktree`, `ExitWorktree(keep)` returns to the launch directory, and
+`EnterWorktree` of a linked worktree outside `<repo>/.claude/worktrees/` is
+refused. Neither tool runs a dedicated hook: the tool's `PostToolUse`
+carries the new cwd, the next turn's hooks and shells carry it, and
+`claude agents --json` lists the interactive session (`kind` =
+`interactive`) at the new cwd under the same session id and pid with no
+`SessionEnd` or `SessionStart`. A `run_in_background` shell job does not
+block `EnterWorktree`, and the listing reports `busy` while the job runs.
+`/exit` ends an interactive session with `SessionEnd` `reason` =
+`prompt_input_exit`.
 
 ### The Agent SDK normally owns a CLI subprocess
 
@@ -836,10 +924,12 @@ available, preserving release and mode boundaries.
 | Are hook/command IDs fully mapped? | Measured at `0.155.1` for app-server and `exec`: root and fork hook `session_id` = `thread.id` = `thread.sessionId` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; a sub-agent's shell claims its own id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID`, and its hooks carry the root `session_id` plus `agent_id`; hook processes carry no thread variable; Code Mode remote host unmeasured | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |
 | Is native parentage equivalent to fork origin? | No, measured at `0.155.1`: `thread/read` reports `forkedFromId` and `SessionStart` reports `source` = `fork`, but the payload has no parent field (`startup` for a fork at `0.154.0` by source reading); a sub-agent's `parentThreadId` is delegation, not fork origin | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No: measured fork lacked child `parentID` |
 
-Remaining reference gaps include hook delivery on Claude idle eviction and in
-the interactive terminal; worker process ancestry and remote URL identity in
-Claude Remote Control, whose server mode needs a claude.ai login; Codex
-interactive TUI, `/cd`, managed `/worktree`, Remote Control daemon, and
+Remaining reference gaps include hook delivery on Claude idle eviction;
+worker process ancestry and remote URL identity in
+Claude Remote Control, whose server mode needs a claude.ai login;
+plugin-distributed Claude channels; Codex
+`/cd`, managed `/worktree`, Remote Control pairing, a terminal started before
+the daemon, and
 remote-execution hook identity mapping; OpenCode
 interactive/ACP shutdown and V2 behavior; and the precise configuration/hook
 mapping across remote execution hosts. Do not turn a documented ability to
