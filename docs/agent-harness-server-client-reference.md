@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-13
+date: 2026-09-18
 ---
 
 # Agent harness server and client reference
@@ -23,20 +23,23 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Local CLI help/version `0.154.0`; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | No live server, hook-mapping, or restart experiment; hook ordering is derived from the call graph, not timed |
-| Claude Code | Local CLI version `2.1.261`; current official docs and Python SDK source | No live server or SDK experiment; Remote Control worker ancestry unverified |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; current official docs and Python SDK source | Interactive terminal, Remote Control attachment, SDK, agent teams, cloud, and idle eviction untested; Remote Control server mode refused to start without a claude.ai login |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
-2026-09-12. Current documentation and source branches can change independently
+2026-09-12 and Claude Code measurements on 2026-09-18. Current documentation
+and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
 unverified are not runtime findings.
 
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
-the [OpenCode experiment](opencode-identity-lifecycle-spike.md). The experiment
-remains a dated evidence record with its fixtures and trace; maintain general
-server/client facts here instead of creating another comparison note.
+the [OpenCode experiment](opencode-identity-lifecycle-spike.md) and the
+[Claude Code experiment](claude-code-identity-lifecycle-spike.md). Each
+experiment remains a dated evidence record with its fixtures and trace;
+maintain general server/client facts here instead of creating another
+comparison note.
 
 ## Shared concepts
 
@@ -64,8 +67,8 @@ The product sections below supply the evidence for these distinctions.
 | --- | --- | --- | --- |
 | Codex App Server | TUI/custom client to app-server; execution host is a separate connection | Multiple threads per app-server | Native thread IDs and thread/turn events |
 | Claude interactive Remote Control | Web/mobile controls an existing local session | One remote session per interactive process | Local conversation continues when Remote Control disconnects |
-| Claude Remote Control server | Anthropic-routed clients to a local server | Multiple sessions; exact worker ancestry unverified | Server session management, distinct from browser attachment |
-| Claude background supervisor | Agent view/attach controls supervised workers | One worker process per background session | Supervisor can reconnect to surviving workers |
+| Claude Remote Control server | Anthropic-routed clients to a local server | Multiple sessions; exact worker ancestry unverified, and the server refused to start under an API key alone | Server session management, distinct from browser attachment |
+| Claude background supervisor | Agent view/attach controls supervised workers | One worker process per background session, measured as supervisor → PTY host → worker | Measured: a replacement supervisor adopts surviving workers with unchanged pids and session IDs |
 | Claude Python Agent SDK | Application controls its default CLI subprocess | Persistent client keeps one conversation; separate calls can own separate workers | Transport owns subprocess lifecycle |
 | OpenCode serve | HTTP/SSE or attached CLI to one backend | Multiple native sessions sharing the measured backend PID | Native session events and command-scoped plugin context |
 
@@ -389,8 +392,12 @@ resume and retargets the old cwd root when cwd changes. No PR changes the
 | `claude attach <id>`, `claude respawn <id>` | Attach to a background job or replace its worker |
 | `claude agents --json`, `claude daemon status` | Supported job/worker listing or supervisor diagnostics |
 
-These are documented commands, not operations performed for this reference.
-[CLI reference](https://code.claude.com/docs/en/cli-reference)
+These are documented commands
+([CLI reference](https://code.claude.com/docs/en/cli-reference)). The
+[Claude Code experiment](claude-code-identity-lifecycle-spike.md) exercised
+the headless, `--resume`, `--fork-session`, `--bg`, `agents --json`,
+`attach`, `stop`, `respawn`, and `daemon` forms on `2.1.276`; the interactive
+terminal form is documented, not measured.
 
 ### Remote Control has both attachment and server modes
 
@@ -416,7 +423,12 @@ startup; global flags before `remote-control` are not generally forwarded.
 
 These docs do not establish the executing worker's ancestry or remote URL ID's
 mapping to hook `session_id`. Server concurrency is insufficient evidence that
-all conversations execute inside that server PID.
+all conversations execute inside that server PID. Server mode is gated on a
+claude.ai login: in the isolated experiment `claude remote-control` under an
+API key exited 1 with "You must be logged in to use Remote Control", so the
+server topology stays unmeasured rather than inferred, and the operator's
+account was not used
+([experiment](claude-code-identity-lifecycle-spike.md#scenario-results)).
 
 ### The background supervisor explicitly has separate workers
 
@@ -443,6 +455,50 @@ need release-specific checks.
 
 The documented worker topology is stronger evidence than the Remote Control
 page provides; it does not establish identical internals between the two modes.
+
+#### Measured supervisor and worker lifecycle at 2.1.276
+
+The [Claude Code experiment](claude-code-identity-lifecycle-spike.md) measured
+the supervised topology on Linux with an isolated `CLAUDE_CONFIG_DIR` and a
+loopback model. The first `claude --bg` starts a transient supervisor
+(`daemon run --origin transient`, reparented to pid 1). Each worker is its own
+process below a `bg-pty-host` process below the supervisor, and the worker's
+shell commands and hooks descend from the worker. `agents --json` reports the
+worker's `pid`, `sessionId`, `cwd`, `name`, `status`, and `state`; the short
+job `id` is the first eight characters of `sessionId`. The shell claim
+`CLAUDE_CODE_SESSION_ID` equals `sessionId`, `CLAUDE_PID` equals the worker
+`pid`, and the shell's cwd and every hook `cwd` equal the listing's `cwd`.
+A worker's shells carry `CLAUDE_JOB_DIR` as well; `CLAUDE_CODE_SESSION_KIND=bg`
+and `CLAUDE_BG_BACKEND` sit in the worker process's own environment and reach
+neither its shells nor its hooks. A worker's argv is not a session carrier,
+because a worker claimed from a pre-warmed spare (`claude bg-spare …`) names
+no session while a directly spawned worker carries `--session-id`. A live
+job's `startedAt` is the current worker's start and moves forward when the
+worker is replaced, as does the worker's `/proc` start time with its pid; a
+stopped job listed with `--all` reports an earlier `startedAt` than any of its
+workers had, presumably the job's own creation.
+
+Under the native installer every supervised process — supervisor, PTY host,
+and worker — runs the versioned executable, so its `comm` is `2.1.276`, while
+a headless process started through the launcher symlink has `comm` `claude`.
+An executable-name test written for that launcher does not recognise a
+supervised worker; the interactive terminal process was not measured.
+
+| Lifecycle event | Measured effect on the worker | Hooks delivered |
+| --- | --- | --- |
+| Attached terminal killed | Worker keeps its pid and continues | None |
+| Worker killed with SIGKILL under a live supervisor | Same `sessionId`, new `pid` and later `startedAt`, listed again about ten seconds later | `SessionStart` with `source` = `resume` from the new pid; no `SessionEnd` |
+| `daemon stop --any --keep-workers` | Workers keep their pids; `agents --json` still lists them from the roster with the supervisor absent | None |
+| Next `claude --bg` after that stop | A new supervisor pid adopts every surviving worker; a turn begun under the old supervisor ends under the new one from the original pid | None for the adoption; the turn's `Stop` arrives as usual |
+| `claude stop <id>` | Listed as `state` = `stopped` with no pid | `SessionEnd` with `reason` = `other` from the worker pid |
+| `claude respawn <id>` | Same `sessionId`, new `pid` | `SessionStart` with `source` = `resume` |
+| `daemon stop --any` | Every worker terminated and listed as `stopped`; orphaned `bg-pty-host` processes can outlive the stop | `SessionEnd` with `reason` = `other` per worker |
+| `EnterWorktree` in a worker | Listing `cwd`, later hook `cwd`, and shell cwd move to the managed Worktree; `sessionId`, `pid`, and `CLAUDE_PROJECT_DIR` stay | Ordinary tool hooks; no `CwdChanged` |
+
+`SessionEnd` therefore distinguishes an explicit or supervisor-driven stop from
+a crash, a respawn, or a supervisor replacement, none of which end the
+conversation. Idle eviction of an unattached worker, documented at about an
+hour, was not measured.
 
 ### The Agent SDK normally owns a CLI subprocess
 
@@ -482,11 +538,24 @@ describes the end of a response, not necessarily the whole session. The hooks
 also include `CwdChanged` with old/new locations.
 [Source: hooks reference](https://code.claude.com/docs/en/hooks).
 
-These fields provide candidate observation evidence, but the reviewed hook
-reference does not establish Dashpot's shell variables
-`CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID`, their subagent values, or their
-agreement with every hosting mode. In particular, do not assume a child's
-`agent_id` is interchangeable with its parent's `session_id`.
+The reviewed hook reference does not document Dashpot's shell variables
+`CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID`. The
+[Claude Code experiment](claude-code-identity-lifecycle-spike.md#scenario-results)
+measured them at `2.1.276` in the headless and background modes: hook
+`session_id`, the shell's `CLAUDE_CODE_SESSION_ID`, and the headless result's
+`session_id` agree, and `CLAUDE_PID` is the pid of the process running the
+conversation, which is the worker for a background session. `--resume` keeps
+the session ID in a new process and reports `SessionStart.source` = `resume`;
+`--fork-session` mints a new ID, reports `source` = `fork`, and names no
+parent in the payload. A headless process publishes `SessionEnd` with
+`reason` = `other` at exit. A subagent started by the Agent tool runs in the
+parent's process with the parent's `session_id` and `CLAUDE_PID`; only
+`agent_id` and `agent_type` on `SubagentStart`, its tool hooks, and
+`SubagentStop` distinguish it, and `CLAUDE_CODE_CHILD_SESSION=1` is present in
+every measured shell, so it is not a subagent marker. Do not treat a child's
+`agent_id` as interchangeable with its parent's `session_id`. The interactive
+terminal, Remote Control, and SDK values are not measured; `CwdChanged` did not
+fire for a background worker's `EnterWorktree`.
 
 Ordinary subagents have separate contexts and can run alongside the main
 conversation. Their transcripts can be resumed through the containing session.
@@ -661,18 +730,19 @@ available, preserving release and mode boundaries.
 
 | Question | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- |
-| Does one selected host PID distinguish conversations? | App Server hosts multiple threads | Explicit background workers are separate; other modes need ancestry verification | No in the tested backend |
-| Does client disconnect stop execution? | Unsubscription starts an unload delay (sixty seconds by code default at `0.154.0`); the embedded TUI shuts its thread down on exit | Remote attachment and background workers can survive disconnect; SDK transport exit differs | Attached CLI exit did not stop its command |
-| Does process restart erase history? | Stored thread resume documented; crash behavior unmeasured | Background workers resume retained conversations; Remote Control recovery is conditional | Same native ID resumed after backend replacement |
-| Are hook/command IDs fully mapped? | Root and fork mapping read from `0.154.0` source (hook `session_id` = thread ID; a fork gets its own); child and execution-host mapping unverified | Remote/job/native/child and shell claim mapping unverified | Native shell ID measured for legacy Bash; PTY can lack ID |
-| Is native parentage equivalent to fork origin? | No at `0.154.0`: the store records `forked_from_thread_id`, but the `SessionStart` payload has no parent field and reports `startup` for a fork (`fork` source lands after this tag) | Several fork and delegation forms; mapping unverified | No: measured fork lacked child `parentID` |
+| Does one selected host PID distinguish conversations? | App Server hosts multiple threads | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No in the tested backend |
+| Does client disconnect stop execution? | Unsubscription starts an unload delay (sixty seconds by code default at `0.154.0`); the embedded TUI shuts its thread down on exit | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | Attached CLI exit did not stop its command |
+| Does process restart erase history? | Stored thread resume documented; crash behavior unmeasured | Measured: a killed or respawned worker and a replaced supervisor keep the session ID; `SessionStart` reports `resume` for the new worker pid | Same native ID resumed after backend replacement |
+| Are hook/command IDs fully mapped? | Root and fork mapping read from `0.154.0` source (hook `session_id` = thread ID; a fork gets its own); child and execution-host mapping unverified | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |
+| Is native parentage equivalent to fork origin? | No at `0.154.0`: the store records `forked_from_thread_id`, but the `SessionStart` payload has no parent field and reports `startup` for a fork (`fork` source lands after this tag) | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No: measured fork lacked child `parentID` |
 
-Remaining reference gaps include exact mode-specific hook delivery on eviction,
-restart and abrupt exit; worker process ancestry in Claude Remote Control;
-Codex child-thread and remote-execution hook identity mapping; OpenCode interactive/ACP shutdown and V2
-behavior; and the precise configuration/hook mapping across remote execution
-hosts. Do not turn a documented ability to subscribe into a guarantee of
-concurrent mutation safety for one conversation.
+Remaining reference gaps include hook delivery on Claude idle eviction and in
+the interactive terminal; worker process ancestry and remote URL identity in
+Claude Remote Control, whose server mode needs a claude.ai login; Codex
+child-thread and remote-execution hook identity mapping; OpenCode
+interactive/ACP shutdown and V2 behavior; and the precise configuration/hook
+mapping across remote execution hosts. Do not turn a documented ability to
+subscribe into a guarantee of concurrent mutation safety for one conversation.
 
 ## Maintaining this reference
 

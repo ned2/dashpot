@@ -820,7 +820,9 @@ These `living` documents carry the detail this README points at:
 decision. The other files in [`docs/`](docs/) are research, audits, and
 proposals that informed decisions and implementation.
 The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycle-spike.md)
-records the reproducible evidence for a possible OpenCode integration.
+records the reproducible evidence for a possible OpenCode integration, and the
+[Claude Code identity and lifecycle experiment](docs/claude-code-identity-lifecycle-spike.md)
+the measured Claude Code headless and background-worker lifecycle.
 The [test-duration measurements](docs/test-duration-measurements.md) record the
 development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
