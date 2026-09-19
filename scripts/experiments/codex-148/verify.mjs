@@ -77,12 +77,15 @@ assert(sibling.loaded.includes(attached.threadId) && sibling.loaded.includes(sib
 // The daemon also lists the terminals' ephemeral helper threads.
 assert(sibling.otherLoaded.length > 0 && sibling.otherLoaded.every((thread) => thread.ephemeral === true), "every other loaded thread is ephemeral");
 
-// A turn started while the thread is busy is accepted and queued; it runs
-// after the active turn, in the cwd of that turn, and only then does the
-// thread report the requested cwd.
+// turn/start while the thread is busy is answered with the running turn's own
+// id: the request's input joins that turn, runs after the active command in
+// that turn's cwd, and only then does the thread report the requested cwd.
 const busyRequest = of("busy.request")[0];
 assert.equal(busyRequest.error, null);
 assert.equal(busyRequest.result.status, "inProgress");
+const runningTurn = hooks.find((record) => record.event === "UserPromptSubmit" && record.receipt > of("scenario").find((s) => s.name === "busy-thread").receipt).payload.turn_id;
+assert.equal(busyRequest.result.turnId, runningTurn, "the busy request names the running turn");
+assert(hooks.filter((record) => record.event === "UserPromptSubmit" && record.payload.turn_id === runningTurn).length >= 2, "the request's input ran inside the running turn");
 const busy = of("busy.outcome")[0];
 assert(busy.controllerTurnRanAt > busy.holdEndedAt, "queued turn ran after the hold");
 assert.equal(busy.controllerShellCwd, other);

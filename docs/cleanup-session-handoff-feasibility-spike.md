@@ -24,17 +24,18 @@ Dashpot can deliver a relocation request into an interactive session, and the
 session executes `ExitWorktree` back to its original directory under the same
 session id and pid, with hooks, its shell, and `claude agents --json` all
 reporting the new location; but the two worktree tools reach a directory only
-from one side, so a session launched directly inside the linked Worktree can
-never reach the main Worktree, and a session isolated by `EnterWorktree` can
-never reach a sibling linked Worktree. On Codex, every interactive terminal
-under a `CODEX_HOME` whose managed daemon is running — attached with
-`--remote` or launched plainly — hosts its thread in that daemon, where a
-controller on the control socket moves the thread with a `turn/start` `cwd`
-override that sticks for the terminal's own later turns, under the same thread
-id and with no new session. And in both harnesses the move is safe only on an
-idle session: a Claude channel event is queued behind the running turn, and a
-Codex turn queued behind a running one executes in the old directory while
-the thread already reports the new one.
+from one side, so a session launched directly inside the linked Worktree
+cannot reach the main Worktree, and a session isolated by `EnterWorktree`
+cannot reach a sibling linked Worktree outside `.claude/worktrees/`. On
+Codex, the terminals measured under a `CODEX_HOME` whose managed daemon was
+running — two attached with `--remote` and one launched plainly — all hosted
+their threads in that daemon, where a controller on the control socket moves
+a thread with a `turn/start` `cwd` override that sticks for the terminal's
+own later turns, under the same thread id and with no new session. And in
+both harnesses the move is safe only on an idle session: a Claude channel
+event is queued behind the running turn, and a Codex `turn/start` during a
+running turn joins that turn, so its input executes in the old directory
+while the thread already reports the new one.
 
 ## Reproduce
 
@@ -106,8 +107,10 @@ These are disposable experiment resources, not durable task Worktrees. The
 child environment is an allowlist with an isolated home, XDG directories,
 temporary directory, and `CLAUDE_CONFIG_DIR` or `CODEX_HOME`; no ordinary
 configuration, credentials, saved conversations, Git metadata, or sibling
-Worktrees are copied or modified, and a runner signals only the terminals it
-started and processes whose environment names its fixture. Both runners stop what they started in
+Worktrees are copied or modified. The Codex runner reads every process's
+environment under `/proc` to find the fixture's own processes, and a runner
+signals only the terminals it started and processes whose environment names
+its fixture. Both runners stop what they started in
 `finally`, close their loopback servers, and retain the fixture for
 inspection; remove only the exact printed root afterwards.
 
@@ -158,7 +161,10 @@ and writer-lock listings, JSON-RPC error codes and messages, daemon command
 output, and command exit status. The mock models record scenario labels,
 request counts, tool names, and whether a turn arrived in a `<channel>`
 wrapper, not messages. The fixture prompts are content-free `SPIKE:<label>`
-markers. Prompt text, transcripts, tool inputs and responses, terminal screen
+markers. The only tool input retained is the channel `ack` tool's two
+fixture-constant arguments. Process ancestry and the environment record name
+the operator's binary, Node, and checkout paths, as the #160 traces do.
+Prompt text, transcripts, other tool inputs and responses, terminal screen
 text, and full environments are not retained; a pseudo-terminal's screen is
 kept only under `SPIKE_DEBUG_TERMINAL=1`, beside the trace and outside the
 retained evidence.
@@ -169,8 +175,14 @@ and gated by a research-preview feature flag, first-party authentication, and
 organisation policy; a plugin-distributed channel (`--channels plugin:...`)
 would remove the per-launch confirmation and was not measured. A Claude
 session's own `/cd` and the Codex terminal's `/cd` and `/worktree` are
-human-only and unmeasured. Unmeasured too are Claude sessions with an active
-subagent, the Codex daemon's Remote Control pairing, the `codex app-server
+human-only and unmeasured. Both fixtures ran with permissions bypassed
+(`--dangerously-skip-permissions`, `approval_policy = "never"`), so the
+permission prompts a move could raise are unmeasured, and the mock models
+never checked that conversation history survived a move: identity
+preservation is the session or thread id, not a conversation canary.
+Unmeasured too are Claude sessions with an active subagent, Codex sub-agents,
+a Claude session whose `.claude/worktrees/` directory exists, the Codex
+daemon's Remote Control pairing, the `codex app-server
 proxy` relay beyond the finding that it forwards bytes and so needs a
 WebSocket-speaking client, a Codex terminal launched before the daemon starts,
 sessions with an Issue Binding, and other operating systems or releases.
@@ -188,9 +200,9 @@ route Dashpot's own dispatch takes.
 | Direct launch, move to main | A pushed request for A to reach the main Worktree: the turn arrived in a `<channel>` wrapper; `EnterWorktree(main)` returned an error, `Cannot enter worktree: … is the main working tree, not a linked worktree`, and `ExitWorktree` returned `No-op: there is no active EnterWorktree session to exit`. A's listing, shell cwd, and hook cwds stayed at `other`. | 19–40 |
 | Direct launch, move to a sibling | A's `EnterWorktree(third)` succeeded: `PostToolUse` reported `third`, the shell ran there, and the listing shows `third` under the same session id and pid. | 41–62 |
 | Entered session, return | B entered `other` on its first turn, then a pushed request drove `ExitWorktree(keep)`: `Exited worktree … Session is now back in <main>`; `PostToolUse`, the shell, and the listing report the main Worktree under B's original session id and pid, with no `SessionEnd` or `SessionStart`. | 63–110 |
-| Busy delivery | A request pushed while A held an eight-second command was delivered 149 ms after the command ended, as the next turn, with one `Stop` between the two turns: the queued channel event ran without a `Stop` of its own before the relocation turn. | 111–136 |
+| Busy delivery | A request pushed while A held an eight-second command was delivered 46 ms after the command ended, as the next turn, with no `Stop` between the two turns: the hold turn's `PostToolUse` is followed directly by the relocation turn's `UserPromptSubmit`, and the only `Stop` comes after the relocation turn. A `Stop` is therefore not a per-turn signal while channel events are queued. | 111–136 |
 | Background job | B started a twenty-second `run_in_background` shell and its turn ended; a pushed relocation then entered `other` while the job still ran, and the listing showed `status` = `busy` during the job. The job did not block the move. | 137–172 |
-| Isolated session, move to a sibling | B, now isolated in `other`, was asked to enter `third`: `Cannot enter worktree: <main>/.claude/worktrees does not exist, so … cannot be a worktree managed by Claude Code`; B stayed at `other`. | 174–197 |
+| Isolated session, move to a sibling | B, now isolated in `other`, was asked to enter `third`: `Cannot enter worktree: <main>/.claude/worktrees does not exist, so … cannot be a worktree managed by Claude Code`; B stayed at `other`. The tool-free turn between the push and the relocation turn (177–179) is the earlier background job's completion notification, not part of the request. | 174–197 |
 | Exit | `/exit` on each pseudo-terminal ended both sessions with `SessionEnd` `reason` = `prompt_input_exit`; the channel processes closed with their sessions. | 198–203 |
 
 The reachability the two tools give an interactive session:
@@ -198,7 +210,7 @@ The reachability the two tools give an interactive session:
 | Session state | `EnterWorktree(main)` | `EnterWorktree(sibling linked Worktree)` | `ExitWorktree` |
 | --- | --- | --- | --- |
 | Launched directly in a linked Worktree | Refused: main working tree | Allowed; the session becomes isolated there | No-op |
-| Isolated by `EnterWorktree` (Dashpot dispatch) | — | Refused: not under `.claude/worktrees/` | Returns to the launch directory, which for Dashpot dispatch is the main Worktree |
+| Isolated by `EnterWorktree` (Dashpot dispatch) | — | Refused: not under `.claude/worktrees/`, which did not exist in the fixture; a Repository with that directory was not measured | Returns to the launch directory, which for Dashpot dispatch is the main Worktree |
 
 The startup notice for channels was not observed on the pseudo-terminal
 screen; the trace records `noticed: false` for both sessions. The
@@ -216,9 +228,9 @@ launched in `third` without `--remote`.
 | Attached terminal | `codex --remote unix://… -C other` hosts thread A on the daemon: `thread/loaded/list` includes A, `thread/read` reports cwd `other` and `status` `idle`, the shell's `CODEX_SESSION_ID` and `CODEX_THREAD_ID` both equal A, and the shell's ancestry is the daemon pid, not the terminal. The terminal's `SessionStart` `startup` through `Stop` carry A. | 11–23 |
 | Controller relocation | The controller's `thread/resume` of the loaded A with `cwd` = main subscribed it and left the cwd at `other`: the override was ignored, no hook ran. `turn/start` on A with `cwd` = main ran `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` at the main Worktree under A's id, the shell ran there, `thread/read` then reported cwd = main, and the terminal rendered the controller's turn. The terminal's own next typed turn ran at the main Worktree: the override stuck. No `SessionStart` or `SessionEnd` occurred. | 24–47 |
 | Sibling thread | With B loaded from `third`, a second controller move of A to `other` ran at `other`; B's next turn ran at `third` under B's id. The daemon also listed six further loaded ids, every one `ephemeral: true` with `historyMode` `legacy` at one of the three directories — helper threads the terminals create, not conversations. | 48–80 |
-| Busy thread | `turn/start` on A with `cwd` = `third` while the terminal's eight-second command ran was accepted as a second turn `inProgress`. It executed 222 ms after the running command ended, and its hooks and shell ran at `other`, the directory of the turn it queued behind, while `thread/read` afterwards reported `third`. `thread/backgroundTerminals/list` for A was empty throughout. | 81–100 |
-| Plain terminal | `codex -C third` launched without `--remote` while the daemon ran: its shell's ancestry is the daemon pid, `thread/loaded/list` includes its thread, and the controller's `thread/resume` of it succeeded (cwd override ignored again). Its `/exit` ran no hook and left the thread loaded and locked. | 101–115 |
-| Terminal exit and unload | `/exit` on A's terminal ran no hook; A stayed loaded with its writer lock while the controller remained subscribed. After the controller's `thread/unsubscribe`, `SessionEnd` `other` fired 60,092 ms later at A's current cwd, the lock was released, and A left the loaded list. `daemon stop` ended B the same way. | 116–124 |
+| Busy thread | `turn/start` on A with `cwd` = `third` while the terminal's eight-second command ran was answered with the running turn's own id and `status` `inProgress`: the request's input joined that turn rather than starting a second one. It executed 269 ms after the running command ended, with a second `UserPromptSubmit` under the same `turn_id`, and its hooks and shell ran at `other`, the running turn's directory, while `thread/read` afterwards reported `third`. There is no separate turn or `Stop` to attribute to the controller in this case. `thread/backgroundTerminals/list` for A was empty throughout. | 81–100 |
+| Plain terminal | One `codex -C third` launched without `--remote` while the daemon ran, with no remote setting in the fixture `config.toml`: its shell's ancestry is the daemon pid, `thread/loaded/list` includes its thread, and the controller's `thread/resume` of it succeeded (cwd override ignored again). Its `/exit` ran no hook and left the thread loaded and locked. | 101–115 |
+| Terminal exit and unload | `/exit` on A's terminal ran no hook; A stayed loaded with its writer lock while the controller remained subscribed. After the controller's `thread/unsubscribe`, `SessionEnd` `other` fired 60,049 ms later at A's current cwd, the lock was released, and A left the loaded list. `daemon stop` ended B the same way. | 116–124 |
 
 ## Proposed controller arrangements
 
@@ -243,20 +255,27 @@ turn, and a background job leaves the listing `busy` — and completion is the
 `ack`, corroborated by the listing.
 
 **Codex.** Dashpot connects to the managed daemon's control socket under the
-operator's `CODEX_HOME` and treats as movable exactly the threads
-`thread/loaded/list` reports, which at `0.155.1` are every interactive
-terminal launched while the daemon runs, ephemeral helper threads excluded.
-The move is `thread/resume` to subscribe, then one `turn/start` with the
-destination `cwd` on an `idle` thread with an empty
+operator's `CODEX_HOME`. Reach is wider than authority: `thread/loaded/list`
+reported every terminal launched while the daemon ran, plain ones included,
+but the Issue's rule stands — a daemon Dashpot can reach is not control of an
+unrelated Codex client — so the arrangement moves only a thread that opted
+in, which needs a registration the experiment did not design: the human
+decision here is what counts as opt-in (a terminal Dashpot launched, an Issue
+Binding declared from the thread, or an explicit marker), not whether the
+daemon can reach the rest. The move is `thread/resume` to subscribe, then one
+`turn/start` with the destination `cwd` on an `idle` thread with an empty
 `thread/backgroundTerminals/list`; the override sticks for the terminal's
 later turns. Preflight must refuse a thread whose `status` is not `idle`: a
-queued controller turn executes in the old directory. The controller must
-`thread/unsubscribe` afterwards, or the thread outlives its terminal.
-Completion is the `Stop` hook of the controller's turn at the destination cwd
-plus `thread/read` reporting it. This is a live-thread relocation, a new
-lifecycle contract beside the sequential `codex resume` route of
+`turn/start` then joins the running turn and its input executes in the old
+directory. The controller must `thread/unsubscribe` afterwards, or the thread
+outlives its terminal. Completion is the controller turn's `Stop` at the
+destination cwd plus `thread/read` reporting it, which is attributable only
+because the turn was started on an idle thread. This is a live-thread
+relocation, a new lifecycle contract beside the sequential `codex resume`
+route of
 [ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md),
-not a transparent implementation of it.
+not a transparent implementation of it; the Issue's sequential-resume checks
+were not exercised.
 
 ## Implications for Dashpot
 
@@ -278,9 +297,11 @@ not a transparent implementation of it.
   this run covers the controller identity and origin/destination of item 1,
   the drain signals of item 3, the fresh destination hooks of item 4, and the
   direct-launch and isolated-session refusals of item 5. Untouched: an active
-  Agent Run and Issue Binding through a move (item 2), a Claude subagent,
-  refusal, timeout, cancellation, and partial moves (item 6), and the final
-  reinspection before removal (item 7).
+  Agent Run and Issue Binding through a move (item 2), a conversation canary
+  and effective permissions at the destination (item 4), a Claude subagent
+  and concurrent Codex clients on one thread (item 5), refusal, timeout,
+  cancellation, and partial moves (item 6), and the final reinspection before
+  removal (item 7).
 
 ## Validation
 

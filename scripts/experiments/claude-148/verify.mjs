@@ -80,10 +80,12 @@ assert(exited.newHooks.some(([event, , tool, cwd]) => event === "PostToolUse" &&
 assert(!hooks.some((record) => record.event === "SessionEnd" && record.payload.session_id === exited.session && record.receipt < exited.receipt), "no SessionEnd during relocation");
 
 // A channel event pushed mid-turn is delivered after that turn, as the next
-// turn, with no Stop hook between them.
+// turn, with no Stop hook between them: the only Stop follows the second turn.
 const busy = of("busy.outcome")[0];
 assert.equal(busy.deliveredAfterHold, true);
 assert.equal(busy.stopsDuringBusy, 1);
+const busyEvents = busy.newHooks.map(([event]) => event);
+assert(busyEvents.indexOf("Stop") > busyEvents.lastIndexOf("UserPromptSubmit"), "no Stop before the queued turn's UserPromptSubmit");
 
 // A background shell job does not block a relocation, and the listing shows
 // the session busy while the job runs.

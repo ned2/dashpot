@@ -415,9 +415,10 @@ of a loaded, terminal-subscribed thread ignored its `cwd` override and ran no
 hook, while `turn/start` with a `cwd` override ran that turn's hooks and shell
 at the new directory, `thread/read` reported it afterwards, and the terminal's
 own next turn ran there too, all under the same thread id. A `turn/start`
-issued while a turn was running was accepted `inProgress`, ran after the
-active turn in that turn's directory, and only then did `thread/read` report
-the requested one.
+issued while a turn was running was answered with the running turn's own id
+and `inProgress`: its input joined that turn, ran after the active command in
+that turn's directory, and only then did `thread/read` report the requested
+one.
 
 ### Measured lifecycle at 0.155.1
 
@@ -460,9 +461,10 @@ WebSocket. The daemon accepts the same JSON-RPC methods as an explicit
 listener; `hooks/list` trust through `[hooks.state]` behaves as measured on
 `--listen`.
 
-A terminal launched under that `CODEX_HOME` while the daemon runs hosts its
-thread in the daemon, whether attached explicitly with
-`codex --remote unix://<socket>` or launched as plain `codex`: the thread
+Every terminal measured under that `CODEX_HOME` while the daemon ran hosted
+its thread in the daemon — two attached explicitly with
+`codex --remote unix://<socket>` and one launched as plain `codex` with no
+remote setting in `config.toml`: the thread
 appears in `thread/loaded/list`, its shells' ancestry is the daemon pid rather
 than the terminal, and a second client's `thread/resume` subscribes to it.
 The daemon also lists the terminals' helper threads, each `ephemeral: true`
@@ -470,7 +472,7 @@ with `historyMode` `legacy`; a listing that counts conversations filters
 them. A terminal's `/exit` runs no hook and neither unloads the thread nor
 releases its writer lock while another subscriber remains; the last
 `thread/unsubscribe` starts the unload delay, after which `SessionEnd` `other`
-fires at the thread's current cwd (60,092 ms measured). `daemon stop` ends the
+fires at the thread's current cwd (60,049 ms measured). `daemon stop` ends the
 remaining loaded threads with `SessionEnd` `other`. A terminal launched before
 the daemon starts, and `codex agents`, were not measured.
 
@@ -668,7 +670,8 @@ of the session pid and receives `CLAUDE_CODE_SESSION_ID`,
 session by identity. A `notifications/claude/channel` notification with
 `content` and `meta` reaches the model as the next user turn, wrapped in a
 `<channel>` element and preceded by `UserPromptSubmit`; one pushed during a
-turn is queued and delivered after it, with one `Stop` between the two turns.
+turn is queued and delivered after it with no `Stop` between the two turns,
+the only `Stop` following the second.
 The plugin-distributed form (`--channels plugin:...`), which needs no
 per-launch confirmation, was not measured.
 
@@ -679,7 +682,7 @@ tree is refused (`is the main working tree, not a linked worktree`),
 session there, and `ExitWorktree` is a no-op. From a session isolated by
 `EnterWorktree`, `ExitWorktree(keep)` returns to the launch directory, and
 `EnterWorktree` of a linked worktree outside `<repo>/.claude/worktrees/` is
-refused. Neither tool runs a dedicated hook: the tool's `PostToolUse`
+refused (measured with that directory absent). Neither tool runs a dedicated hook: the tool's `PostToolUse`
 carries the new cwd, the next turn's hooks and shells carry it, and
 `claude agents --json` lists the interactive session (`kind` =
 `interactive`) at the new cwd under the same session id and pid with no

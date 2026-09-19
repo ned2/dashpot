@@ -1,7 +1,8 @@
 // Isolated Claude Code relocation-handoff experiment for Issue #148.
 // Drives a pinned Claude Code binary against a loopback Messages API fixture
-// with an isolated configuration directory, opts a background session into a
-// development channel, pushes relocation requests through that channel, and
+// with an isolated configuration directory, opts interactive sessions on a
+// pseudo-terminal into a development channel, pushes relocation requests
+// through that channel, and
 // records hook, shell, channel, and listing evidence as a metadata-only trace.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -270,7 +271,7 @@ try {
     sourceSHA256: Object.fromEntries(["run.mjs", "channel.mjs", "hook.mjs", "command.mjs", "ancestry.mjs", "verify.mjs"].map((file) =>
       [file, createHash("sha256").update(readFileSync(path.join(here, file))).digest("hex")])) });
 
-  // Scenario 1: a background session launched directly in the linked
+  // Scenario 1: an interactive session launched directly in the linked
   // Worktree registers the development channel.
   trace("scenario", { name: "channel-registration" });
   const jobA = await dispatch("SPIKE:idle", other, "fixture-a");

@@ -10,7 +10,6 @@ import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,8 +84,8 @@ const stripAnsi = (text) => text.replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, "").re
 env.SPIKE_SINK = sink.url;
 
 // The fixture model: a `SPIKE:<label>` text in the latest user message selects
-// one exec_command call reporting identity; `delegate` spawns a sub-agent and
-// waits for it; a request already holding the tool outputs ends the turn.
+// one exec_command call reporting identity; a request already holding the
+// tool output ends the turn.
 const commandScript = path.join(here, "command.mjs");
 const modelRequests = new Map();
 const sse = (res, event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
@@ -113,9 +112,7 @@ const model = await listen(async (req, res) => {
   const tools = (payload.tools ?? []).flatMap((tool) => tool.type === "namespace" ? tool.tools.map((nested) => `${tool.name}/${nested.name}`) : [tool.name ?? tool.type]);
   const count = (modelRequests.get(label?.name ?? "none") ?? 0) + 1;
   modelRequests.set(label?.name ?? "none", count);
-  const delegate = label?.name === "delegate" && tools.includes("multi_agent_v1/spawn_agent");
-  const needed = delegate ? 2 : 1;
-  const useTool = label && outputs.length < needed && tools.includes("exec_command");
+  const useTool = label && outputs.length < 1 && tools.includes("exec_command");
   trace("model.request", { label: label?.name ?? null, count, outputs: outputs.length, model: payload.model, stream: payload.stream, toolCount: tools.length,
     tools: modelRequests.size === 1 && count === 1 ? tools : undefined, previousResponseId: payload.previous_response_id ?? null, store: payload.store ?? null });
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
@@ -123,18 +120,7 @@ const model = await listen(async (req, res) => {
   sse(res, { type: "response.created", response: { id: responseId } });
   if (useTool) {
     const callId = `call_${label.name}_${count}`;
-    let item;
-    if (delegate && outputs.length === 0) {
-      item = { type: "function_call", call_id: callId, namespace: "multi_agent_v1", name: "spawn_agent", arguments: JSON.stringify({ message: "SPIKE:child" }) };
-    } else if (delegate) {
-      // The spawn result names the child; wait for it before ending the turn.
-      let agentId = null;
-      try { agentId = JSON.parse(outputs[0].output).agent_id; } catch { agentId = String(outputs[0].output).match(/[0-9a-f-]{36}/)?.[0] ?? null; }
-      trace("model.delegate", { agentId, outputKeys: (() => { try { return Object.keys(JSON.parse(outputs[0].output)); } catch { return null; } })() });
-      item = { type: "function_call", call_id: callId, namespace: "multi_agent_v1", name: "wait_agent", arguments: JSON.stringify({ targets: [agentId], timeout_ms: 60000 }) };
-    } else {
-      item = { type: "function_call", call_id: callId, name: "exec_command", arguments: JSON.stringify({ cmd: `node ${commandScript} ${label.name} ${label.hold ?? 200}`, login: false }) };
-    }
+    const item = { type: "function_call", call_id: callId, name: "exec_command", arguments: JSON.stringify({ cmd: `node ${commandScript} ${label.name} ${label.hold ?? 200}`, login: false }) };
     sse(res, { type: "response.output_item.done", item });
   } else {
     sse(res, { type: "response.output_item.done", item: { type: "message", role: "assistant", id: `msg_${records.length}`, content: [{ type: "output_text", text: "Fixture complete." }] } });
@@ -186,6 +172,8 @@ trust_level = "trusted"
 trust_level = "trusted"
 `);
 
+// Every process whose environment names the fixture CODEX_HOME, found by
+// reading each /proc entry's environment.
 const codexProcesses = () => {
   const found = [];
   for (const name of readdirSync("/proc")) {
@@ -210,50 +198,6 @@ const waitFor = async (predicate, label, timeout = 60000) => {
   while (Date.now() < end) { if (predicate()) return; await delay(100); }
   throw new Error(`Timed out: ${label}`);
 };
-const freePort = async () => {
-  const probe = net.createServer();
-  probe.listen(0, "127.0.0.1");
-  await once(probe, "listening");
-  const port = probe.address().port;
-  probe.close();
-  return port;
-};
-
-// One app-server process listening on loopback WebSocket for several clients.
-const startServer = async (label) => {
-  const port = await freePort();
-  const child = spawn(binary, ["app-server", "--listen", `ws://127.0.0.1:${port}`], { cwd: fixture, env, stdio: ["ignore", "pipe", "pipe"] });
-  let stderr = "";
-  child.stderr.on("data", (chunk) => { stderr += chunk; });
-  child.stdout.on("data", () => {});
-  const exit = once(child, "exit").then(([status, signal]) => { trace("server.exit", { label, pid: child.pid, status, signal, stderr: stderr.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").slice(-1500) }); return { status, signal }; });
-  await waitFor(() => stderr.includes("listening on"), `${label} listening`, 20000);
-  trace("server.start", { label, pid: child.pid, port, banner: stderr.split("\n")[0] });
-  return { child, port, pid: child.pid, exit, label };
-};
-const connect = async (server, name) => {
-  const socket = new WebSocket(`ws://127.0.0.1:${server.port}`);
-  await once(socket, "open");
-  let nextId = 0;
-  const pending = new Map();
-  const notifications = [];
-  socket.addEventListener("message", (message) => {
-    const parsed = JSON.parse(message.data);
-    if (parsed.id !== undefined && pending.has(parsed.id)) { pending.get(parsed.id)(parsed); pending.delete(parsed.id); return; }
-    if (parsed.method === "hook/started" || parsed.method === "hook/completed") {
-      notifications.push({ method: parsed.method, threadId: parsed.params.threadId, turnId: parsed.params.turnId, event: parsed.params.run.eventName, status: parsed.params.run.status, scope: parsed.params.run.scope, receivedAt: Date.now() });
-    } else if (parsed.method?.startsWith("thread/") || parsed.method?.startsWith("turn/")) {
-      const { threadId, turn, status, thread } = parsed.params ?? {};
-      notifications.push({ method: parsed.method, threadId: threadId ?? thread?.id, turnId: turn?.id, status: status ?? turn?.status, receivedAt: Date.now() });
-    }
-  });
-  const closed = once(socket, "close").then(([event]) => ({ code: event.code, reason: event.reason }));
-  const call = (method, params = {}) => new Promise((resolve) => { const id = ++nextId; pending.set(id, resolve); socket.send(JSON.stringify({ id, method, params })); });
-  const init = await call("initialize", { clientInfo: { name: `dashpot-148-${name}`, version: "0" }, capabilities: { experimentalApi: true } });
-  socket.send(JSON.stringify({ method: "initialized", params: {} }));
-  trace("client.connect", { client: name, server: server.label, userAgent: init.result?.userAgent, codexHome: init.result?.codexHome, error: init.error ?? null });
-  return { name, socket, call, notifications, closed, close: () => socket.close() };
-};
 // The thread fields the trace keeps: identity and hosting, never content.
 const threadSummary = (thread) => thread && ({ id: thread.id, sessionId: thread.sessionId, forkedFromId: thread.forkedFromId, parentThreadId: thread.parentThreadId, cwd: thread.cwd ?? thread.environments?.[0]?.cwd ?? null,
   source: thread.source, status: thread.status, historyMode: thread.historyMode, originator: thread.originator, agentRole: thread.agentRole, ephemeral: thread.ephemeral });
@@ -268,21 +212,6 @@ const runTurn = async (client, threadId, text, options = {}) => {
   const completed = client.notifications.find((entry) => entry.method === "turn/completed" && entry.turnId === turnId);
   trace("turn.completed", { client: client.name, threadId, turnId, status: completed.status, newHooks: hooksSince(hooksBefore) });
   return { turnId, hooksBefore, status: completed.status };
-};
-const codex = async (args, options = {}) => {
-  const child = spawn(binary, args, { cwd: options.cwd ?? fixture, env, stdio: ["ignore", "pipe", "pipe"] });
-  let stdout = "";
-  let stderr = "";
-  child.stdout.on("data", (chunk) => { stdout += chunk; });
-  child.stderr.on("data", (chunk) => { stderr += chunk; });
-  const timer = setTimeout(() => child.kill("SIGTERM"), options.timeout ?? 60000);
-  const [status, signal] = await once(child, "exit");
-  clearTimeout(timer);
-  // `exec --json` prints one event per line; keep the identity-bearing ones.
-  const events = stdout.split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean)
-    .map((event) => ({ type: event.type, threadId: event.thread_id ?? null, itemType: event.item?.type ?? null }));
-  trace("action.codex", { args, cwd: options.cwd ?? fixture, pid: child.pid, status, signal, events, stderr: stderr.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").slice(-1500) });
-  return { status, signal, stdout, stderr, pid: child.pid, events };
 };
 const lockFiles = () => { try { return readdirSync(path.join(env.CODEX_HOME, "thread-writer-locks")); } catch { return []; } };
 
@@ -346,7 +275,6 @@ const attachTerminal = async (name, cwd, prompt, { remote = true } = {}) => {
   trace("terminal.start", { name, cwd, args, scriptPid: child.pid });
   return terminal;
 };
-const runTurnVia = async (client, threadId, text, options = {}) => runTurn(client, threadId, text, options);
 
 let daemonStarted = false;
 try {
@@ -405,7 +333,7 @@ try {
   const subscribed = await controller.call("thread/resume", { threadId: threadAId, cwd: fixture });
   await delay(1000);
   trace("controller.subscribe", { thread: threadSummary(subscribed.result?.thread), error: subscribed.error ?? null, hooksAtSubscribe: hooksSince(hooksBefore), cwdOverrideHonoured: subscribed.result?.thread?.cwd === fixture });
-  const moved = await runTurnVia(controller, threadAId, "SPIKE:controller-move", { cwd: fixture });
+  const moved = await runTurn(controller, threadAId, "SPIKE:controller-move", { cwd: fixture });
   const movedShell = command("controller-move");
   trace("controller.move", { turnId: moved.turnId, status: moved.status, shellCwd: movedShell?.cwd ?? null, shellEnv: movedShell?.env ?? null, newHooks: hooksSince(moved.hooksBefore),
     thread: threadSummary((await controller.call("thread/read", { threadId: threadAId })).result?.thread), terminalSawTurn: /SPIKE:controller-move/.test(tui.screen()) });
@@ -425,7 +353,7 @@ try {
   const threadBId = command("tui-b").env.CODEX_SESSION_ID;
   hooksBefore = hooks().length;
   await controller.call("thread/resume", { threadId: threadAId });
-  const movedAgain = await runTurnVia(controller, threadAId, "SPIKE:controller-move-2", { cwd: other });
+  const movedAgain = await runTurn(controller, threadAId, "SPIKE:controller-move-2", { cwd: other });
   await tuiB.type("SPIKE:tui-b-after");
   await waitFor(() => command("tui-b-after"), "tui-b turn after A's move", 60000);
   await waitFor(() => hooks().slice(hooksBefore).filter((record) => record.event === "Stop").length >= 2, "both Stops", 60000);
@@ -435,7 +363,8 @@ try {
   trace("sibling.outcome", { a: { turn: movedAgain.turnId, shellCwd: command("controller-move-2")?.cwd }, b: { threadId: threadBId, shellCwd: command("tui-b-after")?.cwd, shellSession: command("tui-b-after")?.env.CODEX_SESSION_ID },
     newHooks: hooksSince(hooksBefore), loaded: loadedNow, otherLoaded: others });
 
-  // Scenario 4: a controller turn requested while the terminal's turn runs.
+  // Scenario 4: a controller turn/start while the terminal's turn runs; the
+  // response names which turn the request landed in.
   trace("scenario", { name: "busy-thread" });
   hooksBefore = hooks().length;
   await tui.type("SPIKE:tui-hold hold=8000");
@@ -452,8 +381,9 @@ try {
   trace("busy.outcome", { requestedAt: busyAt, holdEndedAt: holdEnded, controllerTurnRanAt: command("controller-busy")?.receiptTime ?? null, controllerShellCwd: command("controller-busy")?.cwd ?? null,
     newHooks: hooksSince(hooksBefore), thread: threadSummary((await controller.call("thread/read", { threadId: threadAId })).result?.thread) });
 
-  // Scenario 4b: a plain `codex` terminal hosts its thread in its own process;
-  // the daemon lists nothing for it and a controller resume meets its writer lock.
+  // Scenario 4b: a plain `codex` terminal, launched without `--remote` while
+  // the daemon runs: where its thread is hosted and whether a controller can
+  // subscribe to it.
   trace("scenario", { name: "plain-terminal" });
   hooksBefore = hooks().length;
   const plain = await attachTerminal("plain", third, "SPIKE:plain", { remote: false });
