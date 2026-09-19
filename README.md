@@ -829,7 +829,10 @@ the measured Claude Code headless and background-worker lifecycle, and the
 the measured Codex app-server and `codex exec` thread lifecycle. The
 [Cleanup session handoff feasibility experiment](docs/cleanup-session-handoff-feasibility-spike.md)
 measures whether an opted-in controller can move a live interactive session
-out of a Worktree on either harness, and proposes the arrangement per harness.
+out of a Worktree on either harness, and proposes the arrangement per harness;
+the [Codex declared relocation on a daemon-hosted thread](docs/codex-declared-relocation-daemon-spike.md)
+experiment then verifies the sequential `codex resume -C` route of ADR 0029
+against the managed daemon.
 The [test-duration measurements](docs/test-duration-measurements.md) record the
 development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records

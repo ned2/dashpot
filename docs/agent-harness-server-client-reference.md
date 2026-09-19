@@ -22,7 +22,7 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
+| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; Remote Control server mode refused to start without a claude.ai login |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
@@ -475,6 +475,27 @@ releases its writer lock while another subscriber remains; the last
 fires at the thread's current cwd (60,049 ms measured). `daemon stop` ends the
 remaining loaded threads with `SessionEnd` `other`. A terminal launched before
 the daemon starts, and `codex agents`, were not measured.
+
+The [declared-relocation experiment](codex-declared-relocation-daemon-spike.md#scenario-results)
+then measured the sequential `codex resume <id> -C <path>` route on the
+daemon. When the old plain terminal has typed `/exit` and the thread is still
+loaded, idle, and locked with no subscriber, a `codex resume` of it launched
+84 ms later is daemon-hosted and does not reattach in the old directory: the
+daemon shuts the cached runtime down, running `SessionEnd` `other` at the
+**old** cwd, and cold-resumes the thread with the override, running
+`SessionStart` `resume` at the new cwd 107 ms later, then the turn there,
+all under the same thread id; `thread/read` reports the new cwd, the
+terminal's own next turn runs there, no later `SessionEnd` arrives while the
+resumed terminal lives, and its `/exit` starts the ordinary unload delay
+(60,034 ms measured). This is the cold-resume branch of the loaded-thread
+override rule above, reached because the exited terminal was the only
+subscriber; the feasibility experiment's ignored override was of a thread
+its terminal still subscribed to. A resume after the unload behaves as the
+stored-thread resume: `SessionStart` `resume` at the new cwd first. Without a
+daemon, the terminal's `/exit` runs `SessionEnd` at once and the resume is a
+new process with the same first-hook order. No read-only notice or picker
+appeared on any route. A resume launched while the old terminal is still
+attached was not measured.
 
 ### Changes on `main` after `rust-v0.154.0`
 
