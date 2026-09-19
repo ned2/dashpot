@@ -842,7 +842,10 @@ records which Python 3.13 typing backports the 3.12 baseline adopts,
 why quitting interrupts the observation commands in flight, and
 [ADR 0050](docs/adr/0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md)
 why every pane column describes itself once for both its header tooltip and
-the Legend.
+the Legend, and
+[ADR 0051](docs/adr/0051-adopt-long-lived-peer-dashboard-screens.md)
+why the dashboard adopts two long-lived peer screens over shared application
+state.
 [`CHANGELOG.md`](CHANGELOG.md) records release notes;
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and

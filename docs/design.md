@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-17
+date: 2026-09-20
 ---
 
 # Design
@@ -140,11 +140,14 @@ the observation runner's landings for the post-fetch Git facts, and asks the
 app only to notify, push its screens and run its workers. Their refusals are
 tested without a running app too; the previews and confirmations are driven
 through the dashboard. Configured Projects are published before remote work.
-The screen itself is the one Textual adapter over those objects: its
+The shipped screen is the one Textual adapter over those objects: its
 handlers gather widget facts, call the module that owns the decision and
 paint the result, and both readouts — the alert line and the Diagnostics
 box — are derived by [`alerts.py`](../src/dashpot/ui/alerts.py)
 ([ADR 0047](adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)).
+The accepted multi-screen target below qualifies that decision as one thin
+adapter per long-lived peer rather than one adapter for the whole interface
+([ADR 0051](adr/0051-adopt-long-lived-peer-dashboard-screens.md)).
 The page store ([paged_store.py](../src/dashpot/observation/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total or
 identity goes through a method that advances its `source_revision`, so a read
@@ -192,7 +195,219 @@ over every key and serializes the store's `checkpoint()`, so it remains one
 complete snapshot. Collection happens off the UI thread, and the table is
 reconciled by stable row keys.
 
-The main screen is a single pane of glass with no Header, so every row
+## Accepted multi-screen target
+
+[Issue #262](https://github.com/ned2/dashpot/issues/262) accepts the first
+additional long-lived screen as one vertical design: navigation, state
+restoration, the destination's contents and the primary screen's awareness of
+them ship together. This section records the accepted target before its
+implementation in [Issue #270](https://github.com/ned2/dashpot/issues/270)
+lands. The current single-screen interface remains described
+under [Shipped dashboard during the transition](#shipped-dashboard-during-the-transition),
+and the implementation replaces that transitional account rather than leaving
+two claimed current states.
+
+### Screen topology and layout
+
+`Dashboard` and `Issues & Pull Requests` are long-lived peers. Dashboard keeps
+Sessions, Worktrees and Branches; the second peer moves both paged query panes
+off Dashboard, with a content-capped Pull Requests pane above an Issues pane
+that receives the remaining height. Issue Detail, Legend and Cleanup stay
+temporary screens and dismiss to the peer that opened them. Peer switching
+does not add Back history.
+
+The persistent top row is Dashpot's own status bar, not Textual's default
+`Header`. It names both peers, marks the active one without relying on colour,
+and makes each complete label clickable. `1` and `2` are the equivalent direct
+keyboard paths. The marker, borders, colours and two freshness Glyphs are
+implementation styling choices; these wireframes use brackets for current
+location and `<fresh>` or `<stale>` for the semantic Glyph.
+
+A representative wide Dashboard is:
+
+```text
++--------------------------------------------------------------------------------------------------+
+| [1 Dashboard]  2 Issues & Pull Requests       <fresh> Open Issues: 18 | Open PRs: 2             |
++--------------------------------------------------------------------------------------------------+
+| SESSIONS · 4                                                                                     |
+| ...active Agent Sessions...                                                                      |
++--------------------------------------------------------------------------------------------------+
+| WORKTREES · 3                                                                                    |
+| ...main and linked Worktrees...                                                                  |
++--------------------------------------------------------------------------------------------------+
+| BRANCHES · 12                                                                                    |
+| ...content-capped Branch rows, scrolling beyond the cap...                                       |
++--------------------------------------------------------------------------------------------------+
+| Alert / Diagnostics when present                                                      r  ?  q    |
++--------------------------------------------------------------------------------------------------+
+```
+
+The wide Issues & Pull Requests peer keeps both queries visible:
+
+```text
++--------------------------------------------------------------------------------------------------+
+| 1 Dashboard  [2 Issues & Pull Requests]       <fresh> Open Issues: 18 | Open PRs: 2             |
++--------------------------------------------------------------------------------------------------+
+| PULL REQUESTS · Open 2 · Closed 3                                                            |
+| [Open v]  [Search Pull Requests____________________________]  2 pull requests                    |
+| ...rows up to the content cap; the table scrolls beyond it...                                   |
++--------------------------------------------------------------------------------------------------+
+| ISSUES · Open 18 · Closed 7                                                                      |
+| [Open v]  [Search Issues___________________________________]  18 issues                           |
+| ...the Issue table owns the remaining height...                                                  |
+|                                                                                                  |
++--------------------------------------------------------------------------------------------------+
+| Alert / Diagnostics when present                                                      r  ?  q    |
++--------------------------------------------------------------------------------------------------+
+```
+
+At compact widths the same status bar may wrap instead of abbreviating a
+screen name or hiding the summary. The wrapped summary prefers the left edge;
+the precise breakpoint and whether Textual needs a different natural alignment
+are implementation choices:
+
+```text
++----------------------------------------------------------+
+| [1 Dashboard]  2 Issues & Pull Requests                  |
+| <fresh> Open Issues: 18 | Open PRs: 2                    |
++----------------------------------------------------------+
+| SESSIONS · 4                                             |
+| ...                                                      |
++----------------------------------------------------------+
+| WORKTREES · 3                                            |
+| ...                                                      |
++----------------------------------------------------------+
+| BRANCHES · 12                                            |
+| ...scrolling rows...                                     |
++----------------------------------------------------------+
+```
+
+```text
++----------------------------------------------------------+
+| 1 Dashboard  [2 Issues & Pull Requests]                  |
+| <fresh> Open Issues: 18 | Open PRs: 2                    |
++----------------------------------------------------------+
+| PULL REQUESTS · Open 2 · Closed 3                        |
+| [Open v] [Search Pull Requests__________] 2 pull requests|
+| ...bounded scrolling rows...                             |
++----------------------------------------------------------+
+| ISSUES · Open 18 · Closed 7                              |
+| [Open v] [Search Issues________________] 18 issues       |
+| ...flexible scrolling table...                           |
+| ...                                                      |
++----------------------------------------------------------+
+```
+
+An honest empty or unavailable Pull Requests pane still keeps its filter and
+one-line state while height permits and gives unused height back to Issues. At
+every supported width both panes remain present; there is no compact-only tab
+or collapsed section. The existing content-fitting rule remains the starting
+point for the exact Pull Request cap, rather than making terminal layout an
+extension interface.
+
+### Navigation, focus and state
+
+Dashboard is the default peer and initially focuses Sessions. The first visit
+to Issues & Pull Requests focuses its Pull Requests table because that is the
+first pane in visual order. Thereafter each peer restores its last focused
+control. Clicking the inactive status-bar label or pressing its number switches
+directly; clicking the active label is a no-op. The number keys insert text
+instead of switching while an editable input has focus, and neither peer key is
+active on a temporary screen. Temporary screens cover the peer status bar and
+`Escape` returns to the exact originating peer.
+
+Within either peer, `Tab`, `Shift+Tab` and an arrow move at a table's row
+boundary through only that peer's tables, wrapping in composition order. On the
+query peer, `/` enters the focused pane's search; normal Textual traversal then
+moves through that pane's lifecycle selector, search and table. A refresh never
+steals focus.
+
+| State | Owner | Screen-switch behaviour |
+| --- | --- | --- |
+| Workspace observations, Project Totals and Query Pages | `PagedObservationStore` on `DashpotApp` | Shared; collection and accepted results continue while either peer is active. |
+| Accepted request, retained pages and current page | `PageRunner` and each kind's `PageNavigation` | Shared app state; initial Issue and Pull Request pages are requested eagerly. |
+| Submitted query record and unsubmitted search text | `ListQueries` and controls on Issues & Pull Requests | Preserved with the long-lived query peer; switching alone submits nothing. |
+| Issue columns and selected stable row identity | `IssueTableController` on Issues & Pull Requests | Preserved and reconciled against accepted pages. |
+| Focus, active table row, table scroll and control cursor | Long-lived Textual screen and widgets | Preserved natively while the peer is inactive; not persisted across a Dashpot restart. |
+| Active peer | App navigation | Replaced directly by `1`, `2` or a status-bar click; no peer Back history. |
+| Alert and Diagnostics content | Existing app-owned derivations | Rendered on both peers from the same facts, including changes accepted while one is inactive. |
+
+Page Navigation history and table navigation are deliberately different. The
+former retains accepted Query Pages and opaque continuation positions; the
+latter is widget state. Dashpot does not layer a cursor-history abstraction
+over Textual: the native `DataTable` behaviour restored by
+[PR #268](https://github.com/ned2/dashpot/pull/268) remembers the active row and
+scroll when focus leaves and returns, while reconciliation continues to use
+stable row keys when data changes.
+
+Screen actions follow ownership rather than whichever handler happens to see a
+key:
+
+| Key or action | Dashboard | Issues & Pull Requests |
+| --- | --- | --- |
+| `1`, `2`, clickable screen labels | Switch peers | Switch peers |
+| `r`, `?`, `q` | Refresh, Legend, quit | Refresh, Legend, quit |
+| `f`, `x` | Remote Fetch; Cleanup of the selected Branch or Worktree | Unavailable |
+| `/`, `o`, `n`, `p`, `g` | Unavailable | Search, lifecycle and page action of the pane that owns focus, including its controls |
+| `c` | Unavailable | Issue columns, only while the Issues pane owns focus |
+| `Enter` | Keeps the Worktree table's existing open action; has no Session-to-Issue action | Opens Issue Detail from an Issue row; unbound for Pull Requests |
+
+The Footer exposes the active peer's available actions. The Legend groups
+global keys and each peer's keys rather than implying that a hidden screen's
+actions are available. A Session cursor no longer opens or highlights an Issue
+across screens; relationship emphasis that is meaningful among Sessions,
+Worktrees and Branches remains within Dashboard. An ordinary peer switch never
+chases, filters or repositions the other screen.
+
+### Navigation summary
+
+The right side of the status bar renders exactly
+`Open Issues: {value} | Open PRs: {value}` on both peers. It reads independent
+Project Totals, never the filtered Query Pages. Pane titles retain their open
+and closed inventories, and filter bars retain the accepted page's matching count:
+the three readouts intentionally report different facts. No repository-wide
+attention or changed-since-visit fact is inferred, so no new observation is
+needed.
+
+| Project Total state | Value | Aggregate freshness Glyph |
+| --- | --- | --- |
+| Fresh nonzero | Its exact open count | Fresh when every displayed number is fresh |
+| Fresh zero | `0` | Fresh when every displayed number is fresh |
+| Retained stale value | Its last known exact count | Stale if either displayed number is stale |
+| Loading without a retained value | `-` | Contributes no freshness state |
+| Unavailable without a retained value | `-` | Contributes no freshness state |
+| Pull Requests intentionally unconfigured | `-` | Contributes no freshness state |
+
+Thus a fresh Issue count beside an unavailable Pull Request count shows the
+fresh Glyph and `Open Issues: 18 | Open PRs: -`; when neither side is numeric no
+freshness Glyph appears. Availability remains in the placeholder and existing
+Diagnostics, while the one binary Glyph says only whether the numbers actually
+shown are fresh or stale. Colour may reinforce but never carry either state by
+itself.
+
+### Adapter shape and delivery
+
+Each peer remains a thin Textual adapter over app-owned runners and stores and
+screen-owned presentation collaborators. Shared chrome and summary derivation
+are plain modules or reusable widgets, not message handlers inherited through
+a common screen base: Textual invokes every class in the MRO that defines a
+handler. This is the second-screen condition that
+[ADR 0047](adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md) said
+would qualify its single-adapter conclusion; [ADR 0051](adr/0051-adopt-long-lived-peer-dashboard-screens.md)
+records the selected ownership and rejected alternatives.
+
+[Issue #270](https://github.com/ned2/dashpot/issues/270) delivers the vertical
+feature through internal checkpoints: peer topology and shared chrome;
+query-pane migration; navigation and state restoration; the Project Totals
+summary; and responsive layout, Legend, Footer, documentation and end-to-end
+coverage. Exact Glyphs, colours, border treatment, breakpoint and row cap are
+resolved against Textual's native layout abstractions during that
+implementation rather than by adding a second design Issue.
+
+## Shipped dashboard during the transition
+
+Until that implementation lands, the main screen is a single pane of glass
+with no Header, so every row
 belongs to a list: from the top,
 the full-width `SESSIONS`, `WORKTREES`, `BRANCHES` and `PULL REQUESTS` panes
 stack above the full-width `ISSUES` table. Nothing is switched to: every
