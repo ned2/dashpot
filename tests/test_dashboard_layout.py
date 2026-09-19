@@ -156,12 +156,14 @@ async def test_footer_distributes_key_bindings_across_its_width() -> None:
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
 
-        # The Footer recomposes its keys after the bindings settle, so wait
-        # for the command-palette key rather than for one pause.
+        # The Footer recomposes its keys after the bindings settle and the
+        # compositor lays them out on a later pass, so wait for the last
+        # composed key to have a region rather than for one pause.
         footer = app.query_one(Footer)
         await wait_until(
             lambda: any(
-                child.has_class("-command-palette") for child in footer.children
+                child.has_class("-command-palette") and child.region.width > 0
+                for child in footer.children
             )
         )
         binding_items = [
