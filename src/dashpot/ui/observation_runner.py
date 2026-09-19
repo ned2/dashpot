@@ -106,6 +106,7 @@ class ObservationRunner:
         self.store = store
         self.host = host
         self.in_flight: dict[ObservationKey, int] = {}
+        self._completed: set[ObservationKey] = set()
         # A key requested while its observation is in flight is observed once
         # more when that observation lands, under the latest trigger.
         self.pending_rerun: dict[ObservationKey, ObservationTrigger] = {}
@@ -134,6 +135,11 @@ class ObservationRunner:
     def refreshing(self) -> tuple[ObservationKey, ...]:
         """Name the keys in flight once they have been for long enough to show."""
         return tuple(self.in_flight) if self.refreshing_visible else ()
+
+    @property
+    def first_observations_in_flight(self) -> tuple[ObservationKey, ...]:
+        """Name observations in flight before that key has completed once."""
+        return tuple(key for key in self.in_flight if key not in self._completed)
 
     def git_keys(self, project_id: str) -> list[ObservationKey]:
         """Name the keys that observe a Project's Git state, which a mutation changes."""
@@ -252,6 +258,7 @@ class ObservationRunner:
         if message.error is not None:
             if not self.scheduler.is_current(message.ticket):
                 return DroppedObservation(trigger)
+            self._completed.add(key)
             error = f"Refresh failed: {message.error}"
             # The persistent alert already carries a repeated failure; only a
             # new or changed failure earns a toast.
@@ -261,6 +268,7 @@ class ObservationRunner:
         outcome = message.outcome
         if outcome is None or not outcome.accepted:
             return DroppedObservation(trigger)
+        self._completed.add(key)
         recovered = self.errors.pop(key, None) is not None
         # Publishing happens here, on the UI thread, so the store is never
         # mutated while a read model is being rendered from it.

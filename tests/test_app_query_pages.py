@@ -6,6 +6,7 @@ through Textual's public seam.
 """
 
 import threading
+from typing import override
 
 import pytest
 from textual.binding import Binding
@@ -199,6 +200,34 @@ async def test_page_publishes_while_totals_are_delayed(tmp_path):
             assert "issues" not in app.store.totals
             assert app.store.projects()[0].snapshot.target_status == "fresh"
             release.set()
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_pending_repository_state_does_not_report_unavailable(tmp_path):
+    started, release = threading.Event(), threading.Event()
+
+    class HeldTargetCollector(LocalOnlyCollector):
+        @override
+        def observe_targets(self):
+            started.set()
+            release.wait(5)
+            return super().observe_targets()
+
+    app = application(tmp_path, collector=HeldTargetCollector())
+    try:
+        async with app.run_test(size=(150, 55)) as pilot:
+            await wait_until(
+                lambda: (
+                    started.is_set()
+                    and app.queries.navigation["issues"].page is not None
+                )
+            )
+            await pilot.pause()
+
+            rendered = str(app.dashboard.query_one("#alert", Static).render())
+            assert "Unavailable worktrees and branches" not in rendered
     finally:
         release.set()
 
