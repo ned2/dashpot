@@ -1,7 +1,8 @@
 """Declare the list panes once: what each shows, reads, controls and relates.
 
-``LIST_PANE_SPECS`` drives the dashboard's composition, its accessors, the
-focus cycle and every refresh, so adding a pane is adding a spec here.
+Each Peer Screen has one spec tuple that drives its composition, accessors,
+focus cycle and refresh. ``LIST_PANE_SPECS`` is their combined catalogue for
+the Legend and contract tests.
 """
 
 from __future__ import annotations
@@ -79,7 +80,7 @@ class PaneRowsSource(Protocol):
 
 
 # The widget ids of the list panes and their tables, which the stylesheet and
-# the dashboard's accessors name; a spec carries one of each.
+# the Peer Screen accessors name; a spec carries one of each.
 ListPaneId = Literal[
     "sessions-pane", "worktrees-pane", "branches-pane", "pull-requests-pane"
 ]
@@ -198,8 +199,8 @@ def pull_request_filter_bar() -> ItemFilterBar:
     )
 
 
-# The list panes in reading order, each declared once.
-LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
+# The Dashboard panes in reading order, each declared once.
+DASHBOARD_PANE_SPECS: tuple[PaneSpec, ...] = (
     PaneSpec(
         "sessions-pane",
         "sessions",
@@ -231,6 +232,10 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         related=lambda related: related.branches,
         related_columns=frozenset({"name"}),
     ),
+)
+
+# The dedicated peer's one content-capped list above its flexible Issue table.
+QUERY_PANE_SPECS: tuple[PaneSpec, ...] = (
     PaneSpec(
         "pull-requests-pane",
         "pull-requests",
@@ -243,3 +248,6 @@ LIST_PANE_SPECS: tuple[PaneSpec, ...] = (
         controls_height=ItemFilterBar.HEIGHT,
     ),
 )
+
+# The complete pane catalogue remains one source for the Legend.
+LIST_PANE_SPECS: tuple[PaneSpec, ...] = (*DASHBOARD_PANE_SPECS, *QUERY_PANE_SPECS)

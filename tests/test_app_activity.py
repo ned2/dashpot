@@ -8,6 +8,7 @@ from app_harness import (
     dashboard_app,
     first_load_landed,
     observation_landed,
+    show_query_peer,
 )
 from dashpot.observation.issue_list import row_key
 from dashpot.sessions.agents import observe_agent_runs
@@ -28,7 +29,7 @@ from test_related_rows import query_source, related, related_snapshot
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("source_pane", ["sessions", "worktrees", "branches", "issues"])
+@pytest.mark.parametrize("source_pane", ["sessions", "worktrees", "branches"])
 async def test_all_sources_navigation_reentry_and_passive_destinations(source_pane):
     collector = SequenceCollector(related_snapshot())
     app = dashboard_app(collector)
@@ -38,14 +39,12 @@ async def test_all_sources_navigation_reentry_and_passive_destinations(source_pa
             "sessions": app.dashboard.sessions_pane().table,
             "worktrees": app.dashboard.worktrees_pane().table,
             "branches": app.dashboard.branches_pane().table,
-            "issues": app.dashboard.queue_table(),
         }
         source = tables[source_pane]
         queries = {
             "sessions": app.store.query_sessions,
             "worktrees": app.store.query_worktrees,
             "branches": app.store.query_branches,
-            "issues": app.store.query_issues,
         }
 
         def matches():
@@ -77,12 +76,12 @@ async def test_all_sources_navigation_reentry_and_passive_destinations(source_pa
             if name != source_pane
         }
         await pilot.press("down")
-        app.dashboard.pull_requests_pane().table.focus()
+        await pilot.press("2")
         await wait_until(
             lambda: not any(table.related_rows for table in tables.values())
         )
         # Re-entry keeps the cursor and re-emphasizes from where it stayed.
-        source.focus()
+        await pilot.press("1")
         await wait_until(lambda: source.cursor_row == 1 and matches())
         await pilot.press("?")
         await wait_until(
@@ -91,7 +90,7 @@ async def test_all_sources_navigation_reentry_and_passive_destinations(source_pa
         await pilot.press("escape")
         await wait_until(matches)
         assert collector.calls == 1
-        assert not app.dashboard.pull_requests_pane().table.related_rows
+        assert not app.query_screen.queue_table().related_rows
 
 
 @pytest.mark.asyncio
@@ -102,7 +101,8 @@ async def test_session_destinations_keep_glyph_colors_and_bold_identity_in_both_
         table = app.dashboard.sessions_pane().table
         for theme in ("textual-dark", "textual-light"):
             app.theme = theme
-            app.dashboard.pull_requests_pane().table.focus()
+            app.dashboard.set_focus(None)
+            await wait_until(lambda table=table: not table.related_rows)
             await pilot.pause()
             baseline = table.render_line(1)
             base_glyph = next(segment for segment in baseline if "●" in segment.text)
@@ -121,7 +121,7 @@ async def test_session_destinations_keep_glyph_colors_and_bold_identity_in_both_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("pane", ["worktrees", "branches", "issues"])
+@pytest.mark.parametrize("pane", ["worktrees", "branches"])
 async def test_refresh_for_each_new_source_follows_visible_key_and_clears_removed_rows(
     pane,
 ):
@@ -147,12 +147,10 @@ async def test_refresh_for_each_new_source_follows_visible_key_and_clears_remove
             "sessions": app.dashboard.sessions_pane().table,
             "worktrees": app.dashboard.worktrees_pane().table,
             "branches": app.dashboard.branches_pane().table,
-            "issues": app.dashboard.queue_table(),
         }
         queries = {
             "worktrees": app.store.query_worktrees,
             "branches": app.store.query_branches,
-            "issues": app.store.query_issues,
         }
         table = tables[pane]
         table.focus()
@@ -186,7 +184,6 @@ def destination_tables(app):
     return (
         app.dashboard.worktrees_pane().table,
         app.dashboard.branches_pane().table,
-        app.dashboard.queue_table(),
     )
 
 
@@ -195,8 +192,8 @@ def emphasis(app):
 
 
 def expected(app, run_id):
-    rows = related(app.store, run_id, app.dashboard.list_queries.issues)
-    return rows.worktrees, rows.branches, rows.issues
+    rows = related(app.store, run_id, app.query_screen.list_queries.issues)
+    return rows.worktrees, rows.branches
 
 
 @pytest.mark.asyncio
@@ -212,9 +209,9 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
             for table in destinations
         ]
         queries = (
-            app.dashboard.issue_table.issue_view,
-            app.dashboard.list_queries.issues,
-            app.dashboard.list_queries.pull_requests,
+            app.query_screen.issue_table.issue_view,
+            app.query_screen.list_queries.issues,
+            app.query_screen.list_queries.pull_requests,
         )
         sessions.focus()
         await wait_until(lambda: emphasis(app) == expected(app, "one"))
@@ -227,9 +224,9 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
             for table in destinations
         ]
         assert queries == (
-            app.dashboard.issue_table.issue_view,
-            app.dashboard.list_queries.issues,
-            app.dashboard.list_queries.pull_requests,
+            app.query_screen.issue_table.issue_view,
+            app.query_screen.list_queries.issues,
+            app.query_screen.list_queries.pull_requests,
         )
         assert collector.calls == 1
         await pilot.press("?")
@@ -343,26 +340,28 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
                 assert table.render_line(0).text.index("◈") == before
                 assert table.render_line(running_index + 1).text.index("●") == before
             assert len(set(positions)) == 1
-            activity = app.dashboard.queue_table().get_cell(
+            await show_query_peer(app, pilot)
+            activity = app.query_screen.queue_table().get_cell(
                 row_key("issue", "I_alpha#2"), "agent_state"
             )
             assert isinstance(activity, AgentStateCell)
             assert str(activity.style) == SESSION_STATE_GLYPHS["running"].style(
                 dark=app.current_theme.dark
             )
+            await pilot.press("1")
         # Two zero-weight columns used to let the activity Glyph take spare width.
-        app.dashboard.issue_table.issue_view = replace(
-            app.dashboard.issue_table.issue_view, columns=("issue_state",)
+        app.query_screen.issue_table.issue_view = replace(
+            app.query_screen.issue_table.issue_view, columns=("issue_state",)
         )
-        app.dashboard.issue_table.reconcile_rows()
+        app.query_screen.issue_table.reconcile_rows()
         await pilot.pause()
-        assert app.dashboard.queue_table().ordered_columns[0].width == 1
-        app.dashboard.issue_table.issue_view = replace(
-            app.dashboard.issue_table.issue_view, columns=()
+        assert app.query_screen.queue_table().ordered_columns[0].width == 1
+        app.query_screen.issue_table.issue_view = replace(
+            app.query_screen.issue_table.issue_view, columns=()
         )
-        app.dashboard.issue_table.reconcile_rows()
+        app.query_screen.issue_table.reconcile_rows()
         await pilot.pause()
-        assert app.dashboard.queue_table().ordered_columns[0].width == 1
+        assert app.query_screen.queue_table().ordered_columns[0].width == 1
 
 
 @pytest.mark.asyncio
@@ -372,9 +371,10 @@ async def test_related_rows_have_background_and_bold_without_losing_glyph_colors
         await wait_until(lambda: first_load_landed(app))
         for theme in ("textual-dark", "textual-light"):
             app.theme = theme
-            app.dashboard.pull_requests_pane().table.focus()
-            await pilot.pause()
             table = app.dashboard.worktrees_pane().table
+            app.dashboard.set_focus(None)
+            await wait_until(lambda table=table: not table.related_rows)
+            await pilot.pause()
             row_key = next(
                 row.key
                 for row in app.store.query_worktrees().rows
@@ -413,9 +413,11 @@ async def test_column_editor_normalizes_old_choices_and_keeps_activity_fixed():
     app = dashboard_app(SequenceCollector(related_snapshot()))
     async with app.run_test(size=(120, 55)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
         # The shipped app takes no view of its own, so an old choice arrives
         # as apply_issue_columns would deliver it: set on the mounted dashboard.
-        app.dashboard.issue_table.issue_view = view
+        app.query_screen.issue_table.issue_view = view
+        app.query_screen.queue_table().focus()
         await pilot.pause()
         await pilot.press("c")
         editor = app.screen
@@ -424,8 +426,8 @@ async def test_column_editor_normalizes_old_choices_and_keeps_activity_fixed():
         assert editor.column_order[:2] == ["title", "number"]
         editor.query_one(MarkedSelectionList).deselect_all()
         await pilot.click("#column-apply")
-        await wait_until(lambda: app.screen is app.dashboard)
-        assert app.dashboard.issue_table.issue_view.columns == ("agent_state",)
+        await wait_until(lambda: app.screen is app.query_screen)
+        assert app.query_screen.issue_table.issue_view.columns == ("agent_state",)
 
 
 @pytest.mark.asyncio
@@ -465,7 +467,7 @@ async def test_offscreen_related_worktree_is_styled_only_when_person_scrolls():
 
 
 @pytest.mark.asyncio
-async def test_paged_issue_emphasis_uses_only_current_page_without_resolving_on_focus(
+async def test_issue_pages_never_join_dashboard_relationship_emphasis(
     tmp_path,
 ):
     app = application(tmp_path, collector=WorktreeCollector(tmp_path))
@@ -482,16 +484,20 @@ async def test_paged_issue_emphasis_uses_only_current_page_without_resolving_on_
         app.request_identities = request_identities
         sessions = app.dashboard.sessions_pane().table
         sessions.focus()
-        await wait_until(lambda: bool(app.dashboard.queue_table().related_rows))
+        await wait_until(
+            lambda: bool(app.dashboard.worktrees_pane().table.related_rows)
+        )
+        assert not app.query_screen.queue_table().related_rows
         request_identities.assert_not_called()
-        app.dashboard.queue_table().focus()
+        await show_query_peer(app, pilot)
+        app.query_screen.queue_table().focus()
         await pilot.press("n")
         await wait_until(
             lambda: app.queries.navigation["issues"].page.issues[0].id == "I_2"
         )
-        sessions.focus()
+        await pilot.press("1")
         await pilot.pause()
-        assert not app.dashboard.queue_table().related_rows
+        assert not app.query_screen.queue_table().related_rows
         assert app.dashboard.worktrees_pane().table.related_rows
         assert app.queries.navigation["issues"].page.issues[0].id == "I_2"
 
@@ -546,4 +552,7 @@ async def test_paged_cursor_survives_observed_hook_session_starting_issue_work(
         )
         assert capture_selection(sessions)[0] == before
         assert app.store.query_sessions().rows[0].session.session_id == "conversation"
-        await wait_until(lambda: bool(app.dashboard.queue_table().related_rows))
+        await wait_until(
+            lambda: bool(app.dashboard.worktrees_pane().table.related_rows)
+        )
+        assert not app.query_screen.queue_table().related_rows

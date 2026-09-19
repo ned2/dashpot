@@ -1,4 +1,4 @@
-"""Present content-sized, read-only lists in the main screen's pane row."""
+"""Present content-sized, read-only lists in a Peer Screen's pane row."""
 
 from __future__ import annotations
 

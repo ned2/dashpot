@@ -1,16 +1,13 @@
-"""Drive the Issue table: its submitted query, its rows, and what relates to the cursor.
+"""Drive the Issue table's submitted query, columns, rows, and selection.
 
 The controller owns the Issue table's query state and rebuilds the table
 from the accepted page. It drives a ``DataTable``, so it touches Textual,
-but it is not a Screen: the pure parts — the column heading for a
-submitted ordering and the record under a cursor — are module functions.
+but it is not a Screen: column headings for submitted ordering are pure.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import replace
-from itertools import chain
 from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
@@ -18,15 +15,14 @@ from textual.widgets import DataTable
 
 from ..observation.issue_list import IssueListRow, IssueListSummary
 from ..observation.list_result import ListResult
-from ..observation.related_rows import FocusedSource, query_related_rows
 from ..queries.page_navigation import page_text
 from ..queries.source_queries import QueryRequest
-from .focus_table import FocusCursorTable
 from .glyphs import ACTIVITY_WIDTH
 from .issue_cells import TableCell
 from .issue_table import (
     COLUMNS_BY_KEY,
     ColumnKey,
+    IssueTable,
     IssueTableViewState,
     SortTerm,
     build_rows,
@@ -35,16 +31,11 @@ from .issue_table import (
     searchable_columns,
     shown_columns,
 )
-from .keyed_table import capture_selection, restore_selection
+from .keyed_table import restore_selection
 from .list_rows import column_help
-from .panes import LIST_PANE_SPECS
-from .spread_table import SpreadTable
 
 if TYPE_CHECKING:
-    from .app import DashboardScreen
-
-# The Issue table's columns that emphasise a row related to the cursor.
-ISSUE_RELATED_COLUMNS = frozenset({"number", "title"})
+    from .app import IssuesPullRequestsScreen
 
 
 def issue_column_label(
@@ -62,26 +53,17 @@ def issue_column_label(
     return column_header(spec, term)
 
 
-def focused_source(
-    key: str | None, records: Iterable[FocusedSource]
-) -> FocusedSource | None:
-    """The record under a table cursor, by the row key every pane keeps unique."""
-    if key is None:
-        return None
-    return next((row for row in records if row.key == key), None)
-
-
 class IssueTableController:
     """Own the Issue table's query state and rebuild its rows from the accepted page."""
 
-    def __init__(self, screen: DashboardScreen) -> None:
+    def __init__(self, screen: IssuesPullRequestsScreen) -> None:
         self.screen = screen
         self.issue_view = IssueTableViewState()
         self.selected_row_key: str | None = None
         self.rows_by_key: dict[str, IssueListRow] = {}
 
     @property
-    def table(self) -> SpreadTable[TableCell]:
+    def table(self) -> IssueTable:
         """The Issue table the controller drives."""
         return self.screen.queue_table()
 
@@ -164,7 +146,6 @@ class IssueTableController:
         self.update_sort_headers()
         self.rows_by_key = contexts
         selected_key = restore_selection(table, self.selected_row_key, 0, contexts)
-        self.update_related_rows()
         if selected_key is None:
             self.selected_row_key = None
             return result
@@ -178,32 +159,3 @@ class IssueTableController:
         # A row the store can no longer detail selects nothing; keeping the
         # previous selection would open the wrong Issue.
         self.selected_row_key = key if context is not None else None
-
-    def records(self) -> tuple[FocusedSource, ...]:
-        """Every pane's records and the Issue rows, as last listed."""
-        return (
-            *chain.from_iterable(pane.records for pane in self.screen.list_panes()),
-            *self.rows_by_key.values(),
-        )
-
-    def update_related_rows(self, *, clear: bool = False) -> None:
-        """Emphasize direct relationships of the visible focused cursor."""
-        screen = self.screen
-        if not screen.is_mounted or not screen.surfaces_mounted():
-            return
-        records = self.records()
-        source: FocusedSource | None = None
-        focused = screen.focused
-        if (
-            not clear
-            and screen.app.screen is screen
-            and isinstance(focused, FocusCursorTable)
-        ):
-            source = focused_source(capture_selection(focused)[0], records)
-        related = query_related_rows(source, records)
-        for spec in LIST_PANE_SPECS:
-            if spec.related is not None:
-                screen.list_pane(spec.pane_id).table.set_related_rows(
-                    spec.related(related), spec.related_columns
-                )
-        self.table.set_related_rows(related.issues, ISSUE_RELATED_COLUMNS)

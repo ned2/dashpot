@@ -7,7 +7,7 @@ date: 2026-09-20
 
 The dashboard's Sessions, Worktrees, Branches, Pull Requests and Issues compete
 for vertical space, until a large Repository leaves too little room for the
-Issues table. Dashpot will replace that single pane of glass with two
+Issues table. Dashpot replaces that single pane of glass with two
 long-lived peer screens: `Dashboard`, containing Sessions, Worktrees and
 Branches, and `Issues & Pull Requests`, containing a bounded Pull Requests pane
 above a flexible Issues pane. A persistent status bar names both peers, marks
@@ -121,8 +121,6 @@ wireframes live in [the maintained design](../design.md#accepted-multi-screen-ta
   global open-count summary because they report different facts.
 - Legend, Footer, alert and Diagnostics must follow the active peer, including
   state changes accepted while the other peer is inactive.
-- The implementation must replace the maintained design's transitional
-  current-state description when the two peers ship; exact layout is not a
-  supported extension interface.
 - [Issue #270](https://github.com/ned2/dashpot/issues/270) delivers the decision
-  as one vertical feature after this design Issue is accepted.
+  as one vertical feature and replaces the maintained design's transitional
+  account; exact layout is not a supported extension interface.

@@ -1,9 +1,9 @@
-"""The Legend: every column and Glyph the main screen renders, explained.
+"""The Legend: every column and Glyph the Peer Screens render, explained.
 
 The Legend is generated from the same column definitions the panes build
 their tables from and the same Glyph values their cells render with, so it
-is never a second list to keep in step. Its sections follow the main screen
-top to bottom, one per column of each pane whether or not the column
+is never a second list to keep in step. Its sections follow the Peer Screens
+in reading order, one per column of each pane whether or not the column
 renders a Glyph, because the reader's question is always about the cell in
 front of them; each section is the column's Column Description, which its
 header tooltip reads too. The Issue table's optional columns are listed
@@ -38,27 +38,30 @@ from .list_pane import (
 from .list_rows import DescribedColumn
 from .pull_request_cells import PULL_REQUEST_COLUMNS
 from .session_cells import SESSION_COLUMNS
+from .status_bar import TOTALS_FRESHNESS_LEGEND
 from .worktree_cells import WORKTREE_COLUMNS
 
 DIAGNOSTICS_LABEL = "ALERT · DIAGNOSTICS"
 KEYS_LABEL = "KEYS"
 RELATED_ROWS_LABEL = "RELATED ROWS"
+STATUS_BAR_LABEL = "STATUS BAR"
 # The sections that are not one column: a pane's keys, the Issue table's
 # choice of columns, and the emphasis the panes share.
 WORKTREE_ACTIONS_SECTION = "x · Enter · y"
 ISSUE_COLUMNS_SECTION = "column headers"
 RELATED_ROWS_SECTION = "emphasis"
 RELATED_ROWS_NOTE = (
-    "Sessions, Worktrees, Branches, and Issues emphasize direct relationships "
+    "Sessions, Worktrees, and Branches emphasize direct relationships within "
+    "the Dashboard peer "
     "from the focused cursor with a background and bold identifying cells "
-    "(HARNESS and TARGET for Sessions). Sessions links its location and bound "
-    "Issue; Worktrees and Branches link checked-out topology, directly located "
-    "Sessions, and their bound Issues; Issues links bound Sessions and their "
-    "locations. No recursive expansion: Project-scoped locations and accepted "
+    "(HARNESS and TARGET for Sessions). Sessions links its location and Branch; "
+    "Worktrees and Branches link checked-out topology and directly located "
+    "Sessions. No recursive expansion: Project-scoped "
+    "locations and accepted "
     "Agent Run memberships establish links, never Issue Hints or shared backend "
     "processes. Each pane keeps its cursor across focus changes; refresh "
-    "preserves surviving cursor keys. Controls and modals clear emphasis; Pull "
-    "Requests are excluded. "
+    "preserves surviving cursor keys. Controls and modals clear emphasis; Issues "
+    "and Pull Requests are excluded. "
     "Other cursors, filters, scroll positions, activity Glyphs, and counts stay "
     "unchanged; selection performs no observation or mutation"
 )
@@ -107,6 +110,13 @@ def column_sections(
 
 
 LEGEND: tuple[LegendSection, ...] = (
+    LegendSection(
+        STATUS_BAR_LABEL,
+        "freshness",
+        TOTALS_FRESHNESS_LEGEND,
+        "one aggregate mark covers both exact open totals; - means a total is "
+        "not available",
+    ),
     *column_sections(SESSIONS_PANE_LABEL, SESSION_COLUMNS),
     *column_sections(WORKTREES_PANE_LABEL, WORKTREE_COLUMNS),
     LegendSection(

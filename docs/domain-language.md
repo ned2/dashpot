@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-18
+date: 2026-09-20
 ---
 
 # Domain language
@@ -373,6 +373,12 @@ _Avoid_: deriving the default from the Worktree the command runs in
 
 ## Presentation
 
+**Peer Screen**:
+One of Dashpot's two long-lived primary navigation destinations of equal rank:
+Dashboard, or Issues & Pull Requests. Issue Detail, Legend and Cleanup are
+temporary screens over a Peer Screen rather than peers of it.
+_Avoid_: tab; a Peer Screen is a full primary destination, not a pane selector
+
 **Glyph**:
 One rendered symbol paired with the fact it stands for and, when the cell
 colours it, its light and dark colour. Every pane renders from `Glyph`
@@ -385,19 +391,19 @@ own surface
 The shared agent-activity column (`◈`) uses `●` running, `◐` waiting, and
 `○` unknown. Sessions shows one Agent Session; Worktrees and Branches summarize
 located Agent Sessions; Issues summarizes explicitly bound Agent Runs. The
-liveliest state wins and an absent aggregate is blank. While Sessions, Worktrees,
-Branches, or Issues has focus, related-row emphasis follows only direct accepted
-relationships. Sessions links its observed Worktree, Branch, and bound Issue;
-Worktrees and Branches link checked-out topology, their directly associated
-Sessions, and those Sessions' bound Issues; Issues links its bound Sessions and
-their locations. Worktree–Branch topology needs no Session. Shared locations
+liveliest state wins and an absent aggregate is blank. While Sessions,
+Worktrees, or Branches has focus on Dashboard, related-row emphasis follows
+only direct accepted relationships within that peer. Sessions links its
+observed Worktree and Branch; Worktrees and Branches link checked-out topology
+and their directly associated Sessions. Worktree–Branch topology needs no
+Session. Shared locations
 never recursively expand membership. Joins use Project-scoped paths and Branch
 names, opaque Issue Identity, and accepted Agent Run membership, never Issue
 Hints or shared backend processes; distinct native Agent Session identities stay
 separate. Each pane keeps its cursor across focus changes, and refresh
 preserves a surviving cursor key. Unsupported controls and modals clear
-emphasis; Pull Requests are excluded as sources and destinations. Background
-and bold identifying cells
+emphasis; Issues and Pull Requests are excluded as sources and destinations.
+Background and bold identifying cells
 (HARNESS and TARGET for Sessions) preserve Glyph colours, activity, and counts.
 Emphasis never changes destination cursors or scroll positions, submits queries,
 or mutates Issue work.
@@ -405,7 +411,7 @@ or mutates Issue work.
 _Avoid_: icon or symbol for the value; the symbol is one field of a Glyph
 
 **Legend**:
-The listing of every column and every Glyph the main screen renders,
+The listing of every column and every Glyph the Peer Screens render,
 generated from the same column definitions the panes build their tables
 from and the same `Glyph` values the cells render, organised by pane and
 column and reachable with `?` from inside the app. Each pane's sections are
