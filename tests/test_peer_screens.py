@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from textual.widgets import Input, Static
+from textual.widgets import Input, Select, Static
 
 import factories
 from app_harness import (
@@ -17,7 +17,9 @@ from app_harness import (
     serve_snapshot,
     workspace_snapshot,
 )
+from dashpot.queries.source_queries import QueryRequest
 from dashpot.ui.app import DashboardScreen, IssuesPullRequestsScreen
+from dashpot.ui.issue_table import COLUMN_KEYS
 from dashpot.ui.issue_view import IssueScreen
 from dashpot.ui.legend import LegendScreen
 from helpers import wait_until
@@ -153,6 +155,62 @@ async def test_switching_preserves_each_peers_native_focus_cursor_and_draft() ->
         await pilot.press("1")
         await wait_until(lambda: app.screen is app.dashboard)
         assert worktrees.has_focus
+
+
+@pytest.mark.asyncio
+async def test_switching_preserves_the_complete_query_presentation_state() -> None:
+    snapshot = workspace_snapshot(
+        *(issue(f"test/repo#{number}", f"Issue {number}") for number in range(1, 71))
+    )
+    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0)
+    app.queries.navigation["issues"].request = QueryRequest(page_size=30)
+
+    async with app.run_test(size=(80, 20)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await pilot.press("2")
+        await wait_until(lambda: app.screen is app.query_screen)
+
+        search = app.query_screen.issue_filter_bar.search
+        search.value = "Issue"
+        search.focus()
+        await pilot.press("enter")
+        await wait_until(
+            lambda: app.queries.navigation["issues"].request.query == "Issue"
+        )
+        state = app.query_screen.query_one("#issue-state", Select)
+        state.value = "all"
+        await wait_until(
+            lambda: app.queries.navigation["issues"].request.state == "all"
+        )
+        queue = app.query_screen.queue_table()
+        queue.focus()
+        await pilot.press("n")
+        await wait_until(lambda: app.queries.navigation["issues"].index == 1)
+
+        app.query_screen.issue_table.apply_issue_columns(COLUMN_KEYS)
+        search.value = "unsubmitted draft"
+        queue.focus()
+        queue.move_cursor(row=20, animate=False)
+        await wait_until(lambda: queue.scroll_y == queue.scroll_target_y > 0)
+        scroll_y = queue.scroll_y
+
+        await pilot.press("1")
+        await wait_until(lambda: app.screen is app.dashboard)
+        await pilot.press("2")
+        await wait_until(lambda: app.screen is app.query_screen)
+
+        navigation = app.queries.navigation["issues"]
+        assert navigation.request.query == "Issue"
+        assert navigation.request.state == "all"
+        assert navigation.index == 1
+        assert len(navigation.history) == 2
+        assert navigation.page is not None
+        assert navigation.page.issues[0].number == 31
+        assert app.query_screen.issue_table.issue_view.columns == COLUMN_KEYS
+        assert search.value == "unsubmitted draft"
+        assert queue.has_focus
+        assert queue.cursor_row == 20
+        assert queue.scroll_y == scroll_y
 
 
 @pytest.mark.asyncio

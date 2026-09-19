@@ -118,7 +118,9 @@ the management commands `init`, `integrate`,
 | `x` on Dashboard | Preview removing the highlighted Worktree or deleting the highlighted Branch, then confirm; `Escape` cancels. Optional additional targets start unchecked ([ADR 0036](docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)) |
 | `Tab` / `Shift+Tab` | Cycle through only the active peer's tables: Sessions → Worktrees → Branches, or Pull Requests → Issues |
 | `/` on Issues & Pull Requests | Focus the active query pane's search |
-| `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
+| `o` on Issues & Pull Requests | Cycle the focused query pane between open, closed, and all records (the selector beside its search does the same) |
+| `n` / `p` on Issues & Pull Requests | Move the focused query pane to its next or previous retained page |
+| `g` on Issues & Pull Requests | Restart the focused query pane from its first page |
 | `c` with Issues focused | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle within the active peer; the newly focused pane's cursor is where it was last left |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); opens a Worktree only from the Worktrees pane and is unbound on Sessions and Pull Requests |
