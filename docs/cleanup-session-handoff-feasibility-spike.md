@@ -15,8 +15,8 @@ proposed both controller arrangements but connected to nothing. This document
 is the dated evidence record with its fixtures and traces; the reusable facts
 are folded into the
 [server and client reference](agent-harness-server-client-reference.md).
-It proposes one supported controller arrangement per harness for the human
-approval the Issue's feasibility gate requires; nothing here changes Cleanup,
+It proposes one supported controller arrangement per harness as the open
+decisions the Issue's feasibility gate raises; nothing here changes Cleanup,
 the Work Store, or a Harness Adapter.
 
 Three findings matter most. On Claude Code, a development channel served by
@@ -234,8 +234,8 @@ launched in `third` without `--remote`.
 
 ## Proposed controller arrangements
 
-These are the arrangements the Issue's feasibility gate asks a human to
-approve or reject. Each is narrower than "every observed session": a session
+These are the arrangements the Issue's feasibility gate decides on, to be
+approved or rejected before implementation. Each is narrower than "every observed session": a session
 is movable only when it was launched into the arrangement, and Cleanup must
 still block on every other occupant.
 
@@ -259,7 +259,7 @@ operator's `CODEX_HOME`. Reach is wider than authority: `thread/loaded/list`
 reported every terminal the fixture launched while the daemon ran, plain ones included,
 but the Issue's rule stands — a daemon Dashpot can reach is not control of an
 unrelated Codex client — so the arrangement moves only a thread that opted
-in, which needs a registration the experiment did not design: the human
+in, which needs a registration the experiment did not design: the open
 decision here is what counts as opt-in (a terminal Dashpot launched, an Issue
 Binding declared from the thread, or an explicit marker), not whether the
 daemon can reach the rest. The move is `thread/resume` to subscribe, then one
