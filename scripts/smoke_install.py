@@ -53,7 +53,7 @@ async def check_tui(root: Path) -> None:
         )
         async with app.run_test(size=size) as pilot:
             async with asyncio.timeout(30):
-                while app.query_one("#queue", DataTable).row_count != 1:
+                while app.query_screen.query_one("#queue", DataTable).row_count != 1:
                     await pilot.pause(0.05)
             await pilot.press("q")
 
