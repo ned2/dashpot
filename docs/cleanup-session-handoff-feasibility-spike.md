@@ -201,7 +201,7 @@ route Dashpot's own dispatch takes.
 | Direct launch, move to a sibling | A's `EnterWorktree(third)` succeeded: `PostToolUse` reported `third`, the shell ran there, and the listing shows `third` under the same session id and pid. | 41–62 |
 | Entered session, return | B entered `other` on its first turn, then a pushed request drove `ExitWorktree(keep)`: `Exited worktree … Session is now back in <main>`; `PostToolUse`, the shell, and the listing report the main Worktree under B's original session id and pid, with no `SessionEnd` or `SessionStart`. | 63–110 |
 | Busy delivery | A request pushed while A held an eight-second command was delivered 46 ms after the command ended, as the next turn, with no `Stop` between the two turns: the hold turn's `PostToolUse` is followed directly by the relocation turn's `UserPromptSubmit`, and the only `Stop` comes after the relocation turn. A `Stop` is therefore not a per-turn signal while channel events are queued. | 111–136 |
-| Background job | B started a twenty-second `run_in_background` shell and its turn ended; a pushed relocation then entered `other` while the job still ran, and the listing showed `status` = `busy` during the job. The job did not block the move. | 137–172 |
+| Background job | B started a twenty-second `run_in_background` shell and its turn ended; a pushed relocation then entered `other` while the job still ran, and the listing showed `status` = `busy` during the job. The job did not block the move. | 137–173 |
 | Isolated session, move to a sibling | B, now isolated in `other`, was asked to enter `third`: `Cannot enter worktree: <main>/.claude/worktrees does not exist, so … cannot be a worktree managed by Claude Code`; B stayed at `other`. The tool-free turn between the push and the relocation turn (177–179) is the earlier background job's completion notification, not part of the request. | 174–197 |
 | Exit | `/exit` on each pseudo-terminal ended both sessions with `SessionEnd` `reason` = `prompt_input_exit`; the channel processes closed with their sessions. | 198–203 |
 
@@ -256,7 +256,7 @@ turn, and a background job leaves the listing `busy` — and completion is the
 
 **Codex.** Dashpot connects to the managed daemon's control socket under the
 operator's `CODEX_HOME`. Reach is wider than authority: `thread/loaded/list`
-reported every terminal launched while the daemon ran, plain ones included,
+reported every terminal the fixture launched while the daemon ran, plain ones included,
 but the Issue's rule stands — a daemon Dashpot can reach is not control of an
 unrelated Codex client — so the arrangement moves only a thread that opted
 in, which needs a registration the experiment did not design: the human
