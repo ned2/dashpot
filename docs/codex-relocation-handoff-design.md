@@ -110,11 +110,17 @@ already does.
 Where the old client is attached to a managed daemon rather than running its
 own embedded server, exiting the TUI only unsubscribes; the daemon keeps the
 thread loaded until its unload delay elapses (sixty seconds by code default at
-`0.154.0`, documented as thirty minutes), and a standalone resume stays
-read-only until then. This is a wait, not an error, and the retry key covers
-it. The unsubscribe-then-unload sequence is inferred from the client's exit
-path and the server's unload listener, not measured. Dashpot's completion is
-unaffected because unload runs the daemon-hosted thread's `SessionEnd`.
+`0.154.0`, documented as thirty minutes). This paragraph first inferred that a
+resume inside that window would stay read-only until the unload; the
+[declared-relocation experiment](codex-declared-relocation-daemon-spike.md#scenario-results)
+of 2026-09-20 measured otherwise on `0.155.1`. A `codex resume <id> -C <path>`
+launched 98 ms after the old terminal's `/exit` is hosted in the daemon and
+takes the cold-resume path, because the exited terminal was the thread's only
+subscriber: the daemon runs `SessionEnd` `other` at the old Worktree, then
+`SessionStart` `resume` at the new one, under the same thread id, with no
+read-only notice and no later `SessionEnd`. Dashpot's evidence order is
+therefore the same on every route, and the only wait the retry key covers is
+an old terminal that has not yet exited.
 
 ### Candidate 3: `/cd` as an explicit handoff to a new Agent Session
 
@@ -229,11 +235,11 @@ follow-up scope. Candidate 4 needs the #160 and #161 work.
 | --- | --- | --- |
 | Native identity | Source-verified | Hook `session_id` equals the thread ID for root threads and survives resume; a fork gets its own ID ([reference](agent-harness-server-client-reference.md#transport-execution-host-and-identity-boundaries)) |
 | Runtime ownership | Source-verified | Per-thread advisory lock held through idle, released at shutdown or process exit; regression tests at `thread_resume.rs` ([reference](agent-harness-server-client-reference.md#thread-ownership-and-competing-resume)) |
-| Hook ordering | Source-verified by call graph, not timed | Read-only client runs no hooks; `SessionEnd` awaited before lock release; target `SessionStart` on first turn |
+| Hook ordering | Source-verified by call graph; timed at `0.155.1` on 2026-09-20 | Read-only client runs no hooks; `SessionEnd` awaited before lock release; target `SessionStart` on first turn. Measured origin `SessionEnd` before target `SessionStart` `resume` on the no-daemon, daemon-loaded, and daemon-unloaded routes ([declared-relocation experiment](codex-declared-relocation-daemon-spike.md#scenario-results)) |
 | Authoritative location | Source-verified | `-C` overrides the stored cwd on resume and hooks report `turn_context.cwd`; a read-only client publishes nothing |
 | Interrupted handoff | Inferred, unverified | Lock release on abrupt kill follows advisory-lock semantics and the stale-file sweep, with no test asserting it; graceful shutdown awaits `SessionEnd` but has a ten-second bound; Dashpot's proven-gone rule and pending-intent Diagnostic cover both (ADR 0029) |
 | Sibling isolation on one backend | Source-verified for structure, unverified at runtime | Per-thread maps and per-request thread resolution; ADR 0038 isolates identities; no live two-thread measurement |
-| Live disposable session | Unverified | No non-operator Codex credentials or `CODEX_HOME` were available; the `0.153.4` live measurement for [Issue #58](https://github.com/ned2/dashpot/issues/58) remains the last runtime evidence for sequential resume |
+| Live disposable session | Measured at `0.155.1` on 2026-09-20 | An isolated `CODEX_HOME` with a loopback model needs no credentials; the sequential resume relocated the thread on all three hosting routes ([declared-relocation experiment](codex-declared-relocation-daemon-spike.md)). The `0.153.4` live measurement for [Issue #58](https://github.com/ned2/dashpot/issues/58) was the earlier runtime evidence |
 
 ## Effect on #148
 
@@ -259,16 +265,26 @@ No claim is made that #148 can relocate arbitrary observed sessions.
 
 ## Open questions and dependencies
 
-- #160: measure the daemon two-thread `turn/start` cwd scenario, the exact
-  `SessionEnd` timing on unload for a daemon-hosted thread, and hook payloads
-  from a controller-started turn. Candidate 4 stays conditional on it.
-- #161: if #160 confirms the scenario, define completion of a controller
-  declared same-process relocation and the controller evidence seam.
+Updated 2026-09-20. The
+[Cleanup handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
+answered the daemon two-thread `turn/start` scenario, the unload timing, and
+the controller-turn hook points on `0.155.1`, and the
+[declared-relocation experiment](codex-declared-relocation-daemon-spike.md)
+answered the question those findings raised about this document's baseline:
+the sequential resume relocates a daemon-hosted thread correctly whether the
+thread is still loaded or already unloaded, with origin `SessionEnd` before
+target `SessionStart`. What remains:
+
+- #148 and #261: Candidate 4 is measured feasible as a live-thread
+  relocation by `turn/start` with a `cwd` override on an idle, opted-in
+  thread, a separate lifecycle contract beside ADR 0029, not a replacement
+  for it. Its completion rule and controller evidence seam are those Issues'
+  scope; the sequential route needs no new completion meaning.
 - Upstream: the `fork` `SessionStart` source, default-enabled worktrees, and
-  the `/cd` daemon-capability gate are on `main` and not in a stable release;
-  revalidate when `0.155.0` ships. The documentation's thirty-minute unload
-  and shared fork session ID disagree with the pinned code.
-- Unverified at runtime: everything in the table marked source-verified was
-  read, not run. A disposable-session pass with isolated credentials would
-  close the gap without changing the recommendation unless it contradicts the
-  call graph.
+  the `/cd` daemon-capability gate were on `main` at the time of writing;
+  revalidate against the shipped `0.155.x` behaviour. The documentation's
+  thirty-minute unload disagrees with the measured sixty seconds.
+- Unmeasured on the sequential route: a resume launched while the old
+  terminal is still attached, an interrupted handoff (abrupt kill of the old
+  client), a Codex `--remote` resume, and a terminal started before the
+  daemon; the table above marks the interrupted handoff inferred.

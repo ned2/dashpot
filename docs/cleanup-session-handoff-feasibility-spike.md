@@ -275,7 +275,10 @@ relocation, a new lifecycle contract beside the sequential `codex resume`
 route of
 [ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md),
 not a transparent implementation of it; the Issue's sequential-resume checks
-were not exercised.
+were not exercised here. The
+[declared-relocation experiment](codex-declared-relocation-daemon-spike.md)
+exercised them the next day and found the sequential route relocates a
+daemon-hosted thread correctly, loaded or unloaded.
 
 ## Implications for Dashpot
 
