@@ -81,8 +81,9 @@ async def test_all_sources_navigation_reentry_and_passive_destinations(source_pa
         await wait_until(
             lambda: not any(table.related_rows for table in tables.values())
         )
+        # Re-entry keeps the cursor and re-emphasizes from where it stayed.
         source.focus()
-        await wait_until(lambda: source.cursor_row == 0 and matches())
+        await wait_until(lambda: source.cursor_row == 1 and matches())
         await pilot.press("?")
         await wait_until(
             lambda: not any(table.related_rows for table in tables.values())
@@ -241,8 +242,8 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
         await wait_until(lambda: bool(sessions.related_rows))
         assert not destinations[0].related_rows
         sessions.focus()
-        await wait_until(lambda: emphasis(app) == expected(app, "one"))
-        assert sessions.cursor_row == 0
+        await wait_until(lambda: emphasis(app) == expected(app, "two"))
+        assert sessions.cursor_row == 1
 
 
 @pytest.mark.asyncio

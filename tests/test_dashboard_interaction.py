@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from textual import events
 from textual.pilot import Pilot
 from textual.widgets import DataTable, Input, Select, Static
 
@@ -676,8 +677,12 @@ async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
         await pilot.press("down")
         assert app.dashboard.worktrees_pane().table.has_focus
 
+        # Focus returns to the row the cursor left, not the boundary row.
         await pilot.press("up")
         assert sessions.table.has_focus
+        assert sessions.highlighted() == ("last", 1)
+
+        await pilot.press("up")
         assert sessions.highlighted() == ("first", 0)
 
         await pilot.press("up")
@@ -686,35 +691,42 @@ async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("entry", ["tab", "shift+tab", "up", "down", "mouse"])
-async def test_entering_each_pane_selects_and_reveals_its_first_row(entry: str) -> None:
+async def test_entering_each_pane_keeps_its_cursor_and_scroll(entry: str) -> None:
     snapshot = workspace_snapshot(
         *(issue(f"test/repo#{number}", f"Issue {number}") for number in range(1, 31))
     )
     app = dashboard_app(SequenceCollector(snapshot))
     async with app.run_test(size=(120, 55)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        for pane in app.dashboard.list_panes():
+        panes = app.dashboard.list_panes()
+        for pane in panes:
             prepare_pane(app, str(pane.id)).show_rows(
                 tuple(ListRow(str(index), (str(index), "-")) for index in range(30))
             )
+        # The panes grow to their row cap at a later layout; a scroll captured
+        # while a pane is still short is clamped when that layout lands.
+        await wait_until(
+            lambda: all(pane.table.size.height == 1 + pane.row_cap for pane in panes)
+        )
         tables = app.dashboard.focus_tables()
         for index, table in enumerate(tables):
             table.focus()
-            await wait_until(
-                lambda table=table: (
-                    table.has_focus and table.show_cursor and table.cursor_row == 0
-                )
-            )
-            await pilot.press("down")
-            assert table.cursor_row == 1
+            await wait_until(lambda table=table: table.has_focus and table.show_cursor)
+            # A first entry starts at the first row, as a stock DataTable does;
+            # a later table may already have been positioned as a source.
+            if index == 0:
+                assert table.cursor_row == 0
             table.move_cursor(row=29, animate=False)
-            await wait_until(lambda table=table: table.scroll_y > 0)
+            await wait_until(
+                lambda table=table: table.scroll_y == table.scroll_target_y > 0
+            )
+            scroll_y = table.scroll_y
             step = -1 if entry in {"shift+tab", "up"} else 1
             source = tables[(index - step) % len(tables)]
             source.focus()
             await wait_until(
-                lambda source=source: (
-                    source.has_focus and source.show_cursor and source.cursor_row == 0
+                lambda source=source, table=table: (
+                    source.has_focus and source.show_cursor and not table.show_cursor
                 )
             )
             if entry == "down":
@@ -725,9 +737,37 @@ async def test_entering_each_pane_selects_and_reveals_its_first_row(entry: str) 
                 assert await pilot.click(table, offset=(1, 0))
             else:
                 await pilot.press(entry)
-            assert table.has_focus
-            assert table.cursor_row == 0
-            await wait_until(lambda table=table: table.scroll_y == 0)
+            await wait_until(lambda table=table: table.has_focus and table.show_cursor)
+            assert table.cursor_row == 29
+            assert table.scroll_y == scroll_y
+
+
+@pytest.mark.asyncio
+async def test_terminal_focus_return_keeps_the_cursor() -> None:
+    """A window switch blurs and refocuses the pane; its cursor must not move."""
+    app = dashboard_app(SequenceCollector(workspace_snapshot()))
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        sessions = prepare_pane(app, "sessions-pane")
+        sessions.show_rows(
+            tuple(ListRow(str(index), (str(index), "-")) for index in range(3))
+        )
+        await pilot.pause()
+        table = sessions.table
+        table.focus()
+        await wait_until(lambda: table.has_focus and table.show_cursor)
+        await pilot.press("down", "down")
+        assert sessions.highlighted() == ("2", 2)
+
+        # Textual turns the terminal's focus-out into AppBlur, which drops
+        # widget focus, and its focus-in into AppFocus, which restores it.
+        app.post_message(events.AppBlur())
+        await wait_until(lambda: not table.has_focus and not table.show_cursor)
+        assert sessions.highlighted() == ("2", 2)
+
+        app.post_message(events.AppFocus())
+        await wait_until(lambda: table.has_focus and table.show_cursor)
+        assert sessions.highlighted() == ("2", 2)
 
 
 @pytest.mark.asyncio

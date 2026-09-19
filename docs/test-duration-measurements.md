@@ -111,6 +111,11 @@ but omits the row reset. Run the focused command through
 `pytest.main([...], plugins=[Probe()])`, with `-x` for the negative probe. These
 intentional probe delays are not proposed test optimizations.
 
+[Issue #266](https://github.com/ned2/dashpot/issues/266) later removed the row
+reset itself: each pane now keeps its cursor across focus changes, and the test
+is `test_entering_each_pane_keeps_its_cursor_and_scroll`. The measurements above
+describe the test as it was.
+
 The observed focused decrease is 3.10 seconds, not a promised speedup. Even the
 unchanged variants range from 2.37 to 3.06 seconds in the focused run versus
 2.60 to 2.96 under baseline coverage. Coverage, scheduling, and rendering costs
