@@ -113,6 +113,80 @@ def paint_readout(
     widget.update("" if readout is None else text(readout))
 
 
+def peer_surfaces_mounted(
+    screen: Screen[None],
+    pane_ids: tuple[ListPaneId, ...],
+    *,
+    extra_selectors: tuple[str, ...] = (),
+) -> bool:
+    """Whether updates can still reach one peer's complete rendered surface."""
+    try:
+        panes = tuple(screen.query_one(f"#{pane_id}", ListPane) for pane_id in pane_ids)
+        widgets = (
+            screen.query_one(PeerStatusBar),
+            screen.query_one("#alert", Static),
+            screen.query_one("#diagnostics", Static),
+            *(screen.query_one(selector, Widget) for selector in extra_selectors),
+            *(pane.table for pane in panes),
+        )
+    except NoMatches:
+        return False
+    return all(widget.is_mounted for widget in widgets)
+
+
+def cycle_table_focus(
+    tables: tuple[FocusCursorTable[Any], ...], focused: Widget | None, step: int
+) -> bool:
+    """Move focus within one peer's table cycle when a table owns it."""
+    if focused not in tables:
+        return False
+    tables[(tables.index(focused) + step) % len(tables)].focus()
+    return True
+
+
+def update_peer_status(screen: Screen[None], app: DashpotApp) -> None:
+    """Render one peer's location and shared Project Totals summary."""
+    if screen.is_mounted:
+        screen.query_one(PeerStatusBar).show_summary(
+            navigation_summary(app.store.totals)
+        )
+
+
+def update_peer_alert(screen: Screen[None], app: DashpotApp) -> None:
+    """Render one peer's exceptional-state readout, or hide it."""
+    alert = summarize_alerts(
+        app.store,
+        failures=app.observations.errors,
+        refreshing=app.observations.refreshing,
+        fetching=tuple(app.fetches.fetching),
+        page_states=app.queries.page_states,
+        first_observations_in_flight=app.observations.first_observations_in_flight,
+    )
+    paint_readout(
+        screen.query_one("#alert", Static),
+        alert,
+        shown="-visible",
+        text=lambda value: value.text,
+    )
+
+
+def update_peer_diagnostics(screen: Screen[None], app: DashpotApp) -> None:
+    """Render one peer's Diagnostics and exceptional-state readouts."""
+    readout = list_diagnostics(
+        app.store,
+        failures=app.observations.errors,
+        launcher_diagnostics=app.launcher_configuration.diagnostics,
+        fetch_failures=app.fetches.errors,
+    )
+    paint_readout(
+        screen.query_one("#diagnostics", Static),
+        readout,
+        shown="-has-messages",
+        text=lambda value: value.lines,
+    )
+    update_peer_alert(screen, app)
+
+
 class DashboardScreen(Screen[None]):
     """Present Sessions, Worktrees and Branches as the default long-lived peer."""
 
@@ -171,16 +245,9 @@ class DashboardScreen(Screen[None]):
 
     def surfaces_mounted(self) -> bool:
         """Report whether updates can still reach every Dashboard surface."""
-        try:
-            self.status_bar()
-            for pane in self.list_panes():
-                if not pane.table.is_mounted:
-                    return False
-            self.query_one("#alert", Static)
-            self.query_one("#diagnostics", Static)
-        except NoMatches:
-            return False
-        return True
+        return peer_surfaces_mounted(
+            self, tuple(spec.pane_id for spec in DASHBOARD_PANE_SPECS)
+        )
 
     def on_mount(self) -> None:
         self.sessions_pane().table.focus()
@@ -214,12 +281,7 @@ class DashboardScreen(Screen[None]):
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus within the Dashboard table cycle when one owns it."""
-        tables = self.focus_tables()
-        focused = self.focused
-        if focused not in tables:
-            return False
-        tables[(tables.index(focused) + step) % len(tables)].focus()
-        return True
+        return cycle_table_focus(self.focus_tables(), self.focused, step)
 
     def on_focus_cursor_table_row_boundary_reached(
         self, event: FocusCursorTable.RowBoundaryReached
@@ -330,47 +392,15 @@ class DashboardScreen(Screen[None]):
 
     def update_status(self) -> None:
         """Render current location and the shared Project Totals summary."""
-        if self.is_mounted:
-            self.status_bar().show_summary(
-                navigation_summary(self.dashpot.store.totals)
-            )
+        update_peer_status(self, self.dashpot)
 
     def update_diagnostics(self) -> None:
         """Render every Diagnostic and the exceptional-state alert."""
-        app = self.dashpot
-        readout = list_diagnostics(
-            app.store,
-            failures=app.observations.errors,
-            launcher_diagnostics=app.launcher_configuration.diagnostics,
-            fetch_failures=app.fetches.errors,
-        )
-        paint_readout(
-            self.query_one("#diagnostics", Static),
-            readout,
-            shown="-has-messages",
-            text=lambda value: value.lines,
-        )
-        self.update_alert()
+        update_peer_diagnostics(self, self.dashpot)
 
     def update_alert(self) -> None:
         """Render the shared exceptional-state readout, or hide it."""
-        app = self.dashpot
-        alert = summarize_alerts(
-            app.store,
-            failures=app.observations.errors,
-            refreshing=app.observations.refreshing,
-            fetching=tuple(app.fetches.fetching),
-            page_states=app.queries.page_states,
-            first_observations_in_flight=(
-                app.observations.first_observations_in_flight
-            ),
-        )
-        paint_readout(
-            self.query_one("#alert", Static),
-            alert,
-            shown="-visible",
-            text=lambda value: value.text,
-        )
+        update_peer_alert(self, self.dashpot)
 
 
 class IssuesPullRequestsScreen(Screen[None]):
@@ -508,17 +538,11 @@ class IssuesPullRequestsScreen(Screen[None]):
         diagnostics asks first: a late message can be dispatched during
         shutdown while the widgets are being unmounted one by one.
         """
-        try:
-            self.status_bar()
-            self.queue_table()
-            for pane in self.list_panes():
-                if not pane.table.is_mounted:
-                    return False
-            self.query_one("#alert", Static)
-            self.query_one("#diagnostics", Static)
-        except NoMatches:
-            return False
-        return True
+        return peer_surfaces_mounted(
+            self,
+            tuple(spec.pane_id for spec in QUERY_PANE_SPECS),
+            extra_selectors=("#queue",),
+        )
 
     def action_focus_search(self) -> None:
         """Focus the search of the focused pane's controls, else the Issue search."""
@@ -530,12 +554,7 @@ class IssuesPullRequestsScreen(Screen[None]):
 
     def cycle_list_focus(self, step: int) -> bool:
         """Move focus to the next list when a list has it; otherwise decline."""
-        tables = self.focus_tables()
-        focused = self.focused
-        if focused not in tables:
-            return False
-        tables[(tables.index(focused) + step) % len(tables)].focus()
-        return True
+        return cycle_table_focus(self.focus_tables(), self.focused, step)
 
     def on_focus_cursor_table_row_boundary_reached(
         self, event: FocusCursorTable.RowBoundaryReached
@@ -742,47 +761,15 @@ class IssuesPullRequestsScreen(Screen[None]):
 
     def update_status(self) -> None:
         """Render current location and the shared Project Totals summary."""
-        if self.is_mounted:
-            self.status_bar().show_summary(
-                navigation_summary(self.dashpot.store.totals)
-            )
+        update_peer_status(self, self.dashpot)
 
     def update_diagnostics(self) -> None:
         """Render every Diagnostic in the Diagnostics box, then the alert above it."""
-        app = self.dashpot
-        readout = list_diagnostics(
-            app.store,
-            failures=app.observations.errors,
-            launcher_diagnostics=app.launcher_configuration.diagnostics,
-            fetch_failures=app.fetches.errors,
-        )
-        paint_readout(
-            self.query_one("#diagnostics", Static),
-            readout,
-            shown="-has-messages",
-            text=lambda readout: readout.lines,
-        )
-        self.update_alert()
+        update_peer_diagnostics(self, self.dashpot)
 
     def update_alert(self) -> None:
         """Render the exceptional-state readout, or hide it entirely."""
-        app = self.dashpot
-        alert = summarize_alerts(
-            app.store,
-            failures=app.observations.errors,
-            refreshing=app.observations.refreshing,
-            fetching=tuple(app.fetches.fetching),
-            page_states=app.queries.page_states,
-            first_observations_in_flight=(
-                app.observations.first_observations_in_flight
-            ),
-        )
-        paint_readout(
-            self.query_one("#alert", Static),
-            alert,
-            shown="-visible",
-            text=lambda alert: alert.text,
-        )
+        update_peer_alert(self, self.dashpot)
 
 
 class DashpotApp(App[None]):
@@ -856,11 +843,6 @@ class DashpotApp(App[None]):
         # at construction; publishing it now names the Projects before their
         # first observation lands.
         scheduler.publish(self.store)
-
-    @override
-    def get_default_screen(self) -> DashboardScreen:
-        """Start on the Dashboard peer."""
-        return self._dashboard
 
     @property
     def dashboard(self) -> DashboardScreen:
