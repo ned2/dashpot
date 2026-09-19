@@ -826,7 +826,10 @@ records the reproducible evidence for a possible OpenCode integration, the
 [Claude Code identity and lifecycle experiment](docs/claude-code-identity-lifecycle-spike.md)
 the measured Claude Code headless and background-worker lifecycle, and the
 [Codex identity and lifecycle experiment](docs/codex-identity-lifecycle-spike.md)
-the measured Codex app-server and `codex exec` thread lifecycle.
+the measured Codex app-server and `codex exec` thread lifecycle. The
+[Cleanup session handoff feasibility experiment](docs/cleanup-session-handoff-feasibility-spike.md)
+measures whether an opted-in controller can move a live interactive session
+out of a Worktree on either harness, and proposes the arrangement per harness.
 The [test-duration measurements](docs/test-duration-measurements.md) record the
 development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
