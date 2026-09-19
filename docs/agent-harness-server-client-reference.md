@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-18
+date: 2026-09-19
 ---
 
 # Agent harness server and client reference
@@ -22,12 +22,13 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Local CLI help/version `0.154.0`; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | No live server, hook-mapping, or restart experiment; hook ordering is derived from the call graph, not timed |
+| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | Interactive TUI (`codex`, `--remote`, `/cd`, `/worktree`), Remote Control and the managed daemon, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; current official docs and Python SDK source | Interactive terminal, Remote Control attachment, SDK, agent teams, cloud, and idle eviction untested; Remote Control server mode refused to start without a claude.ai login |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
-2026-09-12 and Claude Code measurements on 2026-09-18. Current documentation
+2026-09-12, Claude Code measurements on 2026-09-18, and Codex measurements on
+2026-09-19. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -35,8 +36,9 @@ unverified are not runtime findings.
 
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
-the [OpenCode experiment](opencode-identity-lifecycle-spike.md) and the
-[Claude Code experiment](claude-code-identity-lifecycle-spike.md). Each
+the [OpenCode experiment](opencode-identity-lifecycle-spike.md), the
+[Claude Code experiment](claude-code-identity-lifecycle-spike.md), and the
+[Codex experiment](codex-identity-lifecycle-spike.md). Each
 experiment remains a dated evidence record with its fixtures and trace;
 maintain general server/client facts here instead of creating another
 comparison note.
@@ -65,7 +67,7 @@ The product sections below supply the evidence for these distinctions.
 
 | Mode | Controller and execution | Conversation concurrency | Evidence of ownership |
 | --- | --- | --- | --- |
-| Codex App Server | TUI/custom client to app-server; execution host is a separate connection | Multiple threads per app-server | Native thread IDs and thread/turn events |
+| Codex App Server | TUI/custom client to app-server; execution host is a separate connection | Multiple threads per app-server, measured as one `codex` process hosting root, forked, and sub-agent threads with their shells and hooks below it | Native thread IDs and thread/turn events; measured: a departing client changes nothing, a second client attaches to a loaded thread without a hook, and a competing resume from another process is refused while the server holds the thread |
 | Claude interactive Remote Control | Web/mobile controls an existing local session | One remote session per interactive process | Local conversation continues when Remote Control disconnects |
 | Claude Remote Control server | Anthropic-routed clients to a local server | Multiple sessions; exact worker ancestry unverified, and the server refused to start under an API key alone | Server session management, distinct from browser attachment |
 | Claude background supervisor | Agent view/attach controls supervised workers | One worker process per background session, measured as supervisor → PTY host → worker | Measured: a replacement supervisor adopts surviving workers with unchanged pids and session IDs |
@@ -94,7 +96,11 @@ shared Git metadata; process isolation does not supply file isolation.
 These are distinct CLI routes. Bare `codex` selects the interactive UI; that
 alone does not prove one process per conversation. Managed Remote Control and
 custom protocol listeners serve different integrations.
-[Developer commands][commands]
+[Developer commands][commands] The
+[Codex experiment](codex-identity-lifecycle-spike.md) exercised
+`codex app-server --listen` with raw protocol clients, `codex exec`, and
+`codex exec resume` on `0.155.1`; the interactive, `--remote`, and Remote
+Control forms are documented and source-read, not measured.
 
 Installed `0.154.0` help additionally exposes `codex agents` for browsing the
 shared local daemon, and `codex app-server daemon` with `start`, `restart`,
@@ -108,7 +114,9 @@ App Server multiplexes threads with separate turns and tool items. Its
 bidirectional JSON-RPC wire format omits the `jsonrpc` field; initialize each
 connection. `thread.id` identifies a conversation, whereas `thread.sessionId`
 identifies its live session-tree root; the documentation says forks share it,
-but the pinned `0.154.0` code and fork test give a forked root thread its own
+but the pinned `0.154.0` code and fork test give a forked root thread its own,
+and the `0.155.1` measurement agrees with the code: a fork's `sessionId` is
+its own `id`, and only a sub-agent thread reports its parent's
 (see [Transport, execution host, and identity boundaries](#transport-execution-host-and-identity-boundaries)).
 [App Server protocol][server]
 
@@ -124,10 +132,13 @@ but the pinned `0.154.0` code and fork test give a forked root thread its own
 
 Subscriptions are connection-scoped. After the last subscriber leaves, the
 documentation says a thread can remain loaded until thirty minutes without
-subscribers or activity; the pinned `0.154.0` code default is sixty seconds
+subscribers or activity; the pinned `0.154.0` code default is sixty seconds,
+and the `0.155.1` measurement unloaded an unsubscribed root thread after
+60,067 ms
 (see [Loaded threads, overrides, and unload](#loaded-threads-overrides-and-unload)).
-Ephemeral threads have different persistence. These are current protocol
-contracts, not local measurements. [App Server lifecycle][server]
+Ephemeral threads have different persistence. Apart from the measured unload
+delay, these are current protocol contracts, not local measurements.
+[App Server lifecycle][server]
 
 ### When this arrangement is useful
 
@@ -185,8 +196,11 @@ OpenAI documents `SessionEnd` for the main thread when an open conversation is
 archived or deleted, Codex closes normally, or the conversation has been idle
 without a connected client for thirty minutes. Switching away or unsubscribing
 does not immediately end it. Hook common fields include `session_id`; subagent
-hooks use the parent's session ID. These distinctions need checking against the
-installed release and integration mode. [Hook documentation][hooks]
+hooks use the parent's session ID. The `0.155.1` measurement confirms the
+parent's `session_id` on every sub-agent hook, `SessionEnd` at the unload of
+an unsubscribed root thread and at graceful server exit, and no `SessionEnd`
+after SIGKILL of the server; the archive, delete, and thirty-minute
+interactive cases remain documented, not measured. [Hook documentation][hooks]
 
 Consequently, a live server process alone cannot establish whether a particular
 conversation is loaded, active, or waiting. A conversation can end while the
@@ -220,7 +234,11 @@ inbound `--listen` endpoint. Consequently, the client machine, orchestration
 server, and tool execution host need not be the same machine. A client's local
 checkout and environment should not be assumed to configure remote execution;
 the exact remote configuration and hook execution mapping remains unmeasured.
-[Code Mode host][server]
+With the default local host on Linux at `0.155.1`, every measured shell and
+hook was a direct descendant of the single `codex app-server` process and no
+other process ran under the fixture `CODEX_HOME`, so the local Code Mode host
+is not a separate process in that configuration; `--code-mode-host` was not
+exercised. [Code Mode host][server]
 
 Shell `CODEX_THREAD_ID`, hook `session_id`, per-conversation `thread.id`,
 shared `thread.sessionId`, and delegated `agent_id` must not be assumed
@@ -235,10 +253,26 @@ that forked threads keep the root's session ID does not match this code. The
 mapping across remote execution hosts remains unverified.
 [Identity source][identity-source] [Fork test][fork-test]
 
+The `0.155.1` measurement confirms the root and fork mapping and supplies the
+child mapping the source reading left open. For a root thread and for a fork,
+`thread.id`, `thread.sessionId`, hook `session_id`, shell `CODEX_THREAD_ID`,
+and the shell `CODEX_SESSION_ID` that `0.155.1` exports beside it are one
+UUID, and a fork's UUID is new. A sub-agent spawned with `spawn_agent` is its
+own loaded thread whose `thread/read` reports `parentThreadId` and
+`sessionId` = the root; its shell exports `CODEX_THREAD_ID` = the child id and
+`CODEX_SESSION_ID` = the root id; every hook it triggers carries `session_id`
+= the root, `agent_id` = the child id, `agent_type` = `default`, and its own
+`turn_id`; and it publishes no `SessionStart` or `SessionEnd`. A hook's
+`session_id` is therefore parent-scoped and does not identify the executing
+child; only `agent_id` and the child's own shell claim do. Hook processes
+receive `CODEX_HOME` and no thread variable
+([measured identity](codex-identity-lifecycle-spike.md#scenario-results)).
+
 ### Thread ownership and competing resume
 
 Evidence in this subsection is static reading of `rust-v0.154.0`, which
-includes [PR #43253][pr-43253]; no lock or client was exercised.
+includes [PR #43253][pr-43253], except where a paragraph names the `0.155.1`
+measurement.
 
 The local thread store takes one advisory OS lock per thread,
 `<CODEX_HOME>/thread-writer-locks/<thread_id>.lock`, when a `Session` is
@@ -253,6 +287,18 @@ the conflict from a second app-server on the same `CODEX_HOME` (even with a
 different SQLite directory), and succeed only after the first shuts down.
 Different `CODEX_HOME`s never conflict. [Writer lock][writer-lock]
 [Ownership tests][ownership-tests]
+
+Measured at `0.155.1`: while an app-server held an idle thread, `codex exec
+resume <id>` exited 1 with `thread-store conflict: thread <id> already has an
+active writer` and ran no command or hook, and a second app-server's
+`thread/resume` returned `-32600` with the same message while its
+`thread/read` succeeded with status `notLoaded`. The lock directory then held
+`.coordination.lock` and one `<thread_id>.lock` per loaded thread, the
+sub-agent's included. After SIGKILL of the server the lock files stayed on
+disk, and a replacement server's `thread/resume` of the same thread succeeded
+without any cleanup; after SIGTERM only `.coordination.lock` remained
+([measured ownership](codex-identity-lifecycle-spike.md#scenario-results)).
+The TUI's read-only fallback below is source reading only.
 
 The interactive TUI at this tag is backed by an embedded app-server, so bare
 `codex resume <id>` takes the same lock. On conflict the TUI falls back to a
@@ -279,7 +325,10 @@ graceful exit, `SessionEnd` is awaited inside the shutdown handler before the
 live thread releases the lock, so the hook completes before a competitor can
 acquire ownership; shutdown timeouts (ten seconds per thread) can let the
 process exit with the hook unfinished, after which process exit releases the
-lock. An abrupt kill releases the lock with no `SessionEnd`.
+lock. An abrupt kill releases the lock with no `SessionEnd`; the `0.155.1`
+measurement saw no hook of any kind after SIGKILL, the lock files left in
+place, and the next resume succeed, and saw `SessionEnd` with `reason` =
+`other` for the loaded thread on SIGTERM.
 [Session construction][session-new] [Hook dispatch][hook-runtime]
 [Shutdown ordering][shutdown-order]
 
@@ -294,7 +343,9 @@ copies the history into the child's rollout, and records
 `forked_from_thread_id` in the store. The TUI then only unsubscribes from the
 old thread. The child's hooks carry the new `session_id` and cwd, and its
 `SessionStart` reports `source: startup` at this tag (the payload schema has
-no parent or fork field). The old thread's `SessionEnd`, with the old ID and
+no parent or fork field); at `0.155.1` a `thread/fork` child's first turn
+reports `source: fork`, still with no parent field, and takes its own
+`sessionId`. `/cd` itself was not measured. The old thread's `SessionEnd`, with the old ID and
 cwd, runs when the subscriber-less thread unloads after the unload delay or
 when the client exits. Shell subprocesses of the child export the new
 `CODEX_THREAD_ID`. Preconditions: an idle primary thread with no queued input,
@@ -336,13 +387,57 @@ closes its connection on exit, so the thread ends only after the unload delay
 unless another subscriber remains. [Loaded-thread resume][loaded-resume]
 [Turn cwd override][turn-cwd] [Unload lifecycle][unload]
 
+Measured at `0.155.1` with raw protocol clients: a second client's
+`thread/resume` of loaded threads returned the same ids and ran no hook; when
+the first client's socket closed mid-command, the command finished and the
+second client received `turn/completed` with no `Interrupt` or `SessionEnd`;
+`turn/interrupt` killed the running command, ended the turn as `interrupted`,
+and ran `Interrupt` with `session_id` and `turn_id` but no `PostToolUse` or
+`Stop`. After the last subscriber's `thread/unsubscribe`, the root fork ran
+`SessionEnd` `other` after 60,067 ms and its `thread/closed` still reached the
+unsubscribed client; an idle sub-agent thread unloaded with `thread/closed`
+and no hook. A replacement server resumed a `notLoaded` thread with a `cwd`
+override; the resume ran no hook, and the first turn's `SessionStart`
+(`source` = `resume`) and every later hook and shell reported the new cwd
+under the same thread id. `codex exec resume` from another directory behaved
+the same way for a stored `exec` thread. The turn-level `cwd` override and
+the loaded-thread override-ignored path were not exercised
+([measured lifecycle](codex-identity-lifecycle-spike.md#scenario-results)).
+
+### Measured lifecycle at 0.155.1
+
+The [Codex experiment](codex-identity-lifecycle-spike.md) measured
+`codex app-server --listen` and `codex exec` on Linux with an isolated
+`CODEX_HOME`, a loopback Responses API as a custom provider, and nine command
+hooks trusted through `[hooks.state]`. Trace receipts are in the experiment's
+scenario table.
+
+| Lifecycle event | Measured effect on the thread | Hooks delivered |
+| --- | --- | --- |
+| `thread/start` then first `turn/start` | Thread listed as loaded under the one server pid; shells and hooks descend from it | `SessionStart` `startup` at the first turn, not at `thread/start` |
+| `thread/fork` | New `id` = new `sessionId`, `forkedFromId` = origin | `SessionStart` `fork` at its first turn; no parent field |
+| `spawn_agent` from a root thread | Child listed as loaded; `parentThreadId` and `sessionId` = root; child shell claims child id in `CODEX_THREAD_ID`, root in `CODEX_SESSION_ID` | `SubagentStart`, child tool hooks, `SubagentStop` with root `session_id` and child `agent_id`; no `SessionStart` or `SessionEnd` for the child |
+| Second client `thread/resume` of a loaded thread | Same ids; runtime shared | None |
+| First client's socket closes mid-command | Command completes; turn completes for the other client | Ordinary tool hooks and `Stop`; no `Interrupt` or `SessionEnd` |
+| `turn/interrupt` | Turn `interrupted`; the command process killed | `Interrupt` with `turn_id`; no `PostToolUse` or `Stop` |
+| Last `thread/unsubscribe` | Root thread unloaded after 60,067 ms; `thread/closed` still delivered to the unsubscribed client; lock released | `SessionEnd` `other` for the root; none for an idle sub-agent thread's unload |
+| `codex exec` | Own `codex` process and thread; shells and hooks under that pid | `SessionStart` `startup` … `Stop`, then `SessionEnd` `other` at exit |
+| `codex exec resume <id>` from another directory | Same id; hook and shell cwd = the process cwd | `SessionStart` `resume` |
+| Competing `exec resume` or second-server `thread/resume` of a loaded thread | Refused: exit 1 / `-32600` `already has an active writer`; `thread/read` still works | None |
+| Server SIGKILL with loaded threads | Client close 1006; lock files remain; no leftover process | None |
+| Replacement server `thread/resume` with `cwd` override | Stored thread reported `notLoaded` at its old cwd; resume succeeds despite the stale lock file | None at resume; `SessionStart` `resume` with the new cwd at the first turn |
+| Server SIGTERM with a loaded thread | Exit 0; thread lock removed | `SessionEnd` `other` with the current cwd |
+
 ### Changes on `main` after `rust-v0.154.0`
 
-As of 2026-09-13 the newest stable release is `rust-v0.154.0` (published
-2026-09-09) and the newest prerelease is `rust-v0.155.0-alpha.3.10`
-(2026-09-11), whose notes are stubs. Merged PRs relevant to the mechanisms
-above, none yet in a stable release: [#44349][pr-44349] adds `fork` as a
-`SessionStart` source and reports supplied-history resumes as `resume`;
+As of 2026-09-13 the newest stable release was `rust-v0.154.0` (published
+2026-09-09) and the newest prerelease `rust-v0.155.0-alpha.3.10`
+(2026-09-11), whose notes are stubs; `rust-v0.155.1` shipped as a stable
+release on 2026-09-18 and is the release the
+[Codex experiment](codex-identity-lifecycle-spike.md) measured. Merged PRs
+relevant to the mechanisms above: [#44349][pr-44349] adds `fork` as a
+`SessionStart` source and reports supplied-history resumes as `resume`,
+confirmed released by the measured `fork` source at `0.155.1`;
 [#44870][pr-44870] enables `worktrees` by default and blocks worktree creation
 and `/cd` when the local daemon lacks `thread/backgroundTerminals/list`;
 [#44711][pr-44711] and [#44969][pr-44969] extend the read-only snapshot and
@@ -350,7 +445,10 @@ explicit retry to the command center and to tasks owned by another app
 server; [#44183][pr-44183] releases the writer when a resume is cancelled
 during startup; [#43848][pr-43848] preserves runtime workspace roots across
 resume and retargets the old cwd root when cwd changes. No PR changes the
-`codex resume` flags. Revalidate these against the release that ships them.
+`codex resume` flags. The measurement also found `CODEX_SESSION_ID` exported
+to shells beside `CODEX_THREAD_ID`, which the `0.154.0` reading did not
+record. The other PRs were not exercised; revalidate them against the
+installed release.
 
 [identity-source]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/core/src/session/session.rs#L776-L797
 [fork-test]: https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/app-server/tests/suite/v2/thread_fork.rs#L204-L206
@@ -730,16 +828,17 @@ available, preserving release and mode boundaries.
 
 | Question | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- |
-| Does one selected host PID distinguish conversations? | App Server hosts multiple threads | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No in the tested backend |
-| Does client disconnect stop execution? | Unsubscription starts an unload delay (sixty seconds by code default at `0.154.0`); the embedded TUI shuts its thread down on exit | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | Attached CLI exit did not stop its command |
-| Does process restart erase history? | Stored thread resume documented; crash behavior unmeasured | Measured: a killed or respawned worker and a replaced supervisor keep the session ID; `SessionStart` reports `resume` for the new worker pid | Same native ID resumed after backend replacement |
-| Are hook/command IDs fully mapped? | Root and fork mapping read from `0.154.0` source (hook `session_id` = thread ID; a fork gets its own); child and execution-host mapping unverified | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |
-| Is native parentage equivalent to fork origin? | No at `0.154.0`: the store records `forked_from_thread_id`, but the `SessionStart` payload has no parent field and reports `startup` for a fork (`fork` source lands after this tag) | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No: measured fork lacked child `parentID` |
+| Does one selected host PID distinguish conversations? | No for app-server, measured at `0.155.1`: one `codex` process hosted two root threads, a fork, and a sub-agent thread, with every shell and hook below it; yes for `codex exec`, which is one process per thread; interactive TUI unmeasured | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No in the tested backend |
+| Does client disconnect stop execution? | Measured at `0.155.1`: a departing client's command ran to completion with no hook, and the last unsubscription unloaded the thread with `SessionEnd` after 60,067 ms (sixty seconds by code default at `0.154.0`); the embedded TUI's shutdown on exit is source reading | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | Attached CLI exit did not stop its command |
+| Does process restart erase history? | Measured at `0.155.1`: after SIGKILL of the server a replacement server resumed the stored thread at another cwd under the same id, with `SessionStart` `resume` at the first turn and no `SessionEnd` for the kill; the stale lock file did not block it | Measured: a killed or respawned worker and a replaced supervisor keep the session ID; `SessionStart` reports `resume` for the new worker pid | Same native ID resumed after backend replacement |
+| Are hook/command IDs fully mapped? | Measured at `0.155.1` for app-server and `exec`: root and fork hook `session_id` = `thread.id` = `thread.sessionId` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; a sub-agent's shell claims its own id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID`, and its hooks carry the root `session_id` plus `agent_id`; hook processes carry no thread variable; Code Mode remote host unmeasured | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |
+| Is native parentage equivalent to fork origin? | No, measured at `0.155.1`: `thread/read` reports `forkedFromId` and `SessionStart` reports `source` = `fork`, but the payload has no parent field (`startup` for a fork at `0.154.0` by source reading); a sub-agent's `parentThreadId` is delegation, not fork origin | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No: measured fork lacked child `parentID` |
 
 Remaining reference gaps include hook delivery on Claude idle eviction and in
 the interactive terminal; worker process ancestry and remote URL identity in
 Claude Remote Control, whose server mode needs a claude.ai login; Codex
-child-thread and remote-execution hook identity mapping; OpenCode
+interactive TUI, `/cd`, managed `/worktree`, Remote Control daemon, and
+remote-execution hook identity mapping; OpenCode
 interactive/ACP shutdown and V2 behavior; and the precise configuration/hook
 mapping across remote execution hosts. Do not turn a documented ability to
 subscribe into a guarantee of concurrent mutation safety for one conversation.
