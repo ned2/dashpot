@@ -394,9 +394,10 @@ their locations. Worktree–Branch topology needs no Session. Shared locations
 never recursively expand membership. Joins use Project-scoped paths and Branch
 names, opaque Issue Identity, and accepted Agent Run membership, never Issue
 Hints or shared backend processes; distinct native Agent Session identities stay
-separate. Pane entry selects the first row, while refresh preserves a surviving
-cursor key. Unsupported controls and modals clear emphasis; Pull Requests are
-excluded as sources and destinations. Background and bold identifying cells
+separate. Each pane keeps its cursor across focus changes, and refresh
+preserves a surviving cursor key. Unsupported controls and modals clear
+emphasis; Pull Requests are excluded as sources and destinations. Background
+and bold identifying cells
 (HARNESS and TARGET for Sessions) preserve Glyph colours, activity, and counts.
 Emphasis never changes destination cursors or scroll positions, submits queries,
 or mutates Issue work.

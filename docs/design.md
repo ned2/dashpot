@@ -213,7 +213,10 @@ Pull Requests → Issues. `/` moves from the Pull Request table to its search an
 from elsewhere to the Issue search. `Down` at the
 last row and `Up` at the first row cycle focus through the same order; an empty
 list moves on immediately, and each list keeps its row cursor when focus
-returns. The row cursor
+returns — from another pane or from the terminal after a window switch, which
+Textual reports as `AppBlur` and `AppFocus` and which a table cannot tell from
+pane entry, so the cursor is left where a stock `DataTable` leaves it
+([`focus_table.py`](../src/dashpot/ui/focus_table.py)). The row cursor
 in the Sessions, Worktrees, Branches and Pull Requests panes is for scrolling,
 copying and refresh scope (`r`); only
 the Issue table drives the Issue selection, `Enter`

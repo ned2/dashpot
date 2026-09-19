@@ -56,8 +56,9 @@ RELATED_ROWS_NOTE = (
     "Sessions, and their bound Issues; Issues links bound Sessions and their "
     "locations. No recursive expansion: Project-scoped locations and accepted "
     "Agent Run memberships establish links, never Issue Hints or shared backend "
-    "processes. Pane entry selects the first row; refresh preserves surviving "
-    "cursor keys. Controls and modals clear emphasis; Pull Requests are excluded. "
+    "processes. Each pane keeps its cursor across focus changes; refresh "
+    "preserves surviving cursor keys. Controls and modals clear emphasis; Pull "
+    "Requests are excluded. "
     "Other cursors, filters, scroll positions, activity Glyphs, and counts stay "
     "unchanged; selection performs no observation or mutation"
 )

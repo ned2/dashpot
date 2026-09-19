@@ -148,10 +148,11 @@ class FocusCursorTable(DataTable[CellType]):
     def on_mount(self) -> None:
         self.show_cursor = self.has_focus
 
+    # The row cursor is left where it was, as a stock DataTable leaves it: a
+    # table cannot tell pane entry from the terminal handing focus back after
+    # a window switch, and the user who switched windows never left the pane.
     def on_focus(self, _: events.Focus) -> None:
         self.show_cursor = True
-        if self.row_count:
-            self.move_cursor(row=0, animate=False)
         self.post_message(self.FocusChanged())
 
     def on_blur(self, _: events.Blur) -> None:

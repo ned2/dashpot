@@ -119,13 +119,14 @@ the management commands `init`, `integrate`,
 | `/` | Focus the Pull Request search when its table has focus; otherwise focus the Issue search |
 | `o` | Cycle the Issue table between open, closed, and all Issues (the `Open` / `Closed` / `All` selector beside the search does the same) |
 | `c` | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
-| Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues, highlighting the first row in the newly focused pane |
+| Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle focus through Sessions → Worktrees → Branches → Pull Requests → Issues; the newly focused pane's cursor is where it was last left |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); on a Session with an Issue Binding, open that Issue through targeted resolution; unbound on Pull Requests |
 | `?` | Open the Legend: every column's description with its Glyphs, pane by pane, and the keys; `Escape` closes, `End` and `Home` scroll. Resting the mouse on any column header shows the same description as a tooltip |
 | `q` | Quit |
 
-Entering a pane highlights its first row and scrolls it into view. Passive
-refreshes preserve the selected row while you remain in that pane.
+Each pane keeps its row cursor across focus changes, whether you move between
+panes or switch terminal windows and come back; a pane's first entry starts at
+its first row. Passive refreshes preserve the selected row.
 
 Cleanup previews show the concrete primary target without a redundant checkbox.
 Removing a Worktree retains its attached local Branch unless you select that
@@ -190,7 +191,8 @@ their observed Worktrees and Branches. Worktree–Branch topology also works
 without Sessions; shared locations never recursively add unrelated Sessions.
 
 Arrow keys and mouse selection update this cue. Entering or re-entering a pane
-selects and reveals its first row; refresh preserves a surviving cursor key.
+re-emphasizes from the row its cursor stayed on; refresh preserves a surviving
+cursor key.
 Search/filter controls, Pull Requests, and modals clear emphasis. Pull Requests
 are never sources or destinations. Other cursors, filters, pagination, scroll
 positions, activity Glyphs, and counts stay unchanged. Selection performs no
