@@ -136,7 +136,7 @@ row identity. Issue Detail, Legend and Cleanup cover their originating peer,
 and `Escape` returns there; `1` and `2` are inactive on those temporary screens
 and insert text normally while an editable input has focus.
 
-The shared status bar shows exactly `Open Issues: N | Open PRs: N` from Project
+The shared status bar shows exactly `Open PRs: N | Open Issues: N` from Project
 Totals. `-` means a total is unavailable. `◆` means every displayed number is
 fresh and `◇` means at least one is retained and stale; no freshness mark is
 shown when neither total is numeric. At compact widths the summary wraps below

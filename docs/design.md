@@ -214,15 +214,19 @@ does not add Back history.
 The persistent top row is Dashpot's own status bar, not Textual's default
 `Header`. It names both peers, marks the active one without relying on colour,
 and makes each complete label clickable. `1` and `2` are the equivalent direct
-keyboard paths. The shipped current-location marker uses brackets. `◆` marks
-fresh displayed totals and `◇` marks a retained stale total; the wireframes
-spell those marks as `<fresh>` and `<stale>` for clarity.
+keyboard paths. Each choice is a distinct one-row background-filled block,
+separated by one cell like a tmux window list. The active block uses a
+contrasting fill and bold text, so current location does not depend on colour.
+The wireframes surround the active label with `*` to represent bold rather
+than literal characters. `◆` marks fresh displayed totals and `◇` marks a
+retained stale total; the wireframes spell those marks as `<fresh>` and
+`<stale>` for clarity.
 
 A representative wide Dashboard is:
 
 ```text
 +--------------------------------------------------------------------------------------------------+
-| [1 Dashboard]  2 Issues & Pull Requests       <fresh> Open Issues: 18 | Open PRs: 2             |
+| *1 Dashboard*  2 Issues & Pull Requests        <fresh> Open PRs: 2 | Open Issues: 18             |
 +--------------------------------------------------------------------------------------------------+
 | SESSIONS · 4                                                                                     |
 | ...active Agent Sessions...                                                                      |
@@ -241,7 +245,7 @@ The wide Issues & Pull Requests peer keeps both queries visible:
 
 ```text
 +--------------------------------------------------------------------------------------------------+
-| 1 Dashboard  [2 Issues & Pull Requests]       <fresh> Open Issues: 18 | Open PRs: 2             |
+| 1 Dashboard  *2 Issues & Pull Requests*        <fresh> Open PRs: 2 | Open Issues: 18             |
 +--------------------------------------------------------------------------------------------------+
 | PULL REQUESTS · Open 2 · Closed 3                                                            |
 | [Open v]  [Search Pull Requests____________________________]  2 pull requests                    |
@@ -262,8 +266,8 @@ the shipped breakpoint is 100 columns:
 
 ```text
 +----------------------------------------------------------+
-| [1 Dashboard]  2 Issues & Pull Requests                  |
-| <fresh> Open Issues: 18 | Open PRs: 2                    |
+| *1 Dashboard*  2 Issues & Pull Requests                   |
+| <fresh> Open PRs: 2 | Open Issues: 18                    |
 +----------------------------------------------------------+
 | SESSIONS · 4                                             |
 | ...                                                      |
@@ -278,8 +282,8 @@ the shipped breakpoint is 100 columns:
 
 ```text
 +----------------------------------------------------------+
-| 1 Dashboard  [2 Issues & Pull Requests]                  |
-| <fresh> Open Issues: 18 | Open PRs: 2                    |
+| 1 Dashboard  *2 Issues & Pull Requests*                   |
+| <fresh> Open PRs: 2 | Open Issues: 18                    |
 +----------------------------------------------------------+
 | PULL REQUESTS · Open 2 · Closed 3                        |
 | [Open v] [Search Pull Requests__________] 2 pull requests|
@@ -356,7 +360,7 @@ chases, filters or repositions the other screen.
 ### Navigation summary
 
 The right side of the status bar renders exactly
-`Open Issues: {value} | Open PRs: {value}` on both peers. It reads independent
+`Open PRs: {value} | Open Issues: {value}` on both peers. It reads independent
 Project Totals, never the filtered Query Pages. Pane titles retain their open
 and closed inventories, and filter bars retain the accepted page's matching count:
 the three readouts intentionally report different facts. No repository-wide
@@ -373,7 +377,7 @@ needed.
 | Pull Requests intentionally unconfigured | `-` | Contributes no freshness state |
 
 Thus a fresh Issue count beside an unavailable Pull Request count shows the
-fresh Glyph and `Open Issues: 18 | Open PRs: -`; when neither side is numeric no
+fresh Glyph and `Open PRs: - | Open Issues: 18`; when neither side is numeric no
 freshness Glyph appears. Availability remains in the placeholder and existing
 Diagnostics, while the one binary Glyph says only whether the numbers actually
 shown are fresh or stale. Colour may reinforce but never carry either state by

@@ -18,15 +18,24 @@ PeerStatusBar {
     height: 1;
 }
 
-PeerLink {
+PeerSelector {
     width: auto;
     height: 1;
+    margin-right: 1;
     padding: 0 1;
-    text-style: bold;
+    background: $surface-lighten-1;
+    color: $text-muted;
 }
 
-PeerLink:hover {
+PeerSelector:hover {
     background: $boost;
+    color: $text;
+}
+
+PeerSelector.-active {
+    background: $primary;
+    color: $text;
+    text-style: bold;
 }
 
 #peer-summary {

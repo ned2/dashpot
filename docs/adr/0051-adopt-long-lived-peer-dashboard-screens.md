@@ -72,7 +72,7 @@ widget forwarding.
 
 ## Summary semantics
 
-The status bar renders `Open Issues: {value} | Open PRs: {value}` on both peers.
+The status bar renders `Open PRs: {value} | Open Issues: {value}` on both peers.
 A fresh Glyph means every displayed number is fresh; a stale Glyph means at least
 one displayed number is retained from a stale Project Total. Loading,
 unavailable-without-a-value and unconfigured values render `-`, zero renders

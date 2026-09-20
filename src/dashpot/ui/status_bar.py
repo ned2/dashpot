@@ -31,17 +31,16 @@ class PeerSelected(Message):
     peer: PeerName
 
 
-class PeerLink(Static):
-    """One complete clickable peer label in the persistent status bar."""
+class PeerSelector(Static):
+    """One complete clickable peer choice in the persistent status bar."""
 
     def __init__(self, peer: PeerName, label: str, *, id: str) -> None:
         super().__init__(label, id=id, markup=False)
         self.peer = peer
-        self.label = label
 
     def show_active(self, active: bool) -> None:
         """Mark current location without relying on colour."""
-        self.update(f"[{self.label}]" if active else self.label)
+        self.set_class(active, "-active")
 
     def on_click(self) -> None:
         self.post_message(PeerSelected(self.peer))
@@ -57,13 +56,13 @@ class PeerStatusBar(Widget):
     @override
     def compose(self) -> ComposeResult:
         with Horizontal(id="peer-status-screens"):
-            yield PeerLink("dashboard", "1 Dashboard", id="peer-dashboard")
-            yield PeerLink(
+            yield PeerSelector("dashboard", "1 Dashboard", id="peer-dashboard")
+            yield PeerSelector(
                 "issues-pull-requests",
                 "2 Issues & Pull Requests",
                 id="peer-issues-pull-requests",
             )
-        yield Static("Open Issues: - | Open PRs: -", id="peer-summary", markup=False)
+        yield Static("Open PRs: - | Open Issues: -", id="peer-summary", markup=False)
 
     def on_mount(self) -> None:
         self.show_active(self.active)
@@ -71,8 +70,10 @@ class PeerStatusBar(Widget):
     def show_active(self, active: PeerName) -> None:
         """Render the same choices with only current-location encoding changed."""
         self.active = active
-        self.query_one("#peer-dashboard", PeerLink).show_active(active == "dashboard")
-        self.query_one("#peer-issues-pull-requests", PeerLink).show_active(
+        self.query_one("#peer-dashboard", PeerSelector).show_active(
+            active == "dashboard"
+        )
+        self.query_one("#peer-issues-pull-requests", PeerSelector).show_active(
             active == "issues-pull-requests"
         )
 
