@@ -33,6 +33,39 @@ from dashpot.ui.pane_layout import PANE_MARGIN
 from helpers import wait_until
 
 
+def assert_top_gutters(app: DashpotApp, panes: tuple[Any, ...]) -> None:
+    """Every pane follows the Peer Status Bar or its predecessor by one row."""
+    status_bar = app.screen.query_one("#peer-status")
+    assert panes[0].region.y - status_bar.region.bottom == PANE_MARGIN
+    for previous, pane in pairwise(panes):
+        assert pane.region.y - previous.region.bottom == PANE_MARGIN
+
+
+@pytest.mark.asyncio
+async def test_every_peer_pane_owns_the_same_top_gutter() -> None:
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        assert_top_gutters(app, app.dashboard.list_panes())
+
+        await show_query_peer(app, pilot)
+        assert_top_gutters(
+            app,
+            (*app.query_screen.list_panes(), app.query_screen.query_one("#queue-pane")),
+        )
+
+        await pilot.resize_terminal(60, 24)
+        await wait_until(lambda: app.screen.has_class("-compact"))
+        assert_top_gutters(
+            app,
+            (*app.query_screen.list_panes(), app.query_screen.query_one("#queue-pane")),
+        )
+
+
 @pytest.mark.asyncio
 async def test_dashboard_tables_do_not_use_zebra_stripes() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
@@ -258,12 +291,19 @@ async def test_each_peer_stacks_only_its_own_full_width_panes() -> None:
             == "No matching Pull Requests"
         )
         assert queue_pane.region.height >= 6
-        assert {"1", "2", "tab"} <= footer_keys(app)
-        assert {"3", "4", "shift+r"}.isdisjoint(footer_keys(app))
+        assert {
+            "1",
+            "2",
+            "ctrl+shift+left",
+            "ctrl+shift+right",
+            "3",
+            "4",
+            "shift+r",
+        }.isdisjoint(footer_keys(app))
 
 
 @pytest.mark.asyncio
-async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
+async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> None:
     app = dashboard_app(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
         refresh_seconds=0,
@@ -282,7 +322,7 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
             )
 
         def stack_margins() -> int:
-            """Each pane carries the blank line below it, inside `#list-row`."""
+            """Each pane carries its top gutter inside `#list-row`."""
             return PANE_MARGIN * len(app.dashboard.list_panes())
 
         list_row = app.query_one("#list-row")
@@ -301,23 +341,78 @@ async def test_pane_grows_with_its_records_to_the_cap_then_scrolls() -> None:
         assert list_row.region.height > initial_row_height
 
         pane.show_rows(list_rows(12))
-        await wait_until(lambda: pane.region.height == 2 + 1 + 8)
+        await wait_until(lambda: pane.region.height == pane_chrome(pane) + 12)
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
-        # A pane never exceeds its cap.
-        assert pane.region.height == 2 + 1 + 8
+        assert pane.region.height == pane_chrome(pane) + 12
         assert list_row.region.height == (
-            2 + 1 + 8 + other_panes_height() + stack_margins()
+            pane.region.height + other_panes_height() + stack_margins()
         )
-        assert pane.table.show_vertical_scrollbar
-        pane.table.move_cursor(row=11)
-        await pilot.pause()
-        assert pane.table.scroll_y > 0
+        assert pane.content_height_cap > 8
+        assert not pane.table.show_vertical_scrollbar
 
         pane.show_rows(())
         await wait_until(lambda: pane.region.height == 3)
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane.region.height == 3
         assert list_row.region.height == initial_row_height
+
+
+@pytest.mark.asyncio
+async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> None:
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        panes = app.dashboard.list_panes()
+        for index, pane in enumerate(panes):
+            prepare_pane(app, str(pane.id)).show_rows(
+                list_rows(30, prefix=f"pane-{index}")
+            )
+        await wait_until(
+            lambda: all(pane.table.show_vertical_scrollbar for pane in panes)
+        )
+        initial_caps = tuple(pane.content_height_cap for pane in panes)
+        assert max(initial_caps) - min(initial_caps) <= 1
+
+        selected = panes[1]
+        selected.table.focus()
+        selected.table.move_cursor(row=29, animate=False)
+        await wait_until(
+            lambda: (
+                selected.table.cursor_row == 29
+                and selected.table.scroll_y == selected.table.scroll_target_y > 0
+            )
+        )
+        initial_scroll = selected.table.scroll_y
+
+        await pilot.resize_terminal(120, 50)
+        await wait_until(
+            lambda: all(
+                pane.content_height_cap > initial
+                for pane, initial in zip(panes, initial_caps, strict=True)
+            )
+        )
+        grown_caps = tuple(pane.content_height_cap for pane in panes)
+        await wait_until(lambda: selected.table.scroll_y > 0)
+        grown_scroll = selected.table.scroll_y
+        assert selected.table.cursor_row == 29
+        assert grown_scroll <= initial_scroll
+        assert any(cap > 8 for cap in grown_caps)
+
+        await pilot.resize_terminal(120, 24)
+        await wait_until(
+            lambda: all(
+                pane.content_height_cap < grown
+                for pane, grown in zip(panes, grown_caps, strict=True)
+            )
+        )
+        await wait_until(lambda: selected.table.scroll_y > 0)
+        assert selected.table.cursor_row == 29
+        assert selected.table.scroll_y >= grown_scroll
+        assert selected.table.show_vertical_scrollbar
 
 
 @pytest.mark.asyncio
@@ -356,6 +451,34 @@ async def test_pull_requests_pane_scrolls_vertically_and_horizontally_at_narrow_
 
 
 @pytest.mark.asyncio
+async def test_pull_requests_keep_their_eight_record_ceiling_when_wide() -> None:
+    pull_requests = tuple(
+        factories.pull_request(number, title=f"Pull Request {number}")
+        for number in range(1, 13)
+    )
+    app = dashboard_app(
+        SequenceCollector(
+            workspace_snapshot(
+                issue("test/repo#1", "First"), pull_requests=pull_requests
+            )
+        ),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(200, 50)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
+        pane = app.query_screen.pull_requests_pane()
+        await wait_until(lambda: pane.table.show_vertical_scrollbar)
+
+        assert pane.count == 12
+        assert pane.content_height_cap == 8
+        assert pane.table.size.height == 1 + 8
+        assert not pane.table.show_horizontal_scrollbar
+        assert app.query_screen.query_one("#queue-pane").region.height >= 6
+
+
+@pytest.mark.asyncio
 async def test_panes_stack_full_width_at_every_breakpoint() -> None:
     app = dashboard_app(
         SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
@@ -374,7 +497,7 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         )
         await wait_until(
             lambda: (
-                sessions.region.height == 2 + 1 + 8
+                sessions.region.height == pane_chrome(sessions) + 12
                 and worktrees.region.height == pane_chrome(worktrees) + 2
             )
         )
@@ -382,7 +505,7 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         body = app.query_one("#body")
         assert sessions.region.width == worktrees.region.width == body.region.width
         assert sessions.region.bottom <= worktrees.region.y
-        assert sessions.region.height == 2 + 1 + 8
+        assert sessions.region.height == pane_chrome(sessions) + 12
         assert worktrees.region.height == pane_chrome(worktrees) + 2
         assert not app.dashboard.query("#queue-pane")
 
@@ -391,7 +514,7 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         await wait_until(lambda: sessions.region.width == body.region.width)
         await show_query_peer(app, pilot)
         assert_panes_stack_above_full_width_queue(app)
-        assert sessions.region.height == 2 + 1 + 8
+        assert sessions.region.height == pane_chrome(sessions) + 12
         assert worktrees.region.height == pane_chrome(worktrees) + 2
 
 
@@ -410,7 +533,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         pull_requests = app.query_screen.pull_requests_pane()
         pull_requests.show_rows(list_rows(12, prefix="pull-request"))
         await wait_until(lambda: pull_requests.table.show_vertical_scrollbar)
-        initial_cap = pull_requests.row_cap
+        initial_cap = pull_requests.content_height_cap
 
         queue_pane = app.query_screen.query_one("#queue-pane")
         footer = app.query_screen.query_one(Footer)
@@ -419,8 +542,8 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         assert pull_requests.table.show_vertical_scrollbar
 
         await pilot.resize_terminal(80, 19)
-        await wait_until(lambda: pull_requests.row_cap < initial_cap)
-        assert pull_requests.row_cap < initial_cap
+        await wait_until(lambda: pull_requests.content_height_cap < initial_cap)
+        assert pull_requests.content_height_cap < initial_cap
         assert queue_pane.region.height >= 6
         assert queue_pane.region.bottom <= app.query_screen.query_one(Footer).region.y
 

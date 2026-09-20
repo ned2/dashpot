@@ -144,6 +144,7 @@ class KeyGroup:
 
     label: str
     bindings: tuple[BindingType, ...]
+    include_hidden: bool = False
 
 
 def legend_glyphs() -> tuple[Glyph, ...]:
@@ -242,14 +243,16 @@ class LegendScreen(ModalScreen[None]):
                     id=f"legend-keys-heading-{index}",
                 )
                 yield Static(
-                    self.keys_text(group.bindings),
+                    self.keys_text(group),
                     classes="legend-section legend-keys",
                     id=f"legend-keys-{index}",
                 )
 
-    def keys_text(self, keys: Sequence[BindingType]) -> Text:
-        """The group's bindings as the Footer would show them, one per line."""
-        bindings = [binding for binding in Binding.make_bindings(keys) if binding.show]
+    def keys_text(self, group: KeyGroup) -> Text:
+        """The group's documented bindings, including hidden keys when requested."""
+        bindings = list(Binding.make_bindings(group.bindings))
+        if not group.include_hidden:
+            bindings = [binding for binding in bindings if binding.show]
         width = max(len(self.app.get_key_display(binding)) for binding in bindings)
         text = Text()
         for index, binding in enumerate(bindings):

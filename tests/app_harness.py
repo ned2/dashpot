@@ -69,6 +69,7 @@ from dashpot.ui.app import DashpotApp, IssuesPullRequestsScreen
 from dashpot.ui.detail_fields import detail_items_text
 from dashpot.ui.issue_view import IssueScreen, issue_metadata_items, selection_title
 from dashpot.ui.list_pane import ListPane, ListRow
+from dashpot.ui.pane_layout import PANE_MARGIN
 from helpers import snapshot_of, wait_until
 
 NOW = "2026-08-25T01:00:00Z"
@@ -624,8 +625,8 @@ def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
     pull_requests = app.query_screen.query_one("#pull-requests-pane")
     queue_pane = app.query_screen.query_one("#queue-pane")
 
-    assert pull_requests.region.y == list_row.region.y
-    assert pull_requests.region.bottom <= queue_pane.region.y
+    assert pull_requests.region.y - list_row.region.y == PANE_MARGIN
+    assert queue_pane.region.y - pull_requests.region.bottom == PANE_MARGIN
     for pane in (pull_requests, queue_pane):
         assert pane.region.x == body.region.x
         assert pane.region.width == body.region.width
@@ -688,7 +689,12 @@ def pane_chrome(pane: ListPane) -> int:
 
 
 def footer_keys(app: DashpotApp) -> set[str]:
-    return {binding.key for _, binding, *_ in app.screen.active_bindings.values()}
+    """The keys the rendered Footer exposes, excluding hidden bindings."""
+    return {
+        key
+        for widget in app.screen.query("FooterKey")
+        if widget.display and isinstance((key := getattr(widget, "key", None)), str)
+    }
 
 
 def toasts(app: DashpotApp) -> list[str]:

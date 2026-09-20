@@ -46,6 +46,7 @@ from dashpot.ui.app import DashboardScreen, DashpotApp
 from dashpot.ui.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.ui.issue_view import selection_title
 from dashpot.ui.messages import ObservationFinished, ObservationTrigger
+from dashpot.ui.pane_layout import PANE_MARGIN
 from helpers import snapshot_of, wait_until
 
 
@@ -121,8 +122,10 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         # No Textual Header: the persistent peer bar starts on the first row.
         assert app.title == "Dashpot"
         assert not app.query("Header")
-        assert app.query_one("#peer-status").region.y == 0
-        assert app.query_one("#sessions-pane").region.y == 2
+        status_bar = app.query_one("#peer-status")
+        sessions_pane = app.query_one("#sessions-pane")
+        assert status_bar.region.y == 0
+        assert sessions_pane.region.y - status_bar.region.bottom == PANE_MARGIN
         assert app.ALLOW_SELECT
         assert not table.allow_select
 

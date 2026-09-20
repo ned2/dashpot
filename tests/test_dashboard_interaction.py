@@ -712,10 +712,12 @@ async def test_entering_each_pane_keeps_its_cursor_and_scroll(entry: str) -> Non
             prepare_pane(app, str(pane.id)).show_rows(
                 tuple(ListRow(str(index), (str(index), "-")) for index in range(30))
             )
-        # The panes grow to their row cap at a later layout; a scroll captured
-        # while a pane is still short is clamped when that layout lands.
+        # The panes grow to their content-height cap at a later layout; a
+        # scroll captured while a pane is still short is clamped when it lands.
         await wait_until(
-            lambda: all(pane.table.size.height == 1 + pane.row_cap for pane in panes)
+            lambda: all(
+                pane.table.size.height == 1 + pane.content_height_cap for pane in panes
+            )
         )
         tables = app.dashboard.focus_tables()
         for index, table in enumerate(tables):

@@ -96,7 +96,7 @@ async def test_status_bar_is_identical_across_peers_and_labels_are_clickable() -
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         dashboard_summary = str(app.screen.query_one("#peer-summary", Static).render())
-        assert dashboard_summary == "◆ Open PRs: 1 | Open Issues: 1"
+        assert dashboard_summary == "Open PRs: 1 | Open Issues: 1 | ◆"
 
         assert await pilot.click("#peer-issues-pull-requests")
         await wait_until(lambda: isinstance(app.screen, IssuesPullRequestsScreen))
@@ -129,6 +129,29 @@ async def test_number_keys_type_into_query_inputs_instead_of_switching() -> None
         assert {"1", "2", "c", "o", "n", "p", "g", "slash"}.isdisjoint(
             shown_footer_keys(app)
         )
+
+
+@pytest.mark.asyncio
+async def test_modified_arrows_cycle_peers_with_wrap_from_query_inputs() -> None:
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "Issue"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 32)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+
+        await pilot.press("ctrl+shift+left")
+        await wait_until(lambda: app.screen is app.query_screen)
+        search = app.query_screen.issue_filter_bar.search
+        search.focus()
+
+        await pilot.press("ctrl+shift+right")
+        await wait_until(lambda: app.screen is app.dashboard)
+        await pilot.press("ctrl+shift+right")
+        await wait_until(lambda: app.screen is app.query_screen)
+        await pilot.press("ctrl+shift+left")
+        await wait_until(lambda: app.screen is app.dashboard)
 
 
 @pytest.mark.asyncio
@@ -241,7 +264,7 @@ async def test_temporary_screens_return_to_origin_and_disable_peer_keys() -> Non
         await pilot.press("2", "question_mark")
         await wait_until(lambda: isinstance(app.screen, LegendScreen))
 
-        await pilot.press("1", "2")
+        await pilot.press("1", "2", "ctrl+shift+left", "ctrl+shift+right")
         assert isinstance(app.screen, LegendScreen)
         await pilot.press("escape")
         await wait_until(lambda: app.screen is app.query_screen)
@@ -249,7 +272,7 @@ async def test_temporary_screens_return_to_origin_and_disable_peer_keys() -> Non
         app.query_screen.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
-        await pilot.press("1")
+        await pilot.press("1", "ctrl+shift+left", "ctrl+shift+right")
         assert isinstance(app.screen, IssueScreen)
         await pilot.press("escape")
         await wait_until(lambda: app.screen is app.query_screen)
@@ -278,11 +301,11 @@ async def test_refresh_updates_the_inactive_peer_and_both_status_bars() -> None:
         await wait_until(
             lambda: (
                 str(app.dashboard.query_one("#peer-summary", Static).render())
-                == "◆ Open PRs: 2 | Open Issues: 2"
+                == "Open PRs: 2 | Open Issues: 2 | ◆"
             )
         )
         assert str(app.query_screen.query_one("#peer-summary", Static).render()) == (
-            "◆ Open PRs: 2 | Open Issues: 2"
+            "Open PRs: 2 | Open Issues: 2 | ◆"
         )
 
 

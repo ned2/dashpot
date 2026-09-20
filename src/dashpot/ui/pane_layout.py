@@ -10,30 +10,57 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-# A list pane's blank line below it, its frame and its header, all of which
-# come out of the height that pane's records get. The last pane's margin is
-# the gap before the Issue table. An empty pane is its frame and one message
-# line.
+# A list pane's top gutter, its frame and its header all come out of the height
+# that pane's records get. The first gutter separates the Peer Status Bar;
+# every later pane's gutter separates it from its predecessor. An empty pane is
+# its gutter, frame and one message line.
 PANE_MARGIN = 1
 PANE_FRAME = 2
 COLLAPSED_PANE_HEIGHT = PANE_MARGIN + PANE_FRAME
 PANE_HEADER = 1
 PANE_CHROME = PANE_MARGIN + PANE_FRAME + PANE_HEADER
 EMPTY_PANE_HEIGHT = PANE_MARGIN + PANE_FRAME + 1
-# Header plus eight records; a longer list scrolls inside the pane.
-DEFAULT_ROW_CAP = 8
 
 
-def pane_wish(record_count: int, *, controls_height: int = 0) -> int:
+def content_height_wish(record_count: int, visible_row_limit: int | None = None) -> int:
+    """The content lines a pane can use for its records or empty message.
+
+    A non-empty pane reserves one line for a possible horizontal scrollbar
+    when doing so cannot expose a record beyond its declared limit. The
+    allowance lets every eligible record remain visible at narrow widths
+    without measuring reactive scrollbar state in the height allocator.
+    """
+    if not record_count:
+        return 1
+    visible_records = (
+        record_count
+        if visible_row_limit is None
+        else min(record_count, visible_row_limit)
+    )
+    scrollbar_allowance = int(
+        visible_row_limit is None or record_count <= visible_row_limit
+    )
+    return visible_records + scrollbar_allowance
+
+
+def pane_wish(
+    record_count: int,
+    *,
+    controls_height: int = 0,
+    visible_row_limit: int | None = None,
+) -> int:
     """The height a pane would take unconstrained: frame, header and records.
 
-    A pane with records is granted one spare row for a horizontal scrollbar:
-    its table is content-sized under the cap, so the row is only ever taken
-    when wide records need it.
+    A pane with records may ask for one spare horizontal-scrollbar row when
+    ``content_height_wish`` can grant it without breaking a record limit.
     """
     if not record_count:
         return EMPTY_PANE_HEIGHT + controls_height
-    return PANE_CHROME + controls_height + min(record_count, DEFAULT_ROW_CAP) + 1
+    return (
+        PANE_CHROME
+        + controls_height
+        + content_height_wish(record_count, visible_row_limit)
+    )
 
 
 def fit_panes(
@@ -48,13 +75,15 @@ def fit_panes(
     ``minimum`` is the height a flexible table keeps; whatever remains is
     shared between the panes, and a pane that wishes for less than its share
     (an empty one, or one with few records) leaves the rest to the panes
-    that wish for more. The returned caps follow the order of ``wishes``; a
-    cap of zero collapses a pane to a frame with a count.
+    that wish for more. The returned content-height caps follow the order of
+    ``wishes``; a cap of zero collapses a pane to a frame with a count. A cap
+    counts a horizontal scrollbar when the table needs one, so it is not
+    necessarily the number of visible records.
     """
     heights = controls_heights or (0,) * len(wishes)
     if len(heights) != len(wishes):
         raise ValueError("Pane controls heights must match the pane wishes")
-    # Every pane keeps its frame and margin even when no content fits. Share
+    # Every pane keeps its frame and top gutter even when no content fits. Share
     # what remains above those collapsed shapes; an atomic controls-and-row
     # minimum is either granted in full or left for another pane.
     remaining = max(
@@ -84,6 +113,6 @@ def fit_panes(
         if empty:
             caps[index] = 1
         else:
-            row_cap = granted - PANE_HEADER - controls_height
-            caps[index] = row_cap if row_cap >= 1 else 0
+            content_height_cap = granted - PANE_HEADER - controls_height
+            caps[index] = content_height_cap if content_height_cap >= 1 else 0
     return tuple(caps)

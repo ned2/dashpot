@@ -13,7 +13,7 @@ from typing import Any, ClassVar, cast, override
 
 from textual import events, on
 from textual.app import App, ComposeResult
-from textual.binding import BindingType
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Vertical
 from textual.content import Content
 from textual.css.query import NoMatches
@@ -71,7 +71,7 @@ from .observation_runner import (
     ObservationRunner,
 )
 from .page_runner import PageRunner
-from .pane_layout import fit_panes, pane_wish
+from .pane_layout import fit_panes
 from .panes import (
     DASHBOARD_PANE_SPECS,
     QUERY_PANE_SPECS,
@@ -79,7 +79,7 @@ from .panes import (
     PaneContext,
     PaneSpec,
 )
-from .status_bar import PeerName, PeerSelected, PeerStatusBar
+from .status_bar import PEER_ORDER, PeerName, PeerSelected, PeerStatusBar
 from .worktree_table import WorktreeTable
 
 # The focus cycle is an override of Textual's own hidden Tab bindings, not a
@@ -213,6 +213,7 @@ class DashboardScreen(Screen[None]):
                     table_id=spec.table_id,
                     table_type=spec.table_type,
                     controls_height=spec.controls_height,
+                    visible_row_limit=spec.visible_row_limit,
                 )
         yield Static("", id="alert")
         yield Static("", id="diagnostics")
@@ -307,10 +308,10 @@ class DashboardScreen(Screen[None]):
         caps = fit_panes(
             body.height,
             0,
-            tuple(pane_wish(pane.count) for pane in panes),
+            tuple(pane.height_wish() for pane in panes),
         )
-        for pane, row_cap in zip(panes, caps, strict=True):
-            pane.fit_rows(row_cap)
+        for pane, content_height_cap in zip(panes, caps, strict=True):
+            pane.fit_rows(content_height_cap)
 
     def reconcile_list_panes(self) -> None:
         """Re-list every Dashboard record from the shared store."""
@@ -488,6 +489,7 @@ class IssuesPullRequestsScreen(Screen[None]):
                     table_type=spec.table_type,
                     controls=self.pane_controls(spec),
                     controls_height=spec.controls_height,
+                    visible_row_limit=spec.visible_row_limit,
                 )
             with Vertical(id="queue-pane"):
                 yield self.issue_filter_bar
@@ -688,25 +690,26 @@ class IssuesPullRequestsScreen(Screen[None]):
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
 
-        The Issue table keeps its stylesheet minimum; Textual cannot resolve
-        an over-constrained column (every `fr` row at its minimum), so the
-        cap shrinks first, to a frame with a count when nothing else fits.
-        The arithmetic itself is `pane_layout.fit_panes`; this method only
-        gathers the widget facts and applies the caps.
+        The Issue pane keeps its stylesheet minimum and top gutter; Textual
+        cannot resolve an over-constrained column (every `fr` row at its
+        minimum), so the cap shrinks first, to a frame with a count when
+        nothing else fits. The arithmetic itself is `pane_layout.fit_panes`;
+        this method only gathers the widget facts and applies the caps.
         """
-        minimum = self.query_one("#queue-pane").styles.min_height
+        queue_pane = self.query_one("#queue-pane")
+        minimum = queue_pane.styles.min_height
+        fixed_height = (
+            int(minimum.value) if minimum is not None else 0
+        ) + queue_pane.styles.margin.top
         panes = self.list_panes()
         caps = fit_panes(
             body.height,
-            int(minimum.value) if minimum is not None else 0,
-            tuple(
-                pane_wish(pane.count, controls_height=pane.controls_height)
-                for pane in panes
-            ),
+            fixed_height,
+            tuple(pane.height_wish() for pane in panes),
             controls_heights=tuple(pane.controls_height for pane in panes),
         )
-        for pane, row_cap in zip(panes, caps, strict=True):
-            pane.fit_rows(row_cap)
+        for pane, content_height_cap in zip(panes, caps, strict=True):
+            pane.fit_rows(content_height_cap)
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed record from the store."""
@@ -788,8 +791,27 @@ class DashpotApp(App[None]):
     ALLOW_SELECT = True
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        ("1", "show_dashboard", "Dashboard"),
-        ("2", "show_issues_pull_requests", "Issues & Pull Requests"),
+        Binding("1", "show_dashboard", "Dashboard", show=False),
+        Binding(
+            "2",
+            "show_issues_pull_requests",
+            "Issues & Pull Requests",
+            show=False,
+        ),
+        Binding(
+            "ctrl+shift+left",
+            "previous_peer",
+            "Previous Peer Screen",
+            show=False,
+            priority=True,
+        ),
+        Binding(
+            "ctrl+shift+right",
+            "next_peer",
+            "Next Peer Screen",
+            show=False,
+            priority=True,
+        ),
         ("q", "quit", "Quit"),
         ("question_mark", "legend", "Legend"),
         ("r", "refresh", "Refresh"),
@@ -873,17 +895,38 @@ class DashpotApp(App[None]):
         """Switch directly to Issues & Pull Requests when a peer is active."""
         self.show_peer("issues-pull-requests")
 
+    def cycle_peer(self, offset: int) -> None:
+        """Move through the ordered Peer Screens, wrapping at either edge."""
+        if (
+            self.screen not in self.peer_screens()
+            or self.current_mode not in PEER_ORDER
+        ):
+            return
+        index = PEER_ORDER.index(self.current_mode)
+        self.show_peer(PEER_ORDER[(index + offset) % len(PEER_ORDER)])
+
+    def action_previous_peer(self) -> None:
+        """Switch to the previous Peer Screen, wrapping to the last."""
+        self.cycle_peer(-1)
+
+    def action_next_peer(self) -> None:
+        """Switch to the next Peer Screen, wrapping to the first."""
+        self.cycle_peer(1)
+
     def on_peer_selected(self, message: PeerSelected) -> None:
         """Switch to the complete peer label a person clicked."""
         self.show_peer(message.peer)
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Hide direct peer keys while they type or a temporary screen is active."""
-        if action in {"show_dashboard", "show_issues_pull_requests"}:
+        """Expose peer navigation only where its screen-switch contract applies."""
+        direct_actions = {"show_dashboard", "show_issues_pull_requests"}
+        peer_actions = {*direct_actions, "previous_peer", "next_peer"}
+        if action in peer_actions:
             peer = self.screen
             available = isinstance(peer, DashboardScreen | IssuesPullRequestsScreen)
-            available = available and not isinstance(peer.focused, Input)
+            if action in direct_actions:
+                available = available and not isinstance(peer.focused, Input)
             return True if available else None
         return True
 
@@ -1224,6 +1267,7 @@ def legend_keys() -> tuple[KeyGroup, ...]:
         KeyGroup(
             "global",
             (*DashpotApp.BINDINGS, *FOCUS_CYCLE_BINDINGS),
+            include_hidden=True,
         ),
         KeyGroup(
             "Dashboard",

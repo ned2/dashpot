@@ -12,14 +12,19 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
-from .glyphs import ATTENTION_COLORS, GOOD_COLORS, Glyph
+from .glyphs import MUTED_COLORS, Glyph
 from .navigation_summary import NavigationSummary
 
 PeerName = Literal["dashboard", "issues-pull-requests"]
+PEER_ORDER: tuple[PeerName, ...] = ("dashboard", "issues-pull-requests")
+PEER_LABELS: dict[PeerName, str] = {
+    "dashboard": "Dashboard",
+    "issues-pull-requests": "Issues & Pull Requests",
+}
 
-FRESH_TOTALS_GLYPH = Glyph("◆", "every displayed open total is fresh", GOOD_COLORS)
+FRESH_TOTALS_GLYPH = Glyph("◆", "every displayed open total is fresh", MUTED_COLORS)
 STALE_TOTALS_GLYPH = Glyph(
-    "◇", "at least one displayed open total is retained and stale", ATTENTION_COLORS
+    "◇", "at least one displayed open total is retained and stale", MUTED_COLORS
 )
 TOTALS_FRESHNESS_LEGEND = (FRESH_TOTALS_GLYPH, STALE_TOTALS_GLYPH)
 
@@ -56,12 +61,12 @@ class PeerStatusBar(Widget):
     @override
     def compose(self) -> ComposeResult:
         with Horizontal(id="peer-status-screens"):
-            yield PeerSelector("dashboard", "1 Dashboard", id="peer-dashboard")
-            yield PeerSelector(
-                "issues-pull-requests",
-                "2 Issues & Pull Requests",
-                id="peer-issues-pull-requests",
-            )
+            for position, peer in enumerate(PEER_ORDER, start=1):
+                yield PeerSelector(
+                    peer,
+                    f"{position} {PEER_LABELS[peer]}",
+                    id=f"peer-{peer}",
+                )
         yield Static("Open PRs: - | Open Issues: -", id="peer-summary", markup=False)
 
     def on_mount(self) -> None:
@@ -70,12 +75,8 @@ class PeerStatusBar(Widget):
     def show_active(self, active: PeerName) -> None:
         """Render the same choices with only current-location encoding changed."""
         self.active = active
-        self.query_one("#peer-dashboard", PeerSelector).show_active(
-            active == "dashboard"
-        )
-        self.query_one("#peer-issues-pull-requests", PeerSelector).show_active(
-            active == "issues-pull-requests"
-        )
+        for peer in PEER_ORDER:
+            self.query_one(f"#peer-{peer}", PeerSelector).show_active(active == peer)
 
     def show_summary(self, summary: NavigationSummary) -> None:
         """Render exact open totals with their one aggregate freshness Glyph."""
@@ -85,10 +86,11 @@ class PeerStatusBar(Widget):
             "stale": STALE_TOTALS_GLYPH,
             None: None,
         }[summary.freshness]
+        text.append(summary.text)
         if glyph is not None:
+            text.append(" | ")
             text.append(
-                f"{glyph.symbol} ",
+                glyph.symbol,
                 style=glyph.style(dark=self.app.current_theme.dark),
             )
-        text.append(summary.text)
         self.query_one("#peer-summary", Static).update(text)

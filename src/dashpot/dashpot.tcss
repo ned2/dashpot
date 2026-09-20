@@ -73,11 +73,11 @@ Tooltip {
     overflow-x: auto;
 }
 
-/* The list panes stack full-width above the Issue table, each sized to its
-   content: a pane grows with its records up to the cap on its table and
-   scrolls beyond it, so the Issue table only pays for rows in use. Each pane
-   carries the blank line below it, which separates it from the next pane and,
-   for the last one, from the Issue table. */
+/* The panes stack full-width, each with the same one-row top gutter. The first
+   gutter separates content from the Peer Status Bar; every later one separates
+   adjacent panes. Dashboard lists seek enough height for every record and
+   share the available body when constrained; the bounded Pull Requests list
+   leaves the flexible Issue pane its minimum. */
 #list-row,
 #query-list-row {
     width: 1fr;
@@ -85,10 +85,14 @@ Tooltip {
     layout: vertical;
 }
 
+ListPane,
+#queue-pane {
+    margin-top: 1;
+}
+
 ListPane {
     width: 1fr;
     height: auto;
-    margin-bottom: 1;
     border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;
@@ -104,9 +108,8 @@ ListPane {
     border-subtitle-style: none;
 }
 
-/* Each table's cap is set by the dashboard from the height left over after
-   the detail row and the Issue table keep their minimums (the arithmetic is
-   `pane_layout.fit_panes`); the stylesheet only supplies the canvas. */
+/* Each table's content-height cap is fitted to the live Peer Screen body by
+   `pane_layout.fit_panes`; the stylesheet only supplies the canvas. */
 ListPane > FocusCursorTable {
     height: auto;
     background: $background;

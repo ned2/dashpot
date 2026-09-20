@@ -11,10 +11,11 @@ Issues table. Dashpot replaces that single pane of glass with two
 long-lived peer screens: `Dashboard`, containing Sessions, Worktrees and
 Branches, and `Issues & Pull Requests`, containing a bounded Pull Requests pane
 above a flexible Issues pane. A persistent status bar names both peers, marks
-the active one, switches directly by mouse or the `1` and `2` keys, and carries
-an exact open-Issue and open-Pull-Request summary. Switching peers replaces the
-active peer without building screen history; Issue Detail, Legend and Cleanup
-remain temporary screens that dismiss to the peer that opened them.
+the active one, switches directly by mouse or the `1` and `2` keys, cycles with
+wrapping through `Ctrl+Shift+Left` and `Ctrl+Shift+Right`, and carries an exact
+open-Issue and open-Pull-Request summary. Switching peers replaces the active
+peer without building screen history; Issue Detail, Legend and Cleanup remain
+temporary screens that dismiss to the peer that opened them.
 
 ## Ownership
 
@@ -80,14 +81,23 @@ unavailable-without-a-value and unconfigured values render `-`, zero renders
 no freshness state, and no freshness Glyph is shown when neither value is
 numeric. The precise Glyphs, colours, breakpoint and Textual layout mechanism
 are implementation choices; current location and freshness must remain
-apparent without depending on colour alone.
+apparent without depending on colour alone. The shipped treatment puts the
+aggregate Glyph after both totals and a final separator, with the fresh and
+stale shapes sharing one muted neutral colour so neither becomes another
+signal-bearing status colour.
 
 At wide widths the screen choices stay left and the summary floats right on one
 line. At compact widths the same status bar may wrap, with the summary
 preferring the left edge on its second line. Both query panes remain visible at
 every supported width: Pull Requests is content-sized to a cap and Issues owns
-the remaining height. The complete interaction contract and representative
-wireframes live in [the maintained design](../design.md#accepted-multi-screen-target).
+the remaining height. Dashboard panes instead seek enough height for their
+complete inventories: small panes donate unused height, while panes that still
+have rows share the live body height and scroll when constrained. No terminal
+height is assumed; resize and record-count changes refit the same allocation.
+Each content pane owns one top gutter: the first separates the status bar and
+every later one separates adjacent panes. The complete interaction contract and
+representative wireframes live in
+[the maintained design](../design.md#accepted-multi-screen-target).
 
 ## Considered options
 
@@ -115,12 +125,16 @@ wireframes live in [the maintained design](../design.md#accepted-multi-screen-ta
   first visit to Issues & Pull Requests focuses Pull Requests. Later visits
   restore each peer's last focused control.
 - `Tab`, `Shift+Tab` and row-boundary arrows cycle tables only within the active
-  peer. Direct screen keys are disabled while an editable text input has focus
-  and on temporary screens.
+  peer. Direct number keys are disabled while an editable text input has focus.
+  The priority `Ctrl+Shift+Left` and `Ctrl+Shift+Right` bindings cycle peers with
+  wrapping even from an editable input, taking precedence over its word-selection
+  bindings. All Peer Screen keys are disabled on temporary screens.
 - Pane inventory totals and accepted-page match counts remain alongside the
   global open-count summary because they report different facts.
 - Legend, Footer, alert and Diagnostics must follow the active peer, including
-  state changes accepted while the other peer is inactive.
+  state changes accepted while the other peer is inactive. The status bar owns
+  the persistent Peer Screen navigation affordance, so those navigation keys
+  stay out of the compact Footer while remaining documented in the Legend.
 - [Issue #270](https://github.com/ned2/dashpot/issues/270) delivers the decision
   as one vertical feature and replaces the maintained design's transitional
   account; exact layout is not a supported extension interface.
