@@ -22,7 +22,7 @@ class NavigationSummary:
     @property
     def text(self) -> str:
         """The status bar's fixed summary text."""
-        return f"Open Issues: {self.issues} | Open PRs: {self.pull_requests}"
+        return f"Open PRs: {self.pull_requests} | Open Issues: {self.issues}"
 
 
 def navigation_summary(

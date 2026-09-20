@@ -111,6 +111,7 @@ the management commands `init`, `integrate`,
 | Key | Action |
 |---|---|
 | `1` / `2` | Switch directly between Dashboard and Issues & Pull Requests; the complete labels in the top status bar are clickable too |
+| `Ctrl+Shift+Left` / `Ctrl+Shift+Right` | Move to the previous or next Peer Screen, wrapping at either end; these global shortcuts remain active while editing a query |
 | `r` | Restart both submitted queries from page one, refresh Project Totals, relevant Issue identities and local observations |
 | `Enter` in Worktrees | Open the selected Worktree in a new tmux pane or through the configured launcher |
 | `y` in Worktrees | Send the full Worktree path to the terminal clipboard |
@@ -133,14 +134,26 @@ keeps its focused control, row cursors, scroll positions, lifecycle choices,
 submitted queries and unsubmitted search text while the other is active; a
 pane's first entry starts at its first row. Passive refreshes preserve selected
 row identity. Issue Detail, Legend and Cleanup cover their originating peer,
-and `Escape` returns there; `1` and `2` are inactive on those temporary screens
-and insert text normally while an editable input has focus.
+and `Escape` returns there; all Peer Screen keys are inactive on those temporary
+screens. `1` and `2` insert text normally while an editable input has focus;
+`Ctrl+Shift+Left` and `Ctrl+Shift+Right` remain global screen navigation there
+rather than selecting query text by words.
 
-The shared status bar shows exactly `Open Issues: N | Open PRs: N` from Project
+The shared status bar shows exactly `Open PRs: N | Open Issues: N` from Project
 Totals. `-` means a total is unavailable. `◆` means every displayed number is
 fresh and `◇` means at least one is retained and stale; no freshness mark is
-shown when neither total is numeric. At compact widths the summary wraps below
-the complete peer labels.
+shown when neither total is numeric. The aggregate Glyph follows one final `|`,
+and both states use a muted neutral colour so freshness remains available
+without competing with signal-bearing Glyphs. At compact widths the summary
+wraps below the complete peer labels. One blank terminal row separates the
+status bar from the first content pane and separates each later pane from its
+predecessor.
+
+Dashboard panes grow toward their complete inventories when terminal height is
+available. A small or empty pane keeps only the height it needs and donates the
+rest; when the inventories cannot all fit, panes with remaining rows share the
+live height and scroll independently. Pull Requests remains bounded to eight
+content lines so the Issues table keeps its minimum height.
 
 Cleanup previews show the concrete primary target without a redundant checkbox.
 Removing a Worktree retains its attached local Branch unless you select that

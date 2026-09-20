@@ -214,15 +214,28 @@ does not add Back history.
 The persistent top row is Dashpot's own status bar, not Textual's default
 `Header`. It names both peers, marks the active one without relying on colour,
 and makes each complete label clickable. `1` and `2` are the equivalent direct
-keyboard paths. The shipped current-location marker uses brackets. `◆` marks
-fresh displayed totals and `◇` marks a retained stale total; the wireframes
-spell those marks as `<fresh>` and `<stale>` for clarity.
+keyboard paths. `Ctrl+Shift+Left` and `Ctrl+Shift+Right` move through the peers
+in status-bar order and wrap at either end. Each choice is a distinct one-row
+background-filled block, separated by one cell like a tmux window list. The
+active block uses a contrasting fill and bold text, so current location does
+not depend on colour.
+The wireframes surround the active label with `*` to represent bold rather
+than literal characters. `◆` marks fresh displayed totals and `◇` marks a
+retained stale total; the wireframes spell those marks as `<fresh>` and
+`<stale>` for clarity. The final separator makes either mark apply to both
+totals, and both marks use the same muted neutral colour so the binary shape is
+available without becoming an attention signal.
+
+Every content pane owns the same one-row top gutter. The first gutter separates
+the content stack from the persistent status bar; each later gutter separates
+adjacent panes. One terminal row is the smallest positive Textual spacing unit,
+so the layout uses no separate status-bar padding or trailing pane margin.
 
 A representative wide Dashboard is:
 
 ```text
 +--------------------------------------------------------------------------------------------------+
-| [1 Dashboard]  2 Issues & Pull Requests       <fresh> Open Issues: 18 | Open PRs: 2             |
+| *1 Dashboard*  2 Issues & Pull Requests        Open PRs: 2 | Open Issues: 18 | <fresh>             |
 +--------------------------------------------------------------------------------------------------+
 | SESSIONS · 4                                                                                     |
 | ...active Agent Sessions...                                                                      |
@@ -231,7 +244,7 @@ A representative wide Dashboard is:
 | ...main and linked Worktrees...                                                                  |
 +--------------------------------------------------------------------------------------------------+
 | BRANCHES · 12                                                                                    |
-| ...content-capped Branch rows, scrolling beyond the cap...                                       |
+| ...Branch rows fitted with the other Dashboard inventories to the live height...                 |
 +--------------------------------------------------------------------------------------------------+
 | Alert / Diagnostics when present                                                      r  ?  q    |
 +--------------------------------------------------------------------------------------------------+
@@ -241,7 +254,7 @@ The wide Issues & Pull Requests peer keeps both queries visible:
 
 ```text
 +--------------------------------------------------------------------------------------------------+
-| 1 Dashboard  [2 Issues & Pull Requests]       <fresh> Open Issues: 18 | Open PRs: 2             |
+| 1 Dashboard  *2 Issues & Pull Requests*        Open PRs: 2 | Open Issues: 18 | <fresh>             |
 +--------------------------------------------------------------------------------------------------+
 | PULL REQUESTS · Open 2 · Closed 3                                                            |
 | [Open v]  [Search Pull Requests____________________________]  2 pull requests                    |
@@ -262,8 +275,8 @@ the shipped breakpoint is 100 columns:
 
 ```text
 +----------------------------------------------------------+
-| [1 Dashboard]  2 Issues & Pull Requests                  |
-| <fresh> Open Issues: 18 | Open PRs: 2                    |
+| *1 Dashboard*  2 Issues & Pull Requests                   |
+| Open PRs: 2 | Open Issues: 18 | <fresh>                    |
 +----------------------------------------------------------+
 | SESSIONS · 4                                             |
 | ...                                                      |
@@ -278,8 +291,8 @@ the shipped breakpoint is 100 columns:
 
 ```text
 +----------------------------------------------------------+
-| 1 Dashboard  [2 Issues & Pull Requests]                  |
-| <fresh> Open Issues: 18 | Open PRs: 2                    |
+| 1 Dashboard  *2 Issues & Pull Requests*                   |
+| Open PRs: 2 | Open Issues: 18 | <fresh>                    |
 +----------------------------------------------------------+
 | PULL REQUESTS · Open 2 · Closed 3                        |
 | [Open v] [Search Pull Requests__________] 2 pull requests|
@@ -323,7 +336,7 @@ steals focus.
 | Submitted query record and unsubmitted search text | `ListQueries` and controls on Issues & Pull Requests | Preserved with the long-lived query peer; switching alone submits nothing. |
 | Issue columns and selected stable row identity | `IssueTableController` on Issues & Pull Requests | Preserved and reconciled against accepted pages. |
 | Focus, active table row, table scroll and control cursor | Long-lived Textual screen and widgets | Preserved natively while the peer is inactive; not persisted across a Dashpot restart. |
-| Active peer | App navigation | Replaced directly by `1`, `2` or a status-bar click; no peer Back history. |
+| Active peer | App navigation | Replaced directly by `1`, `2` or a status-bar click, or cyclically with wrapping by `Ctrl+Shift+Left` / `Ctrl+Shift+Right`; no peer Back history. |
 | Alert and Diagnostics content | Existing app-owned derivations | Rendered on both peers from the same facts, including changes accepted while one is inactive. |
 
 Page Navigation history and table navigation are deliberately different. The
@@ -339,7 +352,8 @@ key:
 
 | Key or action | Dashboard | Issues & Pull Requests |
 | --- | --- | --- |
-| `1`, `2`, clickable screen labels | Switch peers | Switch peers |
+| `1`, `2`, clickable screen labels | Switch directly | Switch directly |
+| `Ctrl+Shift+Left`, `Ctrl+Shift+Right` | Move through peers with wrapping | Move through peers with wrapping |
 | `r`, `?`, `q` | Refresh, Legend, quit | Refresh, Legend, quit |
 | `f`, `x` | Remote Fetch; Cleanup of the selected Branch or Worktree | Unavailable |
 | `/`, `o`, `n`, `p`, `g` | Unavailable | Search, lifecycle and page action of the pane that owns focus, including its controls |
@@ -348,7 +362,12 @@ key:
 
 The Footer exposes the active peer's available actions. The Legend groups
 global keys and each peer's keys rather than implying that a hidden screen's
-actions are available. A Session cursor no longer opens or highlights an Issue
+actions are available. Peer Screen navigation stays out of the compact Footer
+because the persistent status bar already presents the direct destinations;
+the complete Legend still lists every navigation key. Number keys keep typing
+in an editable query input, while the modified-arrow peer keys are priority
+bindings and keep navigating from that focus; all peer keys are inactive on
+temporary screens. A Session cursor no longer opens or highlights an Issue
 across screens; relationship emphasis that is meaningful among Sessions,
 Worktrees and Branches remains within Dashboard. An ordinary peer switch never
 chases, filters or repositions the other screen.
@@ -356,7 +375,7 @@ chases, filters or repositions the other screen.
 ### Navigation summary
 
 The right side of the status bar renders exactly
-`Open Issues: {value} | Open PRs: {value}` on both peers. It reads independent
+`Open PRs: {value} | Open Issues: {value}` on both peers. It reads independent
 Project Totals, never the filtered Query Pages. Pane titles retain their open
 and closed inventories, and filter bars retain the accepted page's matching count:
 the three readouts intentionally report different facts. No repository-wide
@@ -372,12 +391,12 @@ needed.
 | Unavailable without a retained value | `-` | Contributes no freshness state |
 | Pull Requests intentionally unconfigured | `-` | Contributes no freshness state |
 
-Thus a fresh Issue count beside an unavailable Pull Request count shows the
-fresh Glyph and `Open Issues: 18 | Open PRs: -`; when neither side is numeric no
-freshness Glyph appears. Availability remains in the placeholder and existing
-Diagnostics, while the one binary Glyph says only whether the numbers actually
-shown are fresh or stale. Colour may reinforce but never carry either state by
-itself.
+Thus a fresh Issue count beside an unavailable Pull Request count shows
+`Open PRs: - | Open Issues: 18 | ◆`; when neither side is numeric neither the
+final separator nor the freshness Glyph appears. Availability remains in the
+placeholder and existing Diagnostics, while the one binary Glyph says only
+whether the numbers actually shown are fresh or stale. Both states use the same
+muted neutral colour; filled versus hollow carries the distinction.
 
 ### Adapter shape
 
@@ -402,13 +421,18 @@ submit on Enter; clearing search submits the default source query. GitHub owns
 advanced syntax and ordering; Markdown uses local lexical matching and local
 ordering before pagination.
 
-Dashboard's panes are sized to their content. Pull Requests asks for its rows
-up to a cap of eight and scrolls beyond it; the cap shrinks before the Issue
-table would drop below its minimum height. An ordinary empty list pane costs
-three lines. The Sessions list starts with focus on Dashboard and Pull Requests
-starts with focus on the query peer. `Tab`, `Shift+Tab`, `Down` at the last row
-and `Up` at the first row cycle within the active peer only; an empty list moves
-on immediately, and each list keeps its row cursor when focus
+Dashboard panes seek enough height for their complete inventories. Small and
+empty panes take only what they need; panes with remaining rows share the live
+body height fairly and scroll when their combined content cannot fit. Terminal
+resize and record-count changes rerun the same content-aware allocation, without
+a fixed terminal-height assumption. Pull Requests alone has a record ceiling of
+eight; its content-height cap shrinks before the Issue table would drop below
+its minimum height. A horizontal scrollbar occupies one of those bounded
+content lines when the table is narrow. An ordinary empty list pane costs three
+lines. The Sessions list starts with focus on Dashboard and Pull Requests starts
+with focus on the query peer. `Tab`, `Shift+Tab`, `Down` at the last row and `Up`
+at the first row cycle within the active peer only; an empty list moves on
+immediately, and each list keeps its row cursor when focus
 returns — from another pane or from the terminal after a window switch, which
 Textual reports as `AppBlur` and `AppFocus` and which a table cannot tell from
 pane entry, so the cursor is left where a stock `DataTable` leaves it

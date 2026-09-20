@@ -75,5 +75,5 @@ def test_navigation_summary_reports_exact_open_totals_and_aggregate_freshness(
 ) -> None:
     assert navigation_summary(observed) == expected
     assert navigation_summary(observed).text == (
-        f"Open Issues: {expected.issues} | Open PRs: {expected.pull_requests}"
+        f"Open PRs: {expected.pull_requests} | Open Issues: {expected.issues}"
     )

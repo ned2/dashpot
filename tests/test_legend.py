@@ -411,6 +411,14 @@ def shipped_bindings() -> set[tuple[str, str]]:
 
 def test_the_legend_lists_every_shipped_key_and_the_focus_cycle() -> None:
     """A key on any screen or widget is explained, including Tab's override."""
+    global_keys = legend_keys()[0]
+    assert global_keys.include_hidden
+    assert {
+        "1",
+        "2",
+        "ctrl+shift+left",
+        "ctrl+shift+right",
+    } <= {binding.key for binding in Binding.make_bindings(global_keys.bindings)}
     listed = {
         (binding.key, binding.description)
         for group in legend_keys()

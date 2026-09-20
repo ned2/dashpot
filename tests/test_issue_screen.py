@@ -800,7 +800,10 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         )
         # A colour-bearing Glyph shows the swatch the cell would.
         running = session_cells.STATE_GLYPHS["running"]
-        sessions = screen.query_one("#legend-section-0", Static)
+        sessions_index = next(
+            index for index, section in enumerate(LEGEND) if running in section.glyphs
+        )
+        sessions = screen.query_one(f"#legend-section-{sessions_index}", Static)
         content = sessions.render()
         assert isinstance(content, Content)
         span_style = content.spans[0].style

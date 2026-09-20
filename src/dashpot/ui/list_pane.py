@@ -18,7 +18,7 @@ from .focus_table import FocusCursorTable
 from .item_filter import ItemFilterBar
 from .keyed_table import capture_selection, restore_selection
 from .list_rows import ListCell, ListColumn, ListRow, column_help
-from .pane_layout import DEFAULT_ROW_CAP
+from .pane_layout import content_height_wish, pane_wish
 
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
@@ -64,6 +64,7 @@ class ListPane(Vertical):
         table_type: type[FocusCursorTable[ListCell]] = FocusCursorTable,
         controls: ItemFilterBar | None = None,
         controls_height: int = 0,
+        visible_row_limit: int | None = None,
     ) -> None:
         super().__init__(id=id)
         if (controls is None) != (controls_height == 0):
@@ -77,9 +78,10 @@ class ListPane(Vertical):
         # The read-model records the listed rows were built from, kept so a
         # cursor action reads its record here and never queries the store.
         self.records: tuple[FocusedSource, ...] = ()
-        self.row_cap = DEFAULT_ROW_CAP
+        self.content_height_cap = 0
         self.controls = controls
         self._controls_height = controls_height
+        self.visible_row_limit = visible_row_limit
 
     @override
     def compose(self) -> ComposeResult:
@@ -105,6 +107,14 @@ class ListPane(Vertical):
     def controls_height(self) -> int:
         """Report the height the pane needs whenever it shows its controls."""
         return self._controls_height
+
+    def height_wish(self) -> int:
+        """The pane height that would show every record its policy admits."""
+        return pane_wish(
+            self.count,
+            controls_height=self.controls_height,
+            visible_row_limit=self.visible_row_limit,
+        )
 
     def declare_columns(self, columns: Sequence[ListColumn]) -> None:
         """Replace the pane's columns, which a read model may vary per refresh."""
@@ -178,7 +188,9 @@ class ListPane(Vertical):
         empty = self.query_one(".list-pane-empty", Static)
         empty.update(message)
         empty.display = not rows
-        self.apply_row_cap()
+        # Keep the previous allocation through reconciliation, but apply the
+        # current record policy before the screen handles ``RowsChanged``.
+        self.fit_rows(self.content_height_cap)
         self.post_message(self.RowsChanged(self))
         restore_selection(table, prior_key, prior_index, desired)
 
@@ -196,26 +208,34 @@ class ListPane(Vertical):
             return aligned
         return Text(cell, justify=justify)
 
-    def fit_rows(self, row_cap: int) -> None:
-        """Cap the visible records so the panes never crowd out the Issue table.
+    def fit_rows(self, content_height_cap: int) -> None:
+        """Cap the table content so the pane stack fits its available height.
 
-        ``row_cap`` is the number of content lines the pane may show before it
-        scrolls; an empty pane uses one for its message, while zero collapses
-        the table to its frame and title count.
+        The cap includes a horizontal scrollbar when present and is therefore
+        not necessarily a visible-record count. An empty pane uses one content
+        line for its message, while zero collapses to its frame and title.
         """
-        self.row_cap = max(0, min(DEFAULT_ROW_CAP, row_cap))
-        self.apply_row_cap()
+        self.content_height_cap = max(
+            0,
+            min(
+                content_height_cap,
+                content_height_wish(self.count, self.visible_row_limit),
+            ),
+        )
+        self.apply_content_height_cap()
 
-    def apply_row_cap(self) -> None:
+    def apply_content_height_cap(self) -> None:
         table = self.table
         if self.controls is not None:
-            self.controls.display = self.row_cap > 0
+            self.controls.display = self.content_height_cap > 0
         header_height = 1 if table.show_header else 0
         table.styles.max_height = (
-            header_height + self.row_cap if self.row_cap and self.rows_by_key else 0
+            header_height + self.content_height_cap
+            if self.content_height_cap and self.rows_by_key
+            else 0
         )
         self.query_one(".list-pane-empty", Static).display = (
-            not self.rows_by_key and self.row_cap > 0
+            not self.rows_by_key and self.content_height_cap > 0
         )
 
     def highlighted(self) -> tuple[str | None, int]:

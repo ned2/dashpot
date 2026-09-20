@@ -94,10 +94,12 @@ class PaneSpec:
     ``query_kind`` is the paged Query Source kind the pane lists, whose
     query its ``controls`` submit; a pane over the observation store has
     neither. ``controls`` composes the pane's filtering controls, one per
-    screen, and ``controls_height`` is the height they take. ``related`` picks the
-    relationship set that holds this pane's keys, and ``related_columns``
-    the columns that emphasise a related row; a pane without either takes
-    no part in relationship emphasis.
+    screen, and ``controls_height`` is the height they take.
+    ``visible_row_limit`` bounds records on a pane that must leave another
+    surface flexible; ``None`` lets a pane seek enough viewport height for
+    every record. ``related`` picks the relationship set that holds this
+    pane's keys, and ``related_columns`` the columns that emphasise a related
+    row; a pane without either takes no part in relationship emphasis.
     """
 
     pane_id: ListPaneId
@@ -110,6 +112,7 @@ class PaneSpec:
     query_kind: ResourceKind | None = None
     controls: Callable[[], ItemFilterBar] | None = None
     controls_height: int = 0
+    visible_row_limit: int | None = None
     related: Callable[[RelatedRows], frozenset[str]] | None = None
     related_columns: frozenset[str] = frozenset()
 
@@ -246,6 +249,7 @@ QUERY_PANE_SPECS: tuple[PaneSpec, ...] = (
         query_kind="pull-requests",
         controls=pull_request_filter_bar,
         controls_height=ItemFilterBar.HEIGHT,
+        visible_row_limit=8,
     ),
 )
 
