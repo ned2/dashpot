@@ -434,7 +434,12 @@ def is_adr(path: Path) -> bool:
 
 
 def escape_table_cell(text: str) -> str:
-    """Escape what would otherwise end a Markdown table cell."""
+    """Escape what would otherwise end a Markdown table cell.
+
+    Every cell holding text read out of an ADR is escaped, whether or not
+    another gate happens to constrain that field today, so a new column needs
+    no reasoning about which values are already safe.
+    """
     return text.replace("|", "\\|")
 
 
@@ -535,7 +540,7 @@ def render_adr_index(paths: Sequence[Path]) -> str:
         )
         lines.append(
             f"| {entry.number} | [{escape_table_cell(entry.title)}]({entry.filename}) "
-            f"| {entry.status} | {resolved} |"
+            f"| {escape_table_cell(entry.status)} | {resolved} |"
         )
     return "\n".join(lines) + "\n"
 
