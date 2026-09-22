@@ -412,11 +412,11 @@ def check_adr_numbers(paths: Sequence[Path]) -> list[Problem]:
             )
             continue
         by_number.setdefault(match.group("number"), []).append(relative)
-    for number, records in sorted(by_number.items()):
-        if len(records) < 2:
+    for number, claimants in sorted(by_number.items()):
+        if len(claimants) < 2:
             continue
-        for relative in records:
-            others = ", ".join(other for other in records if other != relative)
+        for relative in claimants:
+            others = ", ".join(other for other in claimants if other != relative)
             problems.append(
                 Problem(relative, 1, f"ADR number {number} is also taken by {others}")
             )

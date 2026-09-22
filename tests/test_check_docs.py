@@ -476,9 +476,9 @@ def test_the_adr_index_needs_no_number(
 ) -> None:
     """The index records no decision, so it claims no number."""
     index = write_document(tmp_path, "docs/adr/README.md", "")
-    record = write_document(tmp_path, "docs/adr/0034-publish-an-alpha.md", "")
+    adr = write_document(tmp_path, "docs/adr/0034-publish-an-alpha.md", "")
 
-    assert check_numbers(monkeypatch, tmp_path, index, record) == []
+    assert check_numbers(monkeypatch, tmp_path, index, adr) == []
 
 
 def test_a_numbered_document_outside_the_adr_directory_is_left_alone(
