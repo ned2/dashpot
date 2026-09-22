@@ -1,5 +1,5 @@
 ---
-status: research
+status: proposal
 date: 2026-09-13
 ---
 

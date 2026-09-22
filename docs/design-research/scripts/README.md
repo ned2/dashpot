@@ -39,14 +39,14 @@ none is a Dashpot dependency.
 | --- | --- | --- | --- |
 | Preparation | `prep.py` | the 27 research notes (index, synthesis, analysis, and plan excluded) | `bodies/N01–N27.md`, `note-codes.json`, `edges.json` |
 | Step 0, link graph | `linkgraph.py` | `note-codes.json`, `edges.json`, `bodies/` | `step0-linkgraph.md`, `note-graph-body.edgelist` |
-| Extraction rules | `extractor-instructions.md` | — | given verbatim to every card-extraction agent |
+| Extraction rules | [`extractor-instructions.md`](extractor-instructions.md) | — | given verbatim to every card-extraction agent |
 | Calibration | `calib_compare.py` | `calib/A–F.json`, six extractions of N05 | counts and granularity to stdout |
 | Card validation | `validate_cards.py` | `cards/N*.json` | findings to stdout; rewrites `cards/N*.json` with repaired anchors |
 | Inventory build | `build_inventory.py` | `cards/`, `note-codes.json`, `placements.json`; the repository's `scripts/check_docs.py` for heading anchors | `../claim-inventory.md`, `../claim-inventory/N*.md`, `all_cards.json`, the shuffled `export.json` and `export.txt` |
-| Clustering rules | `clusterer-common.md` | — | given to the four blind clustering agents |
+| Clustering rules | [`clusterer-common.md`](clusterer-common.md) | — | given to the four blind clustering agents |
 | Clustering check | `check_clustering.py` | a clusterer's JSON | coverage, duplicates, group sizes to stdout |
 | Step 2.4, mechanical | `mechanical.py` | `export.json`, `note-codes.json`, `note-graph-body.edgelist` | `mech-plain.json`, `mech-noframe.json`, `undrawn.json`; silhouette per k to stdout |
-| Framed placement | `frame.md` | — | the frame given to the placement agent after the blind runs |
+| Framed placement | [`frame.md`](frame.md) | — | the frame given to the placement agent after the blind runs |
 | Step 3, reconciliation | `reconcile.py` | `clusters/mechanism-A,B.json`, `clusters/tension-A,B.json`, `clusters/placement.json`, `export.json` | `reconcile-report.md`, `robust.json`; NMI and ARI per run pair |
 | Group summary | `summarise_groups.py` | `clusters/` | `groups-summary.md` |
 | Emergent themes | `emergent_stats.py` | `clusters/`, `export.json` | per-candidate overlap, note span, and evidence to stdout |
