@@ -1,13 +1,15 @@
 """Check the repository's Markdown documents for staleness signals.
 
-Two gates run over the tracked Markdown files. The link gate resolves every
+Three gates run over the tracked Markdown files. The link gate resolves every
 in-repo link — relative paths, heading anchors, and `#L<n>` / `#L<n>-L<m>` line
 fragments — and fails on a target that does not exist, so a rename, a moved
 section, or an edit that shortens a file cannot silently rot a pointer.
 The frontmatter gate requires every document under `docs/` to declare its
 `status` and `date`, and requires a `superseded` or `amended` document to name
 what replaced or changed it, so a reader can tell a living document from a
-finished research note without reading it.
+finished research note without reading it. The ADR numbering gate requires
+every decision record to carry a number no other record claims, so a bare
+"ADR 0034" in prose or in a code comment still identifies one document.
 
 The gate errs towards silence: code is masked before anything is read out of a
 document, because a false failure on a legitimate document is worse than a
@@ -29,6 +31,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DOCS_DIRECTORY = "docs"
 ADR_DIRECTORY = "docs/adr"
+# The index beside the records is not itself a decision, so it takes no number.
+ADR_INDEX_NAME = "README.md"
+ADR_NUMBER_PATTERN = re.compile(r"\A(?P<number>\d{4})-")
 
 # What a `status:` may say. ADRs track a decision's standing; every other
 # document declares how it should be read.
@@ -383,6 +388,41 @@ def check_frontmatter(paths: Sequence[Path]) -> list[Problem]:
     return problems
 
 
+def check_adr_numbers(paths: Sequence[Path]) -> list[Problem]:
+    """Require every decision record to carry a number no other record claims.
+
+    A number identifies a decision where no link resolves it — running prose
+    and code comments say "ADR 0034" and nothing else — so two records sharing
+    one leave every bare reference naming neither. Uniqueness is a property of
+    the directory rather than of a document, so the caller passes the whole
+    tracked set; a narrowed selection cannot answer it.
+    """
+    problems: list[Problem] = []
+    by_number: dict[str, list[str]] = {}
+    for path in sorted(paths):
+        relative = path.relative_to(PROJECT_ROOT).as_posix()
+        if not relative.startswith(f"{ADR_DIRECTORY}/"):
+            continue
+        if path.name == ADR_INDEX_NAME:
+            continue
+        match = ADR_NUMBER_PATTERN.match(path.name)
+        if match is None:
+            problems.append(
+                Problem(relative, 1, "filename declares no four-digit ADR number")
+            )
+            continue
+        by_number.setdefault(match.group("number"), []).append(relative)
+    for number, records in sorted(by_number.items()):
+        if len(records) < 2:
+            continue
+        for relative in records:
+            others = ", ".join(other for other in records if other != relative)
+            problems.append(
+                Problem(relative, 1, f"ADR number {number} is also taken by {others}")
+            )
+    return problems
+
+
 def select(
     tracked: Sequence[Path], names: Sequence[str]
 ) -> tuple[list[Path], list[str]]:
@@ -417,7 +457,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         paths = tracked
 
-    problems = check_frontmatter(paths) + check_links(paths)
+    # The numbering gate reads every record: a selection cannot show a
+    # collision with a file the caller did not name.
+    problems = (
+        check_frontmatter(paths) + check_links(paths) + check_adr_numbers(tracked)
+    )
     for problem in sorted(
         problems, key=lambda item: (item.path, item.line, item.message)
     ):

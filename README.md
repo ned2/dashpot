@@ -398,10 +398,12 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   checking. Ruff's rule selection and ty's rule levels live in
   [`pyproject.toml`](pyproject.toml). Then
   [`scripts/check_docs.py`](scripts/check_docs.py) resolves every in-repo
-  Markdown link (its path, heading anchor, or `#L` line fragment) and requires
+  Markdown link (its path, heading anchor, or `#L` line fragment), requires
   the frontmatter described in the
-  [documentation map](#documentation-map); it always reads the whole document
-  set, because a link resolves against files the commit need not touch.
+  [documentation map](#documentation-map), and requires each ADR's number to
+  be its own; it always reads the whole document set, because a link resolves
+  against files the commit need not touch, and one ADR's number is only
+  unique with respect to all the others.
 - **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
   lockfile, Ruff lint and formatting, ty, the documents, and the distribution
@@ -914,8 +916,14 @@ comma-separated paths written relative to the naming document's own directory,
 the way its prose links are, and both are resolved by the gate: a replacement
 that is renamed or removed fails the build rather than rotting quietly.
 
-`uv run python scripts/check_docs.py` enforces the frontmatter and every
-in-repo Markdown link, and runs as part of the [quality gates](#quality-gates).
+Each ADR's filename opens with the zero-padded four-digit number that prose
+and code comments use to name it, and no two ADRs may claim the same one: a
+shared number leaves every bare "ADR 0034" identifying neither document. An
+index beside the records carries no number, because it records no decision.
+
+`uv run python scripts/check_docs.py` enforces the frontmatter, every in-repo
+Markdown link, and ADR numbering, and runs as part of the
+[quality gates](#quality-gates).
 
 ## License
 

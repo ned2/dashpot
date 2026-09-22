@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-05
-amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0034-read-machine-local-settings-as-toml.md, 0039-anchor-the-default-worktree-root-on-the-main-working-tree.md
+amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0039-anchor-the-default-worktree-root-on-the-main-working-tree.md, 0052-read-machine-local-settings-as-toml.md
 ---
 
 # Prepare Issue Worktrees by convention, and only report their removability
@@ -112,7 +112,7 @@ conventions the command owns, so that no agent skill re-derives them.
   flags name, unforced, only when integrated, and only from a preview a
   person confirmed. `worktree check` is unchanged and still read-only.
 
-- Amended by [ADR 0034](0034-read-machine-local-settings-as-toml.md): machine-local
+- Amended by [ADR 0052](0052-read-machine-local-settings-as-toml.md): machine-local
   settings now use `config.toml` and the `worktree_root` key. Root precedence
   and path resolution remain unchanged; the former `settings.json` is ignored.
 - Amended by [ADR 0039](0039-anchor-the-default-worktree-root-on-the-main-working-tree.md):
