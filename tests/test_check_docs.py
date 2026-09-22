@@ -21,7 +21,11 @@ def write_document(root: Path, name: str, body: str) -> Path:
 
 
 def check(monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path) -> list[str]:
-    """Run the document gates against a disposable tree and return their messages."""
+    """Run the frontmatter and link gates against a disposable tree.
+
+    The numbering gate reads the whole set rather than a selection, so it has
+    a helper of its own.
+    """
     monkeypatch.setattr(check_docs, "PROJECT_ROOT", root)
     problems = check_docs.check_frontmatter(paths) + check_docs.check_links(paths)
     return [problem.render() for problem in problems]
@@ -427,7 +431,7 @@ def test_an_untracked_path_argument_is_reported(
 def test_two_adrs_sharing_a_number_fail(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A bare "ADR 0034" has to identify one record, so the gate rejects a collision."""
+    """A bare "ADR NNNN" has to identify one ADR, so the gate rejects a collision."""
     alpha = write_document(tmp_path, "docs/adr/0034-publish-an-alpha.md", "")
     toml = write_document(tmp_path, "docs/adr/0034-read-settings-as-toml.md", "")
     lone = write_document(tmp_path, "docs/adr/0035-open-worktrees.md", "")
@@ -454,7 +458,7 @@ def test_distinct_adr_numbers_pass(
 def test_an_adr_filename_without_a_number_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A record the gate cannot number is one it cannot check for a collision."""
+    """An ADR the gate cannot number is one it cannot check for a collision."""
     unnumbered = write_document(tmp_path, "docs/adr/read-settings-as-toml.md", "")
     short = write_document(tmp_path, "docs/adr/034-publish-an-alpha.md", "")
 

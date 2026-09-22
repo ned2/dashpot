@@ -918,8 +918,8 @@ that is renamed or removed fails the build rather than rotting quietly.
 
 Each ADR's filename opens with the zero-padded four-digit number that prose
 and code comments use to name it, and no two ADRs may claim the same one: a
-shared number leaves every bare "ADR 0034" identifying neither document. An
-index beside the records carries no number, because it records no decision.
+shared number leaves every bare "ADR NNNN" identifying neither document. An
+index beside the ADRs carries no number, because it records no decision.
 
 `uv run python scripts/check_docs.py` enforces the frontmatter, every in-repo
 Markdown link, and ADR numbering, and runs as part of the

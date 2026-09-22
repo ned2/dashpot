@@ -8,8 +8,8 @@ The frontmatter gate requires every document under `docs/` to declare its
 `status` and `date`, and requires a `superseded` or `amended` document to name
 what replaced or changed it, so a reader can tell a living document from a
 finished research note without reading it. The ADR numbering gate requires
-every decision record to carry a number no other record claims, so a bare
-"ADR 0034" in prose or in a code comment still identifies one document.
+every ADR to carry a number no other ADR claims, so a bare "ADR NNNN" in
+prose or in a code comment still identifies one document.
 
 The gate errs towards silence: code is masked before anything is read out of a
 document, because a false failure on a legitimate document is worse than a
@@ -31,7 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DOCS_DIRECTORY = "docs"
 ADR_DIRECTORY = "docs/adr"
-# The index beside the records is not itself a decision, so it takes no number.
+# The index beside the ADRs is not itself a decision, so it takes no number.
 ADR_INDEX_NAME = "README.md"
 ADR_NUMBER_PATTERN = re.compile(r"\A(?P<number>\d{4})-")
 
@@ -389,10 +389,10 @@ def check_frontmatter(paths: Sequence[Path]) -> list[Problem]:
 
 
 def check_adr_numbers(paths: Sequence[Path]) -> list[Problem]:
-    """Require every decision record to carry a number no other record claims.
+    """Require every ADR to carry a number no other ADR claims.
 
     A number identifies a decision where no link resolves it — running prose
-    and code comments say "ADR 0034" and nothing else — so two records sharing
+    and code comments say "ADR NNNN" and nothing else — so two ADRs sharing
     one leave every bare reference naming neither. Uniqueness is a property of
     the directory rather than of a document, so the caller passes the whole
     tracked set; a narrowed selection cannot answer it.
@@ -457,7 +457,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         paths = tracked
 
-    # The numbering gate reads every record: a selection cannot show a
+    # The numbering gate reads every ADR: a selection cannot show a
     # collision with a file the caller did not name.
     problems = (
         check_frontmatter(paths) + check_links(paths) + check_adr_numbers(tracked)

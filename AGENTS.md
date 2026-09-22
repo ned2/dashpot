@@ -210,7 +210,7 @@ The conventions the tooling enforces or the code assumes:
 - Every document under `docs/` declares `status` and `date` in frontmatter,
   every in-repo Markdown link resolves — path, heading anchor, and `#L`
   line fragment — and every ADR carries a four-digit number no other ADR
-  claims, so a bare "ADR 0034" in prose or in a code comment still names one
+  claims, so a bare "ADR NNNN" in prose or in a code comment still names one
   document.
   `scripts/check_docs.py` fails the gate on any of them. When you move or rename a
   section, fix the pointers in the same change; when you finish work an ADR or
