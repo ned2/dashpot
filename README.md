@@ -397,13 +397,14 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   fixes, then `ruff-format`, then [ty](https://docs.astral.sh/ty/) static type
   checking. Ruff's rule selection and ty's rule levels live in
   [`pyproject.toml`](pyproject.toml). Then
-  [`scripts/check_docs.py`](scripts/check_docs.py) resolves every in-repo
+  [`scripts/maintain_docs.py`](scripts/maintain_docs.py) resolves every in-repo
   Markdown link (its path, heading anchor, or `#L` line fragment), requires
   the frontmatter described in the
-  [documentation map](#documentation-map), and requires each ADR's number to
-  be its own; it always reads the whole document set, because a link resolves
-  against files the commit need not touch, and one ADR's number is only
-  unique with respect to all the others.
+  [documentation map](#documentation-map), requires each ADR's number to
+  be its own, and requires the [ADR index](docs/adr/README.md) to be the file
+  the script generates; it always reads the whole document set, because a link
+  resolves against files the commit need not touch, and neither an ADR's number
+  nor the index's completeness is a property of one document.
 - **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
   lockfile, Ruff lint and formatting, ty, the documents, and the distribution
@@ -788,7 +789,8 @@ Worktrees by its own rules. Each Worktree owns its own `.venv` and
 How the pieces fit — the observation pipeline, the read model, the source and
 store seams, and the Textual layer over them — is described in
 [`docs/design.md`](docs/design.md). The decisions behind them are in
-[`docs/adr/`](docs/adr/).
+[`docs/adr/`](docs/adr/), listed in its
+[index](docs/adr/README.md).
 
 ## Contributing
 
@@ -853,7 +855,7 @@ These `living` documents carry the detail this README points at:
   work rather than the session as the unit.
 
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
-decision. The other files in [`docs/`](docs/) are research, audits, and
+decision, indexed by number in [`docs/adr/README.md`](docs/adr/README.md). The other files in [`docs/`](docs/) are research, audits, and
 proposals that informed decisions and implementation.
 The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycle-spike.md)
 records the reproducible evidence for a possible OpenCode integration, the
@@ -918,12 +920,21 @@ that is renamed or removed fails the build rather than rotting quietly.
 
 Each ADR's filename opens with the zero-padded four-digit number that prose
 and code comments use to name it, and no two ADRs may claim the same one: a
-shared number leaves every bare "ADR NNNN" identifying neither document. An
-index beside the ADRs carries no number, because it records no decision.
+shared number leaves every bare "ADR NNNN" identifying neither document.
 
-`uv run python scripts/check_docs.py` enforces the frontmatter, every in-repo
-Markdown link, and ADR numbering, and runs as part of the
-[quality gates](#quality-gates).
+[`docs/adr/README.md`](docs/adr/README.md) indexes every ADR by number, with
+its title, `status`, and whatever resolved it. It is generated from the ADRs
+themselves rather than maintained by hand, so it cannot describe a set of
+decisions that no longer exists; it carries no number of its own, because it
+records no decision, and it declares a document `status` for the same reason.
+Its `date:` is its newest ADR's, which makes the file a function of its inputs
+and lets the gate compare it whole. Run
+`uv run python scripts/maintain_docs.py --write-adr-index` after adding or
+changing an ADR.
+
+`uv run python scripts/maintain_docs.py` enforces the frontmatter, every
+in-repo Markdown link, ADR numbering, and the index's freshness, and runs as
+part of the [quality gates](#quality-gates).
 
 ## License
 

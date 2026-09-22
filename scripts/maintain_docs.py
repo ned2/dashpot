@@ -1,6 +1,6 @@
-"""Check the repository's Markdown documents for staleness signals.
+"""Maintain the repository's Markdown documents: check them, and build the ADR index.
 
-Three gates run over the tracked Markdown files. The link gate resolves every
+Four gates run over the tracked Markdown files. The link gate resolves every
 in-repo link — relative paths, heading anchors, and `#L<n>` / `#L<n>-L<m>` line
 fragments — and fails on a target that does not exist, so a rename, a moved
 section, or an edit that shortens a file cannot silently rot a pointer.
@@ -9,7 +9,13 @@ The frontmatter gate requires every document under `docs/` to declare its
 what replaced or changed it, so a reader can tell a living document from a
 finished research note without reading it. The ADR numbering gate requires
 every ADR to carry a number no other ADR claims, so a bare "ADR NNNN" in
-prose or in a code comment still identifies one document.
+prose or in a code comment still identifies one document. The ADR index gate
+requires the committed index to be the one this script generates, so a new
+decision cannot be left out of it.
+
+The index is generated rather than hand-maintained, because a hand-maintained
+table of every ADR goes stale the moment someone adds one without touching it.
+`--write-adr-index` rewrites it; the gate only reports that it needs rewriting.
 
 The gate errs towards silence: code is masked before anything is read out of a
 document, because a false failure on a legitimate document is worse than a
@@ -31,9 +37,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DOCS_DIRECTORY = "docs"
 ADR_DIRECTORY = "docs/adr"
-# The index beside the ADRs is not itself a decision, so it takes no number.
+# The index beside the ADRs is not itself a decision, so it takes no number and
+# declares a document status rather than a decision status.
 ADR_INDEX_NAME = "README.md"
+ADR_INDEX_PATH = f"{ADR_DIRECTORY}/{ADR_INDEX_NAME}"
 ADR_NUMBER_PATTERN = re.compile(r"\A(?P<number>\d{4})-")
+
+ADR_INDEX_REGENERATE = "regenerate it with --write-adr-index"
 
 # What a `status:` may say. ADRs track a decision's standing; every other
 # document declares how it should be read.
@@ -359,11 +369,10 @@ def check_frontmatter(paths: Sequence[Path]) -> list[Problem]:
         relative = path.relative_to(PROJECT_ROOT).as_posix()
         if not relative.startswith(f"{DOCS_DIRECTORY}/"):
             continue
-        allowed = (
-            ADR_STATUSES
-            if relative.startswith(f"{ADR_DIRECTORY}/")
-            else DOCUMENT_STATUSES
+        in_adr_directory = (
+            relative.startswith(f"{ADR_DIRECTORY}/") and path.name != ADR_INDEX_NAME
         )
+        allowed = ADR_STATUSES if in_adr_directory else DOCUMENT_STATUSES
         fields = parse_frontmatter(path.read_text(encoding="utf-8"))
         if fields is None:
             problems.append(
@@ -423,6 +432,130 @@ def check_adr_numbers(paths: Sequence[Path]) -> list[Problem]:
     return problems
 
 
+@dataclass(frozen=True, slots=True)
+class AdrEntry:
+    """One ADR as the index lists it."""
+
+    number: str
+    title: str
+    status: str
+    date: str
+    filename: str
+    resolved_by: tuple[str, ...]
+
+
+def adr_title(text: str) -> str:
+    """Read an ADR's title from its first level-one heading.
+
+    Only an ATX heading counts. A document's frontmatter ends in the `---` that
+    also underlines a setext heading, which would otherwise make the last
+    frontmatter field the title.
+    """
+    for match in ATX_HEADING_PATTERN.finditer(mask_code(text, spans=False)):
+        if len(match.group("hashes")) == 1:
+            return str(match.group("text")).strip()
+    return ""
+
+
+def collect_adr_entries(paths: Sequence[Path]) -> list[AdrEntry]:
+    """Describe every ADR the index lists, by number."""
+    entries: list[AdrEntry] = []
+    for path in paths:
+        relative = path.relative_to(PROJECT_ROOT).as_posix()
+        if not relative.startswith(f"{ADR_DIRECTORY}/") or path.name == ADR_INDEX_NAME:
+            continue
+        match = ADR_NUMBER_PATTERN.match(path.name)
+        if match is None:
+            continue
+        text = path.read_text(encoding="utf-8")
+        fields = parse_frontmatter(text) or {}
+        status = fields.get("status", "")
+        named = fields.get(SUCCESSION_FIELDS.get(status, ""), "")
+        entries.append(
+            AdrEntry(
+                number=match.group("number"),
+                title=adr_title(text),
+                status=status,
+                date=fields.get("date", ""),
+                filename=path.name,
+                resolved_by=tuple(
+                    entry.strip() for entry in named.split(",") if entry.strip()
+                ),
+            )
+        )
+    return sorted(entries, key=lambda entry: entry.number)
+
+
+def render_adr_link(target: str) -> str:
+    """Render a link to an ADR, labelled by its number where it has one."""
+    match = ADR_NUMBER_PATTERN.match(Path(target).name)
+    label = str(match.group("number")) if match is not None else target
+    return f"[{label}]({target})"
+
+
+def render_adr_index(paths: Sequence[Path]) -> str:
+    """Render the ADR index from the ADRs themselves.
+
+    The `date:` is the newest ADR's own date rather than the day the index was
+    written, so the output is a function of its inputs: the gate can compare
+    the committed file whole, and the date moves only when a decision does.
+    """
+    entries = collect_adr_entries(paths)
+    date = max((entry.date for entry in entries), default="")
+    lines = [
+        "---",
+        "status: living",
+        f"date: {date}",
+        "---",
+        "",
+        "# Architecture decision records",
+        "",
+        "Every architectural decision, by number. An `amended` ADR still holds,",
+        "with the change recorded in its own Consequences; a `superseded` one no",
+        "longer describes the code.",
+        "",
+        f"This index is generated. Run `python scripts/{Path(__file__).name}",
+        "--write-adr-index` after adding or changing an ADR; the documentation",
+        "gate fails while it is out of date.",
+        "",
+        "| ADR | Decision | Status | Resolved by |",
+        "| --- | --- | --- | --- |",
+    ]
+    for entry in entries:
+        resolved = (
+            ", ".join(render_adr_link(target) for target in entry.resolved_by) or "—"
+        )
+        lines.append(
+            f"| {entry.number} | [{entry.title}]({entry.filename}) "
+            f"| {entry.status} | {resolved} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def check_adr_index(paths: Sequence[Path]) -> list[Problem]:
+    """Require the committed ADR index to be the one this script generates.
+
+    A generated index cannot go stale silently, but only if something notices
+    that it was not regenerated; that is what this gate is for.
+    """
+    path = PROJECT_ROOT / ADR_INDEX_PATH
+    if not path.is_file():
+        return [
+            Problem(
+                ADR_INDEX_PATH, 1, f"the ADR index is missing; {ADR_INDEX_REGENERATE}"
+            )
+        ]
+    if path.read_text(encoding="utf-8") != render_adr_index(paths):
+        return [
+            Problem(
+                ADR_INDEX_PATH,
+                1,
+                f"the ADR index is out of date; {ADR_INDEX_REGENERATE}",
+            )
+        ]
+    return []
+
+
 def select(
     tracked: Sequence[Path], names: Sequence[str]
 ) -> tuple[list[Path], list[str]]:
@@ -440,14 +573,27 @@ def select(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the documentation gates over the tracked Markdown files."""
-    parser = argparse.ArgumentParser(description="Check tracked Markdown documents.")
+    """Run the documentation gates, or rewrite the ADR index and stop."""
+    parser = argparse.ArgumentParser(
+        description="Check tracked Markdown documents and build the ADR index."
+    )
     parser.add_argument(
         "paths", nargs="*", help="files to check; default is every tracked one"
+    )
+    parser.add_argument(
+        "--write-adr-index",
+        action="store_true",
+        help="rewrite the ADR index from the ADRs, then exit",
     )
     arguments = parser.parse_args(argv)
 
     tracked = tracked_markdown_files()
+    if arguments.write_adr_index:
+        (PROJECT_ROOT / ADR_INDEX_PATH).write_text(
+            render_adr_index(tracked), encoding="utf-8"
+        )
+        print(f"wrote {ADR_INDEX_PATH}")
+        return 0
     if arguments.paths:
         paths, unknown = select(tracked, arguments.paths)
         for name in unknown:
@@ -457,10 +603,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         paths = tracked
 
-    # The numbering gate reads every ADR: a selection cannot show a
-    # collision with a file the caller did not name.
+    # The numbering and index gates read every ADR: a selection can show
+    # neither a collision nor an omission from a file the caller did not name.
     problems = (
-        check_frontmatter(paths) + check_links(paths) + check_adr_numbers(tracked)
+        check_frontmatter(paths)
+        + check_links(paths)
+        + check_adr_numbers(tracked)
+        + check_adr_index(tracked)
     )
     for problem in sorted(
         problems, key=lambda item: (item.path, item.line, item.message)

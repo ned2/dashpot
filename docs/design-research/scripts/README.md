@@ -42,7 +42,7 @@ none is a Dashpot dependency.
 | Extraction rules | [`extractor-instructions.md`](extractor-instructions.md) | — | given verbatim to every card-extraction agent |
 | Calibration | `calib_compare.py` | `calib/A–F.json`, six extractions of N05 | counts and granularity to stdout |
 | Card validation | `validate_cards.py` | `cards/N*.json` | findings to stdout; rewrites `cards/N*.json` with repaired anchors |
-| Inventory build | `build_inventory.py` | `cards/`, `note-codes.json`, `placements.json`; the repository's `scripts/check_docs.py` for heading anchors | `../claim-inventory.md`, `../claim-inventory/N*.md`, `all_cards.json`, the shuffled `export.json` and `export.txt` |
+| Inventory build | `build_inventory.py` | `cards/`, `note-codes.json`, `placements.json`; the repository's `scripts/maintain_docs.py` for heading anchors | `../claim-inventory.md`, `../claim-inventory/N*.md`, `all_cards.json`, the shuffled `export.json` and `export.txt` |
 | Clustering rules | [`clusterer-common.md`](clusterer-common.md) | — | given to the four blind clustering agents |
 | Clustering check | `check_clustering.py` | a clusterer's JSON | coverage, duplicates, group sizes to stdout |
 | Step 2.4, mechanical | `mechanical.py` | `export.json`, `note-codes.json`, `note-graph-body.edgelist` | `mech-plain.json`, `mech-noframe.json`, `undrawn.json`; silhouette per k to stdout |

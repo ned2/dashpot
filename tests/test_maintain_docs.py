@@ -8,7 +8,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # The maintenance script is intentionally not part of the installed package.
 sys.path.insert(0, str(PROJECT_ROOT))
-from scripts import check_docs  # ruff: ignore[module-import-not-at-top-of-file]
+from scripts import maintain_docs  # ruff: ignore[module-import-not-at-top-of-file]
 
 sys.path.pop(0)
 
@@ -26,8 +26,8 @@ def check(monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path) -> list[str
     The numbering gate reads the whole set rather than a selection, so it has
     a helper of its own.
     """
-    monkeypatch.setattr(check_docs, "PROJECT_ROOT", root)
-    problems = check_docs.check_frontmatter(paths) + check_docs.check_links(paths)
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", root)
+    problems = maintain_docs.check_frontmatter(paths) + maintain_docs.check_links(paths)
     return [problem.render() for problem in problems]
 
 
@@ -35,8 +35,8 @@ def check_numbers(
     monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path
 ) -> list[str]:
     """Run the ADR numbering gate against a disposable tree."""
-    monkeypatch.setattr(check_docs, "PROJECT_ROOT", root)
-    return [problem.render() for problem in check_docs.check_adr_numbers(paths)]
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", root)
+    return [problem.render() for problem in maintain_docs.check_adr_numbers(paths)]
 
 
 def test_a_link_to_a_missing_file_fails(
@@ -423,9 +423,9 @@ def test_an_untracked_path_argument_is_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A typo in a path must fail rather than quietly check nothing."""
-    monkeypatch.setattr(check_docs, "tracked_markdown_files", list)
+    monkeypatch.setattr(maintain_docs, "tracked_markdown_files", list)
 
-    assert check_docs.main(["docs/does-not-exist.md"]) == 1
+    assert maintain_docs.main(["docs/does-not-exist.md"]) == 1
 
 
 def test_two_adrs_sharing_a_number_fail(
@@ -491,6 +491,149 @@ def test_a_numbered_document_outside_the_adr_directory_is_left_alone(
     assert check_numbers(monkeypatch, tmp_path, first, second) == []
 
 
+ADR_FRONTMATTER = "---\nstatus: {status}\ndate: {date}\n---\n\n# {title}\n"
+
+
+def write_adr(root: Path, name: str, title: str, **fields: str) -> Path:
+    """Write an ADR with the frontmatter the index reads."""
+    status = fields.pop("status", "accepted")
+    date = fields.pop("date", "2026-08-26")
+    extra = "".join(
+        f"{key.replace('_', '-')}: {value}\n" for key, value in fields.items()
+    )
+    body = ADR_FRONTMATTER.format(status=status, date=date, title=title)
+    return write_document(root, name, body.replace("---\n\n#", extra + "---\n\n#", 1))
+
+
+def index_of(monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path) -> str:
+    """Render the ADR index for a disposable tree."""
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", root)
+    return maintain_docs.render_adr_index(paths)
+
+
+def test_the_index_lists_every_adr_by_number(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The index is the one place every decision is reachable from."""
+    second = write_adr(tmp_path, "docs/adr/0002-second.md", "Do the second thing")
+    first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
+
+    rendered = index_of(monkeypatch, tmp_path, second, first)
+
+    assert rendered.endswith(
+        "| ADR | Decision | Status | Resolved by |\n"
+        "| --- | --- | --- | --- |\n"
+        "| 0001 | [Do the first thing](0001-first.md) | accepted | — |\n"
+        "| 0002 | [Do the second thing](0002-second.md) | accepted | — |\n"
+    )
+
+
+def test_the_index_names_what_resolved_an_adr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An amended or superseded ADR is listed with the ADRs that changed it."""
+    amended = write_adr(
+        tmp_path,
+        "docs/adr/0001-first.md",
+        "Do the first thing",
+        status="amended",
+        amended_by="0002-second.md, 0003-third.md",
+    )
+    second = write_adr(tmp_path, "docs/adr/0002-second.md", "Do the second thing")
+    third = write_adr(tmp_path, "docs/adr/0003-third.md", "Do the third thing")
+
+    rendered = index_of(monkeypatch, tmp_path, amended, second, third)
+
+    assert (
+        "| 0001 | [Do the first thing](0001-first.md) | amended "
+        "| [0002](0002-second.md), [0003](0003-third.md) |\n"
+    ) in rendered
+
+
+def test_the_index_dates_itself_by_its_newest_adr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A date taken from the ADRs is a function of them, so the gate can compare whole files."""
+    first = write_adr(tmp_path, "docs/adr/0001-first.md", "First", date="2026-08-26")
+    second = write_adr(tmp_path, "docs/adr/0002-second.md", "Second", date="2026-09-12")
+
+    rendered = index_of(monkeypatch, tmp_path, first, second)
+
+    assert rendered.startswith("---\nstatus: living\ndate: 2026-09-12\n---\n")
+
+
+def test_a_frontmatter_field_is_not_mistaken_for_the_title(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Frontmatter closes with the `---` that also underlines a setext heading."""
+    adr = write_adr(
+        tmp_path,
+        "docs/adr/0001-first.md",
+        "Do the first thing",
+        status="amended",
+        amended_by="0002-second.md",
+    )
+    second = write_adr(tmp_path, "docs/adr/0002-second.md", "Do the second thing")
+
+    assert "[Do the first thing](0001-first.md)" in index_of(
+        monkeypatch, tmp_path, adr, second
+    )
+
+
+def test_an_out_of_date_index_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A generated index only stays fresh if something notices it was not regenerated."""
+    first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
+    second = write_adr(tmp_path, "docs/adr/0002-second.md", "Do the second thing")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    write_document(
+        tmp_path, "docs/adr/README.md", maintain_docs.render_adr_index([first])
+    )
+
+    problems = maintain_docs.check_adr_index([first, second])
+
+    assert [problem.render() for problem in problems] == [
+        "docs/adr/README.md:1: the ADR index is out of date; "
+        "regenerate it with --write-adr-index"
+    ]
+
+
+def test_a_missing_index_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+
+    problems = maintain_docs.check_adr_index([first])
+
+    assert [problem.render() for problem in problems] == [
+        "docs/adr/README.md:1: the ADR index is missing; "
+        "regenerate it with --write-adr-index"
+    ]
+
+
+def test_a_current_index_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    write_document(
+        tmp_path, "docs/adr/README.md", maintain_docs.render_adr_index([first])
+    )
+
+    assert maintain_docs.check_adr_index([first]) == []
+
+
+def test_the_index_declares_a_document_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The index records no decision, so a decision status would be meaningless."""
+    index = write_document(
+        tmp_path, "docs/adr/README.md", "---\nstatus: living\ndate: 2026-09-23\n---\n"
+    )
+
+    assert check(monkeypatch, tmp_path, index) == []
+
+
 def test_the_repository_documents_pass_every_gate() -> None:
-    """Guard the real tree, so a stale link, status, or ADR number fails here too."""
-    assert check_docs.main([]) == 0
+    """Guard the real tree, so a stale link, status, ADR number, or index fails here too."""
+    assert maintain_docs.main([]) == 0

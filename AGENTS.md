@@ -211,8 +211,12 @@ The conventions the tooling enforces or the code assumes:
   every in-repo Markdown link resolves — path, heading anchor, and `#L`
   line fragment — and every ADR carries a four-digit number no other ADR
   claims, so a bare "ADR NNNN" in prose or in a code comment still names one
-  document.
-  `scripts/check_docs.py` fails the gate on any of them. When you move or rename a
+  document. The [ADR index](docs/adr/README.md) is generated from the ADRs, so
+  after adding or changing one run
+  `uv run python scripts/maintain_docs.py --write-adr-index` and commit the
+  result; the gate fails while the committed index is not what the script
+  produces.
+  `scripts/maintain_docs.py` fails the gate on any of them. When you move or rename a
   section, fix the pointers in the same change; when you finish work an ADR or
   a research note described as future, update that document's `status` rather
   than leaving a reader to discover it is stale. The vocabulary is in the
