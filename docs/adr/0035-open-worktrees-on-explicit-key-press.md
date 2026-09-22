@@ -14,7 +14,7 @@ selection alone never launches. Capture the selected row's complete observed
 path on invocation and keep Issue/Session activation and input handling intact.
 
 Extend machine-local TOML settings from
-[ADR 0034](0034-read-machine-local-settings-as-toml.md) with
+[ADR 0052](0052-read-machine-local-settings-as-toml.md) with
 `worktree_open_command`. A custom argument array takes precedence over tmux;
 replace only standalone `{path}` arguments and use the selected Worktree as cwd.
 Otherwise, inside tmux, split below the originating pane and focus the new pane.

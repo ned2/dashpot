@@ -208,9 +208,11 @@ The conventions the tooling enforces or the code assumes:
   `first_load_landed` before reading a pane. Fakes stand in for GitHub;
   nothing in the suite talks to the network.
 - Every document under `docs/` declares `status` and `date` in frontmatter,
-  and every in-repo Markdown link resolves — path, heading anchor, and `#L`
-  line fragment.
-  `scripts/check_docs.py` fails the gate on either. When you move or rename a
+  every in-repo Markdown link resolves — path, heading anchor, and `#L`
+  line fragment — and every ADR carries a four-digit number no other ADR
+  claims, so a bare "ADR NNNN" in prose or in a code comment still names one
+  document.
+  `scripts/check_docs.py` fails the gate on any of them. When you move or rename a
   section, fix the pointers in the same change; when you finish work an ADR or
   a research note described as future, update that document's `status` rather
   than leaving a reader to discover it is stale. The vocabulary is in the

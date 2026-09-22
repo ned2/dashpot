@@ -1,12 +1,12 @@
 ---
 status: superseded
-superseded-by: adr/0034-read-machine-local-settings-as-toml.md
+superseded-by: adr/0052-read-machine-local-settings-as-toml.md
 date: 2026-09-12
 ---
 
 # Migrate machine-local settings to config.toml
 
-The settings migration is implemented by [ADR 0034](adr/0034-read-machine-local-settings-as-toml.md).
+The settings migration is implemented by [ADR 0052](adr/0052-read-machine-local-settings-as-toml.md).
 The launcher remains separately scoped in #146. The historical investigation
 below describes the pre-migration code and proposal. It assesses
 replacing Dashpot's machine-local `settings.json` with `config.toml`, including

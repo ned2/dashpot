@@ -21,10 +21,22 @@ def write_document(root: Path, name: str, body: str) -> Path:
 
 
 def check(monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path) -> list[str]:
-    """Run both gates against a disposable tree and return their messages."""
+    """Run the frontmatter and link gates against a disposable tree.
+
+    The numbering gate reads the whole set rather than a selection, so it has
+    a helper of its own.
+    """
     monkeypatch.setattr(check_docs, "PROJECT_ROOT", root)
     problems = check_docs.check_frontmatter(paths) + check_docs.check_links(paths)
     return [problem.render() for problem in problems]
+
+
+def check_numbers(
+    monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path
+) -> list[str]:
+    """Run the ADR numbering gate against a disposable tree."""
+    monkeypatch.setattr(check_docs, "PROJECT_ROOT", root)
+    return [problem.render() for problem in check_docs.check_adr_numbers(paths)]
 
 
 def test_a_link_to_a_missing_file_fails(
@@ -416,6 +428,69 @@ def test_an_untracked_path_argument_is_reported(
     assert check_docs.main(["docs/does-not-exist.md"]) == 1
 
 
-def test_the_repository_documents_pass_both_gates() -> None:
-    """Guard the real tree, so a stale link or an undeclared status fails here too."""
+def test_two_adrs_sharing_a_number_fail(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A bare "ADR NNNN" has to identify one ADR, so the gate rejects a collision."""
+    alpha = write_document(tmp_path, "docs/adr/0034-publish-an-alpha.md", "")
+    toml = write_document(tmp_path, "docs/adr/0034-read-settings-as-toml.md", "")
+    lone = write_document(tmp_path, "docs/adr/0035-open-worktrees.md", "")
+
+    messages = check_numbers(monkeypatch, tmp_path, alpha, toml, lone)
+
+    assert messages == [
+        "docs/adr/0034-publish-an-alpha.md:1: ADR number 0034 is also taken by "
+        "docs/adr/0034-read-settings-as-toml.md",
+        "docs/adr/0034-read-settings-as-toml.md:1: ADR number 0034 is also taken by "
+        "docs/adr/0034-publish-an-alpha.md",
+    ]
+
+
+def test_distinct_adr_numbers_pass(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first = write_document(tmp_path, "docs/adr/0034-publish-an-alpha.md", "")
+    second = write_document(tmp_path, "docs/adr/0052-read-settings-as-toml.md", "")
+
+    assert check_numbers(monkeypatch, tmp_path, first, second) == []
+
+
+def test_an_adr_filename_without_a_number_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An ADR the gate cannot number is one it cannot check for a collision."""
+    unnumbered = write_document(tmp_path, "docs/adr/read-settings-as-toml.md", "")
+    short = write_document(tmp_path, "docs/adr/034-publish-an-alpha.md", "")
+
+    messages = check_numbers(monkeypatch, tmp_path, unnumbered, short)
+
+    assert messages == [
+        "docs/adr/034-publish-an-alpha.md:1: filename declares no four-digit ADR number",
+        "docs/adr/read-settings-as-toml.md:1: "
+        "filename declares no four-digit ADR number",
+    ]
+
+
+def test_the_adr_index_needs_no_number(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The index records no decision, so it claims no number."""
+    index = write_document(tmp_path, "docs/adr/README.md", "")
+    adr = write_document(tmp_path, "docs/adr/0034-publish-an-alpha.md", "")
+
+    assert check_numbers(monkeypatch, tmp_path, index, adr) == []
+
+
+def test_a_numbered_document_outside_the_adr_directory_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Numbering identifies decisions; it says nothing about other documents."""
+    first = write_document(tmp_path, "docs/0034-a-note.md", "")
+    second = write_document(tmp_path, "docs/0034-another-note.md", "")
+
+    assert check_numbers(monkeypatch, tmp_path, first, second) == []
+
+
+def test_the_repository_documents_pass_every_gate() -> None:
+    """Guard the real tree, so a stale link, status, or ADR number fails here too."""
     assert check_docs.main([]) == 0
