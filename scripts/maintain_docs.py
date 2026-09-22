@@ -369,10 +369,7 @@ def check_frontmatter(paths: Sequence[Path]) -> list[Problem]:
         relative = path.relative_to(PROJECT_ROOT).as_posix()
         if not relative.startswith(f"{DOCS_DIRECTORY}/"):
             continue
-        in_adr_directory = (
-            relative.startswith(f"{ADR_DIRECTORY}/") and path.name != ADR_INDEX_NAME
-        )
-        allowed = ADR_STATUSES if in_adr_directory else DOCUMENT_STATUSES
+        allowed = ADR_STATUSES if is_adr(path) else DOCUMENT_STATUSES
         fields = parse_frontmatter(path.read_text(encoding="utf-8"))
         if fields is None:
             problems.append(
@@ -409,11 +406,9 @@ def check_adr_numbers(paths: Sequence[Path]) -> list[Problem]:
     problems: list[Problem] = []
     by_number: dict[str, list[str]] = {}
     for path in sorted(paths):
+        if not is_adr(path):
+            continue
         relative = path.relative_to(PROJECT_ROOT).as_posix()
-        if not relative.startswith(f"{ADR_DIRECTORY}/"):
-            continue
-        if path.name == ADR_INDEX_NAME:
-            continue
         match = ADR_NUMBER_PATTERN.match(path.name)
         if match is None:
             problems.append(
@@ -430,6 +425,17 @@ def check_adr_numbers(paths: Sequence[Path]) -> list[Problem]:
                 Problem(relative, 1, f"ADR number {number} is also taken by {others}")
             )
     return problems
+
+
+def is_adr(path: Path) -> bool:
+    """Report whether a path is an ADR rather than the index beside them."""
+    relative = path.relative_to(PROJECT_ROOT).as_posix()
+    return relative.startswith(f"{ADR_DIRECTORY}/") and path.name != ADR_INDEX_NAME
+
+
+def escape_table_cell(text: str) -> str:
+    """Escape what would otherwise end a Markdown table cell."""
+    return text.replace("|", "\\|")
 
 
 @dataclass(frozen=True, slots=True)
@@ -461,8 +467,7 @@ def collect_adr_entries(paths: Sequence[Path]) -> list[AdrEntry]:
     """Describe every ADR the index lists, by number."""
     entries: list[AdrEntry] = []
     for path in paths:
-        relative = path.relative_to(PROJECT_ROOT).as_posix()
-        if not relative.startswith(f"{ADR_DIRECTORY}/") or path.name == ADR_INDEX_NAME:
+        if not is_adr(path):
             continue
         match = ADR_NUMBER_PATTERN.match(path.name)
         if match is None:
@@ -490,7 +495,7 @@ def render_adr_link(target: str) -> str:
     """Render a link to an ADR, labelled by its number where it has one."""
     match = ADR_NUMBER_PATTERN.match(Path(target).name)
     label = str(match.group("number")) if match is not None else target
-    return f"[{label}]({target})"
+    return f"[{escape_table_cell(label)}]({target})"
 
 
 def render_adr_index(paths: Sequence[Path]) -> str:
@@ -499,6 +504,8 @@ def render_adr_index(paths: Sequence[Path]) -> str:
     The `date:` is the newest ADR's own date rather than the day the index was
     written, so the output is a function of its inputs: the gate can compare
     the committed file whole, and the date moves only when a decision does.
+    Comparing the dates as strings is chronological because the frontmatter
+    gate requires every one of them to be `YYYY-MM-DD`.
     """
     entries = collect_adr_entries(paths)
     date = max((entry.date for entry in entries), default="")
@@ -514,9 +521,10 @@ def render_adr_index(paths: Sequence[Path]) -> str:
         "with the change recorded in its own Consequences; a `superseded` one no",
         "longer describes the code.",
         "",
-        f"This index is generated. Run `python scripts/{Path(__file__).name}",
-        "--write-adr-index` after adding or changing an ADR; the documentation",
-        "gate fails while it is out of date.",
+        "This index is generated. Run",
+        f"`uv run python scripts/{Path(__file__).name} --write-adr-index` after",
+        "adding or changing an ADR; the documentation gate fails while it is out",
+        "of date.",
         "",
         "| ADR | Decision | Status | Resolved by |",
         "| --- | --- | --- | --- |",
@@ -526,7 +534,7 @@ def render_adr_index(paths: Sequence[Path]) -> str:
             ", ".join(render_adr_link(target) for target in entry.resolved_by) or "—"
         )
         lines.append(
-            f"| {entry.number} | [{entry.title}]({entry.filename}) "
+            f"| {entry.number} | [{escape_table_cell(entry.title)}]({entry.filename}) "
             f"| {entry.status} | {resolved} |"
         )
     return "\n".join(lines) + "\n"
@@ -536,8 +544,21 @@ def check_adr_index(paths: Sequence[Path]) -> list[Problem]:
     """Require the committed ADR index to be the one this script generates.
 
     A generated index cannot go stale silently, but only if something notices
-    that it was not regenerated; that is what this gate is for.
+    that it was not regenerated; that is what this gate is for. An ADR the
+    generator cannot title is reported here rather than rendered as an empty
+    link, which would satisfy the comparison while saying nothing.
     """
+    untitled = [
+        Problem(
+            f"{ADR_DIRECTORY}/{entry.filename}",
+            1,
+            "declares no level-one heading, so the ADR index cannot title it",
+        )
+        for entry in collect_adr_entries(paths)
+        if not entry.title
+    ]
+    if untitled:
+        return untitled
     path = PROJECT_ROOT / ADR_INDEX_PATH
     if not path.is_file():
         return [
@@ -588,12 +609,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     tracked = tracked_markdown_files()
-    if arguments.write_adr_index:
-        (PROJECT_ROOT / ADR_INDEX_PATH).write_text(
-            render_adr_index(tracked), encoding="utf-8"
-        )
-        print(f"wrote {ADR_INDEX_PATH}")
-        return 0
     if arguments.paths:
         paths, unknown = select(tracked, arguments.paths)
         for name in unknown:
@@ -602,6 +617,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
     else:
         paths = tracked
+
+    if arguments.write_adr_index:
+        (PROJECT_ROOT / ADR_INDEX_PATH).write_text(
+            render_adr_index(tracked), encoding="utf-8"
+        )
+        print(f"wrote {ADR_INDEX_PATH}")
+        return 0
 
     # The numbering and index gates read every ADR: a selection can show
     # neither a collision nor an omission from a file the caller did not name.

@@ -9,9 +9,10 @@ Every architectural decision, by number. An `amended` ADR still holds,
 with the change recorded in its own Consequences; a `superseded` one no
 longer describes the code.
 
-This index is generated. Run `python scripts/maintain_docs.py
---write-adr-index` after adding or changing an ADR; the documentation
-gate fails while it is out of date.
+This index is generated. Run
+`uv run python scripts/maintain_docs.py --write-adr-index` after
+adding or changing an ADR; the documentation gate fails while it is out
+of date.
 
 | ADR | Decision | Status | Resolved by |
 | --- | --- | --- | --- |

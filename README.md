@@ -855,7 +855,8 @@ These `living` documents carry the detail this README points at:
   work rather than the session as the unit.
 
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
-decision, indexed by number in [`docs/adr/README.md`](docs/adr/README.md). The other files in [`docs/`](docs/) are research, audits, and
+decision, indexed by number in
+[`docs/adr/README.md`](docs/adr/README.md). The other files in [`docs/`](docs/) are research, audits, and
 proposals that informed decisions and implementation.
 The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycle-spike.md)
 records the reproducible evidence for a possible OpenCode integration, the
@@ -924,8 +925,8 @@ shared number leaves every bare "ADR NNNN" identifying neither document.
 
 [`docs/adr/README.md`](docs/adr/README.md) indexes every ADR by number, with
 its title, `status`, and whatever resolved it. It is generated from the ADRs
-themselves rather than maintained by hand, so it cannot describe a set of
-decisions that no longer exists; it carries no number of its own, because it
+themselves and gated against them rather than maintained by hand, so it cannot
+describe a set of decisions that no longer exists; it carries no number of its own, because it
 records no decision, and it declares a document `status` for the same reason.
 Its `date:` is its newest ADR's, which makes the file a function of its inputs
 and lets the gate compare it whole. Run

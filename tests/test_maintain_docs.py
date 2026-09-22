@@ -491,18 +491,14 @@ def test_a_numbered_document_outside_the_adr_directory_is_left_alone(
     assert check_numbers(monkeypatch, tmp_path, first, second) == []
 
 
-ADR_FRONTMATTER = "---\nstatus: {status}\ndate: {date}\n---\n\n# {title}\n"
-
-
 def write_adr(root: Path, name: str, title: str, **fields: str) -> Path:
     """Write an ADR with the frontmatter the index reads."""
-    status = fields.pop("status", "accepted")
-    date = fields.pop("date", "2026-08-26")
-    extra = "".join(
-        f"{key.replace('_', '-')}: {value}\n" for key, value in fields.items()
-    )
-    body = ADR_FRONTMATTER.format(status=status, date=date, title=title)
-    return write_document(root, name, body.replace("---\n\n#", extra + "---\n\n#", 1))
+    declared = {"status": "accepted", "date": "2026-08-26"} | {
+        key.replace("_", "-"): value for key, value in fields.items()
+    }
+    frontmatter = "".join(f"{key}: {value}\n" for key, value in declared.items())
+    heading = f"# {title}\n" if title else ""
+    return write_document(root, name, f"---\n{frontmatter}---\n\n{heading}")
 
 
 def index_of(monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path) -> str:
@@ -600,6 +596,7 @@ def test_an_out_of_date_index_fails(
 
 
 def test_a_missing_index_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A repository with ADRs and no index is as out of date as a stale one."""
     first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
     monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
 
@@ -614,6 +611,7 @@ def test_a_missing_index_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 def test_a_current_index_passes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The gate reports nothing when the committed index is the generated one."""
     first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
     monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
     write_document(
@@ -632,6 +630,59 @@ def test_the_index_declares_a_document_status(
     )
 
     assert check(monkeypatch, tmp_path, index) == []
+
+
+def test_a_pipe_in_a_title_does_not_break_the_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unescaped pipe would split the row into five cells and kill the link."""
+    adr = write_adr(tmp_path, "docs/adr/0001-first.md", "Prefer TOML | JSON")
+
+    rendered = index_of(monkeypatch, tmp_path, adr)
+
+    assert "| 0001 | [Prefer TOML \\| JSON](0001-first.md) | accepted | — |" in rendered
+
+
+def test_an_adr_without_a_heading_is_reported_not_rendered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An empty link would satisfy the comparison while telling a reader nothing."""
+    adr = write_adr(tmp_path, "docs/adr/0001-first.md", "")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+
+    problems = maintain_docs.check_adr_index([adr])
+
+    assert [problem.render() for problem in problems] == [
+        "docs/adr/0001-first.md:1: declares no level-one heading, "
+        "so the ADR index cannot title it"
+    ]
+
+
+def test_writing_the_index_satisfies_the_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The write path is the remedy both failures name, so it has to produce a pass."""
+    first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
+    second = write_adr(tmp_path, "docs/adr/0002-second.md", "Do the second thing")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        maintain_docs, "tracked_markdown_files", lambda: [first, second]
+    )
+
+    assert maintain_docs.main(["--write-adr-index"]) == 0
+    assert maintain_docs.check_adr_index([first, second]) == []
+
+
+def test_writing_the_index_still_rejects_an_untracked_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A typo must not be swallowed by the flag that ignores the selection."""
+    first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(maintain_docs, "tracked_markdown_files", lambda: [first])
+
+    assert maintain_docs.main(["--write-adr-index", "docs/does-not-exist.md"]) == 1
+    assert not (tmp_path / maintain_docs.ADR_INDEX_PATH).exists()
 
 
 def test_the_repository_documents_pass_every_gate() -> None:
