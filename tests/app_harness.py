@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import Event, Lock
 from typing import Protocol
@@ -574,15 +574,27 @@ async def show_query_peer(
     return app.query_screen
 
 
+async def await_issue_page(
+    app: DashpotApp, matching: Callable[[QueryRequest], bool]
+) -> None:
+    """Wait until the Issues navigation accepts a page whose request matches.
+
+    A restart updates the navigation's request as it dispatches the query, so
+    the request alone says only that the query was issued, and the navigation
+    goes on showing the page it replaces until one is accepted. A test that
+    then acts on the accepted page — paging with its continuation, reading its
+    rows — waits for that page rather than for the request or the shown page.
+    """
+    navigation = app.queries.navigation["issues"]
+    await wait_until(
+        lambda: (page := navigation.page) is not None and matching(page.request)
+    )
+
+
 async def show_issue_states(app: DashpotApp, state: str) -> None:
     """Choose an Issue lifecycle filter and wait for its page to land."""
     app.query_screen.query_one("#issue-state", Select).value = state
-    await wait_until(
-        lambda: (
-            (page := app.store.pages.get("issues")) is not None
-            and page.request.state == state
-        )
-    )
+    await await_issue_page(app, lambda request: request.state == state)
 
 
 async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
