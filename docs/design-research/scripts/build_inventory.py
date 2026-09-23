@@ -13,7 +13,7 @@ by_code = {v: k for k, v in codes.items()}
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))  # repo scripts/ (was an absolute path as run)
-import check_docs
+import maintain_docs as check_docs  # renamed from check_docs after this note was written
 
 
 def heading_slugs(slugname: str) -> dict[str, str]:

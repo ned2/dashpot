@@ -50,8 +50,8 @@ repos:
   - repo: local
     hooks:
       - id: check-docs
-        name: markdown links, document frontmatter, and ADR numbering
-        entry: uv run --locked python scripts/check_docs.py
+        name: markdown links, document frontmatter, ADR numbering, and the ADR index
+        entry: uv run --locked python scripts/maintain_docs.py
         language: system
         # Every check is cross-document: a link resolves against files the
         # commit may not touch, so the gate always reads the whole set.
