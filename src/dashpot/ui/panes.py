@@ -39,6 +39,7 @@ from .list_pane import (
 from .list_rows import build_list_rows
 from .pull_request_cells import PULL_REQUEST_COLUMNS, pull_request_cells
 from .session_cells import SESSION_COLUMNS, session_cells, session_columns
+from .session_table import SessionTable
 from .worktree_cells import WORKTREE_COLUMNS, worktree_cells
 from .worktree_table import WorktreeTable
 
@@ -211,6 +212,7 @@ DASHBOARD_PANE_SPECS: tuple[PaneSpec, ...] = (
         SESSION_COLUMNS,
         "no active sessions",
         session_pane_rows,
+        table_type=SessionTable,
         related=lambda related: related.sessions,
         related_columns=frozenset({"harness", "target"}),
     ),

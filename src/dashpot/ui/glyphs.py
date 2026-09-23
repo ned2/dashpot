@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ..core.model import RunState
+from ..core.model import SessionActivity
 from ..observation.session_list import SESSION_STATE_ORDER
 
 # GitHub Primer foreground colours every pane's Glyphs share; each pair is
@@ -65,9 +65,12 @@ class LegendSection:
 
 ACTIVITY_COLUMN_GLYPH = Glyph("◈", "the agent activity column")
 ACTIVITY_WIDTH = 1
-SESSION_STATE_GLYPHS: dict[RunState, Glyph] = {
+SESSION_STATE_GLYPHS: dict[SessionActivity, Glyph] = {
     "running": Glyph("●", "an Agent Session is running", GOOD_COLORS),
     "waiting": Glyph("◐", "an Agent Session is waiting", ATTENTION_COLORS),
+    "orphaned": Glyph(
+        "◌", "an Orphaned Agent Run: its session ended unobserved", ATTENTION_COLORS
+    ),
     "unknown": Glyph("○", "an Agent Session in an unknown state", MUTED_COLORS),
 }
 # The shared agent-activity column's Legend, ranked as its cells are.

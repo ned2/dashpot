@@ -47,7 +47,6 @@ INTEGRATION_FAILURE_CODES = frozenset(
         "agent-global-binding-rejected",
         "agent-target-mismatch",
         "work-session-conflict",
-        "work-session-orphaned",
     }
 )
 

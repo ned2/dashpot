@@ -87,6 +87,10 @@ class HarnessAdapter:
     display: str
     is_host_process: Callable[[ProcessIdentity], bool]
     claim_session_identity: Callable[[Mapping[str, str]], SessionIdentityClaim | None]
+    # Whether the host process serves exactly one Agent Session, so that
+    # process being gone proves the session's own runtime ended. Only then can
+    # a hook from a new process continue the session's Agent Run (ADR 0053).
+    exclusive_session_process: bool = False
 
 
 def is_codex_host_process(process: ProcessIdentity) -> bool:
@@ -130,6 +134,8 @@ def _claude_code_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | Non
     )
 
 
+# A daemon-hosted Codex terminal records the daemon, which serves many threads
+# and outlives any one of them.
 CODEX = HarnessAdapter(
     harness="codex",
     display=HARNESS_DISPLAY["codex"],
@@ -137,11 +143,14 @@ CODEX = HarnessAdapter(
     claim_session_identity=_codex_claim,
 )
 
+# One Claude Code process per session: its sub-agents share the parent's
+# session as well as its process.
 CLAUDE_CODE = HarnessAdapter(
     harness="claude-code",
     display=HARNESS_DISPLAY["claude-code"],
     is_host_process=is_claude_code_host_process,
     claim_session_identity=_claude_code_claim,
+    exclusive_session_process=True,
 )
 
 ADAPTERS: dict[Harness, HarnessAdapter] = {

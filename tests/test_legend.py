@@ -12,7 +12,7 @@ import pytest
 from textual.binding import Binding, BindingType
 
 import dashpot
-from dashpot.core.model import RunState
+from dashpot.core.model import SessionActivity
 from dashpot.ui import (
     alerts,
     branch_cells,
@@ -58,8 +58,8 @@ def test_glyph_style_follows_the_theme() -> None:
 def test_every_rendered_glyph_map_is_in_the_legend() -> None:
     symbols = legend_symbols()
 
-    assert set(session_cells.STATE_GLYPHS) == set(get_args(RunState))
-    assert set(issue_cells.AGENT_STATE_GLYPHS) == set(get_args(RunState))
+    assert set(session_cells.STATE_GLYPHS) == set(get_args(SessionActivity))
+    assert set(issue_cells.AGENT_STATE_GLYPHS) == set(get_args(SessionActivity))
     assert set(issue_cells.ISSUE_STATE_GLYPHS) == set(get_args(IssueStateKind))
     assert set(alerts.SEVERITY_GLYPH) == set(get_args(AlertSeverity))
     for mapping in (
@@ -176,6 +176,7 @@ COLUMN_INVENTORY: tuple[tuple[str, tuple[DescribedColumn, ...]], ...] = (
 )
 # The sections that are not one column of the pane they sit under.
 EXTRA_SECTIONS = {
+    ("SESSIONS", legend.SESSION_ACTIONS_SECTION),
     ("WORKTREES", legend.WORKTREE_ACTIONS_SECTION),
     (ISSUE_PANE_LABEL, legend.ISSUE_COLUMNS_SECTION),
 }

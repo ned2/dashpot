@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from ..core.model import AgentRun, Diagnostic, Harness, ObservationTarget, RunState
 from ..core.timestamps import observed_instant
@@ -18,9 +20,15 @@ from .hook_scan import (
     session_record_named,
 )
 from .liveness import LivenessObservation, LivenessProbe
-from .processes import ProcessKey, ProcessLookup, host_process_lookup
+from .processes import (
+    ProcessKey,
+    ProcessLookup,
+    host_boot_time,
+    host_process_lookup,
+    process_started_at,
+)
 from .session_matching import SessionEvidence
-from .work_store import ActiveWork, WorkStore
+from .work_store import ActiveWork, SessionProcess, WorkStore
 
 # Diagnostics about hook Agent Session records are harness-neutral.
 SESSION_DIAGNOSTIC_SOURCE = "agent-sessions"
@@ -44,25 +52,127 @@ class ObservedActivity:
 
 
 SessionIdentityKey = tuple[str, str]
+BootTime = Callable[[], datetime | None]
+
+
+@dataclass(frozen=True, slots=True)
+class GoneHookRecord:
+    """A gone session's hook record, kept while an Orphaned Agent Run needs it."""
+
+    store: HookRecordStore
+    name: str
+    raw: Mapping[str, Any]
+    record: HookRecordClassification
+
+
+@dataclass(slots=True)
+class LastSeenIndex:
+    """When each gone session was last seen, for its Orphaned Agent Run.
+
+    A gone session's hook record is the only evidence of when it was last
+    active, so observation keeps it while an Orphaned Agent Run of the same
+    Agent Session Identity and process claims it, and prunes the rest.
+    """
+
+    records: Sequence[GoneHookRecord]
+    _claimed: set[int] = field(default_factory=set)
+
+    def claim(self, work: ActiveWork) -> str | None:
+        """The last activity of the gone session that recorded this run."""
+        evidence = work.evidence
+        seen: str | None = None
+        for index, gone in enumerate(self.records):
+            if (
+                evidence.native_key is None
+                or gone.record.evidence.native_key != evidence.native_key
+                or gone.record.process_key != evidence.process_key
+            ):
+                continue
+            self._claimed.add(index)
+            activity = gone.record.last_activity_at
+            if observed_instant(activity) >= observed_instant(seen):
+                seen = activity
+        return seen
+
+    def prune_unclaimed(self, observed: frozenset[Path]) -> None:
+        """Remove every gone record no Orphaned Agent Run still needs.
+
+        A record at a Worktree this pass did not observe is kept only while
+        that Worktree's Work Store holds an active run of the same session,
+        which an observation of it would claim; the records of unconfigured
+        checkouts and removed Worktrees have no such run and are pruned.
+        """
+        pruned: dict[Path, HookRecordStore] = {}
+        for index, gone in enumerate(self.records):
+            if index in self._claimed:
+                continue
+            root = gone.raw.get("repositoryRoot")
+            if (
+                isinstance(root, str)
+                and Path(root) not in observed
+                and holds_run_of(Path(root), gone.record)
+            ):
+                continue
+            # Cleanup failures are not observations.
+            with contextlib.suppress(OSError):
+                gone.store.prune(gone.name, gone.raw)
+            pruned[gone.store.directory] = gone.store
+        # Pruning leaves each record's lock file behind; reclaim those now
+        # rather than on the next pass.
+        for store in pruned.values():
+            store.sweep()
+
+
+def holds_run_of(root: Path, record: HookRecordClassification) -> bool:
+    """Whether the Work Store at ``root`` holds an active run of this session."""
+    native_key = record.evidence.native_key
+    store = WorkStore(root)
+    try:
+        if not store.directory.is_dir():
+            return False
+        active, _diagnostics = store.active()
+    except OSError:
+        # An unreadable Work Store may still hold the run; keep its evidence.
+        return True
+    return native_key is not None and any(
+        work.evidence.native_key == native_key for work in active
+    )
 
 
 def observe_agent_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     directory: Path | None = None,
     lookup: ProcessLookup = host_process_lookup,
+    boot_time: BootTime = host_boot_time,
 ) -> tuple[list[AgentRun], list[Diagnostic]]:
     """Observe Work Store Agent Runs and unmatched hook Agent Sessions.
 
-    This is the only place Session Liveness becomes an outcome. Callers
-    receive active runs plus actionable diagnostics: a gone session with an
-    Issue Binding is an Orphaned Agent Run and is reported once; a gone
-    unbound session is stale observation state and is dropped silently.
+    This is the only place Session Liveness becomes an outcome. A gone
+    session with an Issue Binding is an Orphaned Agent Run and stays listed,
+    marked orphaned, until its session continues it or a person ends it; a
+    gone unbound session is stale observation state and is dropped silently.
     """
     probe = LivenessProbe(lookup)
-    sessions, diagnostics = observe_hook_sessions(targets_by_project, directory, probe)
+    sessions, gone, diagnostics = observe_hook_sessions(
+        targets_by_project, directory, probe
+    )
     activity = ObservedActivityIndex(sessions)
+    last_seen = LastSeenIndex(gone)
     work_runs, work_diagnostics = observe_work_runs(
-        targets_by_project, probe, activity, directory
+        targets_by_project,
+        probe,
+        activity,
+        directory,
+        last_seen=last_seen,
+        boot_time=boot_time,
+    )
+    last_seen.prune_unclaimed(
+        frozenset(
+            Path(target.path)
+            for targets in targets_by_project.values()
+            for target in targets
+            if target.availability == "available"
+        )
     )
     diagnostics.extend(work_diagnostics)
     diagnostics.extend(activity.diagnostics)
@@ -115,8 +225,12 @@ def observe_work_runs(
     probe: LivenessProbe,
     activity: ObservedActivityIndex,
     directory: Path | None,
+    *,
+    last_seen: LastSeenIndex | None = None,
+    boot_time: BootTime = host_boot_time,
 ) -> tuple[list[AgentRun], list[Diagnostic]]:
     """Turn each Worktree's active Work Store records into bound Agent Runs."""
+    seen = last_seen if last_seen is not None else LastSeenIndex(())
     runs: list[AgentRun] = []
     diagnostics: list[Diagnostic] = []
     sessions_seen: set[tuple[str, ...]] = set()
@@ -139,21 +253,37 @@ def observe_work_runs(
                         f"'dashpot work stop --session {work.session_key}' at {target.path}",
                     )
                 )
-            if work.relocation is None and work.session_process is not None:
-                liveness = probe.observe(work.session_process.key)
-                if liveness.liveness == "gone":
-                    diagnostics.append(orphaned_run_diagnostic(work, target))
-                    continue
+            # The gone process, when this run is an Orphaned Agent Run.
+            gone = (
+                work.session_process
+                if work.relocation is None
+                and work.session_process is not None
+                and probe.observe(work.session_process.key).liveness == "gone"
+                else None
+            )
             identities = run_identities(work)
             if identities & sessions_seen:
                 diagnostics.append(conflicting_run_diagnostic(work))
             sessions_seen |= identities
-            observed = activity.adopt(work.harness, work.session_id, process_key)
+            if gone is not None:
+                # Nothing is running this session, so no live hook activity
+                # is its; the gone record says when it was last seen.
+                observed = ObservedActivity("unknown", seen.claim(work), None)
+            else:
+                observed = activity.adopt(work.harness, work.session_id, process_key)
             if observed is None:
                 # No hook has ever reported this run; the Work Store knows
                 # when the work began and nothing about what it has done.
                 observed = ObservedActivity("unknown", None, None)
-            runs.append(work_to_run(work, target, project_id, observed))
+            run = work_to_run(work, target, project_id, observed)
+            if gone is not None:
+                run = run.model_copy(
+                    update={
+                        "orphaned": True,
+                        "host_restarted": host_restarted_since(gone, boot_time),
+                    }
+                )
+            runs.append(run)
             if work.relocation is not None:
                 diagnostics.append(
                     relocation_diagnostic(
@@ -177,19 +307,17 @@ def available_targets(
                 yield project_id, target
 
 
-def orphaned_run_diagnostic(work: ActiveWork, target: ObservationTarget) -> Diagnostic:
-    """Report a gone session that still records Issue work at one Worktree."""
-    return Diagnostic(
-        source=work.run_id,
-        severity="warning",
-        message=f"{work.session_label} is gone but still "
-        f"records Issue work on "
-        f"{work.issue_reference} ({work.issue_id}) at "
-        f"{target.path}; run 'dashpot work stop "
-        f"--session {work.session_key}' at that "
-        f"Worktree to end the orphaned Agent Run",
-        code="work-session-orphaned",
-    )
+def host_restarted_since(process: SessionProcess, boot_time: BootTime) -> bool | None:
+    """Whether the host booted after a run's recorded process started.
+
+    A restart since the process started is compatible with the process having
+    exited earlier for another reason, so this dates the boot, not the cause.
+    """
+    started = process_started_at(process.started_at)
+    booted = boot_time()
+    if started is None or booted is None:
+        return None
+    return booted > started
 
 
 def relocation_diagnostic(
@@ -317,12 +445,14 @@ def observe_hook_sessions(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     directory: Path | None,
     probe: LivenessProbe,
-) -> tuple[list[HookSessionObservation], list[Diagnostic]]:
+) -> tuple[list[HookSessionObservation], list[GoneHookRecord], list[Diagnostic]]:
     """Read every visible hook store into live and unknown Agent Sessions.
 
-    Ended and gone records are stale observation state: they are pruned and
-    never reported here. Pruning is the only write observation performs, and
-    it is conditional so a concurrently updated record survives.
+    Ended records are stale observation state and are pruned here. Gone
+    records are never reported as sessions either, but are returned for the
+    Work Store pass, which keeps those an Orphaned Agent Run still needs and
+    prunes the rest. Pruning is the only write observation performs, and it
+    is conditional so a concurrently updated record survives.
     """
     stores = reachable_hook_stores(
         [
@@ -334,6 +464,7 @@ def observe_hook_sessions(
     # A session's record may exist both globally and Project-locally around
     # an integration upgrade; the freshest observation per session wins.
     latest: dict[str, HookSessionObservation] = {}
+    gone: list[GoneHookRecord] = []
     diagnostics: list[Diagnostic] = []
 
     def report_unreadable(path: Path, exc: Exception) -> None:
@@ -352,9 +483,13 @@ def observe_hook_sessions(
         store = HookRecordStore(root)
         for scanned in scan_hook_stores([root], probe, on_unreadable=report_unreadable):
             record = scanned.record
-            if record.outcome in {"ended", "gone"}:
-                # A gone session's Issue work, if any, is reported by the
-                # Work Store pass; cleanup failures are not observations.
+            if record.outcome == "gone":
+                gone.append(
+                    GoneHookRecord(store, scanned.path.stem, scanned.raw, record)
+                )
+                continue
+            if record.outcome == "ended":
+                # Cleanup failures are not observations.
                 with contextlib.suppress(OSError):
                     store.prune(scanned.path.stem, scanned.raw)
                 continue
@@ -394,7 +529,7 @@ def observe_hook_sessions(
         )
         for reason, count in sorted(unknown_by_reason.items())
     )
-    return list(latest.values()), diagnostics
+    return list(latest.values()), gone, diagnostics
 
 
 def record_to_session(

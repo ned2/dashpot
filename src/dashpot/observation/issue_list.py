@@ -18,7 +18,7 @@ from ..core.issue_profile import IssueProfile
 from ..core.model import (
     AgentRun,
     ProjectObservation,
-    RunState,
+    SessionActivity,
 )
 from ..issues.ordering import (
     IssueSortColumn,
@@ -47,7 +47,7 @@ class IssueListRow:
     project: ProjectObservation
     issue: IssueProfile
     observed_runs: tuple[AgentRun, ...] = ()
-    session_states: tuple[RunState, ...] = ()
+    session_states: tuple[SessionActivity, ...] = ()
     queried: bool = False
     auxiliary: AuxiliaryObservation | None = None
     related_issues: tuple[IssueProfile, ...] = ()
@@ -105,8 +105,8 @@ def query_indexed_issue_list(
             observed_runs = tuple(
                 agent_runs[run_id] for run_id in bound_run_ids if run_id in agent_runs
             )
-            session_states: tuple[RunState, ...] = tuple(
-                agent_runs[run_id].state if run_id in agent_runs else "unknown"
+            session_states: tuple[SessionActivity, ...] = tuple(
+                agent_runs[run_id].activity if run_id in agent_runs else "unknown"
                 for run_id in bound_run_ids
             )
             rows.append(

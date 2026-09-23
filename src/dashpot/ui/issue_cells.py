@@ -18,7 +18,7 @@ from typing import Literal
 from rich.text import Text
 
 from ..core.issue_profile import IssueProfile
-from ..core.model import IssueActivity, ProjectObservation, RunState
+from ..core.model import IssueActivity, ProjectObservation, SessionActivity
 from ..issues.ordering import (
     PRIORITY_BY_LABEL,
     PriorityLevel,
@@ -71,7 +71,7 @@ class AgentStateCell(Text):
 
     __slots__ = ()
 
-    def __init__(self, state: RunState | None, *, dark: bool) -> None:
+    def __init__(self, state: SessionActivity | None, *, dark: bool) -> None:
         glyph = AGENT_STATE_GLYPHS[state] if state is not None else None
         super().__init__(
             glyph.symbol if glyph is not None else "",
@@ -256,7 +256,7 @@ def issue_state_cell(issue: IssueProfile, *, dark: bool) -> IssueStateCell:
 
 
 def agent_state_cell(
-    states: tuple[RunState, ...], *, dark: bool = True
+    states: tuple[SessionActivity, ...], *, dark: bool = True
 ) -> AgentStateCell:
     """Summarize bound Agent Runs with the shared Agent Session state Glyphs."""
     state = next((state for state in AGENT_STATE_GLYPHS if state in states), None)

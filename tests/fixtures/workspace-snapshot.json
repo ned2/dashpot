@@ -169,7 +169,9 @@
       "workingDirectory": "/project:one",
       "lastActivityAt": null,
       "turnStartedAt": null,
-      "startedAt": null
+      "startedAt": null,
+      "orphaned": false,
+      "hostRestarted": null
     }
   ],
   "issueRuns": {},

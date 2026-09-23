@@ -193,6 +193,8 @@ class ListPane(Vertical):
         self.fit_rows(self.content_height_cap)
         self.post_message(self.RowsChanged(self))
         restore_selection(table, prior_key, prior_index, desired)
+        # A key may depend on the record under a cursor that did not move.
+        table.refresh_bindings()
 
     @staticmethod
     def _justify_cell(

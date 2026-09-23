@@ -18,6 +18,10 @@ from .pydantic import (
 
 SourceStatus = Literal["fresh", "stale", "unavailable"]
 RunState = Literal["running", "waiting", "unknown"]
+# What a person reads about a session: its turn state, or that its process is
+# gone while its Agent Run is still held (an Orphaned Agent Run). The two are
+# different facts, so the published ``RunState`` stays turn activity alone.
+SessionActivity = Literal["running", "waiting", "unknown", "orphaned"]
 # The supported harnesses and how each is named to a person; every harness
 # value in the code, the persisted records, and the published model is one of
 # these, and observation reads the labels here without importing ``sessions``.
@@ -183,6 +187,17 @@ class AgentRun(ObservationModel):
     last_activity_at: str | None = None
     turn_started_at: str | None = None
     started_at: str | None = None
+    # An Orphaned Agent Run: its session's recorded process is gone although
+    # no graceful end was observed. Its ``state`` is then ``unknown`` and its
+    # last activity is when the session was last seen. ``host_restarted`` says
+    # whether the host has booted since that process started, when known.
+    orphaned: bool = False
+    host_restarted: bool | None = None
+
+    @property
+    def activity(self) -> SessionActivity:
+        """What a person reads about this run: orphaned, or its turn state."""
+        return "orphaned" if self.orphaned else self.state
 
 
 class ProjectSnapshot(ObservationModel):

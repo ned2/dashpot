@@ -179,8 +179,8 @@ def branch_cells(
     now: datetime,
 ) -> tuple[ListCell, ...]:
     return (
-        activity_cell(tuple(session.state for session in row.sessions), dark=dark),
-        sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
+        activity_cell(tuple(session.activity for session in row.sessions), dark=dark),
+        sessions_cell(tuple(session.activity for session in row.sessions), dark=dark),
         truncate_end(row.name, NAME_LIMIT),
         REF_PRESENT_GLYPH.symbol if row.local is not None else "",
         REF_PRESENT_GLYPH.symbol if row.remotes else "",

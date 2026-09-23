@@ -726,8 +726,8 @@ reports the Worktree removable, or
 each reason it is not with the command that acts on it: dirty state, a lock
 with its reason and whether the holding process is alive (`initializing`
 names the forced removal), Agent Sessions whose hooks place them there,
-Agent Runs recorded there (an Orphaned Agent Run names its
-`dashpot work stop --session` command), and commits not on the upstream or
+Agent Runs recorded there (an Orphaned Agent Run, whose session is gone,
+names its `dashpot work stop --session` command), and commits not on the upstream or
 the Integration Branch. `check` removes nothing.
 
 `worktree remove PATH` and `branch delete NAME` are the Cleanup commands of

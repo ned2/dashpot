@@ -440,7 +440,7 @@ class HookRoutingTests(unittest.TestCase):
             process=self.process,
         )
 
-        self.assertEqual(session_directory(self.worktree), written.parent)
+        self.assertEqual(session_directory(self.worktree), written.path.parent)
 
     def test_publish_falls_back_to_the_global_store_when_unconfigured(
         self,
@@ -459,7 +459,7 @@ class HookRoutingTests(unittest.TestCase):
                 process=self.process,
             )
 
-        self.assertEqual(self.state_dir, written.parent)
+        self.assertEqual(self.state_dir, written.path.parent)
         self.assertFalse((self.worktree / ".dashpot").exists())
 
     def test_project_local_records_are_observed(self) -> None:

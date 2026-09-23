@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-05
+amended-by: 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md
 ---
 
 # Preserve Agent Runs through declared Codex relocation
@@ -63,6 +64,9 @@ observation remains passive.
 - **Infer continuity whenever an identity reappears:** rejected because it can
   resurrect work a genuinely ended session left behind and cannot distinguish
   concurrent clients.
+  [ADR 0053](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) admits
+  the narrow case this rejection leaves open: a resume at the same Worktree
+  after the previous runtime is proven gone and exclusive to the session.
 - **Move the record before the old client exits:** rejected because the target
   has not yet been observed and a failed resume would publish work where no
   session ran.

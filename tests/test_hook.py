@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from dashpot import hook
+from dashpot.sessions.hook_publish import HookPublication
 from dashpot.sessions.hook_records import HookRecordStore, build_hook_record
 from dashpot.sessions.processes import AgentAncestry
 from dashpot.sessions.session_matching import SessionEvidence
+from dashpot.sessions.work_store import ActiveWork, SessionProcess
 from factories import git, hook_record_document
 
 
@@ -79,9 +81,9 @@ def test_a_published_event_is_a_clean_hook_exit(
 ) -> None:
     published: list[tuple[dict[str, object], str]] = []
 
-    def publish(event: dict[str, object], harness: str = "codex") -> Path:
+    def publish(event: dict[str, object], harness: str = "codex") -> HookPublication:
         published.append((event, harness))
-        return tmp_path
+        return HookPublication(tmp_path)
 
     monkeypatch.setattr(hook, "publish_hook_event", publish)
     event = {"session_id": "s1", "hook_event_name": "Stop", "cwd": str(tmp_path)}
@@ -93,6 +95,54 @@ def test_a_published_event_is_a_clean_hook_exit(
     captured = capsys.readouterr()
     assert captured.err == ""
     assert captured.out == ""
+
+
+CONTINUED = ActiveWork(
+    session_key="claude-code-session-abc",
+    harness="claude-code",
+    session_label="claude-code pid 8888",
+    session_process=SessionProcess(pid=8888, started_at="Wed Aug 26 09:00:00 2026"),
+    issue_id="I_observer",
+    issue_reference="owner/repo#7",
+    binding_provenance="explicit-reference",
+    started_at="2026-08-25T02:00:00Z",
+    working_directory="/work/repo",
+    branch="7-observer",
+    session_id="s1",
+)
+
+
+@pytest.mark.parametrize(
+    ("event_name", "tells_the_agent"),
+    [("SessionStart", True), ("PostToolUse", True), ("Stop", False)],
+)
+def test_a_continued_run_is_announced_to_the_resumed_agent(
+    event_name: str,
+    tells_the_agent: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def publish(event: dict[str, object], harness: str = "codex") -> HookPublication:
+        return HookPublication(tmp_path, CONTINUED)
+
+    monkeypatch.setattr(hook, "publish_hook_event", publish)
+    event = {"session_id": "s1", "hook_event_name": event_name, "cwd": str(tmp_path)}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+
+    assert hook.claude_code_main() == 0
+
+    out = capsys.readouterr().out
+    if not tells_the_agent:
+        # Claude Code reads no context from this event's output.
+        assert out == ""
+        return
+    output = json.loads(out)["hookSpecificOutput"]
+    assert output["hookEventName"] == event_name
+    context = output["additionalContext"]
+    assert "owner/repo#7" in context
+    assert "/work/repo" in context
+    assert "dashpot work stop" in context
 
 
 def test_an_unsupported_event_is_a_non_blocking_hook_exit(

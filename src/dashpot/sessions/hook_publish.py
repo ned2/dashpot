@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +23,18 @@ from .processes import (
 )
 from .work_reconciliation import (
     complete_session_work_relocation,
+    continue_session_work,
     end_session_work,
 )
+from .work_store import ActiveWork
+
+
+@dataclass(frozen=True, slots=True)
+class HookPublication:
+    """Where one hook event was published, and any Agent Run it continued."""
+
+    path: Path
+    continued: ActiveWork | None = None
 
 
 def route_record_directory(record: Mapping[str, Any]) -> Path:
@@ -40,7 +51,7 @@ def publish_hook_event(
     process: ProcessIdentity | None = None,
     harness: Harness = "codex",
     lookup: ProcessLookup = host_process_lookup,
-) -> Path:
+) -> HookPublication:
     identity = process
     process_unobservable: str | None = None
     if identity is None:
@@ -59,8 +70,9 @@ def publish_hook_event(
         # sees that SessionEnd has already preserved the pending run.
         end_session_work(record, identity)
     destination = write_hook_record(record, directory or route_record_directory(record))
-    if record.get("state") != "ended":
-        complete_session_work_relocation(
-            record, identity, lookup, directory=destination.parent
-        )
-    return destination
+    if record.get("state") == "ended":
+        return HookPublication(destination)
+    complete_session_work_relocation(
+        record, identity, lookup, directory=destination.parent
+    )
+    return HookPublication(destination, continue_session_work(record, identity, lookup))
