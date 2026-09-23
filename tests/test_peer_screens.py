@@ -5,16 +5,18 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from textual.widgets import Input, Select, Static
+from textual.widgets import Input, Static
 
 import factories
 from app_harness import (
     SequenceCollector,
+    await_issue_page,
     dashboard_app,
     first_load_landed,
     issue,
     observation_landed,
     serve_snapshot,
+    show_issue_states,
     workspace_snapshot,
 )
 from dashpot.queries.source_queries import QueryRequest
@@ -213,14 +215,8 @@ async def test_switching_preserves_the_complete_query_presentation_state() -> No
         search.value = "Issue"
         search.focus()
         await pilot.press("enter")
-        await wait_until(
-            lambda: app.queries.navigation["issues"].request.query == "Issue"
-        )
-        state = app.query_screen.query_one("#issue-state", Select)
-        state.value = "all"
-        await wait_until(
-            lambda: app.queries.navigation["issues"].request.state == "all"
-        )
+        await await_issue_page(app, lambda request: request.query == "Issue")
+        await show_issue_states(app, "all")
         queue = app.query_screen.queue_table()
         queue.focus()
         await pilot.press("n")

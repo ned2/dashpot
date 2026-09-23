@@ -11,6 +11,7 @@ import factories
 from app_harness import (
     NOW,
     SequenceCollector,
+    await_issue_page,
     dashboard_app,
     first_load_landed,
     issue,
@@ -161,7 +162,7 @@ async def submit_search(app: DashpotApp, pilot: Pilot[None], text: str) -> None:
     search.value = text
     search.focus()
     await pilot.press("enter")
-    await wait_until(lambda: app.queries.navigation["issues"].request.query == text)
+    await await_issue_page(app, lambda request: request.query == text)
 
 
 def headers(app: DashpotApp) -> list[str]:
