@@ -27,12 +27,16 @@ class SessionTable(FocusCursorTable[ListCell]):
 
         key: str
 
+    # Whether the footer was last told the key is offered.
+    offers_resume: bool = False
+
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         # Only an Orphaned Agent Run has a session to resume, so the key is
         # offered on that row alone rather than crowding every row's footer.
         if action == "copy_resume":
-            return self.resumable()
+            self.offers_resume = self.resumable()
+            return self.offers_resume
         return True
 
     def resumable(self) -> bool:
@@ -47,7 +51,11 @@ class SessionTable(FocusCursorTable[ListCell]):
         )
 
     def on_data_table_row_highlighted(self, _: DataTable.RowHighlighted) -> None:
-        self.refresh_bindings()
+        # Refreshing bindings rebuilds the whole footer, and every refresh of
+        # the rows highlights one, so ask only when the offer would change.
+        # Gaining focus and a change of records refresh bindings already.
+        if self.has_focus and self.resumable() != self.offers_resume:
+            self.refresh_bindings()
 
     def action_copy_resume(self) -> None:
         """Request the resume command for the row selected by this key press."""

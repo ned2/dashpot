@@ -594,6 +594,9 @@ async def test_y_copies_the_resume_command_of_an_orphaned_session_only():
             "cd '/work tree/292' && claude --resume gone-conversation"
         )
         assert toasts(app)[-1].startswith("Resume command sent to clipboard")
+        # Moving back withdraws the offer.
+        await pilot.press("up")
+        await wait_until(lambda: "y" not in footer_keys(app))
         # A row that left the pane after the key press copies nothing.
         app.dashboard.post_message(SessionTable.ResumeCopyRequested("gone-row"))
         await pilot.pause()
