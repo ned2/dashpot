@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-20
+date: 2026-09-23
 ---
 
 # Architecture decision records
@@ -30,7 +30,7 @@ of date.
 | 0012 | [Observe Branch integration by commit reachability](0012-observe-branch-integration-by-reachability.md) | amended | [0017](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md), [0018](0018-assess-remote-tracking-branch-integration.md), [0040](0040-summarize-integration-across-a-branch-rows-refs.md) |
 | 0013 | [Adopt Pydantic models at validating seams, keep dataclasses for trusted values](0013-adopt-pydantic-models-by-seam.md) | amended | [0041](0041-distinguish-github-wire-models-from-configuration.md) |
 | 0014 | [Fetch remotes on an explicit key press](0014-fetch-remotes-on-explicit-key-press.md) | accepted | — |
-| 0015 | [Reconcile the session's Agent Run at SessionEnd](0015-reconcile-the-agent-run-at-session-end.md) | amended | [0029](0029-preserve-agent-runs-through-declared-codex-relocation.md) |
+| 0015 | [Reconcile the session's Agent Run at SessionEnd](0015-reconcile-the-agent-run-at-session-end.md) | amended | [0029](0029-preserve-agent-runs-through-declared-codex-relocation.md), [0053](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) |
 | 0016 | [Hold a session running while its sub-agents work](0016-hold-a-session-running-while-its-sub-agents-work.md) | accepted | — |
 | 0017 | [Observe Branch integration by content when commits are unreachable](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md) | amended | [0018](0018-assess-remote-tracking-branch-integration.md), [0040](0040-summarize-integration-across-a-branch-rows-refs.md) |
 | 0018 | [Assess Remote-Tracking Branch integration](0018-assess-remote-tracking-branch-integration.md) | amended | [0040](0040-summarize-integration-across-a-branch-rows-refs.md) |
@@ -44,7 +44,7 @@ of date.
 | 0026 | [Run fallback sweeps under their own Refresh Budget](0026-run-fallback-sweeps-under-their-own-refresh-budget.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0027 | [Keep the GraphQL change probe authoritative](0027-keep-the-graphql-change-probe-authoritative.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0028 | [Persist GitHub Issue snapshots as untrusted startup seeds](0028-persist-github-issue-snapshots-as-untrusted-startup-seeds.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
-| 0029 | [Preserve Agent Runs through declared Codex relocation](0029-preserve-agent-runs-through-declared-codex-relocation.md) | accepted | — |
+| 0029 | [Preserve Agent Runs through declared Codex relocation](0029-preserve-agent-runs-through-declared-codex-relocation.md) | amended | [0053](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) |
 | 0030 | [Combine startup evidence with mandatory reads](0030-combine-startup-evidence-with-mandatory-reads.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0031 | [Observe complete Pull Request lifecycle history](0031-observe-complete-pull-request-lifecycle-history.md) | amended | [0032](0032-submit-pull-request-queries-to-github-advanced-search.md), [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0032 | [Submit Pull Request queries to GitHub advanced search](0032-submit-pull-request-queries-to-github-advanced-search.md) | amended | [0033](0033-query-pages-and-independent-issue-resolution.md) |
@@ -68,3 +68,4 @@ of date.
 | 0050 | [Describe every pane column once for the tooltip and the Legend](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md) | accepted | — |
 | 0051 | [Adopt long-lived peer dashboard screens](0051-adopt-long-lived-peer-dashboard-screens.md) | accepted | — |
 | 0052 | [Read machine-local settings as TOML](0052-read-machine-local-settings-as-toml.md) | accepted | — |
+| 0053 | [Continue an Orphaned Agent Run when its session resumes](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) | accepted | — |

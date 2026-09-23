@@ -47,6 +47,7 @@ RELATED_ROWS_LABEL = "RELATED ROWS"
 STATUS_BAR_LABEL = "STATUS BAR"
 # The sections that are not one column: a pane's keys, the Issue table's
 # choice of columns, and the emphasis the panes share.
+SESSION_ACTIONS_SECTION = "y"
 WORKTREE_ACTIONS_SECTION = "x · Enter · y"
 ISSUE_COLUMNS_SECTION = "column headers"
 RELATED_ROWS_SECTION = "emphasis"
@@ -64,6 +65,12 @@ RELATED_ROWS_NOTE = (
     "and Pull Requests are excluded. "
     "Other cursors, filters, scroll positions, activity Glyphs, and counts stay "
     "unchanged; selection performs no observation or mutation"
+)
+SESSION_ACTIONS_NOTE = (
+    "on an Orphaned Agent Run's row, y sends the command that resumes its "
+    "session to the terminal clipboard; resuming a Claude Code session there "
+    "continues the run, and dashpot worktree check at that Worktree names the "
+    "work stop --session command that ends one that will not be resumed"
 )
 WORKTREE_ACTIONS_NOTE = (
     "x removes a linked Worktree only when it is clean, unlocked, and no Agent "
@@ -118,6 +125,9 @@ LEGEND: tuple[LegendSection, ...] = (
         "not available",
     ),
     *column_sections(SESSIONS_PANE_LABEL, SESSION_COLUMNS),
+    LegendSection(
+        SESSIONS_PANE_LABEL, SESSION_ACTIONS_SECTION, (), SESSION_ACTIONS_NOTE
+    ),
     *column_sections(WORKTREES_PANE_LABEL, WORKTREE_COLUMNS),
     LegendSection(
         WORKTREES_PANE_LABEL, WORKTREE_ACTIONS_SECTION, (), WORKTREE_ACTIONS_NOTE

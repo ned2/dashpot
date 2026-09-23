@@ -12,13 +12,14 @@ from ..core.git import GitError
 from ..core.json_records import optional_string, require_harness, require_string
 from ..core.record_store import RecordKeyError
 from ..core.worktree_paths import repository_worktrees, same_path
+from .harnesses import adapter
 from .hook_records import HookRecordStore
 from .hook_scan import (
     reachable_hook_stores,
     scan_hook_stores,
     session_record_named,
 )
-from .liveness import LivenessProbe
+from .liveness import LivenessProbe, session_liveness
 from .processes import (
     ProcessIdentity,
     ProcessLookup,
@@ -61,6 +62,63 @@ def end_session_work(
         process.key if process else None,
         ended_at=optional_string(record.get("lastActivityAt")),
     )
+
+
+def continue_session_work(
+    record: Mapping[str, Any],
+    process: ProcessIdentity | None,
+    lookup: ProcessLookup = host_process_lookup,
+) -> ActiveWork | None:
+    """Carry an Orphaned Agent Run over to its session's new host process.
+
+    A session whose process ended without ``SessionEnd`` and that publishes
+    again from a new process under the same Agent Session Identity is the same
+    engagement continuing, so its run keeps its identity, ``startedAt``, and
+    Issue Binding (ADR 0053). That holds only where the harness runs each
+    session in its own process, the recorded process is proved gone rather
+    than unobservable, and the hook arrives at the Worktree holding the run.
+    The replacement compares the complete record under its lock, so of two
+    clients resuming together only the first continues the run. Returns the
+    continued run, or ``None`` when nothing was carried over.
+    """
+    harness = require_harness(record.get("harness"))
+    if process is None or not adapter(harness).exclusive_session_process:
+        return None
+    root = optional_string(record.get("repositoryRoot"))
+    if root is None:
+        return None
+    store = WorkStore(Path(root))
+    # Most hooks come from a session with no run here; they stop at this
+    # check rather than paying for a process probe or Git.
+    if not store.directory.is_dir():
+        return None
+    try:
+        active, _diagnostics = store.active()
+    except OSError:
+        return None
+    session_id = require_string(record.get("sessionId"), "sessionId")
+    identity = SessionEvidence(harness, session_id)
+    for work in active:
+        if identity.match(work.evidence) != "same" or work.relocation is not None:
+            continue
+        recorded = work.session_process
+        if recorded is None or recorded.key == process.key:
+            continue
+        if session_liveness(recorded.key, lookup).liveness != "gone":
+            continue
+        continued = replace(
+            work,
+            session_label=work_session_label(harness, session_id, pid=process.pid),
+            session_process=SessionProcess(
+                pid=process.pid, started_at=process.started_at
+            ),
+        )
+        try:
+            if store.replace_current(work, continued):
+                return continued
+        except (OSError, RecordKeyError, ValueError):
+            return None
+    return None
 
 
 def complete_session_work_relocation(

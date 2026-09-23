@@ -31,6 +31,7 @@ from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text, next_issue_states
 from ..observation.paged_store import PagedObservationStore
 from ..observation.related_rows import FocusedSource, query_related_rows
+from ..observation.session_list import SessionListRow, resume_command
 from ..observation.worktree_list import WorktreeListRow
 from ..queries.page_navigation import totals_text
 from ..queries.source_queries import QuerySource, ResourceKind
@@ -79,6 +80,7 @@ from .panes import (
     PaneContext,
     PaneSpec,
 )
+from .session_table import SessionTable
 from .status_bar import PEER_ORDER, PeerName, PeerSelected, PeerStatusBar
 from .worktree_table import WorktreeTable
 
@@ -390,6 +392,17 @@ class DashboardScreen(Screen[None]):
         if path is not None:
             self.app.copy_to_clipboard(str(path))
             self.app.notify("Path sent to clipboard")
+
+    def on_session_table_resume_copy_requested(
+        self, event: SessionTable.ResumeCopyRequested
+    ) -> None:
+        """Send an Orphaned Agent Run's resume command to the terminal clipboard."""
+        # The row may have changed since the key was offered for it.
+        command = self.dashpot.session_resume_command(event.key)
+        if command is None:
+            return
+        self.app.copy_to_clipboard(command)
+        self.app.notify(f"Resume command sent to clipboard: {command}")
 
     def update_status(self) -> None:
         """Render current location and the shared Project Totals summary."""
@@ -1075,6 +1088,13 @@ class DashpotApp(App[None]):
             return None
         return Path(record.target.path)
 
+    def session_resume_command(self, key: str) -> str | None:
+        """The resume command of a listed Orphaned Agent Run's session row."""
+        record = self.dashboard.sessions_pane().record(key)
+        if not isinstance(record, SessionListRow):
+            return None
+        return resume_command(record.session)
+
     def request_worktree_open(self, key: str) -> None:
         """Capture one Worktree launch and exclude duplicate dispatch."""
         table = self.dashboard.query_one(WorktreeTable)
@@ -1277,6 +1297,7 @@ def legend_keys() -> tuple[KeyGroup, ...]:
             "Issues & Pull Requests",
             tuple(IssuesPullRequestsScreen.BINDINGS),
         ),
+        KeyGroup("Sessions pane", tuple(SessionTable.BINDINGS)),
         KeyGroup("Worktrees pane", tuple(WorktreeTable.BINDINGS)),
         KeyGroup("Issue view", tuple(IssueScreen.BINDINGS)),
         KeyGroup("column editor", tuple(IssueColumnEditor.BINDINGS)),

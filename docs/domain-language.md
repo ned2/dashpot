@@ -323,10 +323,15 @@ gone, or unknown. Unknown means the process could not be observed and is never
 evidence that the session ended.
 
 **Orphaned Agent Run**:
-An active Work Store record whose Agent Session is gone. It is actionable
-because it affects declared Issue work; a gone session without one is only
-stale observation state.
-_Avoid_: orphaned session for a gone unbound session
+An active Work Store record whose Agent Session's recorded host process is
+gone although no graceful `SessionEnd` was observed, as after a crash. It
+stays listed, marked orphaned, until its Claude Code session resumes at the
+same Worktree and continues it ([ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)) or a person ends it with `dashpot work
+stop --session`; a gone session without one is only stale observation state.
+Orphaned is what a person reads about the run, beside its turn state, which
+is then unknown.
+_Avoid_: interrupted, crashed, or dead run, which claim a cause Dashpot does
+not observe; orphaned session for a gone unbound session
 
 **Work Store**:
 The versioned, Project-local record of active Agent Runs and any Relocation

@@ -9,17 +9,23 @@ the sole authority for it), never a second row.
 
 from __future__ import annotations
 
+import shlex
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.issue_profile import IssueProfile
-from ..core.model import AgentRun, ProjectObservation, RunState
+from ..core.model import AgentRun, ProjectObservation, SessionActivity
 from .issue_list import row_key
 from .list_result import ListResult
 
-SESSION_STATE_ORDER: dict[RunState, int] = {"running": 0, "waiting": 1, "unknown": 2}
+SESSION_STATE_ORDER: dict[SessionActivity, int] = {
+    "running": 0,
+    "waiting": 1,
+    "orphaned": 2,
+    "unknown": 3,
+}
 OUTSIDE_PROJECT_TEXT = "outside Project"
 UNBOUND_ISSUE_TEXT = "no active Issue work"
 
@@ -87,11 +93,29 @@ def _sort_key(row: SessionListRow) -> tuple[int, int, str, str]:
     session = row.session
     activity = session.last_activity_at
     return (
-        SESSION_STATE_ORDER[session.state],
+        SESSION_STATE_ORDER[session.activity],
         0 if activity else 1,
         _descending(activity or ""),
         session.id,
     )
+
+
+def resume_command(session: AgentRun) -> str | None:
+    """The shell command that resumes an Orphaned Agent Run's session, if any.
+
+    Resuming a Claude Code session whose process is gone continues its Agent
+    Run (ADR 0053), so the command resumes at the Worktree the run is recorded
+    at: Claude Code files a conversation under the Worktree it entered, and
+    Codex takes the directory as ``-C``. A resumed Codex thread does not
+    continue its run; it resumes the conversation alone.
+    """
+    directory = session.observation_target or session.working_directory
+    if not session.orphaned or session.session_id is None or directory is None:
+        return None
+    identity, location = shlex.quote(session.session_id), shlex.quote(directory)
+    if session.harness == "codex":
+        return f"codex resume {identity} -C {location}"
+    return f"cd {location} && claude --resume {identity}"
 
 
 def _descending(value: str) -> str:

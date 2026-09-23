@@ -258,7 +258,7 @@ def issue_metadata_items(
             or run.working_directory
             or "unknown location"
         )
-        items.append(DetailItem(f"{run.id} ({run.state}, {location})", kind="list"))
+        items.append(DetailItem(f"{run.id} ({run.activity}, {location})", kind="list"))
     return tuple(items)
 
 

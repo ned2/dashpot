@@ -120,7 +120,8 @@ def _has_priority(row: IssueListRow) -> bool:
 # Branches columns of the same Glyph, so its description says so.
 AGENT_STATE_DESCRIPTION = (
     "the liveliest Agent Run explicitly bound to this Issue by an accepted "
-    "Issue Binding, running before waiting before unknown, or blank when "
+    "Issue Binding, running before waiting before orphaned before unknown, "
+    "or blank when "
     "none is; an Agent Session located on a Worktree or Branch named for the "
     "Issue does not count until it opts in with work start"
 )

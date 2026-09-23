@@ -14,7 +14,7 @@ from pathlib import Path
 from rich.text import Text
 
 from ..core.ages import relative_age
-from ..core.model import HARNESS_DISPLAY, AgentRun, RunState
+from ..core.model import HARNESS_DISPLAY, AgentRun, SessionActivity
 from ..observation.list_result import ListResult
 from ..observation.session_list import (
     OUTSIDE_PROJECT_TEXT,
@@ -54,9 +54,12 @@ ISSUE_LIMIT = 36
 STATE_DESCRIPTION = (
     "this Agent Session's own lifecycle state, observed at turn boundaries: "
     "running while a turn is in progress, waiting while idle between turns, "
-    "and unknown when no lifecycle hook has reported it or its liveness "
-    "cannot be confirmed; the pane lists "
-    "running sessions first, then waiting, then unknown, each by most recent "
+    "unknown when no lifecycle hook has reported it or its liveness "
+    "cannot be confirmed, and orphaned when its process is gone without a "
+    "graceful end while its Agent Run is still held, which resuming a Claude "
+    "Code session continues and work stop --session ends; the pane lists "
+    "running sessions "
+    "first, then waiting, then orphaned, then unknown, each by most recent "
     "activity"
 )
 HARNESS_DESCRIPTION = (
@@ -95,7 +98,9 @@ ACTIVITY_DESCRIPTION = (
     "duration so far, or running alone when the turn's start is unknown, "
     "idle 14m how long it has been quiet since its last observed event, and "
     "started 3d ago an Agent Run no hook has observed yet, dated from its "
-    "Work Store start; - when none of those is known"
+    "Work Store start; last seen 2h ago when an Orphaned Agent Run's session "
+    "was last observed, followed by host restarted when the host has booted "
+    "since that session's process started; - when none of those is known"
 )
 
 SESSION_COLUMNS: tuple[ListColumn, ...] = (
@@ -133,7 +138,7 @@ def session_cells(
 ) -> tuple[ListCell, ...]:
     session = row.session
     return (
-        session_state_cell(session.state, dark=dark),
+        session_state_cell(session.activity, dark=dark),
         HARNESS_DISPLAY[session.harness],
         *((session_target_cell(row, home=home),) if target else ()),
         truncate_end(session.branch or "detached", BRANCH_LIMIT),
@@ -158,8 +163,13 @@ def activity_text(session: AgentRun, now: datetime) -> str:
     A running turn's age and an idle session's age are different facts that
     read alike as a bare age, so the cell says which one it is. A run nothing
     has observed reports when its work began rather than borrowing that
-    timestamp as an activity it never saw.
+    timestamp as an activity it never saw. An Orphaned Agent Run is not idle:
+    nothing is running it, so the cell says when it was last seen.
     """
+    if session.orphaned:
+        seen = relative_age(session.last_activity_at, now)
+        text = f"last seen {seen}" if seen else "ended unobserved"
+        return f"{text}, host restarted" if session.host_restarted else text
     if session.state == "running":
         elapsed = _elapsed(session.turn_started_at or session.last_activity_at, now)
         return f"running {elapsed}" if elapsed else "running"
@@ -187,7 +197,7 @@ def session_target_cell(row: SessionListRow, *, home: Path | None = None) -> Lis
     )
 
 
-def session_state_cell(state: RunState, *, dark: bool) -> Text:
+def session_state_cell(state: SessionActivity, *, dark: bool) -> Text:
     glyph = STATE_GLYPHS[state]
     return Text(glyph.symbol, style=glyph.style(dark=dark))
 

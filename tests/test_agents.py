@@ -4,8 +4,10 @@ import json
 import tempfile
 import unittest
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
+from typing import NoReturn, override
+from unittest import mock
 
 from dashpot.core.model import Harness, ObservationTarget
 from dashpot.sessions.agents import observe_agent_runs
@@ -328,6 +330,7 @@ class WorkObserverTests(unittest.TestCase):
         *,
         session_key: str = "codex-42-abcd1234",
         process: ProcessIdentity | None = None,
+        session_id: str = "session-a",
     ) -> ActiveWork:
         process = process or self.process
         work = ActiveWork(
@@ -343,7 +346,7 @@ class WorkObserverTests(unittest.TestCase):
             started_at="2026-08-24T14:00:00Z",
             working_directory=str(worktree),
             branch="feature",
-            session_id="session-a",
+            session_id=session_id,
         )
         WorkStore(worktree).start(work)
         return work
@@ -411,26 +414,90 @@ class WorkObserverTests(unittest.TestCase):
         self.assertIsNone(runs[0].turn_started_at)
         self.assertEqual(work.started_at, runs[0].started_at)
 
-    def test_orphaned_work_record_is_one_actionable_diagnostic(self) -> None:
-        self.record_work(self.worktree)
-        self.write_hook("session-gone", "running", str(self.worktree))
+    def test_an_orphaned_run_stays_listed_with_when_it_was_last_seen(self) -> None:
+        work = self.record_work(self.worktree)
+        self.write_hook("session-a", "running", str(self.worktree))
+        # Another gone session with no Issue work is stale observation state.
+        self.write_hook("session-unbound", "running", str(self.worktree))
+        # A gone session whose run is held at a Worktree this pass does not
+        # observe is that run's evidence, so it is left for that observation;
+        # one at a checkout with no such run, such as an unconfigured or
+        # removed one, is pruned.
+        elsewhere = self.root / "other"
+        elsewhere.mkdir()
+        self.record_work(
+            elsewhere, session_key="codex-43-abcd1234", session_id="session-elsewhere"
+        )
+        self.write_hook("session-elsewhere", "running", str(elsewhere))
+        self.write_hook("session-removed", "running", str(self.root / "removed"))
 
         runs, diagnostics = observe_agent_runs(
             self.targets(),
             self.state_dir,
             lookup=absent(),
+            boot_time=lambda: datetime(2026, 8, 26, tzinfo=UTC),
         )
 
-        self.assertEqual([], runs)
-        self.assertEqual(1, len(diagnostics))
-        self.assertEqual("work-session-orphaned", diagnostics[0].code)
-        self.assertEqual("warning", diagnostics[0].severity)
-        self.assertIn("example/project#7", diagnostics[0].message)
-        self.assertIn(str(self.worktree), diagnostics[0].message)
-        self.assertIn(
-            "dashpot work stop --session codex-42-abcd1234", diagnostics[0].message
+        # The run is a fact to show on its Issue, not a warning to clear.
+        self.assertEqual([], diagnostics)
+        (run,) = runs
+        self.assertEqual(work.run_id, run.id)
+        self.assertEqual("I_example/project#7", run.issue_id)
+        self.assertTrue(run.orphaned)
+        self.assertEqual("orphaned", run.activity)
+        self.assertEqual("unknown", run.state)
+        self.assertEqual("2026-08-24T15:00:00Z", run.last_activity_at)
+        # The host booted after the process started on 25 August.
+        self.assertIs(True, run.host_restarted)
+        # Its gone hook record is kept as the last-seen evidence; the unbound
+        # one is pruned.
+        self.assertTrue((self.state_dir / "session-a.json").exists())
+        self.assertFalse((self.state_dir / "session-unbound.json").exists())
+        self.assertTrue((self.state_dir / "session-elsewhere.json").exists())
+        self.assertFalse((self.state_dir / "session-removed.json").exists())
+
+    def test_an_unreadable_work_store_elsewhere_keeps_its_evidence(self) -> None:
+        elsewhere = self.root / "other"
+        elsewhere.mkdir()
+        self.record_work(elsewhere, session_id="session-elsewhere")
+        self.write_hook("session-elsewhere", "running", str(elsewhere))
+
+        def unreadable(_store: WorkStore) -> NoReturn:
+            raise OSError("permission denied")
+
+        with mock.patch.object(WorkStore, "active", unreadable):
+            observe_agent_runs({}, self.state_dir, lookup=absent())
+
+        self.assertTrue((self.state_dir / "session-elsewhere.json").exists())
+
+    def test_restart_attribution_is_unknown_without_a_boot_time(self) -> None:
+        self.record_work(self.worktree)
+
+        before_boot, _ = observe_agent_runs(
+            self.targets(),
+            self.state_dir,
+            lookup=absent(),
+            boot_time=lambda: datetime(2026, 8, 1, tzinfo=UTC),
         )
-        self.assertNotIn("exited", diagnostics[0].message)
+        unreadable, _ = observe_agent_runs(
+            self.targets(), self.state_dir, lookup=absent(), boot_time=lambda: None
+        )
+
+        self.assertIs(False, before_boot[0].host_restarted)
+        self.assertIsNone(unreadable[0].host_restarted)
+        self.assertIsNone(unreadable[0].last_activity_at)
+
+    def test_a_stopped_orphaned_run_releases_its_last_seen_record(self) -> None:
+        self.record_work(self.worktree)
+        self.write_hook("session-a", "running", str(self.worktree))
+        observe_agent_runs(self.targets(), self.state_dir, lookup=absent())
+
+        WorkStore(self.worktree).stop("codex-42-abcd1234")
+        runs, _ = observe_agent_runs(self.targets(), self.state_dir, lookup=absent())
+
+        self.assertEqual([], runs)
+        self.assertFalse((self.state_dir / "session-a.json").exists())
+        self.assertFalse((self.state_dir / ".session-a.lock").exists())
 
     def test_observation_reclaims_work_lock_files_that_guard_no_record(
         self,
@@ -676,8 +743,10 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         # Session Liveness is unknown for both records, which is never
         # evidence that the session ended: the run is listed, not orphaned.
         self.assertEqual("unknown", runs[0].state)
-        self.assertNotIn(
-            "work-session-orphaned", [diagnostic.code for diagnostic in diagnostics]
+        self.assertFalse(runs[0].orphaned)
+        self.assertEqual(
+            ["agent-session-liveness-unknown"],
+            [diagnostic.code for diagnostic in diagnostics],
         )
 
     def test_process_keyed_run_with_identity_prefers_identity_then_process(

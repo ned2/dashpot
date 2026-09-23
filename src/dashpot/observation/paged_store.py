@@ -146,7 +146,7 @@ class PagedObservationStore(WorkspaceObservationStore):
             project,
             issue,
             runs,
-            tuple(run.state for run in runs),
+            tuple(run.activity for run in runs),
             True,
             auxiliary,
             tuple(result.issue for result in self.resolved.values() if result.issue),

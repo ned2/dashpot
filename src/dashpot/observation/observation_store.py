@@ -446,7 +446,7 @@ def _issue_detail(
         if run_id in state.agent_runs
     )
     session_states = tuple(
-        state.agent_runs[run_id].state if run_id in state.agent_runs else "unknown"
+        state.agent_runs[run_id].activity if run_id in state.agent_runs else "unknown"
         for run_id in bound_run_ids
     )
     return IssueListRow(

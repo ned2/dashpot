@@ -16,6 +16,9 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   metacharacters. `dashpot integrate` refuses to bind the hooks to a publisher
   inside a linked Worktree, whose removal would break every hook event, and
   `--status` warns about such a binding while its file still exists.
+- Keep an Agent Run whose session ended without `SessionEnd` listed as
+  orphaned (`orphaned`, `hostRestarted` in JSON) rather than as a Diagnostic,
+  and continue it when its Claude Code session resumes at the same Worktree.
 
 This release establishes the first compatibility baseline. Documented commands,
 JSON key sets and semantics, Local Issue Markdown, and `.dashpot/config.json`

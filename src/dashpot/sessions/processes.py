@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Any, Literal
@@ -194,6 +196,56 @@ def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobse
     if result.returncode != 0:
         return ProcessUnobservable(pid, "ps-failed")
     return result.stdout
+
+
+def process_started_at(started_at: str) -> datetime | None:
+    """The instant a recorded ``ps`` start time names, or ``None`` if unreadable.
+
+    The probe renders ``lstart`` in the C locale and UTC, so the recorded
+    text is an exact instant on every supported platform.
+    """
+    try:
+        return datetime.strptime(started_at, "%a %b %d %H:%M:%S %Y").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+# ``sysctl -n kern.boottime`` on macOS: ``{ sec = 1790159795, usec = 0 } ...``.
+BOOT_SECONDS = re.compile(r"\bsec\s*=\s*(\d+)")
+
+
+@cache
+def host_boot_time() -> datetime | None:
+    """When this host last booted, or ``None`` when the host cannot say.
+
+    Read once per process: a reboot also ends the process asking.
+    """
+    return boot_time(Path("/proc/stat"))
+
+
+def boot_time(stat: Path) -> datetime | None:
+    """The boot time Linux's ``stat`` file records, else macOS's ``sysctl``."""
+    try:
+        for line in stat.read_text().splitlines():
+            name, _, value = line.partition(" ")
+            if name == "btime" and value.strip().isdigit():
+                return datetime.fromtimestamp(int(value), tz=UTC)
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "kern.boottime"],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    found = BOOT_SECONDS.search(result.stdout) if result.returncode == 0 else None
+    if found is None:
+        return None
+    return datetime.fromtimestamp(int(found.group(1)), tz=UTC)
 
 
 HARNESS_HOSTS: dict[Harness, Callable[[ProcessIdentity], bool]] = {

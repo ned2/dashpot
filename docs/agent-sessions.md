@@ -107,8 +107,9 @@ Codex resume in
 is the one exception: `SessionEnd` preserves the pending run before removing
 the old client's hook record. A
 session that was killed, or whose `SessionEnd` hook never ran, is dropped
-quietly and its stale record and lock file are cleaned up; it only becomes a
-Diagnostics warning when it leaves an orphaned Agent Run behind (see below). When the
+quietly and its stale record and lock file are cleaned up, unless it leaves
+an Orphaned Agent Run behind, which keeps the record for when it was last seen
+(see below). When the
 process cannot be observed at all (for example from inside a sandboxed process
 namespace) the session is shown with `unknown` state rather than assumed to
 have exited. `dashpot integrate <harness> --status` classifies every session
@@ -245,11 +246,16 @@ Session Identity (see
 that carries a global Issue binding (the retired
 `DASHPOT_ISSUE_ID`/`DASHPOT_ISSUE_REF` environment convention) is rejected with
 a diagnostic pointing at `dashpot work start`, never silently combined. When a
-session is gone but its Work Store record remains, that record is an orphaned
-Agent Run: it is excluded from the listed runs and reported once as an
-actionable `work-session-orphaned` diagnostic naming the Issue and the
-`dashpot work stop --session <key>` command that ends it. Dashpot never
-reassigns Issue work. It ends a run on its own only when the harness delivers
+session is gone but its Work Store record remains, that record is an Orphaned
+Agent Run: it stays listed with `orphaned` set, `state` unknown,
+`lastActivityAt` when the session was last seen, and `hostRestarted` when the
+host has booted since its process started. Resuming the same conversation at
+the same Worktree continues it, keeping its Issue Binding, when its harness
+runs one session per host process (Claude Code; not Codex) and the recorded
+process is proven gone; the hook then tells the resumed agent so
+([ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)). The Sessions pane's `y`
+copies the resume command, and `dashpot work stop --session <key>` ends a run
+that will not be resumed. Dashpot never reassigns Issue work. It ends a run on its own only when the harness delivers
 its session's graceful `SessionEnd`, except that a declared Codex relocation
 retains the run until verified resume or explicit stop. Ending evidence must
 match the recorded runtime, and conditional deletion rechecks the complete run

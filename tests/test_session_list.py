@@ -25,6 +25,7 @@ from dashpot.observation.session_list import (
     OUTSIDE_PROJECT_TEXT,
     UNBOUND_ISSUE_TEXT,
     SessionListRow,
+    resume_command,
     shows_target,
 )
 from dashpot.sessions.agents import observe_agent_runs
@@ -457,6 +458,55 @@ def test_activity_says_which_age_it_is_showing() -> None:
 
     blind = session("work:blind", state="unknown", last_activity_at=None)
     assert cell(blind) == "-"
+
+
+def test_an_orphaned_run_ranks_after_waiting_and_says_when_it_was_last_seen() -> None:
+    def orphan(run_id: str, *, host_restarted: bool | None) -> AgentRun:
+        return session(
+            run_id, state="unknown", last_activity_at="2026-08-27T01:00:00Z"
+        ).model_copy(update={"orphaned": True, "host_restarted": host_restarted})
+
+    runs = [
+        session("work:unknown", state="unknown", last_activity_at=None),
+        orphan("work:crashed", host_restarted=True),
+        session("work:waiting", state="waiting"),
+        orphan("work:exited", host_restarted=None),
+    ]
+    result = WorkspaceObservationStore(
+        workspace(project("project:alpha"), runs=runs)
+    ).query_sessions()
+
+    assert [row.session.id for row in result.rows] == [
+        "work:waiting",
+        "work:crashed",
+        "work:exited",
+        "work:unknown",
+    ]
+    cells = [row.cells for row in session_rows(result, dark=True)]
+    assert str(cells[1][5]) == "last seen 2h ago, host restarted"
+    assert str(cells[2][5]) == "last seen 2h ago"
+    assert str(cells[1][0]) == "◌"
+    assert str(cells[1][0]) != str(cells[3][0])
+
+
+def test_only_an_orphaned_session_with_an_identity_has_a_resume_command() -> None:
+    def run(harness: Harness, **update: object) -> AgentRun:
+        return session(
+            "work:one",
+            harness=harness,
+            target_path="/w/it's here",
+            working_directory="/w/it's here/src",
+        ).model_copy(update={"session_id": "thread-1", "orphaned": True, **update})
+
+    assert (
+        resume_command(run("codex")) == "codex resume thread-1 -C '/w/it'\"'\"'s here'"
+    )
+    assert (
+        resume_command(run("claude-code"))
+        == "cd '/w/it'\"'\"'s here' && claude --resume thread-1"
+    )
+    assert resume_command(run("codex", orphaned=False)) is None
+    assert resume_command(run("codex", session_id=None)) is None
 
 
 def test_sandboxed_bindings_of_both_harnesses_reach_the_sessions_and_issues_read_models() -> (

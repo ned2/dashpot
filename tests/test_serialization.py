@@ -111,6 +111,8 @@ AGENT_RUN_KEYS = {
     "lastActivityAt",
     "turnStartedAt",
     "startedAt",
+    "orphaned",
+    "hostRestarted",
 }
 DIAGNOSTIC_KEYS = {"source", "severity", "message", "code"}
 ISSUE_ACTIVITY_KEYS = {"commentCount", "linkedPullRequests", "unlistedPullRequestCount"}

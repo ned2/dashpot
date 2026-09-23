@@ -50,9 +50,13 @@ or recovery action.
 
 ## Orphaned Agent Run
 
-Use `work show` to identify it. End an orphan only with the explicit
-`work stop --session <session-key>` management command and only when the user
-asked to end that exact run. Never edit the Work Store directly.
+A run whose session process is gone without a graceful end, as after a
+crash. Resuming that Claude Code session at the same Worktree continues it,
+and the hook says so; confirm with `work show` rather than running
+`work start` again. Otherwise use `work show` to identify it. End an orphan
+only with the explicit `work stop --session <session-key>` management command
+and only when the user asked to end that exact run. Never edit the Work Store
+directly.
 
 ## Pending Codex relocation
 

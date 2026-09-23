@@ -6,6 +6,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -1389,3 +1390,180 @@ def test_session_end_outside_any_repository_reconciles_nothing(
     session_end(elsewhere, CODEX_SESSION, "codex", CODEX)
 
     assert list(issue_ids(root).values()) == ["I_observer"]
+
+
+# --- A same-identity continuation keeps its Agent Run (ADR 0053) -------------
+
+RESUMED_CLAUDE = ProcessIdentity(8888, 1, "claude", "Wed Aug 26 09:00:00 2026")
+
+
+def resume(
+    root: Path,
+    session_id: str,
+    harness: Harness,
+    process: ProcessIdentity,
+    lookup: ProcessLookup,
+    event: str = "SessionStart",
+) -> None:
+    """Publish ``event`` from a new process of the session at ``root``."""
+    publish_hook_event(
+        {"session_id": session_id, "cwd": str(root), "hook_event_name": event},
+        process=process,
+        harness=harness,
+        lookup=lookup,
+    )
+
+
+def claude_run(root: Path) -> None:
+    hook_record(root, CLAUDE_SESSION, "claude-code", CLAUDE)
+    start_issue_work(
+        root, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
+    )
+
+
+ONLY_RESUMED = table_lookup({RESUMED_CLAUDE.pid: RESUMED_CLAUDE})
+
+
+def test_a_resumed_claude_session_continues_its_orphaned_run(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    claude_run(root)
+    (before,) = WorkStore(root).active()[0]
+
+    # The original process died without SessionEnd; only the new one runs.
+    resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, ONLY_RESUMED)
+
+    (after,) = WorkStore(root).active()[0]
+    assert after == replace(
+        before,
+        session_label="claude-code pid 8888",
+        session_process=SessionProcess(
+            pid=RESUMED_CLAUDE.pid, started_at=RESUMED_CLAUDE.started_at
+        ),
+    )
+    assert after.run_id == before.run_id
+    # The continued run is the new process's, so its graceful end ends it.
+    session_end(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE)
+    assert WorkStore(root).active() == ([], [])
+
+
+def test_any_hook_from_the_new_process_continues_the_run(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    claude_run(root)
+
+    # A session resumed elsewhere first reaches the run's Worktree on the
+    # PostToolUse that follows its EnterWorktree.
+    resume(
+        root,
+        CLAUDE_SESSION,
+        "claude-code",
+        RESUMED_CLAUDE,
+        ONLY_RESUMED,
+        event="PostToolUse",
+    )
+
+    (after,) = WorkStore(root).active()[0]
+    assert after.session_process is not None
+    assert after.session_process.pid == RESUMED_CLAUDE.pid
+
+
+@pytest.mark.parametrize(
+    "lookup",
+    [
+        pytest.param(unobservable("ps-timeout"), id="recorded-process-unknown"),
+        pytest.param(
+            table_lookup({CLAUDE.pid: CLAUDE, RESUMED_CLAUDE.pid: RESUMED_CLAUDE}),
+            id="recorded-process-live",
+        ),
+    ],
+)
+def test_a_run_whose_process_is_not_proved_gone_is_not_continued(
+    tmp_path: Path, lookup: ProcessLookup
+) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    claude_run(root)
+    before = WorkStore(root).active()
+
+    resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, lookup)
+
+    assert WorkStore(root).active() == before
+
+
+def test_a_resume_at_another_worktree_leaves_the_run_where_it_is(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    claude_run(a)
+    before = WorkStore(a).active()
+
+    resume(b, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, ONLY_RESUMED)
+
+    assert WorkStore(a).active() == before
+    assert WorkStore(b).active() == ([], [])
+
+
+def test_a_forked_session_does_not_continue_its_parents_run(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    claude_run(root)
+    before = WorkStore(root).active()
+
+    # ``--fork-session`` publishes a new Agent Session Identity.
+    forked = "0f0f0f0f-2990-4f83-ad33-290ac22eb4d1"
+    resume(root, forked, "claude-code", RESUMED_CLAUDE, ONLY_RESUMED)
+
+    assert WorkStore(root).active() == before
+
+
+def test_the_first_of_two_resumed_clients_keeps_the_run(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    claude_run(root)
+    second = ProcessIdentity(9999, 1, "claude", "Wed Aug 26 09:05:00 2026")
+    both = table_lookup({RESUMED_CLAUDE.pid: RESUMED_CLAUDE, second.pid: second})
+
+    resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, both)
+    resume(root, CLAUDE_SESSION, "claude-code", second, both)
+
+    (after,) = WorkStore(root).active()[0]
+    assert after.session_process is not None
+    assert after.session_process.pid == RESUMED_CLAUDE.pid
+
+
+def test_codex_runs_are_not_continued_by_a_new_process(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    before = WorkStore(root).active()
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+
+    # A daemon-hosted Codex process serves many threads, so a new one proves
+    # nothing about this session's old runtime.
+    resume(root, CODEX_SESSION, "codex", resumed, table_lookup({resumed.pid: resumed}))
+
+    assert WorkStore(root).active() == before
+
+
+def test_the_sessions_own_process_leaves_its_run_as_it_is(tmp_path: Path) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    claude_run(root)
+    before = WorkStore(root).active()
+
+    resume(root, CLAUDE_SESSION, "claude-code", CLAUDE, present(CLAUDE), "Stop")
+
+    assert WorkStore(root).active() == before
+
+
+@pytest.mark.parametrize("method", ["active", "replace_current"])
+def test_an_unwritable_work_store_never_breaks_the_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str
+) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    claude_run(root)
+    before = WorkStore(root).active()
+
+    def refuse(*_args: object) -> NoReturn:
+        raise OSError("read-only file system")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(WorkStore, method, refuse)
+        resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, ONLY_RESUMED)
+
+    assert WorkStore(root).active() == before

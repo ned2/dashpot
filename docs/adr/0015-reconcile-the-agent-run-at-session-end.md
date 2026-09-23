@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md
 ---
 
 # Reconcile the session's Agent Run at SessionEnd
@@ -55,6 +55,11 @@ process-primary and identity-or-process matching described above. Confirmed
 harness-scoped native identity is now required for Issue-work authorization;
 process evidence corroborates lifecycle and never unifies named sessions.
 Unnamed legacy runs require explicit targeted recovery.
+
+[ADR 0053](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) amends the fallback below. An
+Orphaned Agent Run stays listed as orphaned rather than raising a diagnostic,
+and a same-identity resume at the same Worktree continues it once its
+previous runtime is proven gone and exclusive to the session.
 
 ## Considered options
 

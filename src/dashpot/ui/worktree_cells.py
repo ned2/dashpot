@@ -14,7 +14,7 @@ from pathlib import Path
 
 from rich.text import Text
 
-from ..core.model import ObservationTarget, RunState
+from ..core.model import ObservationTarget, SessionActivity
 from ..observation.session_list import SESSION_STATE_ORDER, abbreviate_path
 from ..observation.worktree_list import WorktreeListRow
 from .glyphs import (
@@ -40,8 +40,8 @@ def activity_description(where: str) -> str:
     """
     return (
         f"the liveliest Agent Session located {where}, running before waiting "
-        "before unknown, or blank when none is; a session counts by where "
-        "its harness runs, not by any Issue it is bound to"
+        "before orphaned before unknown, or blank when none is; a session "
+        "counts by where its harness runs, not by any Issue it is bound to"
     )
 
 
@@ -102,8 +102,8 @@ def worktree_cells(
 ) -> tuple[ListCell, ...]:
     target = row.target
     return (
-        activity_cell(tuple(session.state for session in row.sessions), dark=dark),
-        sessions_cell(tuple(session.state for session in row.sessions), dark=dark),
+        activity_cell(tuple(session.activity for session in row.sessions), dark=dark),
+        sessions_cell(tuple(session.activity for session in row.sessions), dark=dark),
         path_cell(row, dark=dark, home=home),
         target.role,
         branch_cell(target),
@@ -147,12 +147,12 @@ def freshness_color(freshness: str, *, dark: bool) -> str:
     return ATTENTION_COLORS[dark]
 
 
-def sessions_cell(states: Sequence[RunState], *, dark: bool) -> ListCell:
+def sessions_cell(states: Sequence[SessionActivity], *, dark: bool) -> ListCell:
     """Report the total number of located Agent Sessions."""
     return str(len(states)) if states else "-"
 
 
-def activity_cell(states: Sequence[RunState], *, dark: bool) -> Text:
+def activity_cell(states: Sequence[SessionActivity], *, dark: bool) -> Text:
     """Render the liveliest Agent Session state, or blank when absent."""
     if not states:
         return Text("")

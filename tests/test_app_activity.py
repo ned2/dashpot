@@ -7,8 +7,11 @@ from app_harness import (
     SequenceCollector,
     dashboard_app,
     first_load_landed,
+    footer_keys,
     observation_landed,
     show_query_peer,
+    toasts,
+    workspace_snapshot,
 )
 from dashpot.observation.issue_list import row_key
 from dashpot.sessions.agents import observe_agent_runs
@@ -21,6 +24,7 @@ from dashpot.ui.issue_cells import AgentStateCell
 from dashpot.ui.issue_table import IssueTableViewState
 from dashpot.ui.keyed_table import capture_selection
 from dashpot.ui.marked_widgets import MarkedSelectionList
+from dashpot.ui.session_table import SessionTable
 from factories import agent_run, hook_record_document, target
 from helpers import present, wait_until
 from test_app_query_pages import application
@@ -556,3 +560,44 @@ async def test_paged_cursor_survives_observed_hook_session_starting_issue_work(
             lambda: bool(app.dashboard.worktrees_pane().table.related_rows)
         )
         assert not app.query_screen.queue_table().related_rows
+
+
+@pytest.mark.asyncio
+async def test_y_copies_the_resume_command_of_an_orphaned_session_only():
+    live = agent_run("work:live", harness="claude-code", state="waiting").model_copy(
+        update={"session_id": "live-conversation"}
+    )
+    orphaned = agent_run(
+        "work:orphaned",
+        harness="claude-code",
+        state="unknown",
+        target_path="/work tree/292",
+        working_directory="/work tree/292/src",
+    ).model_copy(update={"session_id": "gone-conversation", "orphaned": True})
+    app = dashboard_app(SequenceCollector(workspace_snapshot(runs=[orphaned, live])))
+    clipboard = Mock()
+    app.copy_to_clipboard = clipboard
+    async with app.run_test(size=(150, 55)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        table = app.dashboard.sessions_pane().table
+        table.focus()
+        await pilot.pause()
+        # The live session ranks first; it has nothing to resume, so the key
+        # is not offered there.
+        assert "y" not in footer_keys(app)
+        await pilot.press("y")
+        clipboard.assert_not_called()
+        await pilot.press("down")
+        await wait_until(lambda: "y" in footer_keys(app))
+        await pilot.press("y")
+        clipboard.assert_called_once_with(
+            "cd '/work tree/292' && claude --resume gone-conversation"
+        )
+        assert toasts(app)[-1].startswith("Resume command sent to clipboard")
+        # Moving back withdraws the offer.
+        await pilot.press("up")
+        await wait_until(lambda: "y" not in footer_keys(app))
+        # A row that left the pane after the key press copies nothing.
+        app.dashboard.post_message(SessionTable.ResumeCopyRequested("gone-row"))
+        await pilot.pause()
+        assert clipboard.call_count == 1

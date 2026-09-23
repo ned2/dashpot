@@ -4,8 +4,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 from unittest import mock
 
 from dashpot.sessions.processes import (
@@ -14,10 +15,12 @@ from dashpot.sessions.processes import (
     ProcessIdentity,
     ProcessPresent,
     ProcessUnobservable,
+    boot_time,
     host_process_lookup,
     lock_holder_probe,
     namespace_is_isolated,
     observe_agent_ancestry,
+    process_started_at,
 )
 from helpers import absent, present, table_lookup, unobservable
 
@@ -372,3 +375,48 @@ class LockHolderProbeTests(unittest.TestCase):
                 mock.patch("dashpot.sessions.processes.host_process_lookup", lookup),
             ):
                 self.assertEqual(expected, lock_holder_probe(42))
+
+
+class BootTimeTests(unittest.TestCase):
+    """When the host booted, which dates a restart against a process start."""
+
+    BOOTED = datetime(2026, 9, 22, 8, 0, tzinfo=UTC)
+
+    @override
+    def setUp(self) -> None:
+        self.directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.directory)
+
+    def sysctl(self, stdout: str, returncode: int = 0) -> Any:
+        completed = subprocess.CompletedProcess([], returncode, stdout, "")
+        return mock.patch(
+            "dashpot.sessions.processes.subprocess.run", return_value=completed
+        )
+
+    def test_a_recorded_start_time_is_an_exact_instant(self) -> None:
+        self.assertEqual(
+            datetime(2026, 9, 22, 8, 12, 33, tzinfo=UTC),
+            process_started_at("Tue Sep 22 08:12:33 2026"),
+        )
+        self.assertIsNone(process_started_at("yesterday"))
+
+    def test_linux_reads_btime_from_its_stat_file(self) -> None:
+        stat = self.directory / "stat"
+        stat.write_text(f"cpu  1 2 3\nbtime {int(self.BOOTED.timestamp())}\n")
+        self.assertEqual(self.BOOTED, boot_time(stat))
+
+    def test_macos_reads_the_seconds_sysctl_reports(self) -> None:
+        seconds = int(self.BOOTED.timestamp())
+        with self.sysctl(f"{{ sec = {seconds}, usec = 0 }} Tue Sep 22 08:00:00 2026"):
+            self.assertEqual(self.BOOTED, boot_time(self.directory / "missing"))
+
+    def test_a_host_that_cannot_say_has_no_boot_time(self) -> None:
+        missing = self.directory / "missing"
+        with self.sysctl("", returncode=1):
+            self.assertIsNone(boot_time(missing))
+        with self.sysctl("kern.boottime: unknown"):
+            self.assertIsNone(boot_time(missing))
+        with mock.patch(
+            "dashpot.sessions.processes.subprocess.run", side_effect=OSError
+        ):
+            self.assertIsNone(boot_time(missing))
