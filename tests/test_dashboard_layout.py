@@ -444,10 +444,16 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None
         if peer == "queries":
             screen = await show_query_peer(app, pilot)
             body = screen.query_one("#query-body")
+            row = screen.query_one("#query-list-row")
         else:
             screen = app.dashboard
             body = screen.query_one("#body")
-        tracked = tuple(screen.query(ListPane))
+            row = screen.query_one("#list-row")
+        # The row's own children, rather than every ListPane: the query peer
+        # absorbs a body height change in #queue-pane, which is a Vertical, so
+        # tracking only ListPanes would watch the one widget there whose region
+        # a lost row never moves.
+        tracked = tuple(row.children)
 
         def geometry() -> tuple[Region, tuple[Region, ...]]:
             return (body.region, tuple(pane.region for pane in tracked))

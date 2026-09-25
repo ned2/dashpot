@@ -40,10 +40,10 @@ DashpotApp
     ├── PeerStatusBar
     ├── query-body (PeerBody)
     │   ├── query-list-row
-    │   │   └── pull-requests-pane (ListPane / ItemFilterBar)
-    │   ├── queue-pane
-    │   │   ├── ItemFilterBar
-    │   │   └── IssueTable (#queue)
+    │   │   ├── pull-requests-pane (ListPane / ItemFilterBar)
+    │   │   └── queue-pane
+    │   │       ├── ItemFilterBar
+    │   │       └── IssueTable (#queue)
     │   └── alert (layer: readout, dock: bottom)
     ├── diagnostics
     └── Footer
@@ -353,7 +353,12 @@ This is the shape Textual's own `ToastRack` uses (`layer:`, `dock: bottom`,
   a widget that sets no `layer` of its own reports `default`. Name `default` as
   the first layer — `layers: default readout` — so the panes match a declared
   layer. Any other name leaves them matching none of them and ordered only by
-  the compositor's fallback to index 0.
+  the compositor's fallback to index 0. Resolution walks self, then parent, up
+  to the `App`, assigning at every match, so the *outermost* declaration wins
+  rather than the nearest: declaring `layers` on a Screen would override the
+  body's and drop the alert back into the flow. `#body` and `#query-body` hold
+  the only `layers` rule in `src/`, and `Screen` declares none of its own —
+  its `_loading`, `_toastrack` and `_tooltips` come from a property, not CSS.
 - A docked widget resolves its own width rather than filling implicitly, so it
   needs an explicit `width: 1fr`.
 
