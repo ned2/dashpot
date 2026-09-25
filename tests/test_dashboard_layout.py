@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from itertools import pairwise
+from threading import Event
 from typing import Any
 
 import pytest
 from rich.text import Text
+from textual.geometry import Region
 from textual.widgets import DataTable, Footer, Input, Static
 
 import factories
@@ -413,6 +415,58 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
         assert selected.table.cursor_row == 29
         assert selected.table.scroll_y >= grown_scroll
         assert selected.table.show_vertical_scrollbar
+
+
+@pytest.mark.asyncio
+async def test_the_refreshing_alert_never_moves_the_dashboard_panes() -> None:
+    """The refresh indicator floats over the body instead of taking a row from it.
+
+    The alert appears on every refresh that outlasts the indicator delay and
+    goes away when the observation lands. Were it in the body's flow, each
+    appearance would shorten the height the panes are fitted into and shift
+    the records a person is reading; it is docked on the body's own readout
+    layer so the geometry never moves.
+    """
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    release = Event()
+    release.set()
+    app = dashboard_app(
+        SequenceCollector(snapshot, snapshot, release=release),
+        refresh_seconds=0,
+        refresh_indicator_seconds=0.01,
+    )
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        body = app.dashboard.query_one("#body")
+        panes = app.dashboard.list_panes()
+
+        def geometry() -> tuple[Region, tuple[Region, ...]]:
+            return (body.region, tuple(pane.region for pane in panes))
+
+        # The first observation lands a moment before the panes are fitted to
+        # it, so settle on the geometry the alert is measured against.
+        settled = geometry()
+        await pilot.pause()
+        while geometry() != settled:
+            settled = geometry()
+            await pilot.pause()
+
+        # Hold the next observation open so the indicator is on screen.
+        release.clear()
+        await app.run_action("refresh")
+        alert = app.query_one("#alert", Static)
+        await wait_until(lambda: alert.has_class("-visible"))
+        await pilot.pause()
+        assert alert.region.height == 1
+        # It overlays the body's last row rather than following it.
+        assert alert.region.bottom == body.region.bottom
+        assert geometry() == settled
+
+        release.set()
+        await wait_until(lambda: not alert.has_class("-visible"))
+        await pilot.pause()
+        assert geometry() == settled
 
 
 @pytest.mark.asyncio

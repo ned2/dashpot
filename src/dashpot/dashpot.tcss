@@ -66,9 +66,19 @@ Tooltip {
     max-width: 72;
 }
 
+/* The exceptional-state alert appears and disappears with every refresh. It
+   floats on the body's own readout layer rather than taking a row from the
+   flow, because a peer body that changed height by one row would re-fit every
+   list pane under it and shift the rows a person is reading. Textual computes
+   dock spacing per layer, so a bottom-docked widget on `readout` overlays the
+   body's last row without shrinking the `base` layer the panes are laid out
+   in. The Diagnostics box stays in the flow below the body: it is durable
+   detail rather than refresh chrome, and up to five rows of it over the panes
+   would hide more than it told. */
 #body,
 #query-body {
     height: 1fr;
+    layers: base readout;
     layout: vertical;
     overflow-x: auto;
 }
@@ -220,6 +230,9 @@ DetailRow.-list > .field-value {
 
 #alert {
     display: none;
+    layer: readout;
+    dock: bottom;
+    width: 1fr;
     height: 1;
     padding: 0 1;
     text-wrap: nowrap;

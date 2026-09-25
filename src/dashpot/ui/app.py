@@ -205,19 +205,23 @@ class DashboardScreen(Screen[None]):
     @override
     def compose(self) -> ComposeResult:
         yield PeerStatusBar("dashboard")
-        with PeerBody(id="body"), Container(id="list-row"):
-            for spec in DASHBOARD_PANE_SPECS:
-                yield ListPane(
-                    spec.label,
-                    columns=spec.columns,
-                    empty_message=spec.empty_message,
-                    id=spec.pane_id,
-                    table_id=spec.table_id,
-                    table_type=spec.table_type,
-                    controls_height=spec.controls_height,
-                    visible_row_limit=spec.visible_row_limit,
-                )
-        yield Static("", id="alert")
+        with PeerBody(id="body"):
+            with Container(id="list-row"):
+                for spec in DASHBOARD_PANE_SPECS:
+                    yield ListPane(
+                        spec.label,
+                        columns=spec.columns,
+                        empty_message=spec.empty_message,
+                        id=spec.pane_id,
+                        table_id=spec.table_id,
+                        table_type=spec.table_type,
+                        controls_height=spec.controls_height,
+                        visible_row_limit=spec.visible_row_limit,
+                    )
+            # The alert floats on the body's own readout layer, so appearing
+            # and disappearing never changes the height the panes are fitted
+            # into; see the pane stack's note in the stylesheet.
+            yield Static("", id="alert")
         yield Static("", id="diagnostics")
         yield Footer()
 
@@ -491,23 +495,24 @@ class IssuesPullRequestsScreen(Screen[None]):
     @override
     def compose(self) -> ComposeResult:
         yield PeerStatusBar("issues-pull-requests")
-        with PeerBody(id="query-body"), Container(id="query-list-row"):
-            for spec in QUERY_PANE_SPECS:
-                yield ListPane(
-                    spec.label,
-                    columns=spec.columns,
-                    empty_message=spec.empty_message,
-                    id=spec.pane_id,
-                    table_id=spec.table_id,
-                    table_type=spec.table_type,
-                    controls=self.pane_controls(spec),
-                    controls_height=spec.controls_height,
-                    visible_row_limit=spec.visible_row_limit,
-                )
-            with Vertical(id="queue-pane"):
-                yield self.issue_filter_bar
-                yield IssueTable(id="queue", cursor_type="row", zebra_stripes=False)
-        yield Static("", id="alert")
+        with PeerBody(id="query-body"):
+            with Container(id="query-list-row"):
+                for spec in QUERY_PANE_SPECS:
+                    yield ListPane(
+                        spec.label,
+                        columns=spec.columns,
+                        empty_message=spec.empty_message,
+                        id=spec.pane_id,
+                        table_id=spec.table_id,
+                        table_type=spec.table_type,
+                        controls=self.pane_controls(spec),
+                        controls_height=spec.controls_height,
+                        visible_row_limit=spec.visible_row_limit,
+                    )
+                with Vertical(id="queue-pane"):
+                    yield self.issue_filter_bar
+                    yield IssueTable(id="queue", cursor_type="row", zebra_stripes=False)
+            yield Static("", id="alert")
         yield Static("", id="diagnostics")
         yield Footer()
 
