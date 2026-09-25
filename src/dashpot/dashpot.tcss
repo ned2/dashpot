@@ -55,8 +55,23 @@ Screen.-compact #peer-summary {
     text-align: left;
 }
 
-FocusCursorTable > .datatable--related-row {
-    background: #d99a2b 30%;
+/* A pinned column keeps its place under horizontal scroll without a colour
+   of its own: Textual paints fixed columns `$secondary-muted`, which would
+   compete with the related-activity cell. Transparent lets the table's own
+   background, and its focus tint, show through. */
+FocusCursorTable > .datatable--fixed {
+    background: transparent;
+}
+
+/* Related-row emphasis lights only the activity cell, in a violet no
+   activity Glyph uses and distinct from the cursor, dark and light chosen so
+   every activity Glyph keeps its contrast on it. */
+FocusCursorTable:dark > .datatable--related-activity {
+    background: #3c1e70;
+}
+
+FocusCursorTable:light > .datatable--related-activity {
+    background: #e2d9ff;
 }
 
 /* A header tooltip is a column's description with its Glyph meanings, a
