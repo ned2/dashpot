@@ -55,10 +55,12 @@ Screen.-compact #peer-summary {
     text-align: left;
 }
 
-/* A pinned column keeps its place under horizontal scroll without a colour
-   of its own: Textual paints fixed columns `$secondary-muted`, which would
-   compete with the related-activity cell. Transparent lets the table's own
-   background, and its focus tint, show through. */
+/* A pinned agent-activity column keeps its place under horizontal scroll
+   without a colour of its own. Textual paints fixed columns
+   `$secondary-muted`, a band that would compete with the lit related-activity
+   cell on Dashboard, and the Issue table follows so the column reads the
+   same on every peer. Transparent lets the table's own background, and its
+   focus tint, show through. */
 FocusCursorTable > .datatable--fixed {
     background: transparent;
 }

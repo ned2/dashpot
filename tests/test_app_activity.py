@@ -41,6 +41,18 @@ def background(style):
     return style.bgcolor.triplet.hex
 
 
+def activity_cell(table, line):
+    """The segments of a rendered row's first cell, its agent-activity cell."""
+    width = table.ordered_columns[0].get_render_width(table)
+    cell = []
+    for segment in line:
+        if width <= 0:
+            break
+        cell.append(segment)
+        width -= segment.cell_length
+    return cell
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("source_pane", ["sessions", "worktrees", "branches"])
 async def test_all_sources_navigation_reentry_and_passive_destinations(source_pane):
@@ -130,7 +142,7 @@ async def test_session_destinations_keep_glyph_colors_and_bold_identity_in_both_
                 segment = next(segment for segment in line if text in segment.text)
                 base = next(segment for segment in baseline if text in segment.text)
                 assert segment.style is not None and base.style is not None
-                assert segment.style.bold
+                assert segment.style.bold and not base.style.bold
                 assert segment.style.bgcolor == base.style.bgcolor
 
 
@@ -416,10 +428,10 @@ async def test_related_rows_light_the_activity_cell_and_bold_identifying_cells(t
             for index, row in enumerate(table.ordered_rows)
             if row.key.value not in table.related_rows
         )
-        assert (
-            background(next(iter(table.render_line(unrelated + 1))).style)
-            != (RELATED_ACTIVITY_BACKGROUNDS[theme])
-        )
+        assert {
+            background(segment.style)
+            for segment in activity_cell(table, table.render_line(unrelated + 1))
+        } == {background(table.rich_style)}
         table.focus()
         await wait_until(lambda: not table.related_rows)
 
@@ -451,11 +463,25 @@ async def test_a_related_row_without_agent_sessions_still_lights_its_activity_ce
         await wait_until(lambda: branches.related_rows == frozenset({branch_key}))
         await pilot.pause()
         line = branches.render_line(branches.get_row_index(branch_key) + 1)
-        assert not next(iter(line)).text.strip()
-        assert (
-            background(next(iter(line)).style)
-            == RELATED_ACTIVITY_BACKGROUNDS["textual-dark"]
+        cell = activity_cell(branches, line)
+        assert not "".join(segment.text for segment in cell).strip()
+        assert {background(segment.style) for segment in cell} == {
+            RELATED_ACTIVITY_BACKGROUNDS["textual-dark"]
+        }
+        name = next(segment for segment in line if "main" in segment.text)
+        assert name.style is not None and name.style.bold
+        unrelated = next(
+            index
+            for index, row in enumerate(branches.ordered_rows)
+            if row.key.value != branch_key
         )
+        other = branches.render_line(unrelated + 1)
+        assert not any(
+            segment.style is not None and segment.style.bold for segment in other
+        )
+        assert {
+            background(segment.style) for segment in activity_cell(branches, other)
+        } == {background(branches.rich_style)}
 
 
 @pytest.mark.asyncio
@@ -473,9 +499,11 @@ async def test_pinned_activity_columns_paint_no_background_of_their_own(theme):
         await pilot.pause()
         pinned = [
             table
-            for table in (*dashboard_tables, app.query_screen.queue_table())
+            for table in (*dashboard_tables, *app.query_screen.focus_tables())
             if table.fixed_columns
         ]
+        # Sessions, Worktrees, Branches, and the Issue table pin their
+        # agent-activity column; Pull Requests pins none.
         assert len(pinned) == 4
         for table in pinned:
             assert table.row_count
