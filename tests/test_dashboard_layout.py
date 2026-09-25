@@ -25,11 +25,12 @@ from app_harness import (
     show_query_peer,
     workspace_snapshot,
 )
+from dashpot.queries.page_navigation import PageTicket
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.item_filter import ItemFilterBar
 from dashpot.ui.list_pane import ListColumn, ListPane, ListRow
 from dashpot.ui.pane_layout import PANE_MARGIN
-from helpers import wait_until
+from helpers import required, wait_until
 
 
 def assert_top_gutters(app: DashpotApp, panes: tuple[Any, ...]) -> None:
@@ -147,6 +148,21 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
         assert str(count.render()) == page_summary
         assert count.tooltip == "1 shown · 1 matches · fresh"
         assert_search_row_fits_the_queue_pane(app, page_summary)
+
+        # A fresh page names no observation at either detail, so only a stale
+        # one shows what the tooltip is for: the narrow summary drops the
+        # observation entirely while the tooltip still carries the timestamp.
+        navigation = app.queries.navigation["issues"]
+        accepted = required(navigation.page)
+        observed = "2026-08-27T00:00:00Z"
+        navigation.accept(
+            PageTicket(generation=navigation.generation, request=navigation.request),
+            accepted.model_copy(update={"status": "stale", "last_good_at": observed}),
+        )
+        app.query_screen.issue_table.update_page_summary()
+        await pilot.pause()
+        assert str(count.render()) == "1/1 matches · stale"
+        assert count.tooltip == f"1 shown · 1 matches · stale · observed {observed}"
 
         app.query_screen.queue_table().focus()
         await pilot.press("p")

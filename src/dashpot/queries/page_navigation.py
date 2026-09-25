@@ -185,11 +185,14 @@ def page_text(
         else f"{page.returned_count} shown · {matched} matches"
     )
     text = f"{scope} · {page.status}"
-    observed = (
-        page.last_good_at if detail == "exact" else relative_age(page.last_good_at, now)
-    )
-    if observed and page.status != "fresh" and not compact:
-        text += f" · observed {observed}"
+    if page.status != "fresh" and not compact:
+        observed = (
+            page.last_good_at
+            if detail == "exact"
+            else relative_age(page.last_good_at, now)
+        )
+        if observed:
+            text += f" · observed {observed}"
     if (
         page.result_limit
         and page.matched_count

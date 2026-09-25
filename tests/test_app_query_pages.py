@@ -132,12 +132,15 @@ def test_page_text_reports_the_provider_limit_and_a_navigation_error(tmp_path):
     limited = page.model_copy(update={"matched_count": 2000, "result_limit": 1000})
     assert navigation.accept(navigation.restart(), limited)
 
-    text = page_text(navigation, datetime.now(UTC))
+    # A fixed instant, like the sibling age test: nothing here reads the age,
+    # and a frozen clock keeps that true if one of these pages ever goes stale.
+    now = datetime(2026, 8, 27, 3, 0, 0, tzinfo=UTC)
+    text = page_text(navigation, now)
     assert text.startswith("1 shown · 2000 matches · fresh")
     assert text.endswith(" · first 1,000 accessible; narrow query")
 
     navigation.previous()
-    assert page_text(navigation, datetime.now(UTC)).endswith(" · Already at first page")
+    assert page_text(navigation, now).endswith(" · Already at first page")
 
 
 def test_page_text_dates_a_stale_page_and_leaves_a_fresh_one_undated(tmp_path):
