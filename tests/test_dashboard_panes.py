@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
@@ -150,10 +151,14 @@ async def test_a_manual_refresh_keeps_the_pull_request_cursor_by_identity() -> N
 
 @pytest.mark.asyncio
 async def test_an_empty_pull_request_page_names_its_status_in_the_summary() -> None:
+    # The pane renders the age against the wall clock, so the last good
+    # observation is anchored to it rather than to the snapshot's fixture time.
     stale = with_first_project_snapshot(
         workspace_snapshot(issue("test/repo#1", "Issue")),
         pull_request_status="stale",
-        pull_request_last_good_at="2026-08-25T00:00:00Z",
+        pull_request_last_good_at=(datetime.now(UTC) - timedelta(hours=3)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
     )
     unavailable = with_first_project_snapshot(
         stale,
@@ -171,7 +176,7 @@ async def test_an_empty_pull_request_page_names_its_status_in_the_summary() -> N
         assert str(empty.render()) == "Pull Requests unavailable"
         assert (
             pane_subtitle(app.query_screen, "#pull-requests-pane")
-            == "0 shown · 0 matches · stale · observed 2026-08-25T00:00:00Z"
+            == "0 shown · 0 matches · stale · observed 3h ago"
         )
 
     unavailable_app = dashboard_app(SequenceCollector(unavailable))

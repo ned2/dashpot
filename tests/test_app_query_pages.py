@@ -6,6 +6,7 @@ through Textual's public seam.
 """
 
 import threading
+from datetime import UTC, datetime
 from typing import override
 
 import pytest
@@ -131,12 +132,38 @@ def test_page_text_reports_the_provider_limit_and_a_navigation_error(tmp_path):
     limited = page.model_copy(update={"matched_count": 2000, "result_limit": 1000})
     assert navigation.accept(navigation.restart(), limited)
 
-    text = page_text(navigation)
+    text = page_text(navigation, datetime.now(UTC))
     assert text.startswith("1 shown · 2000 matches · fresh")
     assert text.endswith(" · first 1,000 accessible; narrow query")
 
     navigation.previous()
-    assert page_text(navigation).endswith(" · Already at first page")
+    assert page_text(navigation, datetime.now(UTC)).endswith(" · Already at first page")
+
+
+def test_page_text_dates_a_stale_page_and_leaves_a_fresh_one_undated(tmp_path):
+    """Only retained records carry an age, as an age inline and exact in full."""
+    navigation = PageNavigation(QueryRequest(page_size=1))
+    page = markdown(tmp_path).query_page(navigation.request)
+    now = datetime(2026, 8, 27, 3, 0, 0, tzinfo=UTC)
+    observed = "2026-08-27T00:00:00Z"
+
+    # A fresh page was answered by the attempt that just landed, so its own
+    # observation says nothing its status has not; both details agree.
+    assert navigation.accept(navigation.restart(), page)
+    fresh = page_text(navigation, now)
+    assert fresh.endswith(" · fresh")
+    assert page_text(navigation, now, detail="exact") == fresh
+
+    # A stale page is retained records, and how old they are is the fact to
+    # report: a reader's age inline, the observation itself where there is room.
+    stale = page.model_copy(update={"status": "stale", "last_good_at": observed})
+    assert navigation.accept(navigation.restart(), stale)
+    assert page_text(navigation, now).endswith(" · stale · observed 3h ago")
+    assert page_text(navigation, now, detail="exact").endswith(
+        f" · stale · observed {observed}"
+    )
+    # The narrow form keeps the status and drops the observation entirely.
+    assert page_text(navigation, now, detail="compact").endswith(" · stale")
 
 
 def test_totals_text_marks_stale_totals_and_never_substitutes_zero(tmp_path):

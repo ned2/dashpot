@@ -7,9 +7,18 @@ Project's totals are, in the words the panes' titles and notes use.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Literal
 
+from ..core.ages import relative_age
 from ..core.model import SourceStatus
 from .source_queries import ProjectTotals, QueryPage, QueryRequest
+
+# How much a page summary says. ``compact`` is the narrow inline form that
+# omits the observation entirely; ``relative`` is the full line with a
+# tracker-style age; ``exact`` is the same line with the precise timestamp,
+# for a tooltip that has room for it.
+PageDetail = Literal["compact", "relative", "exact"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,20 +161,35 @@ def totals_text(totals: ProjectTotals | None) -> str:
     )
 
 
-def page_text(navigation: PageNavigation, *, compact: bool = False) -> str:
-    """Describe matching scope, coverage and the accepted page's own age."""
+def page_text(
+    navigation: PageNavigation, now: datetime, *, detail: PageDetail = "relative"
+) -> str:
+    """Describe matching scope, coverage and the accepted page's own age.
+
+    Only a page the source could not refresh says when it was observed: a
+    fresh page's last good observation is the attempt that just answered it,
+    so the time would say nothing the status has not. A stale page carries
+    retained records, and how old they are is the fact a reader needs, as a
+    tracker-style ``3h ago`` inline or as the precise timestamp where there
+    is room for it. An unavailable page retained nothing and has no last
+    good observation to report.
+    """
     page = navigation.page
     if page is None:
         return navigation.error or "Loading page"
     matched = page.matched_count if page.matched_count is not None else "?"
+    compact = detail == "compact"
     scope = (
         f"{page.returned_count}/{matched} matches"
         if compact
         else f"{page.returned_count} shown · {matched} matches"
     )
     text = f"{scope} · {page.status}"
-    if page.last_good_at and not compact:
-        text += f" · observed {page.last_good_at}"
+    observed = (
+        page.last_good_at if detail == "exact" else relative_age(page.last_good_at, now)
+    )
+    if observed and page.status != "fresh" and not compact:
+        text += f" · observed {observed}"
     if (
         page.result_limit
         and page.matched_count

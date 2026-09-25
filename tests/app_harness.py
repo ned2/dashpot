@@ -536,9 +536,13 @@ def hold_sources(app: DashpotApp) -> Event:
 
 
 def page_summary(shown: int, matched: int | None = None) -> str:
-    """The Issues pane's summary of a fresh page observed at ``NOW``."""
+    """The Issues pane's summary of a fresh page.
+
+    A fresh page names no observation: it was answered by the attempt that
+    just landed, so only a stale page says how old its records are.
+    """
     matches = shown if matched is None else matched
-    return f"{shown} shown · {matches} matches · fresh · observed {NOW}"
+    return f"{shown} shown · {matches} matches · fresh"
 
 
 UNAVAILABLE_PAGE_SUMMARY = "0 shown · ? matches · unavailable"

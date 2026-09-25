@@ -11,7 +11,6 @@ from textual.widgets import DataTable, Footer, Input, Static
 
 import factories
 from app_harness import (
-    NOW,
     SequenceCollector,
     assert_panes_stack_above_full_width_queue,
     dashboard_app,
@@ -92,7 +91,7 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0)
 
-    page_summary = f"1 shown · 1 matches · fresh · observed {NOW}"
+    page_summary = "1 shown · 1 matches · fresh"
 
     def assert_counts_share_the_search_row(expected_summary: str) -> None:
         search = app.query_screen.query_one("#issue-search", Input)
@@ -146,7 +145,7 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
         assert app.screen.has_class("-compact")
         count = app.query_screen.query_one("#issue-count", Static)
         assert str(count.render()) == page_summary
-        assert count.tooltip == f"1 shown · 1 matches · fresh · observed {NOW}"
+        assert count.tooltip == "1 shown · 1 matches · fresh"
         assert_search_row_fits_the_queue_pane(app, page_summary)
 
         app.query_screen.queue_table().focus()

@@ -8,6 +8,7 @@ but it is not a Screen: column headings for submitted ordering are pure.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
@@ -15,7 +16,7 @@ from textual.widgets import DataTable
 
 from ..observation.issue_list import IssueListRow, IssueListSummary
 from ..observation.list_result import ListResult
-from ..queries.page_navigation import page_text
+from ..queries.page_navigation import PageDetail, page_text
 from ..queries.source_queries import QueryRequest
 from .glyphs import ACTIVITY_WIDTH
 from .issue_cells import TableCell
@@ -117,10 +118,18 @@ class IssueTableController:
     def update_page_summary(self) -> None:
         """Fit the Issue page summary to the dashboard's current layout."""
         navigation = self.screen.dashpot.queries.navigation["issues"]
-        self.screen.issue_filter_bar.count.update(
-            page_text(navigation, compact=self.screen.has_class("-compact"))
+        now = datetime.now(UTC)
+        detail: PageDetail = (
+            "compact" if self.screen.has_class("-compact") else "relative"
         )
-        self.screen.issue_filter_bar.count.tooltip = page_text(navigation)
+        self.screen.issue_filter_bar.count.update(
+            page_text(navigation, now, detail=detail)
+        )
+        # The summary carries a reader's age; the tooltip has room for the
+        # observation itself.
+        self.screen.issue_filter_bar.count.tooltip = page_text(
+            navigation, now, detail="exact"
+        )
 
     def reconcile_rows(self) -> ListResult[IssueListRow, IssueListSummary]:
         """Rebuild the table from the accepted page and return the query result."""
