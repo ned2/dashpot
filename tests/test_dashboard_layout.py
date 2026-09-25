@@ -418,14 +418,17 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
 
 
 @pytest.mark.asyncio
-async def test_the_refreshing_alert_never_moves_the_dashboard_panes() -> None:
+@pytest.mark.parametrize("peer", ["dashboard", "queries"])
+async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None:
     """The refresh indicator floats over the body instead of taking a row from it.
 
     The alert appears on every refresh that outlasts the indicator delay and
     goes away when the observation lands. Were it in the body's flow, each
     appearance would shorten the height the panes are fitted into and shift
     the records a person is reading; it is docked on the body's own readout
-    layer so the geometry never moves.
+    layer so the geometry never moves. Both peers are checked, because only
+    the Dashboard reflows visibly and a regression on the query peer would
+    otherwise go unnoticed.
     """
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     release = Event()
@@ -438,24 +441,35 @@ async def test_the_refreshing_alert_never_moves_the_dashboard_panes() -> None:
 
     async with app.run_test(size=(120, 30)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        body = app.dashboard.query_one("#body")
-        panes = app.dashboard.list_panes()
+        if peer == "queries":
+            screen = await show_query_peer(app, pilot)
+            body = screen.query_one("#query-body")
+        else:
+            screen = app.dashboard
+            body = screen.query_one("#body")
+        tracked = tuple(screen.query(ListPane))
 
         def geometry() -> tuple[Region, tuple[Region, ...]]:
-            return (body.region, tuple(pane.region for pane in panes))
+            return (body.region, tuple(pane.region for pane in tracked))
 
         # The first observation lands a moment before the panes are fitted to
-        # it, so settle on the geometry the alert is measured against.
+        # it, so settle on the geometry the alert is measured against. The fit
+        # converges in one pass; the bound turns a hypothetical non-converging
+        # layout into a failure rather than a hung worker.
         settled = geometry()
-        await pilot.pause()
-        while geometry() != settled:
-            settled = geometry()
+        for _ in range(20):
             await pilot.pause()
+            current = geometry()
+            if current == settled:
+                break
+            settled = current
+        else:
+            raise AssertionError("pane geometry never settled")
 
         # Hold the next observation open so the indicator is on screen.
         release.clear()
         await app.run_action("refresh")
-        alert = app.query_one("#alert", Static)
+        alert = screen.query_one("#alert", Static)
         await wait_until(lambda: alert.has_class("-visible"))
         await pilot.pause()
         assert alert.region.height == 1

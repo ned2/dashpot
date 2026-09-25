@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-20
+date: 2026-09-25
 ---
 
 # Textual implementation notes for Dashpot
@@ -29,21 +29,23 @@ DashpotApp
 ├── DashboardScreen
 │   ├── PeerStatusBar
 │   ├── body (PeerBody)
-│   │   └── list-row
-│   │       ├── sessions-pane (ListPane)
-│   │       ├── worktrees-pane (ListPane / WorktreeTable)
-│   │       └── branches-pane (ListPane)
-│   ├── alert / diagnostics
+│   │   ├── list-row
+│   │   │   ├── sessions-pane (ListPane)
+│   │   │   ├── worktrees-pane (ListPane / WorktreeTable)
+│   │   │   └── branches-pane (ListPane)
+│   │   └── alert (layer: readout, dock: bottom)
+│   ├── diagnostics
 │   └── Footer
 └── IssuesPullRequestsScreen
     ├── PeerStatusBar
     ├── query-body (PeerBody)
     │   ├── query-list-row
     │   │   └── pull-requests-pane (ListPane / ItemFilterBar)
-    │   └── queue-pane
-    │       ├── ItemFilterBar
-    │       └── IssueTable (#queue)
-    ├── alert / diagnostics
+    │   ├── queue-pane
+    │   │   ├── ItemFilterBar
+    │   │   └── IssueTable (#queue)
+    │   └── alert (layer: readout, dock: bottom)
+    ├── diagnostics
     └── Footer
 ```
 
@@ -336,6 +338,27 @@ Workspace-level alerts for stale, unavailable, and failed observations belong to
 the normally hidden status display tracked by
 [#12](https://github.com/ned2/dashpot/issues/12), while Diagnostics remains the
 durable source-level record.
+
+Keep refresh chrome out of the layout flow. `#alert` appears and disappears with
+every refresh that outlasts the indicator delay, and the Dashboard's panes are
+`height: auto` sharing a `1fr` body through `fit_panes`, so a one-row change to
+the body re-fits all three and moves the rows a person is reading. `#alert`
+therefore sits inside the body, docked bottom on a `readout` layer: Textual
+computes dock spacing per layer, so a docked widget on a layer of its own
+overlays the last row instead of shrinking the layer the panes are laid out in.
+This is the shape Textual's own `ToastRack` uses (`layer:`, `dock: bottom`,
+`width: 1fr`), one container down. Two rules make it work:
+
+- `layers` is inherited by every descendant of the widget that declares it, and
+  a widget that sets no `layer` of its own reports `default`. Name `default` as
+  the first layer — `layers: default readout` — so the panes match a declared
+  layer. Any other name leaves them matching none of them and ordered only by
+  the compositor's fallback to index 0.
+- A docked widget resolves its own width rather than filling implicitly, so it
+  needs an explicit `width: 1fr`.
+
+Durable detail stays in the flow: `#diagnostics` sits below the body, because up
+to five rows of it overlaying the panes would hide more than it told.
 
 `App.notify()` supports information, warning, and error severities and is
 thread-safe, although posting a result message keeps this app's updates in one
