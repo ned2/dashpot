@@ -182,7 +182,7 @@ def pull_request_pane_rows(context: PaneContext) -> PaneRows:
     return PaneRows(
         rows,
         title_summary=summary,
-        note=page_text(context.navigation["pull-requests"]),
+        note=page_text(context.navigation["pull-requests"], context.now),
         empty_message="No matching Pull Requests"
         if page.status == "fresh"
         else "Pull Requests unavailable",
