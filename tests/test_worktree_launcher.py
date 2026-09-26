@@ -158,10 +158,16 @@ root=Path(sys.argv[1]); redirect=sys.argv[2]=='True'
 pidfile=root/'child.pid'
 child="import time; time.sleep(30)"
 request="import subprocess,sys; from pathlib import Path; p=subprocess.Popen([sys.executable,'-c',"+repr(child)+"],"+("stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL," if redirect else "")+"); Path("+repr(str(pidfile))+").write_text(str(p.pid))"
+# Only a request that keeps the child's pipes needs the short bound: nothing
+# else ends it. A redirecting request exits on its own once it has started and
+# spawned the child, which a loaded runner can take longer than 0.5s to do; its
+# bound stays below the 30s child and the 3s check, so waiting on the child
+# still fails.
+bound=2 if redirect else 0.5
 try:
     started=time.monotonic()
     try:
-        result=run_launch_command([sys.executable,'-c',request], root, 0.5)
+        result=run_launch_command([sys.executable,'-c',request], root, bound)
         assert redirect and result.returncode==0
     except WorktreeLaunchError as error:
         assert not redirect and 'timed out' in str(error), error
