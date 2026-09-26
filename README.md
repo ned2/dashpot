@@ -924,6 +924,9 @@ These `living` documents carry the detail this README points at:
   identity, and lifecycle, with source and experiment boundaries.
 - [`docs/design.md`](docs/design.md) describes how the pieces fit — the
   observation pipeline, the read model, and the seams beneath the interface.
+- [`docs/observability-design.md`](docs/observability-design.md) records how
+  Dashpot records its own behaviour as Runtime Events in a local Event Log:
+  levels, content, the on-disk fields, and the measurements behind them.
 - [`docs/design-research/README.md`](docs/design-research/README.md) indexes
   the design research — the research and analysis behind Dashpot's
   direction: keeping understanding of a codebase, held by a person and by a

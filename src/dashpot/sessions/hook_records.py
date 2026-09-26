@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
@@ -18,6 +17,7 @@ from ..core.model import Harness
 from ..core.project_state import project_state_directory
 from ..core.pydantic import NonEmptyString, PersistedRecord
 from ..core.record_store import LockedRecordStore
+from ..core.state_paths import machine_state_directory
 from ..core.timestamps import observed_instant, utc_now
 from .harnesses import SESSION_ID, HarnessName, HookSessionIdentity
 from .processes import ProcessIdentity, SessionProcessRecord
@@ -46,12 +46,7 @@ def state_directory() -> Path:
     override = os.environ.get("DASHPOT_STATE_DIR")
     if override:
         return Path(override).expanduser()
-    xdg = os.environ.get("XDG_STATE_HOME")
-    if xdg:
-        return Path(xdg).expanduser() / "dashpot" / "runs"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "dashpot" / "runs"
-    return Path.home() / ".local" / "state" / "dashpot" / "runs"
+    return machine_state_directory() / "runs"
 
 
 HOOK_RECORD_VERSION = 2

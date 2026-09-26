@@ -269,6 +269,12 @@ def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> 
     settings = Diagnostic(
         source="settings", severity="warning", message="launcher misconfigured"
     )
+    event_log = Diagnostic(
+        source="event-log",
+        severity="warning",
+        message="Cannot write the Event Log",
+        code="event-log-unavailable",
+    )
     rate_limit = Diagnostic(
         source="github",
         severity="info",
@@ -286,6 +292,7 @@ def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> 
         failures={ObservationKey("issues", "alpha"): "Refresh failed: GitHub down"},
         launcher_diagnostics=(settings,),
         fetch_failures={"alpha": "Fetch failed: Alpha: no remote"},
+        event_log_diagnostics=(event_log,),
     )
 
     assert readout is not None
@@ -294,6 +301,7 @@ def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> 
         (
             "✖ Refresh failed: GitHub down",
             "⚠ launcher misconfigured",
+            "⚠ Cannot write the Event Log",
             "✖ Fetch failed: Alpha: no remote",
             "⚠ workspace: two sessions claim one run",
             "↻ Alpha · github: rate limit low",

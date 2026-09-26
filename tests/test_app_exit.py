@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from threading import Event
@@ -11,7 +12,9 @@ import pytest
 
 from app_harness import SequenceCollector, dashboard_app, issue, workspace_snapshot
 from dashpot.core.commands import CommandError, run_command
+from dashpot.core.event_log import Span, current_span, unrecorded_event_log
 from dashpot.core.model import WorkspaceSnapshot
+from dashpot.core.runtime_events import SpanEnded
 from helpers import wait_until
 
 # An observation that would outlive the test unless the exit interrupts it.
@@ -68,3 +71,42 @@ async def test_exit_with_nothing_in_flight_interrupts_nothing() -> None:
 
     interrupt.assert_called_once_with()
     assert running.closed
+
+
+@pytest.mark.asyncio
+async def test_exit_interrupts_a_command_started_inside_a_span_off_the_loop() -> None:
+    """Carrying the current span keeps the pool thread's own command registry."""
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    collector = SequenceCollector(snapshot)
+    log = unrecorded_event_log(keep_recent=10)
+    log.set_level("full")
+    app = dashboard_app(collector, event_log=log)
+    running = app.running_commands
+    seen: list[Span | None] = []
+    outcomes: list[CommandError] = []
+
+    def operation() -> None:
+        seen.append(current_span())
+        try:
+            run_command(SLEEP, Path.cwd(), 30)
+        except CommandError as exc:
+            outcomes.append(exc)
+            raise
+
+    async def spanned() -> None:
+        with log.start_as_current_span("command"):
+            await app.off_loop(operation)
+
+    async with app.run_test(size=(80, 24)):
+        await wait_until(lambda: app.store.has_observations)
+        task = asyncio.create_task(spanned())
+        await wait_until(lambda: len(running) == 1)
+
+    with pytest.raises(CommandError):
+        await asyncio.wait_for(task, 5)
+    (outcome,) = outcomes
+    assert str(outcome) == f"command interrupted at shutdown: {sys.executable}"
+    (ended,) = [event.body for event in log.recent if isinstance(event.body, SpanEnded)]
+    (carried,) = seen
+    assert carried is not None and carried.span_id == ended.span_id
+    assert (ended.status, ended.error_type) == ("ERROR", "CommandError")

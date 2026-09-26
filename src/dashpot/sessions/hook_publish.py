@@ -9,6 +9,7 @@ from typing import Any
 
 from ..core.json_records import optional_string
 from ..core.model import Harness
+from ..core.state_paths import is_configured_checkout
 from .hook_records import (
     HookRecordStore,
     build_hook_record,
@@ -40,7 +41,7 @@ class HookPublication:
 def route_record_store(record: Mapping[str, Any]) -> HookRecordStore:
     """Choose the Project-local store for a configured checkout, else global."""
     root = optional_string(record.get("repositoryRoot"))
-    if root and (Path(root) / ".dashpot" / "config.json").is_file():
+    if root and is_configured_checkout(Path(root)):
         return project_session_store(Path(root))
     return HookRecordStore(state_directory())
 

@@ -1,6 +1,6 @@
 ---
 status: amended
-amended-by: 0004-observe-one-project-per-run.md
+amended-by: 0004-observe-one-project-per-run.md, 0058-record-runtime-events-locally-and-send-none.md, 0059-keep-an-append-only-event-log-in-each-checkout.md
 date: 2026-08-28
 ---
 
@@ -41,7 +41,13 @@ than publishing to a Workspace-global state authority.
 - Project configuration and mutable work state can be found from a repository
   checkout without first loading a global Workspace inventory.
 - Runtime state is local and ignored; it must never dirty the repository or be
-  committed with the tracked Project configuration.
+  committed with the tracked Project configuration. As amended by
+  [ADR 0059](0059-keep-an-append-only-event-log-in-each-checkout.md), it
+  includes each checkout's Event Log under `.dashpot/state/events/`, which
+  observation writes too, and `.dashpot/state/` ignores itself through its
+  own `.gitignore` rather than relying on the Project's; under
+  [ADR 0058](0058-record-runtime-events-locally-and-send-none.md) none of it
+  is sent anywhere.
 - Independent clones and linked worktrees may hold distinct local state. Dashpot
   aggregates those observations when their locations are in scope rather than
   treating one copy as a global authority or synchronizing them implicitly.

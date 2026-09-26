@@ -520,3 +520,52 @@ a complete Issue Profile; outside-Repository evidence never establishes membersh
 **Source Enumeration**:
 An explicit complete collection observation for Workspace Snapshot export, bounded
 by a Refresh Budget. Complete records on a Query Page do not constitute enumeration.
+
+## Runtime
+
+**Runtime Event**:
+One record of what a Dashpot process did, kept on the machine that did it
+([ADR 0058](adr/0058-record-runtime-events-locally-and-send-none.md)). It
+comes in two kinds. A span is a timed unit of work — a refresh, an
+observation or query within it, a command or GitHub request within that —
+with an ID, its parent's ID, a duration and a status; it fails only when its
+work could not be done, so a non-zero exit read as an answer is an attribute
+of a successful span. A standalone event is something that is not a unit of
+work: a process starting or ending, a level change, a Diagnostic appearing.
+Every Runtime Event names its process by an opaque run ID and kind, and the
+Agent Session Identity, Project, Worktree and Issue when they are known. It
+holds identifiers and measurements, never free text: an error is its code or
+class, never its message.
+_Avoid_: telemetry, which implies sending data off the machine; log entry or
+log line for a Diagnostic, which is shown to a person rather than recorded
+
+**Event Log**:
+The append-only files of Runtime Events one checkout keeps under
+`.dashpot/state/events/`, split by UTC date, or the machine-local fallback
+for a process outside every configured checkout
+([ADR 0059](adr/0059-keep-an-append-only-event-log-in-each-checkout.md)).
+Hooks and one-shot commands share `events-YYYY-MM-DD.jsonl`; each dashboard
+run writes its own file. Dashpot never deletes, compresses or renames one on
+its own; `dashpot events remove` removes them on explicit invocation.
+_Avoid_: telemetry; log for a Diagnostic, or for the Diagnostics box; prune
+for removing an Event Log, which is the Remote Fetch's word
+
+**Event Level**:
+How much of what a process does its Event Log records: `off` writes
+nothing; `standard`, the default, writes process starts and ends, outcomes,
+Agent Session and Agent Run changes, Diagnostic transitions, level changes,
+every GitHub request span and every failed span; `full` adds every local
+observation and command span. The `event_level` setting chooses it,
+`DASHPOT_EVENT_LEVEL` overrides that, and a running dashboard may change its
+own for the rest of the run. Each Runtime Event carries the level it belongs
+to, and only what is always written at the level in force is counted.
+_Avoid_: telemetry level; log level or verbosity, which suggest the
+severity of a Diagnostic
+
+**Runtime Stats**:
+A running dashboard's aggregation of its own recent Runtime Events — GitHub
+allowance spent, refresh health, commands by program, and the process
+itself — computed when read from an in-memory buffer, never kept as running
+totals ([#315](https://github.com/ned2/dashpot/issues/315)).
+_Avoid_: telemetry; metrics or counters kept beside the events; log for the
+Diagnostics a dashboard shows

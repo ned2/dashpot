@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from datetime import UTC, datetime
 from functools import partial
 from itertools import chain
@@ -27,6 +28,14 @@ from textual.widgets import DataTable, Footer, Input, Select, Static
 from textual.worker import get_current_worker
 
 from ..core.commands import RunningCommands
+from ..core.event_log import (
+    DASHBOARD_RECENT_EVENTS,
+    EventLog,
+    carry_current_span,
+    unrecorded_event_log,
+)
+from ..core.model import Diagnostic
+from ..core.runtime_events import EventLevel
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text
 from ..observation.paged_store import PagedObservationStore
@@ -178,6 +187,7 @@ def update_peer_diagnostics(screen: Screen[None], app: DashpotApp) -> None:
         failures=app.observations.errors,
         launcher_diagnostics=app.launcher_configuration.diagnostics,
         fetch_failures=app.fetches.errors,
+        event_log_diagnostics=app.event_log_diagnostics,
     )
     paint_readout(
         screen.query_one("#diagnostics", Static),
@@ -844,6 +854,7 @@ class DashpotApp(App[None]):
         fetcher: RemoteFetcher | None = None,
         cleaner: CleanupAdapter | None = None,
         launcher_configuration: LauncherConfiguration | None = None,
+        event_log: EventLog | None = None,
     ) -> None:
         super().__init__()
         self._dashboard = DashboardScreen()
@@ -851,6 +862,18 @@ class DashpotApp(App[None]):
         self.install_screen(self._dashboard, "dashboard")
         self.install_screen(self._query_screen, "issues-pull-requests")
         self.launcher_configuration = launcher_configuration or LauncherConfiguration()
+        # This run's Event Log, given by whoever started the process; without
+        # one the dashboard keeps its recent events in memory only.
+        self.event_log = event_log or unrecorded_event_log(
+            keep_recent=DASHBOARD_RECENT_EVENTS
+        )
+        self.event_log_diagnostics: tuple[Diagnostic, ...] = ()
+        # The loop a pool thread's write failure is reported to, once running.
+        self.main_loop: asyncio.AbstractEventLoop | None = None
+        self.event_log.on_write_failure = self.event_log_write_failed
+        self.event_log.forward = self.forward_runtime_event
+        if self.event_log.write_failure is not None:
+            self.show_event_log_unavailable(self.event_log.write_failure)
         # The observation and query commands an exit interrupts, so a pool
         # thread inside one releases before interpreter exit joins it; both
         # pools below adopt it.
@@ -993,6 +1016,7 @@ class DashpotApp(App[None]):
         self.push_screen(LegendScreen(legend_keys()))
 
     async def on_ready(self) -> None:
+        self.main_loop = asyncio.get_running_loop()
         # Mount both installed peers before collection starts, then restore the
         # default peer. Their long-lived widgets can accept every result even
         # before a person first switches screens.
@@ -1019,6 +1043,10 @@ class DashpotApp(App[None]):
             )
 
     def on_unmount(self) -> None:
+        # The process outlives the app and ends its Event Log itself; nothing
+        # it writes after this has an app to report to.
+        self.event_log.on_write_failure = None
+        self.event_log.forward = None
         self.observations.shutdown()
         self.queries.shutdown()
         # Shutting a pool down leaves a running command to finish; the
@@ -1031,8 +1059,10 @@ class DashpotApp(App[None]):
         """Run one blocking operation on an executor thread and return its value."""
         # Fetches, Cleanups and Worktree launches share the observation pool;
         # each is one blocking call per Project, never enough to need its own.
+        # The operation keeps the current span but runs in its thread's own
+        # context, where the command registry the thread adopted lives.
         return await asyncio.get_running_loop().run_in_executor(
-            executor or self.observations.executor, operation
+            executor or self.observations.executor, carry_current_span(operation)
         )
 
     @property
@@ -1049,6 +1079,48 @@ class DashpotApp(App[None]):
         for peer in self.peer_screens():
             if peer.is_mounted and peer.surfaces_mounted():
                 peer.update_alert()
+
+    def set_event_level(self, level: EventLevel) -> None:
+        """Change what this run records for the rest of it, never its settings."""
+        self.event_log.set_level(level)
+
+    def event_log_write_failed(self, error: str) -> None:
+        """Report a dropped write from whichever thread made it, on the loop."""
+        loop = self.main_loop
+        if loop is None:
+            self.show_event_log_unavailable(error)
+            return
+        with suppress(RuntimeError):  # The loop closed: nothing left to show it.
+            loop.call_soon_threadsafe(self.show_event_log_unavailable, error)
+
+    def show_event_log_unavailable(self, error: str) -> None:
+        """Raise the one ``event-log-unavailable`` Diagnostic, on the first failure."""
+        if self.event_log_diagnostics:
+            return
+        destination = self.event_log.destination
+        where = "" if destination is None else f" in {destination.directory}"
+        self.event_log_diagnostics = (
+            Diagnostic(
+                source="event-log",
+                severity="warning",
+                code="event-log-unavailable",
+                message=(
+                    f"Cannot write the Event Log{where} ({error}); Runtime Events "
+                    f"are dropped and the dashboard carries on"
+                ),
+            ),
+        )
+        if self.is_running and not self.closing:
+            self.update_diagnostics()
+
+    def forward_runtime_event(self, line: str) -> None:
+        """Show a recorded Runtime Event in Textual's console while one is attached."""
+        devtools = self.devtools
+        loop = self.main_loop
+        if devtools is None or not devtools.is_connected or loop is None:
+            return
+        with suppress(RuntimeError):
+            loop.call_soon_threadsafe(self.log.info, line)
 
     def update_diagnostics(self) -> None:
         """Redraw the diagnostics readout after a flow recorded a failure."""

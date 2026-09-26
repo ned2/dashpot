@@ -27,6 +27,16 @@ def isolated_settings(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
 
 
+@pytest.fixture(autouse=True)
+def quiet_event_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Record no Runtime Event from any test, in this checkout or the user's state.
+
+    The environment reaches every process a test starts too. An Event Log
+    test opts in with a directory of its own.
+    """
+    monkeypatch.setenv("DASHPOT_EVENT_LEVEL", "off")
+
+
 @pytest.fixture
 def git_repository(tmp_path: Path) -> Path:
     """An empty Git repository at ``tmp_path / "repo"``."""

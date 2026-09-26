@@ -89,6 +89,7 @@ def list_diagnostics(
     failures: Mapping[ObservationKey, str] | None = None,
     launcher_diagnostics: Iterable[Diagnostic] = (),
     fetch_failures: Mapping[str, str] | None = None,
+    event_log_diagnostics: Iterable[Diagnostic] = (),
 ) -> Alert | None:
     """List every Diagnostic in full for the Diagnostics box, or nothing while it is empty.
 
@@ -98,12 +99,13 @@ def list_diagnostics(
     errors come first — ``failures`` per observation key and
     ``fetch_failures`` per Project are refresh and Remote Fetch failures,
     and ``launcher_diagnostics`` are what loading the launcher settings
-    reported.
+    reported; ``event_log_diagnostics`` say the dashboard's own Event Log
+    could not be written.
     """
     items = [AlertItem("error", message) for message in (failures or {}).values()]
     items.extend(
         AlertItem(diagnostic.severity, diagnostic.message)
-        for diagnostic in launcher_diagnostics
+        for diagnostic in (*launcher_diagnostics, *event_log_diagnostics)
     )
     items.extend(
         AlertItem("error", message) for message in (fetch_failures or {}).values()

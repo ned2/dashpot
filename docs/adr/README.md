@@ -18,12 +18,12 @@ of date.
 | --- | --- | --- | --- |
 | 0001 | [Own the Project and Issue model](0001-own-project-and-issue-model.md) | amended | [0003](0003-prefer-project-local-dashpot-state.md) |
 | 0002 | [Require complete Issue profile snapshots](0002-require-complete-issue-profile-snapshots.md) | accepted | — |
-| 0003 | [Prefer Project-local Dashpot configuration and work state](0003-prefer-project-local-dashpot-state.md) | amended | [0004](0004-observe-one-project-per-run.md) |
+| 0003 | [Prefer Project-local Dashpot configuration and work state](0003-prefer-project-local-dashpot-state.md) | amended | [0004](0004-observe-one-project-per-run.md), [0058](0058-record-runtime-events-locally-and-send-none.md), [0059](0059-keep-an-append-only-event-log-in-each-checkout.md) |
 | 0004 | [Observe one Project per run](0004-observe-one-project-per-run.md) | accepted | — |
 | 0005 | [Observe Branches without fetching](0005-observe-branches-without-fetching.md) | amended | [0008](0008-let-management-commands-mutate-on-explicit-invocation.md), [0014](0014-fetch-remotes-on-explicit-key-press.md) |
 | 0006 | [Observe Agent Session activity at turn boundaries](0006-observe-agent-activity-at-turn-boundaries.md) | amended | [0016](0016-hold-a-session-running-while-its-sub-agents-work.md) |
 | 0007 | [Identify sandboxed Agent Sessions by Agent Session Identity](0007-identify-sandboxed-sessions-by-agent-session-identity.md) | amended | [0038](0038-isolate-native-agent-session-identities.md) |
-| 0008 | [Let named management commands mutate on explicit invocation](0008-let-management-commands-mutate-on-explicit-invocation.md) | amended | [0014](0014-fetch-remotes-on-explicit-key-press.md), [0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md), [0029](0029-preserve-agent-runs-through-declared-codex-relocation.md) |
+| 0008 | [Let named management commands mutate on explicit invocation](0008-let-management-commands-mutate-on-explicit-invocation.md) | amended | [0014](0014-fetch-remotes-on-explicit-key-press.md), [0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md), [0029](0029-preserve-agent-runs-through-declared-codex-relocation.md), [0058](0058-record-runtime-events-locally-and-send-none.md), [0059](0059-keep-an-append-only-event-log-in-each-checkout.md) |
 | 0009 | [Hold one active Agent Run per Agent Session across a Repository's Worktrees](0009-hold-one-agent-run-per-session-across-worktrees.md) | amended | [0029](0029-preserve-agent-runs-through-declared-codex-relocation.md) |
 | 0010 | [Derive the Legend from the Glyphs the panes render](0010-derive-the-legend-from-rendered-glyphs.md) | amended | [0040](0040-summarize-integration-across-a-branch-rows-refs.md), [0050](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md) |
 | 0011 | [Prepare Issue Worktrees by convention, and only report their removability](0011-prepare-issue-worktrees-by-convention.md) | amended | [0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md), [0039](0039-anchor-the-default-worktree-root-on-the-main-working-tree.md), [0052](0052-read-machine-local-settings-as-toml.md) |
@@ -73,4 +73,6 @@ of date.
 | 0055 | [Verify the query context in the response that carries it](0055-verify-the-query-context-in-the-response-that-carries-it.md) | accepted | — |
 | 0056 | [Refresh GitHub queries on their own period](0056-refresh-github-queries-on-their-own-period.md) | accepted | — |
 | 0057 | [Observe Project Totals in the Query Page request](0057-observe-project-totals-in-the-query-page-request.md) | accepted | — |
+| 0058 | [Record Runtime Events locally and send none](0058-record-runtime-events-locally-and-send-none.md) | accepted | — |
+| 0059 | [Keep an append-only Event Log in each checkout](0059-keep-an-append-only-event-log-in-each-checkout.md) | accepted | — |
 | 0061 | [Warn of a low rate limit from the latest reading across Query Sources](0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md) | accepted | — |
