@@ -235,6 +235,18 @@ ever published
 [ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md),
 [ADR 0023](adr/0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)).
 
+**Refresh Period**:
+The interval between a dashboard's automatic refreshes of one kind of work;
+zero switches it off. A dashboard has two. The local period (default 15
+seconds) paces local observation — Worktrees, Branches, Agent Sessions and
+Agent Runs — and the queries of a Query Source that costs nothing, such as a
+Local Markdown Issue Source. The GitHub period (default 60 seconds) paces a
+GitHub Query Source's Query Pages, Project Totals and Resolved Issues, which
+spend the account's hourly allowance. A manual refresh (`r`) refreshes both
+at once
+([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)).
+_Avoid_: polling interval, or one refresh period for the whole dashboard
+
 **Interruptible Command**:
 A `git` or `gh` child an observation or query runs, which the dashboard's
 exit may stop rather than wait for: it is held in the registry the thread

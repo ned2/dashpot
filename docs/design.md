@@ -54,7 +54,13 @@ it lands instead of being discarded by every tick
 An automatic tick queues nothing further, the next tick being its rerun; a
 key press, a Remote Fetch or Cleanup that changed the Repository, and a
 follow-up of a publish each queue one more observation of the key for when
-the running one lands. `r` refreshes every key in the Workspace, which with
+the running one lands. Two timers tick
+([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)). The
+local one observes every key. The query one repeats each displayed page and
+its totals, and resolves the bound and selected Issues. The query timer runs
+on the GitHub Refresh Period for a GitHub Query Source and on the local one
+otherwise. An Agent Runs landing resolves the bound Issues only when they
+changed. `r` refreshes every key in the Workspace, which with
 one Project per run is the observed Project, and restarts both submitted source queries from page one, refreshing totals
 and relevant identities. It never fetches: `f`
 mutates, a Remote Fetch of the Repository Anchor whose refs

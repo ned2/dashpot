@@ -31,6 +31,7 @@ from dashpot.queries.page_navigation import PageNavigation, page_text, totals_te
 from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.legend import LegendScreen
+from factories import agent_run
 from helpers import wait_until
 from test_source_queries import markdown
 
@@ -46,7 +47,9 @@ class LocalOnlyCollector:
         raise AssertionError("dashboard must not enumerate Pull Requests")
 
 
-def application(tmp_path, *, launcher_configuration=None, collector=None):
+def application(
+    tmp_path, *, launcher_configuration=None, collector=None, query_refresh_seconds=0
+):
     source = markdown(tmp_path)
     context = source.context
     project = ResolvedProject(
@@ -68,6 +71,7 @@ def application(tmp_path, *, launcher_configuration=None, collector=None):
         coordinator,
         sources=sources,
         refresh_seconds=0,
+        query_refresh_seconds=query_refresh_seconds,
         launcher_configuration=launcher_configuration,
     )
     app.queries.navigation["issues"].request = QueryRequest(page_size=1)
@@ -311,7 +315,7 @@ async def test_slow_user_query_outlasting_ticks_is_accepted(tmp_path):
             await wait_until(started.is_set)
             generation = app.queries.navigation["issues"].generation
             for _ in range(3):
-                app.timer_refresh()
+                app.timer_query_refresh()
             assert app.queries.navigation["issues"].generation == generation
             release.set()
             await wait_until(lambda: app.queries.navigation["issues"].page is not None)
@@ -358,3 +362,123 @@ def test_snapshot_scheduler_publishes_a_whole_checkpoint_once() -> None:
     assert len(scheduler.publish(store)) == 1
     assert scheduler.publish(store) == []
     assert store.checkpoint().collected_at == "2026-08-28T00:00:00Z"
+
+
+def count_queries(app):
+    """Count each query key's requests to its Query Source."""
+    counts = dict.fromkeys(QUERY_SOURCE_KEYS, 0)
+    for key, source in app.queries.sources.items():
+        for name in ("query_page", "totals", "resolve_identities"):
+            method = getattr(source, name)
+
+            def counted(*args, _key=key, _method=method, **kwargs):
+                counts[_key] += 1
+                return _method(*args, **kwargs)
+
+            setattr(source, name, counted)
+    return counts
+
+
+def observe_agent_runs(app, runs):
+    """Serve ``runs`` as the observed Agent Runs, recording each observation."""
+    calls = []
+
+    def observer(targets):
+        calls.append(targets)
+        return list(runs), []
+
+    app.observations.scheduler.agent_observer = observer
+    return calls
+
+
+async def local_tick(app, observed):
+    """Fire one local tick and wait until it and any query it caused land."""
+    before = len(observed)
+    app.timer_refresh()
+    await wait_until(lambda: len(observed) > before and not app.observations.in_flight)
+    await wait_until(lambda: not app.queries.busy)
+
+
+@pytest.mark.asyncio
+async def test_a_local_tick_observes_and_a_query_tick_queries(tmp_path):
+    app = application(tmp_path)
+    counts = count_queries(app)
+    observed = observe_agent_runs(app, [])
+    async with app.run_test(size=(150, 55)):
+        await wait_until(lambda: first_load_landed(app) and bool(observed))
+        await wait_until(lambda: not app.observations.in_flight)
+        queried = dict(counts)
+
+        await local_tick(app, observed)
+        assert counts == queried
+
+        ticks = len(observed)
+        app.timer_query_refresh()
+        await wait_until(lambda: counts["issues"] > queried["issues"])
+        await wait_until(lambda: not app.queries.busy)
+        assert counts == {
+            **queried,
+            "issues": queried["issues"] + 1,
+            "pull-requests": queried["pull-requests"] + 1,
+            "totals:issues": queried["totals:issues"] + 1,
+            "totals:pull-requests": queried["totals:pull-requests"] + 1,
+        }
+        assert len(observed) == ticks
+
+
+@pytest.mark.asyncio
+async def test_the_query_period_requeries_without_observing(tmp_path):
+    app = application(tmp_path, query_refresh_seconds=0.05)
+    counts = count_queries(app)
+    observed = observe_agent_runs(app, [])
+    async with app.run_test(size=(150, 55)):
+        # Queries that tick every 50ms are seldom all idle at once, so this
+        # waits on the observation alone.
+        await wait_until(lambda: bool(observed) and not app.observations.in_flight)
+        runs = len(observed)
+        queried = counts["issues"]
+
+        await wait_until(lambda: counts["issues"] >= queried + 2)
+        assert len(observed) == runs
+
+
+@pytest.mark.asyncio
+async def test_bound_issues_resolve_on_a_local_tick_only_when_they_change(tmp_path):
+    app = application(tmp_path)
+    project_id = app.queries.sources["issues"].context.project_id
+    runs = []
+    observed = observe_agent_runs(app, runs)
+    resolved = []
+    identities = app.queries.sources["identities"]
+    resolve = identities.resolve_identities
+
+    def recorded(requested):
+        resolved.append(tuple(requested))
+        return resolve(requested)
+
+    identities.resolve_identities = recorded
+    async with app.run_test(size=(150, 55)):
+        await wait_until(lambda: first_load_landed(app) and bool(observed))
+        await wait_until(lambda: not app.observations.in_flight)
+        assert resolved == []
+
+        # An Agent Run starting Issue work is resolved without waiting for
+        # the next query refresh.
+        runs.append(
+            agent_run("one", project_id, issue_id="I_1", target_path=str(tmp_path))
+        )
+        await local_tick(app, observed)
+        assert resolved == [("I_1",)]
+
+        # The same bound Issues wait for the query refresh.
+        await local_tick(app, observed)
+        assert resolved == [("I_1",)]
+        app.timer_query_refresh()
+        await wait_until(lambda: len(resolved) == 2 and not app.queries.busy)
+        assert resolved == [("I_1",), ("I_1",)]
+
+        runs.append(
+            agent_run("two", project_id, issue_id="I_2", target_path=str(tmp_path))
+        )
+        await local_tick(app, observed)
+        assert resolved[2:] == [("I_1", "I_2")]

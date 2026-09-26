@@ -678,6 +678,7 @@ async def test_issue_transfer_follows_the_issue_to_its_new_project() -> None:
 
         serve_snapshot(app, second)
         app.timer_refresh()
+        app.timer_query_refresh()
         await wait_until(
             lambda: (
                 observation_landed(app, 2)
@@ -714,6 +715,7 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
         serve_snapshot(app, second)
         gate = hold_sources(app)
         app.timer_refresh()
+        app.timer_query_refresh()
         await wait_until(lambda: app.store.revision == 2)
         gate.set()
         await wait_until(lambda: observation_landed(app, 2) and table.row_count == 2)

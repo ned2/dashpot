@@ -93,20 +93,25 @@ Enumeration. Request count, not query shape, sets the spend.
 | Source Enumeration (`dashpot --json`) | 6 points per 100 Issues plus the Pull Request pages, bounded by the Refresh Budget |
 | Lifecycle hooks, `work show`, `work stop`, local observation | None |
 
-One automatic refresh re-queries both Query Pages and both kinds' Project
+GitHub queries refresh on their own Refresh Period, 60 seconds by default,
+while local observation keeps refreshing every 15 seconds and costs nothing
+([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)). One
+automatic GitHub refresh re-queries both Query Pages and both kinds' Project
 Totals, and resolves the Issues that Agent Runs are bound to (plus the
-selected Issue's relationships). Resolved Issues currently run twice per
-refresh ([#304](https://github.com/ned2/dashpot/issues/304)). Each request
-verifies the Repository and principal in its own response
+selected Issue's relationships). Between GitHub refreshes, bound Issues are
+resolved again only when an Agent Run starts or changes Issue work. Each
+request verifies the Repository and principal in its own response
 ([ADR 0055](adr/0055-verify-the-query-context-in-the-response-that-carries-it.md)),
-so a refresh sends no separate context request. On 2026-09-26, on this
-Repository with 27 open Issues, every refresh sent 8 requests: 2 Query Pages,
-2 Project Totals and 4 Resolved Issues batches (down from 14 before ADR 0055).
-That is about 8 to 10 points per refresh, depending on how many Issues the
-page and the bound Issues span. At the default 15-second `--refresh-seconds`,
-one open dashboard spends roughly 1,900 to 2,400 points an hour, around half
-of a personal account's 5,000. A second dashboard, or an agent polling with
-`gh pr checks --watch`, can exhaust the hour.
+so a refresh sends no separate context request.
+
+On 2026-09-26 this Repository had 27 open Issues. Over four minutes, every
+GitHub refresh sent 7 requests: 2 Query Pages, 2 Project Totals, the 2 Issue
+batches that complete the Issues page, and 1 Resolved Issues batch. The local
+refreshes between them sent none. That is about 7 to 9 points a minute,
+depending on how many Issues the page and the bound Issues span. One open
+dashboard spends roughly 420 to 540 points an hour, around a tenth of a
+personal account's 5,000. Before ADR 0056, the 15-second period spent 1,900
+to 2,400.
 
 [#308](https://github.com/ned2/dashpot/issues/308) tracks bringing an open
 dashboard well inside the allowance; update this section as its sub-issues
@@ -117,9 +122,14 @@ land.
 - **Keep one dashboard open.** Dashboards do not share observations, so each
   one costs the full amount. Close a dashboard left running in another
   terminal.
-- **Lengthen the refresh period.** `dashpot --refresh-seconds 60` spends about
-  a quarter of the default. `--refresh-seconds 0` stops automatic refresh;
-  `r` still refreshes on demand.
+- **Lengthen the GitHub Refresh Period.** GitHub queries refresh on their own
+  period, 60 seconds by default, while Worktrees and agent sessions keep
+  refreshing every 15 seconds
+  ([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)). Set
+  `github_refresh_seconds` in the
+  [machine-local settings](installation.md#machine-local-settings), or pass
+  `--github-refresh-seconds` for one run: 120 spends half the default, and 0
+  stops automatic GitHub refresh, while `r` still refreshes on demand.
 - **Count the other consumers.** An agent running `gh` in a loop, or `gh pr
   checks --watch`, spends the same allowance as the dashboard.
 - **Read the allowance from GraphQL itself:**

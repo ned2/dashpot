@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from .core.model import Diagnostic
 from .core.worktree_paths import worktree_root
 from .observation.collect import ObservationCoordinator
 from .project.project_config import PROJECT_CONFIG_NAME, ProjectConfigError
+from .project.settings import Settings, SettingsError, load_settings
 from .project.workspace import (
     RepositoryAnchor,
     Workspace,
@@ -33,6 +34,64 @@ from .repository.cleanup import (
     perform_cleanup,
 )
 
+DEFAULT_REFRESH_SECONDS = 15.0
+DEFAULT_GITHUB_REFRESH_SECONDS = 60.0
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshPeriods:
+    """How often a dashboard refreshes by itself, in seconds; 0 switches a period off.
+
+    ``local`` paces local observation: Worktrees, Branches, Agent Sessions and
+    Agent Runs. ``github`` paces the queries GitHub meters against the hourly
+    allowance.
+    """
+
+    local: float = DEFAULT_REFRESH_SECONDS
+    github: float = DEFAULT_GITHUB_REFRESH_SECONDS
+
+    def query_seconds(self, sources: Mapping[str, QuerySource]) -> float:
+        """The period of the dashboard's Query Sources.
+
+        Only a GitHub Query Source takes the GitHub period; a local one costs
+        nothing, so it keeps pace with local observation.
+        """
+        if any(source.context.source == "github" for source in sources.values()):
+            return self.github
+        return self.local
+
+
+def refresh_periods(
+    refresh_seconds: float | None = None,
+    github_refresh_seconds: float | None = None,
+    *,
+    settings_path: Path | None = None,
+) -> RefreshPeriods:
+    """Take each refresh period from its flag, then its setting, then its default."""
+    try:
+        settings = load_settings(settings_path)
+    except SettingsError:
+        # The launcher configuration reports an unreadable settings file as a
+        # Diagnostic on the dashboard (ADR 0035); the periods keep their
+        # defaults rather than stopping it opening.
+        settings = Settings()
+    return RefreshPeriods(
+        local=_first_given(
+            refresh_seconds, settings.refresh_seconds, DEFAULT_REFRESH_SECONDS
+        ),
+        github=_first_given(
+            github_refresh_seconds,
+            settings.github_refresh_seconds,
+            DEFAULT_GITHUB_REFRESH_SECONDS,
+        ),
+    )
+
+
+def _first_given(flag: float | None, setting: float | None, default: float) -> float:
+    if flag is not None:
+        return flag
+    return setting if setting is not None else default
+
 
 @dataclass(frozen=True, slots=True)
 class ObservationOptions:
@@ -41,7 +100,7 @@ class ObservationOptions:
     workspaces: tuple[Workspace, ...] = ()
     config: Path | None = None
     timeout: float = 10.0
-    refresh_seconds: float = 15.0
+    refresh_seconds: float = DEFAULT_REFRESH_SECONDS
     state_dir: Path | None = None
 
 

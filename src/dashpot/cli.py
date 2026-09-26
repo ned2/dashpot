@@ -13,6 +13,7 @@ from .composition import (
     ObservationOptions,
     create_collector,
     create_query_sources,
+    refresh_periods,
     run_cleanup,
 )
 from .core.errors import DashpotError
@@ -139,12 +140,27 @@ def observe(
     ] = None,
     timeout: _Timeout = 10.0,
     refresh_seconds: Annotated[
-        float,
+        float | None,
         Parameter(
             validator=validators.Number(gte=0),
-            help="automatic refresh period; zero disables polling",
+            help=(
+                "seconds between automatic refreshes of Worktrees, Branches and "
+                "agent sessions, and of a local Markdown Issue Source; zero "
+                "disables them (default: the refresh_seconds setting, else 15)"
+            ),
         ),
-    ] = 15.0,
+    ] = None,
+    github_refresh_seconds: Annotated[
+        float | None,
+        Parameter(
+            validator=validators.Number(gte=0),
+            help=(
+                "seconds between automatic refreshes of GitHub Issues and pull "
+                "requests; zero disables them (default: the "
+                "github_refresh_seconds setting, else 60)"
+            ),
+        ),
+    ] = None,
     state_dir: Annotated[
         Path | None,
         Parameter(
@@ -169,12 +185,13 @@ def observe(
 ) -> int:
     """Open the TUI for one Project, or print a headless snapshot."""
     headless = json_output or compact_json
+    periods = refresh_periods(refresh_seconds, github_refresh_seconds)
     collector = create_collector(
         ObservationOptions(
             workspaces=tuple(workspace or ()),
             config=config,
             timeout=timeout,
-            refresh_seconds=refresh_seconds,
+            refresh_seconds=periods.local,
             state_dir=state_dir,
         ),
         recurring=not headless,
@@ -184,10 +201,12 @@ def observe(
         # checkpoints, so headless output stays a single complete snapshot.
         print(render_json(snapshot_document(collector.refresh()), compact=compact_json))
     else:
+        sources = create_query_sources(collector)
         DashpotApp(
             collector,
-            sources=create_query_sources(collector),
-            refresh_seconds=refresh_seconds,
+            sources=sources,
+            refresh_seconds=periods.local,
+            query_refresh_seconds=periods.query_seconds(sources),
             fetcher=remote_fetcher(timeout),
             cleaner=GitCleanupAdapter(timeout),
             launcher_configuration=configure_worktree_launcher(timeout),

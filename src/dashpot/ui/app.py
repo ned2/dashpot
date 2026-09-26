@@ -841,6 +841,7 @@ class DashpotApp(App[None]):
         *,
         sources: Mapping[str, QuerySource],
         refresh_seconds: float = 15,
+        query_refresh_seconds: float = 60,
         refresh_indicator_seconds: float = 0.75,
         fetcher: RemoteFetcher | None = None,
         cleaner: CleanupAdapter | None = None,
@@ -856,8 +857,13 @@ class DashpotApp(App[None]):
         # thread inside one releases before interpreter exit joins it; both
         # pools below adopt it.
         self.running_commands = RunningCommands()
+        # Local observation and the source queries refresh on periods of
+        # their own: observing Git and the hooks is free, while a GitHub query
+        # spends the hourly allowance.
         self.refresh_seconds = refresh_seconds
+        self.query_refresh_seconds = query_refresh_seconds
         self.refresh_timer: Timer | None = None
+        self.query_refresh_timer: Timer | None = None
         self.store = PagedObservationStore()
         # The observations in flight, their reruns and their indicator, and
         # the page runner: the source queries behind the pages, totals and
@@ -879,6 +885,7 @@ class DashpotApp(App[None]):
             cleaner, self.store, self.observations, self.fetches, self
         )
         self.selected_identity: str | None = None
+        self.requested_identities: frozenset[str] = frozenset()
         # A local-only coordinator composes a placeholder for every Project
         # at construction; publishing it now names the Projects before their
         # first observation lands.
@@ -1006,6 +1013,12 @@ class DashpotApp(App[None]):
                 self.timer_refresh,
                 name="workspace refresh",
             )
+        if self.query_refresh_seconds > 0:
+            self.query_refresh_timer = self.set_interval(
+                self.query_refresh_seconds,
+                self.timer_query_refresh,
+                name="query refresh",
+            )
 
     def on_unmount(self) -> None:
         self.observations.shutdown()
@@ -1132,13 +1145,18 @@ class DashpotApp(App[None]):
 
     def action_refresh(self) -> None:
         """Refresh every observation in the Workspace."""
-        if self.refresh_timer is not None:
-            self.refresh_timer.reset()
+        for timer in (self.refresh_timer, self.query_refresh_timer):
+            if timer is not None:
+                timer.reset()
         self.request_refresh("manual")
 
     def timer_refresh(self) -> None:
-        """One automatic tick: coalesce onto whatever is still in flight."""
-        self.request_refresh("timer")
+        """One automatic local tick: coalesce onto whatever is still in flight."""
+        self.observations.refresh("timer")
+
+    def timer_query_refresh(self) -> None:
+        """One automatic query tick, repeating each displayed page."""
+        self.refresh_queries(restart=False)
 
     def request_refresh(self, trigger: ObservationTrigger) -> None:
         """Observe every key and re-query the pages, totals and identities.
@@ -1147,7 +1165,11 @@ class DashpotApp(App[None]):
         trigger repeats the displayed page unless its query is still running.
         """
         self.observations.refresh(trigger)
-        self.queries.refresh(restart=trigger == "manual")
+        self.refresh_queries(restart=trigger == "manual")
+
+    def refresh_queries(self, *, restart: bool) -> None:
+        """Re-query the pages, totals and identities."""
+        self.queries.refresh(restart=restart)
         self.request_identities()
         self.render_pages()
 
@@ -1156,8 +1178,12 @@ class DashpotApp(App[None]):
         self.queries.submit(kind, **updates)
         self.render_pages()
 
-    def request_identities(self) -> None:
-        """Resolve the bound Issues, the selected one and its direct relationships."""
+    def request_identities(self, *, changed_only: bool = False) -> None:
+        """Resolve the bound Issues, the selected one and its direct relationships.
+
+        With ``changed_only`` they are resolved only when they differ from the
+        ones last requested; the same ones wait for the next query refresh.
+        """
         ids = [
             run.issue_id for run in self.store.checkpoint().agent_runs if run.issue_id
         ]
@@ -1176,6 +1202,9 @@ class DashpotApp(App[None]):
                 if relationships.parent:
                     ids.append(relationships.parent)
         requested = tuple(dict.fromkeys(ids))
+        if changed_only and frozenset(requested) == self.requested_identities:
+            return
+        self.requested_identities = frozenset(requested)
         if requested:
             self.queries.request_identities(requested)
 
@@ -1248,9 +1277,10 @@ class DashpotApp(App[None]):
         self, message: ObservationFinished, landed: Acceptance
     ) -> None:
         self.show_observation(landed)
-        # Identities are resolved against the Agent Runs just published.
+        # Agent Runs are observed on the local period; resolving their Issues
+        # again follows the query period unless which Issues are bound changed.
         if message.ticket.key.kind == "agent-runs":
-            self.request_identities()
+            self.request_identities(changed_only=True)
 
     def show_observation(self, landed: Acceptance) -> None:
         """Render what a landed observation changed; a dropped one changes nothing."""

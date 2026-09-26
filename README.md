@@ -78,9 +78,9 @@ GitHub's rate limit constrains how Dashpot can be used. Nearly every query
 Dashpot sends is GraphQL, and a personal account gets 5,000 GraphQL points an
 hour whatever its plan. That allowance is shared by every tool acting as the
 same user, including `gh` run by agents. An open dashboard spends points on
-every automatic refresh, so several dashboards at once or a short
-`--refresh-seconds` can exhaust the hour, leaving GitHub observations stale
-until it resets. [GitHub rate limits](docs/github-rate-limits.md) gives the
+every automatic refresh of its GitHub queries, once a minute by default, so
+several dashboards at once or a short `--github-refresh-seconds` can exhaust
+the hour, leaving GitHub observations stale until it resets. [GitHub rate limits](docs/github-rate-limits.md) gives the
 limits for each authentication method, how Dashpot spends them, and how to
 stay inside them.
 
@@ -106,9 +106,16 @@ that resolve to more than one Project are refused with a message naming them
 (see [ADR 0004](docs/adr/0004-observe-one-project-per-run.md)). Use `--config`
 to select a different Workspace inventory.
 
-The default 15-second polling period refreshes the
-observed Project and can be changed with `--refresh-seconds`; zero disables
-polling. `--timeout` bounds every external `git` and `gh` command (default 10
+Two Refresh Periods pace automatic refresh
+([ADR 0056](docs/adr/0056-refresh-github-queries-on-their-own-period.md)).
+Local observation (Worktrees, Branches, agent sessions, and a Local Issues
+source) refreshes every 15 seconds, set by `--refresh-seconds`. GitHub queries
+(both pages, Project Totals and bound Issues) refresh every 60 seconds, set by
+`--github-refresh-seconds`. Each can also be set in the
+[machine-local settings](docs/installation.md#machine-local-settings) as
+`refresh_seconds` and `github_refresh_seconds`. A flag overrides its setting,
+and zero disables that period's automatic refresh; `r` refreshes both at once.
+`--timeout` bounds every external `git` and `gh` command (default 10
 seconds), `--state-dir` overrides where session records land outside a
 configured Project (the flag form of `DASHPOT_STATE_DIR`), and `--version`
 prints the installed version. `dashpot --help` describes every command and
@@ -305,7 +312,8 @@ source before pagination. Project-wide counters do not change with the query.
 A failed refresh retains last-good rows only for the same verified page request;
 a failed navigation leaves the previous page available with the error and restart
 guidance. Periodic refresh repeats the displayed page and independently refreshes
-totals and relevant bound/selected Issues.
+totals and relevant bound/selected Issues, on the GitHub period for a GitHub
+source; a change in which Issues are bound resolves on the next local refresh.
 
 The columns are `STATE`, `#`, `TITLE`, `HEAD`, `BASE`, `AUTHOR`, `REVIEW`,
 `CHECKS`, `MERGE`, and `UPDATED`. The state uses the same `■` character as
