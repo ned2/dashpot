@@ -8,14 +8,30 @@ an unknown value is asserted to be an explicit ``null``, never an omission.
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
+from dashpot.core.event_log_files import (
+    EventLogFileRemoval,
+    EventLogReading,
+    EventLogRemoval,
+    UnreadableEventLog,
+)
 from dashpot.core.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
+from dashpot.core.runtime_events import (
+    CommandAttributes,
+    ProcessIdentity,
+    ProcessStart,
+    RuntimeEvent,
+    SpanEnded,
+)
 from dashpot.queries.source_queries import PageObservation, QueryRequest
 from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
 from dashpot.serialization import (
+    event_log_reading_document,
+    event_log_removal_document,
     issue_document,
     list_page_document,
     removability_document,
@@ -218,6 +234,56 @@ SOURCE_CONTEXT_KEYS = {
     "configuration",
 }
 QUERY_REQUEST_KEYS = {"kind", "query", "state", "ordering", "pageSize", "cursor"}
+EVENT_LOG_READING_KEYS = {"directories", "events", "unreadable"}
+UNREADABLE_EVENT_LOG_KEYS = {"path", "lines", "error"}
+# Every Runtime Event keeps its Event Log field names, and every field its
+# kind has, known or not.
+RUNTIME_EVENT_KEYS = {
+    "schema",
+    "time",
+    "dashpot.level",
+    "event.name",
+    "service.instance.id",
+    "dashpot.process.kind",
+    "dashpot.agent_session.harness",
+    "dashpot.agent_session.id",
+    "dashpot.project.id",
+    "dashpot.worktree.path",
+    "dashpot.issue.id",
+}
+PROCESS_FACT_KEYS = {
+    "service.version",
+    "dashpot.install.kind",
+    "vcs.ref.head.revision",
+    "dashpot.source.dirty",
+    "process.pid",
+    "process.runtime.version",
+    "process.working_directory",
+    "dashpot.subcommand",
+}
+SPAN_KEYS = {
+    "dashpot.span.name",
+    "span_id",
+    "parent_span_id",
+    "dashpot.duration_seconds",
+    "otel.status_code",
+    "error.type",
+    "attributes",
+}
+COMMAND_ATTRIBUTE_KEYS = {
+    "process.executable.name",
+    "dashpot.command.subcommand",
+    "process.exit.code",
+}
+EVENT_LOG_REMOVAL_KEYS = {
+    "directory",
+    "before",
+    "today",
+    "dryRun",
+    "files",
+    "succeeded",
+}
+EVENT_LOG_FILE_REMOVAL_KEYS = {"path", "day", "sizeBytes", "outcome", "error"}
 
 
 def test_the_snapshot_document_pins_every_nested_shape() -> None:
@@ -420,6 +486,85 @@ def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None
     assert totals_document["status"] == "unavailable"
     assert totals_document["openCount"] is None
     assert totals_document["lastGoodAt"] is None
+
+
+def test_the_events_document_keeps_each_events_log_field_names_and_nulls() -> None:
+    process = ProcessIdentity(run_id="a" * 32, kind="command:work-start")
+    reading = EventLogReading(
+        directories=["/w/x/.dashpot/state/events"],
+        events=[
+            RuntimeEvent(
+                time="2026-09-27T12:00:00.000000Z",
+                level="standard",
+                process=process,
+                body=ProcessStart(
+                    version="0.1.0",
+                    install_kind="wheel",
+                    revision="unknown",
+                    pid=42,
+                    python_version="3.14.0",
+                ),
+            ),
+            RuntimeEvent(
+                time="2026-09-27T12:00:01.000000Z",
+                level="full",
+                process=process,
+                body=SpanEnded(
+                    span_name="command",
+                    span_id="b" * 16,
+                    duration_seconds=0.5,
+                    status="OK",
+                    attributes=CommandAttributes(program="git"),
+                ),
+            ),
+        ],
+        unreadable=[UnreadableEventLog(path="/w/x/events-2026-09-27.jsonl")],
+    )
+
+    document = event_log_reading_document(reading)
+
+    assert set(document) == EVENT_LOG_READING_KEYS
+    start, span = document["events"]
+    assert set(start) == RUNTIME_EVENT_KEYS | PROCESS_FACT_KEYS
+    assert start["dashpot.agent_session.id"] is None
+    assert start["dashpot.source.dirty"] is None
+    assert set(span) == RUNTIME_EVENT_KEYS | SPAN_KEYS
+    assert span["parent_span_id"] is None
+    assert set(span["attributes"]) == COMMAND_ATTRIBUTE_KEYS
+    assert span["attributes"]["process.exit.code"] is None
+    (unreadable,) = document["unreadable"]
+    assert unreadable == {
+        "path": "/w/x/events-2026-09-27.jsonl",
+        "lines": [],
+        "error": None,
+    }
+
+
+def test_the_events_remove_document_keeps_its_keys_and_nulls() -> None:
+    removal = EventLogRemoval(
+        directory="/w/x/.dashpot/state/events",
+        before=date(2026, 9, 1),
+        today=date(2026, 9, 27),
+        dry_run=False,
+        files=[
+            EventLogFileRemoval(
+                path="/w/x/.dashpot/state/events/events-2026-08-01.jsonl",
+                day=date(2026, 8, 1),
+                size_bytes=None,
+                outcome="already-absent",
+            )
+        ],
+    )
+
+    document = event_log_removal_document(removal)
+
+    assert set(document) == EVENT_LOG_REMOVAL_KEYS
+    assert document["before"] == "2026-09-01"
+    assert document["succeeded"] is True
+    (file,) = document["files"]
+    assert set(file) == EVENT_LOG_FILE_REMOVAL_KEYS
+    assert file["sizeBytes"] is None
+    assert file["error"] is None
 
 
 def test_render_json_is_indented_unless_compact() -> None:

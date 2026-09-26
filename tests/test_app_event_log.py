@@ -22,6 +22,7 @@ from dashpot.core.event_log import (
     EventLogDestination,
     current_span,
 )
+from dashpot.core.event_log_files import LARGE_EVENT_LOG_BYTES
 from dashpot.core.runtime_events import (
     EventLevel,
     EventLogWriteFailed,
@@ -197,3 +198,54 @@ def test_a_failure_before_the_dashboard_runs_is_shown_when_it_does(
     (diagnostic,) = app.event_log_diagnostics
     assert "(EACCES)" in diagnostic.message
     assert str(tmp_path) in diagnostic.message
+
+
+@pytest.mark.asyncio
+async def test_a_large_event_log_is_warned_of_until_it_is_removed(
+    tmp_path: Path,
+) -> None:
+    log = event_log(tmp_path)
+    past = tmp_path / "events-2026-01-01.jsonl"
+    # Sparse, so the test writes almost nothing to pass the size.
+    with past.open("wb") as stream:
+        stream.truncate(LARGE_EVENT_LOG_BYTES + 1)
+    app = app_over(log)
+
+    async with app.run_test(size=(100, 30)):
+        await wait_until(lambda: first_load_landed(app))
+        await wait_until(
+            lambda: "event-log-large" in repr(app.event_log_size_diagnostics)
+        )
+        assert "past 200 MB" in diagnostics_text(app)
+        assert "dashpot events remove" in diagnostics_text(app)
+        assert past.exists()
+
+        past.unlink()
+        app.timer_refresh()
+        await wait_until(lambda: not app.event_log_size_diagnostics)
+
+        assert "past 200 MB" not in diagnostics_text(app)
+
+
+@pytest.mark.asyncio
+async def test_an_event_log_that_cannot_be_measured_leaves_its_warning_as_it_was(
+    tmp_path: Path,
+) -> None:
+    with (tmp_path / "events-2026-01-01.jsonl").open("wb") as stream:
+        stream.truncate(LARGE_EVENT_LOG_BYTES + 1)
+    app = app_over(event_log(tmp_path))
+
+    async with app.run_test(size=(100, 30)):
+        await wait_until(lambda: first_load_landed(app))
+        await wait_until(lambda: bool(app.event_log_size_diagnostics))
+        with mock.patch(
+            "dashpot.ui.app.event_log_size", side_effect=PermissionError(13, "denied")
+        ):
+            app.timer_refresh()
+            # A tick while one measurement runs starts no second one.
+            app.measure_event_log()
+            assert app.measuring_event_log
+            await wait_until(lambda: not app.measuring_event_log)
+
+        (diagnostic,) = app.event_log_size_diagnostics
+        assert diagnostic.code == "event-log-large"

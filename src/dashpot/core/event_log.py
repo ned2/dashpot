@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import secrets
 import threading
 import time
@@ -28,7 +29,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Final
 
@@ -57,6 +58,17 @@ from .runtime_events import (
 from .timestamps import utc_stamp
 
 DASHBOARD_KIND = "dashboard"
+# The directory holding an Event Log, beneath a checkout's state directory or
+# the machine-local one.
+EVENTS_DIRECTORY = "events"
+# The file hooks and one-shot commands share each UTC day; a dashboard run
+# writes ``dashboard-<run>-`` files of its own.
+SHARED_FILE_PREFIX = "events"
+# Every name an Event Log file takes, with its UTC day.
+_EVENT_LOG_FILE = re.compile(
+    rf"(?:{SHARED_FILE_PREFIX}|{DASHBOARD_KIND}-[0-9a-f]{{32}})"
+    r"-(\d{4}-\d{2}-\d{2})\.jsonl"
+)
 # How many recent events a dashboard keeps in memory for Runtime Stats.
 DASHBOARD_RECENT_EVENTS = 10_000
 # The error type of an event too long to append whole.
@@ -80,6 +92,17 @@ class EventLogDestination:
         if self.checkout is not None:
             ensure_state_directory(self.checkout)
         self.directory.mkdir(parents=True, exist_ok=True)
+
+
+def event_log_file_day(name: str) -> date | None:
+    """The UTC day an Event Log file's name carries, or ``None`` for any other name."""
+    matched = _EVENT_LOG_FILE.fullmatch(name)
+    if matched is None:
+        return None
+    try:
+        return date.fromisoformat(matched.group(1))
+    except ValueError:
+        return None
 
 
 def new_run_id() -> str:
@@ -250,9 +273,9 @@ class EventLog:
         self._path: Path | None = None
         self._started = monotonic()
         prefix = (
-            f"dashboard-{identity.run_id}"
+            f"{DASHBOARD_KIND}-{identity.run_id}"
             if identity.kind == DASHBOARD_KIND
-            else "events"
+            else SHARED_FILE_PREFIX
         )
         self._prefix = prefix
 

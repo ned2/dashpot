@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-13
+date: 2026-09-27
 ---
 
 # Agent sessions
@@ -173,6 +173,16 @@ repository renames, Issue Reference edits, Local Issue moves, and transfers
 between configured Projects.
 The ordinary TUI continues to show current References; raw identities remain in
 headless output and diagnostics.
+
+Run inside an Agent Session, `dashpot work show` ends with that session's
+recent outcomes from the [Event Log](installation.md#read-the-event-log):
+its hook and `work` command outcomes, Agent Session and Agent Run changes,
+and failures, at most 20 from the last 7 days, oldest first. They are read
+from every Worktree of the Repository and the machine-local fallback, one
+day at a time and only as far back as needed. A session with no such
+events, or a command no supported session encloses, adds nothing, and the
+Issue work lines above them are unchanged. `dashpot events --session ID`
+reads the rest.
 
 `dashpot work relocate PATH` is the explicit first phase of preserving an
 active Codex Agent Run through a sequential resume. It accepts only the live

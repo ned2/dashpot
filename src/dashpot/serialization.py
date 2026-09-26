@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .core.event_log_files import EventLogReading, EventLogRemoval
 from .core.issue_profile import IssueProfile
 from .core.model import WorkspaceSnapshot
 from .queries.source_queries import PageObservation
@@ -53,6 +54,22 @@ def worktree_plan_document(plan: WorktreePlan) -> dict[str, Any]:
 def removability_document(report: WorktreeRemovability) -> dict[str, Any]:
     """The ``dashpot worktree check --json`` document."""
     return _document(report)
+
+
+def event_log_reading_document(reading: EventLogReading) -> dict[str, Any]:
+    """The ``dashpot events --json`` document: the selected Runtime Events.
+
+    Each event keeps the field names its Event Log line uses — OpenTelemetry's
+    where one exists, ``dashpot.*`` otherwise — rather than camelCase, with
+    every field its kind of event has and ``null`` for one not known
+    (ADR 0064).
+    """
+    return _document(reading)
+
+
+def event_log_removal_document(removal: EventLogRemoval) -> dict[str, Any]:
+    """The ``dashpot events remove --json`` document: each selected file's outcome."""
+    return _document(removal)
 
 
 def render_json(

@@ -172,6 +172,12 @@ def test_a_log_opened_in_a_checkout_names_its_worktree(
         (["work", "start", "#7", "--timeout", "3"], "command:work-start", "work start"),
         (["worktree", "check", "--help"], "command:worktree-check", "worktree check"),
         (["no-such-command"], "command:observe", "observe"),
+        (["events", "--json"], "command:events", "events"),
+        (
+            ["events", "remove", "--before", "2026-09-01"],
+            "command:events-remove",
+            "events remove",
+        ),
         (["--workspace"], "command:observe", "observe"),
     ],
 )
@@ -187,8 +193,11 @@ def test_a_command_records_its_start_and_exit_status(
     monkeypatch.setenv(LEVEL_VARIABLE, "standard")
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(
-        cli, "show_issue_work", return_value=["no active Issue work"]
+    with (
+        mock.patch.object(
+            cli, "show_issue_work", return_value=["no active Issue work"]
+        ),
+        mock.patch.object(cli, "show_session_events", return_value=[]),
     ):
         assert cli.main(["work", "show"], event_log=EventLogDestination(tmp_path)) == 0
     assert cli.main(["work", "nope"], event_log=EventLogDestination(tmp_path)) == 2

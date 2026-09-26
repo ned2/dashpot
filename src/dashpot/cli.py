@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+import re
 import sys
 from collections.abc import Callable, Iterable, Sequence
 from contextvars import ContextVar
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -25,9 +27,19 @@ from .core.event_log import (
     EventLogDestination,
     working_directory,
 )
+from .core.event_log_files import (
+    EventLogError,
+    EventSelection,
+    describe_event_log_removal,
+    describe_runtime_event,
+    read_event_logs,
+    remove_event_logs,
+    repository_event_log_directories,
+)
 from .core.model import Harness
+from .core.runtime_events import RecordedLevel
 from .core.worktree_paths import worktree_root
-from .event_logs import open_event_log
+from .event_logs import open_event_log, route_event_log
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
 from .project.workspace import RepositoryAnchor, Workspace
@@ -56,6 +68,8 @@ from .repository.worktrees.removability import (
 )
 from .serialization import (
     cleanup_report_document,
+    event_log_reading_document,
+    event_log_removal_document,
     issue_document,
     list_page_document,
     removability_document,
@@ -71,6 +85,7 @@ from .sessions.integrate import (
 from .sessions.work import (
     relocate_issue_work,
     show_issue_work,
+    show_session_events,
     start_issue_work,
     stop_issue_work,
 )
@@ -333,8 +348,15 @@ def stop(
 
 @work.command
 def show() -> int:
-    """List active Issue work at this worktree."""
-    _report(show_issue_work(Path.cwd().resolve()))
+    """List active Issue work at this worktree, and this session's recent events.
+
+    The events are the enclosing Agent Session's most recent hook and
+    command outcomes, Agent Session and Agent Run changes and failures from
+    the Event Log: at most 20, from the last 7 days.
+    """
+    current = Path.cwd().resolve()
+    _report(show_issue_work(current))
+    _report(show_session_events(current))
     return 0
 
 
@@ -355,6 +377,208 @@ _JsonOutput = Annotated[
         help="print the result as JSON with camelCase keys instead of lines",
     ),
 ]
+
+
+# ``30m``, ``12h``, ``7d``: an age counted back from now.
+_RELATIVE_AGE = re.compile(r"(\d+)([mhd])")
+_AGE_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
+
+
+def parse_since(value: str, now: datetime | None = None) -> datetime:
+    """Read ``--since``: a UTC day, an ISO 8601 instant, or an age such as ``2h``.
+
+    An instant without an offset is UTC, as every Runtime Event is stamped.
+    """
+    text = value.strip()
+    age = _RELATIVE_AGE.fullmatch(text)
+    if age is not None:
+        moment = now if now is not None else datetime.now(UTC)
+        return moment - timedelta(**{_AGE_UNITS[age.group(2)]: int(age.group(1))})
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError(
+            f"{value!r} is not a day (2026-09-27), an instant "
+            f"(2026-09-27T14:00:00Z) or an age (30m, 12h, 7d)"
+        ) from None
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+def _convert_since(type_: object, tokens: Sequence[Token]) -> datetime:
+    return parse_since(tokens[0].value)
+
+
+def _convert_day(type_: object, tokens: Sequence[Token]) -> date:
+    try:
+        return date.fromisoformat(tokens[0].value.strip())
+    except ValueError:
+        raise ValueError(
+            f"{tokens[0].value!r} is not a day such as 2026-09-27"
+        ) from None
+
+
+events = App(
+    name="events",
+    help=(
+        "Read or remove the Event Log: the Runtime Events Dashpot records on "
+        "this machine.\n\n"
+        "Reading merges the Event Log of every Worktree of this Repository "
+        "with the machine-local fallback, ordered by time. A dashboard records "
+        "its events, including those about other Projects of its Workspace, in "
+        "the checkout it was started in, so read them from there. remove "
+        "mutates: only this checkout's Event Log files (or the machine-local "
+        "fallback's, outside a configured checkout) dated before a day, never "
+        "today's or later (ADR 0008)."
+    ),
+)
+app.command(events)
+
+
+@events.default
+def events_read(
+    *,
+    session: Annotated[
+        str | None,
+        Parameter(help="ID: only events of this Agent Session Identity"),
+    ] = None,
+    issue: Annotated[
+        str | None,
+        Parameter(
+            help="ID: only events for this Issue Identity, as 'work show' prints it"
+        ),
+    ] = None,
+    project: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "ID: only events for this Project Identity, the projectId of "
+                ".dashpot/config.json"
+            )
+        ),
+    ] = None,
+    since: Annotated[
+        datetime | None,
+        Parameter(
+            converter=_convert_since,
+            n_tokens=1,
+            accepts_keys=False,
+            help=(
+                "only events from this UTC day (2026-09-27), instant "
+                "(2026-09-27T14:00:00Z) or age (30m, 12h, 7d) on"
+            ),
+        ),
+    ] = None,
+    level: Annotated[
+        RecordedLevel | None,
+        Parameter(
+            help=(
+                "standard: only the events the default level records; full: "
+                "every event (the default)"
+            )
+        ),
+    ] = None,
+    timeout: _Timeout = 10.0,
+    json_output: Annotated[
+        bool,
+        Parameter(
+            name="--json",
+            show_default=False,
+            help=(
+                "print the events as JSON, each under its Event Log field "
+                "names, with the lines that could not be read"
+            ),
+        ),
+    ] = False,
+) -> int:
+    """Read the Event Log of every Worktree of this Repository, oldest event first.
+
+    Lines that cannot be read are reported on stderr and skipped. Only
+    .jsonl files are read, so a compressed file is not.
+    """
+    own = _EVENT_LOG.get()
+    reading = read_event_logs(
+        repository_event_log_directories(Path.cwd(), timeout=timeout),
+        EventSelection(
+            session=session,
+            issue=issue,
+            project=project,
+            since=since,
+            level=level,
+            # This command's own start is not what anyone reads it for.
+            exclude_run=None if own is None else own.identity.run_id,
+        ),
+    )
+    if json_output:
+        print(render_json(event_log_reading_document(reading)))
+        return 0
+    if not reading.events:
+        print("no matching Runtime Events")
+    for event in reading.events:
+        print(describe_runtime_event(event))
+    for unreadable in reading.unreadable:
+        if unreadable.error is not None:
+            print(
+                f"dashpot: cannot read {unreadable.path}: {unreadable.error}",
+                file=sys.stderr,
+            )
+        if unreadable.lines:
+            count = len(unreadable.lines)
+            print(
+                f"dashpot: skipped {count} unreadable line{'s' if count != 1 else ''} "
+                f"in {unreadable.path}",
+                file=sys.stderr,
+            )
+    return 0
+
+
+@events.command(name="remove")
+def events_remove(
+    *,
+    before: Annotated[
+        date,
+        Parameter(
+            converter=_convert_day,
+            n_tokens=1,
+            accepts_keys=False,
+            help=(
+                "DATE: remove the files whose UTC day is before this day "
+                "(2026-09-01); today's and later are always kept"
+            ),
+        ),
+    ],
+    dry_run: Annotated[
+        bool,
+        Parameter(
+            show_default=False,
+            help="report the files that would be removed without removing any",
+        ),
+    ] = False,
+    json_output: _JsonOutput = False,
+) -> int:
+    """Remove this checkout's Event Log files dated before a day.
+
+    Only files named as the Event Log names them are removed, and none is
+    compressed or renamed. Run it from the checkout whose Event Log it is;
+    outside every configured checkout it acts on the machine-local fallback.
+    """
+    destination = route_event_log(working_directory())
+    if destination is None:
+        raise EventLogError(
+            "no Event Log to remove from: no configured checkout encloses this "
+            "directory and there is no home directory for the machine-local one"
+        )
+    removal = remove_event_logs(destination, before, dry_run=dry_run)
+    if json_output:
+        print(render_json(event_log_removal_document(removal)))
+    else:
+        _report(describe_event_log_removal(removal))
+        for file in removal.files:
+            if file.outcome == "failed":
+                print(
+                    f"dashpot: could not remove {file.path}: {file.error}",
+                    file=sys.stderr,
+                )
+    return 0 if removal.succeeded else USAGE_EXIT_CODE
 
 
 issue = App(

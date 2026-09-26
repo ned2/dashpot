@@ -34,6 +34,7 @@ from ..core.event_log import (
     carry_current_span,
     unrecorded_event_log,
 )
+from ..core.event_log_files import event_log_large_diagnostic, event_log_size
 from ..core.model import Diagnostic
 from ..core.runtime_events import EventLevel
 from ..observation.collect import ObservationScheduler
@@ -66,6 +67,7 @@ from .messages import (
     BodyResized,
     CleanupFinished,
     CleanupInspected,
+    EventLogMeasured,
     FetchFinished,
     IdentitiesFinished,
     ObservationFinished,
@@ -187,7 +189,10 @@ def update_peer_diagnostics(screen: Screen[None], app: DashpotApp) -> None:
         failures=app.observations.errors,
         launcher_diagnostics=app.launcher_configuration.diagnostics,
         fetch_failures=app.fetches.errors,
-        event_log_diagnostics=app.event_log_diagnostics,
+        event_log_diagnostics=(
+            *app.event_log_diagnostics,
+            *app.event_log_size_diagnostics,
+        ),
     )
     paint_readout(
         screen.query_one("#diagnostics", Static),
@@ -868,6 +873,9 @@ class DashpotApp(App[None]):
             keep_recent=DASHBOARD_RECENT_EVENTS
         )
         self.event_log_diagnostics: tuple[Diagnostic, ...] = ()
+        # ``event-log-large`` while the Event Log directory is past its size.
+        self.event_log_size_diagnostics: tuple[Diagnostic, ...] = ()
+        self.measuring_event_log = False
         # The loop a pool thread's write failure is reported to, once running.
         self.main_loop: asyncio.AbstractEventLoop | None = None
         self.event_log.on_write_failure = self.event_log_write_failed
@@ -1113,6 +1121,39 @@ class DashpotApp(App[None]):
         if self.is_running and not self.closing:
             self.update_diagnostics()
 
+    def measure_event_log(self) -> None:
+        """Measure this run's Event Log directory off the loop, unless already measuring."""
+        destination = self.event_log.destination
+        if destination is None or self.measuring_event_log:
+            return
+        self.measuring_event_log = True
+        self.run_off_loop(
+            "measure Event Log",
+            "event-log-size",
+            partial(event_log_size, destination.directory),
+            EventLogMeasured,
+        )
+
+    def on_event_log_measured(self, message: EventLogMeasured) -> None:
+        self.show_event_log_size(message)
+
+    def show_event_log_size(self, message: EventLogMeasured) -> None:
+        """Raise ``event-log-large`` past its size and clear it below; it acts on nothing.
+
+        A directory that could not be measured leaves the Diagnostic as it was.
+        """
+        self.measuring_event_log = False
+        destination = self.event_log.destination
+        if message.size is None or destination is None:
+            return
+        large = event_log_large_diagnostic(destination, message.size)
+        shown = () if large is None else (large,)
+        if shown == self.event_log_size_diagnostics:
+            return
+        self.event_log_size_diagnostics = shown
+        if not self.closing:
+            self.update_diagnostics()
+
     def forward_runtime_event(self, line: str) -> None:
         """Show a recorded Runtime Event in Textual's console while one is attached."""
         devtools = self.devtools
@@ -1223,6 +1264,7 @@ class DashpotApp(App[None]):
     def timer_refresh(self) -> None:
         """One automatic local tick: coalesce onto whatever is still in flight."""
         self.observations.refresh("timer")
+        self.measure_event_log()
 
     def timer_query_refresh(self) -> None:
         """One automatic query tick, repeating each displayed page."""
@@ -1236,6 +1278,7 @@ class DashpotApp(App[None]):
         """
         self.observations.refresh(trigger)
         self.refresh_queries(restart=trigger == "manual")
+        self.measure_event_log()
 
     def refresh_queries(self, *, restart: bool) -> None:
         """Re-query the pages, totals and identities."""
