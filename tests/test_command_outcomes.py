@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 from unittest import mock
@@ -10,8 +11,13 @@ from unittest import mock
 import pytest
 
 from dashpot import cli
-from dashpot.core.command_outcomes import OutcomeNote, record_command_outcome
+from dashpot.core.command_outcomes import (
+    OutcomeNote,
+    outcome_error,
+    record_command_outcome,
+)
 from dashpot.core.event_log import EventLogDestination
+from dashpot.core.event_log_files import EventLogFileRemoval, EventLogRemoval
 from dashpot.core.git import GitError
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.github.github import GitHubRequestError
@@ -363,3 +369,87 @@ def test_without_an_event_log_the_note_is_filled_and_nothing_recorded() -> None:
     assert note.result() == "refused"
     note.refusals, note.incomplete = 0, True
     assert note.result() == "failed"
+
+
+@pytest.mark.parametrize(
+    ("flags", "action"), [((), "removed"), (("--dry-run",), "previewed")]
+)
+def test_an_event_log_removal_names_the_directory_it_acted_on(
+    events: Path, flags: tuple[str, ...], action: str
+) -> None:
+    target = EventLogDestination(events.parent / "removed-from")
+    removal = EventLogRemoval(
+        directory=str(target.directory),
+        before=date(2026, 9, 1),
+        today=date(2026, 9, 27),
+        dry_run=bool(flags),
+    )
+
+    with (
+        mock.patch.object(cli, "route_event_log", return_value=target),
+        mock.patch.object(cli, "remove_event_logs", return_value=removal),
+    ):
+        assert run(events, "events", "remove", "--before", "2026-09-01", *flags) == 0
+
+    assert body(outcome(events)) == {
+        "event.name": "command.outcome",
+        "dashpot.subcommand": "events remove",
+        "dashpot.outcome.result": "succeeded",
+        "dashpot.outcome.action": action,
+        "dashpot.outcome.dry_run": bool(flags),
+        "dashpot.target.path": str(target.directory),
+    }
+
+
+def test_an_event_log_removal_that_left_a_file_is_recorded_as_failed(
+    events: Path,
+) -> None:
+    target = EventLogDestination(events.parent / "removed-from")
+    removal = EventLogRemoval(
+        directory=str(target.directory),
+        before=date(2026, 9, 1),
+        today=date(2026, 9, 27),
+        dry_run=False,
+        files=(
+            EventLogFileRemoval(
+                path=str(target.directory / "events-2026-08-01.jsonl"),
+                day=date(2026, 8, 1),
+                size_bytes=10,
+                outcome="failed",
+                error="Permission denied: /secret",
+            ),
+        ),
+    )
+
+    with (
+        mock.patch.object(cli, "route_event_log", return_value=target),
+        mock.patch.object(cli, "remove_event_logs", return_value=removal),
+    ):
+        assert run(events, "events", "remove", "--before", "2026-09-01") == 2
+
+    record = body(outcome(events))
+    assert record["dashpot.outcome.result"] == "failed"
+    assert "dashpot.outcome.action" not in record
+    assert "/secret" not in written_text(events)
+
+
+def test_an_event_log_removal_with_nowhere_to_remove_from_is_refused(
+    events: Path,
+) -> None:
+    with mock.patch.object(cli, "route_event_log", return_value=None):
+        assert run(events, "events", "remove", "--before", "2026-09-01") == 2
+
+    assert body(outcome(events)) == {
+        "event.name": "command.outcome",
+        "dashpot.subcommand": "events remove",
+        "dashpot.outcome.result": "refused",
+        "dashpot.outcome.dry_run": False,
+        "error.type": "EventLogError",
+    }
+
+
+def test_an_error_whose_code_is_no_code_is_named_by_its_class() -> None:
+    assert outcome_error(GitHubRequestError("not a code: /home/x", "m")) == (
+        "GitHubRequestError"
+    )
+    assert outcome_error(PermissionError(13, "denied")) == "EACCES"

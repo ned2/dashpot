@@ -287,8 +287,8 @@ output.
   local and the GitHub-query refresh timers told apart; the hook publisher
   and management commands; Agent Session and Agent Run changes; Diagnostic
   transitions. A management command wraps its work in
-  `record_command_outcome` and fills the note it is handed, so a new one
-  (such as `dashpot events remove`) records its outcome the same way.
+  `record_command_outcome` and fills the note it is handed, as `dashpot
+  events remove` does, so a new one records its outcome the same way.
 - **Linux and macOS only**, as the package classifiers say.
 
 ## Reading

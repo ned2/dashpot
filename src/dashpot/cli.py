@@ -576,13 +576,20 @@ def events_remove(
     compressed or renamed. Run it from the checkout whose Event Log it is;
     outside every configured checkout it acts on the machine-local fallback.
     """
-    destination = route_event_log(working_directory())
-    if destination is None:
-        raise EventLogError(
-            "no Event Log to remove from: no configured checkout encloses this "
-            "directory and there is no home directory for the machine-local one"
-        )
-    removal = remove_event_logs(destination, before, dry_run=dry_run)
+    with command_outcome("events remove", dry_run=dry_run) as outcome:
+        destination = route_event_log(working_directory())
+        if destination is None:
+            raise EventLogError(
+                "no Event Log to remove from: no configured checkout encloses "
+                "this directory and there is no home directory for the "
+                "machine-local one"
+            )
+        outcome.target_path = destination.directory
+        removal = remove_event_logs(destination, before, dry_run=dry_run)
+        if not removal.succeeded:
+            outcome.incomplete = True
+        else:
+            outcome.action = "previewed" if dry_run else "removed"
     if json_output:
         print(render_json(event_log_removal_document(removal)))
     else:
