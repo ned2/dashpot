@@ -77,7 +77,7 @@ def header_offsets(table: DataTable[Any]) -> list[int]:
 async def settled_header_offsets(
     pilot: Pilot[Any], table: DataTable[Any], what: str
 ) -> list[int]:
-    """The header offsets once the rendered frame puts each column under its own.
+    """Settle the header offsets and check each lands on its own column.
 
     A hover reads the column from the segment meta of the frame on screen,
     and a change of columns or of the terminal's size reaches that frame a
@@ -86,16 +86,16 @@ async def settled_header_offsets(
     off a frame in which the offset still lands on another column.
     """
 
-    def headers() -> tuple[list[int], list[object]]:
+    def headers() -> tuple[list[int], list[tuple[object, object]]]:
         offsets = header_offsets(table)
         region = table.region
-        return offsets, [
-            pilot.app.screen.get_style_at(region.x + x, region.y).meta.get("column")
-            for x in offsets
-        ]
+        metas = (
+            pilot.app.screen.get_style_at(region.x + x, region.y).meta for x in offsets
+        )
+        return offsets, [(meta.get("row"), meta.get("column")) for meta in metas]
 
-    offsets, columns = await settled(pilot, headers, what)
-    assert columns == list(range(len(offsets))), what
+    offsets, cells = await settled(pilot, headers, what)
+    assert cells == [(-1, index) for index in range(len(offsets))], (what, cells)
     return offsets
 
 

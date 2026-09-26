@@ -203,11 +203,11 @@ The conventions the tooling enforces or the code assumes:
   rather than the process adapter, the `WorkStore` rather than its files,
   Textual screens through `App.run_test` / `pilot` and the waiting helpers
   in `tests/helpers.py`: `wait_until` for a change to begin, then `settled`
-  for the geometry Textual lays out after it. A test of the shipped dashboard builds it with
-  `dashboard_app` in `tests/app_harness.py`, whose `SnapshotQuerySource`
-  serves the snapshot the collector observes, and waits on
-  `first_load_landed` before reading a pane. Fakes stand in for GitHub;
-  nothing in the suite talks to the network.
+  for the geometry Textual lays out after it. A test of the shipped
+  dashboard builds it with `dashboard_app` in `tests/app_harness.py`, whose
+  `SnapshotQuerySource` serves the snapshot the collector observes, and
+  waits on `first_load_landed` before reading a pane. Fakes stand in for
+  GitHub; nothing in the suite talks to the network.
 - Every document under `docs/` declares `status` and `date` in frontmatter,
   every in-repo Markdown link resolves — path, heading anchor, and `#L`
   line fragment — and every ADR carries a four-digit number no other ADR

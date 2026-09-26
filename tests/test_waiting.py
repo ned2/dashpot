@@ -46,6 +46,18 @@ async def test_settled_waits_out_every_frame_of_a_change() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_reading_one_frame_early_is_not_taken_for_settled() -> None:
+    # Under load a frame can pass with the fit only half done: the height
+    # repeats once (6, 6) before the fit completes. Taking the first repeat
+    # as settled reads the geometry a frame early; the seam holds out for a
+    # reading that lasts two frames.
+    frames = ScriptedFrames([4, 6, 6, 7, 7, 7])
+
+    assert await settled(frames, frames.read, "the pane") == 7
+    assert frames.frame == 5
+
+
+@pytest.mark.asyncio
 async def test_an_under_settle_fails_naming_what_did_not_settle() -> None:
     # Allowed one frame fewer than the change needs to settle, the seam fails
     # rather than handing back the reading of a frame still being laid out.

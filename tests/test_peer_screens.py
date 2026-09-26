@@ -323,7 +323,7 @@ async def test_status_bar_wraps_without_hiding_labels_or_summary() -> None:
             return bar.region, screens.region, summary.region
 
         bar_region, screens_region, summary_region = await settled(
-            pilot, regions, "the wide Peer Status Bar"
+            pilot, regions, "the wide peer status bar"
         )
         assert bar_region.height == 1
         assert screens_region.y == summary_region.y
@@ -332,7 +332,7 @@ async def test_status_bar_wraps_without_hiding_labels_or_summary() -> None:
         await pilot.resize_terminal(60, 24)
         await wait_until(lambda: app.screen.has_class("-compact"))
         bar_region, screens_region, summary_region = await settled(
-            pilot, regions, "the compact Peer Status Bar"
+            pilot, regions, "the compact peer status bar"
         )
         assert bar_region.height == 2
         assert summary_region.y == screens_region.bottom
@@ -350,7 +350,7 @@ async def test_footer_tracks_the_active_peer_and_focused_query_pane() -> None:
     )
 
     async def footer_showing(expected: set[str]) -> set[str]:
-        """The Footer's shown keys once they include ``expected``.
+        """Wait for the Footer to show ``expected``, and return its shown keys.
 
         The Footer recomposes a frame or more after its bindings change, and
         empties itself for a frame or two while it does, so the keys are

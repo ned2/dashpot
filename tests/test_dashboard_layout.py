@@ -419,11 +419,11 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
             )
         )
 
-        def fit() -> tuple[tuple[int, ...], float, int]:
+        def caps_and_scroll() -> tuple[tuple[int, ...], float, int]:
             return caps(), selected.table.scroll_y, selected.table.cursor_row
 
         _caps, initial_scroll, _row = await settled(
-            pilot, fit, "the selected pane's scroll"
+            pilot, caps_and_scroll, "the selected pane's scroll"
         )
 
         await pilot.resize_terminal(120, 50)
@@ -435,7 +435,7 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
         )
         await wait_until(lambda: selected.table.scroll_y > 0)
         grown_caps, grown_scroll, row = await settled(
-            pilot, fit, "the panes grown to 50 rows"
+            pilot, caps_and_scroll, "the panes grown to 50 rows"
         )
         assert row == 29
         assert grown_scroll <= initial_scroll
@@ -450,7 +450,7 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
         )
         await wait_until(lambda: selected.table.scroll_y > 0)
         _caps, shrunk_scroll, row = await settled(
-            pilot, fit, "the panes shrunk to 24 rows"
+            pilot, caps_and_scroll, "the panes shrunk to 24 rows"
         )
         assert row == 29
         assert shrunk_scroll >= grown_scroll
@@ -609,8 +609,8 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         worktrees.show_rows(
             list_rows(2, prefix="/very/long/path/to/a/linked/worktree/checkout/name")
         )
-        # The Sessions pane growing past its empty frame is the first of the
-        # frames that fit both panes to their records.
+        # The Sessions pane growing past its three-row empty frame is the
+        # first of the frames that fit both panes to their records.
         await wait_until(lambda: sessions.region.height > 3)
         await settled(pilot, lambda: screen_regions(app), "the compact Dashboard")
         body = app.query_one("#body")
@@ -623,6 +623,7 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         await pilot.resize_terminal(120, 50)
         await wait_until(lambda: app.screen.has_class("-wide"))
         await wait_until(lambda: sessions.region.width == body.region.width)
+        await settled(pilot, lambda: screen_regions(app), "the wide Dashboard")
         await show_query_peer(app, pilot)
         await settled(pilot, lambda: screen_regions(app), "the wide query peer")
         assert_panes_stack_above_full_width_queue(app)
@@ -647,7 +648,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         queue_pane = app.query_screen.query_one("#queue-pane")
         footer = app.query_screen.query_one(Footer)
 
-        def fit() -> tuple[int, Region, Region]:
+        def pull_requests_fit() -> tuple[int, Region, Region]:
             return pull_requests.content_height_cap, queue_pane.region, footer.region
 
         # The scrollbar appears on the frame the records land, before the
@@ -655,7 +656,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         # the resize below can fail to shrink below.
         await wait_until(lambda: pull_requests.table.show_vertical_scrollbar)
         initial_cap, queue_region, footer_region = await settled(
-            pilot, fit, "the Pull Requests cap at 25 rows"
+            pilot, pull_requests_fit, "the Pull Requests cap at 25 rows"
         )
         assert queue_region.height >= 6
         assert queue_region.bottom <= footer_region.y
@@ -664,7 +665,7 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         await pilot.resize_terminal(80, 19)
         await wait_until(lambda: pull_requests.content_height_cap < initial_cap)
         cap, queue_region, footer_region = await settled(
-            pilot, fit, "the Pull Requests cap at 19 rows"
+            pilot, pull_requests_fit, "the Pull Requests cap at 19 rows"
         )
         assert cap < initial_cap
         assert queue_region.height >= 6

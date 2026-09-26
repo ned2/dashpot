@@ -43,7 +43,7 @@ async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> Non
 
 
 class FrameDriver(Protocol):
-    """Advances a running Textual app by a frame, as ``Pilot.pause`` does."""
+    """A driver that advances a running Textual app by a frame, as ``Pilot`` does."""
 
     async def pause(self) -> None: ...
 
@@ -51,7 +51,7 @@ class FrameDriver(Protocol):
 async def settled[T](
     pilot: FrameDriver, read: Callable[[], T], what: str, *, frames: int = 20
 ) -> T:
-    """The value ``read`` returns once Textual has stopped changing it.
+    """Drive the app frame by frame until ``read`` holds, and return the reading.
 
     A proxy such as a breakpoint class, a pane's cap or a landed observation
     becomes true a frame or more before the layout it stands for, so geometry
