@@ -218,7 +218,7 @@ DiagnosticSource = Annotated[
     str,
     _identifier(
         r"^[A-Za-z0-9][A-Za-z0-9._-]*"
-        r"(:(/[^\x00-\x1f\x7f]*|[^\s/][^\s\x00-\x1f\x7f]*))?$",
+        r"(:(/[^\x00-\x1f\x7f]*|[^\s/\x00-\x1f\x7f][^\s\x00-\x1f\x7f]*))?$",
         4200,
     ),
 ]

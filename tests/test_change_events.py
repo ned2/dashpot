@@ -242,7 +242,14 @@ def test_the_same_diagnostic_in_two_projects_is_two_diagnostics(
 
 @pytest.mark.parametrize(
     "source",
-    ["settings:the file at home is broken", "project:", "github\n", "a b"],
+    [
+        "settings:the file at home is broken",
+        "project:",
+        "github\n",
+        "a b",
+        "settings:\x1b[31m",
+        "x:\x7fab",
+    ],
 )
 def test_a_source_that_is_no_identifier_or_path_is_left_out(
     tmp_path: Path, source: str
