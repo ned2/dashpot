@@ -2,20 +2,31 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from rich.text import Text
 
 from app_harness import (
+    NOW,
     issue,
     issue_metadata_text,
     with_first_project_snapshot,
     workspace_snapshot,
 )
-from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
+from dashpot.core.model import (
+    AgentRun,
+    IssueActivity,
+    LinkedPullRequest,
+    OpenBlocker,
+)
 from dashpot.issues.local_markdown_issues import parse_local_markdown_issue
-from dashpot.observation.issue_list import row_key
+from dashpot.observation.issue_list import IssueListQuery, IssueListSummary, row_key
+from dashpot.observation.list_result import ListResult
 from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.queries.source_queries import AuxiliaryObservation
+from dashpot.ui.glyphs import MUTED_COLORS
 from dashpot.ui.issue_cells import (
     AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
@@ -25,6 +36,7 @@ from dashpot.ui.issue_cells import (
     IssueStateCell,
     LabelsCell,
     PriorityCell,
+    TableCell,
     agent_state_cell,
     date_cell,
 )
@@ -42,6 +54,8 @@ from dashpot.ui.list_rows import column_help
 from helpers import required, snapshot_of
 
 ROOT = Path(__file__).resolve().parents[1]
+# The default columns while no row waits on a blocker.
+READY_COLUMNS = tuple(key for key in DEFAULT_COLUMNS if key != "waiting_on")
 
 
 def test_row_projection_respects_visible_column_order() -> None:
@@ -256,7 +270,7 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
     result = WorkspaceObservationStore(snapshot).query_issues()
 
     assert "priority" in DEFAULT_COLUMNS
-    assert shown_columns(DEFAULT_COLUMNS, result.rows) == DEFAULT_COLUMNS
+    assert shown_columns(DEFAULT_COLUMNS, result.rows) == READY_COLUMNS
     for dark in (True, False):
         _contexts, cells = build_rows(result, columns=("priority", "labels"), dark=dark)
 
@@ -284,12 +298,12 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
         "Unlabelled",
         labels=["bug"],
     )
-    without_priority = tuple(key for key in DEFAULT_COLUMNS if key != "priority")
+    without_priority = tuple(key for key in READY_COLUMNS if key != "priority")
 
     mixed = WorkspaceObservationStore(
         workspace_snapshot(prioritised, unlabelled)
     ).query_issues()
-    assert shown_columns(DEFAULT_COLUMNS, mixed.rows) == DEFAULT_COLUMNS
+    assert shown_columns(DEFAULT_COLUMNS, mixed.rows) == READY_COLUMNS
     _contexts, cells = build_rows(mixed, columns=("priority",))
     # An Issue without a priority label shows nothing and carries no
     # priority: no default is invented.
@@ -317,6 +331,7 @@ def test_local_markdown_number_is_the_table_id() -> None:
         document.replace('"id": "I_kwDOUEerrs8AAAABOSTptQ"', '"id": "I_local_17"')
         .replace('"number": 9', '"number": 17')
         .replace('"reference": "ned2/dashpot#9"', '"reference": "local-17"')
+        .replace('"blockedBy": ["I_blocker_1", "I_blocker_2"]', '"blockedBy": []')
     )
     local_issue = parse_local_markdown_issue(
         document,
@@ -401,7 +416,7 @@ def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
     contexts, cells = build_rows(WorkspaceObservationStore(snapshot).query_issues())
 
     selected_key = row_key("issue", selected_issue.id)
-    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 7
+    assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 8
     number_cell = cells[selected_key][DEFAULT_COLUMNS.index("number")]
     assert str(number_cell) == "1"
     assert isinstance(number_cell, IssueNumberCell)
@@ -503,3 +518,131 @@ def test_every_column_help_is_its_description_and_the_legend_glyphs() -> None:
     # The Issue column summarizes bound Agent Runs, which its help says.
     assert "Issue Binding" in agent_help
     assert f"clipped past {TITLE_LIMIT}" in COLUMNS_BY_KEY["title"].description
+
+
+def blocked_by(*ids: str) -> dict[str, object]:
+    return {"parent": None, "subIssues": [], "blockedBy": list(ids), "blocking": []}
+
+
+def test_waiting_on_names_open_blockers_and_dims_the_rows_that_wait() -> None:
+    ready = issue("test/repo#1", "Ready", labels=["bug"])
+    other = issue("test/repo#2", "Other", labels=["bug"])
+    done = issue(
+        "test/repo#3",
+        "Done",
+        labels=["bug"],
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T00:00:00Z",
+    )
+    waiting = issue(
+        "test/repo#4",
+        "Waiting",
+        labels=["bug"],
+        relationships=blocked_by(ready.id, done.id, "I_elsewhere"),
+    )
+    crowded = issue(
+        "test/repo#5",
+        "Crowded",
+        labels=["bug"],
+        relationships=blocked_by(ready.id, other.id, waiting.id, "I_elsewhere"),
+    )
+    finished = issue(
+        "test/repo#6",
+        "Finished early",
+        labels=["bug"],
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T00:00:00Z",
+        relationships=blocked_by(ready.id),
+    )
+    snapshot = workspace_snapshot(ready, other, done, waiting, crowded, finished)
+    result = WorkspaceObservationStore(snapshot).query_issues(
+        IssueListQuery(lifecycle="all")
+    )
+
+    assert shown_columns(DEFAULT_COLUMNS, result.rows) == tuple(
+        key for key in DEFAULT_COLUMNS if key != "priority"
+    )
+    for dark in (True, False):
+        _contexts, cells = build_rows(
+            result, columns=("number", "title", "waiting_on", "labels"), dark=dark
+        )
+        muted = MUTED_COLORS[dark]
+
+        # A Ready row names nothing and keeps its own colours.
+        number, title, waiting_on, labels = cells[row_key("issue", ready.id)]
+        assert isinstance(number, IssueNumberCell)
+        assert (title, waiting_on) == ("Ready", "")
+        # A closed blocker is not one; a blocker the Project does not hold
+        # counts as open and is named by its identity.
+        number, title, waiting_on, labels = cells[row_key("issue", waiting.id)]
+        assert isinstance(waiting_on, Text)
+        assert waiting_on.plain == "I_elsewhere #1"
+        for cell in (number, title, waiting_on):
+            assert isinstance(cell, Text)
+            assert [str(span.style) for span in cell.spans] == [muted]
+        # Chips keep the colours that carry their meaning.
+        assert isinstance(labels, LabelsCell)
+        assert muted not in {str(span.style) for span in labels.spans}
+        # The first three blockers are named and the rest counted.
+        crowded_on = cells[row_key("issue", crowded.id)][2]
+        assert isinstance(crowded_on, Text)
+        assert crowded_on.plain == "I_elsewhere #1 #2 +1"
+        # A closed Issue waits on nothing, whatever blockers it still names.
+        finished_on = cells[row_key("issue", finished.id)][1:3]
+        assert finished_on == ("Finished early", "")
+
+
+def test_waiting_on_is_hidden_while_no_listed_issue_waits() -> None:
+    ready = issue("test/repo#1", "Ready")
+    finished = issue(
+        "test/repo#2",
+        "Finished early",
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T00:00:00Z",
+        relationships=blocked_by("I_elsewhere"),
+    )
+    result = WorkspaceObservationStore(
+        workspace_snapshot(ready, finished)
+    ).query_issues(IssueListQuery(lifecycle="all"))
+
+    assert "waiting_on" in DEFAULT_COLUMNS
+    assert shown_columns(DEFAULT_COLUMNS, result.rows) == READY_COLUMNS
+    assert "waiting_on" not in shown_columns(DEFAULT_COLUMNS, ())
+    assert not COLUMNS_BY_KEY["waiting_on"].sortable
+
+
+def test_queried_rows_read_open_blockers_from_their_auxiliary_facts() -> None:
+    subject = issue("test/repo#1", "Subject", relationships=blocked_by("I_x"))
+    [row] = WorkspaceObservationStore(workspace_snapshot(subject)).query_issues().rows
+
+    def waiting_on(auxiliary: AuxiliaryObservation | None) -> TableCell:
+        queried = replace(row, queried=True, auxiliary=auxiliary)
+        _contexts, cells = build_rows(
+            ListResult(rows=(queried,), summary=IssueListSummary(1, 1, 1)),
+            columns=("waiting_on",),
+        )
+        return cells[row.key][0]
+
+    elsewhere = OpenBlocker(id="I_x", reference="other/repo#12", number=12)
+    observed = waiting_on(
+        AuxiliaryObservation(
+            status="fresh",
+            attempted_at=NOW,
+            last_good_at=NOW,
+            open_blockers=(elsewhere,),
+        )
+    )
+    # A blocker in another Repository is named by its whole Reference.
+    assert isinstance(observed, Text)
+    assert observed.plain == "other/repo#12"
+    assert waiting_on(None) == "not fetched"
+    unavailable = AuxiliaryObservation(
+        status="unavailable", attempted_at=NOW, last_good_at=None
+    )
+    assert waiting_on(unavailable) == "unavailable"
+    # A page whose source reported no blockers says nothing either way.
+    silent = AuxiliaryObservation(status="fresh", attempted_at=NOW, last_good_at=NOW)
+    assert waiting_on(silent) == "not fetched"

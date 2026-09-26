@@ -40,18 +40,25 @@ def test_enter_submits_the_whole_text_for_the_kind_that_was_searched() -> None:
 def test_a_lifecycle_change_submits_its_page_once_and_an_unknown_choice_never() -> None:
     owner, pages = queries()
 
+    owner.change_lifecycle("issues", "ready")
     owner.change_lifecycle("issues", "closed")
     owner.change_lifecycle("issues", "closed")
+    owner.change_lifecycle("issues", "everything")
     owner.change_lifecycle("pull-requests", "everything")
+    # Only an Issue can be Ready, so a Pull Request list never asks for it.
+    owner.change_lifecycle("pull-requests", "ready")
     owner.change_lifecycle("pull-requests", "all")
 
-    assert owner.issues.states == frozenset({"closed"})
+    assert owner.issues.lifecycle == "closed"
+    assert owner.lifecycle("issues") == "closed"
     assert owner.pull_requests.states == frozenset({"open", "closed"})
+    assert owner.lifecycle("pull-requests") == "all"
     assert pages.submitted == [
+        ("issues", {"state": "ready"}),
         ("issues", {"state": "closed"}),
         ("pull-requests", {"state": "all"}),
     ]
     # Recording a search keeps the lifecycle, and the other kind, untouched.
     owner.submit_search("issues", "bug")
-    assert owner.issues.states == frozenset({"closed"})
+    assert owner.issues.lifecycle == "closed"
     assert owner.pull_requests.text == ""

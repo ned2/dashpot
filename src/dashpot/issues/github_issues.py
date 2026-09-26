@@ -12,7 +12,7 @@ from typing import Any, override
 
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue
-from ..core.model import Diagnostic, IssueActivity, LinkedPullRequest
+from ..core.model import Diagnostic, IssueActivity, LinkedPullRequest, OpenBlocker
 from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,
@@ -54,7 +54,12 @@ _CONNECTION_FIELDS = {
 }
 
 
-_CONNECTION_EXTRA_FIELDS = {"labels": ("color",)}
+# Presentation facts a connection's nodes carry beside the one the profile
+# keeps: a label's colour, and whether a blocker is still open and its name.
+_CONNECTION_EXTRA_FIELDS = {
+    "labels": ("color",),
+    "blockedBy": ("number", "state", "repository { nameWithOwner }"),
+}
 
 
 _LABEL_COLOR = re.compile(r"[0-9a-fA-F]{6}")
@@ -578,6 +583,44 @@ def label_colors(record: Mapping[str, Any]) -> dict[str, str]:
         ):
             colors[name] = color.lower()
     return colors
+
+
+def open_blockers(record: Mapping[str, Any]) -> tuple[OpenBlocker, ...]:
+    """Read the still-open Issues of a completely fetched ``blockedBy`` connection.
+
+    Unlike engagement, a blocker that cannot be read is not skipped: dropping
+    it would show a blocked Issue as Ready, so the observation fails instead.
+    """
+    connection = record.get("blockedBy")
+    nodes = connection.get("nodes") if isinstance(connection, Mapping) else None
+    if not isinstance(nodes, list):
+        raise ValueError("Blocking Issue observation is unavailable")
+    blockers: list[OpenBlocker] = []
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            raise ValueError("Blocking Issue observation is malformed")
+        identity = node.get("id")
+        number = node.get("number")
+        state = node.get("state")
+        repository = node.get("repository")
+        name = (
+            repository.get("nameWithOwner") if isinstance(repository, Mapping) else None
+        )
+        if (
+            not isinstance(identity, str)
+            or not identity
+            or type(number) is not int
+            or number <= 0
+            or state not in {"OPEN", "CLOSED"}
+            or not isinstance(name, str)
+            or not name
+        ):
+            raise ValueError("Blocking Issue observation is malformed")
+        if state == "OPEN":
+            blockers.append(
+                OpenBlocker(id=identity, reference=f"{name}#{number}", number=number)
+            )
+    return tuple(blockers)
 
 
 def issue_activity(record: Mapping[str, Any]) -> IssueActivity:

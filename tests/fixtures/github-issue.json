@@ -28,7 +28,20 @@
     "pageInfo": { "hasNextPage": false }
   },
   "blockedBy": {
-    "nodes": [{ "id": "I_blocker_2" }, { "id": "I_blocker_1" }],
+    "nodes": [
+      {
+        "id": "I_blocker_2",
+        "number": 7,
+        "state": "OPEN",
+        "repository": { "nameWithOwner": "ned2/dashpot" }
+      },
+      {
+        "id": "I_blocker_1",
+        "number": 3,
+        "state": "CLOSED",
+        "repository": { "nameWithOwner": "ned2/dashpot" }
+      }
+    ],
     "pageInfo": { "hasNextPage": false }
   },
   "blocking": {

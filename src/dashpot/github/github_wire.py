@@ -75,7 +75,7 @@ ISSUE_NODE_FIELDS = """
             pageInfo { hasNextPage endCursor }
           }
           blockedBy(first: 100) {
-            nodes { id }
+            nodes { id number state repository { nameWithOwner } }
             pageInfo { hasNextPage endCursor }
           }
           blocking(first: 100) {

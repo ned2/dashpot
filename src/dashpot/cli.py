@@ -24,7 +24,7 @@ from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
 from .project.workspace import RepositoryAnchor, Workspace
 from .queries.query_source import configured_query_source
-from .queries.source_queries import QueryRequest
+from .queries.source_queries import Lifecycle, QueryRequest
 from .repository.cleanup import (
     BranchCleanupRequest,
     CleanupError,
@@ -374,7 +374,7 @@ app.command(pr)
 def _list_page(
     kind: Literal["issues", "pull-requests"],
     query: str,
-    state: Literal["open", "closed", "all"],
+    state: Lifecycle,
     page_size: int,
     cursor: str | None,
     compact: bool,
@@ -396,7 +396,7 @@ def _list_page(
 def issue_list(
     *,
     query: str = "",
-    state: Literal["open", "closed", "all"] = "open",
+    state: Lifecycle = "open",
     page_size: Annotated[
         int, Parameter(validator=validators.Number(gte=1, lte=100))
     ] = 50,
@@ -405,7 +405,10 @@ def issue_list(
     compact_json: bool = False,
     timeout: _Timeout = 10.0,
 ) -> int:
-    """Query one Issue page; GitHub advanced syntax or Markdown local text."""
+    """Query one Issue page; GitHub advanced syntax or Markdown local text.
+
+    ``--state ready`` lists Ready Issues: open, with no Open Blocker.
+    """
     return _list_page("issues", query, state, page_size, cursor, compact_json, timeout)
 
 

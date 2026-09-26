@@ -419,9 +419,19 @@ def issue_columns(app: DashpotApp) -> tuple[ColumnKey, ...]:
 
 @pytest.mark.asyncio
 async def test_every_issues_header_shows_its_help_through_sorting_and_columns() -> None:
-    """The Issue table's help follows sorting, chosen columns and PRIORITY."""
+    """The Issue table's help follows sorting, chosen columns and the conditional ones."""
     unlabelled = issue("test/repo#1", "Alpha", labels=["bug"])
-    prioritised = issue("test/repo#2", "Zebra", "P0")
+    prioritised = issue(
+        "test/repo#2",
+        "Zebra",
+        "P0",
+        relationships={
+            "parent": None,
+            "subIssues": [],
+            "blockedBy": [unlabelled.id],
+            "blocking": [],
+        },
+    )
     first = workspace_snapshot(unlabelled)
     second = workspace_snapshot(unlabelled, prioritised)
     app = dashboard_app(SequenceCollector(first, second))
@@ -433,9 +443,10 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
         await pilot.pause()
         table = app.query_screen.query_one("#queue", DataTable)
         tooltip = app.screen.query_one(Tooltip)
-        # No listed Issue carries a priority, so PRIORITY is not shown yet.
+        # No listed Issue carries a priority or waits on a blocker, so
+        # neither PRIORITY nor WAITING ON is shown yet.
         assert issue_columns(app) == tuple(
-            key for key in DEFAULT_COLUMNS if key != "priority"
+            key for key in DEFAULT_COLUMNS if key not in {"priority", "waiting_on"}
         )
         await assert_every_header_shows_its_help(
             pilot, tooltip, "#queue", table, column_specs(issue_columns(app))
@@ -477,8 +488,9 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
             pilot, tooltip, "#queue", table, column_specs(issue_columns(app))
         )
 
-        # A prioritised Issue arrives and the conditional PRIORITY column
-        # with it, explained like the rest.
+        # A prioritised Issue that waits on Alpha arrives, and the
+        # conditional PRIORITY and WAITING ON columns with it, explained like
+        # the rest.
         app.query_screen.issue_table.apply_issue_columns(DEFAULT_COLUMNS)
         serve_snapshot(app, second)
         await app.run_action("refresh")
@@ -490,6 +502,12 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
         await hover_afresh(pilot, tooltip, "#queue", priority_x, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(COLUMNS_BY_KEY["priority"]))
+        waiting_x = header_offsets(table)[DEFAULT_COLUMNS.index("waiting_on")]
+        await move_within(pilot, tooltip, "#queue", waiting_x, 0)
+        await wait_until(lambda: tooltip.display)
+        assert str(tooltip.content) == required(
+            column_help(COLUMNS_BY_KEY["waiting_on"])
+        )
         await leave(pilot, tooltip)
         await wait_until(lambda: table.tooltip is None)
         assert table.row_count == 2

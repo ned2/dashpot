@@ -18,7 +18,12 @@ from typing import Literal
 from rich.text import Text
 
 from ..core.issue_profile import IssueProfile
-from ..core.model import IssueActivity, ProjectObservation, SessionActivity
+from ..core.model import (
+    IssueActivity,
+    OpenBlocker,
+    ProjectObservation,
+    SessionActivity,
+)
 from ..issues.ordering import (
     PRIORITY_BY_LABEL,
     PriorityLevel,
@@ -28,6 +33,7 @@ from ..issues.ordering import (
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
     DONE_EMPHASIS_COLORS,
+    MUTED_COLORS,
     NEUTRAL_EMPHASIS_COLORS,
     OPEN_EMPHASIS_COLORS,
     SESSION_STATE_GLYPHS,
@@ -197,13 +203,54 @@ def chip_foreground(background: str) -> str:
 
 
 TableCell = (
-    str | AgentStateCell | IssueStateCell | IssueNumberCell | LabelsCell | PriorityCell
+    str
+    | Text
+    | AgentStateCell
+    | IssueStateCell
+    | IssueNumberCell
+    | LabelsCell
+    | PriorityCell
 )
 
 
 def comments_cell(activity: IssueActivity) -> str:
     count = activity.comment_count
     return str(count) if count else "-"
+
+
+# The WAITING ON cell names this many open blockers and counts the rest.
+WAITING_ON_LIMIT = 3
+
+
+def blocker_name(blocker: OpenBlocker, issue: IssueProfile) -> str:
+    """Name a blocker by number in the Issue's own Repository, else by its Reference.
+
+    A blocker whose Reference is unknown is named by its identity.
+    """
+    if blocker.number is None or blocker.reference is None:
+        return blocker.id
+    if blocker.reference.rpartition("#")[0] != issue.reference.rpartition("#")[0]:
+        return blocker.reference
+    return f"#{blocker.number}"
+
+
+def waiting_on_cell(blockers: Sequence[OpenBlocker], issue: IssueProfile) -> str:
+    """The first open blockers by name, then how many more; blank when none."""
+    names = [blocker_name(blocker, issue) for blocker in blockers[:WAITING_ON_LIMIT]]
+    if len(blockers) > WAITING_ON_LIMIT:
+        names.append(f"+{len(blockers) - WAITING_ON_LIMIT}")
+    return " ".join(names)
+
+
+def muted_cell(cell: str | Text, *, dark: bool) -> Text:
+    """A text cell in the muted colour of a row that waits on a blocker.
+
+    The WAITING ON cell says the row waits; the colour only lets the Ready
+    rows stand out, so it is never the sole sign.
+    """
+    text = Text(cell) if isinstance(cell, str) else cell.copy()
+    text.stylize(MUTED_COLORS[dark])
+    return text
 
 
 _NO_LABEL_COLORS: Mapping[str, str] = dict[str, str]()

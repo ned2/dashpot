@@ -25,7 +25,13 @@ from ..issues.ordering import (
     issue_priority,
 )
 from ..issues.search import IssueSearchField
-from ..observation.issue_list import IssueListRow, IssueListSummary
+from ..observation.issue_list import (
+    IssueListRow,
+    IssueListSummary,
+    is_waiting,
+    row_open_blockers,
+    unobserved_auxiliary,
+)
 from ..observation.list_result import ListResult
 from .glyphs import Glyph
 from .issue_cells import (
@@ -34,6 +40,7 @@ from .issue_cells import (
     LEGEND_AGENT_STATE,
     LEGEND_ISSUE_STATE,
     SORT_GLYPHS,
+    WAITING_ON_LIMIT,
     IssueNumberCell,
     TableCell,
     agent_state_cell,
@@ -41,8 +48,10 @@ from .issue_cells import (
     date_cell,
     issue_state_cell,
     labels_cell,
+    muted_cell,
     optional_text_cell,
     priority_cell,
+    waiting_on_cell,
 )
 from .list_rows import truncate_end
 from .spread_table import SpreadTable
@@ -52,6 +61,7 @@ ColumnKey = Literal[
     "agent_state",
     "number",
     "title",
+    "waiting_on",
     "priority",
     "labels",
     "project",
@@ -148,6 +158,13 @@ def _priority_labels() -> str:
     )
 
 
+WAITING_ON_DESCRIPTION = (
+    "the open Issue's blockers that are still open, by number, or by "
+    f"Reference outside its Repository; the first {WAITING_ON_LIMIT} and how "
+    "many more, and the row is dimmed. Blank when none is, so the Issue is "
+    "Ready, and for a closed Issue. Shown only while some listed Issue waits; "
+    "not fetched or unavailable as for COMMENTS"
+)
 PRIORITY_DESCRIPTION = (
     "the Issue's priority as a chip in the colour of the label that sets it, "
     "the most urgent of its priority labels, which are "
@@ -209,6 +226,14 @@ COLUMN_SPECS = (
         sortable=False,
         update_width=True,
         search_field=IssueSearchField.TITLE,
+    ),
+    ColumnSpec(
+        "waiting_on",
+        "WAITING ON",
+        WAITING_ON_DESCRIPTION,
+        sortable=False,
+        update_width=True,
+        shown_when=is_waiting,
     ),
     ColumnSpec("priority", "PRIORITY", PRIORITY_DESCRIPTION, shown_when=_has_priority),
     ColumnSpec(
@@ -365,14 +390,36 @@ def build_rows(
     return contexts, cells_by_key
 
 
+# An open Issue that waits on a blocker has these text cells muted so the
+# Ready rows stand out; Glyphs and chips keep the colours that carry meaning.
+_MUTED_COLUMNS: tuple[ColumnKey, ...] = (
+    "number",
+    "title",
+    "waiting_on",
+    "project",
+    "assignees",
+    "author",
+    "milestone",
+    "type",
+    "comments",
+    "created",
+    "last_action",
+)
+
+
 def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     project = row.project
     issue = row.issue
-    return {
+    # A closed Issue waits on nothing, whatever blockers it still names.
+    blockers = row_open_blockers(row) if issue.state == "open" else ()
+    values: dict[ColumnKey, TableCell] = {
         "issue_state": issue_state_cell(issue, dark=dark),
         "agent_state": agent_state_cell(row.session_states, dark=dark),
         "number": IssueNumberCell(issue.number),
         "title": truncate_end(issue.title, TITLE_LIMIT),
+        "waiting_on": unobserved_auxiliary(row)
+        if blockers is None
+        else waiting_on_cell(blockers, issue),
         "labels": labels_cell(issue, project),
         "project": project.display_label,
         "priority": priority_cell(issue, project),
@@ -383,10 +430,14 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
         "comments": (
             comments_cell(row.auxiliary.activity)
             if row.auxiliary and row.auxiliary.activity
-            else ("unavailable" if row.auxiliary else "not fetched")
+            else unobserved_auxiliary(row)
         )
         if row.queried
         else comments_cell(issue_activity(issue, project)),
         "created": date_cell(issue.created_at),
         "last_action": date_cell(issue.updated_at),
     }
+    if blockers:
+        for key in _MUTED_COLUMNS:
+            values[key] = muted_cell(values[key], dark=dark)
+    return values

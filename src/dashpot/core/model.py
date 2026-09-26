@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from typing_extensions import TypeIs
 
 from .issue_profile import IssueProfile
@@ -106,6 +106,27 @@ class IssueActivity(ObservationModel):
     comment_count: int = 0
     linked_pull_requests: LaxSequence[LinkedPullRequest] = ()
     unlisted_pull_request_count: int = 0
+
+
+class OpenBlocker(ObservationModel):
+    """An Issue that blocks another and is still open.
+
+    ``reference`` and ``number`` are unknown for a blocker a Local Issue
+    declares by an identity its collection does not hold; such a blocker
+    still counts as open, so an Issue is never shown Ready on missing
+    evidence.
+    """
+
+    id: NonEmptyString
+    reference: NonEmptyString | None = None
+    number: Annotated[int, Field(gt=0)] | None = None
+
+    @model_validator(mode="after")
+    def validate_name(self) -> OpenBlocker:
+        """Refuse a blocker whose Reference and number are not known together."""
+        if (self.reference is None) != (self.number is None):
+            raise ValueError("An Open Blocker's Reference and number go together")
+        return self
 
 
 class ObservationTarget(ObservationModel):

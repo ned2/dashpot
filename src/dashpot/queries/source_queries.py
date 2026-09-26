@@ -18,6 +18,7 @@ from ..core.model import (
     Diagnostic,
     IssueActivity,
     ObservationModel,
+    OpenBlocker,
     PullRequest,
     SourceStatus,
 )
@@ -27,9 +28,9 @@ from ..core.pydantic import (
     NonEmptyString,
     Rfc3339Timestamp,
 )
+from ..issues.lifecycle import Lifecycle
 
 ResourceKind = Literal["issues", "pull-requests"]
-Lifecycle = Literal["open", "closed", "all"]
 PAGED_KINDS: tuple[ResourceKind, ...] = ("issues", "pull-requests")
 
 # The Query Sources the shipped app consults, one per concurrent consumer:
@@ -46,6 +47,16 @@ class QueryRequest(ObservationModel):
     ordering: str = "provider-default"
     page_size: Annotated[int, Field(ge=1, le=100)] = 50
     cursor: NonEmptyString | None = None
+
+    @model_validator(mode="after")
+    def validate_lifecycle(self) -> QueryRequest:
+        """Refuse Ready for Pull Requests, which have no blockers to wait on.
+
+        ``ready`` lists open Issues with no open blocker.
+        """
+        if self.state == "ready" and self.kind != "issues":
+            raise ValueError("Only an Issue query can ask for Ready Issues")
+        return self
 
 
 class SourceContext(ObservationModel):
@@ -72,6 +83,9 @@ class ObservationFacts(ObservationModel):
 class AuxiliaryObservation(ObservationFacts):
     activity: IssueActivity | None = None
     label_colors: FrozenMapping[str, str] | None = None
+    # The Issue's open blockers in the order its source lists them; ``None``
+    # when they were not observed, which is not the same as none.
+    open_blockers: LaxSequence[OpenBlocker] | None = None
 
 
 class QueryPage(ObservationFacts):

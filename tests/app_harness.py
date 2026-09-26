@@ -31,6 +31,7 @@ from dashpot.core.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
+from dashpot.issues.lifecycle import collection_open_blockers, in_lifecycle
 from dashpot.issues.ordering import is_issue_sort_column, sort_issues
 from dashpot.issues.search import IssueSearchField, matches_issue_search, parse_search
 from dashpot.observation.collect import ObservationScheduler
@@ -101,6 +102,10 @@ def issue(
     value["title"] = title
     value["labels"] = [f"priority/{priority.lower()}"]
     value["assignees"] = []
+    # The fixture's blockers are Issues no harness snapshot holds, so they
+    # would count as open and make every row wait; a test that wants a
+    # waiting row names its blockers.
+    value["relationships"]["blockedBy"] = []
     value.update(overrides)
     return conform_issue(value)
 
@@ -297,24 +302,29 @@ class SnapshotQuerySource:
     def _pull_requests(self) -> Sequence[PullRequest]:
         return self.project.snapshot.pull_requests if self.project.snapshot else ()
 
-    def _auxiliary(self, issue_id: str) -> AuxiliaryObservation:
+    def _collection(self) -> dict[str, IssueProfile]:
+        return {issue.id: issue for issue in self._issues()}
+
+    def _auxiliary(self, issue: IssueProfile) -> AuxiliaryObservation:
         snapshot = snapshot_of(self.project)
         return AuxiliaryObservation(
             status="fresh",
             attempted_at=NOW,
             last_good_at=NOW,
-            activity=snapshot.issue_activity.get(issue_id),
+            activity=snapshot.issue_activity.get(issue.id),
             label_colors=snapshot.label_colors,
+            open_blockers=collection_open_blockers(issue, self._collection()),
         )
 
     def _matching_issues(self, request: QueryRequest) -> list[IssueProfile]:
         """The Issues the submitted state, search text and ordering select."""
         parsed = parse_search(request.query)
         terms = tuple(term.casefold() for term in parsed.terms)
+        collection = self._collection()
         found = [
             issue
             for issue in self._issues()
-            if (request.state == "all" or issue.state == request.state)
+            if in_lifecycle(issue, request.state, collection)
             and matches_issue_search(
                 issue, self.project, frozenset(IssueSearchField), terms
             )
@@ -332,10 +342,11 @@ class SnapshotQuerySource:
 
     def _matching_pull_requests(self, request: QueryRequest) -> list[PullRequest]:
         """The Pull Requests the submitted state and search text select."""
+        state = request.state
+        # A Pull Request query never asks for Ready; the request refuses it.
+        assert state != "ready"
         states: frozenset[PullRequestLifecycle] = (
-            frozenset({"open", "closed"})
-            if request.state == "all"
-            else frozenset({request.state})
+            frozenset({"open", "closed"}) if state == "all" else frozenset({state})
         )
         result = WorkspaceObservationStore(
             factories.workspace(self.project)
@@ -396,7 +407,7 @@ class SnapshotQuerySource:
             last_good_at=last_good_at,
             issues=issues,
             pull_requests=pull_requests,
-            auxiliary={issue.id: self._auxiliary(issue.id) for issue in issues},
+            auxiliary={issue.id: self._auxiliary(issue) for issue in issues},
             returned_count=len(issues) + len(pull_requests),
             matched_count=matched,
             next_cursor=next_cursor,
@@ -456,7 +467,9 @@ class SnapshotQuerySource:
                 issue_id=identity,
                 outcome="resolved" if identity in issues else "not-resolved",
                 issue=issues.get(identity),
-                auxiliary=self._auxiliary(identity) if identity in issues else None,
+                auxiliary=self._auxiliary(issues[identity])
+                if identity in issues
+                else None,
                 status=status,
                 attempted_at=NOW,
                 last_good_at=last_good_at,

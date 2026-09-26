@@ -3,8 +3,10 @@
 import json
 from typing import override
 
+import pydantic
 import pytest
 
+from dashpot.core.model import OpenBlocker
 from dashpot.github.github import GitHubRequestError
 from dashpot.project.project_config import load_project_config
 from dashpot.queries.github_queries import GitHubQuerySource, validate_grouping
@@ -943,6 +945,170 @@ def test_column_ordering_becomes_the_search_sort_qualifier(tmp_path):
     refused = source.query_page(QueryRequest(ordering="title:asc")).page
     assert "no exact GitHub source ordering" in refused.diagnostics[0].message
     assert len(runner.calls) == 2
+
+
+def test_ready_searches_open_issues_github_does_not_count_as_blocked(tmp_path):
+    source, runner = github(tmp_path, context(), search(hit(1)), batch(node(1)))
+    page = source.query_page(QueryRequest(state="ready")).page
+    assert page.status == "fresh", page.diagnostics
+    assert (
+        "searchQuery=repo:ned2/dashpot is:issue is:open -is:blocked"
+        in runner.calls[1][0]
+    )
+    # The fixture's open blocker travels beside the Profile, named by its
+    # Reference; its closed one is not a blocker any more.
+    assert page.auxiliary["I_issue_1"].open_blockers == (
+        OpenBlocker(id="I_blocker_2", reference="ned2/dashpot#7", number=7),
+    )
+    assert page.issues[0].relationships.blocked_by == ("I_blocker_1", "I_blocker_2")
+
+
+def test_only_an_issue_query_can_ask_for_ready_issues():
+    with pytest.raises(pydantic.ValidationError, match="Only an Issue query"):
+        QueryRequest(kind="pull-requests", state="ready")
+    assert QueryRequest(kind="issues", state="ready").state == "ready"
+
+
+def resolve_with_blocker_error(tmp_path, *path):
+    """Resolve Issue 1 while GitHub reports an error at one blockedBy path."""
+    raw = node(1)
+    node_path = ["nodes", 0, "blockedBy", *path]
+    target = raw["blockedBy"]
+    for step in path[:-1]:
+        target = target[step]
+    target[path[-1]] = None
+    source, runner = github(tmp_path)
+    runner.results = iter(
+        [
+            completed(
+                json.dumps(
+                    {
+                        "data": batch(raw),
+                        "errors": [
+                            {
+                                "type": "FORBIDDEN",
+                                "path": node_path,
+                                "message": "blocker unavailable",
+                            }
+                        ],
+                    }
+                ),
+                returncode=1,
+            ),
+        ]
+    )
+    [result] = source.resolve_identities(["I_issue_1"])
+    return result
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("nodes", 0, "state"),
+        ("nodes", 0, "number"),
+        ("nodes", 0, "repository"),
+        ("nodes", 0, "repository", "nameWithOwner"),
+    ],
+)
+def test_an_unreadable_blocker_fact_fails_only_the_auxiliary_facts(tmp_path, path):
+    result = resolve_with_blocker_error(tmp_path, *path)
+    assert result.outcome == "resolved"
+    assert result.auxiliary.status == "unavailable"
+    assert result.auxiliary.open_blockers is None
+
+
+@pytest.mark.parametrize(
+    "path", [("nodes", 0, "id"), ("nodes", 0), ("pageInfo", "hasNextPage")]
+)
+def test_an_unreadable_blocker_relationship_fails_the_issue(tmp_path, path):
+    # The blocker's identity belongs to the Profile, so losing it is not an
+    # auxiliary failure.
+    result = resolve_with_blocker_error(tmp_path, *path)
+    assert result.outcome == "unavailable"
+    assert result.issue is None
+
+
+def test_blockers_past_the_first_page_carry_their_facts(tmp_path):
+    first = node(1)
+    first["blockedBy"]["pageInfo"] = {"hasNextPage": True, "endCursor": "blockers"}
+    later = {
+        "id": "I_blocker_3",
+        "number": 11,
+        "state": "OPEN",
+        "repository": {"nameWithOwner": "ned2/dashpot"},
+    }
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1)),
+        batch(first),
+        {
+            "node": {
+                "connection": {
+                    "nodes": [later],
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                }
+            }
+        },
+    )
+    page = source.query_page(QueryRequest()).page
+    assert page.status == "fresh", page.diagnostics
+    assert "nodes { id number state repository { nameWithOwner } }" in str(
+        runner.calls[3]
+    )
+    assert page.auxiliary["I_issue_1"].open_blockers == (
+        OpenBlocker(id="I_blocker_2", reference="ned2/dashpot#7", number=7),
+        OpenBlocker(id="I_blocker_3", reference="ned2/dashpot#11", number=11),
+    )
+
+
+def markdown_issue(directory, number, *, state="open", blocked_by=()):
+    closed = state == "closed"
+    (directory / f"{number}.md").write_text(
+        local_issue_document(
+            issue_id=f"I_{number}",
+            number=number,
+            reference=f"issue-{number}",
+            title=f"Issue {number}",
+            state=state,
+            stateReason="completed" if closed else None,
+            closedAt="2026-08-27T00:00:00Z" if closed else None,
+            relationships={
+                "parent": None,
+                "subIssues": [],
+                "blockedBy": list(blocked_by),
+                "blocking": [],
+            },
+        )
+    )
+
+
+def test_markdown_ready_judges_blockers_against_the_local_issues(tmp_path):
+    source = markdown(tmp_path)
+    directory = tmp_path / "issues"
+    for path in directory.iterdir():
+        path.unlink()
+    markdown_issue(directory, 1)
+    markdown_issue(directory, 2, state="closed")
+    markdown_issue(directory, 3, blocked_by=["I_2"])
+    markdown_issue(directory, 4, blocked_by=["I_1", "I_2"])
+    markdown_issue(directory, 5, blocked_by=["I_elsewhere"])
+
+    observed = source.query_page(QueryRequest(state="ready"))
+    ready = observed.page
+    assert ready.status == "fresh", ready.diagnostics
+    # Project Totals count the whole Project, waiting Issues included.
+    assert (observed.totals.open_count, observed.totals.closed_count) == (4, 1)
+    assert [issue.number for issue in ready.issues] == [1, 3]
+    assert ready.auxiliary["I_3"].open_blockers == ()
+
+    everything = source.query_page(QueryRequest(state="all")).page
+    assert everything.auxiliary["I_4"].open_blockers == (
+        OpenBlocker(id="I_1", reference="issue-1", number=1),
+    )
+    # A blocker no local Issue is counts as open, named by its identity.
+    assert everything.auxiliary["I_5"].open_blockers == (OpenBlocker(id="I_elsewhere"),)
+    assert everything.auxiliary["I_1"].activity is None
 
 
 def test_markdown_source_that_cannot_observe_has_no_last_good_page(tmp_path):

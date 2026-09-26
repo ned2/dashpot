@@ -196,6 +196,12 @@ QUERY_PAGE_KEYS = OBSERVATION_FACT_KEYS | {
     "continuation",
     "resultLimit",
 }
+AUXILIARY_OBSERVATION_KEYS = OBSERVATION_FACT_KEYS | {
+    "activity",
+    "labelColors",
+    "openBlockers",
+}
+OPEN_BLOCKER_KEYS = {"id", "reference", "number"}
 PROJECT_TOTALS_KEYS = OBSERVATION_FACT_KEYS | {
     "context",
     "kind",
@@ -392,6 +398,20 @@ def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None
     assert page_document["pullRequests"] == []
     (issue_profile,) = page_document["issues"]
     assert set(issue_profile) == ISSUE_PROFILE_KEYS
+    auxiliary = page_document["auxiliary"][issue_profile["id"]]
+    assert set(auxiliary) == AUXILIARY_OBSERVATION_KEYS
+    # A Local Issue has no engagement; its blockers are not local Issues, so
+    # each counts as open and is named by its identity alone.
+    assert auxiliary["activity"] is None
+    assert [set(blocker) for blocker in auxiliary["openBlockers"]] == [
+        OPEN_BLOCKER_KEYS,
+        OPEN_BLOCKER_KEYS,
+    ]
+    assert auxiliary["openBlockers"][0] == {
+        "id": "I_blocker_1",
+        "reference": None,
+        "number": None,
+    }
     assert page_document["resultLimit"] is None
     assert page_document["lastGoodAt"] is not None
     totals_document = document["totals"]

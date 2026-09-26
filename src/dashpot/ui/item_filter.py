@@ -9,9 +9,19 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Input, Select, Static
 
+from ..issues.lifecycle import Lifecycle
+
 # The lifecycle choices every item-list filter offers, in display order.
 LIFECYCLE_STATUSES: tuple[tuple[str, str], ...] = (
     ("Open", "open"),
+    ("Closed", "closed"),
+    ("All", "all"),
+)
+# The Issue filter adds Ready, the open Issues with no open blocker, beside
+# the Open ones it narrows.
+ISSUE_LIFECYCLE_STATUSES: tuple[tuple[str, Lifecycle], ...] = (
+    ("Open", "open"),
+    ("Ready", "ready"),
     ("Closed", "closed"),
     ("All", "all"),
 )
@@ -34,6 +44,26 @@ def lifecycle_value(states: frozenset[str]) -> str:
 def lifecycle_states(value: object) -> frozenset[str] | None:
     """The states a lifecycle choice selects; nothing for a value the filter never offers."""
     return _LIFECYCLE_STATES.get(str(value))
+
+
+def issue_lifecycle(value: object) -> Lifecycle | None:
+    """The Issue lifecycle a choice names; nothing for a value the filter never offers."""
+    return next(
+        (
+            lifecycle
+            for _label, lifecycle in ISSUE_LIFECYCLE_STATUSES
+            if lifecycle == value
+        ),
+        None,
+    )
+
+
+def next_status(statuses: Sequence[tuple[str, str]], current: str) -> str:
+    """The choice after ``current`` in a filter's statuses, wrapping to the first."""
+    values = [value for _label, value in statuses]
+    if current not in values:
+        return values[0]
+    return values[(values.index(current) + 1) % len(values)]
 
 
 class ItemFilterBar(Horizontal):

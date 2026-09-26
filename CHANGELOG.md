@@ -7,6 +7,9 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
 
 - Observe GitHub Issues or Local Issue Markdown, with complete profiles,
   freshness, and actionable Diagnostics.
+- List the Ready Issues — open, with no blocker still open — from the Issue
+  lifecycle selector or `dashpot issue list --state ready`, and see what each
+  open Issue waits on in the `WAITING ON` column, with waiting rows dimmed.
 - Inspect Worktrees, local and Remote-Tracking Branches, integration state,
   and GitHub Pull Requests. Fetch explicitly; preview and confirm Cleanup.
 - Observe Codex and Claude Code through opt-in hooks, and declare Issue work
