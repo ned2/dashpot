@@ -357,9 +357,7 @@ IssueColumnEditor {
 #column-editor-list > .selection-list--button,
 #column-editor-list > .selection-list--button-selected,
 #column-editor-list > .selection-list--button-highlighted,
-#column-editor-list > .selection-list--button-selected-highlighted,
-#cleanup-ignored > .toggle--button,
-#cleanup-ignored.-on > .toggle--button {
+#column-editor-list > .selection-list--button-selected-highlighted {
     color: $text;
 }
 
@@ -671,13 +669,24 @@ CleanupScreen, CleanupReportScreen {
     height: auto;
 }
 
-#cleanup-ignored {
+/* The confirm button's label is fixed, so this recap of the selection is
+   what a person reads before confirming; it ends the scrolling body. */
+#cleanup-callout {
     height: auto;
-    width: 1fr;
-    border: none;
-    padding: 0;
-    text-wrap: wrap;
-    display: none;
+    margin-top: 1;
+    padding: 0 1;
+    border: tall $error;
+    background: $error 15%;
+}
+
+#cleanup-callout-title {
+    height: auto;
+    text-style: bold;
+}
+
+#cleanup-callout-lines {
+    height: auto;
+    color: $text;
 }
 
 #cleanup-footer {

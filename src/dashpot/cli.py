@@ -29,6 +29,7 @@ from .repository.cleanup import (
     CleanupPreview,
     CleanupRequest,
     GitCleanupAdapter,
+    TargetKind,
     WorktreeCleanupRequest,
     describe_cleanup_report,
 )
@@ -409,7 +410,8 @@ worktree = App(
         "create mutates: one linked Worktree at one path outside every "
         "Worktree of the Project, on one new Branch, never fetching (ADR "
         "0008). remove mutates: one linked Worktree, unforced, after a "
-        "read-only preview, and its Branch only when asked (ADR 0019). check "
+        "read-only preview, and its Branch — locally, at its push remote — "
+        "only when asked (ADR 0019, ADR 0054). check "
         "is read-only and removes nothing."
     ),
 )
@@ -630,6 +632,17 @@ def worktree_remove(
             ),
         ),
     ] = False,
+    delete_remote_branch: Annotated[
+        bool,
+        Parameter(
+            show_default=False,
+            help=(
+                "also delete the Worktree's Branch at the remote a plain git push "
+                "reaches, first, leased on its Remote-Tracking Branch as of the "
+                "last fetch and only if it is integrated"
+            ),
+        ),
+    ] = False,
     delete_ignored: Annotated[
         bool,
         Parameter(
@@ -648,13 +661,22 @@ def worktree_remove(
     current = Path.cwd().resolve()
 
     def select(preview: CleanupPreview) -> tuple[str, ...]:
-        kinds = {"worktree"} | ({"local-branch"} if delete_branch else set())
-        chosen = tuple(
-            target.identity for target in preview.targets if target.kind in kinds
-        )
-        if delete_branch and len(chosen) < 2:
+        kinds: set[TargetKind] = {"worktree"}
+        if delete_branch:
+            kinds.add("local-branch")
+        if delete_remote_branch:
+            kinds.add("remote-branch")
+        chosen = [target for target in preview.targets if target.kind in kinds]
+        found = {target.kind for target in preview.targets}
+        if (delete_branch or delete_remote_branch) and "local-branch" not in found:
             raise CleanupError(f"{path} has no Branch checked out to delete")
-        return chosen
+        if delete_remote_branch and "remote-branch" not in found:
+            raise CleanupError(
+                f"{path}'s Branch has no Remote-Tracking Branch at the remote "
+                f"a plain git push reaches; fetch, or delete it with "
+                f"dashpot branch delete --remote"
+            )
+        return tuple(target.identity for target in chosen)
 
     return _cleanup(
         WorktreeCleanupRequest(current, path),

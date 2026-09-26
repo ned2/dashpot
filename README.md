@@ -156,22 +156,30 @@ live height and scroll independently. Pull Requests remains bounded to eight
 content lines so the Issues table keeps its minimum height.
 
 Cleanup previews show the concrete primary target without a redundant checkbox.
-Removing a Worktree retains its attached local Branch unless you select that
-option; selecting it changes the button to `Remove Worktree and Branch`.
-Ignored paths and their contents still need acknowledgement. Occupied, dirty,
-locked, protected, and otherwise blocked Worktrees remain unavailable.
+Removing a Worktree is finishing its work, so its attached local Branch starts
+selected, as does the same Branch at the remote a plain `git push` reaches when
+it is integrated and at the local Branch's tip; untick either to retain it.
+Ignored paths and their contents are listed rather than acknowledged. The
+confirm button always reads `Remove Worktree` or `Delete Branch`; a callout at
+the end of the preview states exactly what confirming removes and deletes.
+Occupied, dirty, locked, protected, and otherwise blocked Worktrees remain
+unavailable, and hold their Branches unavailable with them. A Branch blocked
+as unintegrated against a Remote-Tracking ref says that `f` checks again if
+the work has since merged
+([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md)).
 
 For a Branch row, the local Branch is primary when present, otherwise the sole
 remote Branch. A remote-only row with several remotes, or a blocked local Branch
-with an available remote target, keeps explicit concrete choices. Additional
-remote deletion is never automatic.
+with an available remote target, keeps explicit concrete choices. Nothing
+starts selected beyond the primary there: that pane is a general Branch editor.
 
 Press `f` in either dialog to fetch and prune without leaving it. The dialog
 shows progress and per-remote outcomes. Repository fetch timestamps are labelled
 as repository-wide evidence; failed remotes retain last-known facts. Confirmation waits for fresh Git
-observation and re-inspection of the same subject. Unchanged optional choices
-may survive; changed or new targets are unchecked, and ignored content must be
-acknowledged again. A missing primary never becomes another Branch implicitly.
+observation and re-inspection of the same subject. Unchanged optional targets
+keep your choice; changed or new targets are unchecked, even one a first
+preview would have selected. A missing primary never becomes another Branch
+implicitly.
 Fetch completion after cancellation only updates observation. Confirmed Cleanup
 and Remote Fetch remain mutually exclusive for a Project; every deletion still
 re-inspects and requires the ordinary explicit confirmation.
@@ -652,6 +660,7 @@ dashpot worktree check ~/w/35-alternate   # read-only: removable, or why not
 dashpot worktree check                    # the same for every linked Worktree
 dashpot worktree remove ~/w/35-alternate --delete-ignored   # unforced, after that check
 dashpot worktree remove ~/w/35-alternate --delete-branch --delete-ignored --dry-run
+dashpot worktree remove ~/w/35-alternate --delete-branch --delete-remote-branch --delete-ignored
 dashpot branch delete 35-alternate --local   # the local Branch, once integrated
 dashpot branch delete 35-alternate --local --remote origin   # and at origin, leased
 ```
@@ -738,10 +747,17 @@ target with its integration state, blockers, and consequences — then
 re-inspects and performs only the targets its flags name, only if nothing
 observed has changed in between. `worktree remove` removes one linked Worktree with an unforced
 `git worktree remove`, so a dirty or locked Worktree is refused, and with
-`--delete-branch` deletes its local Branch afterwards; `--delete-ignored`
+`--delete-branch` deletes its local Branch afterwards;
+`--delete-remote-branch` first deletes the same Branch at the remote a plain
+`git push` of it reaches (its `pushRemote`, `remote.pushDefault`, its upstream
+remote, else `origin`), leased as `branch delete --remote` is, and is refused
+when that remote has no Remote-Tracking Branch for it; `--delete-ignored`
 acknowledges that the Worktree's ignored content (`.venv`, `.dashpot/state/`,
 hook records, and the Work Store there) goes with it, and the command is
-refused without it when such content exists. `branch delete --local` deletes
+refused without it when such content exists. No flag is implied: the
+dashboard's default selections
+([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md))
+never apply to the command line. `branch delete --local` deletes
 the local Branch with `git update-ref -d` guarded by the previewed commit, so a
 Branch that moved is refused rather than deleted, and drops its `branch.NAME.*`
 configuration. `branch delete --remote REMOTE` (repeatable) deletes the Branch

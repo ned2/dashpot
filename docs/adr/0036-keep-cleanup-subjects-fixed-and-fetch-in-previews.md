@@ -1,9 +1,15 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-12
+amended-by: 0054-finish-a-worktree-with-its-branch-by-default.md
 ---
 
 # Keep Cleanup subjects fixed and fetch inside their previews
+
+Amended by [ADR 0054](0054-finish-a-worktree-with-its-branch-by-default.md): a
+Worktree's attached Branches start selected on a first preview, ignored content
+is disclosed rather than acknowledged, and the retention rule below governs
+every refresh but not a first preview's defaults.
 
 A person pressing `x` has already selected a Worktree or Branch row. Requiring
 another checkbox for that same concrete target adds no useful choice. Remote

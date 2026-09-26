@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from ..repository.cleanup import (
     CleanupReport,
     CleanupRequest,
     CleanupTarget,
+    default_choices,
     describe_cleanup_report,
     primary_target,
     retained_choices,
@@ -46,8 +48,31 @@ def short_ref(ref: str | None) -> str:
     )
 
 
+FETCH_HINT = "If it has since merged, press f to fetch and check again."
+
+# How many ignored path names the confirmation callout spells out.
+CALLOUT_IGNORED_NAMES = 3
+
+
 def blocker_summary(blocker: CleanupBlocker, target: CleanupTarget) -> str:
-    """Keep each blocking condition visible beside its target."""
+    """Keep each blocking condition visible beside its target.
+
+    An integration block judged against a Remote-Tracking ref may only be
+    stale: Dashpot never fetches on its own, so a merged Pull Request whose
+    commit has not been fetched still reads as unintegrated.
+    """
+    summary = _blocker_text(blocker, target)
+    fact = target.integration
+    if (
+        blocker.kind in {"unintegrated", "unknown-integration"}
+        and fact is not None
+        and (fact.integration_ref or "").startswith("refs/remotes/")
+    ):
+        return f"{summary} {FETCH_HINT}"
+    return summary
+
+
+def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
     if blocker.kind == "checked-out":
         return (
             "Worktree removal is blocked; this Branch stays checked out."
@@ -127,6 +152,32 @@ def target_evidence(target: CleanupTarget) -> str:
     return "\n".join(lines)
 
 
+def confirmation_lines(preview: CleanupPreview, selected: Sequence[str]) -> list[str]:
+    """State what confirming the selection removes and deletes, one target a line.
+
+    The confirm button's label never changes, so this recap is where the
+    selection is read before confirming: every selected target, and the
+    ignored content a Worktree takes with it.
+    """
+    lines: list[str] = []
+    for target in preview.targets:
+        if target.identity not in selected:
+            continue
+        name = short_ref(target.ref)
+        if target.kind == "worktree":
+            lines.append(f"remove Worktree {target.path}")
+            if preview.ignored:
+                names = ", ".join(preview.ignored[:CALLOUT_IGNORED_NAMES])
+                more = ", …" if len(preview.ignored) > CALLOUT_IGNORED_NAMES else ""
+                lines.append(f"  with {ignored_description(preview)}: {names}{more}")
+        elif target.kind == "local-branch":
+            lines.append(f"delete local Branch {name}")
+        else:
+            name = name.removeprefix(f"{target.remote}/")
+            lines.append(f"delete Branch {name} at {target.remote}")
+    return lines
+
+
 class CleanupChoice(MarkedCheckbox):
     """Move between Cleanup choices without traversing their evidence."""
 
@@ -151,6 +202,7 @@ class CleanupTargetView(Vertical):
         index: int,
         *,
         primary: bool = False,
+        chosen: bool = False,
         unverified_remote: bool = False,
     ) -> None:
         super().__init__(classes="cleanup-target")
@@ -158,6 +210,7 @@ class CleanupTargetView(Vertical):
         self.target = target
         self.index = index
         self.primary = primary
+        self.chosen = chosen
         self.unverified_remote = unverified_remote
 
     @override
@@ -169,6 +222,7 @@ class CleanupTargetView(Vertical):
             else:
                 yield CleanupChoice(
                     target.label,
+                    self.chosen and target.available,
                     id=f"cleanup-target-{self.index}",
                     disabled=not target.available,
                 )
@@ -252,6 +306,10 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         self.verified_remotes: frozenset[str] | None = None
         primary = primary_target(preview)
         self.primary_identity = primary.identity if primary is not None else None
+        # The optional targets the next compose checks: the defaults on a
+        # first preview only. A preview reopened because the state changed
+        # since confirmation, like one refreshed in place, never re-arms one.
+        self.chosen = () if changed else default_choices(preview)
         self._rebuilding = False
 
     @property
@@ -270,10 +328,15 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             return self.primary is not None and self.primary.available
         return self.preview.kind == "branch" and bool(self.preview.selectable)
 
+    @property
+    def verb(self) -> str:
+        """The dialog's title and its confirm button's fixed label."""
+        return "Remove Worktree" if self.preview.kind == "worktree" else "Delete Branch"
+
     @override
     def compose(self) -> ComposeResult:
         preview = self.preview
-        verb = "Remove Worktree" if preview.kind == "worktree" else "Delete Branch"
+        verb = self.verb
         subject = (
             Path(preview.subject).name
             if preview.kind == "worktree"
@@ -331,34 +394,31 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 yield Static(self.fetch_status, markup=False, id="cleanup-fetch-status")
                 with Vertical(id="cleanup-targets"):
                     for index, target in enumerate(preview.targets):
-                        if index and preview.kind == "worktree":
+                        if index == 1 and preview.kind == "worktree":
                             yield Static("Also remove", classes="cleanup-summary")
                         yield CleanupTargetView(
                             preview,
                             target,
                             index,
                             primary=target.identity == self.primary_identity,
+                            chosen=target.identity in self.chosen,
                             unverified_remote=(
                                 target.kind == "remote-branch"
                                 and self.verified_remotes is not None
                                 and target.remote not in self.verified_remotes
                             ),
                         )
+                with Vertical(id="cleanup-callout"):
+                    yield Static("Confirming will:", id="cleanup-callout-title")
+                    yield Static("", markup=False, id="cleanup-callout-lines")
             with Vertical(id="cleanup-footer"):
-                if preview.ignored:
-                    yield MarkedCheckbox(
-                        "Delete ignored content too", value=False, id="cleanup-ignored"
-                    )
                 yield Static("", id="cleanup-problem")
                 with Horizontal(id="cleanup-actions"):
                     yield Button(
                         "Cancel" if self.can_confirm else "Close", id="cleanup-cancel"
                     )
                     if self.can_confirm:
-                        yield Button(
-                            self.confirmation_label(),
-                            id="cleanup-confirm",
-                        )
+                        yield Button(verb, id="cleanup-confirm")
                 yield Footer()
 
     def on_mount(self) -> None:
@@ -383,10 +443,9 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         )
         if choice is not None:
             choice.focus()
-        elif self.acknowledgement_missing():
-            self.query_one("#cleanup-ignored", Checkbox).focus()
         elif self.can_confirm:
-            self.query_one("#cleanup-confirm", Button).focus()
+            # Never the confirm button: a stray Enter after x must not confirm.
+            self.query_one("#cleanup-body", VerticalScroll).focus()
         else:
             self.query_one("#cleanup-cancel", Button).focus()
 
@@ -401,43 +460,10 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             and (one.primary or ((choice := one.choice()) is not None and choice.value))
         )
 
-    def confirmation_label(self) -> str:
-        if self.preview.kind == "worktree":
-            return (
-                "Remove Worktree and Branch"
-                if any(
-                    target.kind == "local-branch" and target.identity in self.selected()
-                    for target in self.preview.targets
-                )
-                else "Remove Worktree"
-            )
-        if self.primary is not None:
-            return (
-                "Delete Branch"
-                if len(self.selected()) <= 1
-                else "Delete selected Branches"
-            )
-        return "Delete selected Branches"
-
     def worktree_selected(self) -> bool:
         return any(
             one.target.kind == "worktree" and one.target.identity in self.selected()
             for one in self.targets()
-        )
-
-    def ignored_acknowledged(self) -> bool:
-        return bool(
-            self.preview.ignored
-            and self.worktree_selected()
-            and self.query_one("#cleanup-ignored", Checkbox).value
-        )
-
-    def acknowledgement_missing(self) -> bool:
-        """Identify selected Worktree content that still needs acknowledgement."""
-        return bool(
-            self.preview.ignored
-            and self.worktree_selected()
-            and not self.ignored_acknowledged()
         )
 
     def selection_problem(self) -> str | None:
@@ -460,8 +486,6 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             if target and target.requires and target.requires not in selected:
                 required = self.preview.target(target.requires)
                 return f"{target.label} requires removing {required.label if required else 'the Worktree'}."
-        if self.acknowledgement_missing():
-            return f"Acknowledge removal of {ignored_description(self.preview)}."
         return None
 
     def refresh_state(self) -> None:
@@ -476,18 +500,14 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             )
             if not one.target.available and choice.value:
                 choice.value = False
-        if self.preview.ignored:
-            acknowledgement = self.query_one("#cleanup-ignored", Checkbox)
-            acknowledgement.display = self.worktree_selected()
-            acknowledgement.disabled = self.busy
-            if not acknowledgement.display:
-                acknowledgement.value = False
+        lines = confirmation_lines(self.preview, self.selected())
+        self.query_one("#cleanup-callout", Vertical).display = bool(lines)
+        self.query_one("#cleanup-callout-lines", Static).update("\n".join(lines))
         problem = self.selection_problem()
         self.query_one("#cleanup-problem", Static).update(problem or "")
         self.query_one("#cleanup-fetch-status", Static).update(self.fetch_status)
         if self.can_confirm:
             button = self.query_one("#cleanup-confirm", Button)
-            button.label = self.confirmation_label()
             button.disabled = self.busy or not self.preview_valid
             button.variant = "error" if problem is None else "default"
         self.refresh_bindings()
@@ -529,13 +549,12 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             self._rebuilding = True
             try:
                 self.preview = preview
+                # A refresh never re-applies the first preview's defaults: a
+                # changed or new target starts unchecked (ADR 0036, ADR 0054).
+                self.chosen = choices
                 if changed:
                     self.fetch_status += (
                         "\nPreview updated. Review its current facts before confirming."
-                    )
-                if preview.ignored:
-                    self.fetch_status += (
-                        "\nReview and acknowledge ignored content again."
                     )
                 await self.recompose()
             finally:
@@ -546,10 +565,6 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 or self not in self.app.screen_stack
             ):
                 return
-            for one in self.targets():
-                choice = one.choice()
-                if choice is not None:
-                    choice.value = one.target.identity in choices
         # begin_fetch raised busy, so lowering it is what re-derives the
         # rebuilt controls; nothing else refreshes them after the recompose.
         self.busy = False
@@ -562,17 +577,16 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         problem = self.selection_problem()
         if problem is not None:
             self.notify(problem, title="Nothing deleted", severity="warning")
-            if self.acknowledgement_missing():
-                self.query_one("#cleanup-ignored", Checkbox).focus()
-            else:
-                self.focus_choice()
+            self.focus_choice()
             return
+        # The dialog discloses the ignored content instead of asking for a
+        # tick, so removing the Worktree is the acknowledgement (ADR 0054).
         self.dismiss(
             CleanupConfirmation(
                 self.request,
                 self.preview.fingerprint,
                 self.selected(),
-                delete_ignored=self.ignored_acknowledged(),
+                delete_ignored=self.worktree_selected(),
             )
         )
 

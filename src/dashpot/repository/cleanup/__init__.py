@@ -1,4 +1,4 @@
-"""Expose Cleanup preview, retained choices, and confirmed execution through one seam."""
+"""Expose Cleanup preview, default and retained choices, and confirmed execution through one seam."""
 
 from .adapter import CleanupAdapter as CleanupAdapter
 from .adapter import GitCleanupAdapter as GitCleanupAdapter
@@ -20,6 +20,7 @@ from .preview import (
     describe_cleanup_preview as describe_cleanup_preview,
 )
 from .preview import inspect_cleanup as inspect_cleanup
+from .selection import default_choices as default_choices
 from .selection import primary_target as primary_target
 from .selection import retained_choices as retained_choices
 from .targets import (

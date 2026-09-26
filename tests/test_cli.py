@@ -842,19 +842,28 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
 
 
 def cleanup_target(
-    kind: Literal["local-branch", "worktree"], *, requires: str | None = None
+    kind: Literal["local-branch", "remote-branch", "worktree"],
+    *,
+    requires: str | None = None,
 ) -> CleanupTarget:
     identity = {
         "local-branch": "local:refs/heads/feat",
+        "remote-branch": "remote:origin:refs/heads/feat",
         "worktree": "worktree:/w/x",
     }[kind]
     return CleanupTarget(
         identity=identity,
         kind=kind,
-        label="Local Branch" if kind == "local-branch" else "Worktree",
+        label={
+            "local-branch": "Local Branch",
+            "remote-branch": "Branch at origin",
+            "worktree": "Worktree",
+        }[kind],
         expected="e319d3c0000000000000000000000000000000ab",
-        ref="refs/heads/feat",
-        remote=None,
+        ref="refs/remotes/origin/feat"
+        if kind == "remote-branch"
+        else "refs/heads/feat",
+        remote="origin" if kind == "remote-branch" else None,
         path="/w/x" if kind == "worktree" else None,
         integration=None,
         observed_at=None,
@@ -1139,6 +1148,88 @@ def test_worktree_remove_with_delete_branch_needs_a_branch(
     assert capsys.readouterr().err == (
         "dashpot: /w/x has no Branch checked out to delete\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("flags", "selected"),
+    [
+        ((), ("worktree:/w/x",)),
+        (
+            ("--delete-remote-branch",),
+            ("worktree:/w/x", "remote:origin:refs/heads/feat"),
+        ),
+        (
+            ("--delete-branch", "--delete-remote-branch"),
+            (
+                "worktree:/w/x",
+                "local:refs/heads/feat",
+                "remote:origin:refs/heads/feat",
+            ),
+        ),
+    ],
+)
+def test_worktree_remove_deletes_at_the_push_remote_only_with_its_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    flags: tuple[str, ...],
+    selected: tuple[str, ...],
+) -> None:
+    """No default applies to the CLI: its flags are its disclosure."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(tmp_path)
+    tree = cleanup_target("worktree")
+    local = cleanup_target("local-branch", requires=tree.identity)
+    pushed = cleanup_target("remote-branch", requires=tree.identity)
+    preview = cleanup_preview("worktree", tree, local, pushed)
+    report = cleanup_report(preview, dry_run=True, performed=False, planned=selected)
+
+    with (
+        mock.patch.object(composition, "cleanup_git", return_value=object()),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(
+            composition, "perform_cleanup", return_value=report
+        ) as perform,
+    ):
+        assert (
+            cli.main(
+                ["worktree", "remove", "/w/x", *flags, "--delete-ignored", "--dry-run"]
+            )
+            == 0
+        )
+    assert perform.call_args.args[0].selected == selected
+
+
+@pytest.mark.parametrize(
+    ("targets", "reason"),
+    [
+        (("worktree",), "/w/x has no Branch checked out to delete"),
+        (
+            ("worktree", "local-branch"),
+            "/w/x's Branch has no Remote-Tracking Branch at the remote a plain "
+            "git push reaches; fetch, or delete it with dashpot branch delete "
+            "--remote",
+        ),
+    ],
+)
+def test_worktree_remove_with_delete_remote_branch_needs_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    targets: tuple[Literal["local-branch", "worktree"], ...],
+    reason: str,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(tmp_path)
+    preview = cleanup_preview("worktree", *map(cleanup_target, targets))
+
+    with (
+        mock.patch.object(composition, "cleanup_git", return_value=object()),
+        mock.patch.object(composition, "inspect_cleanup", return_value=preview),
+        mock.patch.object(composition, "perform_cleanup") as perform,
+    ):
+        assert cli.main(["worktree", "remove", "/w/x", "--delete-remote-branch"]) == 2
+    perform.assert_not_called()
+    assert capsys.readouterr().err == f"dashpot: {reason}\n"
 
 
 def test_cleanup_protects_this_checkout_and_every_configured_anchor(

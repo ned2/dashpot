@@ -147,6 +147,9 @@ def _remote_branch_target(
     refs: RefIndex,
     integration_ref: str | None,
     fetched: str | None,
+    *,
+    requires: str | None = None,
+    checked_out_at: Path | None = None,
 ) -> CleanupTarget:
     tracking = f"{REMOTE_REF_PREFIX}{remote}/{name}"
     commit = refs.commits[tracking]
@@ -156,6 +159,15 @@ def _remote_branch_target(
     blockers = _integration_branch_blockers(
         tracking, name, integration_ref, refs.origin_head
     )
+    if checked_out_at is not None:
+        # Offered from the Worktrees pane only as part of finishing the
+        # Worktree, so it goes no further than a Worktree that cannot go.
+        blockers.append(
+            CleanupBlocker(
+                kind="checked-out",
+                detail=f"checked out at {checked_out_at}, whose removal is blocked",
+            )
+        )
     blockers.extend(_remote_blockers(git, remote))
     blockers.extend(_integration_blockers(fact, tracking))
     consequences = [
@@ -173,6 +185,7 @@ def _remote_branch_target(
         remote=remote,
         integration=fact,
         observed_at=fetched,
+        requires=requires,
         blockers=tuple(blockers),
         consequences=tuple(consequences),
     )
@@ -280,6 +293,26 @@ def _remotes(git: Git) -> list[str]:
     return [name.strip() for name in (listed or "").splitlines() if name.strip()]
 
 
+def _push_remote(git: Git, name: str) -> str | None:
+    """The configured remote a plain ``git push`` of the Branch ``name`` reaches.
+
+    Git's own order: the Branch's ``pushRemote``, the Repository's
+    ``pushDefault``, the Branch's upstream remote, then ``origin``. A name
+    that is not a configured remote — ``.`` for a local upstream — is none.
+    """
+    for key in (
+        f"branch.{name}.pushRemote",
+        "remote.pushDefault",
+        f"branch.{name}.remote",
+    ):
+        configured = (git.maybe("config", "--get", key) or "").strip()
+        if configured:
+            break
+    else:
+        configured = "origin"
+    return configured if configured in _remotes(git) else None
+
+
 def _inspect_worktree(
     request: WorktreeCleanupRequest,
     git: Git,
@@ -317,19 +350,52 @@ def _inspect_worktree(
         )
     ]
     if branch is not None:
-        refs = RefIndex.read(located.git)
-        if f"{LOCAL_REF_PREFIX}{branch}" in refs.commits:
-            targets.append(
-                _local_branch_target(
-                    located.git,
-                    branch,
-                    refs,
-                    refs.integration_ref(),
-                    checked_out_at=path if blockers else None,
-                    requires=identity,
-                )
-            )
+        targets.extend(
+            _attached_branch_targets(located, branch, identity, blocked=bool(blockers))
+        )
     return _preview("worktree", str(path), located.anchor, targets, ignored, ())
+
+
+def _attached_branch_targets(
+    located: LocatedWorktree, branch: str, worktree: str, *, blocked: bool
+) -> list[CleanupTarget]:
+    """The Worktree's Branch, locally and at its push remote, each after the Worktree.
+
+    Only the Branch of the same name at the remote a plain ``git push``
+    reaches is offered: finishing a piece of work removes what was pushed
+    for it, while a Branch at any other remote — or an upstream of another
+    name, which may be shared — stays the Branches pane's to delete.
+    """
+    git = located.git
+    refs = RefIndex.read(git)
+    integration_ref = refs.integration_ref()
+    targets: list[CleanupTarget] = []
+    if f"{LOCAL_REF_PREFIX}{branch}" in refs.commits:
+        targets.append(
+            _local_branch_target(
+                git,
+                branch,
+                refs,
+                integration_ref,
+                checked_out_at=located.path if blocked else None,
+                requires=worktree,
+            )
+        )
+    remote = _push_remote(git, branch)
+    if remote is not None and f"{REMOTE_REF_PREFIX}{remote}/{branch}" in refs.commits:
+        targets.append(
+            _remote_branch_target(
+                git,
+                branch,
+                remote,
+                refs,
+                integration_ref,
+                last_fetched_at(located.anchor, git),
+                requires=worktree,
+                checked_out_at=located.path if blocked else None,
+            )
+        )
+    return targets
 
 
 def _worktree_blockers(

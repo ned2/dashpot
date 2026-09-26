@@ -30,6 +30,7 @@ from dashpot.repository.cleanup import (
     CleanupRequest,
     CleanupTarget,
     WorktreeCleanupRequest,
+    default_choices,
     describe_cleanup_preview,
     describe_cleanup_report,
     inspect_cleanup,
@@ -468,6 +469,108 @@ def test_an_integrated_branch_under_a_blocked_worktree_stays_checked_out(
     assert blocker.detail == f"checked out at {worktree}, whose removal is blocked"
     assert local.requires == tree.identity
     assert preview.selectable == ()
+
+
+def pushed_worktree(tmp_path: Path) -> tuple[Path, Path, str]:
+    """An integrated ``feat`` in a linked Worktree, also at ``origin`` and ``upstream``."""
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    track(root, "feat", tip)
+    git(root, "remote", "add", "upstream", str(tmp_path / "upstream.git"))
+    track(root, "feat", tip, remote="upstream")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "feat")
+    return root, worktree, tip
+
+
+def test_a_worktree_offers_its_branch_at_the_push_remote_only(tmp_path: Path) -> None:
+    root, worktree, tip = pushed_worktree(tmp_path)
+
+    preview = preview_worktree(root, worktree)
+
+    tree, local, pushed = preview.targets
+    # Nothing configures where feat is pushed, so Git's answer is origin; the
+    # same Branch at upstream stays the Branches pane's to delete.
+    assert pushed.identity == "remote:origin:refs/heads/feat"
+    assert pushed.label == "Branch at origin"
+    assert pushed.expected == tip
+    assert pushed.requires == tree.identity
+    assert pushed.available is True
+    assert default_choices(preview) == (local.identity, pushed.identity)
+
+
+@pytest.mark.parametrize(
+    ("config", "remote"),
+    [
+        ({"branch.feat.pushRemote": "upstream"}, "upstream"),
+        ({"remote.pushDefault": "upstream"}, "upstream"),
+        ({"branch.feat.remote": "upstream"}, "upstream"),
+        (
+            {"branch.feat.pushRemote": "origin", "remote.pushDefault": "upstream"},
+            "origin",
+        ),
+        ({"branch.feat.remote": "."}, None),
+        ({"remote.pushDefault": "gone"}, None),
+    ],
+)
+def test_the_push_remote_follows_gits_order(
+    tmp_path: Path, config: dict[str, str], remote: str | None
+) -> None:
+    root, worktree, _tip = pushed_worktree(tmp_path)
+    for key, value in config.items():
+        git(root, "config", key, value)
+
+    preview = preview_worktree(root, worktree)
+
+    offered = [
+        target.remote for target in preview.targets if target.kind == "remote-branch"
+    ]
+    assert offered == ([remote] if remote else [])
+
+
+def test_a_branch_never_fetched_at_its_push_remote_offers_no_remote_target(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "feat")
+
+    preview = preview_worktree(root, worktree)
+
+    assert [target.kind for target in preview.targets] == ["worktree", "local-branch"]
+
+
+def test_a_remote_branch_off_the_local_tip_is_offered_but_not_by_default(
+    tmp_path: Path,
+) -> None:
+    root, worktree, tip = pushed_worktree(tmp_path)
+    # Someone moved origin's feat to an older, still integrated commit.
+    track(root, "feat", f"{tip}~1")
+
+    preview = preview_worktree(root, worktree)
+
+    _tree, local, pushed = preview.targets
+    assert pushed.available is True
+    assert pushed.expected != local.expected
+    assert default_choices(preview) == (local.identity,)
+    # A Branch preview is a general editor: nothing starts selected there.
+    assert default_choices(preview_branch(root, "feat")) == ()
+
+
+def test_a_blocked_worktree_holds_its_remote_branch_too(tmp_path: Path) -> None:
+    root, worktree, _tip = pushed_worktree(tmp_path)
+    (worktree / "scratch.txt").write_text("")
+
+    preview = preview_worktree(root, worktree)
+
+    tree, local, pushed = preview.targets
+    assert kinds(tree) == {"dirty"}
+    assert kinds(local) == kinds(pushed) == {"checked-out"}
+    assert preview.selectable == ()
+    assert default_choices(preview) == ()
 
 
 def test_protected_and_main_worktrees_are_never_removable(tmp_path: Path) -> None:
@@ -1051,6 +1154,38 @@ def test_removing_a_worktree_then_its_branch(tmp_path: Path) -> None:
     assert not worktree.exists()
     assert git(root, "for-each-ref", "refs/heads/feat") == ""
     assert len(git(root, "worktree", "list", "--porcelain").split("\n\n")) == 1
+
+
+def test_removing_a_worktree_finishes_its_branch_at_the_remote_first(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    bare = serve(tmp_path, root, "feat")
+    git(root, "fetch", "-q", "origin")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+
+    # The defaults name only the optional targets; the Worktree is the subject.
+    tree = preview.targets[0].identity
+    report = perform_cleanup(
+        confirm(request, preview, tree, *default_choices(preview), delete_ignored=True)
+    )
+
+    assert report.succeeded is True
+    assert [result.kind for result in report.results] == [
+        "remote-branch",
+        "worktree",
+        "local-branch",
+    ]
+    assert git(bare, "for-each-ref", "refs/heads/feat") == ""
+    assert (
+        git(root, "for-each-ref", "refs/remotes/origin/feat", "refs/heads/feat") == ""
+    )
+    assert not worktree.exists()
+    assert git(root, "rev-parse", "main") == tip
 
 
 def test_a_refused_removal_leaves_the_branch_unattempted(tmp_path: Path) -> None:

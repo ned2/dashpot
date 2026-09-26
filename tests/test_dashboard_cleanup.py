@@ -14,7 +14,7 @@ from typing import Literal
 
 import pytest
 from textual.pilot import Pilot
-from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
+from textual.widgets import Button, Collapsible, Footer, Static
 from textual.widgets._footer import FooterKey
 
 import factories
@@ -48,7 +48,12 @@ from dashpot.repository.cleanup import (
 )
 from dashpot.repository.fetch import FetchReport
 from dashpot.ui.app import DashpotApp
-from dashpot.ui.cleanup_view import CleanupReportScreen, CleanupScreen
+from dashpot.ui.cleanup_view import (
+    FETCH_HINT,
+    CleanupReportScreen,
+    CleanupScreen,
+    blocker_summary,
+)
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.list_pane import ListPane
 from helpers import wait_until
@@ -311,6 +316,14 @@ def problem_text(app: DashpotApp) -> str:
     return str(cleanup_screen(app).query_one("#cleanup-problem", Static).render())
 
 
+def callout_text(app: DashpotApp) -> str:
+    """The confirmation callout as a person reads it, or "" while it is hidden."""
+    callout = cleanup_screen(app).query_one("#cleanup-callout")
+    if not callout.display:
+        return ""
+    return "\n".join(str(one.render()) for one in callout.query(Static))
+
+
 BRANCH_KEY = row_key("branch", PROJECT, "feat")
 WORKTREE_KEY = row_key("worktree", PROJECT, WORKTREE)
 
@@ -486,7 +499,9 @@ async def test_a_changed_preview_reopens_for_another_confirmation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> None:
+async def test_a_worktree_starts_with_its_branch_and_discloses_ignored_content() -> (
+    None
+):
     cleaner = FakeCleaner(
         WORKTREE_PREVIEW,
         reports=[report(WORKTREE_PREVIEW, deleted(TREE), deleted(ATTACHED))],
@@ -511,24 +526,24 @@ async def test_a_worktree_needs_its_acknowledgement_and_carries_its_branch() -> 
         shown = details(app)
         assert "Commits integrated into origin/main." in shown
         assert "Requires removing Worktree." in shown
-        acknowledgement = screen.query_one("#cleanup-ignored", Checkbox)
-        assert str(acknowledgement.label) == ("Delete ignored content too")
-        assert acknowledgement.render().plain.startswith("▐ ▌")
+        assert "Includes 2 ignored paths and their contents." in shown
+        # No tick stands between a person and the ignored content: the
+        # dialog discloses it instead.
+        assert not screen.query("#cleanup-ignored")
 
-        # The Branch is additional to the fixed Worktree subject.
-        targets[ATTACHED.identity].value = True
-        await pilot.pause()
-        assert confirm_button(app).variant == "default"
+        # The Branch is additional to the fixed Worktree subject, and a
+        # Worktree and its Branch are normally finished together.
         assert targets[TREE.identity] is None
+        assert marks({ATTACHED.identity: targets[ATTACHED.identity]}) == ["▐X▌"]
         assert screen.selected() == (TREE.identity, ATTACHED.identity)
-        assert problem_text(app) == (
-            "Acknowledge removal of 2 ignored paths and their contents."
-        )
-
-        acknowledgement.value = True
-        await pilot.pause()
+        assert problem_text(app) == ""
         assert confirm_button(app).variant == "error"
-        assert acknowledgement.render().plain.startswith("▐X▌")
+        assert str(confirm_button(app).label) == "Remove Worktree"
+        assert callout_text(app) == (
+            f"Confirming will:\nremove Worktree {WORKTREE}\n"
+            "  with 2 ignored paths and their contents: .venv/, .dashpot/state/\n"
+            "delete local Branch feat"
+        )
 
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: app.cleanups.cleaning == {})
@@ -771,28 +786,19 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
         await pilot.pause()
 
-        # The list has focus, and the reason and the buttons are on screen
+        # The first choice has focus, never the button, so a stray Enter
+        # after x confirms nothing; the reason and the buttons are on screen
         # however much the preview above them scrolls.
         assert app.focused is not None
         assert app.focused.id == "cleanup-target-1"
         for selector in ("#cleanup-problem", "#cleanup-cancel", "#cleanup-confirm"):
             region = app.screen.query_one(selector).region
             assert region.right <= 80 and region.bottom <= 24, selector
-        assert "Acknowledge removal" in problem_text(app)
-
-        await pilot.press("space")  # Include the optional Branch.
-        await pilot.pause()
-        assert problem_text(app) == (
-            "Acknowledge removal of 2 ignored paths and their contents."
-        )
-        await pilot.press("tab", "tab")
-        assert app.focused.id == "cleanup-ignored"
-        await pilot.press("space")
-        await pilot.pause()
-        assert confirm_button(app).variant == "error"
         assert problem_text(app) == ""
+        assert confirm_button(app).variant == "error"
 
-        await pilot.press("tab", "tab")  # Cancel, then Delete selected
+        # The evidence disclosure, then Cancel, then the confirm button.
+        await pilot.press("tab", "tab", "tab")
         assert app.focused.id == "cleanup-confirm"
         await pilot.press("enter")
         await wait_until(lambda: app.cleanups.cleaning == {})
@@ -811,73 +817,139 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
 @pytest.mark.asyncio
 async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() -> None:
     """The button always answers: a premature press deletes nothing and says why."""
-    cleaner = FakeCleaner(
-        WORKTREE_PREVIEW,
-        reports=[report(WORKTREE_PREVIEW, deleted(TREE), deleted(ATTACHED))],
+    blocked_local = LOCAL.model_copy(
+        update={
+            "blockers": (
+                CleanupBlocker(kind="checked-out", detail="checked out at /elsewhere"),
+            )
+        }
     )
+    available_remote = REMOTE.model_copy(update={"blockers": ()})
+    shown = preview("branch", "feat", blocked_local, available_remote)
+    cleaner = FakeCleaner(shown, reports=[report(shown, deleted(available_remote))])
     app = dashboard_app(
         SequenceCollector(BEFORE, AFTER), refresh_seconds=0, cleaner=cleaner
     )
 
     async with app.run_test(size=(140, 50)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
+        await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
         await pilot.pause()
 
+        # No Branch preview starts with anything selected, and the callout
+        # stays hidden while confirming would delete nothing.
+        assert cleanup_screen(app).selected() == ()
+        assert callout_text(app) == ""
         assert confirm_button(app).disabled is False
         await pilot.click("#cleanup-confirm")
         await pilot.pause()
         assert isinstance(app.screen, CleanupScreen)
         assert cleaner.confirmations == []
-        assert toasts(app) == [
-            "Acknowledge removal of 2 ignored paths and their contents."
-        ]
+        assert toasts(app) == ["Select what to delete."]
         assert app.focused is not None
-        assert app.focused.id == "cleanup-ignored"
-
-        choices(app)[ATTACHED.identity].value = True
-        await pilot.click("#cleanup-confirm")
-        await pilot.pause()
-        assert cleaner.confirmations == []
-        assert toasts(app)[-1] == (
-            "Acknowledge removal of 2 ignored paths and their contents."
-        )
-        assert app.focused.id == "cleanup-ignored"
+        assert app.focused.id == "cleanup-target-1"
 
         await pilot.press("space")
         await pilot.pause()
         assert confirm_button(app).variant == "error"
+        assert str(confirm_button(app).label) == "Delete Branch"
+        assert callout_text(app) == "Confirming will:\ndelete Branch feat at origin"
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: app.cleanups.cleaning == {})
         assert cleaner.confirmations == [
             CleanupConfirmation(
-                WORKTREE_REQUEST,
-                "0123456789abcdef",
-                (TREE.identity, ATTACHED.identity),
-                delete_ignored=True,
+                BRANCH_REQUEST, "0123456789abcdef", (available_remote.identity,)
             )
         ]
-        assert toasts(app)[-1] == "Removed Worktree\nDeleted Local Branch"
-        assert not isinstance(app.screen, CleanupReportScreen)
+
+
+PUSHED = target(
+    "remote-branch",
+    "remote:origin:refs/heads/feat",
+    "Branch at origin",
+    ref="refs/remotes/origin/feat",
+    remote_name="origin",
+    requires=TREE.identity,
+)
 
 
 @pytest.mark.asyncio
-async def test_fixed_worktree_acknowledgement_is_independent_of_optional_branch():
+async def test_unticking_a_default_branch_retains_it_and_keeps_the_label():
+    shown = preview("worktree", WORKTREE, TREE, ATTACHED, PUSHED, ignored=(".venv/",))
     app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
-    async with app.run_test(size=(80, 24)) as pilot:
-        await app.push_screen(CleanupScreen(WORKTREE_REQUEST, WORKTREE_PREVIEW))
+    async with app.run_test(size=(120, 45)) as pilot:
+        confirmed: list[CleanupConfirmation | None] = []
+        await app.push_screen(
+            CleanupScreen(WORKTREE_REQUEST, shown), callback=confirmed.append
+        )
         await pilot.pause()
         screen = cleanup_screen(app)
-        acknowledgement = screen.query_one("#cleanup-ignored", Checkbox)
-        assert acknowledgement.display and not acknowledgement.value
         assert not screen.query("#cleanup-target-0")
-        acknowledgement.value = True
+        # One grouping label however many Branches follow the Worktree.
+        assert [
+            str(one.render())
+            for one in screen.query(".cleanup-summary")
+            if str(one.render()) == "Also remove"
+        ] == ["Also remove"]
+        assert screen.selected() == (
+            TREE.identity,
+            ATTACHED.identity,
+            PUSHED.identity,
+        )
+        assert callout_text(app).splitlines()[-2:] == [
+            "delete local Branch feat",
+            "delete Branch feat at origin",
+        ]
+
+        choices(app)[ATTACHED.identity].value = False
+        choices(app)[PUSHED.identity].value = False
         await pilot.pause()
-        await pilot.press("space")
-        assert screen.ignored_acknowledged()
-        assert TREE.identity in screen.selected()
+        assert screen.selected() == (TREE.identity,)
+        assert str(confirm_button(app).label) == "Remove Worktree"
+        assert callout_text(app) == (
+            f"Confirming will:\nremove Worktree {WORKTREE}\n"
+            "  with 1 ignored path and its contents: .venv/"
+        )
+        await pilot.click("#cleanup-confirm")
+        await pilot.pause()
+        # Removing the Worktree is itself the acknowledgement of its content.
+        assert confirmed == [
+            CleanupConfirmation(
+                WORKTREE_REQUEST,
+                "0123456789abcdef",
+                (TREE.identity,),
+                delete_ignored=True,
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_a_remote_branch_away_from_the_local_tip_starts_unticked():
+    moved = PUSHED.model_copy(update={"expected": "f" * 40})
+    shown = preview("worktree", WORKTREE, TREE, ATTACHED, moved)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
+    async with app.run_test(size=(120, 45)) as pilot:
+        await app.push_screen(CleanupScreen(WORKTREE_REQUEST, shown))
+        await pilot.pause()
+        screen = cleanup_screen(app)
+        assert screen.selected() == (TREE.identity, ATTACHED.identity)
+        assert marks(
+            {one: choices(app)[one] for one in (ATTACHED.identity, moved.identity)}
+        ) == ["▐X▌", "▐ ▌"]
+
+
+@pytest.mark.asyncio
+async def test_a_worktree_without_choices_focuses_the_body_not_the_button():
+    shown = preview("worktree", WORKTREE, TREE, ignored=(".venv/",))
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
+    async with app.run_test(size=(120, 45)) as pilot:
+        await app.push_screen(CleanupScreen(WORKTREE_REQUEST, shown))
+        await pilot.pause()
+        assert app.focused is not None
+        assert app.focused.id == "cleanup-body"
+        assert confirm_button(app).variant == "error"
 
 
 @pytest.mark.asyncio
@@ -911,7 +983,11 @@ async def test_blocked_choices_keep_all_reasons_and_keyboard_access_to_full_evid
         screen = cleanup_screen(app)
         reasons = [str(one.render()) for one in screen.query(".cleanup-blocker")]
         assert "Checked out in a Worktree; remove that Worktree first." in reasons
-        assert "3 commits not integrated into origin/main." in reasons
+        # Judged against a Remote-Tracking ref, the block may only be stale.
+        assert (
+            "3 commits not integrated into origin/main. "
+            "If it has since merged, press f to fetch and check again."
+        ) in reasons
         assert app.focused is not None
         assert app.focused.id == "cleanup-cancel"
         assert not screen.query("#cleanup-confirm")
@@ -996,11 +1072,40 @@ async def test_content_integration_and_changed_preview_keep_consequences_explici
         assert "Nothing was deleted. Select and confirm again." in str(
             screen.query_one("#cleanup-help", Static).render()
         )
+        # A preview reopened because the state changed never re-arms the
+        # default Branch choice: the person selects and confirms again.
         assert screen.selected() == (TREE.identity,)
-        assert not screen.ignored_acknowledged()
         await pilot.press("space", "down")
         await pilot.pause()
         branch_summary = screen.targets()[1].query_one(".cleanup-summary", Static)
         body = screen.query_one("#cleanup-body")
         assert branch_summary.region.bottom <= body.region.bottom
         assert branch_summary.region.y >= body.region.y
+
+
+@pytest.mark.parametrize(
+    ("kind", "integration_ref", "hinted"),
+    [
+        ("unintegrated", "refs/remotes/origin/main", True),
+        ("unknown-integration", "refs/remotes/origin/main", True),
+        # A local Integration Branch is not stale for want of a fetch.
+        ("unintegrated", "refs/heads/main", False),
+        ("unknown-integration", None, False),
+        ("dirty", "refs/remotes/origin/main", False),
+    ],
+)
+def test_only_an_integration_block_against_a_remote_ref_hints_at_fetching(
+    kind, integration_ref, hinted
+):
+    blocker = CleanupBlocker(kind=kind, detail="counted")
+    blocked = LOCAL.model_copy(
+        update={
+            "blockers": (blocker,),
+            "integration": IntegrationFact(
+                integration_ref=integration_ref,
+                unintegrated_commits=2,
+                content_integrated=False,
+            ),
+        }
+    )
+    assert blocker_summary(blocker, blocked).endswith(FETCH_HINT) is hinted

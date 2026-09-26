@@ -98,7 +98,7 @@ class CleanupPreview(PublishedModel):
     ``fingerprint`` summarises every observed fact the targets rest on;
     confirmation compares it with a fresh preview's and performs nothing when
     they differ. ``ignored`` lists the ignored paths a Worktree removal would
-    delete, which a person acknowledges separately.
+    delete, which a confirmation covers only with ``delete_ignored``.
     """
 
     kind: Literal["branch", "worktree"]
