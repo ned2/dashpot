@@ -43,17 +43,19 @@ class CachedQuerySource(ABC):
         token = decode_continuation(request.cursor) if request.cursor else None
         attempted = self.clock()
         key: tuple[str, str | None] | None = None
+        sent: SourceContext | None = None
         context: SourceContext | None = None
         try:
+            sent = self.request_context()
             # Only a continuation must know its context before it is sent;
             # every other request is verified in the response it gets back.
-            context = self.observe_context() if token else self.request_context()
+            context = self.observe_continuation(sent) if token else sent
             verify_continuation(token, context, request)
             page = self.fetch_page(context, request, token, attempted)
         except InvalidContinuation:
             raise
         except QUERY_OBSERVATION_FAILURES as exc:
-            known = self._failed_context(context)
+            known = self._failed_context(context or sent)
             if known is not None:
                 key = (context_fingerprint(known, request), request.cursor)
             previous = self._pages.get(key) if key else None
@@ -198,16 +200,20 @@ class CachedQuerySource(ABC):
     def supports_sort(self, request: QueryRequest, column: str) -> bool: ...
 
     @abstractmethod
-    def observe_context(self) -> SourceContext:
-        """Observe the source context before sending a request that depends on it."""
-
     def request_context(self) -> SourceContext:
-        """Begin a request without a continuation, returning the context it is sent under.
+        """Begin one request, returning the context it is sent under.
 
         A source whose responses carry their own context starts from what it
-        last observed and verifies the response; the default observes first.
+        last observed and verifies each response; a local source observes it.
         """
-        return self.observe_context()
+
+    def observe_continuation(self, context: SourceContext) -> SourceContext:
+        """Observe the context a continuation is bound to before it is sent.
+
+        The default is ``context`` itself, for a source whose request context
+        is already an observation.
+        """
+        return context
 
     def last_known_context(self) -> SourceContext | None:
         """The context a response most recently answered for, when one has.

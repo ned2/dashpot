@@ -207,11 +207,6 @@ class GitHubQuerySource(CachedQuerySource):
         return column in _COLUMN_SORTS and not explicit_sort(request.query)
 
     @override
-    def observe_context(self) -> SourceContext:
-        """Observe Repository and principal identities before interpreting continuation."""
-        return self._observe(self.request_context())
-
-    @override
     def request_context(self) -> SourceContext:
         """Start a request under the last observed context and the current configuration.
 
@@ -223,6 +218,11 @@ class GitHubQuerySource(CachedQuerySource):
         return (self._last_context or self.context).model_copy(
             update={"configuration": load_project_config(self.root).model_dump_json()}
         )
+
+    @override
+    def observe_continuation(self, context: SourceContext) -> SourceContext:
+        """Observe Repository and principal identities before interpreting continuation."""
+        return self._observe(context)
 
     @override
     def last_known_context(self) -> SourceContext | None:
@@ -258,6 +258,11 @@ class GitHubQuerySource(CachedQuerySource):
         if value.repository.id != self.context.repository_id:
             raise ValueError("GitHub answered a different Repository Identity")
         if principal is not None and value.viewer.id != principal:
+            # The refused answer still says whom GitHub now answers for, so a
+            # failure is never shown the previous principal's observation.
+            self._last_context = context.model_copy(
+                update={"principal": value.viewer.id}
+            )
             raise ValueError(
                 "GitHub answered for a different principal; restart from page one"
             )
@@ -469,6 +474,7 @@ class GitHubQuerySource(CachedQuerySource):
         without it, the first batch's answer supplies the principal and every
         later batch must match it.
         """
+        expected = principal
         results: list[ResolvedIssue] = []
         completed: dict[str, Mapping[str, Any]] = {}
         for start in range(0, len(identities), 24):
@@ -479,8 +485,8 @@ class GitHubQuerySource(CachedQuerySource):
                     _IDENTITIES,
                     {"repositoryId": self.context.repository_id, "ids": list(batch)},
                 )
-                context = self._verify(data, context, principal=principal)
-                principal = context.principal
+                context = self._verify(data, context, principal=expected)
+                expected = context.principal
                 attributed: dict[int, list[Mapping[str, Any]]] = {}
                 for error in errors:
                     path = error.get("path")

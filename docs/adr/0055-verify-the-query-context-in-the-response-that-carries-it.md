@@ -44,14 +44,17 @@ its own data at no extra cost, and be verified in its response.
   continuation searches under the name its own context observation reported;
   only a rename between that observation and its search restarts it from
   page one.
-- The Project configuration is re-read before every request, locally, so an
-  edited configuration is still refused before anything is sent.
+- The Project configuration is re-read before every request, locally, so a
+  Query Page under an edited configuration is still refused before anything
+  is sent.
 - A failed request proves nothing about the context: the last good page,
   Project Totals or Resolved Issue is found under the last context a response
   reported, with the configuration the request was sent under, and shown as
   stale. When a response reported a new principal before a later part of the
-  same request failed, that is the new principal, so the previous principal's
-  observation is not shown.
+  same request failed, or was refused for answering for one, that is the new
+  principal, so the previous principal's observation is not shown. A
+  continuation whose own context observation fails is looked up under the
+  configuration it was about to be sent under.
 
 ## Consequences
 

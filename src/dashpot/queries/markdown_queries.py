@@ -67,7 +67,7 @@ class MarkdownQuerySource(CachedQuerySource):
         return is_issue_sort_column(column) and parse_search(request.query).sort is None
 
     @override
-    def observe_context(self) -> SourceContext:
+    def request_context(self) -> SourceContext:
         """Read paths and contents once for both revision and complete Profiles."""
         if not self.path.is_relative_to(self.root) or not self.path.exists():
             raise ValueError(

@@ -813,3 +813,42 @@ def test_identities_failing_after_a_new_principal_never_show_the_old_one(tmp_pat
     results = source.resolve_identities(identities)
     assert all(result.context.principal == "U_2" for result in results[:24])
     assert results[24].status == "unavailable" and results[24].issue is None
+
+
+def test_refused_principal_never_leaves_the_old_page_stale(tmp_path):
+    source, _ = github(
+        tmp_path,
+        context(),
+        search(hit(1)),
+        batch(node(1)),
+        search(hit(1)),
+        batch(node(1), principal="U_2"),
+    )
+    source.query_page(QueryRequest())
+    page = source.query_page(QueryRequest())
+    assert page.status == "unavailable" and not page.issues
+
+
+def test_continuation_under_an_edited_configuration_keeps_no_old_page(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(),
+        search(hit(2), count=2),
+        batch(node(2)),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    later = request.model_copy(update={"cursor": first.next_cursor})
+    assert source.query_page(later).status == "fresh"
+    write_project_config(
+        tmp_path,
+        project_id=PROJECT_ID,
+        repository_id=REPOSITORY_ID,
+        issue_source={"kind": "github"},
+        display_label="Edited",
+    )
+    runner.results = iter([OSError("network down")])
+    assert source.query_page(later).status == "unavailable"
