@@ -142,10 +142,27 @@ Dashpot's camelCase aliases with these names explicitly.
 | `dashpot.subcommand` | `process.start`, `process.continued` | `work start`, `observe`, … without arguments |
 | `process.exit.code`, `dashpot.duration_seconds` | `process.end` | Exit status and how long the process ran |
 | `dashpot.event_level.previous`, `dashpot.event_level.current` | `level.changed` | The change of level in force |
-| `error.type` | `event_log.write_failed`, a failed `span` | errno name or error class |
+| `error.type` | `event_log.write_failed`, a failed `span` | The error's code (a Diagnostic code such as `github-rate-limit`, or `command-not-found`, `command-timed-out`, `command-interrupted`), else its errno name or class |
 | `dashpot.span.name`, `span_id`, `parent_span_id` | `span` | What the span timed, its ID and its parent's |
 | `otel.status_code` | `span` | `OK` or `ERROR` |
-| `attributes` | `span` | The span's own attributes, such as `process.executable.name`, `dashpot.command.subcommand` and `process.exit.code` for a command |
+| `attributes` | `span` | The span's own attributes, by the span's kind, below |
+
+A span's `attributes` object holds the fields of its kind, each only when
+known:
+
+| `dashpot.span.name` | Attributes |
+|---|---|
+| `command` | `process.executable.name` (the program's base name), `dashpot.command.subcommand` (`worktree list`, `api graphql DashpotQueryPage`), `process.exit.code` |
+| `github.request` | `dashpot.github.api` (`graphql` or `rest`), `graphql.operation.name`, and the response's own rate-limit reading: `dashpot.github.rate_limit.cost`, `.limit`, `.remaining`, `.reset_at` |
+| `refresh` | `dashpot.refresh.trigger`: `initial`, `manual`, `local` (the local Refresh Period), `github` (the GitHub-query period), `fetch`, `cleanup` |
+| `observation` | `dashpot.observation.kind`, `dashpot.project.id`, `dashpot.key.outcome` |
+| `query` | `dashpot.query.key` (`issues`, `pull-requests`, `identities`), `dashpot.key.outcome` |
+
+A key's outcome is `landed`; `superseded` when a newer request's answer
+replaced it; `skipped` when a timer tick found the key still running; or
+`dropped` when a newer request replaced it while it waited. A skipped or
+dropped key is a span of no duration under the refresh that asked for it, so
+Runtime Stats counts them by trigger.
 
 A span is written once, when it ends, stamped with the time it started. The
 reader is tolerant: it ignores fields a newer Dashpot added and skips a line
@@ -162,7 +179,7 @@ the file format is not.
 |---|---|---|
 | `off` | nothing; the dashboard's in-memory buffer still fills | |
 | `standard` | `process.start` and `process.end`; hook and management-command outcomes; Agent Session and Agent Run changes; Diagnostics appearing and clearing; level changes; every GitHub request span; every failed span | ✔ |
-| `full` | plus every local observation and command span | for development |
+| `full` | plus every refresh, observation, query and command span | for development |
 
 - **Each event carries its level**, so a reader can filter by it.
 - **Counting rule.** Count only what is always written at the level in
@@ -176,12 +193,15 @@ the file format is not.
   running dashboard that lasts for that run and never rewrites
   `config.toml`. There is no command-line flag. A settings file that fails
   to load leaves `standard`, silently in hooks and commands.
-- **Volume.** An event is about 240 bytes. At `full`, about 45 MB a day on
-  Dashpot's own Repository at the 15-second local period, growing with
-  Branches. At `standard` the bulk is GitHub request spans: about 20 MB a day
-  at #308's measured 14 requests per 15 seconds, and about 2 MB a day at the
-  roughly 5 requests per 60-second GitHub refresh the dashboard sends since
-  #303, #305 and #310 landed.
+- **Volume.** A GitHub request span is about 620 bytes on disk, a command
+  span about 460, and an observation, query or refresh span 360 to 460
+  ([measurements](#measurements)). At `standard` the bulk is GitHub request
+  spans: about 4.5 MB a day at the roughly 5 requests per 60-second GitHub
+  refresh the dashboard sends since #303, #305 and #310 landed, and about
+  50 MB a day at #308's earlier 14 requests per 15 seconds. At `full`, about
+  200 MB a day on Dashpot's own Repository with ten Worktrees at the
+  15-second local period, almost all of it command spans, growing with
+  Worktrees and Branches.
 
 ## Where the Event Log lives
 
@@ -252,13 +272,30 @@ the file format is not.
   directory only supplies the default. An autouse fixture sets
   `DASHPOT_EVENT_LEVEL=off` for every test, which reaches the processes a
   test starts too, and Event Log tests pass their own directory.
-- **Instrumentation seams**, for
-  [#314](https://github.com/ned2/dashpot/issues/314): `run_command`, plus the
-  direct `ps` and `sysctl` calls in `sessions/processes.py` that bypass it;
-  `GitHubGateway`; the observation and query runners, with the 15-second
-  local and the GitHub-query refresh timers told apart; the hook publisher
-  and management commands; Agent Session and Agent Run changes; Diagnostic
-  transitions.
+- **Instrumentation seams.** [#314](https://github.com/ned2/dashpot/issues/314)
+  times these as spans. Commands: `run_command`, the direct `ps` and
+  `sysctl` calls in `sessions/processes.py` that bypass it, and the
+  Worktree opener's launch. A command exiting non-zero fails its span only
+  when its caller raises an error for that exit: `Git.text`, `Git.records`
+  and `merge-tree` (for any exit but a conflict's 1) declare one as a
+  `GitError`, `worktree add` as a `WorktreeCreateError`, and the opener as
+  a `WorktreeLaunchError`. A caller that reports the exit as an outcome
+  instead — a Remote Fetch's failed remote, a Cleanup's refusal — leaves
+  the span successful, with the exit status recorded. So does a `gh`
+  command whose failure `GitHubGateway` reads from the response body rather
+  than the exit: the failure is recorded on its `github.request` span, by
+  code. GitHub requests: each `GitHubGateway` request,
+  including each request of a `graphql_many` fan-out, with its own
+  rate-limit reading, and its `gh` command a child span. Refreshes: the
+  dashboard's first load, `r`, the two Refresh Period timers, a Remote Fetch
+  and a Cleanup each start a refresh span, and every observation and query
+  key it asks for is a child span that travels with the work — the ticket
+  in flight, the pending rerun, the queued request, and a follow-up key a
+  landed observation asks for. A query no refresh asked for — a page a
+  person moved to, the Issues a selection resolves — is a root span, as is
+  a command or GitHub request outside any span. Commands and hooks record
+  the commands and GitHub requests they run into their own Event Log. A span
+  still open when its process exits is never written.
 - **Linux and macOS only**, as the package classifiers say.
 
 ## Reading
@@ -283,6 +320,14 @@ the file format is not.
   Dashpot's own Repository with two Worktrees): about 33 commands per
   15-second refresh, roughly 132 a minute
   ([#317](https://github.com/ned2/dashpot/issues/317) tracks the cost).
+- **Span volume** (2026-09-27, #314, a headless dashboard on Dashpot's own
+  Repository with ten Worktrees at `full` for 186 seconds, default periods):
+  950 lines, 436 KB. 23 GitHub request spans averaged 619 bytes, 858
+  command spans 456 (about 66 commands per local refresh), 39 observation
+  spans 462, 12 query spans 423 and 16 refresh spans 363. That is about
+  200 MB a day at `full`; at `standard` the GitHub request spans alone are
+  about 14 KB in the same time — 23 requests, from the first load and three
+  GitHub refreshes — or about 4.5 MB a day at 5 requests a minute.
 - **GitHub spend** (2026-09-26, process sampling, recorded in #308): 14
   requests per 15 seconds then; about 5 per 60-second GitHub refresh after
   #303, #305 and #310.

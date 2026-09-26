@@ -16,15 +16,20 @@ from dashpot.core.runtime_events import (
     CommandAttributes,
     EventLogWriteFailed,
     EventModel,
+    GitHubRequestAttributes,
     LevelChanged,
+    ObservationAttributes,
     ProcessEnd,
     ProcessIdentity,
     ProcessStart,
+    QueryAttributes,
+    RefreshAttributes,
     RuntimeEvent,
     SpanAttributes,
     SpanEnded,
     is_recorded,
     read_runtime_event,
+    span_attributes,
 )
 
 RUN = "0123456789abcdef0123456789abcdef"
@@ -111,8 +116,48 @@ def test_an_event_is_one_flat_line_named_by_otel_conventions() -> None:
             status="ERROR",
             error_type="CommandError",
         ),
+        SpanEnded(
+            span_name="github.request",
+            span_id=SPAN,
+            duration_seconds=0.5,
+            status="OK",
+            attributes=GitHubRequestAttributes(
+                api="graphql",
+                operation="DashpotQueryPage",
+                cost=1,
+                limit=5000,
+                remaining=4999,
+                reset_at=NOW,
+            ),
+        ),
+        SpanEnded(
+            span_name="refresh",
+            span_id=SPAN,
+            duration_seconds=1,
+            status="OK",
+            attributes=RefreshAttributes(trigger="github"),
+        ),
+        SpanEnded(
+            span_name="observation",
+            span_id=SPAN,
+            parent_span_id="f" * 16,
+            duration_seconds=0.1,
+            status="OK",
+            attributes=ObservationAttributes(
+                kind="pull-requests", project_id="P_1", outcome="superseded"
+            ),
+        ),
+        SpanEnded(
+            span_name="query",
+            span_id=SPAN,
+            duration_seconds=0,
+            status="OK",
+            attributes=QueryAttributes(key="identities", outcome="dropped"),
+        ),
     ],
-    ids=lambda body: body.name,
+    ids=lambda body: (
+        f"{body.name}:{body.span_name}" if isinstance(body, SpanEnded) else body.name
+    ),
 )
 def test_every_event_reads_back_as_written(body: runtime_events.EventBody) -> None:
     written = event(body)
@@ -215,6 +260,26 @@ def test_a_command_is_recorded_by_program_and_subcommand_never_its_arguments() -
         CommandAttributes(program="git", subcommand="log --format=%s -1 main")
     with pytest.raises(ValidationError):
         CommandAttributes(program="/usr/bin/git")
+
+
+def test_a_github_request_is_recorded_by_its_operation_never_its_query() -> None:
+    with pytest.raises(ValidationError):
+        GitHubRequestAttributes(api="graphql", operation="query { viewer { login } }")
+    with pytest.raises(ValidationError):
+        GitHubRequestAttributes(api="graphql", cost=-1)
+
+
+def test_span_attributes_leave_out_a_value_that_is_not_an_identifier() -> None:
+    assert span_attributes(
+        GitHubRequestAttributes,
+        api="graphql",
+        operation="query { viewer }",
+        cost=True,
+        remaining=12,
+        reset_at=None,
+    ) == GitHubRequestAttributes(api="graphql", remaining=12)
+    # Without the value the kind requires there is nothing to record.
+    assert span_attributes(GitHubRequestAttributes, api="soap") is None
 
 
 def test_a_span_names_an_error_exactly_when_it_failed() -> None:

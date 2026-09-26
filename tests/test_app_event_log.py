@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from unittest import mock
@@ -28,6 +29,8 @@ from dashpot.core.runtime_events import (
     LevelChanged,
     ProcessIdentity,
     ProcessStart,
+    RefreshAttributes,
+    SpanEnded,
 )
 from dashpot.project.settings import default_settings_path
 from dashpot.ui.app import DashpotApp
@@ -145,7 +148,10 @@ async def test_a_dashboard_without_an_event_log_keeps_its_events_in_memory() -> 
         app.set_event_level("full")
 
     assert app.event_log.destination is None
-    assert [event.body.name for event in app.event_log.recent] == ["level.changed"]
+    names = [event.body.name for event in app.event_log.recent]
+    # The first load's spans, then the change of level.
+    assert set(names[:-1]) == {"span"}
+    assert names[-1] == "level.changed"
 
 
 @pytest.mark.asyncio
@@ -197,3 +203,52 @@ def test_a_failure_before_the_dashboard_runs_is_shown_when_it_does(
     (diagnostic,) = app.event_log_diagnostics
     assert "(EACCES)" in diagnostic.message
     assert str(tmp_path) in diagnostic.message
+
+
+def ended_spans(log: EventLog) -> list[SpanEnded]:
+    return [event.body for event in log.recent if isinstance(event.body, SpanEnded)]
+
+
+def refreshes(log: EventLog) -> dict[str, SpanEnded]:
+    return {
+        span.attributes.trigger: span
+        for span in ended_spans(log)
+        if isinstance(span.attributes, RefreshAttributes)
+    }
+
+
+def children(log: EventLog, parent: SpanEnded) -> set[str]:
+    return {
+        span.span_name
+        for span in ended_spans(log)
+        if span.parent_span_id == parent.span_id
+    }
+
+
+@pytest.mark.asyncio
+async def test_each_refresh_is_a_span_over_the_keys_it_asked_for(
+    tmp_path: Path,
+) -> None:
+    log = event_log(tmp_path, level="full")
+    app = app_over(log)
+
+    async with app.run_test(size=(100, 30)):
+        await wait_until(lambda: "initial" in refreshes(log))
+        app.timer_refresh()
+        await wait_until(lambda: "local" in refreshes(log))
+        app.timer_query_refresh()
+        await wait_until(lambda: "github" in refreshes(log))
+
+    ended = refreshes(log)
+    assert {span.parent_span_id for span in ended.values()} == {None}
+    # The first load observes the Workspace and queries the pages.
+    assert children(log, ended["initial"]) == {"observation", "query"}
+    assert children(log, ended["local"]) == {"observation"}
+    assert children(log, ended["github"]) == {"query"}
+    # On disk a refresh records its trigger and nothing else of its own.
+    (line,) = [
+        record
+        for record in map(json.loads, written_lines(log))
+        if record.get("span_id") == ended["initial"].span_id
+    ]
+    assert line["attributes"] == {"dashpot.refresh.trigger": "initial"}

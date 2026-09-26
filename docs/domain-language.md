@@ -555,8 +555,8 @@ for removing an Event Log, which is the Remote Fetch's word
 How much of what a process does its Event Log records: `off` writes
 nothing; `standard`, the default, writes process starts and ends, outcomes,
 Agent Session and Agent Run changes, Diagnostic transitions, level changes,
-every GitHub request span and every failed span; `full` adds every local
-observation and command span. The `event_level` setting chooses it,
+every GitHub request span and every failed span; `full` adds every
+refresh, observation, query and command span. The `event_level` setting chooses it,
 `DASHPOT_EVENT_LEVEL` overrides that, and a running dashboard may change its
 own for the rest of the run. Each Runtime Event carries the level it belongs
 to, and only what is always written at the level in force is counted.

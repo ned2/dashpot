@@ -5,11 +5,21 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import override
 
 import pytest
 from textual.message import Message
 
 from app_harness import issue, workspace_snapshot
+from dashpot.core.event_log import EventLog, Span, current_span
+from dashpot.core.git import GitError
+from dashpot.core.runtime_events import (
+    ObservationAttributes,
+    ProcessIdentity,
+    RefreshAttributes,
+    SpanEnded,
+)
 from dashpot.observation.keys import (
     ObservationKey,
     ObservationOutcome,
@@ -25,8 +35,10 @@ from dashpot.ui.observation_runner import (
     FailedObservation,
     ObservationRunner,
     PublishedObservation,
+    observation_attributes,
     refresh_pool_size,
 )
+from dashpot.ui.refresh_spans import Refresh
 
 ALPHA = ObservationKey("issues", "alpha")
 BETA = ObservationKey("issues", "beta")
@@ -423,3 +435,200 @@ def test_a_real_observation_is_published_into_the_store() -> None:
     assert store.checkpoint() == snapshot
     assert published.changes[0].revision == 1
     observations.shutdown()
+
+
+# --- Refresh spans ---------------------------------------------------------
+
+
+def span_log() -> EventLog:
+    """A dashboard's Event Log that keeps its spans in memory for a test to read."""
+    return EventLog(
+        None,
+        identity=ProcessIdentity(run_id="0" * 32, kind="dashboard"),
+        level="full",
+        facts=lambda: pytest.fail("no process.start is recorded"),
+        keep_recent=1000,
+    )
+
+
+def ended_spans(log: EventLog) -> list[SpanEnded]:
+    return [event.body for event in log.recent if isinstance(event.body, SpanEnded)]
+
+
+def refresh_of(log: EventLog, trigger: str) -> SpanEnded:
+    (refresh,) = [
+        span
+        for span in ended_spans(log)
+        if isinstance(span.attributes, RefreshAttributes)
+        and span.attributes.trigger == trigger
+    ]
+    return refresh
+
+
+def keys_of(log: EventLog, refresh: SpanEnded) -> list[tuple[str, str | None]]:
+    """Each key span under ``refresh``: its observation kind and what became of it."""
+    return [
+        (span.attributes.kind, span.attributes.outcome)
+        for span in ended_spans(log)
+        if span.parent_span_id == refresh.span_id
+        and isinstance(span.attributes, ObservationAttributes)
+    ]
+
+
+def spanned_runner(
+    scheduler: FakeScheduler | None = None,
+) -> tuple[ObservationRunner, FakeHost, EventLog]:
+    log = span_log()
+    host = FakeHost()
+    observations = ObservationRunner(
+        scheduler or FakeScheduler(), PagedObservationStore(), host, event_log=log
+    )
+    return observations, host, log
+
+
+def test_a_refresh_ends_when_the_last_key_it_asked_for_lands() -> None:
+    observations, host, log = spanned_runner()
+    observations.refresh("initial")
+    alpha, beta = host.pop_call(ALPHA), host.pop_call(BETA)
+
+    landed(observations, alpha.land())
+    assert ended_spans(log)[-1].span_name == "observation"
+    landed(observations, beta.land())
+
+    refresh = refresh_of(log, "initial")
+    assert refresh.parent_span_id is None
+    assert keys_of(log, refresh) == [("issues", "landed"), ("issues", "landed")]
+    alpha_span = ended_spans(log)[0]
+    assert alpha_span.attributes == ObservationAttributes(
+        kind="issues", project_id="alpha", outcome="landed"
+    )
+    # Local observation is written at ``full`` only.
+    assert {event.level for event in log.recent} == {"full"}
+
+
+def test_a_tick_whose_key_is_busy_is_skipped_under_its_own_refresh() -> None:
+    observations, host, log = spanned_runner()
+    observations.schedule([ALPHA], "manual")
+    running = host.pop_call(ALPHA)
+
+    observations.schedule([ALPHA], "timer")
+
+    # The tick asked for nothing it could run, so its refresh is over.
+    assert keys_of(log, refresh_of(log, "local")) == [("issues", "skipped")]
+    landed(observations, running.land())
+    assert keys_of(log, refresh_of(log, "manual")) == [("issues", "landed")]
+
+
+def test_a_rerun_keeps_the_refresh_that_asked_for_it() -> None:
+    observations, host, log = spanned_runner()
+    observations.schedule([ALPHA], "initial")
+    running = host.pop_call(ALPHA)
+    observations.schedule([ALPHA], "fetch")
+    observations.schedule([ALPHA], "manual")
+
+    landed(observations, running.land())
+    # The initial refresh is over, the manual one waits for its rerun.
+    assert keys_of(log, refresh_of(log, "initial")) == [("issues", "landed")]
+    # The rerun the fetch asked for was replaced by the press before it ran.
+    assert keys_of(log, refresh_of(log, "fetch")) == [("issues", "dropped")]
+    assert not [
+        span
+        for span in ended_spans(log)
+        if isinstance(span.attributes, RefreshAttributes)
+        and span.attributes.trigger == "manual"
+    ]
+
+    landed(observations, host.pop_call(ALPHA).land())
+    assert keys_of(log, refresh_of(log, "manual")) == [("issues", "landed")]
+
+
+def test_a_follow_up_keeps_the_refresh_of_the_observation_that_caused_it() -> None:
+    change = StoreChange(1, frozenset({"projects"}))
+    scheduler = FakeScheduler(
+        all_keys=(ALPHA,), follow_up_keys=(TARGETS,), changes_per_publish=[change]
+    )
+    observations, host, log = spanned_runner(scheduler)
+    observations.refresh("manual")
+
+    landed(observations, host.pop_call(ALPHA).land())
+    scheduler.changes_per_publish = []
+    landed(observations, host.pop_call(TARGETS).land())
+
+    assert keys_of(log, refresh_of(log, "manual")) == [
+        ("issues", "landed"),
+        ("targets", "landed"),
+    ]
+
+
+def test_a_superseded_observation_is_recorded_as_such() -> None:
+    observations, host, log = spanned_runner()
+    observations.schedule([ALPHA], "cleanup")
+    stale = host.pop_call(ALPHA)
+    observations.scheduler.request([ALPHA])
+
+    landed(observations, stale.land())
+
+    assert keys_of(log, refresh_of(log, "cleanup")) == [("issues", "superseded")]
+
+
+class FailingScheduler(FakeScheduler):
+    @override
+    def observe(self, ticket: ObservationTicket) -> ObservationOutcome:
+        raise GitError(["rev-parse", "HEAD"], Path("/repo"), stderr="fatal: secret")
+
+
+def test_an_observation_that_raises_fails_its_span_by_class_on_its_thread() -> None:
+    observations, host, log = spanned_runner(FailingScheduler(all_keys=(ALPHA,)))
+    observations.refresh("manual")
+    call = host.pop_call(ALPHA)
+    with pytest.raises(GitError) as raised:
+        call.operation()
+    message = call.on_done(None, str(raised.value))
+    assert isinstance(message, ObservationFinished)
+
+    landed(observations, message)
+
+    refresh = refresh_of(log, "manual")
+    (key,) = [
+        span for span in ended_spans(log) if span.parent_span_id == refresh.span_id
+    ]
+    assert (key.status, key.error_type) == ("ERROR", "GitError")
+    assert b"secret" not in b"".join(event.line() for event in log.recent)
+
+
+def test_the_work_of_a_key_runs_inside_its_span() -> None:
+    class Recording(FakeScheduler):
+        @override
+        def observe(self, ticket: ObservationTicket) -> ObservationOutcome:
+            seen.append(current_span())
+            return super().observe(ticket)
+
+    seen: list[Span | None] = []
+    observations, host, log = spanned_runner(Recording(all_keys=(ALPHA,)))
+    observations.refresh("manual")
+
+    landed(observations, host.pop_call(ALPHA).land())
+
+    (span,) = seen
+    assert span is not None and span.name == "observation"
+    assert span.parent_id == refresh_of(log, "manual").span_id
+
+
+def test_a_key_ended_twice_counts_once_for_its_refresh() -> None:
+    log = span_log()
+    refresh = Refresh(log, "manual")
+    first, second = (
+        refresh.key("observation", observation_attributes(key)) for key in (ALPHA, BETA)
+    )
+    refresh.seal()
+
+    first.end("landed")
+    first.end("dropped")
+
+    assert not refresh.ended
+    second.end("landed")
+    assert refresh.ended
+    assert keys_of(log, refresh_of(log, "manual")) == [
+        ("issues", "landed"),
+        ("issues", "landed"),
+    ]

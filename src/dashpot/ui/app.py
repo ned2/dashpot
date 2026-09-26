@@ -33,6 +33,7 @@ from ..core.event_log import (
     EventLog,
     carry_current_span,
     unrecorded_event_log,
+    use_event_log,
 )
 from ..core.model import Diagnostic
 from ..core.runtime_events import EventLevel
@@ -88,6 +89,7 @@ from .panes import (
     PaneContext,
     PaneSpec,
 )
+from .refresh_spans import Refresh, refresh_trigger
 from .session_table import SessionTable
 from .status_bar import PEER_ORDER, PeerName, PeerSelected, PeerStatusBar
 from .worktree_table import WorktreeTable
@@ -895,9 +897,14 @@ class DashpotApp(App[None]):
             self,
             indicator_seconds=refresh_indicator_seconds,
             running=self.running_commands,
+            event_log=self.event_log,
         )
         self.queries = PageRunner(
-            sources, self.store, self, running=self.running_commands
+            sources,
+            self.store,
+            self,
+            running=self.running_commands,
+            event_log=self.event_log,
         )
         # The two named mutations, each holding its Projects while it runs:
         # the Remote Fetch behind ``f`` and the Cleanup behind ``x``.
@@ -1060,9 +1067,12 @@ class DashpotApp(App[None]):
         # Fetches, Cleanups and Worktree launches share the observation pool;
         # each is one blocking call per Project, never enough to need its own.
         # The operation keeps the current span but runs in its thread's own
-        # context, where the command registry the thread adopted lives.
+        # context, where the command registry the thread adopted lives; its
+        # commands are recorded to this run's Event Log even outside a span.
+        with use_event_log(self.event_log):
+            carried = carry_current_span(operation)
         return await asyncio.get_running_loop().run_in_executor(
-            executor or self.observations.executor, carry_current_span(operation)
+            executor or self.observations.executor, carried
         )
 
     @property
@@ -1226,21 +1236,26 @@ class DashpotApp(App[None]):
 
     def timer_query_refresh(self) -> None:
         """One automatic query tick, repeating each displayed page."""
-        self.refresh_queries(restart=False)
+        refresh = Refresh(self.event_log, "github")
+        self.refresh_queries(restart=False, refresh=refresh)
+        refresh.seal()
 
     def request_refresh(self, trigger: ObservationTrigger) -> None:
         """Observe every key and re-query the pages, totals and identities.
 
         A manual refresh restarts each navigation at page one; any other
         trigger repeats the displayed page unless its query is still running.
+        One refresh span covers both, ending when the last of them lands.
         """
-        self.observations.refresh(trigger)
-        self.refresh_queries(restart=trigger == "manual")
+        refresh = Refresh(self.event_log, refresh_trigger(trigger))
+        self.observations.refresh(trigger, refresh=refresh)
+        self.refresh_queries(restart=trigger == "manual", refresh=refresh)
+        refresh.seal()
 
-    def refresh_queries(self, *, restart: bool) -> None:
-        """Re-query the pages, totals and identities."""
-        self.queries.refresh(restart=restart)
-        self.request_identities()
+    def refresh_queries(self, *, restart: bool, refresh: Refresh | None = None) -> None:
+        """Re-query the pages, totals and identities, as part of ``refresh``."""
+        self.queries.refresh(restart=restart, refresh=refresh)
+        self.request_identities(refresh=refresh)
         self.render_pages()
 
     def submit_page(self, kind: ResourceKind, **updates: str) -> None:
@@ -1248,11 +1263,15 @@ class DashpotApp(App[None]):
         self.queries.submit(kind, **updates)
         self.render_pages()
 
-    def request_identities(self, *, changed_only: bool = False) -> None:
+    def request_identities(
+        self, *, changed_only: bool = False, refresh: Refresh | None = None
+    ) -> None:
         """Resolve the bound Issues, the selected one and its direct relationships.
 
         With ``changed_only`` they are resolved only when they differ from the
         ones last requested; the same ones wait for the next query refresh.
+        Outside a refresh — a selection, a change of bound Issues — the
+        query's span is a root.
         """
         ids = [
             run.issue_id for run in self.store.checkpoint().agent_runs if run.issue_id
@@ -1276,7 +1295,7 @@ class DashpotApp(App[None]):
             return
         self.requested_identities = frozenset(requested)
         if requested:
-            self.queries.request_identities(requested)
+            self.queries.request_identities(requested, refresh=refresh)
 
     def on_page_finished(self, message: PageFinished) -> None:
         self.queries.finish_page(message)

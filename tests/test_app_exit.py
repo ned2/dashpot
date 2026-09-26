@@ -106,7 +106,11 @@ async def test_exit_interrupts_a_command_started_inside_a_span_off_the_loop() ->
         await asyncio.wait_for(task, 5)
     (outcome,) = outcomes
     assert str(outcome) == f"command interrupted at shutdown: {sys.executable}"
-    (ended,) = [event.body for event in log.recent if isinstance(event.body, SpanEnded)]
     (carried,) = seen
-    assert carried is not None and carried.span_id == ended.span_id
-    assert (ended.status, ended.error_type) == ("ERROR", "CommandError")
+    assert carried is not None
+    spans = [event.body for event in log.recent if isinstance(event.body, SpanEnded)]
+    (ended,) = [span for span in spans if span.span_id == carried.span_id]
+    (command,) = [span for span in spans if span.parent_span_id == carried.span_id]
+    # The interruption fails both spans by its code, never by its message.
+    assert (ended.status, ended.error_type) == ("ERROR", "command-interrupted")
+    assert (command.status, command.error_type) == ("ERROR", "command-interrupted")

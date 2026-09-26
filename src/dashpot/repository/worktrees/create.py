@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
+from ...core.commands import nonzero_exit_fails
 from ...core.errors import DashpotError
 from ...core.git import Git, GitError
 from ...core.issue_profile import IssueProfile
@@ -375,7 +376,10 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
         # base is a programming error, and one -O must not silence.
         raise RuntimeError("worktree plan has no base commit to create from")
     created_directories = _make_directories(path.parent)
-    result = git.run("worktree", "add", "-b", plan.branch, str(path), plan.base_commit)
+    with nonzero_exit_fails(WorktreeCreateError):
+        result = git.run(
+            "worktree", "add", "-b", plan.branch, str(path), plan.base_commit
+        )
     if result.returncode != 0:
         detail = result.stderr.strip() or f"exit {result.returncode}"
         leftovers = _roll_back(git, plan, created_directories)

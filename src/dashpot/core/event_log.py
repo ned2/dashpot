@@ -34,7 +34,7 @@ from typing import Final
 
 from pydantic import TypeAdapter
 
-from .distribution import process_start
+from .errors import DashpotError
 from .project_state import ensure_state_directory
 from .runtime_events import (
     MAX_EVENT_BYTES,
@@ -92,10 +92,21 @@ def _utc_now() -> datetime:
 
 
 def error_type(error: BaseException) -> str:
-    """Name an error by its errno or class, never by its message."""
-    code = error.errno if isinstance(error, OSError) else None
-    if code is not None and code in errno.errorcode:
-        return errno.errorcode[code]
+    """Name an error by its code, errno or class, never by its message.
+
+    A Dashpot error that carries a Diagnostic code — a GitHub request's
+    ``github-rate-limit``, say — is named by it, since the code is what the
+    Diagnostics box shows for the same failure.
+    """
+    # Only Dashpot's own errors carry a code that is an identifier; any other
+    # ``code`` — ``SystemExit``'s, a library's — may be free text.
+    code = getattr(error, "code", None) if isinstance(error, DashpotError) else None
+    if isinstance(code, str):
+        with suppress(ValueError):
+            return _ERROR_TYPE.validate_python(code)
+    number = error.errno if isinstance(error, OSError) else None
+    if number is not None and number in errno.errorcode:
+        return errno.errorcode[number]
     return type(error).__name__
 
 
@@ -113,9 +124,32 @@ _current_span: ContextVar[Span | None] = ContextVar(
 )
 
 
+# The Event Log of the process whose work the calling code does, when no
+# span names it: a one-shot command's or a hook's, around its dispatch.
+_current_log: ContextVar[EventLog | None] = ContextVar(
+    "dashpot_current_event_log", default=None
+)
+
+
 def current_span() -> Span | None:
     """The span the calling code runs inside, if any."""
     return _current_span.get()
+
+
+def current_event_log() -> EventLog | None:
+    """The Event Log the calling code records to: its span's, else the one in use."""
+    span = _current_span.get()
+    return span.log if span is not None else _current_log.get()
+
+
+@contextmanager
+def use_event_log(log: EventLog | None) -> Iterator[EventLog | None]:
+    """Record the block's spans to ``log`` wherever no current span names one."""
+    token = _current_log.set(log)
+    try:
+        yield log
+    finally:
+        _current_log.reset(token)
 
 
 @contextmanager
@@ -131,17 +165,40 @@ def use_span(span: Span | None) -> Iterator[Span | None]:
 def carry_current_span[T](operation: Callable[[], T]) -> Callable[[], T]:
     """Run ``operation`` later, on any thread, inside the span current now.
 
-    The span is set inside the running thread's own context rather than the
-    operation being run in a copy of this one, which would replace the
-    command registry an executor thread adopted with this thread's.
+    The span, and the Event Log in use, are set inside the running thread's
+    own context rather than the operation being run in a copy of this one,
+    which would replace the command registry an executor thread adopted with
+    this thread's.
     """
     span = current_span()
+    log = _current_log.get()
 
     def run() -> T:
-        with use_span(span):
+        with use_event_log(log), use_span(span):
             return operation()
 
     return run
+
+
+@contextmanager
+def recorded_span(
+    name: SpanName,
+    *,
+    attributes: SpanAttributes | None = None,
+    level: RecordedLevel = "full",
+) -> Iterator[Span | None]:
+    """Time a block as a span of the current Event Log, or record nothing without one.
+
+    The span is a child of the current span. Code that runs with no Event
+    Log in reach — a library caller, a test — times nothing and gets
+    ``None``.
+    """
+    log = current_event_log()
+    if log is None:
+        yield None
+        return
+    with log.start_as_current_span(name, attributes=attributes, level=level) as span:
+        yield span
 
 
 class Span:
@@ -174,7 +231,7 @@ class Span:
     def fail(self, error: str | BaseException) -> None:
         """Mark the span failed: its work could not be done.
 
-        ``error`` is a code or an exception, recorded by its errno or class.
+        ``error`` is a code or an exception, recorded by its code, errno or class.
         A non-zero exit read as an answer is not a failure; it belongs in the
         attributes.
         """
@@ -190,6 +247,11 @@ class Span:
     def failed(self) -> bool:
         """Whether the span's work could not be done."""
         return self.error_type is not None
+
+    @property
+    def ended(self) -> bool:
+        """Whether the span has been ended, and so recorded."""
+        return self._ended
 
     def end(self) -> None:
         """Record the span; a second end records nothing more."""
@@ -487,6 +549,10 @@ def working_directory() -> Path | None:
 
 def unrecorded_event_log(*, keep_recent: int = 0) -> EventLog:
     """A dashboard's writer with nowhere to write, keeping only recent events in memory."""
+    # Imported here: ``distribution`` runs its one ``git status`` through the
+    # command runner, which records its spans here.
+    from .distribution import process_start
+
     return EventLog(
         None,
         identity=ProcessIdentity(run_id=new_run_id(), kind=DASHBOARD_KIND),

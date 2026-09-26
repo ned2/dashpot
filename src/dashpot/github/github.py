@@ -14,14 +14,17 @@ import threading
 import time
 from collections.abc import Callable, Container, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager
 from contextvars import Context, copy_context
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from ..core.commands import CommandError, CommandRunner, run_command
+from ..core.commands import CommandError, CommandRunner, operation_name, run_command
 from ..core.errors import DashpotError
+from ..core.event_log import Span, recorded_span
 from ..core.model import Diagnostic
+from ..core.runtime_events import GitHubRequestAttributes, span_attributes
 
 # Every GraphQL query Dashpot sends carries this selection beside its data,
 # so the rate limit is observed on the way rather than asked for separately.
@@ -241,41 +244,47 @@ class GitHubGateway:
         position null while its siblings answer — so a response whose every
         error is tolerated is returned rather than raised.
         """
-        payload = self._graphql_payload(query, variables, tolerated=tolerated)
-        errors = payload.get("errors")
-        if errors is not None and not isinstance(errors, list):
-            raise GitHubRequestError(
-                MALFORMED_RESPONSE,
-                "GitHub response has a malformed GraphQL errors value",
-            )
-        if errors and not _all_tolerated(errors, tolerated):
-            raise graphql_failure(errors)
-        data = payload.get("data")
-        if not isinstance(data, Mapping):
-            raise GitHubRequestError(
-                MALFORMED_RESPONSE, "GitHub response has no data object"
-            )
-        self._read_rate_limit(data)
-        return data
+        with _request_span("graphql", operation_name(query)) as span:
+            payload = self._graphql_payload(query, variables, tolerated=tolerated)
+            errors = payload.get("errors")
+            if errors is not None and not isinstance(errors, list):
+                raise GitHubRequestError(
+                    MALFORMED_RESPONSE,
+                    "GitHub response has a malformed GraphQL errors value",
+                )
+            if errors and not _all_tolerated(errors, tolerated):
+                raise graphql_failure(errors)
+            data = payload.get("data")
+            if not isinstance(data, Mapping):
+                raise GitHubRequestError(
+                    MALFORMED_RESPONSE, "GitHub response has no data object"
+                )
+            _record_reading(span, self._read_rate_limit(data))
+            return data
 
     def graphql_result(
         self, query: str, variables: GraphQLVariables
     ) -> GraphQLResponse:
         """Expose attributable GraphQL errors beside the data they leave usable."""
-        payload = self._graphql_payload(query, variables, partial=True)
-        errors = payload.get("errors", [])
-        if not isinstance(errors, list) or not all(
-            isinstance(error, Mapping) for error in errors
-        ):
-            raise GitHubRequestError(MALFORMED_RESPONSE, "GitHub errors are malformed")
-        data = payload.get("data")
-        if not isinstance(data, Mapping):
-            if errors:
-                raise graphql_failure(errors)
-            raise GitHubRequestError(
-                MALFORMED_RESPONSE, "GitHub response has no data object"
-            )
-        return GraphQLResponse(data, errors, self._read_rate_limit(data))
+        with _request_span("graphql", operation_name(query)) as span:
+            payload = self._graphql_payload(query, variables, partial=True)
+            errors = payload.get("errors", [])
+            if not isinstance(errors, list) or not all(
+                isinstance(error, Mapping) for error in errors
+            ):
+                raise GitHubRequestError(
+                    MALFORMED_RESPONSE, "GitHub errors are malformed"
+                )
+            data = payload.get("data")
+            if not isinstance(data, Mapping):
+                if errors:
+                    raise graphql_failure(errors)
+                raise GitHubRequestError(
+                    MALFORMED_RESPONSE, "GitHub response has no data object"
+                )
+            reading = self._read_rate_limit(data)
+            _record_reading(span, reading)
+            return GraphQLResponse(data, errors, reading)
 
     def _read_rate_limit(self, data: Mapping[str, Any]) -> RateLimit | None:
         """Read the rate limit a response's data carries and record it as the latest."""
@@ -317,7 +326,8 @@ class GitHubGateway:
         """Run one query for each set of variables, at most MAX_IN_FLIGHT at once.
 
         Answers come back in the order asked; the first failure is raised
-        once the requests already running have finished.
+        once the requests already running have finished. Each request is a
+        span of its own under the caller's, with its own rate limit reading.
         """
         if len(variables) <= 1:
             return [
@@ -327,7 +337,8 @@ class GitHubGateway:
             max_workers=min(MAX_IN_FLIGHT, len(variables)), thread_name_prefix="gh"
         ) as executor:
             # Each request runs in its own copy of this thread's context, so
-            # the registry an exit interrupts reaches the fanned-out commands.
+            # the registry an exit interrupts reaches the fanned-out commands,
+            # and each request's span is a child of the span current here.
             def request(context: Context, each: GraphQLVariables) -> Mapping[str, Any]:
                 return context.run(self.graphql, query, each, tolerated=tolerated)
 
@@ -342,7 +353,8 @@ class GitHubGateway:
 
     def rest(self, path: str) -> Mapping[str, Any]:
         """Run one REST request and return its JSON object."""
-        return self._run(["gh", "api", path])
+        with _request_span("rest"):
+            return self._run(["gh", "api", path])
 
     def _run(
         self, args: list[str], *, tolerated: Container[str] = (), partial: bool = False
@@ -387,6 +399,42 @@ class GitHubGateway:
                 MALFORMED_RESPONSE, "GitHub response is not an object"
             )
         return payload
+
+
+def _request_span(
+    api: Literal["graphql", "rest"], operation: str | None = None
+) -> AbstractContextManager[Span | None]:
+    """Time one GitHub request as a span written at ``standard``.
+
+    Every request is written, so the points and requests a dashboard spends
+    are always countable. A failed request names its Diagnostic code, never
+    GitHub's or ``gh``'s text.
+    """
+    return recorded_span(
+        "github.request",
+        attributes=span_attributes(
+            GitHubRequestAttributes, api=api, operation=operation
+        ),
+        level="standard",
+    )
+
+
+def _record_reading(span: Span | None, reading: RateLimit | None) -> None:
+    """Record the rate limit reading beside one request's response on its span."""
+    if span is None or reading is None or span.attributes is None:
+        return
+    attributes = span_attributes(
+        GitHubRequestAttributes,
+        **{
+            **span.attributes.model_dump(),
+            "cost": reading.cost,
+            "limit": reading.limit,
+            "remaining": reading.remaining,
+            "reset_at": reading.reset_at,
+        },
+    )
+    if attributes is not None:
+        span.set_attributes(attributes)
 
 
 def classify_failure_text(message: str) -> str:

@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
 
+from ..core.commands import recording_command
 from ..core.model import Harness
 from ..core.pydantic import PublishedModel
 from .harnesses import ADAPTERS
@@ -178,21 +179,26 @@ def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobse
     selectors: list[str] = []
     for column in columns:
         selectors.extend(("-o", f"{column}="))
-    try:
-        result = subprocess.run(
-            ["ps", "-p", str(pid), *selectors],
-            text=True,
-            capture_output=True,
-            timeout=2,
-            check=False,
-            # Start times are compared as strings across processes, so the
-            # locale and time zone they render in must not vary.
-            env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
-        )
-    except OSError:
-        return ProcessUnobservable(pid, "ps-unavailable")
-    except subprocess.TimeoutExpired:
-        return ProcessUnobservable(pid, "ps-timeout")
+    args = ["ps", "-p", str(pid), *selectors]
+    with recording_command(args) as record:
+        try:
+            result = subprocess.run(
+                args,
+                text=True,
+                capture_output=True,
+                timeout=2,
+                check=False,
+                # Start times are compared as strings across processes, so the
+                # locale and time zone they render in must not vary.
+                env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+            )
+        except OSError as exc:
+            record.could_not_run(exc)
+            return ProcessUnobservable(pid, "ps-unavailable")
+        except subprocess.TimeoutExpired as exc:
+            record.could_not_run(exc)
+            return ProcessUnobservable(pid, "ps-timeout")
+        record.exited(result.returncode)
     if result.returncode != 0:
         return ProcessUnobservable(pid, "ps-failed")
     return result.stdout
@@ -232,16 +238,16 @@ def boot_time(stat: Path) -> datetime | None:
                 return datetime.fromtimestamp(int(value), tz=UTC)
     except OSError:
         pass
-    try:
-        result = subprocess.run(
-            ["sysctl", "-n", "kern.boottime"],
-            text=True,
-            capture_output=True,
-            timeout=2,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    args = ["sysctl", "-n", "kern.boottime"]
+    with recording_command(args) as record:
+        try:
+            result = subprocess.run(
+                args, text=True, capture_output=True, timeout=2, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            record.could_not_run(exc)
+            return None
+        record.exited(result.returncode)
     found = BOOT_SECONDS.search(result.stdout) if result.returncode == 0 else None
     if found is None:
         return None

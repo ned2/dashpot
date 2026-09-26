@@ -12,7 +12,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .commands import CommandError, CommandResult, CommandRunner, run_command
+from .commands import (
+    CommandError,
+    CommandResult,
+    CommandRunner,
+    nonzero_exit_fails,
+    run_command,
+)
 from .errors import DashpotError
 
 
@@ -139,7 +145,10 @@ class Git:
         return _parse_worktree_records(raw)
 
     def _succeeding(self, args: Sequence[str]) -> CommandResult:
-        result = self.run(*args)
+        # A non-zero exit here is a failure rather than an answer, so the
+        # command's span fails by the error class raised for it.
+        with nonzero_exit_fails(GitError):
+            result = self.run(*args)
         if result.returncode != 0:
             raise GitError(
                 args, self.root, returncode=result.returncode, stderr=result.stderr

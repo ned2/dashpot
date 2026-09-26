@@ -96,7 +96,7 @@ EventName = Literal[
     "event_log.write_failed",
     "span",
 ]
-SpanName = Literal["command"]
+SpanName = Literal["command", "github.request", "refresh", "observation", "query"]
 SpanStatus = Literal["OK", "ERROR"]
 
 
@@ -202,8 +202,9 @@ class SpanAttributes(EventModel):
 class CommandAttributes(SpanAttributes):
     """One external command: its program and subcommand, and how it exited.
 
-    A non-zero exit is an answer the caller reads, recorded here, never a
-    failure of the span.
+    A non-zero exit is recorded here as an answer the caller reads; it fails
+    the span only where the caller declares it a failure
+    (``nonzero_exit_fails``).
     """
 
     program: ProgramName = Field(alias="process.executable.name")
@@ -213,10 +214,98 @@ class CommandAttributes(SpanAttributes):
     exit_code: int | None = Field(default=None, alias="process.exit.code")
 
 
+# -- The spans Dashpot's seams emit (#314) ---------------------------------
+
+# A GraphQL operation's name, as its query declares it: ``DashpotQueryPage``.
+OperationName = Annotated[str, _identifier(r"^[A-Za-z_][A-Za-z0-9_]*$", 128)]
+# A scheduled key's own name: an observation kind, or a Query Source key.
+KeyName = Annotated[str, _identifier(r"^[a-z]+(-[a-z]+)*$", 64)]
+# What fired a refresh: the first load, ``r``, the local or the GitHub
+# Refresh Period's timer, or a Remote Fetch or Cleanup that changed a
+# Repository.
+RefreshTrigger = Literal["initial", "manual", "local", "github", "fetch", "cleanup"]
+# What became of one key a refresh asked for: it ran and landed; it ran and
+# a newer request had superseded it; it was not run because the key was
+# busy with a tick of its own; or it waited for a busy key and a newer
+# request replaced it before it ran.
+KeyOutcome = Literal["landed", "superseded", "skipped", "dropped"]
+
+
+class GitHubRequestAttributes(SpanAttributes):
+    """One request to GitHub: its API and operation, and the rate limit it read.
+
+    The reading is the one GitHub returned beside this response, never the
+    latest any request received, so each request is accounted for by its own
+    cost. A failed request names its Diagnostic code as the span's error.
+    """
+
+    api: Literal["graphql", "rest"] = Field(alias="dashpot.github.api")
+    operation: OperationName | None = Field(
+        default=None, alias="graphql.operation.name"
+    )
+    cost: int | None = Field(default=None, ge=0, alias="dashpot.github.rate_limit.cost")
+    limit: int | None = Field(
+        default=None, ge=0, alias="dashpot.github.rate_limit.limit"
+    )
+    remaining: int | None = Field(
+        default=None, ge=0, alias="dashpot.github.rate_limit.remaining"
+    )
+    reset_at: Rfc3339Timestamp | None = Field(
+        default=None, alias="dashpot.github.rate_limit.reset_at"
+    )
+
+
+class RefreshAttributes(SpanAttributes):
+    """One refresh: what fired it. It ends when the last key it asked for lands."""
+
+    trigger: RefreshTrigger = Field(alias="dashpot.refresh.trigger")
+
+
+class ObservationAttributes(SpanAttributes):
+    """One observation key a refresh asked for, and what became of it."""
+
+    kind: KeyName = Field(alias="dashpot.observation.kind")
+    project_id: OpaqueIdentity | None = Field(default=None, alias="dashpot.project.id")
+    outcome: KeyOutcome | None = Field(default=None, alias="dashpot.key.outcome")
+
+
+class QueryAttributes(SpanAttributes):
+    """One Query Source key's query, and what became of it."""
+
+    key: KeyName = Field(alias="dashpot.query.key")
+    outcome: KeyOutcome | None = Field(default=None, alias="dashpot.key.outcome")
+
+
 # Keyed by name as written, so a reader can look up a name it read.
 SPAN_ATTRIBUTES: Mapping[str, type[SpanAttributes]] = {
     "command": CommandAttributes,
+    "github.request": GitHubRequestAttributes,
+    "refresh": RefreshAttributes,
+    "observation": ObservationAttributes,
+    "query": QueryAttributes,
 }
+
+
+def span_attributes[A: SpanAttributes](model: type[A], **values: object) -> A | None:
+    """Attributes of ``model`` from ``values``, leaving out what its fields refuse.
+
+    Recording never fails the work it describes, so a value that is not the
+    identifier its field names — a Project Identity with a space in it, a reading
+    GitHub malformed — is left out rather than raised, and attributes missing
+    a required value are left out whole. ``None`` values are left out too.
+    """
+    kept = {name: value for name, value in values.items() if value is not None}
+    while True:
+        try:
+            return model.model_validate(kept)
+        except ValidationError as exc:
+            refused = {
+                str(error["loc"][0]) for error in exc.errors() if error["loc"]
+            } & kept.keys()
+            if not refused:
+                return None
+            for name in refused:
+                del kept[name]
 
 
 class SpanEnded(EventBody):
