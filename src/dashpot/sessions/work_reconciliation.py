@@ -127,25 +127,28 @@ def complete_session_work_relocation(
     lookup: ProcessLookup = host_process_lookup,
     *,
     directory: Path | None = None,
-) -> bool:
-    """Complete a declared Codex relocation proved by this target hook record."""
+) -> ActiveWork | None:
+    """Complete a declared Codex relocation proved by this target hook record.
+
+    Returns the relocated Agent Run, or ``None`` when nothing moved.
+    """
     if record.get("harness") != "codex":
-        return False
+        return None
     root = optional_string(record.get("repositoryRoot"))
     if root is None:
-        return False
+        return None
     try:
         target = Path(root).resolve()
     except (OSError, RuntimeError, ValueError):
-        return False
+        return None
     try:
         worktrees = repository_worktrees(target, timeout=2)
     except GitError:
-        return False
+        return None
     # Without a Work Store there can be no Relocation Intent; locking hook
     # stores would otherwise create Project-local state in an unconfigured repo.
     if not any(WorkStore(worktree).directory.exists() for worktree in worktrees):
-        return False
+        return None
     session_id = require_string(record.get("sessionId"), "sessionId")
     stores = reachable_hook_stores(worktrees, directory)
     # Locking a Worktree's hook store may create its Project-local state, so
@@ -162,22 +165,22 @@ def complete_session_work_relocation(
         for store in hook_stores:
             stack.enter_context(store.locked(session_id))
         if not _sequential_target_is_confirmed(stores, session_id, target, lookup):
-            return False
+            return None
         matching: list[tuple[Path, WorkStore, ActiveWork]] = []
         for worktree in worktrees:
             store = WorkStore(worktree)
             try:
                 active, diagnostics = store.active()
             except OSError:
-                return False
+                return None
             if diagnostics:
-                return False
+                return None
             for candidate in active:
                 relation = SessionEvidence("codex", session_id).match(
                     candidate.evidence
                 )
                 if relation == "unresolved":
-                    return False
+                    return None
                 if relation == "same":
                     matching.append((worktree, store, candidate))
         pending_matches = [
@@ -187,7 +190,7 @@ def complete_session_work_relocation(
             and same_path(Path(item[2].relocation.target_worktree), target)
         ]
         if len(pending_matches) != 1:
-            return False
+            return None
         source_worktree, source, work = pending_matches[0]
         if any(
             not same_path(candidate_worktree, target)
@@ -195,14 +198,14 @@ def complete_session_work_relocation(
             for candidate_worktree, _store, candidate in matching
             if candidate != work
         ):
-            return False
+            return None
         intent = work.relocation
         if intent is None:
-            return False
+            return None
         if not same_path(Path(intent.target_worktree), target) or same_path(
             source_worktree, target
         ):
-            return False
+            return None
         session_process = (
             SessionProcess(pid=process.pid, started_at=process.started_at)
             if process is not None
@@ -219,9 +222,10 @@ def complete_session_work_relocation(
             relocation=None,
         )
         try:
-            return source.complete_relocation(work, WorkStore(target), relocated)
+            moved = source.complete_relocation(work, WorkStore(target), relocated)
         except (OSError, RecordKeyError, ValueError):
-            return False
+            return None
+        return relocated if moved else None
 
 
 def _sequential_target_is_confirmed(

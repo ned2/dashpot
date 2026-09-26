@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..core.json_records import optional_string
 from ..core.model import Harness
+from ..core.runtime_events import HookRecordState, WorkStoreChange
 from ..core.state_paths import is_configured_checkout
 from .hook_records import (
     HookRecordStore,
@@ -32,10 +33,17 @@ from .work_store import ActiveWork
 
 @dataclass(frozen=True, slots=True)
 class HookPublication:
-    """Where one hook event was published, and any Agent Run it continued."""
+    """Where one hook event was published, and what it did to its session's Agent Run.
+
+    ``state`` is what the record says the session is doing; ``work`` names
+    the Work Store change, with the Issue of the run it changed.
+    """
 
     path: Path
     continued: ActiveWork | None = None
+    state: HookRecordState | None = None
+    work: WorkStoreChange = "unchanged"
+    issue_id: str | None = None
 
 
 def route_record_store(record: Mapping[str, Any]) -> HookRecordStore:
@@ -65,20 +73,45 @@ def publish_hook_event(
         harness=harness,
         process_unobservable=process_unobservable,
     )
-    if record.get("state") == "ended":
+    # A built record always names the state its hook event maps to.
+    state = cast("HookRecordState", record["state"])
+    ended: list[tuple[Path, ActiveWork]] = []
+    if state == "ended":
         # Reconcile the Work Store before removing the old location evidence.
         # A target hook therefore either sees the old client and waits, or
         # sees that SessionEnd has already preserved the pending run.
-        end_session_work(record, identity)
+        ended = end_session_work(record, identity)
     store = (
         HookRecordStore(directory)
         if directory is not None
         else route_record_store(record)
     )
     destination = store.write(record)
-    if record.get("state") == "ended":
-        return HookPublication(destination)
-    complete_session_work_relocation(
+    if state == "ended":
+        work: WorkStoreChange = "ended" if ended else "unchanged"
+        changed = ended[0][1] if ended else None
+        return HookPublication(
+            destination,
+            state=state,
+            work=work,
+            issue_id=None if changed is None else changed.issue_id,
+        )
+    relocated = complete_session_work_relocation(
         record, identity, lookup, directory=destination.parent
     )
-    return HookPublication(destination, continue_session_work(record, identity, lookup))
+    continued = continue_session_work(record, identity, lookup)
+    # A relocation completed here continues the run too; the move is the
+    # change worth naming.
+    if relocated is not None:
+        work, changed = "relocated", relocated
+    elif continued is not None:
+        work, changed = "continued", continued
+    else:
+        work, changed = "unchanged", None
+    return HookPublication(
+        destination,
+        continued,
+        state=state,
+        work=work,
+        issue_id=None if changed is None else changed.issue_id,
+    )

@@ -67,8 +67,11 @@ class IssueContext:
 
 @dataclass(frozen=True, slots=True)
 class ObservedDiagnostic:
+    """One Diagnostic as shown, with the Project it was observed for, if any."""
+
     diagnostic: Diagnostic
     project_label: str | None = None
+    project_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,6 +296,10 @@ class WorkspaceObservationStore:
     def project(self, project_id: str) -> ProjectObservation | None:
         return self._state.projects.get(project_id)
 
+    def agent_runs(self) -> tuple[AgentRun, ...]:
+        """Every observed Agent Session row, bound to an Issue or not."""
+        return tuple(self._state.agent_runs.values())
+
     def issue(
         self,
         issue_id: str,
@@ -324,7 +331,9 @@ class WorkspaceObservationStore:
                 for target in project.snapshot.observation_targets:
                     diagnostics.extend(target.diagnostics)
             entries.extend(
-                ObservedDiagnostic(diagnostic, project.display_label)
+                ObservedDiagnostic(
+                    diagnostic, project.display_label, project.project_id
+                )
                 for diagnostic in diagnostics
             )
         return tuple(entries)

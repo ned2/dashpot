@@ -8,12 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+from .core.command_outcomes import outcome_error
 from .core.errors import DashpotError
 from .core.event_log import EventLog, EventLogDestination, working_directory
 from .core.json_records import HookRecordError
 from .core.model import Harness
+from .core.runtime_events import HookOutcome, OutcomeResult, fitting
 from .event_logs import open_event_log
-from .sessions.hook_publish import publish_hook_event
+from .sessions.hook_publish import HookPublication, publish_hook_event
 from .sessions.work_store import ActiveWork
 
 # A failed publish is reported but never blocks the session: Claude Code reads
@@ -36,13 +38,17 @@ def publish_from_stream(stream: TextIO, harness: Harness = "codex") -> str | Non
 
 def publish_event(event: object, harness: Harness = "codex") -> str | None:
     """Publish one parsed hook event; return the hook output the harness should read."""
+    return _publish(event, harness)[1]
+
+
+def _publish(event: object, harness: Harness) -> tuple[HookPublication, str | None]:
     if not isinstance(event, dict):
         raise HookRecordError("hook input must be a JSON object")
     publication = publish_hook_event(event, harness=harness)
     name = event.get("hook_event_name")
     if publication.continued is None or name not in CONTEXT_EVENTS:
-        return None
-    return json.dumps(
+        return publication, None
+    return publication, json.dumps(
         {
             "hookSpecificOutput": {
                 "hookEventName": name,
@@ -110,18 +116,51 @@ def _run(
     log = hook_event_log(harness, event, destination=event_log)
     log.start()
     code = 0
+    publication: HookPublication | None = None
+    error: Exception | None = None
     try:
         if failure is not None:
             raise failure
-        output = publish_event(event, harness)
+        publication, output = _publish(event, harness)
         if output is not None:
             print(output)
     except (OSError, ValueError, RuntimeError, DashpotError) as exc:
         print(f"dashpot {label} hook: {exc}", file=sys.stderr)
         code = NON_BLOCKING_FAILURE_EXIT_CODE
+        error = exc
+    record_hook_outcome(log, event, publication, error)
     log.end(code)
     log.close()
     return code
+
+
+def record_hook_outcome(
+    log: EventLog,
+    event: object,
+    publication: HookPublication | None,
+    error: Exception | None,
+) -> None:
+    """Record what one hook run did to its record and the Work Store, or its error class.
+
+    The Issue of an Agent Run it changed names the process from here on.
+    """
+    payload: dict[str, Any] = event if isinstance(event, dict) else {}
+    # A hook asks for nothing a person could be refused: any error failed it.
+    result: OutcomeResult = "succeeded" if error is None else "failed"
+    if publication is not None:
+        log.identify(issue_id=publication.issue_id)
+    log.record(
+        fitting(
+            HookOutcome,
+            {"result": result},
+            {
+                "hook_event": payload.get("hook_event_name"),
+                "record_state": None if publication is None else publication.state,
+                "work": None if publication is None else publication.work,
+                "error_type": None if error is None else outcome_error(error),
+            },
+        )
+    )
 
 
 def main(*, event_log: EventLogDestination | None = None) -> int:

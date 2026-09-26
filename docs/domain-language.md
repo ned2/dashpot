@@ -245,7 +245,13 @@ family — a GitHub Issue Source reports `github-authentication`,
 are read from the tracker's structured signals before its prose. A Project
 whose Issue Source is Local Markdown reports `pull-requests-not-configured`
 rather than inferring GitHub hosting from a Git remote
-([ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md)).
+([ADR 0021](adr/0021-bound-each-github-refresh-by-a-budget.md)). The
+dashboard's own failures are Diagnostics too: a failed refresh of one
+observation reports `refresh-failed` from `refresh:<kind>:<Project>`, and a
+failed Remote Fetch `remote-fetch-failed` from `fetch:<Project>`. A
+Diagnostic is the same one while its Project, source and code are, whatever
+its message says; that is how its appearing and clearing are recorded as
+Runtime Events.
 
 **Refresh Budget**:
 The bound on what one refresh of a GitHub observation may fetch before it is
@@ -531,11 +537,14 @@ observation or query within it, a command or GitHub request within that —
 with an ID, its parent's ID, a duration and a status; it fails only when its
 work could not be done, so a non-zero exit read as an answer is an attribute
 of a successful span. A standalone event is something that is not a unit of
-work: a process starting or ending, a level change, a Diagnostic appearing.
-Every Runtime Event names its process by an opaque run ID and kind, and the
-Agent Session Identity, Project, Worktree and Issue when they are known. It
-holds identifiers and measurements, never free text: an error is its code or
-class, never its message.
+work: a process starting or ending, a level change, a hook's or management
+command's outcome, an Agent Session changing, a Diagnostic appearing or
+clearing. Every Runtime Event names its process by an opaque run ID and
+kind, and the Agent Session Identity, Project, Worktree and Issue when they
+are known; an event a dashboard records about an Agent Session or a
+Diagnostic names that subject's instead of its own. It holds identifiers and
+measurements, never free text: an error is its code or class, never its
+message.
 _Avoid_: telemetry, which implies sending data off the machine; log entry or
 log line for a Diagnostic, which is shown to a person rather than recorded
 

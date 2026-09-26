@@ -13,9 +13,14 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ..core.model import Diagnostic
+from ..observation.observation_store import ObservedDiagnostic
 from ..observation.paged_store import PagedObservationStore
 from .messages import FetchFinished, OffLoopHost
 from .observation_runner import ObservationRunner
+
+# The code of the Diagnostic a failed Remote Fetch of one Project reports.
+REMOTE_FETCH_FAILED = "remote-fetch-failed"
 
 if TYPE_CHECKING:
     from textual.notifications import SeverityLevel
@@ -67,6 +72,21 @@ class RemoteFetchFlow:
         """Name a Project by its display label, or its identity when unobserved."""
         project = self.store.project(project_id)
         return project.display_label if project is not None else project_id
+
+    def failure_diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
+        """Each Project's last Remote Fetch failure as the Diagnostic it reports."""
+        return tuple(
+            ObservedDiagnostic(
+                Diagnostic(
+                    source=f"fetch:{project_id}",
+                    severity="error",
+                    code=REMOTE_FETCH_FAILED,
+                    message=error,
+                ),
+                project_id=project_id,
+            )
+            for project_id, error in self.errors.items()
+        )
 
     def hold(self, project_id: str, anchor: Path) -> None:
         """Reserve a Project for the Remote Fetch about to run at ``anchor``."""
