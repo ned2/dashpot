@@ -395,7 +395,9 @@ def source(
         # A refresh past the scripted stamps keeps the last one.
         clock=lambda: next(times, stamps[-1]),
         budget=budget or RefreshBudget(),
-        monotonic=monotonic,
+        # A stopped clock, so a Refresh Budget Diagnostic's elapsed time is
+        # what the test scripts rather than how long the test took.
+        monotonic=monotonic or (lambda: 0.0),
     )
 
 
