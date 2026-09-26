@@ -32,7 +32,12 @@ from dashpot.ui.app import DashpotApp
 from dashpot.ui.item_filter import ItemFilterBar
 from dashpot.ui.list_pane import ListColumn, ListPane, ListRow
 from dashpot.ui.pane_layout import PANE_MARGIN
-from helpers import required, wait_until
+from helpers import required, settled, wait_until
+
+
+def screen_regions(app: DashpotApp) -> tuple[Region, ...]:
+    """The region of every widget on the current screen, in document order."""
+    return tuple(widget.region for widget in app.screen.query("*"))
 
 
 def assert_top_gutters(app: DashpotApp, panes: tuple[Any, ...]) -> None:
@@ -62,6 +67,7 @@ async def test_every_peer_pane_owns_the_same_top_gutter() -> None:
 
         await pilot.resize_terminal(60, 24)
         await wait_until(lambda: app.screen.has_class("-compact"))
+        await settled(pilot, lambda: screen_regions(app), "the compact query peer")
         assert_top_gutters(
             app,
             (*app.query_screen.list_panes(), app.query_screen.query_one("#queue-pane")),
@@ -113,15 +119,17 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         assert app.screen.has_class("-compact")
         assert_counts_share_the_search_row("1/1 matches · fresh")
 
+        # The breakpoint class lands before the panes are laid out for it.
         await pilot.resize_terminal(120, 32)
-        await pilot.pause()
-        assert app.screen.has_class("-wide")
+        await wait_until(lambda: app.screen.has_class("-wide"))
+        await settled(pilot, lambda: screen_regions(app), "the wide query peer")
         assert_panes_stack_above_full_width_queue(app)
         assert_counts_share_the_search_row(page_summary)
         assert_search_row_fits_the_queue_pane(app, page_summary)
 
         await pilot.resize_terminal(60, 20)
-        await pilot.pause()
+        await wait_until(lambda: app.screen.has_class("-compact"))
+        await settled(pilot, lambda: screen_regions(app), "the compact query peer")
         assert_counts_share_the_search_row("1/1 matches · fresh")
         assert_search_row_fits_the_queue_pane(app, "1/1 matches · fresh")
 
@@ -391,7 +399,14 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
         await wait_until(
             lambda: all(pane.table.show_vertical_scrollbar for pane in panes)
         )
-        initial_caps = tuple(pane.content_height_cap for pane in panes)
+
+        def caps() -> tuple[int, ...]:
+            return tuple(pane.content_height_cap for pane in panes)
+
+        # Each wait below is on a proxy for a change beginning; the panes are
+        # fitted over the frames after it, so the caps and scroll offsets are
+        # read once they settle rather than the moment the proxy holds.
+        initial_caps = await settled(pilot, caps, "the fitted caps")
         assert max(initial_caps) - min(initial_caps) <= 1
 
         selected = panes[1]
@@ -403,7 +418,13 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
                 and selected.table.scroll_y == selected.table.scroll_target_y > 0
             )
         )
-        initial_scroll = selected.table.scroll_y
+
+        def caps_and_scroll() -> tuple[tuple[int, ...], float, int]:
+            return caps(), selected.table.scroll_y, selected.table.cursor_row
+
+        _caps, initial_scroll, _row = await settled(
+            pilot, caps_and_scroll, "the selected pane's scroll"
+        )
 
         await pilot.resize_terminal(120, 50)
         await wait_until(
@@ -412,10 +433,11 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
                 for pane, initial in zip(panes, initial_caps, strict=True)
             )
         )
-        grown_caps = tuple(pane.content_height_cap for pane in panes)
         await wait_until(lambda: selected.table.scroll_y > 0)
-        grown_scroll = selected.table.scroll_y
-        assert selected.table.cursor_row == 29
+        grown_caps, grown_scroll, row = await settled(
+            pilot, caps_and_scroll, "the panes grown to 50 rows"
+        )
+        assert row == 29
         assert grown_scroll <= initial_scroll
         assert any(cap > 8 for cap in grown_caps)
 
@@ -427,8 +449,11 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
             )
         )
         await wait_until(lambda: selected.table.scroll_y > 0)
-        assert selected.table.cursor_row == 29
-        assert selected.table.scroll_y >= grown_scroll
+        _caps, shrunk_scroll, row = await settled(
+            pilot, caps_and_scroll, "the panes shrunk to 24 rows"
+        )
+        assert row == 29
+        assert shrunk_scroll >= grown_scroll
         assert selected.table.show_vertical_scrollbar
 
 
@@ -584,13 +609,10 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         worktrees.show_rows(
             list_rows(2, prefix="/very/long/path/to/a/linked/worktree/checkout/name")
         )
-        await wait_until(
-            lambda: (
-                sessions.region.height == pane_chrome(sessions) + 12
-                and worktrees.region.height == pane_chrome(worktrees) + 2
-            )
-        )
-
+        # The Sessions pane growing past its three-row empty frame is the
+        # first of the frames that fit both panes to their records.
+        await wait_until(lambda: sessions.region.height > 3)
+        await settled(pilot, lambda: screen_regions(app), "the compact Dashboard")
         body = app.query_one("#body")
         assert sessions.region.width == worktrees.region.width == body.region.width
         assert sessions.region.bottom <= worktrees.region.y
@@ -601,7 +623,9 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         await pilot.resize_terminal(120, 50)
         await wait_until(lambda: app.screen.has_class("-wide"))
         await wait_until(lambda: sessions.region.width == body.region.width)
+        await settled(pilot, lambda: screen_regions(app), "the wide Dashboard")
         await show_query_peer(app, pilot)
+        await settled(pilot, lambda: screen_regions(app), "the wide query peer")
         assert_panes_stack_above_full_width_queue(app)
         assert sessions.region.height == pane_chrome(sessions) + 12
         assert worktrees.region.height == pane_chrome(worktrees) + 2
@@ -621,20 +645,31 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         await pilot.pause()
         pull_requests = app.query_screen.pull_requests_pane()
         pull_requests.show_rows(list_rows(12, prefix="pull-request"))
-        await wait_until(lambda: pull_requests.table.show_vertical_scrollbar)
-        initial_cap = pull_requests.content_height_cap
-
         queue_pane = app.query_screen.query_one("#queue-pane")
         footer = app.query_screen.query_one(Footer)
-        assert queue_pane.region.height >= 6
-        assert queue_pane.region.bottom <= footer.region.y
+
+        def pull_requests_fit() -> tuple[int, Region, Region]:
+            return pull_requests.content_height_cap, queue_pane.region, footer.region
+
+        # The scrollbar appears on the frame the records land, before the
+        # panes are fitted to them: a cap read then is a passing value, which
+        # the resize below can fail to shrink below.
+        await wait_until(lambda: pull_requests.table.show_vertical_scrollbar)
+        initial_cap, queue_region, footer_region = await settled(
+            pilot, pull_requests_fit, "the Pull Requests cap at 25 rows"
+        )
+        assert queue_region.height >= 6
+        assert queue_region.bottom <= footer_region.y
         assert pull_requests.table.show_vertical_scrollbar
 
         await pilot.resize_terminal(80, 19)
         await wait_until(lambda: pull_requests.content_height_cap < initial_cap)
-        assert pull_requests.content_height_cap < initial_cap
-        assert queue_pane.region.height >= 6
-        assert queue_pane.region.bottom <= app.query_screen.query_one(Footer).region.y
+        cap, queue_region, footer_region = await settled(
+            pilot, pull_requests_fit, "the Pull Requests cap at 19 rows"
+        )
+        assert cap < initial_cap
+        assert queue_region.height >= 6
+        assert queue_region.bottom <= footer_region.y
 
 
 def column_widths(table: DataTable[Any]) -> list[int]:
@@ -687,7 +722,12 @@ async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
         await wait_until(
             lambda: all(column.auto_width for column in queue.ordered_columns[1:])
         )
-        assert sum(column_widths(queue)) > queue.scrollable_content_region.width
+        widths, visible = await settled(
+            pilot,
+            lambda: (column_widths(queue), queue.scrollable_content_region.width),
+            "the Issue table's columns at 30 cells",
+        )
+        assert sum(widths) > visible
 
         await pilot.resize_terminal(160, 50)
         await wait_until(

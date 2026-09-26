@@ -19,7 +19,6 @@ from app_harness import (
     SequenceCollector,
     dashboard_app,
     first_load_landed,
-    footer_keys,
     issue,
     legend_keys_text,
     pane_subtitle,
@@ -391,16 +390,19 @@ async def test_f_is_listed_in_the_footer_and_the_legend() -> None:
 
     async with app.run_test(size=(160, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
 
-        assert "f" in footer_keys(app)
-        # The Footer recomposes its keys after the bindings settle, so wait
-        # for the entry rather than for one pause.
+        # The Footer recomposes its keys after the bindings settle, emptying
+        # itself for a frame or two each time, so wait for the shown entry
+        # rather than read the keys after one pause.
         footer = app.query_one(Footer)
         await wait_until(
             lambda: (
                 ("f", "Fetch & prune remotes")
-                in [(key.key, key.description) for key in footer.query(FooterKey)]
+                in [
+                    (key.key, key.description)
+                    for key in footer.query(FooterKey)
+                    if key.display
+                ]
             )
         )
 

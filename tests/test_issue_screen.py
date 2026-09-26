@@ -50,7 +50,7 @@ from dashpot.ui.issue_view import (
 from dashpot.ui.legend import LEGEND, LegendScreen, legend_glyphs, section_heading
 from dashpot.ui.list_pane import ISSUE_PANE_LABEL
 from dashpot.ui.panes import LIST_PANE_SPECS
-from helpers import required, wait_until
+from helpers import required, settled, wait_until
 
 
 @pytest.mark.parametrize(
@@ -550,11 +550,15 @@ async def test_the_issue_view_stacks_its_details_when_the_terminal_narrows() -> 
 
         await pilot.resize_terminal(70, 30)
 
+        # Stacking is decided before the details are laid out beneath the body.
         await wait_until(lambda: view.stacked)
-        await wait_until(
-            lambda: metadata.region.y >= body.region.y + body.region.height
+        body_region, metadata_region = await settled(
+            pilot,
+            lambda: (body.region, metadata.region),
+            "the stacked Issue Detail",
         )
-        assert metadata.region.width == body.region.width
+        assert metadata_region.y >= body_region.bottom
+        assert metadata_region.width == body_region.width
 
 
 @pytest.mark.asyncio

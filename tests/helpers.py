@@ -12,7 +12,7 @@ import copy
 import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
@@ -40,6 +40,45 @@ async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> Non
         if asyncio.get_running_loop().time() >= deadline:
             raise AssertionError("condition was not met before timeout")
         await asyncio.sleep(0.01)
+
+
+class FrameDriver(Protocol):
+    """A driver that advances a running Textual app by a frame, as ``Pilot`` does."""
+
+    async def pause(self) -> None: ...
+
+
+async def settled[T](
+    pilot: FrameDriver, read: Callable[[], T], what: str, *, frames: int = 20
+) -> T:
+    """Drive the app frame by frame until ``read`` holds, and return the reading.
+
+    A proxy such as a breakpoint class, a pane's cap or a landed observation
+    becomes true a frame or more before the layout it stands for, so geometry
+    read the moment a ``wait_until`` on the proxy returns may not be laid out
+    yet. This drives the app one frame at a time with ``pilot.pause()``, which
+    lays out whatever is pending, and returns the reading once it has held
+    for two frames in a row: under load, a widget's idle work, such as a
+    table measuring its columns, can miss a frame. Wait on the proxy first,
+    so that the change has begun, since an untouched reading holds at once.
+    ``frames`` bounds the wait, so layout that never converges fails naming
+    ``what`` rather than hanging a worker.
+
+    Settle geometry, which converges on its layout. A widget that recomposes,
+    such as the Footer, passes through an empty interim state that can last
+    as long; wait on what it should show instead.
+    """
+    previous, held = read(), 0
+    for _ in range(frames):
+        await pilot.pause()
+        current = read()
+        held = held + 1 if current == previous else 0
+        if held == 2:
+            return current
+        previous = current
+    raise AssertionError(
+        f"{what} did not settle within {frames} frames; last read {previous!r}"
+    )
 
 
 def required[T](value: T | None) -> T:
