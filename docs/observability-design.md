@@ -142,7 +142,7 @@ Dashpot's camelCase aliases with these names explicitly.
 | `dashpot.subcommand` | `process.start`, `process.continued`, `command.outcome` | `work start`, `observe`, … without arguments |
 | `process.exit.code`, `dashpot.duration_seconds` | `process.end` | Exit status and how long the process ran |
 | `dashpot.event_level.previous`, `dashpot.event_level.current` | `level.changed` | The change of level in force |
-| `error.type` | `event_log.write_failed`, a failed `span`, `hook.outcome`, `command.outcome` | errno name or error class |
+| `error.type` | `event_log.write_failed`, a failed `span`, `hook.outcome`, `command.outcome` | errno name or error class; an outcome's error that carries a code, such as a GitHub failure's `github-authentication`, is named by that code |
 | `dashpot.outcome.result` | `hook.outcome`, `command.outcome` | `succeeded`; `refused`, a `DashpotError` or a plan's refusals; `failed` |
 | `dashpot.hook.event`, `dashpot.agent_session.state` | `hook.outcome` | The harness's hook event name, and the state it wrote to the session's hook record |
 | `dashpot.work_store.change` | `hook.outcome` | What the hook did to its session's Agent Run: `unchanged`, `continued`, `relocated`, `ended` |

@@ -240,6 +240,42 @@ def test_the_same_diagnostic_in_two_projects_is_two_diagnostics(
     ]
 
 
+@pytest.mark.parametrize(
+    "source",
+    ["settings:the file at home is broken", "project:", "github\n", "a b"],
+)
+def test_a_source_that_is_no_identifier_or_path_is_left_out(
+    tmp_path: Path, source: str
+) -> None:
+    changes = DiagnosticChanges(event_log(tmp_path))
+
+    changes.observe([shown("settings-invalid", source=source)])
+
+    (event,) = recorded(tmp_path, "diagnostic.changed")
+    assert "dashpot.diagnostic.source" not in event
+    assert event["dashpot.diagnostic.code"] == "settings-invalid"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "github",
+        "settings:/home/some one/config.toml",
+        "refresh:workspace:*",
+        "0123abcd",
+    ],
+)
+def test_a_source_that_is_an_identifier_or_path_is_kept(
+    tmp_path: Path, source: str
+) -> None:
+    changes = DiagnosticChanges(event_log(tmp_path))
+
+    changes.observe([shown("settings-invalid", source=source)])
+
+    (event,) = recorded(tmp_path, "diagnostic.changed")
+    assert event["dashpot.diagnostic.source"] == source
+
+
 @pytest.mark.parametrize("code", [None, "Not A Code: /home/someone"])
 def test_a_diagnostic_without_a_code_is_recorded_as_uncoded(
     tmp_path: Path, code: str | None

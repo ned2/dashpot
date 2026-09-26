@@ -88,10 +88,13 @@ def publish_hook_event(
     )
     destination = store.write(record)
     if state == "ended":
-        if not ended:
-            return HookPublication(destination, state=state)
+        work: WorkStoreChange = "ended" if ended else "unchanged"
+        changed = ended[0][1] if ended else None
         return HookPublication(
-            destination, state=state, work="ended", issue_id=ended[0][1].issue_id
+            destination,
+            state=state,
+            work=work,
+            issue_id=None if changed is None else changed.issue_id,
         )
     relocated = complete_session_work_relocation(
         record, identity, lookup, directory=destination.parent
@@ -100,19 +103,15 @@ def publish_hook_event(
     # A relocation completed here continues the run too; the move is the
     # change worth naming.
     if relocated is not None:
-        return HookPublication(
-            destination,
-            continued,
-            state=state,
-            work="relocated",
-            issue_id=relocated.issue_id,
-        )
-    if continued is not None:
-        return HookPublication(
-            destination,
-            continued,
-            state=state,
-            work="continued",
-            issue_id=continued.issue_id,
-        )
-    return HookPublication(destination, state=state)
+        work, changed = "relocated", relocated
+    elif continued is not None:
+        work, changed = "continued", continued
+    else:
+        work, changed = "unchanged", None
+    return HookPublication(
+        destination,
+        continued,
+        state=state,
+        work=work,
+        issue_id=None if changed is None else changed.issue_id,
+    )
