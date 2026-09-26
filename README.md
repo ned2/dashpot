@@ -339,8 +339,9 @@ dashpot issue list --query 'is:closed OR author:@me' --state all --compact-json
 
 Use `--cursor` with the same query, lifecycle and page size to continue. Page sizes
 range from 1 to 100, default 50. Each document contains `page` and the Project-wide
-`totals` the same request counted; pages expose request/context, complete records, auxiliary facts,
-counts, continuation, limit, status, attempt time, last-good time and Diagnostics.
+`totals` the same request counted; pages expose request/context, complete
+records, auxiliary facts, counts, continuation, limit, status, attempt time,
+last-good time and Diagnostics.
 `more`, `end`, `provider-limit` and `unavailable` distinguish continuation outcomes.
 These commands never exhaust pages implicitly. Valid observation documents return
 exit zero, including unavailable or provider-limited observations; inspect status.

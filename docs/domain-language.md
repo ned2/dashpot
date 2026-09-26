@@ -485,7 +485,7 @@ inventory, even when pagination reaches the end of matches.
 An Open / Closed count for all Issues or Pull Requests of the configured
 Project, unaffected by query, lifecycle selection or page. Each Query Page
 request counts its kind's totals, which keep their own status and times: a
-search the source refuses still counts them
+page that fails after its response counted them still lands them fresh
 ([ADR 0057](adr/0057-observe-project-totals-in-the-query-page-request.md)).
 
 **Resolved Issue**:

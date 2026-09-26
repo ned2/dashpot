@@ -43,7 +43,8 @@ class CachedQuerySource(ABC):
         """Accept one complete page or retain only its verified last-good request.
 
         The same request counts the kind's Project Totals, which land even
-        when the page itself fails after the source counted them.
+        when the page itself fails after the source counted them. An invalid
+        continuation raises instead, and lands none.
         """
         token = decode_continuation(request.cursor) if request.cursor else None
         attempted = self.clock()

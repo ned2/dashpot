@@ -187,7 +187,7 @@ class GitHubGateway:
     def graphql_result(
         self, query: str, variables: GraphQLVariables
     ) -> tuple[Mapping[str, Any], Sequence[Mapping[str, Any]]]:
-        """Expose attributable GraphQL errors beside data for identity observations."""
+        """Expose attributable GraphQL errors beside the data they leave usable."""
         payload = self._graphql_payload(query, variables, partial=True)
         errors = payload.get("errors", [])
         if not isinstance(errors, list) or not all(

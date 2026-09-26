@@ -172,8 +172,8 @@ change.
 A Query Page has its submitted request, effective ordering, matching count,
 returned count, continuation outcome and its own attempt/last-good times. Project
 Totals are counted by the same request but have independent status and times
-([ADR 0057](adr/0057-observe-project-totals-in-the-query-page-request.md)). Source caches retain at most 16 pages
-and 256 identities. Navigation retains eight accepted pages. Previous reuses its
+([ADR 0057](adr/0057-observe-project-totals-in-the-query-page-request.md)).
+Source caches retain at most 16 pages and 256 identities. Navigation retains eight accepted pages. Previous reuses its
 retained observation; eviction requires restart instead of reconstructing history.
 Refreshing a page discards its forward history. A failed Next leaves the accepted
 page under its original request and displays the navigation error. New submissions,

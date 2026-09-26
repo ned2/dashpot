@@ -118,11 +118,15 @@ class MarkdownQuerySource(CachedQuerySource):
     ) -> QueryPage:
         """Filter and order the local collection before selecting a page.
 
-        The Project Totals count the complete collection first, so a search
-        the source refuses still reports them.
+        The Project Totals count the complete collection before the search is
+        interpreted, so a search the source refuses still reports them.
         """
         if request.kind != "issues":
             raise ValueError("Pull Requests are not configured for a Markdown Project")
+        if context.configuration != self.config.model_dump_json():
+            raise ValueError(
+                "Project source configuration changed; reopen the dashboard"
+            )
         opened = sum(issue.state == "open" for issue in self.records)
         count_totals(
             ProjectTotals(
@@ -135,10 +139,6 @@ class MarkdownQuerySource(CachedQuerySource):
                 last_good_at=attempted,
             )
         )
-        if context.configuration != self.config.model_dump_json():
-            raise ValueError(
-                "Project source configuration changed; reopen the dashboard"
-            )
         project = ProjectObservation(
             project_id=context.project_id,
             repository_id=context.repository_id,

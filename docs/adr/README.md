@@ -48,7 +48,7 @@ of date.
 | 0030 | [Combine startup evidence with mandatory reads](0030-combine-startup-evidence-with-mandatory-reads.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0031 | [Observe complete Pull Request lifecycle history](0031-observe-complete-pull-request-lifecycle-history.md) | amended | [0032](0032-submit-pull-request-queries-to-github-advanced-search.md), [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0032 | [Submit Pull Request queries to GitHub advanced search](0032-submit-pull-request-queries-to-github-advanced-search.md) | amended | [0033](0033-query-pages-and-independent-issue-resolution.md) |
-| 0033 | [Query pages and independent Issue resolution](0033-query-pages-and-independent-issue-resolution.md) | amended | [0055](0055-verify-the-query-context-in-the-response-that-carries-it.md) |
+| 0033 | [Query pages and independent Issue resolution](0033-query-pages-and-independent-issue-resolution.md) | amended | [0055](0055-verify-the-query-context-in-the-response-that-carries-it.md), [0057](0057-observe-project-totals-in-the-query-page-request.md) |
 | 0034 | [Publish an alpha with patch-compatible interfaces](0034-publish-an-alpha-with-patch-compatible-interfaces.md) | accepted | — |
 | 0035 | [Open Worktrees on explicit key press](0035-open-worktrees-on-explicit-key-press.md) | accepted | — |
 | 0036 | [Keep Cleanup subjects fixed and fetch inside their previews](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) | amended | [0054](0054-finish-a-worktree-with-its-branch-by-default.md) |

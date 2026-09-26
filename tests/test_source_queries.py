@@ -630,15 +630,19 @@ def test_renamed_repository_is_searched_again_under_its_new_name(tmp_path):
     ]
 
 
-def test_a_search_refused_under_the_old_name_is_retried_under_the_new(tmp_path):
+def test_a_search_erring_under_the_old_name_is_retried_under_the_new(tmp_path):
     source, runner = github(tmp_path, context(), search(hit(1)), batch(node(1)))
     source.query_page(QueryRequest())
-    stale_name = {**search(name="ned2/renamed", opened=4), "search": None}
+    stale_name = search(None, name="ned2/renamed", opened=4)
     runner.results = iter(
         [
             refused(
                 stale_name,
-                {"type": "INVALID", "path": ["search"], "message": "no repo"},
+                {
+                    "type": "FORBIDDEN",
+                    "path": ["search", "nodes", 0],
+                    "message": "not accessible",
+                },
             ),
             completed(json.dumps({"data": search(hit(1), name="ned2/renamed")})),
             completed(json.dumps({"data": batch(node(1))})),
@@ -654,6 +658,8 @@ def test_a_search_refused_under_the_old_name_is_retried_under_the_new(tmp_path):
 
 
 def test_a_request_github_answers_without_data_counts_nothing(tmp_path):
+    # ``search`` is non-null in GitHub's schema, so an error on the field
+    # itself nulls the whole response, totals included.
     source, runner = github(tmp_path, context())
     answers = runner.results
     runner.results = iter(
@@ -773,22 +779,25 @@ def refused(answer, *errors):
     return completed(json.dumps({"data": answer, "errors": list(errors)}), returncode=1)
 
 
-def test_a_search_github_refuses_still_counts_the_totals(tmp_path):
+def test_an_error_inside_the_search_results_still_counts_the_totals(tmp_path):
     source, runner = github(tmp_path, context(), search(hit(1)), batch(node(1)))
     first = source.query_page(QueryRequest())
-    rejected = {**search(opened=4, closed=6), "search": None}
     runner.results = iter(
         [
             refused(
-                rejected,
-                {"type": "INVALID", "path": ["search"], "message": "bad query"},
+                search(None, opened=4, closed=6),
+                {
+                    "type": "FORBIDDEN",
+                    "path": ["search", "nodes", 0],
+                    "message": "not accessible",
+                },
             )
         ]
     )
     observation = source.query_page(QueryRequest())
     assert observation.page.status == "stale"
     assert observation.page.issues == first.page.issues
-    assert "bad query" in observation.page.diagnostics[0].message
+    assert "not accessible" in observation.page.diagnostics[0].message
     assert observation.totals.status == "fresh"
     assert (observation.totals.open_count, observation.totals.closed_count) == (4, 6)
 
@@ -861,6 +870,24 @@ def test_markdown_counts_totals_for_a_search_it_refuses(tmp_path):
     assert observation.page.status == "unavailable"
     assert observation.totals.status == "fresh"
     assert (observation.totals.open_count, observation.totals.closed_count) == (3, 0)
+
+
+def test_markdown_counts_no_totals_under_a_changed_configuration(tmp_path):
+    source = markdown(tmp_path)
+    assert source.query_page(QueryRequest()).totals.status == "fresh"
+    write_project_config(
+        tmp_path,
+        project_id=PROJECT_ID,
+        repository_id=REPOSITORY_ID,
+        issue_source={"kind": "markdown", "path": "issues"},
+        display_label="Edited",
+    )
+    observation = source.query_page(QueryRequest())
+    assert "configuration changed" in observation.page.diagnostics[0].message
+    # The records were read under the old configuration, so they are not
+    # counted as the new one's.
+    assert observation.totals.status == "unavailable"
+    assert observation.totals.open_count is None
 
 
 def test_identity_batches_take_one_principal_from_their_answers(tmp_path):

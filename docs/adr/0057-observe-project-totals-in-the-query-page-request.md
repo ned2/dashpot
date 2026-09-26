@@ -27,12 +27,16 @@ as without them.
   counts cover the whole Project whatever the page's query, lifecycle,
   ordering or position.
 - **The totals keep their own status.** A Query Source reports the totals as
-  soon as the response carries them. A search GitHub refuses (a GraphQL error
-  whose path is the `search` field) fails the page but leaves the totals
-  fresh, and so does a later part of the page failing, such as a batch of
-  Issue Profiles. Any other GraphQL error, or a response that does not verify,
+  soon as the response carries them. An error inside the search's results (a
+  GraphQL error whose path runs through the `search` field, such as a result
+  node GitHub will not show) fails the page but leaves the totals fresh, and
+  so does a later part of the page failing, such as a batch of Issue
+  Profiles. Any other GraphQL error, or a response that does not verify,
   fails both, and the totals go stale with their last good counts and a
-  Diagnostic, as before.
+  Diagnostic, as before. That includes an error on the `search` field itself:
+  the field is non-null in GitHub's schema, so such an error nulls the whole
+  response and leaves nothing to count. Probed on 2026-09-26, GitHub answered
+  malformed and unknown searches with no matches rather than an error.
 - **The separate totals query retires.** The Query Source protocol's `totals`
   operation, the dashboard's two totals Query Sources and their messages are
   removed. The page runner lands a page and its totals together; the totals
@@ -40,7 +44,9 @@ as without them.
   depend on what the page asked.
 - **The Local Markdown Issue Source counts its totals in the same call.** It
   counts the complete local collection before it interprets the search, so a
-  search it refuses still reports them.
+  search it refuses still reports them. The GitHub Query Source refuses some
+  search syntax before sending anything; while such a search stands, its
+  kind's totals go stale with the page's Diagnostic.
 - **`issue list` and `pr list` take the totals from the page.** Their JSON
   document keeps its `page` and `totals` keys.
 

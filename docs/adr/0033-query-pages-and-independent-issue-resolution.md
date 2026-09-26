@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-11
-amended-by: 0055-verify-the-query-context-in-the-response-that-carries-it.md
+amended-by: 0055-verify-the-query-context-in-the-response-that-carries-it.md, 0057-observe-project-totals-in-the-query-page-request.md
 ---
 
 # Query pages and independent Issue resolution
@@ -10,6 +10,10 @@ Amended by [ADR 0055](0055-verify-the-query-context-in-the-response-that-carries
 the Repository and principal context is observed before sending only for a
 continuation; every other GitHub request carries it and is verified in its
 response.
+
+Amended by [ADR 0057](0057-observe-project-totals-in-the-query-page-request.md):
+Project Totals are counted by the Query Page request rather than a count
+request of their own.
 
 ## Context
 

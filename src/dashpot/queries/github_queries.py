@@ -307,8 +307,9 @@ class GitHubQuerySource(CachedQuerySource):
     ) -> QueryPage:
         """Complete exactly one provider page and preserve its search ordering.
 
-        A search GitHub refuses leaves the rest of the answer usable, so the
-        Project Totals it carries are counted before the refusal fails the page.
+        An error inside the search's results leaves the rest of the answer
+        usable, so the Project Totals it carries are counted before the error
+        fails the page.
         """
         if context.configuration != self.config.model_dump_json():
             raise ValueError(

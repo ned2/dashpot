@@ -1,9 +1,9 @@
 """Run the source queries behind the pages and identities.
 
 Each query key — a kind's page, which counts its Project Totals too, and the
-identities — runs on its own executor thread against its own Query Source, one query at a time:
-a request for a key whose query is running waits its turn, and only the
-latest such request runs when the key is free. The runner owns each paged
+identities — runs on its own executor thread against its own Query Source,
+one query at a time: a request for a key whose query is running waits its
+turn, and only the latest such request runs when the key is free. The runner owns each paged
 kind's navigation and publishes its accepted page to the store, so every
 store write goes through a method that advances the store's revision.
 """
