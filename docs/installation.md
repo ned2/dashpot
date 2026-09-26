@@ -193,9 +193,10 @@ event_level = 'standard'
 
 `off` records nothing. `standard` records process starts and ends, hook and
 command outcomes, Agent Session and Agent Run changes, Diagnostics, every
-GitHub request and every failure. `full` adds every local observation and
-command, which is useful when developing Dashpot and writes about 45 MB a
-day for a dashboard on a busy Repository. The `DASHPOT_EVENT_LEVEL`
+GitHub request and every failure, about 4.5 MB a day for a dashboard.
+`full` adds every refresh, local observation, query and command, which is
+useful when developing Dashpot and writes about 200 MB a day for a dashboard
+on a Repository with ten Worktrees. The `DASHPOT_EVENT_LEVEL`
 environment variable overrides the setting for the processes that inherit
 it, hooks included. A settings file that cannot be read leaves the level at
 `standard`; hooks and commands say nothing about it, and the dashboard

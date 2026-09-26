@@ -16,15 +16,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import TypeAdapter, ValidationError
-
 from .errors import DashpotError
 from .event_log import EventLog, error_type
 from .model import Harness
 from .runtime_events import (
     CommandAction,
     CommandOutcome,
-    DiagnosticCode,
     ManagementCommand,
     OutcomeResult,
     fitting,
@@ -79,19 +76,9 @@ def outcome_error(error: BaseException) -> str:
 
     A GitHub failure or an unavailable Issue Source carries a stable code
     (``github-authentication``) that says more than its class; neither is
-    ever its message.
+    ever its message. A failed span names its error the same way.
     """
-    code = getattr(error, "code", None)
-    if isinstance(code, str):
-        try:
-            return _ERROR_CODE.validate_python(code)
-        except ValidationError:
-            pass
     return error_type(error)
-
-
-# An error that carries a code carries a Diagnostic's.
-_ERROR_CODE: TypeAdapter[str] = TypeAdapter(DiagnosticCode)
 
 
 @contextmanager

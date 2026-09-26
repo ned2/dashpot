@@ -1,23 +1,47 @@
-"""Run one external command to completion through a replaceable runner."""
+"""Run one external command to completion through a replaceable runner.
+
+Every command is timed as a ``command`` span of the Event Log in reach,
+named by its program and subcommand and never its arguments. The span fails
+only when the command could not be run; a non-zero exit is an answer the
+caller reads, unless the caller says otherwise with
+:func:`nonzero_exit_fails`.
+"""
 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import threading
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePath
+from typing import Literal
 
 from .errors import DashpotError
+from .event_log import Span, recorded_span
+from .runtime_events import CommandAttributes, span_attributes
+
+# Why a command could not run, as its span records it.
+CommandFailure = Literal[
+    "command-not-found", "command-timed-out", "command-interrupted"
+]
 
 
 class CommandError(DashpotError):
-    """A command that could not run at all: missing binary, timeout, or interruption."""
+    """A command that could not run at all: missing binary, timeout, or interruption.
+
+    ``code`` names which, when the runner knows it, so a Runtime Event can
+    record the failure without its message.
+    """
+
+    def __init__(self, message: str, *, code: CommandFailure | None = None) -> None:
+        super().__init__(message)
+        self.code: CommandFailure | None = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +178,139 @@ def start_pool(
     return running.pool(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
 
 
+# Git commands whose first word names a group and whose second the subcommand.
+_GIT_GROUPS = frozenset({"worktree", "remote", "stash", "submodule"})
+_WORD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+_GRAPHQL_OPERATION = re.compile(r"^\s*(?:query|mutation)\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+# The error class a non-zero exit fails a command's span with, while the
+# calling code reads one as a failure rather than an answer.
+_nonzero_exit_failure: ContextVar[tuple[str, frozenset[int]] | None] = ContextVar(
+    "dashpot_nonzero_exit_failure", default=None
+)
+
+
+@contextmanager
+def nonzero_exit_fails(
+    error: type[Exception], *, answers: Iterable[int] = ()
+) -> Iterator[None]:
+    """Fail the span of a command run in the block that exits non-zero, by ``error``.
+
+    For a caller that treats a non-zero exit as a failure rather than an
+    answer — ``Git.text`` raising ``GitError`` — so the command's span says
+    so, by the error's class and never its message. ``answers`` are the
+    non-zero exits the caller still reads as answers, such as
+    ``merge-tree``'s 1 for a conflict.
+    """
+    token = _nonzero_exit_failure.set((error.__name__, frozenset(answers)))
+    try:
+        yield
+    finally:
+        _nonzero_exit_failure.reset(token)
+
+
+def command_words(args: Sequence[str]) -> tuple[str, str | None]:
+    """The program and subcommand a command is recorded by, never its arguments.
+
+    Git and tmux name their subcommand first (``worktree add`` for Git's
+    groups); ``gh api graphql`` adds the operation its query names. Any other
+    program — ``ps``, a configured launcher — is recorded by its name alone,
+    since what follows it is arguments.
+    """
+    program = PurePath(args[0]).name if args else ""
+    rest = list(args[1:])
+    words: list[str] = []
+    if program in ("git", "tmux", "gh") and rest and _WORD.match(rest[0]):
+        words.append(rest[0])
+        if program == "git" and rest[0] in _GIT_GROUPS and len(rest) > 1:
+            if _WORD.match(rest[1]):
+                words.append(rest[1])
+        elif program == "gh" and rest[:2] == ["api", "graphql"]:
+            words.append("graphql")
+            operation = graphql_operation(rest)
+            if operation is not None:
+                words.append(operation)
+    return program, " ".join(words) or None
+
+
+def graphql_operation(args: Sequence[str]) -> str | None:
+    """The operation name the ``query=`` argument of a ``gh api graphql`` declares."""
+    for arg in args:
+        if arg.startswith("query="):
+            return operation_name(arg.removeprefix("query="))
+    return None
+
+
+def operation_name(query: str) -> str | None:
+    """The name a GraphQL document gives its operation, if it names one."""
+    found = _GRAPHQL_OPERATION.match(query)
+    return None if found is None else str(found.group(1))
+
+
+@dataclass(frozen=True, slots=True)
+class CommandRecord:
+    """The span of one command as it runs, for its runner to say how it ended."""
+
+    span: Span | None
+    program: str
+    subcommand: str | None
+
+    def exited(self, returncode: int) -> None:
+        """Record the exit status; a non-zero one fails the span only where the caller said."""
+        if self.span is None:
+            return
+        attributes = span_attributes(
+            CommandAttributes,
+            program=self.program,
+            subcommand=self.subcommand,
+            exit_code=returncode,
+        )
+        if attributes is not None:
+            self.span.set_attributes(attributes)
+        failure = _nonzero_exit_failure.get()
+        if returncode != 0 and failure is not None:
+            error, answers = failure
+            if returncode not in answers:
+                self.span.fail(error)
+
+    def could_not_run(self, error: BaseException) -> None:
+        """Fail the span: the command could not start, timed out, or was interrupted.
+
+        A runner that catches the failure itself says so here; one that
+        lets it leave the block needs not.
+        """
+        if self.span is None:
+            return
+        if isinstance(error, FileNotFoundError):
+            self.span.fail("command-not-found")
+        elif isinstance(error, subprocess.TimeoutExpired):
+            self.span.fail("command-timed-out")
+        else:
+            self.span.fail(error)
+
+
+@contextmanager
+def recording_command(args: Sequence[str]) -> Iterator[CommandRecord]:
+    """Time one command as a ``command`` span, written at ``full``.
+
+    An exception leaving the block fails the span by its code, errno or
+    class, so a failure is recorded, like every Runtime Event, without its
+    message.
+    """
+    program, subcommand = command_words(args)
+    attributes = span_attributes(
+        CommandAttributes, program=program, subcommand=subcommand
+    )
+    with recorded_span("command", attributes=attributes) as span:
+        record = CommandRecord(span, program, subcommand)
+        try:
+            yield record
+        except BaseException as exc:
+            if span is not None and not span.failed:
+                span.fail(exc)
+            raise
+
+
 def run_command(
     args: Sequence[str],
     cwd: Path,
@@ -174,10 +331,32 @@ def run_command(
     dashboard's exit can stop it; a mutation opts out and runs to
     completion.
     """
+    with recording_command(args) as record:
+        result = _run_command(
+            args,
+            cwd,
+            timeout,
+            environment=environment,
+            non_interactive=non_interactive,
+            interruptible=interruptible,
+        )
+        record.exited(result.returncode)
+    return result
+
+
+def _run_command(
+    args: Sequence[str],
+    cwd: Path,
+    timeout: float,
+    *,
+    environment: Mapping[str, str] | None,
+    non_interactive: bool,
+    interruptible: bool,
+) -> CommandResult:
     registry = adopted_commands() if interruptible else None
     interrupted = f"command interrupted at shutdown: {args[0]}"
     if registry is not None and registry.closed:
-        raise CommandError(interrupted)
+        raise CommandError(interrupted, code="command-interrupted")
     try:
         process = subprocess.Popen(
             list(args),
@@ -190,7 +369,9 @@ def run_command(
             start_new_session=non_interactive,
         )
     except FileNotFoundError as exc:
-        raise CommandError(f"command not found: {args[0]}") from exc
+        raise CommandError(
+            f"command not found: {args[0]}", code="command-not-found"
+        ) from exc
     held = registry.holding(process) if registry is not None else nullcontext()
     with process, held:
         try:
@@ -199,7 +380,8 @@ def run_command(
             process.kill()
             process.wait()
             raise CommandError(
-                f"command timed out after {timeout:g}s: {args[0]}"
+                f"command timed out after {timeout:g}s: {args[0]}",
+                code="command-timed-out",
             ) from exc
         except BaseException:
             # As ``subprocess.run`` does: a child in its own session never
@@ -208,7 +390,7 @@ def run_command(
             process.wait()
             raise
         if registry is not None and registry.interrupted(process):
-            raise CommandError(interrupted)
+            raise CommandError(interrupted, code="command-interrupted")
     return CommandResult(list(args), process.returncode, stdout, stderr)
 
 

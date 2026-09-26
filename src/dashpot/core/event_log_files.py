@@ -223,6 +223,12 @@ class EventSelection:
         if not wanted:
             return True
         fields = event_fields(event)
+        # A span carries its own identifiers — an observation's Project —
+        # among its attributes, and they name its work more closely than
+        # its process's identity does.
+        attributes = fields.get("attributes")
+        if isinstance(attributes, Mapping):
+            fields = {**fields, **attributes}
         return all(fields.get(field) == value for field, value in wanted.items())
 
 

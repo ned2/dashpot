@@ -28,6 +28,7 @@ from .core.event_log import (
     DASHBOARD_KIND,
     EventLog,
     EventLogDestination,
+    use_event_log,
     working_directory,
 )
 from .core.event_log_files import (
@@ -1126,7 +1127,10 @@ def main(
     # orderly exit ends the process with its status; Cyclopts turns Ctrl-C
     # into one, exit 130.
     try:
-        code = _dispatch(tokens)
+        # The external commands and GitHub requests this invocation runs are
+        # recorded as its spans.
+        with use_event_log(log):
+            code = _dispatch(tokens)
     except SystemExit as stop:
         log.end(exit_status(stop))
         raise
