@@ -597,9 +597,9 @@ async def test_post_fetch_observation_failure_never_reenables_old_preview(failur
     )
     if failure == "timeout":
         # The held observation cannot land, so only the wait running out
-        # ends it. The error case keeps the shipped timeout: its observation
-        # fails at once, but the failure reaches the waiter through the event
-        # loop, which can take longer than a short timeout would allow.
+        # ends the refresh. The error case keeps the shipped timeout: its
+        # observation fails as soon as it runs, but the trip onto the
+        # executor and back through the event loop can outlast a short one.
         app.cleanups.refresh_timeout = 0.05
     try:
         async with app.run_test(size=(80, 24)) as pilot:
