@@ -19,6 +19,7 @@ from ..core.pydantic import (
     PublishedModel,
     translate_validation_error,
 )
+from ..core.runtime_events import EventLevel
 
 SETTINGS_FILE_NAME = "config.toml"
 WORKTREE_ROOT_VARIABLE = "DASHPOT_WORKTREE_ROOT"
@@ -59,6 +60,7 @@ class SettingsFile(PublishedModel):
     worktree_open_command: LaxSequence[str] | None = None
     refresh_seconds: RefreshSeconds | None = None
     github_refresh_seconds: RefreshSeconds | None = None
+    event_level: EventLevel | None = None
 
     @field_validator("worktree_open_command")
     @classmethod
@@ -90,6 +92,7 @@ class Settings:
     worktree_open_command: tuple[str, ...] | None = None
     refresh_seconds: float | None = None
     github_refresh_seconds: float | None = None
+    event_level: EventLevel | None = None
 
 
 def default_settings_path() -> Path:
@@ -149,4 +152,5 @@ def load_settings(path: Path | None = None) -> Settings:
         worktree_open_command=command,
         refresh_seconds=file.refresh_seconds,
         github_refresh_seconds=file.github_refresh_seconds,
+        event_level=file.event_level,
     )

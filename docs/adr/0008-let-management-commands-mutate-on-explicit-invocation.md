@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-30
-amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0029-preserve-agent-runs-through-declared-codex-relocation.md
+amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0058-record-runtime-events-locally-and-send-none.md, 0059-keep-an-append-only-event-log-in-each-checkout.md
 ---
 
 # Let named management commands mutate on explicit invocation
@@ -97,3 +97,12 @@ mutation of the targets a person selects.
   the session's own Agent Run at its graceful `SessionEnd` with the hook's
   removal of its own record: housekeeping of Dashpot's state by the hook the
   harness invokes for that session, not a mutation of anyone else's work.
+- [ADR 0059](0059-keep-an-append-only-event-log-in-each-checkout.md) adds
+  two writes to observation's list, both to Dashpot's own ignored state:
+  every Dashpot process — the dashboard, `dashpot --json`, `worktree check`,
+  every `--dry-run`, `work show` and each hook — appends Runtime Events to
+  its checkout's Event Log, or the machine-local fallback, and creating
+  `.dashpot/state/` writes the `.gitignore` that makes it ignore itself.
+  Neither touches the Git Repository, and
+  [ADR 0058](0058-record-runtime-events-locally-and-send-none.md) keeps
+  what they record on the machine.

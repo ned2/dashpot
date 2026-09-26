@@ -90,6 +90,22 @@ def test_a_refresh_period_that_is_not_seconds_is_refused(
     assert str(path) in str(error.value)
 
 
+@pytest.mark.parametrize("level", ["off", "standard", "full"])
+def test_the_event_level_is_read(tmp_path: Path, level: str) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(f"event_level = '{level}'\n")
+    assert load_settings(path).event_level == level
+
+
+@pytest.mark.parametrize("value", ["'loud'", "'OFF'", "1", "true"])
+def test_an_event_level_that_is_no_level_is_refused(tmp_path: Path, value: str) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(f"event_level = {value}\n")
+    with pytest.raises(SettingsError, match="event_level") as error:
+        load_settings(path)
+    assert str(path) in str(error.value)
+
+
 @pytest.mark.parametrize("content", [b"worktree_root = '\xff'", None])
 def test_unreadable_settings_report_the_source(
     tmp_path: Path, content: bytes | None

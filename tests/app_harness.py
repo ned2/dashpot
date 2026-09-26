@@ -22,6 +22,7 @@ from textual.pilot import Pilot
 from textual.widgets import Select
 
 import factories
+from dashpot.core.event_log import EventLog
 from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.core.model import (
     AgentRun,
@@ -507,6 +508,7 @@ def dashboard_app(
     cleaner: CleanupAdapter | None = None,
     launcher_configuration: LauncherConfiguration | None = None,
     release: Event | None = None,
+    event_log: EventLog | None = None,
 ) -> DashpotApp:
     """Build the shipped app over a collector, its queries served from a snapshot.
 
@@ -536,6 +538,7 @@ def dashboard_app(
         fetcher=fetcher,
         cleaner=cleaner,
         launcher_configuration=launcher_configuration,
+        event_log=event_log,
     )
     # These tests assert settled layout and state, not intermediate animation frames.
     # Keep real rendering and Pilot synchronization while avoiding optional motion.

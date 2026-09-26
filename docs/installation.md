@@ -166,6 +166,74 @@ This file contains machine-local preferences only. Workspace inventory remains
 `.dashpot/config.json`. Work Store records, public JSON output, and external
 harness configuration retain their formats.
 
+## Event Log
+
+Every Dashpot process — the dashboard, each command, each lifecycle hook —
+records what it does as Runtime Events in an Event Log on this machine.
+Nothing is sent anywhere
+([ADR 0058](adr/0058-record-runtime-events-locally-and-send-none.md),
+[ADR 0059](adr/0059-keep-an-append-only-event-log-in-each-checkout.md)).
+
+A process whose working directory is inside a configured checkout — one
+whose Worktree root carries `.dashpot/config.json` — writes to that
+checkout's `.dashpot/state/events/`, which is ignored with the rest of
+`.dashpot/state/`. Any other process writes to
+`$XDG_STATE_HOME/dashpot/events/`, else `~/.local/state/dashpot/events/`, or
+`~/Library/Application Support/dashpot/events/` on macOS. Hooks and
+commands share one file per UTC day, `events-YYYY-MM-DD.jsonl`; each
+dashboard run writes its own, `dashboard-<run>-YYYY-MM-DD.jsonl`. Each line
+is one JSON event. Removing a Worktree removes its Event Log with it.
+
+Choose how much is recorded with the `event_level` setting:
+
+```toml
+# off, standard (the default), or full.
+event_level = 'standard'
+```
+
+`off` records nothing. `standard` records process starts and ends, hook and
+command outcomes, Agent Session and Agent Run changes, Diagnostics, every
+GitHub request and every failure. `full` adds every local observation and
+command, which is useful when developing Dashpot and writes about 45 MB a
+day for a dashboard on a busy Repository. The `DASHPOT_EVENT_LEVEL`
+environment variable overrides the setting for the processes that inherit
+it, hooks included. A settings file that cannot be read leaves the level at
+`standard`; hooks and commands say nothing about it, and the dashboard
+shows the settings error as a Diagnostic.
+
+A write that fails is dropped, and never fails the work it describes. The
+dashboard reports the first one as an `event-log-unavailable` Diagnostic;
+hooks and commands stay silent. Each event is appended whole with one write,
+which keeps concurrent writers' lines intact on a local filesystem; on NFS a
+line written by two processes at once may be interleaved.
+
+Dashpot never deletes, compresses or renames an Event Log. Remove old files
+with your own tools; a writer notices its current file was moved or deleted
+and starts a new one. For example, a daily `cron` entry:
+
+```sh
+# Delete Event Log files older than 30 days in this checkout.
+0 3 * * * find /path/to/project/.dashpot/state/events -name '*.jsonl' -mtime +30 -delete
+```
+
+A systemd timer running the same `find` works as well. `logrotate` can
+rename or compress the files too, since a writer that finds its file renamed
+starts a new one; because each file already holds one UTC day, deleting old
+days is usually all that is needed.
+
+Runtime Events hold identifiers, not messages: paths (which include your
+home directory), Branch names (which carry Issue title slugs), Issue and
+Pull Request numbers, Agent Session Identities and exit statuses, never
+tokens, command output, titles, prompts or error messages. Read an Event
+Log before attaching it to a bug report, and remove anything you would not
+share.
+
+`gh` has telemetry of its own: GitHub CLI 2.100 sends usage data by
+default, and the `gh` processes Dashpot starts send it like any other `gh`
+run. Dashpot leaves that to your `gh` configuration. To turn it off, set
+`GH_TELEMETRY=0`, or `DO_NOT_TRACK=1` for every tool that honours it, in the
+environment Dashpot runs in.
+
 ## Open Worktrees and copy paths
 
 With the Worktrees table focused, `Enter` opens the selected Worktree and `y`
@@ -256,6 +324,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |
 | Sessions are missing or Issue opt-in is refused | Run `dashpot integrate <harness> --status` inside the session's Worktree; inspect hook trust, publisher path, skill version, and the confirmed Agent Session Identity. |
 | Every hook event fails after a Worktree was removed, or `--status` warns that the publisher lives in a linked Worktree | The hooks were bound to a publisher in that Worktree's `.venv`, which the Cleanup removed. Rerun `dashpot integrate <harness>` from the Repository's main working tree or from an installed tool environment; `integrate` refuses to bind a linked Worktree's publisher in the first place. |
+| The dashboard shows an `event-log-unavailable` Diagnostic | It could not write its [Event Log](#event-log); the work carries on and the events are dropped. Check that the checkout's `.dashpot/state/events/`, or the machine-local fallback, is writable and its disk is not full, or set `event_level = 'off'`. |
 | Session liveness is unknown | Read the Diagnostic: an isolated process namespace can hide a live process. Unknown does not mean the Agent Session ended. |
 
 ## Upgrade and uninstall
