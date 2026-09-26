@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-23
+date: 2026-09-26
 ---
 
 # Architecture decision records
@@ -34,7 +34,7 @@ of date.
 | 0016 | [Hold a session running while its sub-agents work](0016-hold-a-session-running-while-its-sub-agents-work.md) | accepted | — |
 | 0017 | [Observe Branch integration by content when commits are unreachable](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md) | amended | [0018](0018-assess-remote-tracking-branch-integration.md), [0040](0040-summarize-integration-across-a-branch-rows-refs.md) |
 | 0018 | [Assess Remote-Tracking Branch integration](0018-assess-remote-tracking-branch-integration.md) | amended | [0040](0040-summarize-integration-across-a-branch-rows-refs.md) |
-| 0019 | [Remove Branches and Worktrees on explicit confirmation](0019-remove-branches-and-worktrees-on-explicit-confirmation.md) | amended | [0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) |
+| 0019 | [Remove Branches and Worktrees on explicit confirmation](0019-remove-branches-and-worktrees-on-explicit-confirmation.md) | amended | [0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md), [0054](0054-finish-a-worktree-with-its-branch-by-default.md) |
 | 0020 | [Coalesce requests onto the observation in flight](0020-coalesce-requests-onto-the-observation-in-flight.md) | accepted | — |
 | 0021 | [Bound each GitHub refresh by a budget](0021-bound-each-github-refresh-by-a-budget.md) | accepted | — |
 | 0022 | [Refresh GitHub Issues incrementally between Reconciliations](0022-refresh-github-issues-incrementally-between-reconciliations.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
@@ -51,7 +51,7 @@ of date.
 | 0033 | [Query pages and independent Issue resolution](0033-query-pages-and-independent-issue-resolution.md) | accepted | — |
 | 0034 | [Publish an alpha with patch-compatible interfaces](0034-publish-an-alpha-with-patch-compatible-interfaces.md) | accepted | — |
 | 0035 | [Open Worktrees on explicit key press](0035-open-worktrees-on-explicit-key-press.md) | accepted | — |
-| 0036 | [Keep Cleanup subjects fixed and fetch inside their previews](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) | accepted | — |
+| 0036 | [Keep Cleanup subjects fixed and fetch inside their previews](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) | amended | [0054](0054-finish-a-worktree-with-its-branch-by-default.md) |
 | 0037 | [Review locally and verify the PR head before integration](0037-review-locally-and-verify-pr-head-before-integration.md) | amended | [0044](0044-integrate-pull-requests-through-a-merge-queue.md), [0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) |
 | 0038 | [Isolate native Agent Session identities](0038-isolate-native-agent-session-identities.md) | accepted | — |
 | 0039 | [Anchor the default Worktree Root on the main working tree](0039-anchor-the-default-worktree-root-on-the-main-working-tree.md) | accepted | — |
@@ -69,3 +69,4 @@ of date.
 | 0051 | [Adopt long-lived peer dashboard screens](0051-adopt-long-lived-peer-dashboard-screens.md) | accepted | — |
 | 0052 | [Read machine-local settings as TOML](0052-read-machine-local-settings-as-toml.md) | accepted | — |
 | 0053 | [Continue an Orphaned Agent Run when its session resumes](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) | accepted | — |
+| 0054 | [Finish a Worktree with its Branch by default](0054-finish-a-worktree-with-its-branch-by-default.md) | accepted | — |

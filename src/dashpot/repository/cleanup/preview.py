@@ -19,6 +19,7 @@ from ..repository import (
     RefIndex,
     branch_name,
     last_fetched_at,
+    short_ref,
 )
 from ..worktrees.records import checked_out_at
 from .obstacles import (
@@ -27,6 +28,7 @@ from .obstacles import (
     assess_detached_head_preservation,
     assess_worktree_occupancy,
     assess_worktree_safety,
+    counted,
     ignored_content,
     integration_fact,
     locate_worktree,
@@ -147,6 +149,9 @@ def _remote_branch_target(
     refs: RefIndex,
     integration_ref: str | None,
     fetched: str | None,
+    *,
+    requires: str | None = None,
+    blocked_worktree: Path | None = None,
 ) -> CleanupTarget:
     tracking = f"{REMOTE_REF_PREFIX}{remote}/{name}"
     commit = refs.commits[tracking]
@@ -156,6 +161,18 @@ def _remote_branch_target(
     blockers = _integration_branch_blockers(
         tracking, name, integration_ref, refs.origin_head
     )
+    if blocked_worktree is not None:
+        # Offered from the Worktrees pane only as part of finishing the
+        # Worktree, so it goes no further than a Worktree that cannot go.
+        blockers.append(
+            CleanupBlocker(
+                kind="checked-out",
+                detail=(
+                    f"its local Branch is checked out at {blocked_worktree}, "
+                    f"whose removal is blocked"
+                ),
+            )
+        )
     blockers.extend(_remote_blockers(git, remote))
     blockers.extend(_integration_blockers(fact, tracking))
     consequences = [
@@ -173,6 +190,7 @@ def _remote_branch_target(
         remote=remote,
         integration=fact,
         observed_at=fetched,
+        requires=requires,
         blockers=tuple(blockers),
         consequences=tuple(consequences),
     )
@@ -223,15 +241,15 @@ def _integration_branch_blockers(
         return [
             CleanupBlocker(
                 kind="integration-branch",
-                detail=f"{refname} is the Integration Branch",
+                detail=f"{short_ref(refname)} is the Integration Branch",
             )
         ]
     if name == branch_name(integration_ref):
         return [
             CleanupBlocker(
                 kind="integration-branch",
-                detail=f"{refname} carries the Integration Branch's name "
-                f"({integration_ref})",
+                detail=f"{short_ref(refname)} carries the Integration Branch's "
+                f"name ({short_ref(integration_ref)})",
             )
         ]
     return []
@@ -244,8 +262,8 @@ def _integration_blockers(fact: IntegrationFact, refname: str) -> list[CleanupBl
             detail = NO_INTEGRATION_BRANCH
         else:
             detail = (
-                f"commits of {refname} not reachable from {fact.integration_ref} "
-                f"could not be counted"
+                f"commits of {short_ref(refname)} not reachable from "
+                f"{short_ref(fact.integration_ref)} could not be counted"
             )
         return [
             CleanupBlocker(
@@ -258,8 +276,8 @@ def _integration_blockers(fact: IntegrationFact, refname: str) -> list[CleanupBl
         return [
             CleanupBlocker(
                 kind="unintegrated",
-                detail=f"{fact.unintegrated_commits} commit(s) not reachable from "
-                f"{fact.integration_ref}",
+                detail=f"{counted(fact.unintegrated_commits or 0, 'commit')} not "
+                f"reachable from {short_ref(fact.integration_ref or '')}",
                 command=f"git log --oneline {fact.integration_ref}..{refname}",
             )
         ]
@@ -270,14 +288,35 @@ def _content_consequence(fact: IntegrationFact) -> list[str]:
     if fact.state != "content-integrated":
         return []
     return [
-        f"content is integrated, but {fact.unintegrated_commits} original commit(s) "
-        f"are not reachable from {fact.integration_ref} and lose their last named ref"
+        f"content is integrated, but deleting it drops the last named ref to "
+        f"{counted(fact.unintegrated_commits or 0, 'original commit')} not "
+        f"reachable from {short_ref(fact.integration_ref or '')}"
     ]
 
 
 def _remotes(git: Git) -> list[str]:
     listed = git.maybe("remote")
     return [name.strip() for name in (listed or "").splitlines() if name.strip()]
+
+
+def _push_remote(git: Git, name: str) -> str | None:
+    """The configured remote a plain ``git push`` of the Branch ``name`` reaches.
+
+    Git's own order: the Branch's ``pushRemote``, the Repository's
+    ``pushDefault``, the Branch's upstream remote, then ``origin``. A name
+    that is not a configured remote — ``.`` for a local upstream — is none.
+    """
+    for key in (
+        f"branch.{name}.pushRemote",
+        "remote.pushDefault",
+        f"branch.{name}.remote",
+    ):
+        configured = (git.maybe("config", "--get", key) or "").strip()
+        if configured:
+            break
+    else:
+        configured = "origin"
+    return configured if configured in _remotes(git) else None
 
 
 def _inspect_worktree(
@@ -297,8 +336,8 @@ def _inspect_worktree(
     consequences = [f"removes {path} with git worktree remove"]
     if ignored:
         consequences.append(
-            f"{len(ignored)} ignored path(s) inside it are deleted too, including "
-            f"any Dashpot state, hook records, and Work Store there"
+            f"also deletes {counted(len(ignored), 'ignored path')} inside it, "
+            f"including any Dashpot state, hook records, and Work Store there"
         )
     if branch is not None:
         consequences.append(
@@ -317,19 +356,52 @@ def _inspect_worktree(
         )
     ]
     if branch is not None:
-        refs = RefIndex.read(located.git)
-        if f"{LOCAL_REF_PREFIX}{branch}" in refs.commits:
-            targets.append(
-                _local_branch_target(
-                    located.git,
-                    branch,
-                    refs,
-                    refs.integration_ref(),
-                    checked_out_at=path if blockers else None,
-                    requires=identity,
-                )
-            )
+        targets.extend(
+            _attached_branch_targets(located, branch, identity, blocked=bool(blockers))
+        )
     return _preview("worktree", str(path), located.anchor, targets, ignored, ())
+
+
+def _attached_branch_targets(
+    located: LocatedWorktree, branch: str, worktree: str, *, blocked: bool
+) -> list[CleanupTarget]:
+    """The Worktree's Branch, locally and at its push remote, each after the Worktree.
+
+    Only the Branch of the same name at the remote a plain ``git push``
+    reaches is offered: finishing a piece of work removes what was pushed
+    for it, while a Branch at any other remote — or an upstream of another
+    name, which may be shared — stays the Branches pane's to delete.
+    """
+    git = located.git
+    refs = RefIndex.read(git)
+    integration_ref = refs.integration_ref()
+    targets: list[CleanupTarget] = []
+    if f"{LOCAL_REF_PREFIX}{branch}" in refs.commits:
+        targets.append(
+            _local_branch_target(
+                git,
+                branch,
+                refs,
+                integration_ref,
+                checked_out_at=located.path if blocked else None,
+                requires=worktree,
+            )
+        )
+    remote = _push_remote(git, branch)
+    if remote is not None and f"{REMOTE_REF_PREFIX}{remote}/{branch}" in refs.commits:
+        targets.append(
+            _remote_branch_target(
+                git,
+                branch,
+                remote,
+                refs,
+                integration_ref,
+                last_fetched_at(located.anchor, git),
+                requires=worktree,
+                blocked_worktree=located.path if blocked else None,
+            )
+        )
+    return targets
 
 
 def _worktree_blockers(
@@ -347,7 +419,7 @@ def _worktree_blockers(
         blockers.append(
             CleanupBlocker(
                 kind="protected",
-                detail="is the checkout Dashpot runs from or a configured "
+                detail="this is the checkout Dashpot runs from or a configured "
                 "Repository Anchor, which observation cannot lose",
             )
         )

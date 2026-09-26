@@ -357,9 +357,7 @@ IssueColumnEditor {
 #column-editor-list > .selection-list--button,
 #column-editor-list > .selection-list--button-selected,
 #column-editor-list > .selection-list--button-highlighted,
-#column-editor-list > .selection-list--button-selected-highlighted,
-#cleanup-ignored > .toggle--button,
-#cleanup-ignored.-on > .toggle--button {
+#column-editor-list > .selection-list--button-selected-highlighted {
     color: $text;
 }
 
@@ -585,12 +583,29 @@ CleanupScreen, CleanupReportScreen {
     text-style: bold;
 }
 
-#cleanup-context, #cleanup-freshness {
+#cleanup-freshness {
     height: auto;
     color: $text-muted;
+    text-style: italic;
 }
 
-#cleanup-freshness, #cleanup-help {
+#cleanup-unavailable.cleanup-blocker {
+    margin-left: 0;
+    margin-top: 1;
+}
+
+/* Heads the Worktree's optional targets as the Worktree heading heads its own. */
+#cleanup-also {
+    height: auto;
+    margin-top: 1;
+    text-style: bold;
+}
+
+.cleanup-target.-grouped {
+    margin-top: 0;
+}
+
+#cleanup-help {
     margin-top: 1;
     height: auto;
 }
@@ -603,7 +618,8 @@ CleanupScreen, CleanupReportScreen {
     margin-top: 1;
 }
 
-.cleanup-target-heading {
+.cleanup-target-body {
+    width: 1fr;
     height: auto;
 }
 
@@ -637,10 +653,13 @@ CleanupScreen, CleanupReportScreen {
     color: $text;
 }
 
+/* A gutter as wide as the longer marker, so every target's text wraps
+   beside its marker at the same width and never beneath it. */
 .cleanup-availability {
-    width: auto;
+    width: 9;
     height: 1;
-    margin-left: 1;
+    margin-left: 2;
+    text-align: right;
     color: $success;
     text-style: bold;
 }
@@ -671,13 +690,37 @@ CleanupScreen, CleanupReportScreen {
     height: auto;
 }
 
-#cleanup-ignored {
+.cleanup-facts, .cleanup-fact {
     height: auto;
+}
+
+.cleanup-fact-label {
+    width: 9;
+    color: $text-muted;
+}
+
+.cleanup-fact-value {
     width: 1fr;
-    border: none;
-    padding: 0;
-    text-wrap: wrap;
-    display: none;
+}
+
+/* The confirm button's label is fixed, so this recap of the selection is
+   what a person reads before confirming; it ends the scrolling body. */
+#cleanup-callout {
+    height: auto;
+    margin-top: 1;
+    padding: 0 1;
+    border: tall $error;
+    background: $error 15%;
+}
+
+#cleanup-callout-title {
+    height: auto;
+    text-style: bold;
+}
+
+#cleanup-callout-lines {
+    height: auto;
+    color: $text;
 }
 
 #cleanup-footer {

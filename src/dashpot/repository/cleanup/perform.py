@@ -20,6 +20,7 @@ from ..repository import (
     LockHolderProbe,
 )
 from ..worktrees.records import registered_at
+from .obstacles import counted
 from .preview import describe_cleanup_preview, inspect_cleanup
 from .targets import (
     CleanupPreview,
@@ -233,8 +234,9 @@ def _select(
         and not confirmation.delete_ignored
     ):
         refusals.append(
-            f"removing the Worktree deletes {len(preview.ignored)} ignored path(s) "
-            f"inside it, which must be acknowledged"
+            f"removing the Worktree deletes "
+            f"{counted(len(preview.ignored), 'ignored path')} inside it, which must "
+            f"be acknowledged"
         )
     chosen.sort(key=lambda target: _ORDER[target.kind])
     return refusals, chosen

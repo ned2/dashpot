@@ -19,9 +19,15 @@ from ..repository import (
     RefIndex,
     assess_content_integration,
     lock_holder,
+    short_ref,
 )
 from ..worktrees.records import INITIALIZING_LOCK, registered_at, short_branch
 from .targets import CleanupBlocker, CleanupError, IntegrationFact
+
+
+def counted(count: int, noun: str) -> str:
+    """``1 commit`` or ``3 commits``: a count with its noun agreeing."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,9 +127,8 @@ def assess_worktree_safety(
             obstacles.append(
                 CleanupBlocker(
                     kind="dirty",
-                    detail=f"{count} changed or untracked path(s); inspect with "
-                    f"'git -C {path} status'",
-                    command=f"git worktree remove --force {path}",
+                    detail=counted(count, "changed or untracked path"),
+                    command=f"git -C {path} status",
                 )
             )
     return obstacles
@@ -237,7 +242,8 @@ def assess_branch_preservation(
         reason = (
             NO_INTEGRATION_BRANCH
             if integration_ref is None
-            else f"commits not reachable from {integration_ref} could not be counted"
+            else f"commits not reachable from {short_ref(integration_ref)} "
+            f"could not be counted"
         )
         obstacles.append(
             CleanupBlocker(
@@ -252,7 +258,7 @@ def assess_branch_preservation(
             obstacles.append(
                 CleanupBlocker(
                     kind="unpushed",
-                    detail=f"{ahead} commit(s) not on {upstream}",
+                    detail=f"{counted(ahead, 'commit')} not on {upstream}",
                     command=f"git -C {path} push",
                 )
             )
@@ -260,8 +266,8 @@ def assess_branch_preservation(
         obstacles.append(
             CleanupBlocker(
                 kind="unpushed",
-                detail=f"Branch {branch} has no upstream and {unmerged} commit(s) "
-                f"of its own",
+                detail=f"Branch {branch} has no upstream and "
+                f"{counted(unmerged, 'commit')} of its own",
                 command=f"git -C {path} push -u origin {branch}",
             )
         )
@@ -269,7 +275,8 @@ def assess_branch_preservation(
         obstacles.append(
             CleanupBlocker(
                 kind="unmerged",
-                detail=f"{unmerged} commit(s) not reachable from {integration_ref}",
+                detail=f"{counted(unmerged, 'commit')} not reachable from "
+                f"{short_ref(integration_ref or '')}",
                 command=f"git log --oneline {integration_ref}..{branch}",
             )
         )

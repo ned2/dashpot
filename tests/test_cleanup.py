@@ -24,20 +24,22 @@ from dashpot.core.git import Git, GitError
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     BranchCleanupRequest,
+    CleanupBlocker,
     CleanupConfirmation,
     CleanupPreview,
     CleanupReport,
     CleanupRequest,
     CleanupTarget,
     WorktreeCleanupRequest,
+    default_choices,
     describe_cleanup_preview,
     describe_cleanup_report,
     inspect_cleanup,
     perform_cleanup,
 )
 from dashpot.repository.cleanup.adapter import GitCleanupAdapter
-from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH
-from dashpot.repository.repository import LockHolderProbe
+from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH, counted
+from dashpot.repository.repository import LockHolderProbe, short_ref
 from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import cleanup_preview_document, cleanup_report_document
 from dashpot.sessions.hook_records import session_directory, write_hook_record
@@ -163,7 +165,7 @@ def test_unintegrated_branch_is_blocked_with_the_log_command(tmp_path: Path) -> 
     assert target.integration.unintegrated_commits == 2
     (blocker,) = target.blockers
     assert blocker.kind == "unintegrated"
-    assert blocker.detail == "2 commit(s) not reachable from refs/remotes/origin/main"
+    assert blocker.detail == "2 commits not reachable from origin/main"
     assert (
         blocker.command == "git log --oneline refs/remotes/origin/main..refs/heads/feat"
     )
@@ -184,8 +186,8 @@ def test_content_integrated_branch_is_available_with_its_warning(
     assert target.integration is not None
     assert target.integration.state == "content-integrated"
     assert target.consequences[1] == (
-        "content is integrated, but 1 original commit(s) are not reachable from "
-        "refs/remotes/origin/main and lose their last named ref"
+        "content is integrated, but deleting it drops the last named ref to 1 "
+        "original commit not reachable from origin/main"
     )
 
 
@@ -205,11 +207,10 @@ def test_the_integration_branch_is_never_a_target(tmp_path: Path) -> None:
     assert kinds(targets["remote:origin:refs/heads/main"]) == {"integration-branch"}
     assert kinds(targets["remote:upstream:refs/heads/main"]) == {"integration-branch"}
     assert targets["local:refs/heads/main"].blockers[0].detail == (
-        "refs/heads/main carries the Integration Branch's name "
-        "(refs/remotes/origin/main)"
+        "main carries the Integration Branch's name (origin/main)"
     )
     assert targets["remote:origin:refs/heads/main"].blockers[0].detail == (
-        "refs/remotes/origin/main is the Integration Branch"
+        "origin/main is the Integration Branch"
     )
 
 
@@ -397,7 +398,7 @@ def test_clean_worktree_offers_removal_and_its_branch_separately(
     assert tree.available is True
     assert tree.consequences == (
         f"removes {resolved} with git worktree remove",
-        "1 ignored path(s) inside it are deleted too, including any Dashpot state, "
+        "also deletes 1 ignored path inside it, including any Dashpot state, "
         "hook records, and Work Store there",
         "the local Branch feat is retained unless selected as well",
     )
@@ -468,6 +469,120 @@ def test_an_integrated_branch_under_a_blocked_worktree_stays_checked_out(
     assert blocker.detail == f"checked out at {worktree}, whose removal is blocked"
     assert local.requires == tree.identity
     assert preview.selectable == ()
+
+
+def pushed_worktree(tmp_path: Path) -> tuple[Path, Path, str]:
+    """An integrated ``feat`` in a linked Worktree, also at ``origin`` and ``upstream``."""
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    track(root, "feat", tip)
+    git(root, "remote", "add", "upstream", str(tmp_path / "upstream.git"))
+    track(root, "feat", tip, remote="upstream")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "feat")
+    return root, worktree, tip
+
+
+def test_a_worktree_offers_its_branch_at_the_push_remote_only(tmp_path: Path) -> None:
+    root, worktree, tip = pushed_worktree(tmp_path)
+
+    preview = preview_worktree(root, worktree)
+
+    tree, local, pushed = preview.targets
+    # Nothing configures where feat is pushed, so Git's answer is origin; the
+    # same Branch at upstream stays the Branches pane's to delete.
+    assert pushed.identity == "remote:origin:refs/heads/feat"
+    assert pushed.label == "Branch at origin"
+    assert pushed.expected == tip
+    assert pushed.requires == tree.identity
+    assert pushed.available is True
+    assert default_choices(preview) == (local.identity, pushed.identity)
+    # A held local Branch never lets the remote one start selected alone.
+    held = local.model_copy(
+        update={"blockers": (CleanupBlocker(kind="protected", detail="held"),)}
+    )
+    assert (
+        default_choices(preview.model_copy(update={"targets": (tree, held, pushed)}))
+        == ()
+    )
+
+
+@pytest.mark.parametrize(
+    ("config", "remote"),
+    [
+        ({"branch.feat.pushRemote": "upstream"}, "upstream"),
+        ({"remote.pushDefault": "upstream"}, "upstream"),
+        ({"branch.feat.remote": "upstream"}, "upstream"),
+        (
+            {"branch.feat.pushRemote": "origin", "remote.pushDefault": "upstream"},
+            "origin",
+        ),
+        ({"branch.feat.remote": "."}, None),
+        ({"remote.pushDefault": "gone"}, None),
+    ],
+)
+def test_the_push_remote_follows_gits_order(
+    tmp_path: Path, config: dict[str, str], remote: str | None
+) -> None:
+    root, worktree, _tip = pushed_worktree(tmp_path)
+    for key, value in config.items():
+        git(root, "config", key, value)
+
+    preview = preview_worktree(root, worktree)
+
+    offered = [
+        target.remote for target in preview.targets if target.kind == "remote-branch"
+    ]
+    assert offered == ([remote] if remote else [])
+
+
+def test_a_branch_never_fetched_at_its_push_remote_offers_no_remote_target(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "feat")
+
+    preview = preview_worktree(root, worktree)
+
+    assert [target.kind for target in preview.targets] == ["worktree", "local-branch"]
+
+
+def test_a_remote_branch_off_the_local_tip_is_offered_but_not_by_default(
+    tmp_path: Path,
+) -> None:
+    root, worktree, tip = pushed_worktree(tmp_path)
+    # Someone moved origin's feat to an older, still integrated commit.
+    track(root, "feat", f"{tip}~1")
+
+    preview = preview_worktree(root, worktree)
+
+    _tree, local, pushed = preview.targets
+    assert pushed.available is True
+    assert pushed.expected != local.expected
+    assert default_choices(preview) == (local.identity,)
+    # A Branch preview is a general editor: nothing starts selected there.
+    assert default_choices(preview_branch(root, "feat")) == ()
+
+
+def test_a_blocked_worktree_holds_its_remote_branch_too(tmp_path: Path) -> None:
+    root, worktree, _tip = pushed_worktree(tmp_path)
+    (worktree / "scratch.txt").write_text("")
+
+    preview = preview_worktree(root, worktree)
+
+    tree, local, pushed = preview.targets
+    assert kinds(tree) == {"dirty"}
+    assert kinds(local) == kinds(pushed) == {"checked-out"}
+    # The Branch at the remote is not itself checked out anywhere.
+    assert pushed.blockers[0].detail == (
+        f"its local Branch is checked out at {worktree}, whose removal is blocked"
+    )
+    assert preview.selectable == ()
+    assert default_choices(preview) == ()
 
 
 def test_protected_and_main_worktrees_are_never_removable(tmp_path: Path) -> None:
@@ -549,7 +664,9 @@ def test_preview_and_removability_agree_on_the_integration_branch(
         assert unmerged.detail.endswith(NO_INTEGRATION_BRANCH)
     else:
         assert gate.kind == "unintegrated"
-        assert gate.detail == f"1 commit(s) not reachable from {integration_ref}"
+        assert gate.detail == (
+            f"1 commit not reachable from {short_ref(integration_ref)}"
+        )
         assert unmerged.detail == gate.detail
 
 
@@ -647,8 +764,7 @@ def test_describe_renders_each_target_with_its_gate(tmp_path: Path) -> None:
     assert lines[3] == f"  [ ] Local Branch refs/heads/feat @ {tip[:7]} — unavailable"
     assert lines[4] == "      ↑ commits are not reachable from the Integration Branch"
     assert lines[5] == (
-        "      blocked: unintegrated: 1 commit(s) not reachable from "
-        "refs/remotes/origin/main"
+        "      blocked: unintegrated: 1 commit not reachable from origin/main"
     )
     assert lines[6] == (
         "          run: git log --oneline refs/remotes/origin/main..refs/heads/feat"
@@ -781,8 +897,7 @@ def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> No
     report = perform_cleanup(confirm(request, preview, "local:refs/heads/feat"))
     assert report.performed is False
     assert report.refusals == (
-        "Local Branch is unavailable: 1 commit(s) not reachable from "
-        "refs/remotes/origin/main",
+        "Local Branch is unavailable: 1 commit not reachable from origin/main",
     )
     assert git(root, "rev-parse", "refs/heads/feat") == tip
 
@@ -800,7 +915,7 @@ def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> No
         f"Local Branch can only be deleted together with {tree.identity}",
     )
     assert perform_cleanup(confirm(request, preview, tree.identity)).refusals == (
-        "removing the Worktree deletes 1 ignored path(s) inside it, which must be "
+        "removing the Worktree deletes 1 ignored path inside it, which must be "
         "acknowledged",
     )
     assert worktree.exists()
@@ -1053,6 +1168,38 @@ def test_removing_a_worktree_then_its_branch(tmp_path: Path) -> None:
     assert len(git(root, "worktree", "list", "--porcelain").split("\n\n")) == 1
 
 
+def test_removing_a_worktree_finishes_its_branch_at_the_remote_first(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    tip = branch(root, "feat")
+    integrate(root, "feat")
+    bare = serve(tmp_path, root, "feat")
+    git(root, "fetch", "-q", "origin")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+
+    # The defaults name only the optional targets; the Worktree is the subject.
+    tree = preview.targets[0].identity
+    report = perform_cleanup(
+        confirm(request, preview, tree, *default_choices(preview), delete_ignored=True)
+    )
+
+    assert report.succeeded is True
+    assert [result.kind for result in report.results] == [
+        "remote-branch",
+        "worktree",
+        "local-branch",
+    ]
+    assert git(bare, "for-each-ref", "refs/heads/feat") == ""
+    assert (
+        git(root, "for-each-ref", "refs/remotes/origin/feat", "refs/heads/feat") == ""
+    )
+    assert not worktree.exists()
+    assert git(root, "rev-parse", "main") == tip
+
+
 def test_a_refused_removal_leaves_the_branch_unattempted(tmp_path: Path) -> None:
     root = repo(tmp_path)
     branch(root, "feat")
@@ -1218,3 +1365,11 @@ def test_report_json_key_sets_and_description_are_stable(tmp_path: Path) -> None
     lines = describe_cleanup_report(changed)
     assert lines[2] == f"Changed         {CHANGED_SINCE_PREVIEW}"
     assert lines[3].startswith("Refused         no Branch named feat at ")
+
+
+def test_a_reason_counts_in_agreement_and_names_refs_as_a_person_reads_them():
+    assert counted(1, "commit") == "1 commit"
+    assert counted(0, "commit") == "0 commits"
+    assert counted(3, "ignored path") == "3 ignored paths"
+    assert short_ref("refs/heads/feat") == "feat"
+    assert short_ref("refs/remotes/origin/feat") == "origin/feat"

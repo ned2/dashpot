@@ -24,6 +24,7 @@ from test_dashboard_cleanup import (
     BRANCH_REQUEST,
     LOCAL,
     PROJECT,
+    PUSHED,
     REMOTE,
     TREE,
     WORKTREE_KEY,
@@ -65,9 +66,9 @@ async def test_fetch_stays_in_same_dialog_and_holds_confirmation(kind):
     try:
         async with app.run_test(size=(100, 40)) as pilot:
             screen = await open_preview(app, pilot, kind)
-            assert "Press f here to fetch and prune remotes" in str(
+            assert str(
                 screen.query_one("#cleanup-freshness", Static).render()
-            )
+            ).startswith("Remote ")
             assert screen.query_one(Footer)
             assert (
                 screen.active_bindings["f"].binding.description
@@ -92,7 +93,8 @@ async def test_fetch_stays_in_same_dialog_and_holds_confirmation(kind):
 
 
 @pytest.mark.asyncio
-async def test_fetch_preserves_unchanged_optional_choice_and_resets_acknowledgement():
+@pytest.mark.parametrize("keep", [True, False])
+async def test_fetch_preserves_an_unchanged_optional_choice_either_way(keep):
     cleaner = FakeCleaner(WORKTREE_PREVIEW, WORKTREE_PREVIEW)
     app = dashboard_app(
         SequenceCollector(BEFORE, BEFORE),
@@ -103,18 +105,50 @@ async def test_fetch_preserves_unchanged_optional_choice_and_resets_acknowledgem
     async with app.run_test(size=(120, 45)) as pilot:
         screen = await open_preview(app, pilot, "worktree")
         assert not screen.query("#cleanup-target-0")
-        screen.query_one("#cleanup-target-1", Checkbox).value = True
-        screen.query_one("#cleanup-ignored", Checkbox).value = True
+        # The Branch starts selected; a person may keep it that way or not.
+        assert screen.selected() == (TREE.identity, ATTACHED.identity)
+        screen.query_one("#cleanup-target-1", Checkbox).value = keep
         await pilot.pause()
+        await pilot.press("f")
+        await wait_until(lambda: len(cleaner.requests) == 2 and not screen.busy)
+        expected = (TREE.identity, ATTACHED.identity) if keep else (TREE.identity,)
+        assert screen.selected() == expected
+        assert (
+            str(screen.query_one("#cleanup-confirm", Button).label) == "Remove Worktree"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("before", ["moved", "absent"])
+async def test_fetch_never_re_arms_a_default_for_a_changed_or_new_target(before):
+    moved = PUSHED.model_copy(update={"expected": "f" * 40})
+    initial = WORKTREE_PREVIEW.model_copy(
+        update={
+            "targets": (TREE, ATTACHED, moved)
+            if before == "moved"
+            else (TREE, ATTACHED)
+        }
+    )
+    # After the fetch the remote Branch is at the local tip, which would
+    # qualify it for the first preview's default — but it changed or is new.
+    updated = initial.model_copy(
+        update={"targets": (TREE, ATTACHED, PUSHED), "fingerprint": "new"}
+    )
+    cleaner = FakeCleaner(initial, updated)
+    app = dashboard_app(
+        SequenceCollector(BEFORE, BEFORE),
+        refresh_seconds=0,
+        cleaner=cleaner,
+        fetcher=RecordingFetcher(),
+    )
+    async with app.run_test(size=(120, 45)) as pilot:
+        screen = await open_preview(app, pilot, "worktree")
         assert screen.selected() == (TREE.identity, ATTACHED.identity)
         await pilot.press("f")
         await wait_until(lambda: len(cleaner.requests) == 2 and not screen.busy)
         assert screen.selected() == (TREE.identity, ATTACHED.identity)
-        assert not screen.ignored_acknowledged()
-        assert (
-            str(screen.query_one("#cleanup-confirm", Button).label)
-            == "Remove Worktree and Branch"
-        )
+        assert "Preview updated" in screen.fetch_status
+        assert not cleaner.confirmations
 
 
 @pytest.mark.asyncio
@@ -366,7 +400,7 @@ async def test_missing_fetch_support_leaves_preview_available(missing):
         )
         assert not screen.busy and screen.preview_valid
         assert not fetcher.anchors and not cleaner.confirmations
-        assert screen.selected() == (TREE.identity,)
+        assert screen.selected() == (TREE.identity, ATTACHED.identity)
 
 
 @pytest.mark.asyncio
@@ -459,8 +493,7 @@ async def test_partial_fetch_labels_repository_age_and_retained_remote_facts():
         views = list(screen.query(CleanupTargetView))
         assert not views[1].unverified_remote and views[2].unverified_remote
         evidence = "\n".join(str(item.render()) for item in screen.query(Static))
-        assert "Repository fetch timestamp:" in evidence
-        assert "not per-remote verification" in evidence
+        assert "as of the last Repository fetch (" in evidence
         assert "did not verify upstream" in evidence
         assert (
             "Last fetched:" not in evidence and "as of the last fetch" not in evidence
@@ -493,8 +526,14 @@ async def test_worktree_fetch_age_covers_detached_and_independent_branch_blocker
     app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
     async with app.run_test(size=(80, 24)) as pilot:
         screen = await open_preview(app, pilot, "worktree")
-        guidance = str(screen.query_one("#cleanup-freshness", Static).render())
-        assert "Press f here" in guidance and "2026-09-11" in guidance
+        freshness = screen.query_one("#cleanup-freshness", Static)
+        # The age is what reads at a glance; the exact time stays a hover away.
+        assert str(freshness.render()).startswith("Remote last fetched ")
+        assert str(freshness.render()).endswith(" ago")
+        assert freshness.tooltip == (
+            "Repository fetch timestamp: 2026-09-11T00:00:00+00:00 "
+            "(not per-remote verification)"
+        )
         assert screen.selected() == (TREE.identity,)
         if detached:
             assert not screen.query("#cleanup-target-1")
@@ -506,7 +545,7 @@ async def test_worktree_fetch_age_covers_detached_and_independent_branch_blocker
 
 
 @pytest.mark.asyncio
-async def test_fetch_resets_acknowledgement_when_ignored_inventory_changes():
+async def test_fetch_discloses_a_changed_ignored_inventory():
     updated = WORKTREE_PREVIEW.model_copy(
         update={"ignored": ("new-secret/",), "fingerprint": "changed"}
     )
@@ -519,14 +558,18 @@ async def test_fetch_resets_acknowledgement_when_ignored_inventory_changes():
     )
     async with app.run_test(size=(80, 24)) as pilot:
         screen = await open_preview(app, pilot, "worktree")
-        screen.query_one("#cleanup-ignored", Checkbox).value = True
         await pilot.press("f")
         await wait_until(lambda: len(cleaner.requests) == 2 and not screen.busy)
-        assert not screen.ignored_acknowledged()
+        # No tick to reset: the refreshed inventory is what the dialog and
+        # its callout now disclose, and the change is announced.
         assert "new-secret/" in str(
             screen.query_one("#cleanup-path-list", Static).render()
         )
-        assert "Acknowledge" in screen.selection_problem()
+        assert "with 1 ignored path and its contents: new-secret/" in str(
+            screen.query_one("#cleanup-callout-lines", Static).render()
+        )
+        assert "Preview updated" in screen.fetch_status
+        assert screen.selection_problem() is None
 
 
 @pytest.mark.asyncio
@@ -665,7 +708,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
             assert app.screen is screen and screen.preview_valid
             assert app.fetches.fetcher.anchors == [Path(ANCHOR)]
             assert "2026-09-12" in str(
-                screen.query_one("#cleanup-freshness", Static).render()
+                screen.query_one("#cleanup-freshness", Static).tooltip
             )
             assert not cleaner.confirmations
     finally:

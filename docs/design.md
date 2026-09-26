@@ -73,11 +73,16 @@ result without anything being inferred from the fetch itself.
 [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
 The highlighted Branches or Worktrees row is resolved through the observation
 store into a request against its Repository Anchor, the read-only preview is
-inspected off the event loop, and a modal lists every concrete target
-unselected — the local Branch, the Branch at each remote, the Worktree — with
-its integration fact, blockers, and consequences beneath, disables the
-unavailable ones (a Worktree's Branch among them while the Worktree cannot be
-removed), asks for the Worktree's ignored content to be acknowledged,
+inspected off the event loop, and a modal lists every concrete target — the
+local Branch, the Branch at each remote, the Worktree with its Branch locally
+and at its push remote — with its integration fact, blockers, and
+consequences beneath, disables the unavailable ones (a Worktree's Branches
+among them while the Worktree cannot be removed), selects a Worktree's
+local Branch by default on a first preview — and its Branch at the remote
+only at the local Branch's tip — discloses the Worktree's ignored content
+rather than asking for its acknowledgement, recaps what confirming removes
+and deletes in a callout at the end of the list above a fixed-label button
+([ADR 0054](adr/0054-finish-a-worktree-with-its-branch-by-default.md)),
 and answers a premature press of the destructive button by deleting nothing,
 saying why beneath the list and in a toast, and moving focus to what is
 missing; the button stays pressable while the preview is idle and turns red

@@ -25,6 +25,33 @@ def primary_target(preview: CleanupPreview) -> CleanupTarget | None:
     return None
 
 
+def default_choices(preview: CleanupPreview) -> tuple[str, ...]:
+    """The optional targets a first preview of a Worktree starts with selected.
+
+    A Worktree prepared for Issue work is normally finished together with its
+    Branch, so an available local Branch starts selected. The Branch at its
+    push remote changes what other people see, so it starts selected only
+    when the local Branch is available too and it is at the local Branch's
+    tip: nothing reached the remote that the preview has not accounted for.
+    A Branch preview selects nothing; a refreshed preview keeps choices by
+    ``retained_choices`` instead.
+    """
+    if preview.kind != "worktree":
+        return ()
+    local = next(
+        (target for target in preview.targets if target.kind == "local-branch"), None
+    )
+    return tuple(
+        target.identity
+        for target in preview.targets
+        if target.requires is not None
+        and target.available
+        and local is not None
+        and local.available
+        and (target is local or target.expected == local.expected)
+    )
+
+
 def retained_choices(
     previous: CleanupPreview, refreshed: CleanupPreview, selected: tuple[str, ...]
 ) -> tuple[str, ...]:

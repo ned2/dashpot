@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md
+amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md
 ---
 
 # Remove Branches and Worktrees on explicit confirmation
@@ -10,6 +10,12 @@ Amended by [ADR 0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)
 primary subject fixed and permit explicit Remote Fetch while the preview is idle.
 The fetch, observation, and re-inspection finish before confirmation is available.
 
+Amended by [ADR 0054](0054-finish-a-worktree-with-its-branch-by-default.md): the
+dashboard discloses a Worktree's ignored content instead of asking for its
+acknowledgement, a Worktree preview also offers its Branch at its push remote,
+and its local Branch starts selected by default — the Branch at the remote
+only at the local Branch's tip; the command line's
+`--delete-ignored` gate is unchanged.
 
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),
@@ -182,5 +188,9 @@ ignored-content acknowledgement appears only when Worktree removal is selected
 and resets when deselected. If no target is selectable, Close is the only action.
 Otherwise an invalid confirmation still explains what is missing and focuses
 its control. Every target starts unselected, and a changed preview resets both
-selection and acknowledgement. These presentation changes preserve the Cleanup
+selection and acknowledgement. (Since superseded in part: [ADR 0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)
+retains an unchanged target's selection across a refreshed preview, and
+[ADR 0054](0054-finish-a-worktree-with-its-branch-by-default.md) removes the
+acknowledgement and selects a Worktree's Branches by default on a first
+preview.) These presentation changes preserve the Cleanup
 inspection and execution contract above ([#142](https://github.com/ned2/dashpot/issues/142)).

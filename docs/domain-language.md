@@ -169,8 +169,13 @@ mutation is never rolled back, and the Project is re-observed afterwards
 Invoked from the dashboard's `x` key on a Branches or Worktrees row and from
 the `branch delete` and `worktree remove` commands.
 The dashboard keeps its concrete primary target fixed; optional additional
-targets require selection. A Worktree preview cannot authorize Branch-only
-deletion when its primary removal is blocked.
+targets require selection. A Worktree Cleanup's targets are the Worktree, its
+local Branch, and the same Branch at its push remote — the remote a plain
+`git push` of it reaches. On a first preview the local Branch starts
+selected, and the Branch at the remote only at the local Branch's tip
+([ADR 0054](adr/0054-finish-a-worktree-with-its-branch-by-default.md)). A
+Worktree preview cannot authorize Branch-only deletion when its primary
+removal is blocked.
 _Avoid_: prune for a Cleanup, which is the Remote Fetch's removal of gone
 Remote-Tracking Branches; cleanup for anything observation does
 
