@@ -77,26 +77,33 @@ def header_offsets(table: DataTable[Any]) -> list[int]:
 async def settled_header_offsets(
     pilot: Pilot[Any], table: DataTable[Any], what: str
 ) -> list[int]:
-    """Settle the header offsets and check each lands on its own column.
+    """Settle the x offset at which each header starts on the rendered frame.
 
     A hover reads the column from the segment meta of the frame on screen,
     and a change of columns or of the terminal's size reaches that frame a
-    few frames after the table's widths and size report it. Reading the meta
-    at each offset the way a hover does, and settling on it, keeps the hover
-    off a frame in which the offset still lands on another column.
+    few frames after the table reports it. The offsets are therefore found
+    on the frame itself, the way a hover reads it, rather than from the
+    columns' widths: under load Textual can paint a table before measuring
+    its cells, and the painted headers then keep their label widths while
+    the columns report their measured ones.
     """
 
-    def headers() -> tuple[list[int], list[tuple[object, object]]]:
-        offsets = header_offsets(table)
+    def headers() -> list[tuple[int, object]]:
         region = table.region
-        metas = (
-            pilot.app.screen.get_style_at(region.x + x, region.y).meta for x in offsets
-        )
-        return offsets, [(meta.get("row"), meta.get("column")) for meta in metas]
+        starts: dict[object, int] = {}
+        for x in range(region.width):
+            meta = pilot.app.screen.get_style_at(region.x + x, region.y).meta
+            if meta.get("row") == -1:
+                starts.setdefault(meta.get("column"), x)
+        return sorted((x, column) for column, x in starts.items())
 
-    offsets, cells = await settled(pilot, headers, what)
-    assert cells == [(-1, index) for index in range(len(offsets))], (what, cells)
-    return offsets
+    cells = await settled(pilot, headers, what)
+    # Every column is painted once, in order, before any is hovered.
+    assert [column for _x, column in cells] == list(range(len(table.columns))), (
+        what,
+        cells,
+    )
+    return [x for x, _column in cells]
 
 
 async def hover_afresh(
