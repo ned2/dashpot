@@ -98,8 +98,10 @@ while local observation keeps refreshing every 15 seconds and costs nothing
 ([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)). One
 automatic GitHub refresh re-queries both Query Pages and both kinds' Project
 Totals, and resolves the Issues that Agent Runs are bound to (plus the
-selected Issue's relationships). Between GitHub refreshes, bound Issues are
-resolved again only when an Agent Run starts or changes Issue work. Each
+selected Issue's relationships). Between GitHub refreshes, the bound and
+selected Issues are resolved again only when the set of them changes, as when
+an Agent Run starts or changes Issue work, or an opened Issue's relationships
+arrive. Each
 request verifies the Repository and principal in its own response
 ([ADR 0055](adr/0055-verify-the-query-context-in-the-response-that-carries-it.md)),
 so a refresh sends no separate context request.
@@ -123,7 +125,7 @@ land.
   one costs the full amount. Close a dashboard left running in another
   terminal.
 - **Lengthen the GitHub Refresh Period.** GitHub queries refresh on their own
-  period, 60 seconds by default, while Worktrees and agent sessions keep
+  period, 60 seconds by default, while Worktrees and Agent Sessions keep
   refreshing every 15 seconds
   ([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)). Set
   `github_refresh_seconds` in the

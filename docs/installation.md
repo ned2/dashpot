@@ -135,7 +135,7 @@ Set how often the dashboard refreshes by itself, in seconds
 ([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)):
 
 ```toml
-# Worktrees, Branches, agent sessions, and a Local Issues source.
+# Worktrees, Branches, Agent Sessions, and a Local Markdown Issue Source.
 refresh_seconds = 15
 # GitHub Issues, Pull Requests, Project Totals and bound Issues.
 github_refresh_seconds = 60
@@ -252,7 +252,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | Git is missing or an option is unsupported | Check `git --version`, install Git 2.39+, and ensure that version is on PATH. Content-based integration requires `merge-tree --write-tree`. |
 | GitHub collection fails | Check `gh --version` and `gh auth status`, repository access, network connectivity, and the reported Diagnostic. Authentication failures remain distinct from an empty Issue collection. |
 | GitHub observations go stale with a `github-rate-limit` Diagnostic | The account's hourly GraphQL allowance is spent. Close other dashboards or lengthen `github_refresh_seconds` (or `--github-refresh-seconds`), and wait for the reset; see [GitHub rate limits](github-rate-limits.md#staying-inside-the-limit). |
-| GitHub Issues or Pull Requests lag a change by up to a minute | GitHub queries refresh on their own period, 60 seconds by default, while Worktrees and agent sessions refresh every 15. Press `r`, or lower `github_refresh_seconds`; see [Machine-local settings](#machine-local-settings). |
+| GitHub Issues or Pull Requests lag a change by up to a minute | GitHub queries refresh on their own period, 60 seconds by default, while Worktrees and Agent Sessions refresh every 15. Press `r`, or lower `github_refresh_seconds`; see [Machine-local settings](#machine-local-settings). |
 | The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and ignore `.dashpot/state/`. |
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |
 | Sessions are missing or Issue opt-in is refused | Run `dashpot integrate <harness> --status` inside the session's Worktree; inspect hook trust, publisher path, skill version, and the confirmed Agent Session Identity. |

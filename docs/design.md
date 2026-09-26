@@ -48,7 +48,7 @@ as soon as it lands, then re-queries read models carrying a store revision; a
 slow GitHub call therefore never delays branch or dirty state.
 A key is observed at most once at a time: a request for a key whose
 observation is still in flight coalesces onto it rather than superseding it,
-so a slow Issue Source that outlasts the polling period still publishes when
+so a slow Issue Source that outlasts its Refresh Period still publishes when
 it lands instead of being discarded by every tick
 ([ADR 0020](adr/0020-coalesce-requests-onto-the-observation-in-flight.md)).
 An automatic tick queues nothing further, the next tick being its rerun; a

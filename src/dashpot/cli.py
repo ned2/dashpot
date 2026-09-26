@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
@@ -114,6 +115,12 @@ _Timeout = Annotated[
 ]
 
 
+def _finite_seconds(_type: object, value: float | None) -> None:
+    """Refuse a Refresh Period that never elapses."""
+    if value is not None and not math.isfinite(value):
+        raise ValueError("Must be a finite number of seconds.")
+
+
 @app.default
 def observe(
     *,
@@ -142,10 +149,10 @@ def observe(
     refresh_seconds: Annotated[
         float | None,
         Parameter(
-            validator=validators.Number(gte=0),
+            validator=(validators.Number(gte=0), _finite_seconds),
             help=(
                 "seconds between automatic refreshes of Worktrees, Branches and "
-                "agent sessions, and of a local Markdown Issue Source; zero "
+                "Agent Sessions, and of a Local Markdown Issue Source; zero "
                 "disables them (default: the refresh_seconds setting, else 15)"
             ),
         ),
@@ -153,7 +160,7 @@ def observe(
     github_refresh_seconds: Annotated[
         float | None,
         Parameter(
-            validator=validators.Number(gte=0),
+            validator=(validators.Number(gte=0), _finite_seconds),
             help=(
                 "seconds between automatic refreshes of GitHub Issues and pull "
                 "requests; zero disables them (default: the "

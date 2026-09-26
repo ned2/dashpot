@@ -19,6 +19,14 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
     return max(1, min(8, (available or 1) // 2))
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep every test from reading the machine-local settings of whoever runs it."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
+
+
 @pytest.fixture
 def git_repository(tmp_path: Path) -> Path:
     """An empty Git repository at ``tmp_path / "repo"``."""

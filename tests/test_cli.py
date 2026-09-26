@@ -1538,6 +1538,8 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
         (["--timeout", "soon"], 'unable to convert "soon" into float'),
         (["--refresh-seconds", "-1"], "Must be >= 0."),
         (["--github-refresh-seconds", "-1"], "Must be >= 0."),
+        (["--refresh-seconds", "inf"], "Must be a finite number of seconds."),
+        (["--github-refresh-seconds", "inf"], "Must be a finite number of seconds."),
         (["--no-json"], "Unknown option: --no-json"),
         (["--empty-workspace"], "Unknown option: --empty-workspace"),
         (["--timeout", "5", "init"], "Unused Tokens: ['init']"),

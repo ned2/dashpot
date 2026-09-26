@@ -54,7 +54,9 @@ so it had to be passed on every launch
   again only when the set of Issues to resolve differs from the last one
   requested, so a run starting Issue work is resolved without waiting for the
   next GitHub tick. Opening an Issue resolves its relationships immediately,
-  as before.
+  as before. A resolution that fails is not retried when Agent Runs land; like
+  a failed Query Page, it waits for the next GitHub tick or `r`, so a refused
+  or failing GitHub is not asked again every local tick.
 
 ## Consequences
 
@@ -63,10 +65,13 @@ so it had to be passed on every launch
   this Repository sent 7 requests a minute, where it had sent 8 every 15
   seconds. The cost figures are in
   [GitHub rate limits](../github-rate-limits.md#how-dashpot-spends-the-allowance).
-- **One resolution per tick.** Because an unchanged set is not resolved
-  again when Agent Runs land, a tick resolves its bound Issues once, where
-  every tick used to resolve them twice
-  ([#304](https://github.com/ned2/dashpot/issues/304)).
+- **One resolution per automatic tick.** Because an unchanged set is not
+  resolved again when Agent Runs land, an automatic tick resolves its bound
+  Issues once, where every tick used to resolve them twice. `r` still resolves
+  twice when the Agent Runs it observes change the set. This covers the main
+  symptom of [#304](https://github.com/ned2/dashpot/issues/304), not its other
+  ask: Issues already resolved by the displayed Query Page are still resolved
+  again.
 - **GitHub observations can be up to a minute old.** A Query Page's
   freshness is its status, not its age, so a page from the previous GitHub
   tick still reads as fresh. `r` refreshes it on demand.

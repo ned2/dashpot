@@ -108,8 +108,8 @@ to select a different Workspace inventory.
 
 Two Refresh Periods pace automatic refresh
 ([ADR 0056](docs/adr/0056-refresh-github-queries-on-their-own-period.md)).
-Local observation (Worktrees, Branches, agent sessions, and a Local Issues
-source) refreshes every 15 seconds, set by `--refresh-seconds`. GitHub queries
+Local observation (Worktrees, Branches, Agent Sessions, and a Local Markdown
+Issue Source) refreshes every 15 seconds, set by `--refresh-seconds`. GitHub queries
 (both pages, Project Totals and bound Issues) refresh every 60 seconds, set by
 `--github-refresh-seconds`. Each can also be set in the
 [machine-local settings](docs/installation.md#machine-local-settings) as
@@ -313,7 +313,8 @@ A failed refresh retains last-good rows only for the same verified page request;
 a failed navigation leaves the previous page available with the error and restart
 guidance. Periodic refresh repeats the displayed page and independently refreshes
 totals and relevant bound/selected Issues, on the GitHub period for a GitHub
-source; a change in which Issues are bound resolves on the next local refresh.
+source; a change in which Issues are bound resolves as soon as the Agent Runs
+that show it are observed.
 
 The columns are `STATE`, `#`, `TITLE`, `HEAD`, `BASE`, `AUTHOR`, `REVIEW`,
 `CHECKS`, `MERGE`, and `UPDATED`. The state uses the same `■` character as
