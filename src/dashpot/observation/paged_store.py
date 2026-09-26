@@ -1,7 +1,8 @@
 """Join Query Pages and Resolved Issues without populating export inventories.
 
 The accepted observations advance the inherited ``revision``; the accepted
-source results — pages, totals, identities — advance ``source_revision``.
+source results — pages, totals, identities, and what the sources report
+about themselves — advance ``source_revision``.
 A write that changes what the store holds moves exactly one of them by one,
 so their sum advances with every change, and it is what this store's read
 models report as their ``revision``: the joined state each was built from.
@@ -50,6 +51,9 @@ class PagedObservationStore(WorkspaceObservationStore):
         self.pages: dict[ResourceKind, QueryPage] = {}
         self.totals: dict[ResourceKind, ProjectTotals] = {}
         self.resolved: OrderedDict[str, ResolvedIssue] = OrderedDict()
+        # What the Query Sources last reported about themselves rather than
+        # about one observation, such as a rate limit running low.
+        self.source_diagnostics: tuple[Diagnostic, ...] = ()
         self.source_revision = 0
         # The Project each Issue on the shown page last joined with, by Issue
         # identity. A transferred Issue's refreshed page and its Project
@@ -117,6 +121,12 @@ class PagedObservationStore(WorkspaceObservationStore):
         while len(self.resolved) > 256:
             self.resolved.popitem(last=False)
         if changed:
+            self.source_revision += 1
+
+    def accept_source_diagnostics(self, diagnostics: Sequence[Diagnostic]) -> None:
+        """Replace what the Query Sources report about themselves."""
+        if self.source_diagnostics != tuple(diagnostics):
+            self.source_diagnostics = tuple(diagnostics)
             self.source_revision += 1
 
     def row_for(self, issue_id: str) -> IssueListRow | None:
@@ -237,6 +247,9 @@ class PagedObservationStore(WorkspaceObservationStore):
             for value in observations
             for diagnostic in value.diagnostics
         ]
+        diagnostics.extend(
+            ObservedDiagnostic(diagnostic) for diagnostic in self.source_diagnostics
+        )
         for page in self.pages.values():
             diagnostics.extend(
                 ObservedDiagnostic(d)

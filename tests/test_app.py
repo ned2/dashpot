@@ -518,6 +518,34 @@ async def test_workspace_identity_conflict_is_visible_as_a_diagnostic() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_low_github_rate_limit_is_one_diagnostic_line() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    app = dashboard_app(SequenceCollector(snapshot))
+    low = Diagnostic(
+        source="github",
+        severity="warning",
+        code="github-rate-limit-low",
+        message=(
+            "GitHub GraphQL rate limit is low: 400 of 5000 points remain "
+            "until 2026-09-27T13:00:00Z; the last request cost 1"
+        ),
+    )
+    # Every Query Source reports the one reading its gateways share.
+    for source in app.queries.sources.values():
+        assert isinstance(source, SnapshotQuerySource)
+        source.warnings = (low,)
+
+    async with app.run_test(size=(120, 24)):
+        await wait_until(lambda: first_load_landed(app))
+
+        diagnostics = app.query_one("#diagnostics", Static)
+        rendered = str(diagnostics.render())
+        assert rendered.count("rate limit is low") == 1
+        assert f"⚠ github: {low.message}" in rendered
+        assert diagnostics.has_class("-warning")
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_carry_the_severity_they_were_observed_with() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     target = snapshot_of(snapshot.projects[0]).observation_targets[0]

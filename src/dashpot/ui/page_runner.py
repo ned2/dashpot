@@ -174,13 +174,32 @@ class PageRunner:
                 self._page_failures.discard(message.kind)
         if observation is not None:
             self.store.accept_totals(observation.totals)
+        self._accept_source_diagnostics()
         self._release(message.kind)
 
     def finish_identities(self, message: IdentitiesFinished) -> None:
         """Land the resolved identities in the store."""
         if message.outcomes is not None:
             self.store.accept_identities(message.outcomes)
+        self._accept_source_diagnostics()
         self._release("identities")
+
+    def _accept_source_diagnostics(self) -> None:
+        """Land what the sources now report about themselves, each line once.
+
+        Sources that share one rate limit reading report the same warning,
+        which is one line however many of them report it. A query that failed
+        may still have read one, so every answer lands them.
+        """
+        self.store.accept_source_diagnostics(
+            tuple(
+                dict.fromkeys(
+                    diagnostic
+                    for source in self.sources.values()
+                    for diagnostic in source.source_diagnostics()
+                )
+            )
+        )
 
     def publish(self) -> None:
         """Show each navigation's page in the store, in flight while its query runs."""

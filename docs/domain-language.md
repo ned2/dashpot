@@ -232,7 +232,11 @@ configuration or identity.
 One line an observation reports beside its data: its source, a stable code, a
 severity, and a message a person can act on. A failed refresh reports one
 Diagnostic and retains the last good result; a complete refresh may still
-carry a warning (a rate limit running low). Codes are prefixed by the source
+carry a warning (a rate limit running low). A Query Source may also report
+Diagnostics about itself rather than any one observation: a GitHub source
+warns with `github-rate-limit-low` from the most recent rate limit reading
+any of the dashboard's queries received
+([ADR 0061](adr/0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md)). Codes are prefixed by the source
 family — a GitHub Issue Source reports `github-authentication`,
 `github-permission`, `github-not-found`, `github-repository`,
 `github-rate-limit`, `github-rate-limit-low`, `github-refresh-budget`,

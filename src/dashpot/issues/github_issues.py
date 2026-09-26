@@ -12,7 +12,7 @@ from typing import Any, override
 
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue
-from ..core.model import Diagnostic, IssueActivity, LinkedPullRequest, OpenBlocker
+from ..core.model import IssueActivity, LinkedPullRequest, OpenBlocker
 from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,
@@ -22,8 +22,10 @@ from ..github.github import (
     GitHubGateway,
     GitHubRequestError,
     GraphQLVariables,
+    LatestRateLimit,
     RefreshBudget,
     RefreshMeter,
+    rate_limit_diagnostics,
 )
 from ..github.github_wire import ISSUE_NODE_FIELDS, PULL_REQUEST_STATES
 from .issue_sources import (
@@ -152,6 +154,7 @@ class GitHubIssuesSource(IssueSource):
         clock: Clock | None = None,
         budget: RefreshBudget = DEFAULT_REFRESH_BUDGET,
         monotonic: Callable[[], float] | None = None,
+        latest_rate_limit: LatestRateLimit | None = None,
     ) -> None:
         super().__init__(clock=clock)
         self.root = root
@@ -160,7 +163,12 @@ class GitHubIssuesSource(IssueSource):
         self.timeout = timeout
         self.runner = runner
         self.budget = budget
-        self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
+        self.gateway = GitHubGateway(
+            root,
+            timeout=timeout,
+            runner=runner,
+            latest_rate_limit=latest_rate_limit,
+        )
         self._monotonic = monotonic or time.monotonic
 
     @property
@@ -175,24 +183,6 @@ class GitHubIssuesSource(IssueSource):
 
     def _start_meter(self) -> RefreshMeter:
         return self.budget.start(self._monotonic)
-
-    def _rate_limit_diagnostics(self) -> tuple[Diagnostic, ...]:
-        """Warn while the hour's GraphQL points run low; never fail for it."""
-        rate_limit = self.gateway.rate_limit
-        if rate_limit is None or not rate_limit.low:
-            return ()
-        return (
-            Diagnostic(
-                source=self.name,
-                code="github-rate-limit-low",
-                severity="warning",
-                message=(
-                    f"GitHub GraphQL rate limit is low: {rate_limit.remaining} of "
-                    f"{rate_limit.limit} points remain until {rate_limit.reset_at}; "
-                    f"the last request cost {rate_limit.cost}"
-                ),
-            ),
-        )
 
     @override
     def find(self, hint: IssueHint) -> IssueProfile | None:
@@ -438,7 +428,7 @@ class GitHubIssuesSource(IssueSource):
             issues=tuple(entry.issue for entry in entries),
             label_colors=colors,
             issue_activity={entry.issue.id: entry.activity for entry in entries},
-            diagnostics=self._rate_limit_diagnostics(),
+            diagnostics=rate_limit_diagnostics(self.gateway.rate_limit, self.name),
         )
 
 

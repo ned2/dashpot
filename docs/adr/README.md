@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-26
+date: 2026-09-27
 ---
 
 # Architecture decision records
@@ -73,3 +73,4 @@ of date.
 | 0055 | [Verify the query context in the response that carries it](0055-verify-the-query-context-in-the-response-that-carries-it.md) | accepted | — |
 | 0056 | [Refresh GitHub queries on their own period](0056-refresh-github-queries-on-their-own-period.md) | accepted | — |
 | 0057 | [Observe Project Totals in the Query Page request](0057-observe-project-totals-in-the-query-page-request.md) | accepted | — |
+| 0061 | [Warn of a low rate limit from the latest reading across Query Sources](0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md) | accepted | — |

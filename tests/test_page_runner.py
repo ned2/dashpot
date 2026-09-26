@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from textual.message import Message
 
 from app_harness import SnapshotQuerySource, issue, workspace_snapshot
+from dashpot.core.model import Diagnostic
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.messages import IdentitiesFinished, PageFinished
@@ -107,6 +108,37 @@ def test_identities_land_with_a_revision_bump() -> None:
     # Landing the same identities again changes nothing.
     store.accept_identities(tuple(store.resolved.values()))
     assert store.source_revision == 1
+
+
+def test_what_the_sources_report_about_themselves_lands_once() -> None:
+    pages, store, host = runner()
+    low = Diagnostic(
+        source="github",
+        severity="warning",
+        code="github-rate-limit-low",
+        message="GitHub GraphQL rate limit is low: 400 of 5000 points remain",
+    )
+    # Sources sharing one reading report the same warning; it is one line.
+    for source in pages.sources.values():
+        assert isinstance(source, SnapshotQuerySource)
+        source.warnings = (low,)
+    pages.request_identities(("I_test/repo#1",))
+    identities = host.pop_call("identities").land()
+    assert isinstance(identities, IdentitiesFinished)
+    pages.finish_identities(identities)
+    assert [entry.diagnostic for entry in store.diagnostics()].count(low) == 1
+    assert store.source_revision == 2
+
+    # A query that failed as a whole still lands what the sources now report.
+    for source in pages.sources.values():
+        assert isinstance(source, SnapshotQuerySource)
+        source.warnings = ()
+    pages.refresh(restart=True)
+    failed = host.pop_call("issues").land(error="boom")
+    assert isinstance(failed, PageFinished)
+    pages.finish_page(failed)
+    assert low not in [entry.diagnostic for entry in store.diagnostics()]
+    assert store.source_revision == 3
 
 
 def test_a_failed_query_frees_its_key_without_a_store_write() -> None:

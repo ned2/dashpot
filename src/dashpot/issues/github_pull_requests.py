@@ -10,7 +10,6 @@ from pydantic import Field, HttpUrl, ValidationError
 
 from ..core.commands import CommandRunner, run_command
 from ..core.model import (
-    Diagnostic,
     PullRequest,
     PullRequestCheckStatus,
     PullRequestMergeability,
@@ -29,7 +28,9 @@ from ..github.github import (
     CursorTrail,
     GitHubGateway,
     GitHubRequestError,
+    LatestRateLimit,
     RefreshBudget,
+    rate_limit_diagnostics,
 )
 from ..github.github_wire import (
     PULL_REQUEST_FIELDS,
@@ -175,10 +176,16 @@ class GitHubPullRequestsSource(PullRequestSource):
         clock: Clock | None = None,
         budget: RefreshBudget = DEFAULT_REFRESH_BUDGET,
         monotonic: Callable[[], float] | None = None,
+        latest_rate_limit: LatestRateLimit | None = None,
     ) -> None:
         super().__init__(clock=clock)
         self.repository_id = repository_id
-        self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
+        self.gateway = GitHubGateway(
+            root,
+            timeout=timeout,
+            runner=runner,
+            latest_rate_limit=latest_rate_limit,
+        )
         self.budget = budget
         self.monotonic = monotonic
 
@@ -245,7 +252,7 @@ class GitHubPullRequestsSource(PullRequestSource):
                 reverse=True,
             )
         )
-        diagnostics = self._rate_limit_diagnostics()
+        diagnostics = rate_limit_diagnostics(self.gateway.rate_limit, self.name)
         return CollectedPullRequests(pull_requests, diagnostics)
 
     def _repository_page(self, data: Mapping[str, Any]) -> _RepositoryPage:
@@ -268,20 +275,3 @@ class GitHubPullRequestsSource(PullRequestSource):
                 f"identity {self.repository_id}",
             )
         return repository
-
-    def _rate_limit_diagnostics(self) -> tuple[Diagnostic, ...]:
-        rate_limit = self.gateway.rate_limit
-        if rate_limit is None or not rate_limit.low:
-            return ()
-        return (
-            Diagnostic(
-                source=self.name,
-                code="github-rate-limit-low",
-                severity="warning",
-                message=(
-                    f"GitHub GraphQL rate limit is low: {rate_limit.remaining} of "
-                    f"{rate_limit.limit} points remain until {rate_limit.reset_at}; "
-                    f"the last request cost {rate_limit.cost}"
-                ),
-            ),
-        )
