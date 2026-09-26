@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from textual.geometry import Region
 from textual.widgets import Input, Static
 
 import factories
@@ -24,7 +25,7 @@ from dashpot.ui.app import DashboardScreen, IssuesPullRequestsScreen
 from dashpot.ui.issue_table import COLUMN_KEYS
 from dashpot.ui.issue_view import IssueScreen
 from dashpot.ui.legend import LegendScreen
-from helpers import wait_until
+from helpers import settled, wait_until
 
 
 def shown_footer_keys(app: Any) -> set[str]:
@@ -317,13 +318,24 @@ async def test_status_bar_wraps_without_hiding_labels_or_summary() -> None:
         bar = app.dashboard.status_bar()
         screens = bar.query_one("#peer-status-screens")
         summary = bar.query_one("#peer-summary", Static)
-        assert bar.region.height == 1
-        assert screens.region.y == summary.region.y
 
+        def regions() -> tuple[Region, Region, Region]:
+            return bar.region, screens.region, summary.region
+
+        bar_region, screens_region, summary_region = await settled(
+            pilot, regions, "the wide Peer Status Bar"
+        )
+        assert bar_region.height == 1
+        assert screens_region.y == summary_region.y
+
+        # The breakpoint class lands before the bar is laid out beneath it.
         await pilot.resize_terminal(60, 24)
         await wait_until(lambda: app.screen.has_class("-compact"))
-        assert bar.region.height == 2
-        assert summary.region.y == screens.region.bottom
+        bar_region, screens_region, summary_region = await settled(
+            pilot, regions, "the compact Peer Status Bar"
+        )
+        assert bar_region.height == 2
+        assert summary_region.y == screens_region.bottom
         assert "Issues & Pull Requests" in str(
             bar.query_one("#peer-issues-pull-requests").render()
         )
@@ -337,18 +349,33 @@ async def test_footer_tracks_the_active_peer_and_focused_query_pane() -> None:
         refresh_seconds=0,
     )
 
+    async def footer_showing(expected: set[str]) -> set[str]:
+        """The Footer's shown keys once they include ``expected``.
+
+        The Footer recomposes a frame or more after its bindings change, and
+        empties itself for a frame or two while it does, so the keys are
+        read from the reading that shows what the test expects rather than
+        after a pause.
+        """
+        shown: set[str] = set()
+
+        def showing() -> bool:
+            nonlocal shown
+            shown = shown_footer_keys(app)
+            return expected <= shown
+
+        await wait_until(showing)
+        return shown
+
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
-        assert {"f", "x"} <= shown_footer_keys(app)
-        assert {"c", "o", "n", "p", "g", "slash"}.isdisjoint(shown_footer_keys(app))
+        keys = await footer_showing({"f", "x"})
+        assert {"c", "o", "n", "p", "g", "slash"}.isdisjoint(keys)
 
         await pilot.press("2")
         await wait_until(lambda: app.screen is app.query_screen)
-        await pilot.pause()
-        assert {"o", "n", "p", "g", "slash"} <= shown_footer_keys(app)
-        assert {"f", "x", "c", "enter"}.isdisjoint(shown_footer_keys(app))
+        keys = await footer_showing({"o", "n", "p", "g", "slash"})
+        assert {"f", "x", "c", "enter"}.isdisjoint(keys)
 
         app.query_screen.queue_table().focus()
-        await pilot.pause()
-        assert {"c", "enter"} <= shown_footer_keys(app)
+        await footer_showing({"c", "enter"})

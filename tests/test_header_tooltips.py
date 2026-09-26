@@ -45,7 +45,7 @@ from dashpot.ui.list_rows import DescribedColumn, column_help
 from dashpot.ui.pull_request_cells import PULL_REQUEST_COLUMNS
 from dashpot.ui.session_cells import SESSION_COLUMNS
 from dashpot.ui.worktree_cells import WORKTREE_COLUMNS
-from helpers import required, snapshot_of, wait_until
+from helpers import required, settled, snapshot_of, wait_until
 from test_dashboard_panes import session_run
 
 # A zero delay divides by zero inside Textual's Timer; a short one is prompt.
@@ -71,6 +71,31 @@ def header_offsets(table: DataTable[Any]) -> list[int]:
     for column in table.columns.values():
         offsets.append(x)
         x += column.get_render_width(table)
+    return offsets
+
+
+async def settled_header_offsets(
+    pilot: Pilot[Any], table: DataTable[Any], what: str
+) -> list[int]:
+    """The header offsets once the rendered frame puts each column under its own.
+
+    A hover reads the column from the segment meta of the frame on screen,
+    and a change of columns or of the terminal's size reaches that frame a
+    few frames after the table's widths and size report it. Reading the meta
+    at each offset the way a hover does, and settling on it, keeps the hover
+    off a frame in which the offset still lands on another column.
+    """
+
+    def headers() -> tuple[list[int], list[object]]:
+        offsets = header_offsets(table)
+        region = table.region
+        return offsets, [
+            pilot.app.screen.get_style_at(region.x + x, region.y).meta.get("column")
+            for x in offsets
+        ]
+
+    offsets, columns = await settled(pilot, headers, what)
+    assert columns == list(range(len(offsets))), what
     return offsets
 
 
@@ -123,7 +148,7 @@ async def assert_every_header_shows_its_help(
     widens. The table must fit its pane, so every header is under the mouse
     without scrolling; the scrolled case has its own test.
     """
-    offsets = header_offsets(table)
+    offsets = await settled_header_offsets(pilot, table, f"the {selector} headers")
     assert len(offsets) == len(columns)
     assert table.virtual_size.width <= table.size.width
     for x, column in zip(offsets, columns, strict=True):
@@ -151,8 +176,10 @@ async def assert_every_header_shows_its_help(
     before = table.size.width
     await pilot.resize_terminal(width + 20, height)
     await wait_until(lambda: table.size.width > before)
-    await pilot.pause()
-    await hover_afresh(pilot, tooltip, selector, header_offsets(table)[-1], 0)
+    widened = await settled_header_offsets(
+        pilot, table, f"the {selector} headers after widening"
+    )
+    await hover_afresh(pilot, tooltip, selector, widened[-1], 0)
     await wait_until(lambda: tooltip.display)
     assert str(tooltip.content) == required(column_help(columns[-1]))
     await leave(pilot, tooltip)
@@ -347,12 +374,14 @@ async def test_every_sessions_header_shows_its_help_through_a_dropped_column() -
         # that used to be there.
         await pilot.press("r")
         await wait_until(lambda: observation_landed(app, 2))
-        await pilot.pause()
-        assert "TARGET" not in table_labels(table)
+        await wait_until(lambda: "TARGET" not in table_labels(table))
         assert [column.key for column in pane.columns] == [
             column.key for column in SESSION_COLUMNS if column.key != "target"
         ]
-        await hover_afresh(pilot, tooltip, "#sessions", header_offsets(table)[2], 0)
+        offsets = await settled_header_offsets(
+            pilot, table, "the #sessions headers without TARGET"
+        )
+        await hover_afresh(pilot, tooltip, "#sessions", offsets[2], 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(SESSION_COLUMNS[3]))
         await assert_every_header_shows_its_help(

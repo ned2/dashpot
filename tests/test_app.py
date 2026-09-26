@@ -11,6 +11,7 @@ from unittest import mock
 import pytest
 from rich.text import Text
 from textual import events
+from textual.geometry import Region
 from textual.widgets import DataTable, Footer, Static
 
 import factories
@@ -47,7 +48,7 @@ from dashpot.ui.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.ui.issue_view import selection_title
 from dashpot.ui.messages import ObservationFinished, ObservationTrigger
 from dashpot.ui.pane_layout import PANE_MARGIN
-from helpers import snapshot_of, wait_until
+from helpers import settled, snapshot_of, wait_until
 
 
 @pytest.mark.asyncio
@@ -1375,16 +1376,34 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
     fresh = workspace_snapshot(issue("test/repo#1", "First"))
     app = dashboard_app(SequenceCollector(stale, fresh))
 
-    async with app.run_test(size=(60, 18)):
+    def layout() -> tuple[Region, ...]:
+        """The alert's region and those of the query peer's stacked panes."""
+        return (
+            alert(app).region,
+            *(
+                app.query_screen.query_one(selector).region
+                for selector in (
+                    "#query-body",
+                    "#query-list-row",
+                    "#pull-requests-pane",
+                    "#queue-pane",
+                )
+            ),
+        )
+
+    async with app.run_test(size=(60, 18)) as pilot:
         assert app.screen.has_class("-compact")
         await wait_until(lambda: first_load_landed(app))
+        # Showing or hiding the alert changes its display before its layout,
+        # so its region is read once the frames after the change settle.
         await wait_until(lambda: alert(app).display)
-
-        await wait_until(lambda: alert(app).region.height == 1)
-        assert alert(app).region.width == 60
+        shown, *_panes = await settled(pilot, layout, "the shown alert")
+        assert shown.height == 1
+        assert shown.width == 60
         assert_panes_stack_above_full_width_queue(app)
 
         serve_snapshot(app, fresh)
         await app.run_action("refresh")
         await wait_until(lambda: not alert(app).display)
-        await wait_until(lambda: alert(app).region.height == 0)
+        hidden, *_panes = await settled(pilot, layout, "the hidden alert")
+        assert hidden.height == 0
