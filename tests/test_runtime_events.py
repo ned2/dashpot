@@ -13,9 +13,13 @@ from dashpot.core import runtime_events
 from dashpot.core.pydantic import validate_rfc3339_timestamp
 from dashpot.core.runtime_events import (
     SCHEMA_VERSION,
+    AgentSessionChanged,
     CommandAttributes,
+    CommandOutcome,
+    DiagnosticChanged,
     EventLogWriteFailed,
     EventModel,
+    HookOutcome,
     LevelChanged,
     ProcessEnd,
     ProcessIdentity,
@@ -23,6 +27,7 @@ from dashpot.core.runtime_events import (
     RuntimeEvent,
     SpanAttributes,
     SpanEnded,
+    fitting,
     is_recorded,
     read_runtime_event,
 )
@@ -110,6 +115,30 @@ def test_an_event_is_one_flat_line_named_by_otel_conventions() -> None:
             duration_seconds=0,
             status="ERROR",
             error_type="CommandError",
+        ),
+        HookOutcome(
+            hook_event="SessionEnd",
+            result="succeeded",
+            record_state="ended",
+            work="ended",
+        ),
+        CommandOutcome(
+            command="worktree create",
+            result="refused",
+            refusal_count=2,
+            dry_run=True,
+            duration_seconds=0.125,
+            target_path="/work/dashpot.worktrees/314-x",
+            target_branch="314-x",
+        ),
+        AgentSessionChanged(
+            change="relocated", previous_worktree="/work/dashpot with space"
+        ),
+        DiagnosticChanged(
+            change="cleared",
+            source="settings:/home/someone/.config/dashpot/config.toml",
+            code="refresh-failed",
+            severity="error",
         ),
     ],
     ids=lambda body: body.name,
@@ -208,6 +237,28 @@ def test_an_event_cannot_carry_a_message_or_command_output(field: str) -> None:
         )
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         CommandAttributes.model_validate({"program": "git", field: GIT_ERROR})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("target_branch", "not a branch"),
+        ("target_path", "relative/path"),
+        ("target_harness", "some-other-agent"),
+        ("error_type", "cannot write: disk full"),
+    ],
+)
+def test_an_observed_value_that_is_no_identifier_is_left_out(
+    field: str, value: str
+) -> None:
+    outcome = fitting(
+        CommandOutcome,
+        {"command": "worktree create", "result": "succeeded", "duration_seconds": 0},
+        {field: value, "action": "created"},
+    )
+
+    assert getattr(outcome, field) is None
+    assert outcome.action == "created"
 
 
 def test_a_command_is_recorded_by_program_and_subcommand_never_its_arguments() -> None:
