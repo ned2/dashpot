@@ -211,11 +211,16 @@ class EventLogWriteFailed(EventBody):
 HookEventName = Annotated[str, _identifier(r"^[A-Za-z]{1,64}$", 64)]
 # A Branch name as Git allows it: no space, control or ref-syntax character.
 BranchName = Annotated[str, _identifier(r"^[^\s~^:?*\[\\\x00-\x1f\x7f]+$", 255)]
-# A Diagnostic's source: its family or an Agent Run's opaque ID, then any
-# identifier or path it names (``project:<id>``, ``settings:<path>``,
-# ``github``).
+# A Diagnostic's source: its family or an Agent Run's opaque ID, then the
+# identifier (no space) or absolute path it names (``project:<id>``,
+# ``settings:<path>``, ``github``).
 DiagnosticSource = Annotated[
-    str, _identifier(r"^[A-Za-z0-9][A-Za-z0-9._-]*(:[^\x00-\x1f\x7f]+)?$", 4200)
+    str,
+    _identifier(
+        r"^[A-Za-z0-9][A-Za-z0-9._-]*"
+        r"(:(/[^\x00-\x1f\x7f]*|[^\s/][^\s\x00-\x1f\x7f]*))?$",
+        4200,
+    ),
 ]
 # A Diagnostic's stable code: ``github-rate-limit-low``.
 DiagnosticCode = Annotated[str, _identifier(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", 128)]

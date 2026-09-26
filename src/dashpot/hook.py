@@ -8,8 +8,9 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+from .core.command_outcomes import outcome_error
 from .core.errors import DashpotError
-from .core.event_log import EventLog, EventLogDestination, error_type, working_directory
+from .core.event_log import EventLog, EventLogDestination, working_directory
 from .core.json_records import HookRecordError
 from .core.model import Harness
 from .core.runtime_events import HookOutcome, OutcomeResult, fitting
@@ -156,7 +157,7 @@ def record_hook_outcome(
                 "hook_event": payload.get("hook_event_name"),
                 "record_state": None if publication is None else publication.state,
                 "work": None if publication is None else publication.work,
-                "error_type": None if error is None else error_type(error),
+                "error_type": None if error is None else outcome_error(error),
             },
         )
     )

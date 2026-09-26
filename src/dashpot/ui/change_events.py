@@ -33,9 +33,10 @@ from ..observation.observation_store import (
 UNCODED = "uncoded"
 _DIAGNOSTIC_CODE: TypeAdapter[str] = TypeAdapter(DiagnosticCode)
 
-# One Agent Session as a dashboard follows it: its harness and native ID,
-# or the row's own identity when the session has none.
-SessionKey = tuple[str, str]
+# One Agent Session as a dashboard follows it: its Agent Session Identity
+# (harness and native ID), or the harness and the row's own identity when
+# the session has no native ID.
+FollowedSession = tuple[str, str]
 # One Diagnostic as a dashboard follows it: its Project, source and code.
 DiagnosticKey = tuple[str | None, str, str]
 
@@ -51,7 +52,7 @@ def identify_one_project(log: EventLog, store: WorkspaceObservationStore) -> Non
         log.identify(project_id=projects[0].project_id)
 
 
-def session_key(run: AgentRun) -> SessionKey:
+def followed_session(run: AgentRun) -> FollowedSession:
     """The Agent Session a row of the Agent Sessions observation belongs to."""
     return run.harness, run.session_id or run.id
 
@@ -79,15 +80,15 @@ class AgentSessionChanges:
 
     def __init__(self, log: EventLog) -> None:
         self.log = log
-        self._known: dict[SessionKey, AgentRun] = {}
+        self._known: dict[FollowedSession, AgentRun] = {}
 
     def observe(self, runs: Iterable[AgentRun]) -> None:
         """Compare the observed sessions with the last seen, recording each change."""
-        current: dict[SessionKey, AgentRun] = {}
+        current: dict[FollowedSession, AgentRun] = {}
         # A session's Agent Run row, which names its Issue, stands for it
         # over a bare hook row for the same session.
         for run in sorted(runs, key=lambda run: (run.issue_id is None, run.id)):
-            current.setdefault(session_key(run), run)
+            current.setdefault(followed_session(run), run)
         for key, run in current.items():
             for change, before in session_changes(self._known.get(key), run):
                 self._record(change, run, before)

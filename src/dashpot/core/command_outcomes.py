@@ -6,13 +6,15 @@ did; the seam it calls may fill the note too, as ``work start`` names the
 Agent Session and the Issue once it has confirmed them. When the block ends
 — done, refused or failed — the note names the process's subject and the
 outcome is recorded with the command's duration. A refusal is recorded by
-its ``DashpotError`` class, never its message.
+its ``DashpotError`` code or class, never its message.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import DashpotError
@@ -27,41 +29,27 @@ from .runtime_events import (
 )
 
 
+@dataclass(slots=True)
 class OutcomeNote:
     """What one management command has learned about its work so far.
 
-    It is filled while the command runs, so it is mutable, unlike the values
-    it collects; nothing but the command and the seams it calls holds it.
+    It is filled while the command runs, so unlike the values it collects it
+    is not frozen; nothing but the command and the seams it calls holds it.
     """
 
-    __slots__ = (
-        "action",
-        "dry_run",
-        "harness",
-        "incomplete",
-        "issue_id",
-        "project_id",
-        "refusals",
-        "session_id",
-        "target_branch",
-        "target_harness",
-        "target_path",
-    )
-
-    def __init__(self, *, dry_run: bool | None = None) -> None:
-        self.action: CommandAction | None = None
-        self.dry_run = dry_run
-        # Refusals a plan or report states without raising, counted.
-        self.refusals = 0
-        # Whether work the command performed was left partly undone.
-        self.incomplete = False
-        self.target_path: Path | None = None
-        self.target_branch: str | None = None
-        self.target_harness: Harness | None = None
-        self.harness: Harness | None = None
-        self.session_id: str | None = None
-        self.issue_id: str | None = None
-        self.project_id: str | None = None
+    action: CommandAction | None = None
+    dry_run: bool | None = None
+    # Refusals a plan or report states without raising, counted.
+    refusals: int = 0
+    # Whether the command's work was left undone without a refusal.
+    incomplete: bool = False
+    target_path: Path | None = None
+    target_branch: str | None = None
+    target_harness: Harness | None = None
+    harness: Harness | None = None
+    session_id: str | None = None
+    issue_id: str | None = None
+    project_id: str | None = None
 
     def identify(
         self,
@@ -82,6 +70,23 @@ class OutcomeNote:
         if self.refusals:
             return "refused"
         return "failed" if self.incomplete else "succeeded"
+
+
+def outcome_error(error: BaseException) -> str:
+    """Name an outcome's error by its code when it carries one, else by errno or class.
+
+    A GitHub failure or an unavailable Issue Source carries a stable code
+    (``github-authentication``) that says more than its class; neither is
+    ever its message.
+    """
+    code = getattr(error, "code", None)
+    if isinstance(code, str) and _ERROR_CODE.fullmatch(code):
+        return code
+    return error_type(error)
+
+
+# The shape of a Diagnostic code, which an error that carries one uses too.
+_ERROR_CODE = re.compile(r"[a-z][a-z0-9]*(-[a-z0-9]+)*")
 
 
 @contextmanager
@@ -106,10 +111,10 @@ def record_command_outcome(
     try:
         yield note
     except DashpotError as exc:
-        result, error = "refused", error_type(exc)
+        result, error = "refused", outcome_error(exc)
         raise
     except BaseException as exc:
-        result, error = "failed", error_type(exc)
+        result, error = "failed", outcome_error(exc)
         raise
     else:
         result = note.result()

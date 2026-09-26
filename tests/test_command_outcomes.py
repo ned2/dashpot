@@ -14,6 +14,7 @@ from dashpot.core.command_outcomes import OutcomeNote, record_command_outcome
 from dashpot.core.event_log import EventLogDestination
 from dashpot.core.git import GitError
 from dashpot.event_logs import LEVEL_VARIABLE
+from dashpot.github.github import GitHubRequestError
 from dashpot.repository.cleanup import TargetResult
 from test_cli import PLAN, cleanup_preview, cleanup_report, cleanup_target
 
@@ -112,6 +113,21 @@ def test_a_git_failure_in_a_command_is_recorded_by_class_never_its_output(
     }
     assert "secret" not in written_text(events)
     assert "already exists" not in written_text(events)
+
+
+def test_a_github_failure_in_a_command_is_recorded_by_its_code_never_its_message(
+    events: Path,
+) -> None:
+    failure = GitHubRequestError(
+        "github-authentication", "gh: token for someone@example.com expired"
+    )
+
+    with mock.patch.object(cli, "start_issue_work", side_effect=failure):
+        assert run(events, "work", "start", "7") == 2
+
+    assert body(outcome(events))["error.type"] == "github-authentication"
+    assert "someone@example.com" not in written_text(events)
+    assert "expired" not in written_text(events)
 
 
 def test_a_created_worktree_names_its_path_branch_and_issue(events: Path) -> None:
