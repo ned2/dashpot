@@ -22,9 +22,9 @@ def ensure_state_directory(checkout: Path) -> Path:
     """Create the checkout's Project-local state directory and return it.
 
     The directory ignores itself in Git through its own ``.gitignore``,
-    written when absent and never replaced once present. Every writer beneath
-    the directory calls this first, so an existing checkout gains the file
-    the next time Dashpot writes state there. Creating the directory fails as
+    written when absent and never replaced once present. A record store that
+    names its checkout calls this before every write, so an existing checkout
+    gains the file the next time Dashpot writes state there. Creating the directory fails as
     any state write fails; writing the ``.gitignore`` never fails the write it
     precedes.
     """

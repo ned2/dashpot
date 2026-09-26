@@ -150,9 +150,12 @@ def complete_session_work_relocation(
     stores = reachable_hook_stores(worktrees, directory)
     # Locking a Worktree's hook store may create its Project-local state, so
     # each store names its Worktree to keep that state out of Git.
-    owners = {session_directory(worktree): worktree for worktree in worktrees}
+    owners = {session_directory(worktree).resolve(): worktree for worktree in worktrees}
     hook_stores = sorted(
-        (HookRecordStore(store, checkout=owners.get(store)) for store in stores),
+        (
+            HookRecordStore(store, checkout=owners.get(store.resolve()))
+            for store in stores
+        ),
         key=lambda store: str(store.lock_path(session_id)),
     )
     with ExitStack() as stack:

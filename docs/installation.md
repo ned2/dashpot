@@ -94,8 +94,9 @@ Track `.dashpot/config.json` in the Project. The `.dashpot/state/` directory
 beside it ignores itself: Dashpot writes a `.gitignore` containing `*` into it
 whenever it writes state there, so it needs no rule in the Project's own
 `.gitignore`. A state directory an earlier Dashpot wrote gains the file the
-next time Dashpot writes state there. The ignored state contains the Project-local Work Store and session records.
-Each linked Worktree owns its own state. The Work Store holds
+next time Dashpot writes state there. The ignored state contains the
+Project-local Work Store and session records. Each linked Worktree owns its own
+state. The Work Store holds
 declared Issue work and is not a user-edited file format. Machine-local Workspace
 inventory and settings remain outside Project configuration. See
 [Project configuration](../README.md#project-configuration) for full discovery
