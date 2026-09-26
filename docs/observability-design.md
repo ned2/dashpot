@@ -129,26 +129,48 @@ Dashpot's camelCase aliases with these names explicitly.
 | `schema` | every event | File-format version, `1` (the model field is `schema_version`) |
 | `time` | every event | RFC 3339 UTC timestamp, microseconds |
 | `dashpot.level` | every event | `standard` or `full`: the level the event belongs to |
-| `event.name` | every event | `process.start`, `process.continued`, `process.end`, `level.changed`, `event_log.write_failed`, `span` |
+| `event.name` | every event | `process.start`, `process.continued`, `process.end`, `level.changed`, `event_log.write_failed`, `hook.outcome`, `command.outcome`, `agent_session.changed`, `diagnostic.changed`, `span` |
 | `service.instance.id` | every event | The process's run ID, 32 hex digits |
 | `dashpot.process.kind` | every event | `dashboard`, `command:<words>`, `hook:<harness>[:<event>]` |
 | `dashpot.agent_session.harness`, `dashpot.agent_session.id` | when known | The Agent Session Identity |
-| `dashpot.project.id`, `dashpot.worktree.path`, `dashpot.issue.id` | when known | What the process works for |
+| `dashpot.project.id`, `dashpot.worktree.path`, `dashpot.issue.id` | when known | What the process works for, or the subject of a dashboard's `agent_session.changed` or `diagnostic.changed` |
 | `service.version` | `process.start`, `process.continued` | Dashpot's version |
 | `dashpot.install.kind` | `process.start`, `process.continued` | `wheel`, `editable`, `directory`, `archive`, `vcs`, `unknown` |
 | `vcs.ref.head.revision` | `process.start`, `process.continued` | Dashpot's own source commit, or `unknown` |
 | `dashpot.source.dirty` | `process.start`, `process.continued` | Uncommitted source changes (dashboard only) |
 | `process.pid`, `process.runtime.version`, `process.working_directory` | `process.start`, `process.continued` | PID, Python version, working directory |
-| `dashpot.subcommand` | `process.start`, `process.continued` | `work start`, `observe`, … without arguments |
+| `dashpot.subcommand` | `process.start`, `process.continued`, `command.outcome` | `work start`, `observe`, … without arguments |
 | `process.exit.code`, `dashpot.duration_seconds` | `process.end` | Exit status and how long the process ran |
 | `dashpot.event_level.previous`, `dashpot.event_level.current` | `level.changed` | The change of level in force |
-| `error.type` | `event_log.write_failed`, a failed `span` | errno name or error class |
+| `error.type` | `event_log.write_failed`, a failed `span`, `hook.outcome`, `command.outcome` | errno name or error class |
+| `dashpot.outcome.result` | `hook.outcome`, `command.outcome` | `succeeded`; `refused`, a `DashpotError` or a plan's refusals; `failed` |
+| `dashpot.hook.event`, `dashpot.agent_session.state` | `hook.outcome` | The harness's hook event name, and the state it wrote to the session's hook record |
+| `dashpot.work_store.change` | `hook.outcome` | What the hook did to its session's Agent Run: `unchanged`, `continued`, `relocated`, `ended` |
+| `dashpot.outcome.action` | `command.outcome` | What the command did, such as `started`, `switched`, `relocation-prepared`, `stopped`, `no-work`, `created`, `planned`, `previewed`, `removed`, `deleted`, `installed`, `reported` |
+| `dashpot.outcome.refusal_count`, `dashpot.outcome.dry_run` | `command.outcome` | How many refusals a plan or Cleanup stated, never their text; whether it was a dry run |
+| `dashpot.target.path`, `dashpot.target.branch`, `dashpot.target.harness` | `command.outcome` | The Worktree, Branch or harness the command acted on |
+| `dashpot.duration_seconds` | `command.outcome` | How long the command's work took |
+| `dashpot.agent_session.change` | `agent_session.changed` | `appeared`, `bound`, `switched`, `unbound`, `relocated`, `ended` |
+| `dashpot.issue.previous_id`, `dashpot.worktree.previous_path` | `agent_session.changed` | The Issue a session was bound to before `switched` or `unbound`; the Worktree it left when `relocated` |
+| `dashpot.diagnostic.change`, `dashpot.diagnostic.severity` | `diagnostic.changed` | `appeared` or `cleared`, and the Diagnostic's severity |
+| `dashpot.diagnostic.source`, `dashpot.diagnostic.code` | `diagnostic.changed` | What identifies the Diagnostic, with its Project; `uncoded` for one without a code |
 | `dashpot.span.name`, `span_id`, `parent_span_id` | `span` | What the span timed, its ID and its parent's |
 | `otel.status_code` | `span` | `OK` or `ERROR` |
 | `attributes` | `span` | The span's own attributes, such as `process.executable.name`, `dashpot.command.subcommand` and `process.exit.code` for a command |
 
-A span is written once, when it ends, stamped with the time it started. The
-reader is tolerant: it ignores fields a newer Dashpot added and skips a line
+A span is written once, when it ends, stamped with the time it started. A
+hook records one `hook.outcome` and a management command one
+`command.outcome` before its `process.end`, and each names the Agent
+Session, Issue or Worktree it learned it works for on that event and every
+later one. A dashboard records `agent_session.changed` and
+`diagnostic.changed` only when what it observes changes, never for a refresh
+that changes nothing; each names its subject — the session's harness, ID,
+Project, Worktree and Issue, or the Diagnostic's Project — in the identity
+fields, beside the dashboard's own run ID and kind, so `dashpot events
+--session` or `--project` finds it. A dashboard over one Project names that
+Project on its own events once it is observed. A runtime value that does not
+fit its field, such as a Branch name Git would refuse, is left out of the
+event rather than failing the work. The reader is tolerant: it ignores fields a newer Dashpot added and skips a line
 it cannot read, whose `schema` is newer, or whose `event.name` it does not
 know. A change a tolerant reader could not read bumps `schema`. `dashpot
 events --json` ([#316](https://github.com/ned2/dashpot/issues/316)) is the
@@ -258,7 +280,9 @@ the file format is not.
   `GitHubGateway`; the observation and query runners, with the 15-second
   local and the GitHub-query refresh timers told apart; the hook publisher
   and management commands; Agent Session and Agent Run changes; Diagnostic
-  transitions.
+  transitions. A management command wraps its work in
+  `record_command_outcome` and fills the note it is handed, so a new one
+  (such as `dashpot events remove`) records its outcome the same way.
 - **Linux and macOS only**, as the package classifiers say.
 
 ## Reading
@@ -299,6 +323,15 @@ the file format is not.
   models takes about 7 ms of it, and the Event Log modules with the settings
   loader about 12 ms cumulatively, part of which the hook already imported.
   Reading the version, install kind and source commit takes about 0.5 ms.
+- **Standalone event volume** (2026-09-27, #314, real paths from this
+  machine): a hook's `hook.outcome` is about 575 bytes beside its 728-byte
+  `process.start` and 498-byte `process.end`, and takes about 0.07 ms to
+  record (0.17 ms for the first). At 1,500 hook runs a day, a busy day of
+  several sessions, that adds about 0.9 MB. A `command.outcome` is about
+  840 bytes with a Worktree path and Branch, an `agent_session.changed`
+  about 560 and a `diagnostic.changed` about 420; they follow commands a
+  person runs and changes a dashboard observes, so they are a small part of
+  a day's `standard` volume, which GitHub request spans dominate.
 
 ## Sources
 

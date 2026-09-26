@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import AbstractContextManager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Literal
@@ -18,6 +20,7 @@ from .composition import (
     refresh_periods,
     run_cleanup,
 )
+from .core.command_outcomes import OutcomeNote, record_command_outcome
 from .core.errors import DashpotError
 from .core.event_log import (
     DASHBOARD_KIND,
@@ -26,6 +29,7 @@ from .core.event_log import (
     working_directory,
 )
 from .core.model import Harness
+from .core.runtime_events import ManagementCommand
 from .core.worktree_paths import worktree_root
 from .event_logs import open_event_log
 from .issues.issue_resolution import describe_issue, show_issue
@@ -259,11 +263,11 @@ def init(
     origin remote the Issue Source defaults to GitHub and the durable
     repository identity is resolved through the authenticated gh CLI.
     """
-    _report(
-        initialize_project(
-            Path.cwd().resolve(), markdown_path=markdown, timeout=timeout
-        )
-    )
+    with command_outcome("init") as outcome:
+        current = Path.cwd().resolve()
+        outcome.target_path = current
+        _report(initialize_project(current, markdown_path=markdown, timeout=timeout))
+        outcome.action = "initialized"
     return 0
 
 
@@ -295,7 +299,12 @@ def start(
     timeout: _Timeout = 10.0,
 ) -> int:
     """Start or switch this session's Issue work."""
-    _report(start_issue_work(Path.cwd().resolve(), reference, timeout=timeout))
+    with command_outcome("work start") as outcome:
+        _report(
+            start_issue_work(
+                Path.cwd().resolve(), reference, timeout=timeout, outcome=outcome
+            )
+        )
     return 0
 
 
@@ -308,8 +317,12 @@ def relocate(
     /,
 ) -> int:
     """Prepare this Agent Run for a verified sequential Codex resume."""
-    relocate_target = path.expanduser().resolve()
-    _report(relocate_issue_work(Path.cwd().resolve(), relocate_target))
+    with command_outcome("work relocate") as outcome:
+        relocate_target = path.expanduser().resolve()
+        outcome.target_path = relocate_target
+        _report(
+            relocate_issue_work(Path.cwd().resolve(), relocate_target, outcome=outcome)
+        )
     return 0
 
 
@@ -327,7 +340,10 @@ def stop(
     ] = None,
 ) -> int:
     """End this session's active Issue work."""
-    _report(stop_issue_work(Path.cwd().resolve(), session_key=session))
+    with command_outcome("work stop") as outcome:
+        _report(
+            stop_issue_work(Path.cwd().resolve(), session_key=session, outcome=outcome)
+        )
     return 0
 
 
@@ -521,15 +537,24 @@ def worktree_create(
     json_output: _JsonOutput = False,
 ) -> int:
     """Create a linked Worktree on a new Branch for an Issue."""
-    plan = create_issue_worktree(
-        Path.cwd().resolve(),
-        reference,
-        base=base,
-        branch=branch,
-        worktree_root_option=worktree_root,
-        dry_run=dry_run,
-        timeout=timeout,
-    )
+    with command_outcome("worktree create", dry_run=dry_run) as outcome:
+        plan = create_issue_worktree(
+            Path.cwd().resolve(),
+            reference,
+            base=base,
+            branch=branch,
+            worktree_root_option=worktree_root,
+            dry_run=dry_run,
+            timeout=timeout,
+        )
+        outcome.identify(issue_id=plan.issue_id)
+        outcome.target_path = Path(plan.path)
+        outcome.target_branch = plan.branch
+        outcome.refusals = len(plan.refusals)
+        if plan.created:
+            outcome.action = "created"
+        elif not plan.refusals:
+            outcome.action = "planned"
     if json_output:
         print(render_json(worktree_plan_document(plan)))
     else:
@@ -598,6 +623,7 @@ def _cleanup(
     dry_run: bool,
     timeout: float,
     json_output: bool,
+    outcome: OutcomeNote,
 ) -> int:
     """Preview, select, perform, and report one Cleanup from this checkout."""
     report = run_cleanup(
@@ -607,6 +633,15 @@ def _cleanup(
         dry_run=dry_run,
         timeout=timeout,
     )
+    outcome.refusals = len(report.refusals)
+    if report.dry_run:
+        outcome.action = None if report.refusals else "previewed"
+    elif report.succeeded:
+        outcome.action = "removed" if report.kind == "worktree" else "deleted"
+    else:
+        # A target left in place, or a preview the Repository no longer
+        # matches: the Cleanup did not do what was confirmed.
+        outcome.incomplete = True
     if json_output:
         print(render_json(cleanup_report_document(report)))
     else:
@@ -658,22 +693,25 @@ def branch_delete(
     json_output: _JsonOutput = False,
 ) -> int:
     """Delete the selected refs of a Branch, each at its previewed commit."""
-    if not local and not remote:
-        raise CleanupError(
-            "name at least one target to delete: --local, --remote REMOTE"
+    with command_outcome("branch delete", dry_run=dry_run) as outcome:
+        outcome.target_branch = name
+        if not local and not remote:
+            raise CleanupError(
+                "name at least one target to delete: --local, --remote REMOTE"
+            )
+        current = Path.cwd().resolve()
+        # The identities are spelled out rather than picked from the preview
+        # so a ref that is not there is refused by name.
+        selected = [f"local:refs/heads/{name}"] if local else []
+        selected.extend(f"remote:{each}:refs/heads/{name}" for each in remote or ())
+        return _cleanup(
+            BranchCleanupRequest(current, name),
+            select=lambda _preview: tuple(selected),
+            dry_run=dry_run,
+            timeout=timeout,
+            json_output=json_output,
+            outcome=outcome,
         )
-    current = Path.cwd().resolve()
-    # The identities are spelled out rather than picked from the preview so
-    # a ref that is not there is refused by name.
-    selected = [f"local:refs/heads/{name}"] if local else []
-    selected.extend(f"remote:{each}:refs/heads/{name}" for each in remote or ())
-    return _cleanup(
-        BranchCleanupRequest(current, name),
-        select=lambda _preview: tuple(selected),
-        dry_run=dry_run,
-        timeout=timeout,
-        json_output=json_output,
-    )
 
 
 @worktree.command(name="remove")
@@ -737,14 +775,17 @@ def worktree_remove(
             )
         return tuple(target.identity for target in chosen)
 
-    return _cleanup(
-        WorktreeCleanupRequest(current, path),
-        select=select,
-        delete_ignored=delete_ignored,
-        dry_run=dry_run,
-        timeout=timeout,
-        json_output=json_output,
-    )
+    with command_outcome("worktree remove", dry_run=dry_run) as outcome:
+        outcome.target_path = Path(os.path.abspath(current / path))
+        return _cleanup(
+            WorktreeCleanupRequest(current, path),
+            select=select,
+            delete_ignored=delete_ignored,
+            dry_run=dry_run,
+            timeout=timeout,
+            json_output=json_output,
+            outcome=outcome,
+        )
 
 
 _integrate_action = Group("Action", validator=validators.MutuallyExclusive())
@@ -778,19 +819,31 @@ def integrate(
     lifecycle observations and the agent-facing Issue-work skill. Nothing is
     installed without running this command.
     """
-    if status:
-        messages = integration_status(harness)
-    elif remove:
-        messages = remove_integration(harness)
-    else:
-        messages = install_integration(harness)
-    _report(messages)
+    with command_outcome("integrate") as outcome:
+        outcome.target_harness = harness
+        if status:
+            messages = integration_status(harness)
+            outcome.action = "reported"
+        elif remove:
+            messages = remove_integration(harness)
+            outcome.action = "removed"
+        else:
+            messages = install_integration(harness)
+            outcome.action = "installed"
+        _report(messages)
     return 0
 
 
 def _report(messages: Iterable[str]) -> None:
     for message in messages:
         print(message)
+
+
+def command_outcome(
+    command: ManagementCommand, *, dry_run: bool | None = None
+) -> AbstractContextManager[OutcomeNote]:
+    """Record what the management command this process runs did, when it ends."""
+    return record_command_outcome(_EVENT_LOG.get(), command, dry_run=dry_run)
 
 
 def process_kind(tokens: Sequence[str]) -> tuple[str, str | None]:

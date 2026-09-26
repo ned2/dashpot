@@ -16,13 +16,20 @@ from functools import partial
 from typing import Protocol
 
 from ..core.commands import RunningCommands, start_pool
+from ..core.model import Diagnostic
 from ..observation.collect import ObservationScheduler
-from ..observation.keys import ObservationKey, ObservationTicket
-from ..observation.observation_store import StoreChange, WorkspaceObservationStore
+from ..observation.keys import WORKSPACE_SCOPE, ObservationKey, ObservationTicket
+from ..observation.observation_store import (
+    ObservedDiagnostic,
+    StoreChange,
+    WorkspaceObservationStore,
+)
 from .messages import ObservationFinished, ObservationTrigger, OffLoopHost
 
 # Observation triggers a person asked for, whose outcome earns a toast.
 MANUAL_TRIGGERS: frozenset[ObservationTrigger] = frozenset({"manual", "fetch"})
+# The code of the Diagnostic a failed refresh of one key reports.
+REFRESH_FAILED = "refresh-failed"
 # Triggers that coalesce onto an observation already in flight without
 # queueing a rerun: the next tick is the rerun. Every other trigger (a key
 # press, a Remote Fetch or Cleanup that changed the Repository, a follow-up
@@ -140,6 +147,27 @@ class ObservationRunner:
     def first_observations_in_flight(self) -> tuple[ObservationKey, ...]:
         """Name observations in flight before that key has completed once."""
         return tuple(key for key in self.in_flight if key not in self._completed)
+
+    def failure_diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
+        """Each key's last failure as the Diagnostic it reports, coded by what failed.
+
+        The source names the key, so one failing key is one Diagnostic until
+        an observation of it is accepted, whatever its message says.
+        """
+        return tuple(
+            ObservedDiagnostic(
+                Diagnostic(
+                    source=f"refresh:{key.group}",
+                    severity="error",
+                    code=REFRESH_FAILED,
+                    message=error,
+                ),
+                project_id=None
+                if key.project_id == WORKSPACE_SCOPE
+                else key.project_id,
+            )
+            for key, error in self.errors.items()
+        )
 
     def git_keys(self, project_id: str) -> list[ObservationKey]:
         """Name the keys that observe a Project's Git state, which a mutation changes."""

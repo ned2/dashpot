@@ -38,6 +38,7 @@ from ..core.model import Diagnostic
 from ..core.runtime_events import EventLevel
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text
+from ..observation.observation_store import ObservedDiagnostic
 from ..observation.paged_store import PagedObservationStore
 from ..observation.related_rows import FocusedSource, query_related_rows
 from ..observation.session_list import SessionListRow, resume_command
@@ -48,6 +49,11 @@ from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
 from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError
 from .alerts import Alert, list_diagnostics, summarize_alerts
+from .change_events import (
+    AgentSessionChanges,
+    DiagnosticChanges,
+    identify_one_project,
+)
 from .cleanup_flow import CleanupFlow, CleanupSelection
 from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .column_editor import IssueColumnEditor
@@ -872,6 +878,10 @@ class DashpotApp(App[None]):
         self.main_loop: asyncio.AbstractEventLoop | None = None
         self.event_log.on_write_failure = self.event_log_write_failed
         self.event_log.forward = self.forward_runtime_event
+        # What the dashboard records of the sessions and Diagnostics it
+        # observes: changes only, never every refresh.
+        self.session_changes = AgentSessionChanges(self.event_log)
+        self.diagnostic_changes = DiagnosticChanges(self.event_log)
         if self.event_log.write_failure is not None:
             self.show_event_log_unavailable(self.event_log.write_failure)
         # The observation and query commands an exit interrupts, so a pool
@@ -1122,8 +1132,24 @@ class DashpotApp(App[None]):
         with suppress(RuntimeError):
             loop.call_soon_threadsafe(self.log.info, line)
 
+    def shown_diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
+        """Every Diagnostic the Diagnostics box shows, each with its code and Project."""
+        return (
+            *self.observations.failure_diagnostics(),
+            *(
+                ObservedDiagnostic(diagnostic)
+                for diagnostic in (
+                    *self.launcher_configuration.diagnostics,
+                    *self.event_log_diagnostics,
+                )
+            ),
+            *self.fetches.failure_diagnostics(),
+            *self.store.diagnostics(),
+        )
+
     def update_diagnostics(self) -> None:
         """Redraw the diagnostics readout after a flow recorded a failure."""
+        self.diagnostic_changes.observe(self.shown_diagnostics())
         for peer in self.peer_screens():
             if peer.is_mounted and peer.surfaces_mounted():
                 peer.update_diagnostics()
@@ -1342,6 +1368,8 @@ class DashpotApp(App[None]):
     def _accept_observation(
         self, message: ObservationFinished, landed: Acceptance
     ) -> None:
+        identify_one_project(self.event_log, self.store)
+        self.session_changes.observe(self.store.agent_runs())
         self.show_observation(landed)
         # Agent Runs are observed on the local period; resolving their Issues
         # again follows the query period unless which Issues are bound changed.

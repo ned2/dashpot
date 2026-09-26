@@ -13,8 +13,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from .core.distribution import process_start
 from .core.event_log import (
     DASHBOARD_KIND,
@@ -29,6 +27,7 @@ from .core.runtime_events import (
     EVENT_LEVELS,
     EventLevel,
     ProcessIdentity,
+    fitting,
 )
 from .core.state_paths import configured_checkout, machine_state_directory
 from .project.settings import SettingsError, load_settings
@@ -89,20 +88,15 @@ def process_identity(
     session_id: str | None = None,
 ) -> ProcessIdentity:
     """Name this process by a new run ID, keeping only what fits its field."""
-    identity: dict[str, object] = {"run_id": new_run_id(), "kind": kind}
-    for field, value in (
-        ("worktree", None if worktree is None else str(worktree)),
-        ("harness", harness),
-        ("session_id", session_id),
-    ):
-        if value is None:
-            continue
-        try:
-            ProcessIdentity.model_validate({**identity, field: value})
-        except ValidationError:
-            continue
-        identity[field] = value
-    return ProcessIdentity.model_validate(identity)
+    return fitting(
+        ProcessIdentity,
+        {"run_id": new_run_id(), "kind": kind},
+        {
+            "worktree": None if worktree is None else str(worktree),
+            "harness": harness,
+            "session_id": session_id,
+        },
+    )
 
 
 def open_event_log(

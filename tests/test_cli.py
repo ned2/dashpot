@@ -631,7 +631,9 @@ def test_work_start_dispatches_with_reference_and_timeout(
         code = cli.main(["work", "start", "#7"])
 
     assert code == 0
-    start.assert_called_once_with(Path.cwd().resolve(), "#7", timeout=10.0)
+    start.assert_called_once_with(
+        Path.cwd().resolve(), "#7", timeout=10.0, outcome=mock.ANY
+    )
     assert "started work on #7" in capsys.readouterr().out
 
 
@@ -649,7 +651,9 @@ def test_work_relocate_dispatches_with_the_target_worktree(
         code = cli.main(["work", "relocate", str(target)])
 
     assert code == 0
-    relocate.assert_called_once_with(Path.cwd().resolve(), target.resolve())
+    relocate.assert_called_once_with(
+        Path.cwd().resolve(), target.resolve(), outcome=mock.ANY
+    )
     assert "prepared relocation" in capsys.readouterr().out
 
 
@@ -664,13 +668,17 @@ def test_work_stop_and_show_dispatch(
         cli, "stop_issue_work", return_value=["stopped work on #7"]
     ) as stop:
         assert cli.main(["work", "stop"]) == 0
-    stop.assert_called_once_with(Path.cwd().resolve(), session_key=None)
+    stop.assert_called_once_with(
+        Path.cwd().resolve(), session_key=None, outcome=mock.ANY
+    )
 
     with mock.patch.object(
         cli, "stop_issue_work", return_value=["stopped orphaned work on #7"]
     ) as stop:
         assert cli.main(["work", "stop", "--session", "codex-42-abcd1234"]) == 0
-    stop.assert_called_once_with(Path.cwd().resolve(), session_key="codex-42-abcd1234")
+    stop.assert_called_once_with(
+        Path.cwd().resolve(), session_key="codex-42-abcd1234", outcome=mock.ANY
+    )
 
     with mock.patch.object(
         cli, "show_issue_work", return_value=["no active Issue work"]
@@ -1536,7 +1544,9 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
 
     with mock.patch.object(cli, "start_issue_work", return_value=[]) as start:
         assert cli.main(["work", "start", "12", "--timeout", "0.5"]) == 0
-    start.assert_called_once_with(Path.cwd().resolve(), "12", timeout=0.5)
+    start.assert_called_once_with(
+        Path.cwd().resolve(), "12", timeout=0.5, outcome=mock.ANY
+    )
 
 
 @pytest.mark.parametrize(
