@@ -545,9 +545,10 @@ The append-only files of Runtime Events one checkout keeps under
 for a process outside every configured checkout
 ([ADR 0059](adr/0059-keep-an-append-only-event-log-in-each-checkout.md)).
 Hooks and one-shot commands share `events-YYYY-MM-DD.jsonl`; each dashboard
-run writes its own file. Dashpot never deletes, compresses or renames one on
-its own; only an explicit command removes one (`dashpot events remove`,
-[#316](https://github.com/ned2/dashpot/issues/316)).
+run writes its own file. `dashpot events` reads a Repository's Event Logs
+merged by time. Dashpot never deletes, compresses or renames one on its own;
+only an explicit command removes its files dated before a day
+(`dashpot events remove`).
 _Avoid_: telemetry; log for a Diagnostic, or for the Diagnostics box; prune
 for removing an Event Log, which is the Remote Fetch's word
 

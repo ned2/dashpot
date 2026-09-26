@@ -5,13 +5,19 @@ import re
 import subprocess
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn
 
 import pytest
 
 from dashpot.core.errors import DashpotError
+from dashpot.core.event_log import EVENTS_DIRECTORY, EventLog, EventLogDestination
 from dashpot.core.model import Harness, ObservationTarget
+from dashpot.core.project_state import project_state_directory
+from dashpot.core.runtime_events import ProcessIdentity as EventProcessIdentity
+from dashpot.core.runtime_events import ProcessStart
+from dashpot.core.timestamps import utc_stamp
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.issues.issue_sources import IssueSourceRefreshError
 from dashpot.sessions.agents import observe_agent_runs
@@ -24,6 +30,7 @@ from dashpot.sessions.work import (
     identify_agent_session,
     relocate_issue_work,
     show_issue_work,
+    show_session_events,
     start_issue_work,
     stop_issue_work,
 )
@@ -180,6 +187,64 @@ def test_show_lists_active_work_at_the_worktree(tmp_path: Path) -> None:
     assert len(messages) == 1
     assert "build-observer" in messages[0]
     assert "codex pid 4242" in messages[0]
+
+
+def session_event_log(
+    root: Path, session_id: str, at: datetime, *, run: str = "a" * 32
+) -> EventLog:
+    """A Codex hook's Event Log in ``root``'s checkout, stamped at ``at``."""
+    return EventLog(
+        EventLogDestination(project_state_directory(root) / EVENTS_DIRECTORY),
+        identity=EventProcessIdentity(
+            run_id=run, kind="hook:codex:Stop", harness="codex", session_id=session_id
+        ),
+        level="standard",
+        facts=lambda: ProcessStart(
+            version="0.1.0",
+            install_kind="editable",
+            revision="unknown",
+            pid=4242,
+            python_version="3.14.0",
+        ),
+        clock=lambda: at,
+        monotonic=lambda: 0.0,
+    )
+
+
+def test_show_lists_the_sessions_recent_outcomes_from_its_event_log(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    hook_record(root, CODEX_SESSION, "codex", CODEX)
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
+    at = now - timedelta(hours=1)
+    own = session_event_log(root, CODEX_SESSION, at)
+    own.start()
+    own.end(1)
+    other = session_event_log(root, CLAUDE_SESSION, at, run="b" * 32)
+    other.end(1)
+    stamp = utc_stamp(at)
+
+    assert show_session_events(
+        root, lookup=codex_lookup, environ=CODEX_ENVIRON, now=now
+    ) == [
+        "recent events of codex pid 4242:",
+        f"  {stamp} standard hook:codex:Stop process.end "
+        f"dashpot.agent_session.harness=codex "
+        f"dashpot.agent_session.id={CODEX_SESSION} "
+        f"process.exit.code=1 dashpot.duration_seconds=0",
+    ]
+    # Outside the session, or at a Worktree with nothing to list, nothing is added.
+    assert show_session_events(root, lookup=codex_lookup, environ={}, now=now) == []
+    assert (
+        show_session_events(
+            root,
+            lookup=codex_lookup,
+            environ=CODEX_ENVIRON,
+            now=now + timedelta(days=8),
+        )
+        == []
+    )
 
 
 def test_a_version_one_work_store_record_remains_readable(tmp_path: Path) -> None:

@@ -19,6 +19,7 @@ from .core.distribution import process_start
 from .core.event_log import (
     DASHBOARD_KIND,
     DASHBOARD_RECENT_EVENTS,
+    EVENTS_DIRECTORY,
     EventLog,
     EventLogDestination,
     new_run_id,
@@ -35,7 +36,6 @@ from .project.settings import SettingsError, load_settings
 
 LEVEL_VARIABLE = "DASHPOT_EVENT_LEVEL"
 DEFAULT_LEVEL: EventLevel = "standard"
-EVENTS_DIRECTORY = "events"
 
 
 def event_level(settings_path: Path | None = None) -> EventLevel:

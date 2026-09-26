@@ -14,6 +14,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   and GitHub Pull Requests. Fetch explicitly; preview and confirm Cleanup.
 - Observe Codex and Claude Code through opt-in hooks, and declare Issue work
   through a Project-local Work Store and the bundled Issue-work skill.
+- Read the Event Log with `dashpot events`, merged across a Repository's
+  Worktrees and filtered by Agent Session, Issue, Project, time or level; see
+  an Agent Session's recent outcomes in `dashpot work show`; and remove old
+  Event Log files with `dashpot events remove --before DATE`. The dashboard
+  warns with an `event-log-large` Diagnostic past 200 MB.
 - Install as an isolated Python application with `uv tool install dashpot`.
   Hook publishers work when their installation path contains spaces or shell
   metacharacters. `dashpot integrate` refuses to bind the hooks to a publisher

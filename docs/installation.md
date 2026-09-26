@@ -207,20 +207,6 @@ hooks and commands stay silent. Each event is appended whole with one write,
 which keeps concurrent writers' lines intact on a local filesystem; on NFS a
 line written by two processes at once may be interleaved.
 
-Dashpot never deletes, compresses or renames an Event Log. Remove old files
-with your own tools; a writer notices its current file was moved or deleted
-and starts a new one. For example, a daily `cron` entry:
-
-```sh
-# Delete Event Log files older than 30 days in this checkout.
-0 3 * * * find /path/to/project/.dashpot/state/events -name '*.jsonl' -mtime +30 -delete
-```
-
-A systemd timer running the same `find` works as well. `logrotate` can
-rename or compress the files too, since a writer that finds its file renamed
-starts a new one; because each file already holds one UTC day, deleting old
-days is usually all that is needed.
-
 Runtime Events hold identifiers, not messages: paths (which include your
 home directory), Branch names (which carry Issue title slugs), Issue and
 Pull Request numbers, Agent Session Identities and exit statuses, never
@@ -233,6 +219,125 @@ default, and the `gh` processes Dashpot starts send it like any other `gh`
 run. Dashpot leaves that to your `gh` configuration. To turn it off, set
 `GH_TELEMETRY=0`, or `DO_NOT_TRACK=1` for every tool that honours it, in the
 environment Dashpot runs in.
+
+### Read the Event Log
+
+`dashpot events` prints the Runtime Events recorded in this Repository, one
+per line, oldest first:
+
+```sh
+dashpot events --since 12h
+dashpot events --session <agent-session-id> --level standard
+dashpot events --issue <issue-identity> --json
+```
+
+It merges the Event Log of every Worktree of the Repository, as
+`git worktree list` names them, with the machine-local fallback, ordered by
+time; outside a Repository it reads the fallback alone. It is the supported
+route to a sibling Worktree's events for an agent whose sandbox cannot read
+that Worktree directly. `--session` takes an Agent Session ID, `--issue` an
+Issue Identity as `dashpot work show` prints it, and `--project` a Project
+Identity, the `projectId` of `.dashpot/config.json`; each matches the field
+wherever an event carries it. `--since` takes a UTC day (`2026-09-27`), an
+instant (`2026-09-27T14:00:00Z`) or an age (`30m`, `12h`, `7d`); `--level
+standard` keeps only the events the default level records. The command
+leaves out its own events.
+
+A dashboard records every event of its run in the checkout it was started
+in, including its observations of the Workspace's other Projects, so read a
+dashboard's events from the Repository it was started in; `--project` then
+narrows them to one Project.
+
+Reading is tolerant. A line that is not a Runtime Event this version knows —
+a torn write, an event a newer Dashpot recorded, anything else — is skipped
+and reported on standard error with its file, and a file that cannot be read
+is reported the same way; the command still prints what it could read.
+`--json` prints `directories`, `events` and `unreadable`; each event keeps
+the field names it has in the Event Log. `dashpot events` reads only the
+Event Log's own `.jsonl` files: a file that has been renamed or compressed,
+by `logrotate` or anything else, is invisible to it.
+
+`dashpot work show` ends with the current Agent Session's recent outcomes
+from the same Event Log — at most 20 from the last 7 days, failures
+included — reading back only as many days as it needs.
+
+### Remove old Event Log files
+
+Dashpot never deletes, compresses or renames an Event Log on its own, and the
+dashboard shows an `event-log-large` Diagnostic when its checkout's Event Log
+passes 200 MB. Remove old files explicitly:
+
+```sh
+dashpot events remove --before 2026-09-01 --dry-run
+dashpot events remove --before 2026-09-01
+```
+
+`events remove` acts on the Event Log of the checkout it runs in, or on the
+machine-local fallback when it runs outside every configured checkout. It
+removes only files named as the Event Log names them whose UTC day is before
+`--before`, never a file dated today or later, so a writer's current file is
+always safe. It asks nothing, prints each file with its size, prints the
+result as JSON with `--json`, and exits 2 when a file could not be removed.
+Run it in each Worktree whose Event Log you want to trim; removing a
+Worktree removes its Event Log with it.
+
+Scheduled removal can run the same command, or `find`; a writer whose current
+file was moved or deleted starts a new one. A daily `cron` entry keeping 30
+days, naming `dashpot` by its full path since `cron` runs with a minimal
+`PATH` (`command -v dashpot` prints it; GNU `date`; `cron` needs `%`
+escaped):
+
+```sh
+0 3 * * * cd /path/to/project && ~/.local/bin/dashpot events remove --before "$(date -u -d '30 days ago' +\%F)"
+```
+
+A systemd user timer running `find`, as
+`~/.config/systemd/user/dashpot-events.service`:
+
+```ini
+[Unit]
+Description=Remove Dashpot Event Log files older than 30 days
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/find /path/to/project/.dashpot/state/events -name '*.jsonl' -mtime +30 -delete
+```
+
+and `~/.config/systemd/user/dashpot-events.timer`:
+
+```ini
+[Unit]
+Description=Remove old Dashpot Event Log files daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable it with `systemctl --user enable --now dashpot-events.timer`. Where
+`logrotate` already manages a machine's logs, a rule that removes each file
+once it is 30 days old, and renames nothing, keeps the rest readable:
+
+```text
+/path/to/project/.dashpot/state/events/*.jsonl {
+    daily
+    minage 30
+    rotate 0
+    missingok
+    nocreate
+    nocompress
+}
+```
+
+`missingok` and `nocreate` keep `logrotate` from complaining about a file
+that is gone, or creating one a writer owns. Each file already holds one UTC
+day, so a rule that keeps rotated copies — `rotate 7` with `maxage 30` — or
+compresses them only leaves files `dashpot events` cannot read. Do not run
+such a rule with `logrotate -f`, which ignores `minage` and removes today's
+files too.
 
 ## Open Worktrees and copy paths
 
@@ -325,6 +430,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | Sessions are missing or Issue opt-in is refused | Run `dashpot integrate <harness> --status` inside the session's Worktree; inspect hook trust, publisher path, skill version, and the confirmed Agent Session Identity. |
 | Every hook event fails after a Worktree was removed, or `--status` warns that the publisher lives in a linked Worktree | The hooks were bound to a publisher in that Worktree's `.venv`, which the Cleanup removed. Rerun `dashpot integrate <harness>` from the Repository's main working tree or from an installed tool environment; `integrate` refuses to bind a linked Worktree's publisher in the first place. |
 | The dashboard shows an `event-log-unavailable` Diagnostic | It could not write its [Event Log](#event-log); the work carries on and the events are dropped. Check that the checkout's `.dashpot/state/events/`, or the machine-local fallback, is writable and its disk is not full, or set `event_level = 'off'`. |
+| The dashboard shows an `event-log-large` Diagnostic | Its checkout's Event Log holds more than 200 MB. Preview with `dashpot events remove --before DATE --dry-run` in the directory the Diagnostic names, then remove, or schedule removal; see [Remove old Event Log files](#remove-old-event-log-files). |
 | Session liveness is unknown | Read the Diagnostic: an isolated process namespace can hide a live process. Unknown does not mean the Agent Session ended. |
 
 ## Upgrade and uninstall

@@ -117,6 +117,14 @@ class FetchFinished(Message):
 
 
 @dataclass(eq=False)
+class EventLogMeasured(Message):
+    """The dashboard's Event Log directory was measured, in bytes, or could not be."""
+
+    size: int | None = None
+    error: str | None = None
+
+
+@dataclass(eq=False)
 class BodyResized(Message):
     """The dashboard body was laid out at a new size."""
 

@@ -11,7 +11,7 @@ intended to reduce oscillation without stopping progress. Observation never
 mutates: the view, every refresh, and `dashpot --json` never assign or edit
 Issues, change the Git Repository, or control agent sessions. Dashpot's named
 management commands — `init`, `integrate`, `work start`, `work relocate`,
-`work stop`, `branch delete`, and `worktree remove` — and its two mutating
+`work stop`, `branch delete`, `worktree remove`, and `events remove` — and its two mutating
 keys — `f`, which fetches Git remotes, and `x`, which deletes a Branch or
 removes a Worktree — mutate only what their name says, on explicit invocation,
 and report what they changed
@@ -125,12 +125,13 @@ command it follows, so the timeout for `init` is given as `dashpot init
 startup error, or a refused operation — is a one-line `dashpot: ...`
 diagnostic on stderr and exit code 2, with no traceback. Beside observation,
 the management commands `init`, `integrate`,
-`work`, `issue show`, `worktree create` / `check` / `remove`, and
-`branch delete` are documented in
+`work`, `issue show`, `worktree create` / `check` / `remove`,
+`branch delete`, and `events` / `events remove` are documented in
 [Project configuration](#project-configuration),
 [Agent session observation](docs/agent-sessions.md#agent-session-observation),
-[Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in), and
-[Issue Worktrees](#issue-worktrees).
+[Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in),
+[Issue Worktrees](#issue-worktrees), and
+[the Event Log](docs/installation.md#read-the-event-log).
 
 ### Keys
 
@@ -418,11 +419,14 @@ paths for identity.
 
 The headless JSON key set is a stable contract, for `dashpot --json` and for
 every management command's `--json` (`issue show`, `worktree create`,
-`worktree check`, `worktree remove`, `branch delete`): keys are camelCase,
+`worktree check`, `worktree remove`, `branch delete`, `events`,
+`events remove`): keys are camelCase,
 every documented field is present, and
 an unknown value is an explicit `null` rather than an omitted key, so a
 consumer can tell "unknown" from "not emitted by this version". A shape change
-is a compatibility change. `src/dashpot/serialization.py` owns the documents
+is a compatibility change. The one exception is each Runtime Event inside
+`dashpot events --json`, which keeps the field names it has in the Event Log
+([ADR 0064](docs/adr/0064-publish-runtime-events-under-their-event-log-field-names.md)). `src/dashpot/serialization.py` owns the documents
 and `tests/test_serialization.py` pins each command's key set.
 `--compact-json` prints the same document without indentation.
 

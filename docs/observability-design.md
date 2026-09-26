@@ -151,10 +151,12 @@ A span is written once, when it ends, stamped with the time it started. The
 reader is tolerant: it ignores fields a newer Dashpot added and skips a line
 it cannot read, whose `schema` is newer, or whose `event.name` it does not
 know. A change a tolerant reader could not read bumps `schema`. `dashpot
-events --json` ([#316](https://github.com/ned2/dashpot/issues/316)) is the
-published interface under
+events --json` is the published interface under
 [ADR 0034](adr/0034-publish-an-alpha-with-patch-compatible-interfaces.md);
-the file format is not.
+the file format is not. Each event in it keeps the field names above, with
+an absent field as `null`, rather than the camelCase of the other `--json`
+documents, so an event reads the same in a file and in the command's
+output.
 
 ## Levels
 
@@ -213,11 +215,15 @@ the file format is not.
   writer's threads share. That keeps concurrent writers' lines whole on a
   local filesystem; it is not guaranteed on NFS. A longer event is dropped
   rather than split.
-- **Never deleted by Dashpot.** An outside tool may move or delete past
-  files — the installation guide gives a `cron` example — and a writer
+- **Never deleted by Dashpot on its own.** `dashpot events remove --before
+  DATE` deletes this checkout's files dated before a day, never today's or
+  later, and only on explicit invocation. An outside tool may move or delete
+  past files — the [installation guide](installation.md#remove-old-event-log-files)
+  gives `cron`, systemd-timer and `logrotate` examples — and a writer
   notices a moved or deleted current file by its inode and opens a new one.
-  An `event-log-large` Diagnostic warns without acting past 200 MB, and
-  `dashpot events remove` deletes only on explicit invocation.
+  An `event-log-large` Diagnostic warns without acting when the dashboard's
+  checkout's Event Log passes 200 MB; the dashboard measures it off the
+  event loop when it starts and on each local or requested refresh.
 - **Writing never fails the work.** A failed write is dropped. The dashboard
   records the failure as an `event_log.write_failed` event in its in-memory
   buffer, where Runtime Stats counts it, and the first raises an
@@ -274,8 +280,15 @@ the file format is not.
 - **`dashpot events`** ([#316](https://github.com/ned2/dashpot/issues/316)):
   `--session`, `--issue`, `--project`, `--since` and `--level` filters and
   `--json`, merging every Worktree of the Repository and the machine-local
-  fallback. `dashpot work show` lists its session's recent events, bounded in
-  count and age.
+  fallback by time and leaving out the reader's own run. A filter matches
+  its field wherever an event carries it, so a field a later event adds
+  filters too. Reading is tolerant: an unreadable line or file is reported
+  on standard error, and under `unreadable` in the `--json` document
+  `{directories, events, unreadable}`, and the rest is still printed. Only
+  the Event Log's own `.jsonl` names are read, so a compressed or renamed
+  file is invisible. `dashpot work show` lists its Agent Session's recent
+  outcomes — at most 20 from the last 7 days, failures included — reading
+  back one day at a time only as far as it needs.
 
 ## Measurements
 

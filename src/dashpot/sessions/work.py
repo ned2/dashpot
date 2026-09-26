@@ -5,9 +5,16 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from ..core.errors import DashpotError
+from ..core.event_log_files import (
+    EventSelection,
+    describe_runtime_event,
+    event_log_directories,
+    recent_events,
+)
 from ..core.git import Git
 from ..core.model import HARNESS_DISPLAY, Diagnostic, Harness
 from ..core.timestamps import utc_now
@@ -553,6 +560,59 @@ def show_issue_work(current: Path) -> list[str]:
     if not messages:
         messages = ["no active Issue work at this worktree"]
     return messages
+
+
+# How many of a session's recent events ``work show`` lists, from how far back.
+RECENT_SESSION_EVENTS = 20
+RECENT_SESSION_DAYS = 7
+
+
+def show_session_events(
+    current: Path,
+    *,
+    lookup: ProcessLookup = host_process_lookup,
+    environ: Mapping[str, str] | None = None,
+    now: datetime | None = None,
+) -> list[str]:
+    """List the enclosing Agent Session's recent outcomes from the Event Log.
+
+    Its hook and command outcomes, Agent Session and Agent Run changes and
+    failures, at most :data:`RECENT_SESSION_EVENTS` of them from the last
+    :data:`RECENT_SESSION_DAYS` days, read from every Worktree of the
+    Repository and the machine-local fallback. A command no supported
+    session encloses lists nothing, as does a session with no such events.
+    """
+    root = worktree_root(current)
+    worktrees = repository_worktrees(root)
+    try:
+        session = identify_agent_session(
+            lookup,
+            environ=environ,
+            worktree=root,
+            stores=reachable_hook_stores(worktrees),
+        )
+    except DashpotError:
+        # Whatever keeps the session from being identified, the Issue work
+        # ``work show`` lists stands on its own.
+        return []
+    if session.session_id is None:
+        return []
+    moment = now if now is not None else datetime.now(UTC)
+    selection = EventSelection(
+        session=session.session_id,
+        harness=session.harness,
+        since=moment - timedelta(days=RECENT_SESSION_DAYS),
+        outcomes_only=True,
+    )
+    events = recent_events(
+        event_log_directories(worktrees), selection, limit=RECENT_SESSION_EVENTS
+    )
+    if not events:
+        return []
+    return [
+        f"recent events of {session.session_label}:",
+        *(f"  {describe_runtime_event(event)}" for event in events),
+    ]
 
 
 def _session_location(

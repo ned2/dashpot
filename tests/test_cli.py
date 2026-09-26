@@ -672,15 +672,23 @@ def test_work_stop_and_show_dispatch(
         assert cli.main(["work", "stop", "--session", "codex-42-abcd1234"]) == 0
     stop.assert_called_once_with(Path.cwd().resolve(), session_key="codex-42-abcd1234")
 
-    with mock.patch.object(
-        cli, "show_issue_work", return_value=["no active Issue work"]
-    ) as show:
+    with (
+        mock.patch.object(
+            cli, "show_issue_work", return_value=["no active Issue work"]
+        ) as show,
+        mock.patch.object(
+            cli,
+            "show_session_events",
+            return_value=["recent events of codex pid 42:", "  an event"],
+        ) as recent,
+    ):
         assert cli.main(["work", "show"]) == 0
     show.assert_called_once_with(Path.cwd().resolve())
+    recent.assert_called_once_with(Path.cwd().resolve())
 
     output = capsys.readouterr().out
     assert "stopped work on #7" in output
-    assert "no active Issue work" in output
+    assert "no active Issue work\nrecent events of codex pid 42:\n  an event" in output
 
 
 def test_work_errors_are_reported_without_traceback(
@@ -1590,7 +1598,15 @@ def test_root_help_describes_the_command_hierarchy_and_options() -> None:
 
     assert "Usage: dashpot COMMAND [OPTIONS]" in text
     assert "Passively observe Issues, repositories, and agent runs." in text
-    for command in ("branch", "init", "integrate", "issue", "work", "worktree"):
+    for command in (
+        "branch",
+        "events",
+        "init",
+        "integrate",
+        "issue",
+        "work",
+        "worktree",
+    ):
         assert f" {command} " in text
     for option in (
         "--workspace",
@@ -1639,6 +1655,18 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
     )
     assert "Issue Reference" in start
     assert "--timeout" in start
+
+    events = help_text(["events", "--help"])
+    assert "Usage: dashpot events COMMAND [OPTIONS]" in events
+    for option in ("--session", "--issue", "--project", "--since", "--level", "--json"):
+        assert option in events
+    assert " remove " in events
+    # Where a dashboard's events about another Project are kept.
+    assert "the checkout it was started in" in " ".join(events.split())
+    events_remove = help_text(["events", "remove", "--help"])
+    assert "Usage: dashpot events remove --before DATE [OPTIONS]" in events_remove
+    for option in ("--dry-run", "--json"):
+        assert option in events_remove
 
     stop = help_text(["work", "stop", "--help"])
     assert "--session" in stop
