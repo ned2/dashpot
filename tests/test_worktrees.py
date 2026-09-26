@@ -810,7 +810,8 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
         "unpushed",
         "unmerged",
     }
-    assert by_kind["dirty"].command == f"git worktree remove --force {path}"
+    assert by_kind["dirty"].detail == "1 changed or untracked path"
+    assert by_kind["dirty"].command == f"git -C {path} status"
     assert by_kind["locked"].detail == "locked: claude pid 4242 (holding process gone)"
     assert by_kind["locked"].command == f"git worktree unlock {path}"
     assert "Claude Code session 01c7192b" in by_kind["agent-session"].detail

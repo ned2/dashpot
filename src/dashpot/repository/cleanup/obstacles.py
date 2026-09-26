@@ -127,9 +127,8 @@ def assess_worktree_safety(
             obstacles.append(
                 CleanupBlocker(
                     kind="dirty",
-                    detail=f"{counted(count, 'changed or untracked path')}; "
-                    f"inspect with 'git -C {path} status'",
-                    command=f"git worktree remove --force {path}",
+                    detail=counted(count, "changed or untracked path"),
+                    command=f"git -C {path} status",
                 )
             )
     return obstacles

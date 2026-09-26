@@ -83,7 +83,7 @@ def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
     if blocker.kind == "unintegrated" and target.integration:
         fact = target.integration
         return (
-            f"{counted(fact.unintegrated_commits or 0, 'commit')} not integrated into "
+            f"{counted(fact.unintegrated_commits or 0, 'commit')} not reachable from "
             f"{short_ref(fact.integration_ref)}."
         )
     summaries = {

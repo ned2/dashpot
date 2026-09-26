@@ -769,7 +769,7 @@ def test_worktree_check_dispatches_and_prints_the_report(
             CleanupBlocker(
                 kind="dirty",
                 detail="1 changed path",
-                command="git worktree remove --force /w/x",
+                command="git -C /w/x status",
             ),
         ),
         remove_commands=("git worktree remove /w/x",),
@@ -780,9 +780,7 @@ def test_worktree_check_dispatches_and_prints_the_report(
     check.assert_called_once_with(Path.cwd().resolve(), Path("/w/x"), timeout=10.0)
     out = capsys.readouterr().out
     assert "Removable  no" in out
-    assert (
-        "  - dirty: 1 changed path\n      run: git worktree remove --force /w/x" in out
-    )
+    assert "  - dirty: 1 changed path\n      run: git -C /w/x status" in out
 
     with mock.patch.object(cli, "check_worktree", return_value=report):
         assert cli.main(["worktree", "check", "/w/x", "--json"]) == 0

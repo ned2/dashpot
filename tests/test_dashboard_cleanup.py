@@ -1008,7 +1008,7 @@ async def test_blocked_choices_keep_all_reasons_and_keyboard_access_to_full_evid
         assert "Checked out in a Worktree; remove that Worktree first." in reasons
         # Judged against a Remote-Tracking Branch, the block may only be stale.
         assert (
-            "3 commits not integrated into origin/main. "
+            "3 commits not reachable from origin/main. "
             "If it has since merged, press f to fetch and check again."
         ) in reasons
         assert app.focused is not None
@@ -1200,7 +1200,7 @@ def test_a_single_commit_reads_in_the_singular():
     blocker = CleanupBlocker(
         kind="unintegrated", detail="1 commit not reachable from main"
     )
-    assert blocker_summary(blocker, one(False)) == "1 commit not integrated into main."
+    assert blocker_summary(blocker, one(False)) == "1 commit not reachable from main."
     assert target_summary(preview("branch", "feat", one(True)), one(True)).startswith(
         "Content integrated into main; 1 original commit is not retained there."
     )
