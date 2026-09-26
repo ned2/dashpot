@@ -19,6 +19,7 @@ from ..repository import (
     RefIndex,
     branch_name,
     last_fetched_at,
+    short_ref,
 )
 from ..worktrees.records import checked_out_at
 from .obstacles import (
@@ -27,6 +28,7 @@ from .obstacles import (
     assess_detached_head_preservation,
     assess_worktree_occupancy,
     assess_worktree_safety,
+    counted,
     ignored_content,
     integration_fact,
     locate_worktree,
@@ -239,15 +241,15 @@ def _integration_branch_blockers(
         return [
             CleanupBlocker(
                 kind="integration-branch",
-                detail=f"{refname} is the Integration Branch",
+                detail=f"{short_ref(refname)} is the Integration Branch",
             )
         ]
     if name == branch_name(integration_ref):
         return [
             CleanupBlocker(
                 kind="integration-branch",
-                detail=f"{refname} carries the Integration Branch's name "
-                f"({integration_ref})",
+                detail=f"{short_ref(refname)} carries the Integration Branch's "
+                f"name ({short_ref(integration_ref)})",
             )
         ]
     return []
@@ -260,8 +262,8 @@ def _integration_blockers(fact: IntegrationFact, refname: str) -> list[CleanupBl
             detail = NO_INTEGRATION_BRANCH
         else:
             detail = (
-                f"commits of {refname} not reachable from {fact.integration_ref} "
-                f"could not be counted"
+                f"commits of {short_ref(refname)} not reachable from "
+                f"{short_ref(fact.integration_ref)} could not be counted"
             )
         return [
             CleanupBlocker(
@@ -274,8 +276,8 @@ def _integration_blockers(fact: IntegrationFact, refname: str) -> list[CleanupBl
         return [
             CleanupBlocker(
                 kind="unintegrated",
-                detail=f"{fact.unintegrated_commits} commit(s) not reachable from "
-                f"{fact.integration_ref}",
+                detail=f"{counted(fact.unintegrated_commits or 0, 'commit')} not "
+                f"reachable from {short_ref(fact.integration_ref or '')}",
                 command=f"git log --oneline {fact.integration_ref}..{refname}",
             )
         ]
@@ -286,8 +288,9 @@ def _content_consequence(fact: IntegrationFact) -> list[str]:
     if fact.state != "content-integrated":
         return []
     return [
-        f"content is integrated, but {fact.unintegrated_commits} original commit(s) "
-        f"are not reachable from {fact.integration_ref} and lose their last named ref"
+        f"content is integrated, but deleting it drops the last named ref to "
+        f"{counted(fact.unintegrated_commits or 0, 'original commit')} not "
+        f"reachable from {short_ref(fact.integration_ref or '')}"
     ]
 
 
@@ -333,8 +336,8 @@ def _inspect_worktree(
     consequences = [f"removes {path} with git worktree remove"]
     if ignored:
         consequences.append(
-            f"{len(ignored)} ignored path(s) inside it are deleted too, including "
-            f"any Dashpot state, hook records, and Work Store there"
+            f"also deletes {counted(len(ignored), 'ignored path')} inside it, "
+            f"including any Dashpot state, hook records, and Work Store there"
         )
     if branch is not None:
         consequences.append(
@@ -416,7 +419,7 @@ def _worktree_blockers(
         blockers.append(
             CleanupBlocker(
                 kind="protected",
-                detail="is the checkout Dashpot runs from or a configured "
+                detail="this is the checkout Dashpot runs from or a configured "
                 "Repository Anchor, which observation cannot lose",
             )
         )

@@ -195,8 +195,7 @@ def test_pushed_but_unintegrated_work_loses_its_worktree_and_keeps_its_branch(
     )
     assert both.performed is False
     assert both.refusals == (
-        "Local Branch is unavailable: 3 commit(s) not reachable from "
-        "refs/remotes/origin/main",
+        "Local Branch is unavailable: 3 commits not reachable from origin/main",
     )
     assert str(worktree) in worktree_paths(root)
 

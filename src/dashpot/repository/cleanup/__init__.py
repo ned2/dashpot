@@ -2,6 +2,7 @@
 
 from .adapter import CleanupAdapter as CleanupAdapter
 from .adapter import GitCleanupAdapter as GitCleanupAdapter
+from .obstacles import counted as counted
 from .perform import (
     CHANGED_SINCE_PREVIEW as CHANGED_SINCE_PREVIEW,
 )

@@ -8,6 +8,7 @@ observed the passive way afterwards ([ADR 0019]).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
 from typing import Literal
@@ -54,6 +55,8 @@ from dashpot.ui.cleanup_view import (
     CleanupScreen,
     CleanupTargetView,
     blocker_summary,
+    target_facts,
+    target_summary,
 )
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.list_pane import ListPane
@@ -156,7 +159,7 @@ REMOTE = target(
     blockers=(
         CleanupBlocker(
             kind="unintegrated",
-            detail="2 commit(s) not reachable from refs/remotes/origin/main",
+            detail="2 commits not reachable from origin/main",
         ),
     ),
 )
@@ -591,13 +594,13 @@ async def test_a_target_wraps_its_reasons_beside_its_marker_never_beneath() -> N
         await pilot.pause()
         views = cleanup_screen(app).query(CleanupTargetView)
         assert len(views) == 2
+        # The Worktree's reason is too long for one line here, so it wraps.
+        reason = views.first().query(".cleanup-blocker").first(Static)
+        assert reason.region.height > 1
         for view in views:
             marker = view.query_one(".cleanup-availability", Static)
             assert str(marker.render()) == "BLOCKED"
             assert marker.region.y == view.region.y
-            blocker = view.query(".cleanup-blocker").first(Static)
-            # Too long for one line here, so it wraps — within its column.
-            assert blocker.region.height > 1
             for line in view.query_one(".cleanup-target-body").query(Static):
                 assert line.region.right <= marker.region.x
 
@@ -623,10 +626,12 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         assert targets[HELD.identity].disabled is True
         shown = details(app)
         assert "1 changed path" in shown
-        assert (
-            f"Blocked: checked out at {WORKTREE}, whose removal is blocked"
-        ) in shown
-        assert problem_text(app) == "Nothing here can be deleted."
+        assert f"checked out at {WORKTREE}, whose removal is blocked" in shown
+        unavailable = screen.query_one("#cleanup-unavailable", Static)
+        assert str(unavailable.render()) == "Nothing here can be deleted."
+        # It heads the targets rather than sitting by the buttons.
+        assert unavailable.region.y < screen.query_one("#cleanup-targets").region.y
+        assert problem_text(app) == ""
         assert not screen.query("#cleanup-confirm")
         assert app.focused is not None
         assert app.focused.id == "cleanup-cancel"
@@ -908,11 +913,9 @@ async def test_unticking_a_default_branch_retains_it_and_keeps_the_label():
         screen = cleanup_screen(app)
         assert not screen.query("#cleanup-target-0")
         # One grouping label however many Branches follow the Worktree.
-        assert [
-            str(one.render())
-            for one in screen.query(".cleanup-summary")
-            if str(one.render()) == "Also remove"
-        ] == ["Also remove"]
+        assert [str(one.render()) for one in screen.query("#cleanup-also")] == [
+            "Also remove"
+        ]
         assert screen.selected() == (
             TREE.identity,
             ATTACHED.identity,
@@ -1015,11 +1018,13 @@ async def test_blocked_choices_keep_all_reasons_and_keyboard_access_to_full_evid
         evidence = screen.query_one("#cleanup-evidence-0", Collapsible)
         assert not evidence.collapsed
         assert long_path in details(app)
-        assert "Next step: git log origin/main..feat" in details(app)
-        assert "Recovery: git branch feat " + TIP in details(app)
+        facts = [str(one.render()) for one in evidence.query(".cleanup-fact Static")]
+        assert facts[-2:] == ["Next", "git log origin/main..feat"]
+        # The preview is for deciding; recovery commands are the CLI's record.
+        assert "Recovery" not in details(app)
         body = screen.query_one("#cleanup-body")
         body.scroll_end(animate=False)
-        content = evidence.query_one("Contents Static", Static)
+        content = evidence.query("Contents Static").last(Static)
         # Scrolling is deferred until layout, even with animation disabled.
         await wait_until(lambda: content.region.bottom <= body.region.bottom)
         assert screen.query_one("#cleanup-cancel").region.bottom <= 24
@@ -1134,13 +1139,68 @@ def test_only_an_integration_block_against_a_remote_tracking_branch_hints_at_fet
     assert blocker_summary(blocker, blocked).endswith(FETCH_HINT) is hinted
 
 
-def test_a_blocked_worktree_never_calls_its_remote_branch_checked_out():
+def test_a_branch_held_by_a_blocked_worktree_says_only_that():
     blocker = CleanupBlocker(kind="checked-out", detail="held")
     local = LOCAL.model_copy(update={"requires": TREE.identity, "blockers": (blocker,)})
     remote = PUSHED.model_copy(update={"blockers": (blocker,)})
-    assert blocker_summary(blocker, local) == (
-        "Worktree removal is blocked; this Branch stays checked out."
+    assert blocker_summary(blocker, local) == "Worktree removal is blocked."
+    assert blocker_summary(blocker, remote) == "Worktree removal is blocked."
+    # From the Branches pane the reason names the step that frees the Branch.
+    assert blocker_summary(
+        blocker, LOCAL.model_copy(update={"blockers": (blocker,)})
+    ) == ("Checked out in a Worktree; remove that Worktree first.")
+
+
+def test_details_identify_each_target_and_blocker_without_recovery():
+    now = datetime(2026, 9, 26, 12, tzinfo=UTC)
+    tip = TIP[:7]
+    assert target_facts(TREE, now) == [("Path", WORKTREE), ("HEAD", tip)]
+    assert target_facts(LOCAL, now) == [("Branch", "feat"), ("Commit", tip)]
+    fetched = REMOTE.model_copy(
+        update={"observed_at": (now - timedelta(hours=2)).isoformat()}
     )
-    assert blocker_summary(blocker, remote) == (
-        "Worktree removal is blocked; this Branch goes only with it."
+    assert target_facts(fetched, now) == [
+        ("Branch", "feat at origin"),
+        ("Commit", f"{tip}, as of the last Repository fetch (2h ago)"),
+        ("Lease", f"Refuses unless origin still has {tip}."),
+        None,
+        ("Blocked", "2 commits not reachable from origin/main"),
+    ]
+    # Never fetched: the commit stands without a claimed age.
+    assert target_facts(REMOTE, now)[1] == ("Commit", tip)
+    inspected = CleanupBlocker(
+        kind="unintegrated",
+        detail="1 commit not reachable from origin/main",
+        command="git log origin/main..feat",
+    )
+    blocked = LOCAL.model_copy(update={"blockers": (inspected,)})
+    assert target_facts(blocked, now)[-2:] == [
+        ("Blocked", "1 commit not reachable from origin/main"),
+        ("Next", "git log origin/main..feat"),
+    ]
+    # A detail naming a Branch keeps the Branch's case.
+    named = CleanupBlocker(
+        kind="integration-branch", detail="main is the Integration Branch"
+    )
+    assert target_facts(LOCAL.model_copy(update={"blockers": (named,)}), now)[-1] == (
+        "Blocked",
+        "main is the Integration Branch",
+    )
+
+
+def test_a_single_commit_reads_in_the_singular():
+    def one(content_integrated: bool) -> CleanupTarget:
+        fact = IntegrationFact(
+            integration_ref="refs/heads/main",
+            unintegrated_commits=1,
+            content_integrated=content_integrated,
+        )
+        return LOCAL.model_copy(update={"integration": fact})
+
+    blocker = CleanupBlocker(
+        kind="unintegrated", detail="1 commit not reachable from main"
+    )
+    assert blocker_summary(blocker, one(False)) == "1 commit not integrated into main."
+    assert target_summary(preview("branch", "feat", one(True)), one(True)).startswith(
+        "Content integrated into main; 1 original commit is not retained there."
     )

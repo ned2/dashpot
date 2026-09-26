@@ -17,6 +17,7 @@ from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 
+from ..core.ages import relative_age
 from ..repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     CleanupBlocker,
@@ -25,11 +26,13 @@ from ..repository.cleanup import (
     CleanupReport,
     CleanupRequest,
     CleanupTarget,
+    counted,
     default_choices,
     describe_cleanup_report,
     primary_target,
     retained_choices,
 )
+from ..repository.repository import short_ref as ref_name
 from .branch_cells import fetch_age_text
 from .marked_widgets import MarkedCheckbox
 
@@ -40,15 +43,13 @@ CHANGED_HELP = (
 
 
 def short_ref(ref: str | None) -> str:
-    """Label a ref without its Git namespace."""
-    return (
-        (ref or "the Integration Branch")
-        .removeprefix("refs/heads/")
-        .removeprefix("refs/remotes/")
-    )
+    """Label a ref without its Git namespace, or name the Integration Branch."""
+    return ref_name(ref) if ref else "the Integration Branch"
 
 
 FETCH_HINT = "If it has since merged, press f to fetch and check again."
+
+NOTHING_DELETABLE = "Nothing here can be deleted."
 
 # How many ignored path names the confirmation callout spells out.
 CALLOUT_IGNORED_NAMES = 3
@@ -74,17 +75,15 @@ def blocker_summary(blocker: CleanupBlocker, target: CleanupTarget) -> str:
 
 def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
     if blocker.kind == "checked-out":
-        if target.kind == "remote-branch":
-            return "Worktree removal is blocked; this Branch goes only with it."
         return (
-            "Worktree removal is blocked; this Branch stays checked out."
+            "Worktree removal is blocked."
             if target.requires
             else "Checked out in a Worktree; remove that Worktree first."
         )
     if blocker.kind == "unintegrated" and target.integration:
         fact = target.integration
         return (
-            f"{fact.unintegrated_commits} commits not integrated into "
+            f"{counted(fact.unintegrated_commits or 0, 'commit')} not integrated into "
             f"{short_ref(fact.integration_ref)}."
         )
     summaries = {
@@ -123,9 +122,11 @@ def target_summary(preview: CleanupPreview, target: CleanupTarget) -> str:
         if fact and fact.state == "integrated":
             lines.append(f"Commits integrated into {short_ref(fact.integration_ref)}.")
         elif fact and fact.state == "content-integrated":
+            original = fact.unintegrated_commits or 0
             lines.append(
                 f"Content integrated into {short_ref(fact.integration_ref)}; "
-                f"{fact.unintegrated_commits} original commits are not retained there."
+                f"{counted(original, 'original commit')} "
+                f"{'is' if original == 1 else 'are'} not retained there."
             )
         if target.requires:
             required = preview.target(target.requires)
@@ -139,19 +140,61 @@ def target_summary(preview: CleanupPreview, target: CleanupTarget) -> str:
     return "\n".join(lines)
 
 
-def target_evidence(target: CleanupTarget) -> str:
-    """Retain full target identity, recovery commands, and blocker evidence."""
-    lines = [f"{target.path or target.ref}", f"Commit: {target.expected}"]
-    if target.observed_at:
-        lines.append(
-            f"Repository fetch timestamp: {target.observed_at} (not per-remote verification)"
-        )
+# A labelled line of a target's details, or None for the gap before its blockers.
+TargetFact = tuple[str, str] | None
+
+
+def target_facts(target: CleanupTarget, now: datetime) -> list[TargetFact]:
+    """Identify a target and each blocker in full, one labelled fact a line.
+
+    What the summary already says is left out, and so are recovery commands:
+    the preview is for deciding, and ``dashpot branch delete`` or ``worktree
+    remove`` still prints them for a record.
+    """
+    commit = target.expected[:7]
+    facts: list[TargetFact] = []
+    if target.kind == "worktree":
+        facts += [("Path", target.path or ""), ("HEAD", commit)]
+    elif target.kind == "local-branch":
+        facts += [("Branch", short_ref(target.ref)), ("Commit", commit)]
+    else:
+        name = short_ref(target.ref).removeprefix(f"{target.remote}/")
+        age = relative_age(target.observed_at, now)
+        facts += [
+            ("Branch", f"{name} at {target.remote}"),
+            (
+                "Commit",
+                f"{commit}, as of the last Repository fetch ({age})" if age else commit,
+            ),
+            ("Lease", f"Refuses unless {target.remote} still has {commit}."),
+        ]
+    if target.blockers:
+        facts.append(None)
     for blocker in target.blockers:
-        lines.append(f"Blocked: {blocker.detail}")
+        # Verbatim: a detail may open with a Branch name, and case is its identity.
+        facts.append(("Blocked", blocker.detail))
         if blocker.command:
-            lines.append(f"Next step: {blocker.command}")
-    lines.extend(target.consequences)
-    return "\n".join(lines)
+            facts.append(("Next", blocker.command))
+    return facts
+
+
+class TargetDetails(Vertical):
+    """A target's facts, each value wrapping in a column beside its label."""
+
+    def __init__(self, facts: Sequence[TargetFact]) -> None:
+        super().__init__(classes="cleanup-facts")
+        self.facts = tuple(facts)
+
+    @override
+    def compose(self) -> ComposeResult:
+        for fact in self.facts:
+            if fact is None:
+                yield Static("", classes="cleanup-fact-gap")
+                continue
+            label, value = fact
+            with Horizontal(classes="cleanup-fact"):
+                yield Static(label, classes="cleanup-fact-label")
+                yield Static(value, markup=False, classes="cleanup-fact-value")
 
 
 def confirmation_lines(preview: CleanupPreview, selected: Sequence[str]) -> list[str]:
@@ -210,8 +253,10 @@ class CleanupTargetView(Horizontal):
         primary: bool = False,
         chosen: bool = False,
         unverified_remote: bool = False,
+        grouped: bool = False,
     ) -> None:
-        super().__init__(classes="cleanup-target")
+        # The first target under "Also remove" sits directly beneath it.
+        super().__init__(classes="cleanup-target" + (" -grouped" if grouped else ""))
         self.preview = preview
         self.target = target
         self.index = index
@@ -255,10 +300,8 @@ class CleanupTargetView(Horizontal):
         summary = target_summary(self.preview, target)
         if summary:
             yield Static(summary, markup=False, classes="cleanup-summary")
-        with Collapsible(
-            title="Details and recovery", id=f"cleanup-evidence-{self.index}"
-        ):
-            yield Static(target_evidence(target), markup=False)
+        with Collapsible(title="Details", id=f"cleanup-evidence-{self.index}"):
+            yield TargetDetails(target_facts(target, datetime.now(UTC)))
         if target.kind == "worktree" and self.preview.ignored:
             with Collapsible(
                 title="View ignored paths",
@@ -403,10 +446,17 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                         classes="cleanup-summary",
                     )
                 yield Static(self.fetch_status, markup=False, id="cleanup-fetch-status")
+                if not self.can_confirm:
+                    yield Static(
+                        NOTHING_DELETABLE,
+                        id="cleanup-unavailable",
+                        classes="cleanup-blocker",
+                    )
                 with Vertical(id="cleanup-targets"):
                     for index, target in enumerate(preview.targets):
-                        if index == 1 and preview.kind == "worktree":
-                            yield Static("Also remove", classes="cleanup-summary")
+                        grouped = index == 1 and preview.kind == "worktree"
+                        if grouped:
+                            yield Static("Also remove", id="cleanup-also")
                         yield CleanupTargetView(
                             preview,
                             target,
@@ -418,6 +468,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                                 and self.verified_remotes is not None
                                 and target.remote not in self.verified_remotes
                             ),
+                            grouped=grouped,
                         )
                 with Vertical(id="cleanup-callout"):
                     yield Static("Confirming will:", id="cleanup-callout-title")
@@ -485,7 +536,8 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             return "The preview could not be refreshed. Press f to retry or cancel."
         selected = self.selected()
         if not self.can_confirm:
-            return "Nothing here can be deleted."
+            # Said once, above the targets, rather than beside the buttons.
+            return None
         if not selected:
             return (
                 "Select what to remove."

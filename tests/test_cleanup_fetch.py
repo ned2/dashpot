@@ -493,8 +493,7 @@ async def test_partial_fetch_labels_repository_age_and_retained_remote_facts():
         views = list(screen.query(CleanupTargetView))
         assert not views[1].unverified_remote and views[2].unverified_remote
         evidence = "\n".join(str(item.render()) for item in screen.query(Static))
-        assert "Repository fetch timestamp:" in evidence
-        assert "not per-remote verification" in evidence
+        assert "as of the last Repository fetch (" in evidence
         assert "did not verify upstream" in evidence
         assert (
             "Last fetched:" not in evidence and "as of the last fetch" not in evidence

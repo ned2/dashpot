@@ -586,6 +586,23 @@ CleanupScreen, CleanupReportScreen {
 #cleanup-freshness {
     height: auto;
     color: $text-muted;
+    text-style: italic;
+}
+
+#cleanup-unavailable.cleanup-blocker {
+    margin-left: 0;
+    margin-top: 1;
+}
+
+/* Heads the Worktree's optional targets as the Worktree heading heads its own. */
+#cleanup-also {
+    height: auto;
+    margin-top: 1;
+    text-style: bold;
+}
+
+.cleanup-target.-grouped {
+    margin-top: 0;
 }
 
 #cleanup-help {
@@ -671,6 +688,19 @@ CleanupScreen, CleanupReportScreen {
 
 .cleanup-target Collapsible Static {
     height: auto;
+}
+
+.cleanup-facts, .cleanup-fact {
+    height: auto;
+}
+
+.cleanup-fact-label {
+    width: 9;
+    color: $text-muted;
+}
+
+.cleanup-fact-value {
+    width: 1fr;
 }
 
 /* The confirm button's label is fixed, so this recap of the selection is

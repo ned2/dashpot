@@ -159,7 +159,11 @@ Cleanup previews open with the subject's name — hover it for the Worktree's
 full path, or the Repository Anchor's for a Branch — and how long ago the Repository
 was last fetched, with the exact fetch time as its tooltip. Each target's
 availability sits in a right-hand gutter, and its reasons and consequences wrap
-beside it. The concrete primary target shows without a redundant checkbox.
+beside it; its **Details** list its path or ref, commit, and each blocker with
+its suggested next command. Recovery commands stay with the command-line
+report. The concrete primary target shows without a redundant checkbox, and the
+Worktree's Branches follow under **Also remove**. When nothing can be deleted,
+the preview says so above its targets.
 Removing a Worktree is finishing its work, so its attached local Branch starts
 selected, as does the same Branch at the remote a plain `git push` reaches when
 it is integrated and at the local Branch's tip; untick either to retain it.

@@ -85,6 +85,19 @@ of asking for ticks that carry no decision.
   Request whose squash commit is not yet in the local `origin/main` blocks in
   the safe direction; the hint makes the reason legible without working
   around it.
+- **Details for deciding, recovery for the record.** Each target's
+  disclosure, **Details**, lists what identifies it — a Worktree's path and
+  `HEAD`, a Branch's short name and commit, and for a Branch at a remote the
+  commit as of the last Repository fetch and the lease that guards its push —
+  then each blocker in full with its suggested next command, as aligned
+  labelled lines. Recovery commands leave the dialog: they answer "how do I
+  undo this", which matters after a deletion, and `dashpot branch delete` and
+  `worktree remove` still print them with every outcome. Reasons read as
+  prose — a count agrees with its noun and a ref is its short name, while a
+  command keeps its full ref — and a Branch held by a blocked Worktree says
+  only that the Worktree's removal is blocked. When nothing in a preview can
+  be deleted, that is said once above the targets rather than beside the
+  buttons.
 - **The command line opts in per target.** `dashpot worktree remove` gains
   `--delete-remote-branch` beside `--delete-branch`, independent of it, and
   refuses when the Worktree has no Branch or its Branch has no Remote-Tracking
@@ -126,7 +139,9 @@ finished.
   acknowledged in the dashboard, not every target starts unselected, and the
   remote-first ordering it reasons "favours the revisable path" now also runs
   from the Worktrees pane, still stopping at a refused or unknown remote
-  outcome before the Worktree and local Branch. It amends ADR 0036: the
+  outcome before the Worktree and local Branch. Its presentation refinement's
+  expandable evidence no longer carries recovery commands; the command-line
+  report keeps them. It amends ADR 0036: the
   attached local Branch starts selected, and a first preview's defaults are
   outside its retention rule, which governs every refresh.
 - A Worktree preview may now hold three targets, removed in ADR 0019's

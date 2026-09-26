@@ -462,6 +462,15 @@ def branch_name(refname: str) -> str:
     return refname
 
 
+def short_ref(refname: str) -> str:
+    """A Branch ref as a person reads it: ``feat``, or ``origin/feat`` at a remote.
+
+    For prose only; a command keeps the full ref, which a local Branch named
+    like a Remote-Tracking Branch cannot shadow.
+    """
+    return refname.removeprefix(LOCAL_REF_PREFIX).removeprefix(REMOTE_REF_PREFIX)
+
+
 @dataclass(frozen=True, slots=True)
 class RefIndex:
     """Every Branch ref of a Repository: commit, commit time, and origin/HEAD."""

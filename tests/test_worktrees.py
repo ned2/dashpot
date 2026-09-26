@@ -818,9 +818,7 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
     assert (
         by_kind["unpushed"].command == f"git -C {path} push -u origin worktree-protocol"
     )
-    assert by_kind["unmerged"].detail == (
-        "1 commit(s) not reachable from refs/remotes/origin/main"
-    )
+    assert by_kind["unmerged"].detail == ("1 commit not reachable from origin/main")
     assert git(root, "worktree", "list", "--porcelain") == before
     assert (path / "scratch.txt").exists()
     lines = describe_removability(report)

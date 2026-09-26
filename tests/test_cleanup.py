@@ -38,8 +38,8 @@ from dashpot.repository.cleanup import (
     perform_cleanup,
 )
 from dashpot.repository.cleanup.adapter import GitCleanupAdapter
-from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH
-from dashpot.repository.repository import LockHolderProbe
+from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH, counted
+from dashpot.repository.repository import LockHolderProbe, short_ref
 from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import cleanup_preview_document, cleanup_report_document
 from dashpot.sessions.hook_records import session_directory, write_hook_record
@@ -165,7 +165,7 @@ def test_unintegrated_branch_is_blocked_with_the_log_command(tmp_path: Path) -> 
     assert target.integration.unintegrated_commits == 2
     (blocker,) = target.blockers
     assert blocker.kind == "unintegrated"
-    assert blocker.detail == "2 commit(s) not reachable from refs/remotes/origin/main"
+    assert blocker.detail == "2 commits not reachable from origin/main"
     assert (
         blocker.command == "git log --oneline refs/remotes/origin/main..refs/heads/feat"
     )
@@ -186,8 +186,8 @@ def test_content_integrated_branch_is_available_with_its_warning(
     assert target.integration is not None
     assert target.integration.state == "content-integrated"
     assert target.consequences[1] == (
-        "content is integrated, but 1 original commit(s) are not reachable from "
-        "refs/remotes/origin/main and lose their last named ref"
+        "content is integrated, but deleting it drops the last named ref to 1 "
+        "original commit not reachable from origin/main"
     )
 
 
@@ -207,11 +207,10 @@ def test_the_integration_branch_is_never_a_target(tmp_path: Path) -> None:
     assert kinds(targets["remote:origin:refs/heads/main"]) == {"integration-branch"}
     assert kinds(targets["remote:upstream:refs/heads/main"]) == {"integration-branch"}
     assert targets["local:refs/heads/main"].blockers[0].detail == (
-        "refs/heads/main carries the Integration Branch's name "
-        "(refs/remotes/origin/main)"
+        "main carries the Integration Branch's name (origin/main)"
     )
     assert targets["remote:origin:refs/heads/main"].blockers[0].detail == (
-        "refs/remotes/origin/main is the Integration Branch"
+        "origin/main is the Integration Branch"
     )
 
 
@@ -399,7 +398,7 @@ def test_clean_worktree_offers_removal_and_its_branch_separately(
     assert tree.available is True
     assert tree.consequences == (
         f"removes {resolved} with git worktree remove",
-        "1 ignored path(s) inside it are deleted too, including any Dashpot state, "
+        "also deletes 1 ignored path inside it, including any Dashpot state, "
         "hook records, and Work Store there",
         "the local Branch feat is retained unless selected as well",
     )
@@ -665,7 +664,9 @@ def test_preview_and_removability_agree_on_the_integration_branch(
         assert unmerged.detail.endswith(NO_INTEGRATION_BRANCH)
     else:
         assert gate.kind == "unintegrated"
-        assert gate.detail == f"1 commit(s) not reachable from {integration_ref}"
+        assert gate.detail == (
+            f"1 commit not reachable from {short_ref(integration_ref)}"
+        )
         assert unmerged.detail == gate.detail
 
 
@@ -763,8 +764,7 @@ def test_describe_renders_each_target_with_its_gate(tmp_path: Path) -> None:
     assert lines[3] == f"  [ ] Local Branch refs/heads/feat @ {tip[:7]} — unavailable"
     assert lines[4] == "      ↑ commits are not reachable from the Integration Branch"
     assert lines[5] == (
-        "      blocked: unintegrated: 1 commit(s) not reachable from "
-        "refs/remotes/origin/main"
+        "      blocked: unintegrated: 1 commit not reachable from origin/main"
     )
     assert lines[6] == (
         "          run: git log --oneline refs/remotes/origin/main..refs/heads/feat"
@@ -897,8 +897,7 @@ def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> No
     report = perform_cleanup(confirm(request, preview, "local:refs/heads/feat"))
     assert report.performed is False
     assert report.refusals == (
-        "Local Branch is unavailable: 1 commit(s) not reachable from "
-        "refs/remotes/origin/main",
+        "Local Branch is unavailable: 1 commit not reachable from origin/main",
     )
     assert git(root, "rev-parse", "refs/heads/feat") == tip
 
@@ -916,7 +915,7 @@ def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> No
         f"Local Branch can only be deleted together with {tree.identity}",
     )
     assert perform_cleanup(confirm(request, preview, tree.identity)).refusals == (
-        "removing the Worktree deletes 1 ignored path(s) inside it, which must be "
+        "removing the Worktree deletes 1 ignored path inside it, which must be "
         "acknowledged",
     )
     assert worktree.exists()
@@ -1366,3 +1365,11 @@ def test_report_json_key_sets_and_description_are_stable(tmp_path: Path) -> None
     lines = describe_cleanup_report(changed)
     assert lines[2] == f"Changed         {CHANGED_SINCE_PREVIEW}"
     assert lines[3].startswith("Refused         no Branch named feat at ")
+
+
+def test_a_reason_counts_in_agreement_and_names_refs_as_a_person_reads_them():
+    assert counted(1, "commit") == "1 commit"
+    assert counted(0, "commit") == "0 commits"
+    assert counted(3, "ignored path") == "3 ignored paths"
+    assert short_ref("refs/heads/feat") == "feat"
+    assert short_ref("refs/remotes/origin/feat") == "origin/feat"
