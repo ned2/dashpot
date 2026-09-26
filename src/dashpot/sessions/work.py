@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ..core.command_outcomes import OutcomeNote
 from ..core.errors import DashpotError
 from ..core.git import Git
 from ..core.model import HARNESS_DISPLAY, Diagnostic, Harness
@@ -192,15 +193,23 @@ def start_issue_work(
     timeout: float = 10,
     lookup: ProcessLookup = host_process_lookup,
     environ: Mapping[str, str] | None = None,
+    outcome: OutcomeNote | None = None,
 ) -> list[str]:
-    """Start or switch confirmed Issue work at the session's observed Worktree."""
+    """Start or switch confirmed Issue work at the session's observed Worktree.
+
+    ``outcome`` hears which session and Issue the command works for as soon
+    as each is confirmed, and what it did.
+    """
+    note = outcome if outcome is not None else OutcomeNote()
     root = worktree_root(current)
     worktrees = repository_worktrees(root)
     stores = reachable_hook_stores(worktrees)
     session = identify_agent_session(
         lookup, environ=environ, worktree=root, stores=stores
     )
+    note.identify(harness=session.harness, session_id=session.session_id)
     issue = resolve_issue(root, reference, timeout)
+    note.identify(issue_id=issue.id)
     location = _session_location(session, stores, lookup)
     if location is None:
         raise IssueWorkError(
@@ -299,16 +308,20 @@ def start_issue_work(
             f"switched from {former.issue_reference} at {former_worktree} to "
             f"{issue.reference} at {root} ({issue.id})"
         ]
+        note.action = "switched"
         elsewhere = rest
     elif previous is None:
         messages = [f"started work on {issue.reference} ({issue.id})"]
+        note.action = "started"
     elif previous.issue_id == issue.id:
         messages = [f"already working on {issue.reference}; run restarted"]
+        note.action = "restarted"
     else:
         messages = [
             f"switched from {previous.issue_reference} to {issue.reference} "
             f"({issue.id})"
         ]
+        note.action = "switched"
     messages.extend(
         f"ended this session's earlier run on {work.issue_reference} at {worktree}"
         for worktree, work in elsewhere
@@ -325,10 +338,17 @@ def relocate_issue_work(
     *,
     lookup: ProcessLookup = host_process_lookup,
     environ: Mapping[str, str] | None = None,
+    outcome: OutcomeNote | None = None,
 ) -> list[str]:
-    """Prepare this Codex session's active Agent Run for a verified resume."""
+    """Prepare this Codex session's active Agent Run for a verified resume.
+
+    ``outcome`` hears the session, the Agent Run's Issue and the target
+    Worktree once each is known, and what the command did.
+    """
+    note = outcome if outcome is not None else OutcomeNote()
     root = worktree_root(current)
     target_root = worktree_root(target)
+    note.target_path = target_root
     worktrees = repository_worktrees(root)
     if not any(same_path(target_root, worktree) for worktree in worktrees):
         raise IssueWorkError(
@@ -338,6 +358,7 @@ def relocate_issue_work(
     session = identify_agent_session(
         lookup, environ=environ, worktree=root, stores=stores
     )
+    note.identify(harness=session.harness, session_id=session.session_id)
     if session.harness != "codex":
         raise IssueWorkError(
             "work relocate is for a sequential Codex resume; Claude Code moves "
@@ -379,6 +400,7 @@ def relocate_issue_work(
             "resolve the work-session-conflict before preparing relocation"
         )
     worktree, store, work = matches[0]
+    note.identify(issue_id=work.issue_id)
     _check_runtime(session, work, lookup)
     if not same_path(worktree, root):
         raise IssueWorkError(
@@ -404,6 +426,7 @@ def relocate_issue_work(
                 relocation=None,
             ),
         )
+        note.action = "relocation-cancelled"
         return ["cancelled the pending relocation; this Agent Run remains here"]
     _replace_current_run(
         store,
@@ -420,6 +443,7 @@ def relocate_issue_work(
             ),
         ),
     )
+    note.action = "relocation-prepared"
     return [
         f"prepared this Agent Run to resume at {target_root}; exit this Codex "
         f"client before resuming session {session.session_id} there"
@@ -449,6 +473,7 @@ def stop_issue_work(
     session_key: str | None = None,
     lookup: ProcessLookup = host_process_lookup,
     environ: Mapping[str, str] | None = None,
+    outcome: OutcomeNote | None = None,
 ) -> list[str]:
     """End an active Agent Run of this session, or an orphaned one here.
 
@@ -459,8 +484,10 @@ def stop_issue_work(
     Orphaned Agent Run left at this Worktree by a session that is no longer
     running, so no enclosing session is required; a session observed to be
     live is refused so its own run cannot be ended from outside. The Work
-    Store's authority is unchanged either way.
+    Store's authority is unchanged either way. ``outcome`` hears which
+    session's run, on which Issue, the command ended.
     """
+    note = outcome if outcome is not None else OutcomeNote()
     root = worktree_root(current)
     store = WorkStore(root)
     if session_key is None:
@@ -471,12 +498,16 @@ def stop_issue_work(
             worktree=root,
             stores=reachable_hook_stores(worktrees),
         )
+        note.identify(harness=session.harness, session_id=session.session_id)
         stopped, diagnostics = _stop_elsewhere(session, worktrees, None, lookup)
         # Unreadable records are surfaced beside the outcome: this session's
         # run may be among the records that could not be read.
         warnings = [diagnostic.message for diagnostic in diagnostics]
         if not stopped:
+            note.action = "no-work"
             return ["no active Issue work for this session", *warnings]
+        note.identify(issue_id=stopped[0][1].issue_id)
+        note.action = "stopped"
         return [
             f"stopped work on {work.issue_reference}"
             + ("" if same_path(worktree, root) else f" at {worktree}")
@@ -492,13 +523,21 @@ def stop_issue_work(
                 f"{unreadable.message}; remove the record by hand once the "
                 f"session is confirmed over"
             )
+        note.action = "no-work"
         return [f"no active Issue work recorded for session {session_key}"]
+    note.identify(
+        harness=previous.harness,
+        session_id=previous.session_id,
+        issue_id=previous.issue_id,
+    )
     if _recorded_session_is_live(previous, root, lookup):
         raise IssueWorkError(
             f"session {session_key} is still running; run 'dashpot work stop' inside it"
         )
     if not store.stop_current(previous):
+        note.action = "no-work"
         return [f"no active Issue work recorded for session {session_key}"]
+    note.action = "stopped"
     return [
         f"stopped orphaned work on {previous.issue_reference} for "
         f"{previous.session_label}"

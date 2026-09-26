@@ -93,7 +93,9 @@ async def test_a_write_failing_on_a_pool_thread_raises_one_diagnostic(
     failures = [
         event for event in log.recent if isinstance(event.body, EventLogWriteFailed)
     ]
-    assert len(failures) == 2
+    # The two spans, and the event recording the Diagnostic's appearance,
+    # each fail to reach the Event Log; only the first raised a Diagnostic.
+    assert len(failures) == 3
     assert log.on_write_failure is None
     assert log.forward is None
 

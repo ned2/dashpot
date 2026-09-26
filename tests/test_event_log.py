@@ -29,6 +29,7 @@ from dashpot.core.event_log import (
 )
 from dashpot.core.project_state import STATE_GITIGNORE
 from dashpot.core.runtime_events import (
+    AgentSessionChanged,
     CommandAttributes,
     EventLevel,
     EventLogWriteFailed,
@@ -568,6 +569,42 @@ def test_later_events_name_what_the_process_learned_it_works_for(
         end["dashpot.worktree.path"],
         end["dashpot.issue.id"],
     ) == ("project-1", "/work/tree", "313")
+
+
+def test_an_identifier_that_does_not_fit_is_left_out_of_the_identity(
+    tmp_path: Path,
+) -> None:
+    log = make_log(tmp_path)
+
+    log.identify(harness="codex", session_id="s-1", worktree="relative/tree")
+    log.identify(issue_id="has\nnewline", project_id="project-1")
+    log.end(0)
+
+    (end,) = lines(tmp_path / "events-2026-09-27.jsonl")[-1:]
+    assert end["dashpot.agent_session.harness"] == "codex"
+    assert end["dashpot.agent_session.id"] == "s-1"
+    assert end["dashpot.project.id"] == "project-1"
+    assert "dashpot.worktree.path" not in end
+    assert "dashpot.issue.id" not in end
+
+
+def test_an_event_about_a_subject_names_it_instead_of_the_process_work(
+    tmp_path: Path,
+) -> None:
+    log = make_log(tmp_path)
+    log.identify(worktree="/work/dashboard", project_id="project-1")
+
+    log.record(
+        AgentSessionChanged(change="appeared"),
+        about=log.about(harness="claude-code", session_id="s-2", issue_id="314"),
+    )
+
+    event = lines(tmp_path / "events-2026-09-27.jsonl")[-1]
+    assert event["service.instance.id"] == RUN
+    assert event["dashpot.agent_session.id"] == "s-2"
+    assert event["dashpot.issue.id"] == "314"
+    assert "dashpot.worktree.path" not in event
+    assert "dashpot.project.id" not in event
 
 
 def test_every_recorded_line_is_forwarded_while_a_console_listens(

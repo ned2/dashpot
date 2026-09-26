@@ -473,6 +473,7 @@ def observe_hook_sessions(
                 source=SESSION_DIAGNOSTIC_SOURCE,
                 severity="warning",
                 message=f"Cannot read {path}: {exc}",
+                code="agent-session-record-unreadable",
             )
         )
 

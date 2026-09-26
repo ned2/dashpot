@@ -95,6 +95,10 @@ EventName = Literal[
     "level.changed",
     "event_log.write_failed",
     "span",
+    "hook.outcome",
+    "command.outcome",
+    "agent_session.changed",
+    "diagnostic.changed",
 ]
 SpanName = Literal["command"]
 SpanStatus = Literal["OK", "ERROR"]
@@ -195,6 +199,179 @@ class EventLogWriteFailed(EventBody):
     error_type: ErrorType = Field(alias="error.type")
 
 
+# --- Standalone events recorded at Dashpot's seams (#314) --------------------
+#
+# Each says what a hook, a management command or the dashboard observed, by
+# identifiers and closed vocabularies only. The subject of an event — the
+# Agent Session, Issue, Project or Worktree it is about — travels in the
+# envelope's identity fields, so a reader filters every kind of event by the
+# same names.
+
+# A lifecycle hook event's name, as its harness sends it: ``SessionStart``.
+HookEventName = Annotated[str, _identifier(r"^[A-Za-z]{1,64}$", 64)]
+# A Branch name as Git allows it: no space, control or ref-syntax character.
+BranchName = Annotated[str, _identifier(r"^[^\s~^:?*\[\\\x00-\x1f\x7f]+$", 255)]
+# A Diagnostic's source: its family or an Agent Run's opaque ID, then the
+# identifier (no space) or absolute path it names (``project:<id>``,
+# ``settings:<path>``, ``github``).
+DiagnosticSource = Annotated[
+    str,
+    _identifier(
+        r"^[A-Za-z0-9][A-Za-z0-9._-]*"
+        r"(:(/[^\x00-\x1f\x7f]*|[^\s/\x00-\x1f\x7f][^\s\x00-\x1f\x7f]*))?$",
+        4200,
+    ),
+]
+# A Diagnostic's stable code: ``github-rate-limit-low``.
+DiagnosticCode = Annotated[str, _identifier(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", 128)]
+
+# How a hook or management command came out. ``refused`` is a refusal
+# Dashpot stated to a person (a ``DashpotError``, or a plan's refusals);
+# ``failed`` is anything else that stopped the work.
+OutcomeResult = Literal["succeeded", "refused", "failed"]
+# What a hook did to its session's Agent Run in the Work Store.
+WorkStoreChange = Literal["unchanged", "ended", "continued", "relocated"]
+# The state a hook wrote to its session's hook record.
+HookRecordState = Literal["running", "waiting", "ended"]
+# The commands that mutate on explicit invocation (ADR 0008), whose outcome
+# each run records.
+ManagementCommand = Literal[
+    "init",
+    "integrate",
+    "work start",
+    "work relocate",
+    "work stop",
+    "worktree create",
+    "worktree remove",
+    "branch delete",
+    "events remove",
+]
+# What a management command did, when it did something.
+CommandAction = Literal[
+    "initialized",
+    "installed",
+    "reported",
+    "started",
+    "switched",
+    "restarted",
+    "relocation-prepared",
+    "relocation-cancelled",
+    "stopped",
+    "no-work",
+    "planned",
+    "created",
+    "previewed",
+    "removed",
+    "deleted",
+]
+AgentSessionChange = Literal[
+    "appeared", "bound", "switched", "unbound", "relocated", "ended"
+]
+DiagnosticChange = Literal["appeared", "cleared"]
+DiagnosticSeverity = Literal["info", "warning", "error"]
+
+
+class HookOutcome(EventBody):
+    """What one lifecycle hook run did: the record it wrote and the Work Store change.
+
+    The harness and Agent Session Identity are the hook process's own, in
+    the envelope; a failure is its error class, never the line the hook
+    printed to its harness.
+    """
+
+    name: Literal["hook.outcome"] = Field(default="hook.outcome", alias="event.name")
+    hook_event: HookEventName | None = Field(default=None, alias="dashpot.hook.event")
+    result: OutcomeResult = Field(alias="dashpot.outcome.result")
+    record_state: HookRecordState | None = Field(
+        default=None, alias="dashpot.agent_session.state"
+    )
+    # Absent when the hook failed before it could say.
+    work: WorkStoreChange | None = Field(
+        default=None, alias="dashpot.work_store.change"
+    )
+    error_type: ErrorType | None = Field(default=None, alias="error.type")
+
+
+class CommandOutcome(EventBody):
+    """What one management command did to its target, or why it did nothing.
+
+    A refusal is its ``DashpotError`` class, or the count of a plan's
+    refusals, never their text.
+    """
+
+    name: Literal["command.outcome"] = Field(
+        default="command.outcome", alias="event.name"
+    )
+    command: ManagementCommand = Field(alias="dashpot.subcommand")
+    result: OutcomeResult = Field(alias="dashpot.outcome.result")
+    action: CommandAction | None = Field(default=None, alias="dashpot.outcome.action")
+    error_type: ErrorType | None = Field(default=None, alias="error.type")
+    refusal_count: int | None = Field(
+        default=None, ge=0, alias="dashpot.outcome.refusal_count"
+    )
+    dry_run: bool | None = Field(default=None, alias="dashpot.outcome.dry_run")
+    duration_seconds: float = Field(ge=0, alias="dashpot.duration_seconds")
+    target_path: AbsolutePath | None = Field(default=None, alias="dashpot.target.path")
+    target_branch: BranchName | None = Field(
+        default=None, alias="dashpot.target.branch"
+    )
+    target_harness: Harness | None = Field(default=None, alias="dashpot.target.harness")
+
+
+class AgentSessionChanged(EventBody):
+    """An Agent Session a dashboard observed appearing, changing or ending.
+
+    The envelope names the session, its Project, Worktree and Issue as now
+    observed; the previous Issue or Worktree is kept beside a change of it.
+    """
+
+    name: Literal["agent_session.changed"] = Field(
+        default="agent_session.changed", alias="event.name"
+    )
+    change: AgentSessionChange = Field(alias="dashpot.agent_session.change")
+    previous_issue_id: OpaqueIdentity | None = Field(
+        default=None, alias="dashpot.issue.previous_id"
+    )
+    previous_worktree: AbsolutePath | None = Field(
+        default=None, alias="dashpot.worktree.previous_path"
+    )
+
+
+class DiagnosticChanged(EventBody):
+    """A Diagnostic a dashboard shows appearing or clearing, by its source and code."""
+
+    name: Literal["diagnostic.changed"] = Field(
+        default="diagnostic.changed", alias="event.name"
+    )
+    change: DiagnosticChange = Field(alias="dashpot.diagnostic.change")
+    source: DiagnosticSource | None = Field(
+        default=None, alias="dashpot.diagnostic.source"
+    )
+    code: DiagnosticCode = Field(alias="dashpot.diagnostic.code")
+    severity: DiagnosticSeverity = Field(alias="dashpot.diagnostic.severity")
+
+
+def fitting[M: EventModel](
+    model: type[M], required: Mapping[str, object], optional: Mapping[str, object]
+) -> M:
+    """Build ``model``, leaving out each optional value that does not fit its field.
+
+    A value observed at run time — a path, a Branch name, a Diagnostic's
+    source — is recorded only when it is the identifier its field names; an
+    unfit one is dropped rather than failing the work that recorded it.
+    """
+    fields = dict(required)
+    for field, value in optional.items():
+        if value is None:
+            continue
+        try:
+            model.model_validate({**fields, field: value})
+        except ValidationError:
+            continue
+        fields[field] = value
+    return model.model_validate(fields)
+
+
 class SpanAttributes(EventModel):
     """The closed attributes of one kind of span."""
 
@@ -253,6 +430,10 @@ EVENT_BODIES: Mapping[str, type[EventBody]] = {
     "level.changed": LevelChanged,
     "event_log.write_failed": EventLogWriteFailed,
     "span": SpanEnded,
+    "hook.outcome": HookOutcome,
+    "command.outcome": CommandOutcome,
+    "agent_session.changed": AgentSessionChanged,
+    "diagnostic.changed": DiagnosticChanged,
 }
 
 

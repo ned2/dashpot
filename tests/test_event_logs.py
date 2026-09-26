@@ -30,6 +30,7 @@ from dashpot.event_logs import (
     process_identity,
     route_event_log,
 )
+from dashpot.github.github import GitHubRequestError
 from dashpot.sessions.hook_publish import HookPublication
 from factories import init_repository, write_project_config
 
@@ -42,6 +43,26 @@ def written(directory: Path) -> list[dict[str, Any]]:
         for path in sorted(directory.glob("*.jsonl"))
         for line in path.read_bytes().splitlines()
     ]
+
+
+# The fields every event carries in its envelope, whatever its body.
+ENVELOPE = {
+    "schema",
+    "time",
+    "dashpot.level",
+    "service.instance.id",
+    "dashpot.process.kind",
+    "dashpot.agent_session.harness",
+    "dashpot.agent_session.id",
+    "dashpot.project.id",
+    "dashpot.worktree.path",
+    "dashpot.issue.id",
+}
+
+
+def body_of(event: dict[str, Any]) -> dict[str, Any]:
+    """The fields of one written event that are its body, not its envelope."""
+    return {key: value for key, value in event.items() if key not in ENVELOPE}
 
 
 def settings(tmp_path: Path, text: str) -> Path:
@@ -286,19 +307,52 @@ def test_a_hook_records_its_harness_event_and_session(
     checkout = init_repository(tmp_path / "checkout")
     write_project_config(checkout)
     monkeypatch.setattr(
-        hook, "publish_hook_event", lambda event, harness: HookPublication(tmp_path)
+        hook,
+        "publish_hook_event",
+        lambda event, harness: HookPublication(tmp_path, state="waiting"),
     )
     event = {"session_id": "s-1", "hook_event_name": "Stop", "cwd": str(checkout)}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
 
     assert hook.claude_code_main() == 0
 
-    start, end = written(checkout / ".dashpot" / "state" / "events")
+    start, outcome, end = written(checkout / ".dashpot" / "state" / "events")
     assert start["dashpot.process.kind"] == "hook:claude-code:Stop"
     assert start["dashpot.agent_session.harness"] == "claude-code"
     assert start["dashpot.agent_session.id"] == "s-1"
     assert start["process.working_directory"] == str(checkout)
+    assert body_of(outcome) == {
+        "event.name": "hook.outcome",
+        "dashpot.hook.event": "Stop",
+        "dashpot.outcome.result": "succeeded",
+        "dashpot.agent_session.state": "waiting",
+        "dashpot.work_store.change": "unchanged",
+    }
+    assert outcome["dashpot.agent_session.id"] == "s-1"
     assert end["process.exit.code"] == 0
+
+
+def test_a_hook_that_changed_an_agent_run_names_its_issue_from_then_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+    monkeypatch.setattr(
+        hook,
+        "publish_hook_event",
+        lambda event, harness: HookPublication(
+            tmp_path, state="ended", work="ended", issue_id="I_314"
+        ),
+    )
+    event = {"session_id": "s-1", "hook_event_name": "SessionEnd"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+
+    assert hook.main(event_log=EventLogDestination(tmp_path / "events")) == 0
+
+    start, outcome, end = written(tmp_path / "events")
+    assert "dashpot.issue.id" not in start
+    assert outcome["dashpot.work_store.change"] == "ended"
+    assert outcome["dashpot.agent_session.state"] == "ended"
+    assert outcome["dashpot.issue.id"] == end["dashpot.issue.id"] == "I_314"
 
 
 @pytest.mark.parametrize(
@@ -316,10 +370,65 @@ def test_a_hook_that_fails_records_its_exit_and_still_reports_on_stderr(
 
     assert hook.main(event_log=EventLogDestination(tmp_path)) == 1
 
-    assert capsys.readouterr().err.startswith("dashpot Codex hook: ")
-    start, end = written(tmp_path)
+    reported = capsys.readouterr().err
+    assert reported.startswith("dashpot Codex hook: ")
+    start, outcome, end = written(tmp_path)
     assert start["dashpot.process.kind"] == "hook:codex"
+    assert set(body_of(outcome)) == {
+        "event.name",
+        "dashpot.outcome.result",
+        "error.type",
+    }
+    assert outcome["dashpot.outcome.result"] == "failed"
+    assert outcome["error.type"] in {"JSONDecodeError", "HookRecordError"}
+    # The line the harness read is never what the Event Log keeps.
+    message = reported.removeprefix("dashpot Codex hook: ").strip()
+    assert message not in "".join(path.read_text() for path in tmp_path.glob("*.jsonl"))
     assert end["process.exit.code"] == 1
+
+
+def test_a_hook_whose_publish_fails_records_the_error_class_never_its_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+
+    def refuse(event: object, harness: str) -> HookPublication:
+        raise PermissionError(13, "Permission denied", "/secret/place")
+
+    monkeypatch.setattr(hook, "publish_hook_event", refuse)
+    event = {"session_id": "s-1", "hook_event_name": "PostToolUse"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+
+    assert hook.main(event_log=EventLogDestination(tmp_path)) == 1
+
+    _, outcome, _ = written(tmp_path)
+    assert body_of(outcome) == {
+        "event.name": "hook.outcome",
+        "dashpot.hook.event": "PostToolUse",
+        "dashpot.outcome.result": "failed",
+        "error.type": "EACCES",
+    }
+    text = "".join(path.read_text() for path in tmp_path.glob("*.jsonl"))
+    assert "/secret/place" not in text
+    assert "Permission denied" not in text
+
+
+def test_a_hook_error_that_carries_a_code_is_recorded_by_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+
+    def fail(event: object, harness: str) -> HookPublication:
+        raise GitHubRequestError("github-timeout", "gh timed out for someone")
+
+    monkeypatch.setattr(hook, "publish_hook_event", fail)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "s"})))
+
+    assert hook.main(event_log=EventLogDestination(tmp_path)) == 1
+
+    _, outcome, _ = written(tmp_path)
+    assert outcome["error.type"] == "github-timeout"
+    assert "someone" not in "".join(p.read_text() for p in tmp_path.glob("*.jsonl"))
 
 
 def test_a_hook_whose_event_log_cannot_be_written_says_nothing(

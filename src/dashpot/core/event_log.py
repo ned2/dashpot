@@ -35,6 +35,7 @@ from typing import Final
 from pydantic import TypeAdapter
 
 from .distribution import process_start
+from .model import Harness
 from .project_state import ensure_state_directory
 from .runtime_events import (
     MAX_EVENT_BYTES,
@@ -52,6 +53,7 @@ from .runtime_events import (
     SpanAttributes,
     SpanEnded,
     SpanName,
+    fitting,
     is_recorded,
 )
 from .timestamps import utc_stamp
@@ -288,21 +290,55 @@ class EventLog:
     def identify(
         self,
         *,
+        harness: Harness | None = None,
+        session_id: str | None = None,
         project_id: str | None = None,
         worktree: str | None = None,
         issue_id: str | None = None,
     ) -> None:
-        """Name what later events work for, once the process knows it."""
-        changes = {
-            "project_id": project_id,
-            "worktree": worktree,
-            "issue_id": issue_id,
-        }
-        self.identity = ProcessIdentity.model_validate(
+        """Name what later events work for, once the process knows it.
+
+        A value that is not the identifier its field names is left out
+        rather than failing the work that learned it.
+        """
+        self.identity = fitting(
+            ProcessIdentity,
+            self.identity.model_dump(exclude_none=True),
             {
-                **self.identity.model_dump(),
-                **{key: value for key, value in changes.items() if value is not None},
-            }
+                "harness": harness,
+                "session_id": session_id,
+                "project_id": project_id,
+                "worktree": worktree,
+                "issue_id": issue_id,
+            },
+        )
+
+    def about(
+        self,
+        *,
+        harness: Harness | None = None,
+        session_id: str | None = None,
+        project_id: str | None = None,
+        worktree: str | None = None,
+        issue_id: str | None = None,
+    ) -> ProcessIdentity:
+        """The envelope of one event about a subject rather than this process's work.
+
+        A dashboard records events about many Agent Sessions, Projects and
+        Worktrees; each such event names its subject where every event names
+        what it is about, beside this process's run ID and kind, and none of
+        the process's own. A value that does not fit its field is left out.
+        """
+        return fitting(
+            ProcessIdentity,
+            {"run_id": self.identity.run_id, "kind": self.identity.kind},
+            {
+                "harness": harness,
+                "session_id": session_id,
+                "project_id": project_id,
+                "worktree": worktree,
+                "issue_id": issue_id,
+            },
         )
 
     def start(self) -> None:
@@ -368,12 +404,17 @@ class EventLog:
         *,
         level: RecordedLevel | None = None,
         at: datetime | None = None,
+        about: ProcessIdentity | None = None,
     ) -> None:
-        """Record one event: kept in memory, and written when the level records it."""
+        """Record one event: kept in memory, and written when the level records it.
+
+        ``about``, from :meth:`about`, names the subject of an event that is
+        not this process's own work.
+        """
         event = RuntimeEvent(
             time=utc_stamp(at if at is not None else self.clock()),
             level=body.LEVEL if level is None else level,
-            process=self.identity,
+            process=self.identity if about is None else about,
             body=body,
         )
         self.recent.append(event)

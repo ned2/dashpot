@@ -10,13 +10,14 @@ from typing import NoReturn
 
 import pytest
 
+from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.errors import DashpotError
 from dashpot.core.model import Harness, ObservationTarget
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.issues.issue_sources import IssueSourceRefreshError
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE, HarnessError
-from dashpot.sessions.hook_publish import publish_hook_event
+from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup, ProcessPresent
 from dashpot.sessions.work import (
@@ -63,14 +64,21 @@ def issue_ids(root: Path) -> dict[str, str]:
 def test_start_resolves_reference_and_records_active_work(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo")
     hook_record(root, CODEX_SESSION, "codex", CODEX)
+    note = OutcomeNote()
 
     messages = start_issue_work(
-        root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON
+        root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON, outcome=note
     )
 
     active, diagnostics = WorkStore(root).active()
     assert diagnostics == []
     assert len(active) == 1
+    assert (note.action, note.harness, note.session_id, note.issue_id) == (
+        "started",
+        "codex",
+        CODEX_SESSION,
+        active[0].issue_id,
+    )
     assert active[0].issue_reference == "build-observer"
     assert active[0].binding_provenance == "explicit-reference"
     assert active[0].harness == "codex"
@@ -85,13 +93,20 @@ def test_switch_ends_the_old_run_and_begins_a_new_one(tmp_path: Path) -> None:
     hook_record(root, CODEX_SESSION, "codex", CODEX)
     start_issue_work(root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
     first, _ = WorkStore(root).active()
+    note = OutcomeNote()
 
     messages = start_issue_work(
-        root, "fix-crash", lookup=codex_lookup, environ=CODEX_ENVIRON
+        root, "fix-crash", lookup=codex_lookup, environ=CODEX_ENVIRON, outcome=note
     )
 
     second, _ = WorkStore(root).active()
     assert len(second) == 1
+    assert (note.action, note.issue_id) == ("switched", second[0].issue_id)
+    restarted = OutcomeNote()
+    start_issue_work(
+        root, "fix-crash", lookup=codex_lookup, environ=CODEX_ENVIRON, outcome=restarted
+    )
+    assert restarted.action == "restarted"
     assert second[0].issue_id != first[0].issue_id
     assert second[0].run_id != first[0].run_id
     assert "switched from build-observer to fix-crash" in messages[0]
@@ -103,15 +118,29 @@ def test_stop_ends_work_while_the_session_stays_identifiable(
     root = repository(tmp_path / "repo")
     hook_record(root, CODEX_SESSION, "codex", CODEX)
     start_issue_work(root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    ids = issue_ids(root)
+    stopped, again = OutcomeNote(), OutcomeNote()
 
-    messages = stop_issue_work(root, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    messages = stop_issue_work(
+        root, lookup=codex_lookup, environ=CODEX_ENVIRON, outcome=stopped
+    )
 
     active, _ = WorkStore(root).active()
     assert active == []
     assert messages == ["stopped work on build-observer"]
-    assert stop_issue_work(root, lookup=codex_lookup, environ=CODEX_ENVIRON) == [
-        "no active Issue work for this session"
-    ]
+    assert stop_issue_work(
+        root, lookup=codex_lookup, environ=CODEX_ENVIRON, outcome=again
+    ) == ["no active Issue work for this session"]
+    assert (stopped.action, stopped.session_id, stopped.issue_id) == (
+        "stopped",
+        CODEX_SESSION,
+        *ids.values(),
+    )
+    assert (again.action, again.session_id, again.issue_id) == (
+        "no-work",
+        CODEX_SESSION,
+        None,
+    )
 
 
 def test_stop_by_session_key_ends_an_orphaned_run_without_a_session(
@@ -120,16 +149,26 @@ def test_stop_by_session_key_ends_an_orphaned_run_without_a_session(
     root = repository(tmp_path / "repo")
     hook_record(root, CODEX_SESSION, "codex", CODEX)
     start_issue_work(root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
-    (session_key,) = issue_ids(root)
+    ((session_key, issue_id),) = issue_ids(root).items()
+    stopped, again = OutcomeNote(), OutcomeNote()
 
-    messages = stop_issue_work(root, session_key=session_key, lookup=absent())
+    messages = stop_issue_work(
+        root, session_key=session_key, lookup=absent(), outcome=stopped
+    )
 
     active, _ = WorkStore(root).active()
     assert active == []
     assert messages == ["stopped orphaned work on build-observer for codex pid 4242"]
-    assert stop_issue_work(root, session_key=session_key, lookup=absent()) == [
-        f"no active Issue work recorded for session {session_key}"
-    ]
+    assert stop_issue_work(
+        root, session_key=session_key, lookup=absent(), outcome=again
+    ) == [f"no active Issue work recorded for session {session_key}"]
+    # The command names the orphaned session whose run it ended.
+    assert (stopped.action, stopped.harness, stopped.issue_id) == (
+        "stopped",
+        "codex",
+        issue_id,
+    )
+    assert (again.action, again.issue_id) == ("no-work", None)
 
 
 def test_stop_by_session_key_refuses_a_live_session(tmp_path: Path) -> None:
@@ -742,10 +781,18 @@ def test_codex_declares_where_its_active_run_will_resume(tmp_path: Path) -> None
     hook_record(a, CODEX_SESSION, "codex", CODEX)
     start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
     (before,) = WorkStore(a).active()[0]
+    note = OutcomeNote()
 
-    messages = relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    messages = relocate_issue_work(
+        a, b, lookup=codex_lookup, environ=CODEX_ENVIRON, outcome=note
+    )
 
     (pending,) = WorkStore(a).active()[0]
+    assert (note.action, note.target_path, note.issue_id) == (
+        "relocation-prepared",
+        b,
+        before.issue_id,
+    )
     assert messages == [
         f"prepared this Agent Run to resume at {b}; exit this Codex client "
         f"before resuming session {CODEX_SESSION} there"
@@ -843,9 +890,9 @@ def test_target_hook_completes_the_declared_relocation_as_the_same_run(
     start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
     relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
     (before,) = WorkStore(a).active()[0]
-    session_end(a, CODEX_SESSION, "codex", CODEX)
+    ending = session_end(a, CODEX_SESSION, "codex", CODEX)
 
-    publish_hook_event(
+    publication = publish_hook_event(
         {
             "session_id": CODEX_SESSION,
             "cwd": str(b),
@@ -856,6 +903,13 @@ def test_target_hook_completes_the_declared_relocation_as_the_same_run(
         lookup=table_lookup({resumed.pid: resumed} if with_process else {}),
     )
 
+    # The pending relocation outlives SessionEnd; the target hook moves it.
+    assert ending.work == "unchanged"
+    assert (publication.state, publication.work, publication.issue_id) == (
+        "running",
+        "relocated",
+        before.issue_id,
+    )
     assert WorkStore(a).active()[0] == []
     (continued,) = WorkStore(b).active()[0]
     assert continued.run_id == before.run_id
@@ -1168,10 +1222,14 @@ def test_resuming_at_the_origin_can_cancel_a_failed_relocation(
         lookup=table_lookup({resumed.pid: resumed}),
     )
 
-    messages = relocate_issue_work(a, a, lookup=present(resumed), environ=CODEX_ENVIRON)
+    note = OutcomeNote()
+    messages = relocate_issue_work(
+        a, a, lookup=present(resumed), environ=CODEX_ENVIRON, outcome=note
+    )
 
     (continued,) = WorkStore(a).active()[0]
     assert messages == ["cancelled the pending relocation; this Agent Run remains here"]
+    assert note.action == "relocation-cancelled"
     assert continued.run_id == before.run_id
     assert continued.started_at == before.started_at
     assert continued.relocation is None
@@ -1313,9 +1371,9 @@ def test_a_relocated_session_is_observed_once_without_conflict(
 
 def session_end(
     root: Path, session_id: str, harness: Harness, process: ProcessIdentity
-) -> None:
+) -> HookPublication:
     """Publish the session's SessionEnd from ``root`` as its harness would."""
-    publish_hook_event(
+    return publish_hook_event(
         {"session_id": session_id, "cwd": str(root), "hook_event_name": "SessionEnd"},
         process=process,
         harness=harness,
@@ -1326,9 +1384,15 @@ def test_session_end_ends_the_sessions_run(tmp_path: Path) -> None:
     root = repository(tmp_path / "repo").resolve()
     hook_record(root, CODEX_SESSION, "codex", CODEX)
     start_issue_work(root, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (run,) = WorkStore(root).active()[0]
 
-    session_end(root, CODEX_SESSION, "codex", CODEX)
+    publication = session_end(root, CODEX_SESSION, "codex", CODEX)
 
+    assert (publication.state, publication.work, publication.issue_id) == (
+        "ended",
+        "ended",
+        run.issue_id,
+    )
     assert WorkStore(root).active() == ([], [])
     assert session_directory(root).joinpath(f"{CODEX_SESSION}.json").exists() is False
     runs, diagnostics = observe_agent_runs(
@@ -1404,9 +1468,9 @@ def resume(
     process: ProcessIdentity,
     lookup: ProcessLookup,
     event: str = "SessionStart",
-) -> None:
+) -> HookPublication:
     """Publish ``event`` from a new process of the session at ``root``."""
-    publish_hook_event(
+    return publish_hook_event(
         {"session_id": session_id, "cwd": str(root), "hook_event_name": event},
         process=process,
         harness=harness,
@@ -1430,8 +1494,11 @@ def test_a_resumed_claude_session_continues_its_orphaned_run(tmp_path: Path) -> 
     (before,) = WorkStore(root).active()[0]
 
     # The original process died without SessionEnd; only the new one runs.
-    resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, ONLY_RESUMED)
+    publication = resume(
+        root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, ONLY_RESUMED
+    )
 
+    assert (publication.work, publication.issue_id) == ("continued", before.issue_id)
     (after,) = WorkStore(root).active()[0]
     assert after == replace(
         before,
@@ -1483,8 +1550,9 @@ def test_a_run_whose_process_is_not_proved_gone_is_not_continued(
     claude_run(root)
     before = WorkStore(root).active()
 
-    resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, lookup)
+    publication = resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, lookup)
 
+    assert (publication.work, publication.issue_id) == ("unchanged", None)
     assert WorkStore(root).active() == before
 
 
