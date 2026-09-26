@@ -595,7 +595,12 @@ async def test_post_fetch_observation_failure_never_reenables_old_preview(failur
     app = dashboard_app(
         collector, refresh_seconds=0, cleaner=cleaner, fetcher=RecordingFetcher()
     )
-    app.cleanups.refresh_timeout = 0.05
+    if failure == "timeout":
+        # The held observation cannot land, so only the wait running out
+        # ends it. The error case keeps the shipped timeout: its observation
+        # fails at once, but the failure reaches the waiter through the event
+        # loop, which can take longer than a short timeout would allow.
+        app.cleanups.refresh_timeout = 0.05
     try:
         async with app.run_test(size=(80, 24)) as pilot:
             screen = await open_preview(app, pilot, "branch")
