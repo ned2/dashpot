@@ -29,7 +29,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -72,7 +72,10 @@ _EVENT_LOG_FILE = re.compile(
     rf"(?:{SHARED_FILE_PREFIX}|{DASHBOARD_KIND}-[0-9a-f]{{32}})"
     r"-(\d{4}-\d{2}-\d{2})\.jsonl"
 )
-# How many recent events a dashboard keeps in memory for Runtime Stats.
+# What a dashboard keeps in memory for Runtime Stats: the last hour's events,
+# at full detail whatever the level in force, and never more than a busy
+# hour's count, so a dashboard running for weeks does not grow.
+DASHBOARD_RECENT_WINDOW = timedelta(hours=1)
 DASHBOARD_RECENT_EVENTS = 10_000
 # The error type of an event too long to append whole.
 EVENT_TOO_LARGE = "EventTooLarge"
@@ -310,8 +313,9 @@ class EventLog:
     only. ``facts`` describes the process for ``process.start`` and every
     ``process.continued``, and is read at most once, when first needed.
     ``keep_recent`` bounds the in-memory buffer of recent events a dashboard
-    aggregates; zero keeps none. ``forward``, when set, receives every line
-    the level in force records, as Textual's console does while attached.
+    aggregates by count, and ``recent_window`` by age; zero keeps none.
+    ``forward``, when set, receives every line the level in force records,
+    as Textual's console does while attached.
     """
 
     def __init__(
@@ -322,6 +326,7 @@ class EventLog:
         level: EventLevel,
         facts: Callable[[], ProcessStart],
         keep_recent: int = 0,
+        recent_window: timedelta | None = None,
         clock: Callable[[], datetime] = _utc_now,
         monotonic: Callable[[], float] = time.monotonic,
         on_write_failure: Callable[[str], None] | None = None,
@@ -333,11 +338,14 @@ class EventLog:
         self.on_write_failure = on_write_failure
         self.forward: Callable[[str], None] | None = None
         self.recent: deque[RuntimeEvent] = deque(maxlen=keep_recent)
+        self.recent_window = recent_window
         self.write_failure: str | None = None
         self._level: EventLevel = level
         self._facts_source = facts
         self._facts: ProcessStart | None = None
         self._lock = threading.Lock()
+        # Pool threads record while the event loop reads the buffer.
+        self._recent_lock = threading.Lock()
         self._fd: int | None = None
         self._path: Path | None = None
         self._started = monotonic()
@@ -359,6 +367,20 @@ class EventLog:
         if self.destination is None:
             return None
         return self._file_for(self.clock())
+
+    @property
+    def facts(self) -> ProcessStart | None:
+        """What ``process.start`` recorded about this process, once it has."""
+        return self._facts
+
+    def uptime_seconds(self) -> float:
+        """How long the process has run, by the monotonic clock."""
+        return max(0.0, self.monotonic() - self._started)
+
+    def recent_events(self) -> tuple[RuntimeEvent, ...]:
+        """The buffer of recent events as it stands, oldest first."""
+        with self._recent_lock:
+            return tuple(self.recent)
 
     def set_level(self, level: EventLevel) -> None:
         """Change the level in force for the rest of the run, marking the change.
@@ -440,10 +462,7 @@ class EventLog:
     def end(self, exit_code: int) -> None:
         """Record ``process.end`` with the exit status and how long the process ran."""
         self.record(
-            ProcessEnd(
-                exit_code=exit_code,
-                duration_seconds=max(0.0, self.monotonic() - self._started),
-            )
+            ProcessEnd(exit_code=exit_code, duration_seconds=self.uptime_seconds())
         )
 
     def start_span(
@@ -507,7 +526,7 @@ class EventLog:
             process=self.identity if about is None else about,
             body=body,
         )
-        self.recent.append(event)
+        self._keep(event)
         if not is_recorded(event.level, self._level):
             return
         line = event.line()
@@ -524,6 +543,21 @@ class EventLog:
             self._append(line, is_start=isinstance(body, ProcessStart))
         except OSError as exc:
             self._failed(error_type(exc))
+
+    def _keep(self, event: RuntimeEvent) -> None:
+        """Keep ``event`` in the buffer, letting go of any older than its window."""
+        if self.recent.maxlen == 0:
+            return
+        with self._recent_lock:
+            self.recent.append(event)
+            if self.recent_window is None:
+                return
+            # Stamps are fixed-width UTC, so they order as text. A span is
+            # stamped with its start, so the buffer is only nearly in order;
+            # a reader filters by time again rather than trust the trim.
+            cutoff = utc_stamp(self.clock() - self.recent_window)
+            while self.recent and self.recent[0].time < cutoff:
+                self.recent.popleft()
 
     def close(self) -> None:
         """Close the open file; a later event opens one again."""
@@ -601,7 +635,7 @@ class EventLog:
             process=self.identity,
             body=EventLogWriteFailed(error_type=error),
         )
-        self.recent.append(failure)
+        self._keep(failure)
         if self.write_failure is None:
             self.write_failure = error
         if self.on_write_failure is not None:
@@ -616,7 +650,9 @@ def working_directory() -> Path | None:
         return None
 
 
-def unrecorded_event_log(*, keep_recent: int = 0) -> EventLog:
+def unrecorded_event_log(
+    *, keep_recent: int = 0, recent_window: timedelta | None = None
+) -> EventLog:
     """A dashboard's writer with nowhere to write, keeping only recent events in memory."""
     # Imported here: ``distribution`` runs its one ``git status`` through the
     # command runner, which records its spans here.
@@ -628,4 +664,5 @@ def unrecorded_event_log(*, keep_recent: int = 0) -> EventLog:
         level="off",
         facts=lambda: process_start(working_directory()),
         keep_recent=keep_recent,
+        recent_window=recent_window,
     )

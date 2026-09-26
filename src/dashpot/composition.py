@@ -225,14 +225,21 @@ def create_collector(
     )
 
 
-def create_query_sources(collector: ObservationCoordinator) -> dict[str, QuerySource]:
-    """Build the configured Query Source behind each of the dashboard's queries."""
+def create_query_sources(
+    collector: ObservationCoordinator,
+    latest_rate_limit: LatestRateLimit | None = None,
+) -> dict[str, QuerySource]:
+    """Build the configured Query Source behind each of the dashboard's queries.
+
+    ``latest_rate_limit`` is the reading they share, given when the dashboard
+    shows it too.
+    """
     root = (
         Path(collector.projects[0].primary_anchor) if collector.projects else Path.cwd()
     )
     # The rate limit is the account's: every source records into one
     # reading, so each reports the most recent any of them received.
-    latest_rate_limit = LatestRateLimit()
+    latest_rate_limit = latest_rate_limit or LatestRateLimit()
     return {
         key: configured_query_source(
             root, timeout=collector.timeout, latest_rate_limit=latest_rate_limit

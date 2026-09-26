@@ -17,6 +17,7 @@ from .core.distribution import process_start
 from .core.event_log import (
     DASHBOARD_KIND,
     DASHBOARD_RECENT_EVENTS,
+    DASHBOARD_RECENT_WINDOW,
     EVENTS_DIRECTORY,
     EventLog,
     EventLogDestination,
@@ -131,4 +132,5 @@ def open_event_log(
             working_directory, subcommand=subcommand, check_source=dashboard
         ),
         keep_recent=DASHBOARD_RECENT_EVENTS if dashboard else 0,
+        recent_window=DASHBOARD_RECENT_WINDOW if dashboard else None,
     )

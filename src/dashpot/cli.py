@@ -44,6 +44,7 @@ from .core.model import Harness
 from .core.runtime_events import ManagementCommand, RecordedLevel
 from .core.worktree_paths import worktree_root
 from .event_logs import open_event_log, route_event_log
+from .github.github import LatestRateLimit
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
 from .project.workspace import RepositoryAnchor, Workspace
@@ -244,11 +245,14 @@ def observe(
         # checkpoints, so headless output stays a single complete snapshot.
         print(render_json(snapshot_document(collector.refresh()), compact=compact_json))
     else:
-        sources = create_query_sources(collector)
+        # Runtime Stats shows the reading the Query Sources share.
+        latest_rate_limit = LatestRateLimit()
+        sources = create_query_sources(collector, latest_rate_limit)
         DashpotApp(
             collector,
             sources=sources,
             event_log=_EVENT_LOG.get(),
+            rate_limit=latest_rate_limit,
             refresh_seconds=periods.local,
             query_refresh_seconds=periods.query_seconds(sources),
             fetcher=remote_fetcher(timeout),
