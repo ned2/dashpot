@@ -160,8 +160,9 @@ set the thin-adapter rule, and [ADR 0051](adr/0051-adopt-long-lived-peer-dashboa
 qualifies it as one adapter per long-lived peer rather than one for the whole
 interface.
 The page store ([paged_store.py](../src/dashpot/observation/paged_store.py)) never puts partial
-query rows in complete snapshot inventory fields; every accepted page, total or
-identity goes through a method that advances its `source_revision`, so a read
+query rows in complete snapshot inventory fields; every accepted page, total,
+identity or Diagnostic a source reports about itself goes through a method
+that advances its `source_revision`, so a read
 model's `revision` changes whenever what it was built from does. It joins Agent
 Runs to targeted identity evidence without changing Work Store Issue Bindings.
 Opening a selected Issue works from the Issues table; relationship titles in

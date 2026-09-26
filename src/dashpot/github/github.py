@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from collections.abc import Callable, Container, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +21,7 @@ from typing import Any
 
 from ..core.commands import CommandError, CommandRunner, run_command
 from ..core.errors import DashpotError
+from ..core.model import Diagnostic
 
 # Every GraphQL query Dashpot sends carries this selection beside its data,
 # so the rate limit is observed on the way rather than asked for separately.
@@ -37,6 +39,7 @@ MAX_IN_FLIGHT = 4
 
 MALFORMED_RESPONSE = "github-malformed-response"
 NOT_FOUND = "github-not-found"
+RATE_LIMIT_LOW = "github-rate-limit-low"
 REFRESH_BUDGET = "github-refresh-budget"
 
 # GitHub's structured GraphQL error types, the first signal read.
@@ -80,6 +83,74 @@ class RateLimit:
     def low(self) -> bool:
         """Fewer than a tenth of the hour's points remain."""
         return self.remaining * 10 < self.limit
+
+
+class LatestRateLimit:
+    """The most recent rate limit reading among the gateways that share it.
+
+    The limit is the account's, not one gateway's, so every gateway behind
+    one dashboard shares one of these: the reading it holds is the latest any
+    of them received, whichever query's response carried it. Gateways record
+    from the threads their requests run on, so a lock guards the reading, and
+    answers to concurrent requests can arrive out of order: within one hour's
+    window the points only fall, so a reading showing more points left than
+    the one held for the same reset is older, and is not recorded.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._reading: RateLimit | None = None
+
+    @property
+    def reading(self) -> RateLimit | None:
+        """The last reading recorded, or None before any response carried one."""
+        with self._lock:
+            return self._reading
+
+    def record(self, reading: RateLimit) -> None:
+        """Hold ``reading`` as the most recent, unless it is older than the one held."""
+        with self._lock:
+            held = self._reading
+            if (
+                held is not None
+                and held.reset_at == reading.reset_at
+                and held.remaining < reading.remaining
+            ):
+                return
+            self._reading = reading
+
+
+def rate_limit_diagnostics(
+    reading: RateLimit | None, source: str
+) -> tuple[Diagnostic, ...]:
+    """Warn while the hour's GraphQL points run low; never fail for it."""
+    if reading is None or not reading.low:
+        return ()
+    return (
+        Diagnostic(
+            source=source,
+            code=RATE_LIMIT_LOW,
+            severity="warning",
+            message=(
+                f"GitHub GraphQL rate limit is low: {reading.remaining} of "
+                f"{reading.limit} points remain until {reading.reset_at}; "
+                f"the last request cost {reading.cost}"
+            ),
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class GraphQLResponse:
+    """One GraphQL answer: its data, the errors beside it, and its rate limit.
+
+    ``rate_limit`` is the reading this response carried, not the latest the
+    gateway holds, so each request can be accounted for by its own.
+    """
+
+    data: Mapping[str, Any]
+    errors: Sequence[Mapping[str, Any]]
+    rate_limit: RateLimit | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,12 +215,17 @@ class GitHubGateway:
         *,
         timeout: float = 10,
         runner: CommandRunner = run_command,
+        latest_rate_limit: LatestRateLimit | None = None,
     ) -> None:
         self.root = root
         self.timeout = timeout
         self.runner = runner
-        # The rate limit GitHub reported beside the latest GraphQL answer.
-        self.rate_limit: RateLimit | None = None
+        self.latest_rate_limit = latest_rate_limit or LatestRateLimit()
+
+    @property
+    def rate_limit(self) -> RateLimit | None:
+        """The rate limit beside the latest GraphQL answer to any sharing gateway."""
+        return self.latest_rate_limit.reading
 
     def graphql(
         self,
@@ -179,14 +255,12 @@ class GitHubGateway:
             raise GitHubRequestError(
                 MALFORMED_RESPONSE, "GitHub response has no data object"
             )
-        rate_limit = _rate_limit(data.get("rateLimit"))
-        if rate_limit is not None:
-            self.rate_limit = rate_limit
+        self._read_rate_limit(data)
         return data
 
     def graphql_result(
         self, query: str, variables: GraphQLVariables
-    ) -> tuple[Mapping[str, Any], Sequence[Mapping[str, Any]]]:
+    ) -> GraphQLResponse:
         """Expose attributable GraphQL errors beside the data they leave usable."""
         payload = self._graphql_payload(query, variables, partial=True)
         errors = payload.get("errors", [])
@@ -201,7 +275,14 @@ class GitHubGateway:
             raise GitHubRequestError(
                 MALFORMED_RESPONSE, "GitHub response has no data object"
             )
-        return data, errors
+        return GraphQLResponse(data, errors, self._read_rate_limit(data))
+
+    def _read_rate_limit(self, data: Mapping[str, Any]) -> RateLimit | None:
+        """Read the rate limit a response's data carries and record it as the latest."""
+        reading = _rate_limit(data.get("rateLimit"))
+        if reading is not None:
+            self.latest_rate_limit.record(reading)
+        return reading
 
     def _graphql_payload(
         self,

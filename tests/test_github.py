@@ -20,11 +20,27 @@ from dashpot.github.github import (
     CursorTrail,
     GitHubGateway,
     GitHubRequestError,
+    LatestRateLimit,
+    RateLimit,
     RefreshBudget,
     classify_failure_text,
+    rate_limit_diagnostics,
 )
 
 QUERY = "query { rateLimit { cost limit remaining resetAt } viewer { login } }"
+RESET_AT = "2026-09-27T13:00:00Z"
+
+
+def rate_limit_block(remaining: int, *, limit: int = 5000) -> dict[str, Any]:
+    """The ``rateLimit`` selection as GitHub answers it beside a query's data."""
+    return {
+        "rateLimit": {
+            "cost": 1,
+            "limit": limit,
+            "remaining": remaining,
+            "resetAt": RESET_AT,
+        }
+    }
 
 
 def completed(stdout: str = "", stderr: str = "", returncode: int = 0) -> CommandResult:
@@ -265,6 +281,111 @@ class RequestTests(unittest.TestCase):
         # A malformed block leaves the last well-formed reading in place.
         gate.graphql(QUERY, {})
         self.assertIs(rate_limit, gate.rate_limit)
+
+    def test_a_partial_answer_carries_the_rate_limit_of_its_own_response(
+        self,
+    ) -> None:
+        body = json.dumps(
+            {
+                "data": {**rate_limit_block(remaining=300), "search": None},
+                "errors": [{"type": "FORBIDDEN", "path": ["search"], "message": "no"}],
+            }
+        )
+        gate = gateway(
+            completed(stdout=body, stderr="gh: no", returncode=1),
+            completed(json.dumps({"data": {"search": None}})),
+        )
+
+        answered = gate.graphql_result(QUERY, {})
+
+        self.assertEqual(
+            [{"type": "FORBIDDEN", "path": ["search"], "message": "no"}],
+            list(answered.errors),
+        )
+        self.assertIsNone(answered.data["search"])
+        assert answered.rate_limit is not None
+        self.assertEqual(
+            (1, 5000, 300, RESET_AT),
+            (
+                answered.rate_limit.cost,
+                answered.rate_limit.limit,
+                answered.rate_limit.remaining,
+                answered.rate_limit.reset_at,
+            ),
+        )
+        self.assertEqual(answered.rate_limit, gate.rate_limit)
+
+        # A response without a reading reports none of its own, while the
+        # gateway keeps the last one GitHub gave.
+        unread = gate.graphql_result(QUERY, {})
+        self.assertIsNone(unread.rate_limit)
+        self.assertEqual(answered.rate_limit, gate.rate_limit)
+
+    def test_gateways_sharing_a_reading_report_the_latest_any_of_them_read(
+        self,
+    ) -> None:
+        shared = LatestRateLimit()
+        first = GitHubGateway(
+            Path("/repo"),
+            runner=RecordingRunner(
+                completed(json.dumps({"data": rate_limit_block(400)}))
+            ),
+            latest_rate_limit=shared,
+        )
+        second = GitHubGateway(
+            Path("/repo"),
+            runner=RecordingRunner(
+                completed(json.dumps({"data": rate_limit_block(390)}))
+            ),
+            latest_rate_limit=shared,
+        )
+        alone = gateway(completed(json.dumps({"data": rate_limit_block(4000)})))
+
+        first.graphql(QUERY, {})
+        second.graphql_result(QUERY, {})
+        alone.graphql(QUERY, {})
+
+        for gate in (first, second):
+            with self.subTest(gate=gate):
+                assert gate.rate_limit is not None
+                self.assertEqual(390, gate.rate_limit.remaining)
+        assert shared.reading is not None
+        self.assertEqual(390, shared.reading.remaining)
+        # A gateway given no shared reading keeps its own.
+        assert alone.rate_limit is not None
+        self.assertEqual(4000, alone.rate_limit.remaining)
+
+    def test_an_older_reading_answered_late_does_not_replace_a_newer_one(
+        self,
+    ) -> None:
+        shared = LatestRateLimit()
+        newer = RateLimit(cost=1, limit=5000, remaining=390, reset_at=RESET_AT)
+        older = RateLimit(cost=1, limit=5000, remaining=400, reset_at=RESET_AT)
+        next_hour = RateLimit(
+            cost=1, limit=5000, remaining=4999, reset_at="2026-09-27T14:00:00Z"
+        )
+
+        shared.record(newer)
+        shared.record(older)
+        self.assertIs(newer, shared.reading)
+        # A new hour's window starts with its points restored.
+        shared.record(next_hour)
+        self.assertIs(next_hour, shared.reading)
+
+    def test_a_low_rate_limit_is_one_warning_naming_what_remains(self) -> None:
+        low = RateLimit(cost=2, limit=5000, remaining=499, reset_at=RESET_AT)
+        enough = RateLimit(cost=2, limit=5000, remaining=500, reset_at=RESET_AT)
+
+        (warning,) = rate_limit_diagnostics(low, "github")
+
+        self.assertEqual(
+            ("github", "github-rate-limit-low", "warning"),
+            (warning.source, warning.code, warning.severity),
+        )
+        self.assertIn("499 of 5000 points remain", warning.message)
+        self.assertIn(f"until {RESET_AT}", warning.message)
+        self.assertEqual((), rate_limit_diagnostics(enough, "github"))
+        self.assertEqual((), rate_limit_diagnostics(None, "github"))
 
     def test_rest_returns_the_object(self) -> None:
         gate = gateway(completed(json.dumps({"node_id": "R_1", "full_name": "a/b"})))

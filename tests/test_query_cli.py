@@ -6,7 +6,19 @@ import pytest
 
 from dashpot import cli
 from dashpot.queries import query_source
-from test_source_queries import markdown, markdown_issue
+from test_github_issues import REPOSITORY_ID
+from test_github_pull_requests import pull_request_node
+from test_source_queries import (
+    batch,
+    context,
+    github,
+    hit,
+    markdown,
+    markdown_issue,
+    node,
+    reading,
+    search,
+)
 
 
 def test_list_json_keys_and_cross_invocation_cursor(tmp_path, monkeypatch, capsys):
@@ -110,3 +122,28 @@ def test_ready_lists_the_open_issues_no_open_blocker_holds(
     assert cli.main(["pr", "list", "--state", "ready", "--json"]) == 2
     output = capsys.readouterr()
     assert output.out == "" and output.err
+
+
+@pytest.mark.parametrize("command", ["issue", "pr"])
+def test_list_reports_a_low_rate_limit_beside_the_page(
+    tmp_path, monkeypatch, capsys, command
+):
+    if command == "issue":
+        answers = (context(), search(hit(1)), reading(batch(node(1)), 400))
+    else:
+        pull = {
+            **pull_request_node(1),
+            "__typename": "PullRequest",
+            "repository": {"id": REPOSITORY_ID},
+        }
+        answers = (context(), reading(search(pull), 400))
+    source, _ = github(tmp_path, *answers)
+    monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
+    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
+    assert cli.main([command, "list", "--json"]) == 0
+    document = json.loads(capsys.readouterr().out)
+    assert document["page"]["status"] == "fresh"
+    (warning,) = document["page"]["diagnostics"]
+    assert warning["code"] == "github-rate-limit-low"
+    assert warning["severity"] == "warning"
+    assert "400 of 5000 points remain until 2026-09-27T13:00:00Z" in warning["message"]

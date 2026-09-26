@@ -9,6 +9,7 @@ from pathlib import Path
 from .core.git import GitError
 from .core.model import Diagnostic
 from .core.worktree_paths import worktree_root
+from .github.github import LatestRateLimit
 from .observation.collect import ObservationCoordinator
 from .project.project_config import PROJECT_CONFIG_NAME, ProjectConfigError
 from .project.settings import Settings, SettingsError, load_settings
@@ -229,7 +230,12 @@ def create_query_sources(collector: ObservationCoordinator) -> dict[str, QuerySo
     root = (
         Path(collector.projects[0].primary_anchor) if collector.projects else Path.cwd()
     )
+    # The rate limit is the account's: every source records into one
+    # reading, so each reports the most recent any of them received.
+    latest_rate_limit = LatestRateLimit()
     return {
-        key: configured_query_source(root, timeout=collector.timeout)
+        key: configured_query_source(
+            root, timeout=collector.timeout, latest_rate_limit=latest_rate_limit
+        )
         for key in QUERY_SOURCE_KEYS
     }

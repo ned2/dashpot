@@ -16,12 +16,15 @@ from ..core.observation_errors import QUERY_OBSERVATION_FAILURES
 from ..core.pydantic import WireModel
 from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
+    RATE_LIMIT_SELECTION,
     GitHubGateway,
     GitHubRequestError,
     GraphQLVariables,
+    LatestRateLimit,
     RefreshBudget,
     RefreshMeter,
     graphql_failure,
+    rate_limit_diagnostics,
 )
 from ..github.github_wire import (
     ISSUE_NODE_FIELDS,
@@ -68,6 +71,7 @@ _COLUMN_SORTS = {"created": "created", "last_action": "updated", "comments": "co
 _CONTEXT_FIELDS = """repository: node(id: $repositoryId) { ... on Repository { id nameWithOwner } }
   viewer { id }"""
 _CONTEXT = f"""query DashpotQueryContext($repositoryId: ID!) {{
+  {RATE_LIMIT_SELECTION}
   {_CONTEXT_FIELDS}
 }}"""
 _PR_FIELDS = (
@@ -84,6 +88,7 @@ def _search_query(kind: ResourceKind) -> str:
     field = "issues" if kind == "issues" else "pullRequests"
     closed = "CLOSED" if kind == "issues" else "CLOSED, MERGED"
     return f"""query DashpotQueryPage($repositoryId: ID!, $searchQuery: String!, $size: Int!, $cursor: String) {{
+  {RATE_LIMIT_SELECTION}
   {_CONTEXT_FIELDS}
   totals: node(id: $repositoryId) {{ ... on Repository {{
     opened: {field}(states: [OPEN]) {{ totalCount }}
@@ -99,6 +104,7 @@ def _search_query(kind: ResourceKind) -> str:
 
 _SEARCH = {kind: _search_query(kind) for kind in PAGED_KINDS}
 _IDENTITIES = f"""query DashpotResolvedIssues($repositoryId: ID!, $ids: [ID!]!) {{
+  {RATE_LIMIT_SELECTION}
   {_CONTEXT_FIELDS}
   nodes(ids: $ids) {{ __typename ... on Issue {{ {ISSUE_NODE_FIELDS} }} }}
 }}"""
@@ -199,7 +205,14 @@ class GitHubQuerySource(CachedQuerySource):
         timeout: float = 10,
         runner: CommandRunner = run_command,
         budget: RefreshBudget = DEFAULT_REFRESH_BUDGET,
+        latest_rate_limit: LatestRateLimit | None = None,
     ) -> None:
+        """Build the source over gateways that share ``latest_rate_limit``.
+
+        Every gateway behind the source records into it, as do those of every
+        other source given the same one, so the warning the source reports is
+        the most recent reading any of them received.
+        """
         super().__init__(
             SourceContext(
                 project_id=config.project_id,
@@ -210,7 +223,13 @@ class GitHubQuerySource(CachedQuerySource):
         )
         self.root = root
         self.config = config
-        self.gateway = GitHubGateway(root, timeout=timeout, runner=runner)
+        self.latest_rate_limit = latest_rate_limit or LatestRateLimit()
+        self.gateway = GitHubGateway(
+            root,
+            timeout=timeout,
+            runner=runner,
+            latest_rate_limit=self.latest_rate_limit,
+        )
         self.budget = budget
         self._meter: RefreshMeter = budget.start()
         self.profiles = GitHubIssuesSource(
@@ -220,6 +239,7 @@ class GitHubQuerySource(CachedQuerySource):
             timeout=timeout,
             runner=runner,
             budget=budget,
+            latest_rate_limit=self.latest_rate_limit,
         )
         self.pull_requests = GitHubPullRequestsSource(
             root,
@@ -227,6 +247,7 @@ class GitHubQuerySource(CachedQuerySource):
             timeout=timeout,
             runner=runner,
             budget=budget,
+            latest_rate_limit=self.latest_rate_limit,
         )
         self.repository_name = ""
         self._last_context: SourceContext | None = None
@@ -239,6 +260,13 @@ class GitHubQuerySource(CachedQuerySource):
     @override
     def supports_sort(self, request: QueryRequest, column: str) -> bool:
         return column in _COLUMN_SORTS and not explicit_sort(request.query)
+
+    @override
+    def source_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Warn while the most recent reading shows the hour's points running low."""
+        return rate_limit_diagnostics(
+            self.latest_rate_limit.reading, self.context.source
+        )
 
     @override
     def request_context(self) -> SourceContext:
@@ -356,7 +384,8 @@ class GitHubQuerySource(CachedQuerySource):
             name = self.repository_name
             variables["searchQuery"] = f"repo:{name} {qualifiers}"
             meter.next_request("Query Page")
-            data, errors = self.gateway.graphql_result(_SEARCH[request.kind], variables)
+            response = self.gateway.graphql_result(_SEARCH[request.kind], variables)
+            data, errors = response.data, response.errors
             if not all(_on_search(error) for error in errors):
                 raise graphql_failure(errors)
             # A continuation was sent under a context observed just before;
@@ -517,10 +546,11 @@ class GitHubQuerySource(CachedQuerySource):
             batch = identities[start : start + 24]
             try:
                 meter.next_request(f"{start} resolved Issues")
-                data, errors = self.gateway.graphql_result(
+                response = self.gateway.graphql_result(
                     _IDENTITIES,
                     {"repositoryId": self.context.repository_id, "ids": list(batch)},
                 )
+                data, errors = response.data, response.errors
                 context = self._verify(data, context, principal=expected)
                 expected = context.principal
                 attributed: dict[int, list[Mapping[str, Any]]] = {}

@@ -16,6 +16,7 @@ from dashpot.core.errors import DashpotError
 from dashpot.core.git import GitError
 from dashpot.core.issue_profile import IssueProfileError, conform_issue
 from dashpot.core.model import WorkspaceSnapshot
+from dashpot.github.github import LatestRateLimit
 from dashpot.hook import publish_from_stream
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.issues.issue_sources import IssueSourceRefreshError
@@ -356,9 +357,13 @@ def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     built: list[tuple[Path, float]] = []
+    readings: list[LatestRateLimit | None] = []
 
-    def configured(root: Path, *, timeout: float) -> object:
+    def configured(
+        root: Path, *, timeout: float, latest_rate_limit: LatestRateLimit | None
+    ) -> object:
         built.append((root, timeout))
+        readings.append(latest_rate_limit)
         return object()
 
     monkeypatch.setattr(composition, "configured_query_source", configured)
@@ -379,6 +384,10 @@ def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
     assert tuple(sources) == QUERY_SOURCE_KEYS
     assert len({id(source) for source in sources.values()}) == len(sources)
     assert built == [(Path("/clone-one"), 7.5)] * len(QUERY_SOURCE_KEYS)
+    # They share one rate limit reading, so the dashboard reports the most
+    # recent one GitHub gave any of them.
+    assert readings[0] is not None
+    assert all(reading is readings[0] for reading in readings)
 
 
 def test_query_sources_fall_back_to_the_current_directory_without_projects(
@@ -386,7 +395,9 @@ def test_query_sources_fall_back_to_the_current_directory_without_projects(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        composition, "configured_query_source", lambda root, *, timeout: (root, timeout)
+        composition,
+        "configured_query_source",
+        lambda root, *, timeout, latest_rate_limit: (root, timeout),
     )
 
     sources = composition.create_query_sources(mock.Mock(projects=[], timeout=3.0))

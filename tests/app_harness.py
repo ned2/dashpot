@@ -268,6 +268,9 @@ class SnapshotQuerySource:
         # A gated source holds its page and totals until the test releases
         # it, so what the app shows before the first result is deterministic.
         self.release = release
+        # What the source reports about itself beside every observation,
+        # such as a GitHub rate limit running low.
+        self.warnings: tuple[Diagnostic, ...] = ()
         self.serve(snapshot)
 
     def serve(self, snapshot: WorkspaceSnapshot) -> None:
@@ -286,6 +289,9 @@ class SnapshotQuerySource:
 
     def supports_sort(self, request: QueryRequest, column: str) -> bool:
         return is_issue_sort_column(column) and parse_search(request.query).sort is None
+
+    def source_diagnostics(self) -> tuple[Diagnostic, ...]:
+        return self.warnings
 
     def _freshness(self, kind: ResourceKind) -> tuple[SourceStatus, str | None]:
         """Report the status and last good time the snapshot observed one kind at."""

@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..core.model import Diagnostic
 from ..core.observation_errors import QUERY_OBSERVATION_FAILURES
@@ -25,6 +26,11 @@ from .source_queries import (
     decode_continuation,
     verify_continuation,
 )
+
+if TYPE_CHECKING:
+    # Only a GitHub source is built over the gateway, and it is imported
+    # when one is configured.
+    from ..github.github import LatestRateLimit
 
 
 class CachedQuerySource(ABC):
@@ -209,6 +215,14 @@ class CachedQuerySource(ABC):
             return known or context
         return known.model_copy(update={"configuration": context.configuration})
 
+    def source_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """What the source reports about itself rather than about one observation.
+
+        None by default; a GitHub source warns while the account's rate
+        limit runs low.
+        """
+        return ()
+
     def diagnostic(self, exc: Exception) -> Diagnostic:
         """Report an adapter failure without manufacturing empty success."""
         return Diagnostic(
@@ -273,8 +287,17 @@ class CachedQuerySource(ABC):
     def enumerate_source(self, kind: ResourceKind) -> SourceEnumeration: ...
 
 
-def configured_query_source(root: Path, *, timeout: float = 10) -> CachedQuerySource:
-    """Build the configured source for both dashboard and CLI query consumers."""
+def configured_query_source(
+    root: Path,
+    *,
+    timeout: float = 10,
+    latest_rate_limit: LatestRateLimit | None = None,
+) -> CachedQuerySource:
+    """Build the configured source for both dashboard and CLI query consumers.
+
+    A GitHub source records its rate limit readings into
+    ``latest_rate_limit``, which the dashboard shares among its sources.
+    """
     from ..project.project_config import (
         GitHubIssueSourceConfig,
         load_project_config,
@@ -284,5 +307,7 @@ def configured_query_source(root: Path, *, timeout: float = 10) -> CachedQuerySo
 
     config = load_project_config(root)
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        return GitHubQuerySource(root, config, timeout=timeout)
+        return GitHubQuerySource(
+            root, config, timeout=timeout, latest_rate_limit=latest_rate_limit
+        )
     return MarkdownQuerySource(root, config)

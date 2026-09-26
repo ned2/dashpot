@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-26
+date: 2026-09-27
 ---
 
 # GitHub rate limits
@@ -153,11 +153,16 @@ each Query Page's last good observation and shows it as stale, with a
 Project Totals and Resolved Issues degrade the same way. Worktrees, Branches
 and Agent Sessions are local observations and keep refreshing.
 
-Two gaps make this worse today. The dashboard keeps querying at its refresh
-period while refused ([#306](https://github.com/ned2/dashpot/issues/306)), and
-its queries do not read GitHub's remaining allowance, so the
-`github-rate-limit-low` warning never appears before the allowance runs out
-([#307](https://github.com/ned2/dashpot/issues/307)).
+Before that, every query Dashpot sends reads the remaining allowance from its
+own response. While fewer than a tenth of the hour's points remain, the
+dashboard's Diagnostics show one `github-rate-limit-low` warning naming the
+points left and when the hour resets, taken from the most recent response any
+of its queries received, and `issue list` and `pr list` add it to the
+Diagnostics of the page they print
+([ADR 0061](adr/0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md)).
+
+One gap makes this worse today: the dashboard keeps querying at its refresh
+period while refused ([#306](https://github.com/ned2/dashpot/issues/306)).
 
 ## Sources
 

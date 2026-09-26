@@ -7,7 +7,11 @@ import pydantic
 import pytest
 
 from dashpot.core.model import OpenBlocker
-from dashpot.github.github import GitHubRequestError
+from dashpot.github.github import (
+    RATE_LIMIT_SELECTION,
+    GitHubRequestError,
+    LatestRateLimit,
+)
 from dashpot.project.project_config import load_project_config
 from dashpot.queries.github_queries import GitHubQuerySource, validate_grouping
 from dashpot.queries.markdown_queries import MarkdownQuerySource
@@ -70,7 +74,7 @@ def node(number):
     return raw
 
 
-def github(tmp_path, *answers):
+def github(tmp_path, *answers, **options):
     write_project_config(
         tmp_path,
         project_id=PROJECT_ID,
@@ -81,7 +85,7 @@ def github(tmp_path, *answers):
         *(completed(json.dumps({"data": answer})) for answer in answers)
     )
     return GitHubQuerySource(
-        tmp_path, load_project_config(tmp_path), runner=runner
+        tmp_path, load_project_config(tmp_path), runner=runner, **options
     ), runner
 
 
@@ -1220,3 +1224,132 @@ def test_continuation_under_an_edited_configuration_keeps_no_old_page(tmp_path):
     )
     runner.results = iter([OSError("network down")])
     assert source.query_page(later).page.status == "unavailable"
+
+
+def reading(answer, remaining, *, limit=5000, reset_at="2026-09-27T13:00:00Z"):
+    """``answer`` with the rate limit GitHub reports beside it."""
+    return {
+        **answer,
+        "rateLimit": {
+            "cost": 1,
+            "limit": limit,
+            "remaining": remaining,
+            "resetAt": reset_at,
+        },
+    }
+
+
+def test_every_query_a_github_source_sends_selects_the_rate_limit(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(),
+        search(hit(2), count=2),
+        batch(node(2)),
+        batch(node(1)),
+    )
+    first = source.query_page(QueryRequest(page_size=1)).page
+    source.query_page(QueryRequest(page_size=1, cursor=first.next_cursor))
+    source.resolve_identities(["I_issue_1"])
+    queries = arguments(runner, "query=")
+    assert {query.split("(")[0] for query in queries} == {
+        "query DashpotQueryContext",
+        "query DashpotQueryPage",
+        "query DashpotResolvedIssues",
+    }
+    assert all(RATE_LIMIT_SELECTION in query for query in queries)
+
+
+def test_a_low_rate_limit_warns_from_the_latest_response(tmp_path):
+    source, _ = github(
+        tmp_path,
+        reading(context(), 4000),
+        reading(search(hit(1)), 499),
+        reading(batch(node(1)), 480),
+        reading(batch(node(1)), 470, reset_at="2026-09-27T14:00:00Z"),
+        reading(batch(node(1)), 5000, reset_at="2026-09-27T15:00:00Z"),
+    )
+    assert source.source_diagnostics() == ()
+    observation = source.query_page(QueryRequest())
+    # The warning is the source's, not the page's: the page reports only
+    # what observing it found.
+    assert observation.page.status == "fresh" and observation.page.diagnostics == ()
+    (warning,) = source.source_diagnostics()
+    assert (warning.source, warning.code, warning.severity) == (
+        "github",
+        "github-rate-limit-low",
+        "warning",
+    )
+    assert "480 of 5000 points remain until 2026-09-27T13:00:00Z" in warning.message
+    # A Resolved Issues response is read the same way.
+    source.resolve_identities(["I_issue_1"])
+    (warning,) = source.source_diagnostics()
+    assert "470 of 5000 points remain until 2026-09-27T14:00:00Z" in warning.message
+    # The next hour's reading, with its points restored, clears the warning.
+    source.resolve_identities(["I_issue_1"])
+    assert source.source_diagnostics() == ()
+
+
+def test_github_sources_sharing_a_reading_warn_from_the_latest_of_any(tmp_path):
+    shared = LatestRateLimit()
+    pages, _ = github(
+        tmp_path,
+        reading(context(), 460),
+        reading(search(hit(1)), 450),
+        reading(batch(node(1)), 440),
+        latest_rate_limit=shared,
+    )
+    identities, _ = github(
+        tmp_path, reading(batch(node(1)), 300), latest_rate_limit=shared
+    )
+    pages.query_page(QueryRequest())
+    identities.resolve_identities(["I_issue_1"])
+    # Whichever source is asked reports the one most recent reading.
+    assert pages.source_diagnostics() == identities.source_diagnostics()
+    (warning,) = pages.source_diagnostics()
+    assert "300 of 5000 points remain" in warning.message
+
+
+def test_a_failed_page_still_warns_from_the_reading_before_it(tmp_path):
+    source, runner = github(
+        tmp_path, reading(context(), 450), reading(search(hit(1)), 440)
+    )
+    # The Issue batch that completes the page is refused.
+    runner.results = iter([*runner.results, OSError("rate limited")])
+    observation = source.query_page(QueryRequest())
+    assert observation.page.status == "unavailable"
+    (warning,) = source.source_diagnostics()
+    assert "440 of 5000 points remain" in warning.message
+
+
+def test_a_partial_answer_that_fails_the_page_still_warns_from_its_reading(
+    tmp_path,
+):
+    # The page search is a partial answer: its error fails the page, but the
+    # rate limit GitHub reported beside it is still the latest reading.
+    source, runner = github(tmp_path, reading(context(), 4000))
+    runner.results = iter(
+        [
+            *runner.results,
+            refused(
+                reading(search(None), 420),
+                {
+                    "type": "FORBIDDEN",
+                    "path": ["search", "nodes", 0],
+                    "message": "not accessible",
+                },
+            ),
+        ]
+    )
+    observation = source.query_page(QueryRequest())
+    assert observation.page.status == "unavailable"
+    (warning,) = source.source_diagnostics()
+    assert "420 of 5000 points remain" in warning.message
+
+
+def test_markdown_source_reports_no_source_diagnostics(tmp_path):
+    source = markdown(tmp_path)
+    source.query_page(QueryRequest())
+    assert source.source_diagnostics() == ()

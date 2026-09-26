@@ -190,6 +190,10 @@ class QuerySource(Protocol):
 
     def supports_sort(self, request: QueryRequest, column: str) -> bool: ...
 
+    def source_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """What the source reports about itself rather than about one observation."""
+        ...
+
     @property
     def context(self) -> SourceContext: ...
 

@@ -24,7 +24,7 @@ from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
 from .project.workspace import RepositoryAnchor, Workspace
 from .queries.query_source import configured_query_source
-from .queries.source_queries import Lifecycle, QueryRequest
+from .queries.source_queries import Lifecycle, PageObservation, QueryRequest
 from .repository.cleanup import (
     BranchCleanupRequest,
     CleanupError,
@@ -380,7 +380,11 @@ def _list_page(
     compact: bool,
     timeout: float,
 ) -> int:
-    """Emit one Query Page and the Project Totals its request counted."""
+    """Emit one Query Page and the Project Totals its request counted.
+
+    The page's Diagnostics carry what the source reports about itself
+    beside it, such as a rate limit running low.
+    """
     root = worktree_root(Path.cwd().resolve())
     source = configured_query_source(root, timeout=timeout)
     observation = source.query_page(
@@ -388,7 +392,16 @@ def _list_page(
             kind=kind, query=query, state=state, page_size=page_size, cursor=cursor
         )
     )
-    print(render_json(list_page_document(observation), compact=compact))
+    page = observation.page
+    reported = page.model_copy(
+        update={"diagnostics": (*page.diagnostics, *source.source_diagnostics())}
+    )
+    print(
+        render_json(
+            list_page_document(PageObservation(reported, observation.totals)),
+            compact=compact,
+        )
+    )
     return 0
 
 
