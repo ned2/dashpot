@@ -829,6 +829,27 @@ def test_refused_principal_never_leaves_the_old_page_stale(tmp_path):
     assert page.status == "unavailable" and not page.issues
 
 
+def test_refused_continuation_never_leaves_the_old_page_stale(tmp_path):
+    source, _ = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(),
+        search(hit(2), count=2),
+        batch(node(2)),
+        context(),
+        search(hit(2), count=2, principal="U_2"),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    later = request.model_copy(update={"cursor": first.next_cursor})
+    assert source.query_page(later).status == "fresh"
+    page = source.query_page(later)
+    assert page.status == "unavailable" and not page.issues
+    assert "different principal" in page.diagnostics[0].message
+
+
 def test_continuation_under_an_edited_configuration_keeps_no_old_page(tmp_path):
     source, runner = github(
         tmp_path,
