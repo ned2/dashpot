@@ -479,6 +479,7 @@ def dashboard_app(
     *,
     snapshot: WorkspaceSnapshot | None = None,
     refresh_seconds: float = 0,
+    query_refresh_seconds: float = 0,
     refresh_indicator_seconds: float = 0.75,
     fetcher: RemoteFetcher | None = None,
     cleaner: CleanupAdapter | None = None,
@@ -508,6 +509,7 @@ def dashboard_app(
             for key in QUERY_SOURCE_KEYS
         },
         refresh_seconds=refresh_seconds,
+        query_refresh_seconds=query_refresh_seconds,
         refresh_indicator_seconds=refresh_indicator_seconds,
         fetcher=fetcher,
         cleaner=cleaner,

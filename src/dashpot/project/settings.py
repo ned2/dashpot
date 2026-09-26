@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import ConfigDict, ValidationError, field_validator
+from pydantic import ConfigDict, PlainValidator, ValidationError, field_validator
 
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic
@@ -21,6 +23,22 @@ from ..core.pydantic import (
 SETTINGS_FILE_NAME = "config.toml"
 WORKTREE_ROOT_VARIABLE = "DASHPOT_WORKTREE_ROOT"
 WORKTREE_PATH_ARGUMENT = "{path}"
+
+
+def _refresh_seconds(value: object) -> float:
+    # Zero switches a period off, as TOML has no null; a boolean is not a
+    # number of seconds even though Python counts it as an integer.
+    if (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    ):
+        return float(value)
+    raise ValueError("must be a finite number of seconds, zero or more")
+
+
+RefreshSeconds = Annotated[float, PlainValidator(_refresh_seconds)]
 
 
 class SettingsError(DashpotError):
@@ -39,6 +57,8 @@ class SettingsFile(PublishedModel):
 
     worktree_root: NonBlankString | None = None
     worktree_open_command: LaxSequence[str] | None = None
+    refresh_seconds: RefreshSeconds | None = None
+    github_refresh_seconds: RefreshSeconds | None = None
 
     @field_validator("worktree_open_command")
     @classmethod
@@ -68,6 +88,8 @@ class Settings:
     worktree_root: Path | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     worktree_open_command: tuple[str, ...] | None = None
+    refresh_seconds: float | None = None
+    github_refresh_seconds: float | None = None
 
 
 def default_settings_path() -> Path:
@@ -114,13 +136,17 @@ def load_settings(path: Path | None = None) -> Settings:
         if file.worktree_open_command is not None
         else None
     )
-    if file.worktree_root is None:
-        return Settings(diagnostics=diagnostics, worktree_open_command=command)
-    # Path resolution is policy, not validation: ``~`` expands, and a relative
-    # root is anchored at the settings file's own directory.
-    root = Path(file.worktree_root).expanduser()
-    if not root.is_absolute():
-        root = settings_path.parent / root
+    root = None
+    if file.worktree_root is not None:
+        # Path resolution is policy, not validation: ``~`` expands, and a
+        # relative root is anchored at the settings file's own directory.
+        root = Path(file.worktree_root).expanduser()
+        if not root.is_absolute():
+            root = settings_path.parent / root
     return Settings(
-        worktree_root=root, diagnostics=diagnostics, worktree_open_command=command
+        worktree_root=root,
+        diagnostics=diagnostics,
+        worktree_open_command=command,
+        refresh_seconds=file.refresh_seconds,
+        github_refresh_seconds=file.github_refresh_seconds,
     )

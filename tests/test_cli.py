@@ -255,7 +255,15 @@ def test_json_mode_prints_snapshot() -> None:
     )
 
 
-def test_tui_mode_constructs_a_recurring_collector() -> None:
+def source_of(kind: str) -> mock.Mock:
+    """A stand-in Query Source reporting only which provider it asks."""
+    return mock.Mock(context=mock.Mock(source=kind))
+
+
+def test_tui_mode_constructs_a_recurring_collector(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     collector = mock.Mock()
     sources = {key: mock.Mock() for key in QUERY_SOURCE_KEYS}
 
@@ -281,6 +289,67 @@ def test_tui_mode_constructs_a_recurring_collector() -> None:
     assert app.call_args.args == (collector,)
     assert app.call_args.kwargs["sources"] is sources
     app.return_value.run.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    ("argv", "local", "github"),
+    [
+        ([], 5.0, 90.0),
+        (["--refresh-seconds", "20", "--github-refresh-seconds", "0"], 20.0, 0.0),
+    ],
+)
+def test_tui_mode_paces_each_refresh_from_its_flag_or_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    argv: list[str],
+    local: float,
+    github: float,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    (tmp_path / "dashpot").mkdir()
+    (tmp_path / "dashpot" / "config.toml").write_text(
+        "refresh_seconds = 5\ngithub_refresh_seconds = 90\n"
+    )
+    sources = {key: source_of("github") for key in QUERY_SOURCE_KEYS}
+
+    with (
+        mock.patch.object(cli, "create_collector") as create_collector,
+        mock.patch.object(cli, "create_query_sources", return_value=sources),
+        mock.patch.object(cli, "DashpotApp") as app,
+    ):
+        assert cli.main(["--workspace", "/repo", *argv]) == 0
+
+    assert create_collector.call_args.args[0].refresh_seconds == local
+    assert app.call_args.kwargs["refresh_seconds"] == local
+    assert app.call_args.kwargs["query_refresh_seconds"] == github
+
+
+def test_refresh_periods_default_without_a_flag_or_setting(tmp_path: Path) -> None:
+    assert composition.refresh_periods(
+        settings_path=tmp_path / "config.toml"
+    ) == composition.RefreshPeriods(local=15.0, github=60.0)
+
+
+def test_unreadable_settings_leave_the_default_refresh_periods(tmp_path: Path) -> None:
+    # The dashboard still opens; its launcher configuration reports the file.
+    path = tmp_path / "config.toml"
+    path.write_text("refresh_seconds = -1\ngithub_refresh_seconds = 5\n")
+
+    assert composition.refresh_periods(
+        settings_path=path
+    ) == composition.RefreshPeriods(local=15.0, github=60.0)
+    assert composition.refresh_periods(
+        3, settings_path=path
+    ) == composition.RefreshPeriods(local=3, github=60.0)
+
+
+def test_only_a_github_query_source_takes_the_github_period() -> None:
+    periods = composition.RefreshPeriods(local=15.0, github=60.0)
+
+    assert periods.query_seconds({"issues": source_of("github")}) == periods.github
+    assert (
+        periods.query_seconds({"issues": source_of("local-markdown")}) == periods.local
+    )
 
 
 def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
@@ -1409,6 +1478,8 @@ def test_default_command_parses_every_observation_option(tmp_path: Path) -> None
             "2.5",
             "--refresh-seconds",
             "0",
+            "--github-refresh-seconds",
+            "120",
             "--state-dir",
             "/state",
             "--compact-json",
@@ -1423,6 +1494,7 @@ def test_default_command_parses_every_observation_option(tmp_path: Path) -> None
         "config": Path("~/workspaces.json"),
         "timeout": 2.5,
         "refresh_seconds": 0.0,
+        "github_refresh_seconds": 120.0,
         "state_dir": Path("/state"),
         "json_output": False,
         "compact_json": True,
@@ -1435,7 +1507,9 @@ def test_default_command_defaults_match_observation_options() -> None:
     assert bound["workspace"] is None
     assert bound["config"] is None
     assert bound["timeout"] == composition.ObservationOptions().timeout
-    assert bound["refresh_seconds"] == composition.ObservationOptions().refresh_seconds
+    # An absent period flag defers to the settings file, then the default.
+    assert bound["refresh_seconds"] is None
+    assert bound["github_refresh_seconds"] is None
     assert bound["state_dir"] is None
     assert bound["json_output"] is False
 
@@ -1463,6 +1537,9 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
         (["--timeout", "-1"], "Must be > 0."),
         (["--timeout", "soon"], 'unable to convert "soon" into float'),
         (["--refresh-seconds", "-1"], "Must be >= 0."),
+        (["--github-refresh-seconds", "-1"], "Must be >= 0."),
+        (["--refresh-seconds", "inf"], "Must be a finite number of seconds."),
+        (["--github-refresh-seconds", "inf"], "Must be a finite number of seconds."),
         (["--no-json"], "Unknown option: --no-json"),
         (["--empty-workspace"], "Unknown option: --empty-workspace"),
         (["--timeout", "5", "init"], "Unused Tokens: ['init']"),
@@ -1509,6 +1586,7 @@ def test_root_help_describes_the_command_hierarchy_and_options() -> None:
         "--config",
         "--timeout",
         "--refresh-seconds",
+        "--github-refresh-seconds",
         "--state-dir",
         "--json",
         "--compact-json",
