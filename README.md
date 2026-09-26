@@ -153,7 +153,7 @@ the management commands `init`, `integrate`,
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle within the active peer; the newly focused pane's cursor is where it was last left |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); opens a Worktree only from the Worktrees pane and is unbound on Sessions and Pull Requests |
 | `?` | Open the Legend: every column's description with its Glyphs, pane by pane, and the keys; `Escape` closes, `End` and `Home` scroll. Resting the mouse on any column header shows the same description as a tooltip |
-| `s` | Open Runtime Stats: the GitHub allowance, commands by program, and this dashboard's version, uptime, memory and Event Log, computed from its last hour of Runtime Events and updated while open; `l` there changes the Event Level for this run only; `Escape` or `s` closes |
+| `s` | Open Runtime Stats: the GitHub allowance and the points each operation spent, refresh health by trigger and by key, commands by program, and this dashboard's version, uptime, memory and Event Log, computed from its last hour of Runtime Events and updated while open ([design](docs/observability-design.md#reading)); `l` there changes the Event Level for this run only; `Escape` or `s` closes |
 | `q` | Quit |
 
 Dashboard is the default peer. Its Sessions, Worktrees and Branches panes are

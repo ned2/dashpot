@@ -27,18 +27,29 @@ from dashpot.core.event_log import (
     DASHBOARD_RECENT_WINDOW,
     EventLog,
     EventLogDestination,
+    Span,
 )
 from dashpot.core.runtime_events import (
     CommandAttributes,
     EventLevel,
+    GitHubRequestAttributes,
+    KeyOutcome,
     LevelChanged,
+    ObservationAttributes,
     ProcessIdentity,
     ProcessStart,
+    QueryAttributes,
+    RefreshAttributes,
+    RefreshTrigger,
 )
 from dashpot.core.runtime_stats import (
+    CommandStats,
     ResidentMemory,
+    account_spend,
     command_stats,
     covered_since,
+    events_since,
+    last_github_refresh,
     resident_memory,
 )
 from dashpot.github.github import LatestRateLimit, RateLimit
@@ -48,8 +59,11 @@ from dashpot.ui.legend import LegendScreen
 from dashpot.ui.runtime_stats_view import (
     RuntimeStatsScreen,
     duration_text,
+    keys_text,
+    refreshes_text,
     size_text,
     uptime_text,
+    window_text,
 )
 from helpers import wait_until
 
@@ -57,6 +71,7 @@ RUN = "0123456789abcdef0123456789abcdef"
 REVISION = "0123456789abcdef0123456789abcdef01234567"
 MIDDAY = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
 HOUR = DASHBOARD_RECENT_WINDOW.total_seconds()
+MIDDAY_STAMP = "2026-09-27T12:00:00Z"
 
 
 class Clock:
@@ -123,6 +138,65 @@ def run_command(
     if failed:
         span.fail("CommandError")
     span.end()
+
+
+RESET = "2026-09-27T13:00:00Z"
+
+
+def refresh(log: EventLog, trigger: RefreshTrigger) -> Span:
+    """Start a refresh span, as a timer or a key press fires one."""
+    return log.start_span(
+        "refresh", attributes=RefreshAttributes(trigger=trigger), parent=None
+    )
+
+
+def key(
+    log: EventLog,
+    parent: Span | None,
+    attributes: ObservationAttributes | QueryAttributes,
+) -> Span:
+    """Start the span of one key a refresh, or nothing, asked for."""
+    name = "observation" if isinstance(attributes, ObservationAttributes) else "query"
+    return log.start_span(name, attributes=attributes, parent=parent)
+
+
+def end_after(span: Span, clock: Clock, seconds: float) -> None:
+    clock.advance(seconds)
+    span.end()
+
+
+def request(
+    log: EventLog,
+    clock: Clock,
+    parent: Span,
+    operation: str | None,
+    *,
+    cost: int | None = None,
+    remaining: int | None = None,
+    failed: bool = False,
+) -> None:
+    """Record one GitHub request under ``parent``, with the reading its response carried."""
+    read = remaining is not None
+    span = log.start_span(
+        "github.request",
+        attributes=GitHubRequestAttributes(
+            api="rest" if operation is None else "graphql",
+            operation=operation,
+            cost=cost,
+            limit=5000 if read else None,
+            remaining=remaining,
+            reset_at=RESET if read else None,
+        ),
+        parent=parent,
+        level="standard",
+    )
+    if failed:
+        span.fail("github-rate-limit")
+    end_after(span, clock, 0.2)
+
+
+def rows_starting(text: str, *prefixes: str) -> list[str]:
+    return [line for line in squeezed(text) if line.startswith(prefixes)]
 
 
 def stats_app(
@@ -217,20 +291,24 @@ async def test_only_the_last_hours_events_are_counted(tmp_path: Path) -> None:
     assert "process.start" not in [event.body.name for event in log.recent]
 
 
-@pytest.mark.asyncio
-async def test_a_full_buffer_says_how_far_back_it_reaches(tmp_path: Path) -> None:
+def test_a_full_buffer_says_how_far_back_it_reaches() -> None:
     clock = Clock()
-    log = stats_log(tmp_path, clock, keep_recent=2)
+    log = stats_log(None, clock, keep_recent=2)
     clock.advance(2 * HOUR)
     for _ in range(3):
         run_command(log, clock, "git", 60)
-    app = stats_app(log)
+    events = log.recent_events()
 
-    async with app.run_test(size=(100, 40)) as pilot:
-        await open_stats(app, pilot)
+    since = covered_since(
+        events, now=clock.now, window=DASHBOARD_RECENT_WINDOW, limit=2
+    )
 
-        assert heading(app, "commands") == "COMMANDS · last 2m 00s, buffer full"
-        assert squeezed(section(app, "commands"))[1:] == ["git 2 1m 00s 1m 00s 0"]
+    assert window_text(since, now=clock.now, started=MIDDAY) == (
+        "last 2m 00s, buffer full"
+    )
+    assert command_stats(events_since(events, since)) == (
+        CommandStats("git", 2, 60.0, 60.0, 0),
+    )
 
 
 @pytest.mark.asyncio
@@ -373,6 +451,109 @@ async def test_the_allowance_shows_the_latest_reading_the_sources_share(
             "remaining 4,321 of 5,000 points",
             "resets 13:00:00 UTC, in 1h 00m 00s",
             "last request 1 point",
+            "rest of account not known until two readings share a window",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_github_requests_are_counted_by_operation_for_the_last_refresh_and_hour(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    log = stats_log(tmp_path, clock)
+    shared = LatestRateLimit()
+    app = stats_app(log, rate_limit=shared)
+
+    async with app.run_test(size=(100, 60)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        clock.advance(10)
+        timer = refresh(log, "github")
+        issues = key(log, timer, QueryAttributes(key="issues", outcome="landed"))
+        request(log, clock, issues, "DashpotQueryPage", cost=1, remaining=4990)
+        request(log, clock, issues, "DashpotQueryPage", cost=1, remaining=4985)
+        issues.end()
+        prs = key(log, timer, QueryAttributes(key="pull-requests", outcome="landed"))
+        request(log, clock, prs, "DashpotPullRequestPage", cost=2, remaining=4980)
+        prs.end()
+        end_after(timer, clock, 0.1)
+        clock.advance(10)
+        manual = refresh(log, "manual")
+        page = key(log, manual, QueryAttributes(key="issues", outcome="landed"))
+        request(log, clock, page, "DashpotQueryPage", cost=1, remaining=4979)
+        request(log, clock, page, None, failed=True)
+        page.end()
+        # Still running, so not yet the last refresh.
+        running = refresh(log, "github")
+        request(log, clock, running, "DashpotQueryPage", cost=1)
+        shared.record(RateLimit(cost=1, limit=5000, remaining=4979, reset_at=RESET))
+        manual.end()
+        await open_stats(app, pilot)
+
+        assert heading(app, "refresh-spend") == (
+            "GITHUB REQUESTS · last refresh, manual at 12:00:20 UTC"
+        )
+        assert squeezed(section(app, "refresh-spend")) == [
+            "operation requests points failed",
+            "DashpotQueryPage 1 1 0",
+            "rest 1 0 1",
+        ]
+        assert heading(app, "window-spend") == "GITHUB REQUESTS · since start"
+        assert squeezed(section(app, "window-spend")) == [
+            "operation requests points failed",
+            "DashpotQueryPage 4 4 0",
+            "DashpotPullRequestPage 1 2 0",
+            "rest 1 0 1",
+        ]
+        # 11 points used between the first reading and the last, 4 of them
+        # by this dashboard's later requests.
+        assert "rest of account 7 points since start" in squeezed(
+            section(app, "allowance")
+        )
+
+
+@pytest.mark.asyncio
+async def test_refresh_health_is_shown_by_trigger_and_by_key(tmp_path: Path) -> None:
+    clock = Clock()
+    log = stats_log(tmp_path, clock)
+    app = stats_app(log)
+
+    async with app.run_test(size=(100, 60)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        outcomes: list[tuple[str, KeyOutcome, float]] = [
+            ("targets", "landed", 0.5),
+            ("targets", "skipped", 0.0),
+            ("agent-runs", "dropped", 0.0),
+        ]
+        for seconds, keys in ((1.0, outcomes), (3.0, outcomes[:1])):
+            local = refresh(log, "local")
+            for kind, outcome, taking in keys:
+                observed = key(
+                    log, local, ObservationAttributes(kind=kind, outcome=outcome)
+                )
+                end_after(observed, clock, taking)
+            end_after(local, clock, seconds)
+        # A query a person asked for belongs to no refresh.
+        query = key(log, None, QueryAttributes(key="identities", outcome="landed"))
+        query.fail("github-rate-limit")
+        end_after(query, clock, 2.0)
+        await open_stats(app, pilot)
+
+        assert heading(app, "refreshes") == "REFRESHES · since start"
+        assert rows_starting(section(app, "refreshes"), "trigger", "local") == [
+            "trigger count typical worst skipped dropped",
+            "local 2 2.5 s 3.5 s 1 1",
+        ]
+        assert rows_starting(
+            section(app, "keys"),
+            "key",
+            "observation targets",
+            "observation agent-runs",
+            "query identities",
+        ) == [
+            "key runs typical worst skipped dropped failed",
+            "observation agent-runs 0 0 ms 0 ms 0 1 0",
+            "observation targets 2 500 ms 500 ms 1 0 0",
+            "query identities 1 2.0 s 2.0 s 0 0 1",
         ]
 
 
@@ -390,6 +571,43 @@ def test_a_buffer_below_its_limit_covers_the_whole_window() -> None:
     assert covered_since(
         (), now=clock.now, window=DASHBOARD_RECENT_WINDOW, limit=0
     ) == (clock.now - DASHBOARD_RECENT_WINDOW)
+
+
+def test_the_rest_of_the_account_is_counted_within_each_reset_window() -> None:
+    clock = Clock()
+    log = stats_log(None, clock)
+    parent = refresh(log, "github")
+    request(log, clock, parent, "Q", cost=1, remaining=100)
+    request(log, clock, parent, "Q", cost=1, remaining=90)
+    parent.end()
+    one_window = log.recent_events()
+
+    # A reading in another window compares with nothing, and a cost larger
+    # than the change in points — answers that crossed — counts as nothing.
+    other = log.start_span(
+        "github.request",
+        attributes=GitHubRequestAttributes(
+            api="graphql", cost=5, limit=5000, remaining=4000, reset_at=MIDDAY_STAMP
+        ),
+    )
+    other.end()
+    request(log, clock, parent, "Q", cost=50, remaining=89)
+
+    assert account_spend(one_window) == 9
+    assert account_spend(log.recent_events()) == 0
+    assert account_spend(()) is None
+
+
+def test_a_request_whose_refresh_is_not_recorded_belongs_to_no_last_refresh() -> None:
+    clock = Clock()
+    log = stats_log(None, clock)
+    running = refresh(log, "local")
+    request(log, clock, running, "Q", cost=1)
+    orphan = log.start_span("query", attributes=QueryAttributes(key="issues"))
+    request(log, clock, orphan, "Q", cost=1)
+    orphan.end()
+
+    assert last_github_refresh(log.recent_events()) is None
 
 
 def test_a_command_span_without_attributes_names_no_program() -> None:
@@ -446,3 +664,8 @@ def test_uptime_reads_leading_unit_first(seconds: float, text: str) -> None:
 )
 def test_a_size_reads_in_decimal_units(size: int, text: str) -> None:
     assert size_text(int(size)) == text
+
+
+def test_a_window_with_no_refreshes_says_so() -> None:
+    assert refreshes_text([]).plain == "no refreshes recorded"
+    assert keys_text([]).plain == "no observations or queries recorded"

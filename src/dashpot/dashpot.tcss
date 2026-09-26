@@ -392,6 +392,12 @@ LegendScreen, RuntimeStatsScreen {
     background: $surface;
 }
 
+/* Runtime Stats' widest table, the refresh keys, needs more than the Legend. */
+#runtime-stats-dialog {
+    width: 90;
+    max-width: 100%;
+}
+
 #legend-title, #runtime-stats-title {
     height: 1;
     color: $text;

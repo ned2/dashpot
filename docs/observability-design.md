@@ -334,23 +334,36 @@ output.
 ## Reading
 
 - **Runtime Stats** ([#315](https://github.com/ned2/dashpot/issues/315)), a
-  screen on `s` laid out like the Legend screen: GitHub allowance (points
-  and requests by operation for the last refresh and the last hour,
-  `remaining` and `resetAt`, spend by the rest of the account, pause state);
-  refresh health (durations, and refreshes skipped or dropped, by timer);
-  commands (by program: count, typical and worst time, failures); and this
-  process (version, commit, uncommitted changes, uptime, memory, the Event
-  Log's path, size, level and write errors, and the level toggle). It
-  aggregates the dashboard's in-memory buffer when it draws, about once a
-  second while open, and sends no request of its own. The buffer keeps the
-  last hour's events at full detail whatever the level in force, and at most
-  10,000 of them; a buffer full before the hour is up says how far back it
-  reaches. The version and commit are what `process.start` recorded, and
-  the allowance's `remaining`, `limit` and `resetAt` are the latest reading
-  the Query Sources share. Memory is the current resident set size from
-  `/proc/self/statm` on Linux; elsewhere it is the peak `getrusage` reports,
-  labelled as the peak, so drawing the screen starts no process. `l` moves
-  the level through `off`, `standard` and `full` for the rest of the run.
+  screen on `s` laid out like the Legend screen, aggregating the dashboard's
+  in-memory buffer when it draws, about once a second while open; it sends
+  no request of its own. The buffer keeps the last hour's events at full
+  detail whatever the level in force, and at most 10,000 of them; a buffer
+  full before the hour is up says how far back it reaches. Its sections:
+  - **GitHub allowance:** `remaining`, `limit` and `resetAt` from the latest
+    reading the Query Sources share, and the points the rest of the account
+    spent: within each rate limit window, the change in points used between
+    the requests' readings less the cost of this dashboard's own requests
+    after the first.
+  - **GitHub requests:** requests, points and failures by GraphQL operation
+    (or by API for a request that names none), for the latest ended refresh
+    that sent any and for the window.
+  - **Refreshes:** by trigger, how many, their typical and worst duration,
+    and the keys they skipped (busy) or dropped (replaced while waiting).
+  - **Refresh keys:** each observation and query key's runs, typical and
+    worst duration, skips, drops and failures, whether a refresh or a
+    person asked for it.
+  - **Commands:** by program, count, typical and worst duration, and
+    failures.
+  - **This process:** version, commit and uncommitted changes from
+    `process.start`, uptime, memory, the Event Log's path, size, level and
+    dropped writes, and `l`, which moves the level through `off`, `standard`
+    and `full` for the rest of the run. Memory is the current resident set
+    size from `/proc/self/statm` on Linux; elsewhere it is the peak
+    `getrusage` reports, labelled as the peak, so drawing the screen starts
+    no process.
+
+  Whether GitHub queries are paused joins the allowance once
+  [#306](https://github.com/ned2/dashpot/issues/306) records it.
 - **`dashpot events`** ([#316](https://github.com/ned2/dashpot/issues/316)):
   `--session`, `--issue`, `--project`, `--since` and `--level` filters and
   `--json`, merging every Worktree of the Repository and the machine-local
