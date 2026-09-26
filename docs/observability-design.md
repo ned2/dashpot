@@ -206,8 +206,9 @@ output.
 | `full` | plus every refresh, observation, query and command span | for development |
 
 - **Each event carries its level**, so a reader can filter by it.
-- **Counting rule.** Count only what is always written at the level in
-  force. At `standard`, failed local spans are debugging examples and are
+- **Counting rule.** Counting from the Event Log's files, count only what
+  is always written at the level in force; Runtime Stats count everything in
+  the dashboard's buffer, which keeps every event whatever the level. At `standard`, failed local spans are debugging examples and are
   never counted; GitHub request spans are always written, so points and
   requests are always countable. `level.changed` marks where the level in
   force changed, and is written at whichever of the two levels records more.

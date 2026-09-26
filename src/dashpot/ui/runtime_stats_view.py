@@ -93,16 +93,18 @@ class RuntimeStatsSubject(Protocol):
         ...
 
 
-def duration_text(seconds: float) -> str:
-    """A command's duration, in the unit that reads best."""
+def duration_text(seconds: float | None) -> str:
+    """A measured duration in the unit that reads best, a dash when none was measured."""
+    if seconds is None:
+        return "—"
     if seconds < 1:
         return f"{seconds * 1000:.0f} ms"
     if seconds < 60:
         return f"{seconds:.1f} s"
-    return uptime_text(seconds)
+    return long_duration_text(seconds)
 
 
-def uptime_text(seconds: float) -> str:
+def long_duration_text(seconds: float) -> str:
     """A long duration in days, hours, minutes and seconds, leading unit first."""
     whole = int(seconds)
     days, rest = divmod(whole, 86_400)
@@ -132,7 +134,7 @@ def window_text(since: datetime, *, now: datetime, started: datetime) -> str:
     if now - since >= DASHBOARD_RECENT_WINDOW:
         return "last hour"
     # A full buffer let go of older events by count before the hour was up.
-    return f"last {uptime_text((now - since).total_seconds())}, buffer full"
+    return f"last {long_duration_text((now - since).total_seconds())}, buffer full"
 
 
 def rows(pairs: Sequence[tuple[str, str]]) -> Text:
@@ -169,7 +171,7 @@ def allowance_text(
     return rows(
         (
             ("remaining", f"{reading.remaining:,} of {points_text(reading.limit)}"),
-            ("resets", f"{reset:%H:%M:%S} UTC, in {uptime_text(left)}"),
+            ("resets", f"{reset:%H:%M:%S} UTC, in {long_duration_text(left)}"),
             ("last request", points_text(reading.cost)),
             (
                 "rest of account",
@@ -332,7 +334,7 @@ def process_text(
     return rows(
         (
             *source_text(log.facts),
-            ("uptime", uptime_text(log.uptime_seconds())),
+            ("uptime", long_duration_text(log.uptime_seconds())),
             ("memory", memory_text(memory)),
             *event_log_rows(log, size),
             ("level", f"{log.level} · l changes it for this run"),

@@ -85,8 +85,10 @@ reading it. The full design, with its measurements and sources, is in
 - **Counts are derived from events.** Every metric is an aggregation over
   recorded events, computed when read; nothing keeps a running total, not
   even the dashboard's own view, which aggregates an in-memory buffer of
-  recent events. Only what is always written at the level in force is
-  counted: at `standard`, failed local spans are examples, never a count.
+  recent events. A count read from the Event Log's files counts only what is
+  always written at the level in force: at `standard`, failed local
+  spans are examples, never a count. The dashboard's buffer keeps every
+  event whatever the level, so everything in it counts.
   `level.changed` marks where the level in force changed.
 
 ### Content

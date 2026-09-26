@@ -569,7 +569,9 @@ every GitHub request span and every failed span; `full` adds every
 refresh, observation, query and command span. The `event_level` setting chooses it,
 `DASHPOT_EVENT_LEVEL` overrides that, and a running dashboard may change its
 own for the rest of the run. Each Runtime Event carries the level it belongs
-to, and only what is always written at the level in force is counted.
+to, and a count read from the Event Log's files counts only what is always
+written at the level in force; a dashboard's in-memory buffer keeps every
+event whatever the level, so Runtime Stats count everything in it.
 _Avoid_: telemetry level; log level or verbosity, which suggest the
 severity of a Diagnostic
 

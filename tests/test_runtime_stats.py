@@ -60,9 +60,10 @@ from dashpot.ui.runtime_stats_view import (
     RuntimeStatsScreen,
     duration_text,
     keys_text,
+    long_duration_text,
+    memory_text,
     refreshes_text,
     size_text,
-    uptime_text,
     window_text,
 )
 from helpers import wait_until
@@ -288,7 +289,7 @@ async def test_only_the_last_hours_events_are_counted(tmp_path: Path) -> None:
         assert heading(app, "commands") == "COMMANDS · last hour"
         assert squeezed(section(app, "commands"))[1:] == ["gh 1 100 ms 100 ms 0"]
     # The buffer let the hour-old events go, so weeks of running never grow it.
-    assert "process.start" not in [event.body.name for event in log.recent]
+    assert "process.start" not in [event.body.name for event in log.recent_events()]
 
 
 def test_a_full_buffer_says_how_far_back_it_reaches() -> None:
@@ -419,7 +420,9 @@ async def test_l_changes_the_level_for_the_run_and_never_the_settings(
 
     assert settings.read_text() == "event_level = 'standard'\n"
     assert [
-        event.body for event in log.recent if isinstance(event.body, LevelChanged)
+        event.body
+        for event in log.recent_events()
+        if isinstance(event.body, LevelChanged)
     ] == [
         LevelChanged(previous="standard", current="full"),
         LevelChanged(previous="full", current="off"),
@@ -551,7 +554,7 @@ async def test_refresh_health_is_shown_by_trigger_and_by_key(tmp_path: Path) -> 
             "query identities",
         ) == [
             "key runs typical worst skipped dropped failed",
-            "observation agent-runs 0 0 ms 0 ms 0 1 0",
+            "observation agent-runs 0 — — 0 1 0",
             "observation targets 2 500 ms 500 ms 1 0 0",
             "query identities 1 2.0 s 2.0 s 0 0 1",
         ]
@@ -655,7 +658,7 @@ def test_a_duration_reads_in_its_best_unit(seconds: float, text: str) -> None:
     [(9, "9s"), (61, "1m 01s"), (3725, "1h 02m 05s"), (90_061, "1d 1h 01m")],
 )
 def test_uptime_reads_leading_unit_first(seconds: float, text: str) -> None:
-    assert uptime_text(seconds) == text
+    assert long_duration_text(seconds) == text
 
 
 @pytest.mark.parametrize(
@@ -669,3 +672,8 @@ def test_a_size_reads_in_decimal_units(size: int, text: str) -> None:
 def test_a_window_with_no_refreshes_says_so() -> None:
     assert refreshes_text([]).plain == "no refreshes recorded"
     assert keys_text([]).plain == "no observations or queries recorded"
+
+
+def test_memory_says_when_it_is_only_the_peak() -> None:
+    assert memory_text(ResidentMemory(12_300_000, peak=False)) == "12.3 MB resident"
+    assert memory_text(ResidentMemory(12_300_000, peak=True)) == "12.3 MB peak resident"

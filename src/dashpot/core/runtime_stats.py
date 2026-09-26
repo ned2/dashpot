@@ -2,8 +2,9 @@
 
 Every figure is computed when read, from the events a dashboard keeps in
 memory: nothing here keeps a running total, and nothing is counted beside
-the events (ADR 0059). The buffer holds every event at full detail whatever
-the level in force, so every event in it counts. Each aggregation is a pure
+the events (ADR 0059). The counting rule reads the Event Log's files; the
+buffer holds every event at full detail whatever the level in force, so
+every event in it counts. Each aggregation is a pure
 function over events, so a section is one function more.
 """
 
@@ -83,28 +84,20 @@ class CommandStats:
 
 def command_stats(events: Iterable[RuntimeEvent]) -> tuple[CommandStats, ...]:
     """Every program's command spans, the most run first."""
-    durations: dict[str, list[float]] = {}
-    failures: dict[str, int] = {}
-    for event in events:
-        body = event.body
-        if not isinstance(body, SpanEnded) or body.span_name != "command":
-            continue
-        attributes = body.attributes
-        if not isinstance(attributes, CommandAttributes):
-            continue
-        durations.setdefault(attributes.program, []).append(body.duration_seconds)
-        failures[attributes.program] = failures.get(attributes.program, 0) + int(
-            body.status == "ERROR"
-        )
+    commands: dict[str, list[SpanEnded]] = {}
+    for span in _spans(events):
+        if span.span_name == "command" and isinstance(
+            span.attributes, CommandAttributes
+        ):
+            commands.setdefault(span.attributes.program, []).append(span)
     stats = (
         CommandStats(
-            program=program,
-            count=len(taken),
-            typical_seconds=median(taken),
-            worst_seconds=max(taken),
-            failures=failures[program],
+            program,
+            len(taken),
+            *_typical_and_worst([span.duration_seconds for span in taken]),
+            failures=sum(span.status == "ERROR" for span in taken),
         )
-        for program, taken in durations.items()
+        for program, taken in commands.items()
     )
     return tuple(sorted(stats, key=lambda stat: (-stat.count, stat.program)))
 
@@ -121,7 +114,8 @@ def _spans(events: Iterable[RuntimeEvent]) -> Iterator[SpanEnded]:
 
 
 def _typical_and_worst(durations: Sequence[float]) -> tuple[float, float]:
-    return (median(durations), max(durations)) if durations else (0.0, 0.0)
+    """The median and the longest of ``durations``, of which there is at least one."""
+    return median(durations), max(durations)
 
 
 # -- GitHub allowance ---------------------------------------------------------
@@ -242,9 +236,10 @@ def account_spend(events: Iterable[RuntimeEvent]) -> int | None:
     for readings in windows.values():
         if len(readings) < 2:
             continue
-        # The reading with the most points left came first; its own cost was
-        # spent before it, and every other request's after it.
-        first = max(readings)
+        # The reading with the most points left came first, the earliest
+        # recorded among equals; its own cost was spent before it, and every
+        # other request's after it.
+        first = max(readings, key=lambda reading: reading[0])
         used = first[0] - min(remaining for remaining, _ in readings)
         own = sum(cost for _, cost in readings) - first[1]
         # Answers to concurrent requests can cross, so the difference is
@@ -277,20 +272,21 @@ class KeyHealth:
     """One observation or query key: how long it took when run, and when it was not.
 
     ``key`` names the kind of span and the key: ``observation targets``,
-    ``query issues``. The durations are of the times it ran; ``failures``
-    counts runs whose work could not be done.
+    ``query issues``. The durations are of the times it ran, ``None`` when it
+    never did; ``failures`` counts runs whose work could not be done.
     """
 
     key: str
     runs: int
-    typical_seconds: float
-    worst_seconds: float
+    typical_seconds: float | None
+    worst_seconds: float | None
     skipped: int
     dropped: int
     failures: int
 
 
-def _key_name(span: SpanEnded) -> tuple[str, KeyOutcome | None] | None:
+def _key_and_outcome(span: SpanEnded) -> tuple[str, KeyOutcome | None] | None:
+    """The key a key span ran and how it ended, or ``None`` for any other span."""
     attributes = span.attributes
     if isinstance(attributes, ObservationAttributes):
         return f"observation {attributes.kind}", attributes.outcome
@@ -316,11 +312,13 @@ def refresh_health(events: Iterable[RuntimeEvent]) -> tuple[RefreshHealth, ...]:
             )
     not_run: dict[tuple[RefreshTrigger, KeyOutcome | None], int] = {}
     for span in spans:
-        named = _key_name(span)
+        keyed = _key_and_outcome(span)
         trigger = triggers.get(span.parent_span_id or "")
-        if named is None or trigger is None or named[1] not in _NOT_RUN:
+        if keyed is None or trigger is None:
             continue
-        not_run[trigger, named[1]] = not_run.get((trigger, named[1]), 0) + 1
+        _, outcome = keyed
+        if outcome in _NOT_RUN:
+            not_run[trigger, outcome] = not_run.get((trigger, outcome), 0) + 1
     order = get_args(RefreshTrigger)
     return tuple(
         RefreshHealth(
@@ -341,10 +339,10 @@ def key_health(events: Iterable[RuntimeEvent]) -> tuple[KeyHealth, ...]:
     runs: dict[str, list[SpanEnded]] = {}
     outcomes: dict[tuple[str, KeyOutcome | None], int] = {}
     for span in _spans(events):
-        named = _key_name(span)
-        if named is None:
+        keyed = _key_and_outcome(span)
+        if keyed is None:
             continue
-        key, outcome = named
+        key, outcome = keyed
         runs.setdefault(key, [])
         if outcome in _NOT_RUN:
             outcomes[key, outcome] = outcomes.get((key, outcome), 0) + 1
@@ -354,7 +352,11 @@ def key_health(events: Iterable[RuntimeEvent]) -> tuple[KeyHealth, ...]:
         KeyHealth(
             key,
             len(ran),
-            *_typical_and_worst([span.duration_seconds for span in ran]),
+            *(
+                _typical_and_worst([span.duration_seconds for span in ran])
+                if ran
+                else (None, None)
+            ),
             skipped=outcomes.get((key, "skipped"), 0),
             dropped=outcomes.get((key, "dropped"), 0),
             failures=sum(span.status == "ERROR" for span in ran),
