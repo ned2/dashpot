@@ -30,6 +30,7 @@ from textual.worker import get_current_worker
 from ..core.commands import RunningCommands
 from ..core.event_log import (
     DASHBOARD_RECENT_EVENTS,
+    DASHBOARD_RECENT_WINDOW,
     EventLog,
     carry_current_span,
     unrecorded_event_log,
@@ -38,6 +39,7 @@ from ..core.event_log import (
 from ..core.event_log_files import event_log_large_diagnostic, event_log_size
 from ..core.model import Diagnostic
 from ..core.runtime_events import EventLevel
+from ..github.github import LatestRateLimit
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text
 from ..observation.observation_store import ObservedDiagnostic
@@ -98,6 +100,7 @@ from .panes import (
     PaneSpec,
 )
 from .refresh_spans import Refresh, refresh_trigger
+from .runtime_stats_view import RuntimeStatsScreen
 from .session_table import SessionTable
 from .status_bar import PEER_ORDER, PeerName, PeerSelected, PeerStatusBar
 from .worktree_table import WorktreeTable
@@ -854,6 +857,7 @@ class DashpotApp(App[None]):
         ("q", "quit", "Quit"),
         ("question_mark", "legend", "Legend"),
         ("r", "refresh", "Refresh"),
+        ("s", "runtime_stats", "Runtime Stats"),
     ]
 
     def __init__(
@@ -868,6 +872,8 @@ class DashpotApp(App[None]):
         cleaner: CleanupAdapter | None = None,
         launcher_configuration: LauncherConfiguration | None = None,
         event_log: EventLog | None = None,
+        rate_limit: LatestRateLimit | None = None,
+        runtime_stats_seconds: float = 1.0,
     ) -> None:
         super().__init__()
         self._dashboard = DashboardScreen()
@@ -878,8 +884,14 @@ class DashpotApp(App[None]):
         # This run's Event Log, given by whoever started the process; without
         # one the dashboard keeps its recent events in memory only.
         self.event_log = event_log or unrecorded_event_log(
-            keep_recent=DASHBOARD_RECENT_EVENTS
+            keep_recent=DASHBOARD_RECENT_EVENTS, recent_window=DASHBOARD_RECENT_WINDOW
         )
+        # The GitHub rate limit reading the Query Sources share, which Runtime
+        # Stats shows, and how often that screen redraws while open.
+        self.rate_limit = rate_limit
+        self.runtime_stats_seconds = runtime_stats_seconds
+        # The Event Log directory's size when last measured.
+        self.event_log_bytes: int | None = None
         self.event_log_diagnostics: tuple[Diagnostic, ...] = ()
         # ``event-log-large`` while the Event Log directory is past its size.
         self.event_log_size_diagnostics: tuple[Diagnostic, ...] = ()
@@ -1040,6 +1052,12 @@ class DashpotApp(App[None]):
             return
         self.push_screen(LegendScreen(legend_keys()))
 
+    def action_runtime_stats(self) -> None:
+        """Show what this run spends and how it runs; the screen's own ``s`` closes it."""
+        self.push_screen(
+            RuntimeStatsScreen(self, update_seconds=self.runtime_stats_seconds)
+        )
+
     async def on_ready(self) -> None:
         self.main_loop = asyncio.get_running_loop()
         # Mount both installed peers before collection starts, then restore the
@@ -1167,6 +1185,7 @@ class DashpotApp(App[None]):
         destination = self.event_log.destination
         if message.size is None or destination is None:
             return
+        self.event_log_bytes = message.size
         large = event_log_large_diagnostic(destination, message.size)
         shown = () if large is None else (large,)
         if shown == self.event_log_size_diagnostics:
@@ -1496,4 +1515,5 @@ def legend_keys() -> tuple[KeyGroup, ...]:
         KeyGroup("Cleanup preview", tuple(CleanupScreen.BINDINGS)),
         KeyGroup("Cleanup report", tuple(CleanupReportScreen.BINDINGS)),
         KeyGroup("Legend", tuple(LegendScreen.BINDINGS)),
+        KeyGroup("Runtime Stats", tuple(RuntimeStatsScreen.BINDINGS)),
     )

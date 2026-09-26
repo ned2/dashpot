@@ -377,13 +377,13 @@ IssueColumnEditor {
     margin-left: 1;
 }
 
-/* The Legend: a modal that costs nothing while closed. */
-LegendScreen {
+/* The Legend and Runtime Stats: modals that cost nothing while closed. */
+LegendScreen, RuntimeStatsScreen {
     align: center middle;
     background: $background 70%;
 }
 
-#legend-dialog {
+#legend-dialog, #runtime-stats-dialog {
     width: 72;
     height: auto;
     max-height: 90%;
@@ -392,7 +392,7 @@ LegendScreen {
     background: $surface;
 }
 
-#legend-title {
+#legend-title, #runtime-stats-title {
     height: 1;
     color: $text;
     text-style: bold;

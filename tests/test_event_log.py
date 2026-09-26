@@ -325,6 +325,35 @@ def test_the_recent_buffer_keeps_every_event_whatever_the_level(tmp_path: Path) 
     assert not tmp_path.joinpath("events-2026-09-27.jsonl").exists()
 
 
+def test_the_recent_buffer_lets_go_of_events_older_than_its_window() -> None:
+    clock = Clock()
+    log = EventLog(
+        None,
+        identity=ProcessIdentity(run_id=RUN, kind=DASHBOARD_KIND),
+        level="off",
+        facts=facts,
+        keep_recent=10,
+        recent_window=timedelta(minutes=5),
+        clock=clock.wall,
+        monotonic=clock.monotonic,
+    )
+    assert log.facts is None
+
+    log.start()
+    clock.advance(240)
+    log.start_span("command").end()
+    clock.advance(120)
+    log.end(0)
+
+    assert [event.body.name for event in log.recent_events()] == [
+        "span",
+        "process.end",
+    ]
+    # What the process is outlives its start's place in the buffer.
+    assert log.facts == facts()
+    assert log.uptime_seconds() == 360
+
+
 # --- Failures ---------------------------------------------------------------
 
 

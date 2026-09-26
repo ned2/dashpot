@@ -340,7 +340,17 @@ output.
   refresh health (durations, and refreshes skipped or dropped, by timer);
   commands (by program: count, typical and worst time, failures); and this
   process (version, commit, uncommitted changes, uptime, memory, the Event
-  Log's path, size, level and write errors, and the level toggle).
+  Log's path, size, level and write errors, and the level toggle). It
+  aggregates the dashboard's in-memory buffer when it draws, about once a
+  second while open, and sends no request of its own. The buffer keeps the
+  last hour's events at full detail whatever the level in force, and at most
+  10,000 of them; a buffer full before the hour is up says how far back it
+  reaches. The version and commit are what `process.start` recorded, and
+  the allowance's `remaining`, `limit` and `resetAt` are the latest reading
+  the Query Sources share. Memory is the current resident set size from
+  `/proc/self/statm` on Linux; elsewhere it is the peak `getrusage` reports,
+  labelled as the peak, so drawing the screen starts no process. `l` moves
+  the level through `off`, `standard` and `full` for the rest of the run.
 - **`dashpot events`** ([#316](https://github.com/ned2/dashpot/issues/316)):
   `--session`, `--issue`, `--project`, `--since` and `--level` filters and
   `--json`, merging every Worktree of the Repository and the machine-local

@@ -32,6 +32,7 @@ from dashpot.core.model import (
     SourceStatus,
     WorkspaceSnapshot,
 )
+from dashpot.github.github import LatestRateLimit
 from dashpot.issues.lifecycle import collection_open_blockers, in_lifecycle
 from dashpot.issues.ordering import is_issue_sort_column, sort_issues
 from dashpot.issues.search import IssueSearchField, matches_issue_search, parse_search
@@ -509,6 +510,8 @@ def dashboard_app(
     launcher_configuration: LauncherConfiguration | None = None,
     release: Event | None = None,
     event_log: EventLog | None = None,
+    rate_limit: LatestRateLimit | None = None,
+    runtime_stats_seconds: float = 1.0,
 ) -> DashpotApp:
     """Build the shipped app over a collector, its queries served from a snapshot.
 
@@ -539,6 +542,8 @@ def dashboard_app(
         cleaner=cleaner,
         launcher_configuration=launcher_configuration,
         event_log=event_log,
+        rate_limit=rate_limit,
+        runtime_stats_seconds=runtime_stats_seconds,
     )
     # These tests assert settled layout and state, not intermediate animation frames.
     # Keep real rendering and Pilot synchronization while avoiding optional motion.

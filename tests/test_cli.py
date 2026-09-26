@@ -286,9 +286,14 @@ def test_tui_mode_constructs_a_recurring_collector(
         ),
         recurring=True,
     )
-    create_query_sources.assert_called_once_with(collector)
+    ((given_collector, reading),) = [
+        call.args for call in create_query_sources.call_args_list
+    ]
+    assert given_collector is collector
     assert app.call_args.args == (collector,)
     assert app.call_args.kwargs["sources"] is sources
+    # Runtime Stats shows the very reading the Query Sources record into.
+    assert app.call_args.kwargs["rate_limit"] is reading
     app.return_value.run.assert_called_once_with()
 
 
@@ -388,6 +393,12 @@ def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
     # recent one GitHub gave any of them.
     assert readings[0] is not None
     assert all(reading is readings[0] for reading in readings)
+
+    # A reading given is the one they share, so the dashboard can show it.
+    shared = LatestRateLimit()
+    readings.clear()
+    composition.create_query_sources(collector, shared)
+    assert readings == [shared] * len(QUERY_SOURCE_KEYS)
 
 
 def test_query_sources_fall_back_to_the_current_directory_without_projects(

@@ -153,6 +153,7 @@ the management commands `init`, `integrate`,
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle within the active peer; the newly focused pane's cursor is where it was last left |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); opens a Worktree only from the Worktrees pane and is unbound on Sessions and Pull Requests |
 | `?` | Open the Legend: every column's description with its Glyphs, pane by pane, and the keys; `Escape` closes, `End` and `Home` scroll. Resting the mouse on any column header shows the same description as a tooltip |
+| `s` | Open Runtime Stats: the GitHub allowance, commands by program, and this dashboard's version, uptime, memory and Event Log, computed from its last hour of Runtime Events and updated while open; `l` there changes the Event Level for this run only; `Escape` or `s` closes |
 | `q` | Quit |
 
 Dashboard is the default peer. Its Sessions, Worktrees and Branches panes are
@@ -160,9 +161,9 @@ separate from the Pull Requests and Issues query peer. Each long-lived peer
 keeps its focused control, row cursors, scroll positions, lifecycle choices,
 submitted queries and unsubmitted search text while the other is active; a
 pane's first entry starts at its first row. Passive refreshes preserve selected
-row identity. Issue Detail, Legend and Cleanup cover their originating peer,
-and `Escape` returns there; all Peer Screen keys are inactive on those temporary
-screens. `1` and `2` insert text normally while an editable input has focus;
+row identity. Issue Detail, Legend, Runtime Stats and Cleanup cover their
+originating peer, and `Escape` returns there; all Peer Screen keys are inactive
+on those temporary screens. `1` and `2` insert text normally while an editable input has focus;
 `Ctrl+Shift+Left` and `Ctrl+Shift+Right` remain global screen navigation there
 rather than selecting query text by words.
 
