@@ -379,8 +379,9 @@ async def test_dropped_writes_are_counted_from_the_buffer(tmp_path: Path) -> Non
     async with app.run_test(size=(100, 40)) as pilot:
         await open_stats(app, pilot)
 
-        # ``process.start`` and the failed span were both dropped.
-        assert "write failures 2 since start, first ENOTDIR" in squeezed(
+        # ``process.start``, the failed span and the Diagnostic the unwritable
+        # Event Log raises were all dropped.
+        assert "write failures 3 since start, first ENOTDIR" in squeezed(
             section(app, "process")
         )
 
