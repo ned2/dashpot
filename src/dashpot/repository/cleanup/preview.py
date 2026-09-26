@@ -149,7 +149,7 @@ def _remote_branch_target(
     fetched: str | None,
     *,
     requires: str | None = None,
-    checked_out_at: Path | None = None,
+    blocked_worktree: Path | None = None,
 ) -> CleanupTarget:
     tracking = f"{REMOTE_REF_PREFIX}{remote}/{name}"
     commit = refs.commits[tracking]
@@ -159,13 +159,16 @@ def _remote_branch_target(
     blockers = _integration_branch_blockers(
         tracking, name, integration_ref, refs.origin_head
     )
-    if checked_out_at is not None:
+    if blocked_worktree is not None:
         # Offered from the Worktrees pane only as part of finishing the
         # Worktree, so it goes no further than a Worktree that cannot go.
         blockers.append(
             CleanupBlocker(
                 kind="checked-out",
-                detail=f"checked out at {checked_out_at}, whose removal is blocked",
+                detail=(
+                    f"its local Branch is checked out at {blocked_worktree}, "
+                    f"whose removal is blocked"
+                ),
             )
         )
     blockers.extend(_remote_blockers(git, remote))
@@ -392,7 +395,7 @@ def _attached_branch_targets(
                 integration_ref,
                 last_fetched_at(located.anchor, git),
                 requires=worktree,
-                checked_out_at=located.path if blocked else None,
+                blocked_worktree=located.path if blocked else None,
             )
         )
     return targets

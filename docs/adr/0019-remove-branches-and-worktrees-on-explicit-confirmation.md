@@ -13,9 +13,9 @@ The fetch, observation, and re-inspection finish before confirmation is availabl
 Amended by [ADR 0054](0054-finish-a-worktree-with-its-branch-by-default.md): the
 dashboard discloses a Worktree's ignored content instead of asking for its
 acknowledgement, a Worktree preview also offers its Branch at its push remote,
-and its Branches start selected by default; the command line's
+and its local Branch starts selected by default — the Branch at the remote
+only at the local Branch's tip; the command line's
 `--delete-ignored` gate is unchanged.
-
 
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),

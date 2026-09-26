@@ -57,7 +57,7 @@ CALLOUT_IGNORED_NAMES = 3
 def blocker_summary(blocker: CleanupBlocker, target: CleanupTarget) -> str:
     """Keep each blocking condition visible beside its target.
 
-    An integration block judged against a Remote-Tracking ref may only be
+    An integration block judged against a Remote-Tracking Branch may only be
     stale: Dashpot never fetches on its own, so a merged Pull Request whose
     commit has not been fetched still reads as unintegrated.
     """
@@ -74,6 +74,8 @@ def blocker_summary(blocker: CleanupBlocker, target: CleanupTarget) -> str:
 
 def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
     if blocker.kind == "checked-out":
+        if target.kind == "remote-branch":
+            return "Worktree removal is blocked; this Branch goes only with it."
         return (
             "Worktree removal is blocked; this Branch stays checked out."
             if target.requires
@@ -113,7 +115,7 @@ def target_summary(preview: CleanupPreview, target: CleanupTarget) -> str:
     if target.kind == "worktree":
         lines.append("Removes the directory and its contents.")
         if any(one.requires == target.identity for one in preview.targets):
-            lines.append("Keeps the local Branch unless selected below.")
+            lines.append("Keeps each Branch below that is not selected.")
         if preview.ignored:
             lines.append(f"Includes {ignored_description(preview)}.")
     else:
@@ -329,14 +331,14 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         return self.preview.kind == "branch" and bool(self.preview.selectable)
 
     @property
-    def verb(self) -> str:
+    def confirm_label(self) -> str:
         """The dialog's title and its confirm button's fixed label."""
         return "Remove Worktree" if self.preview.kind == "worktree" else "Delete Branch"
 
     @override
     def compose(self) -> ComposeResult:
         preview = self.preview
-        verb = self.verb
+        label = self.confirm_label
         subject = (
             Path(preview.subject).name
             if preview.kind == "worktree"
@@ -344,7 +346,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         )
         with Vertical(id="cleanup-dialog"):
             with VerticalScroll(id="cleanup-body"):
-                yield Static(verb, id="cleanup-title")
+                yield Static(label, id="cleanup-title")
                 yield Static(subject, markup=False, id="cleanup-subject")
                 yield Static(
                     f"Anchor: {preview.anchor}", markup=False, id="cleanup-context"
@@ -418,7 +420,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                         "Cancel" if self.can_confirm else "Close", id="cleanup-cancel"
                     )
                     if self.can_confirm:
-                        yield Button(verb, id="cleanup-confirm")
+                        yield Button(label, id="cleanup-confirm")
                 yield Footer()
 
     def on_mount(self) -> None:

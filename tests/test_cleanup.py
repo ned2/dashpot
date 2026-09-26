@@ -24,6 +24,7 @@ from dashpot.core.git import Git, GitError
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     BranchCleanupRequest,
+    CleanupBlocker,
     CleanupConfirmation,
     CleanupPreview,
     CleanupReport,
@@ -498,6 +499,14 @@ def test_a_worktree_offers_its_branch_at_the_push_remote_only(tmp_path: Path) ->
     assert pushed.requires == tree.identity
     assert pushed.available is True
     assert default_choices(preview) == (local.identity, pushed.identity)
+    # A held local Branch never lets the remote one start selected alone.
+    held = local.model_copy(
+        update={"blockers": (CleanupBlocker(kind="protected", detail="held"),)}
+    )
+    assert (
+        default_choices(preview.model_copy(update={"targets": (tree, held, pushed)}))
+        == ()
+    )
 
 
 @pytest.mark.parametrize(
@@ -569,6 +578,10 @@ def test_a_blocked_worktree_holds_its_remote_branch_too(tmp_path: Path) -> None:
     tree, local, pushed = preview.targets
     assert kinds(tree) == {"dirty"}
     assert kinds(local) == kinds(pushed) == {"checked-out"}
+    # The Branch at the remote is not itself checked out anywhere.
+    assert pushed.blockers[0].detail == (
+        f"its local Branch is checked out at {worktree}, whose removal is blocked"
+    )
     assert preview.selectable == ()
     assert default_choices(preview) == ()
 

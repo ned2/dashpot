@@ -164,7 +164,7 @@ confirm button always reads `Remove Worktree` or `Delete Branch`; a callout at
 the end of the preview states exactly what confirming removes and deletes.
 Occupied, dirty, locked, protected, and otherwise blocked Worktrees remain
 unavailable, and hold their Branches unavailable with them. A Branch blocked
-as unintegrated against a Remote-Tracking ref says that `f` checks again if
+as unintegrated against a Remote-Tracking Branch says that `f` checks again if
 the work has since merged
 ([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md)).
 

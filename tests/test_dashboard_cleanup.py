@@ -983,7 +983,7 @@ async def test_blocked_choices_keep_all_reasons_and_keyboard_access_to_full_evid
         screen = cleanup_screen(app)
         reasons = [str(one.render()) for one in screen.query(".cleanup-blocker")]
         assert "Checked out in a Worktree; remove that Worktree first." in reasons
-        # Judged against a Remote-Tracking ref, the block may only be stale.
+        # Judged against a Remote-Tracking Branch, the block may only be stale.
         assert (
             "3 commits not integrated into origin/main. "
             "If it has since merged, press f to fetch and check again."
@@ -1067,7 +1067,7 @@ async def test_content_integration_and_changed_preview_keep_consequences_explici
             "Content integrated into origin/main; 3 original commits are not retained there."
             in text
         )
-        assert "Keeps the local Branch unless selected below." in text
+        assert "Keeps each Branch below that is not selected." in text
         assert "Includes 1 ignored path and its contents." in text
         assert "Nothing was deleted. Select and confirm again." in str(
             screen.query_one("#cleanup-help", Static).render()
@@ -1094,11 +1094,12 @@ async def test_content_integration_and_changed_preview_keep_consequences_explici
         ("dirty", "refs/remotes/origin/main", False),
     ],
 )
-def test_only_an_integration_block_against_a_remote_ref_hints_at_fetching(
-    kind, integration_ref, hinted
+@pytest.mark.parametrize("subject", [LOCAL, PUSHED], ids=["local", "remote"])
+def test_only_an_integration_block_against_a_remote_tracking_branch_hints_at_fetching(
+    kind, integration_ref, hinted, subject
 ):
     blocker = CleanupBlocker(kind=kind, detail="counted")
-    blocked = LOCAL.model_copy(
+    blocked = subject.model_copy(
         update={
             "blockers": (blocker,),
             "integration": IntegrationFact(
@@ -1109,3 +1110,15 @@ def test_only_an_integration_block_against_a_remote_ref_hints_at_fetching(
         }
     )
     assert blocker_summary(blocker, blocked).endswith(FETCH_HINT) is hinted
+
+
+def test_a_blocked_worktree_never_calls_its_remote_branch_checked_out():
+    blocker = CleanupBlocker(kind="checked-out", detail="held")
+    local = LOCAL.model_copy(update={"requires": TREE.identity, "blockers": (blocker,)})
+    remote = PUSHED.model_copy(update={"blockers": (blocker,)})
+    assert blocker_summary(blocker, local) == (
+        "Worktree removal is blocked; this Branch stays checked out."
+    )
+    assert blocker_summary(blocker, remote) == (
+        "Worktree removal is blocked; this Branch goes only with it."
+    )

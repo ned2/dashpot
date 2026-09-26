@@ -119,11 +119,18 @@ async def test_fetch_preserves_an_unchanged_optional_choice_either_way(keep):
 
 
 @pytest.mark.asyncio
-async def test_fetch_never_re_arms_a_default_for_a_changed_target():
+@pytest.mark.parametrize("before", ["moved", "absent"])
+async def test_fetch_never_re_arms_a_default_for_a_changed_or_new_target(before):
     moved = PUSHED.model_copy(update={"expected": "f" * 40})
-    initial = WORKTREE_PREVIEW.model_copy(update={"targets": (TREE, ATTACHED, moved)})
+    initial = WORKTREE_PREVIEW.model_copy(
+        update={
+            "targets": (TREE, ATTACHED, moved)
+            if before == "moved"
+            else (TREE, ATTACHED)
+        }
+    )
     # After the fetch the remote Branch is at the local tip, which would
-    # qualify it for the first preview's default — but it changed.
+    # qualify it for the first preview's default — but it changed or is new.
     updated = initial.model_copy(
         update={"targets": (TREE, ATTACHED, PUSHED), "fingerprint": "new"}
     )

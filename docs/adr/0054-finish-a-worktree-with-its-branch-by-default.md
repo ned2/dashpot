@@ -54,9 +54,10 @@ of asking for ticks that carry no decision.
   `git push origin <branch>`, which configures no upstream.
 - **Default selection, on a first preview only.** An available attached local
   Branch starts selected; a person unticks it to retain the Branch. The Branch
-  at the push remote starts selected only when it is also available and at the
-  local Branch's tip, so nothing reached the remote that the preview has not
-  accounted for; otherwise it starts unticked. The narrower rule is
+  at the push remote starts selected only when it and the local Branch are both
+  available and it is at the local Branch's tip, so nothing reached the
+  remote that the preview has not accounted for; otherwise it starts
+  unticked. The narrower rule is
   deliberate: deleting a Branch at a remote is the one step that changes what
   other people see, and a forge closes an open Pull Request for it. The
   existing `unintegrated` and `unknown-integration` blockers already exclude
@@ -77,7 +78,7 @@ of asking for ticks that carry no decision.
   button — on the dialog body when there is no choice — so a stray `Enter`
   after `x` never confirms.
 - **A stale block says how to check again.** An `unintegrated` or
-  `unknown-integration` blocker judged against a Remote-Tracking ref adds, on
+  `unknown-integration` blocker judged against a Remote-Tracking Branch adds, on
   the blocked target, that a fetch checks again if the work has since merged.
   Dashpot never fetches on its own
   ([ADR 0014](0014-fetch-remotes-on-explicit-key-press.md)), so a merged Pull
