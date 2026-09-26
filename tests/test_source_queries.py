@@ -1269,7 +1269,7 @@ def test_a_low_rate_limit_warns_from_the_latest_response(tmp_path):
         reading(search(hit(1)), 499),
         reading(batch(node(1)), 480),
         reading(batch(node(1)), 470, reset_at="2026-09-27T14:00:00Z"),
-        reading(batch(node(1)), 5000, reset_at="2026-09-27T14:00:00Z"),
+        reading(batch(node(1)), 5000, reset_at="2026-09-27T15:00:00Z"),
     )
     assert source.source_diagnostics() == ()
     observation = source.query_page(QueryRequest())
@@ -1287,7 +1287,7 @@ def test_a_low_rate_limit_warns_from_the_latest_response(tmp_path):
     source.resolve_identities(["I_issue_1"])
     (warning,) = source.source_diagnostics()
     assert "470 of 5000 points remain until 2026-09-27T14:00:00Z" in warning.message
-    # A reading with enough points left clears the warning.
+    # The next hour's reading, with its points restored, clears the warning.
     source.resolve_identities(["I_issue_1"])
     assert source.source_diagnostics() == ()
 
@@ -1322,6 +1322,31 @@ def test_a_failed_page_still_warns_from_the_reading_before_it(tmp_path):
     assert observation.page.status == "unavailable"
     (warning,) = source.source_diagnostics()
     assert "440 of 5000 points remain" in warning.message
+
+
+def test_a_partial_answer_that_fails_the_page_still_warns_from_its_reading(
+    tmp_path,
+):
+    # The page search is a partial answer: its error fails the page, but the
+    # rate limit GitHub reported beside it is still the latest reading.
+    source, runner = github(tmp_path, reading(context(), 4000))
+    runner.results = iter(
+        [
+            *runner.results,
+            refused(
+                reading(search(None), 420),
+                {
+                    "type": "FORBIDDEN",
+                    "path": ["search", "nodes", 0],
+                    "message": "not accessible",
+                },
+            ),
+        ]
+    )
+    observation = source.query_page(QueryRequest())
+    assert observation.page.status == "unavailable"
+    (warning,) = source.source_diagnostics()
+    assert "420 of 5000 points remain" in warning.message
 
 
 def test_markdown_source_reports_no_source_diagnostics(tmp_path):

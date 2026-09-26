@@ -27,12 +27,17 @@ them describes all of them.
 - **The gateway reads the reading from the response that carried it.**
   `graphql_result` returns a `GraphQLResponse` whose `rate_limit` is that
   response's own reading, and both `graphql` and `graphql_result` record it
-  as the latest. Each request can therefore be accounted for by its own
-  reading rather than by whatever the latest one is.
+  as the latest. Nothing reads `GraphQLResponse.rate_limit` yet: it is there
+  so per-request tracing ([#314](https://github.com/ned2/dashpot/issues/314))
+  can account for each request by its own reading rather than by whatever
+  the latest one is.
 - **The dashboard's Query Sources share one latest reading.** Every gateway
   behind them records into one `LatestRateLimit`, so the warning reports the
   most recent reading GitHub gave any of them, not the reading of whichever
-  source last published. A one-shot command's source holds its own.
+  source last published. Requests run concurrently, so their answers can
+  arrive out of order; within one hour's window the points only fall, so a
+  reading with more points left than the one held for the same `resetAt` is
+  the older and is not recorded. A one-shot command's source holds its own.
 - **The warning is the source's, not an observation's.** A Query Source
   reports what it knows about itself through `source_diagnostics`, apart
   from the Diagnostics of the observations it returns: a GitHub source
@@ -46,9 +51,8 @@ them describes all of them.
 
 ## Consequences
 
-- **The warning appears before the allowance runs out** and clears once a
-  reading shows enough points again, such as the first after the hour
-  resets.
+- **The warning appears before the allowance runs out** and clears with the
+  first reading of the next hour, whose points are restored.
 - **A failed request keeps the warning.** The warning comes from the last
   reading received, so a refused query does not hide what the account had
   left; a pause that waits for the reset

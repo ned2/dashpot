@@ -89,9 +89,12 @@ class LatestRateLimit:
     """The most recent rate limit reading among the gateways that share it.
 
     The limit is the account's, not one gateway's, so every gateway behind
-    one dashboard shares one of these: the reading it holds is the last any
+    one dashboard shares one of these: the reading it holds is the latest any
     of them received, whichever query's response carried it. Gateways record
-    from the threads their requests run on, so a lock guards the reading.
+    from the threads their requests run on, so a lock guards the reading, and
+    answers to concurrent requests can arrive out of order: within one hour's
+    window the points only fall, so a reading showing more points left than
+    the one held for the same reset is older, and is not recorded.
     """
 
     def __init__(self) -> None:
@@ -105,8 +108,15 @@ class LatestRateLimit:
             return self._reading
 
     def record(self, reading: RateLimit) -> None:
-        """Hold ``reading`` as the most recent."""
+        """Hold ``reading`` as the most recent, unless it is older than the one held."""
         with self._lock:
+            held = self._reading
+            if (
+                held is not None
+                and held.reset_at == reading.reset_at
+                and held.remaining < reading.remaining
+            ):
+                return
             self._reading = reading
 
 
