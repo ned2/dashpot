@@ -4,7 +4,7 @@ The shipped ``DashpotApp`` under ``run_test`` needs the same scaffolding
 everywhere: an Issue built on the conformance fixture, a one-Project Workspace
 Snapshot with copy-with-update conveniences, a scriptable collector and the
 scheduler that observes it as one Workspace key, a Query Source serving a
-snapshot to the app's page and totals queries, and small readers over the
+snapshot to the app's page queries and their totals, and small readers over the
 dashboard's panes.
 """
 
@@ -50,6 +50,7 @@ from dashpot.queries.source_queries import (
     QUERY_SOURCE_KEYS,
     AuxiliaryObservation,
     Continuation,
+    PageObservation,
     ProjectTotals,
     QueryPage,
     QueryRequest,
@@ -341,8 +342,11 @@ class SnapshotQuerySource:
         ).query_pull_requests(PullRequestListQuery(text=request.query, states=states))
         return [row.pull_request for row in result.rows]
 
-    def query_page(self, request: QueryRequest) -> QueryPage:
+    def query_page(self, request: QueryRequest) -> PageObservation:
         self._wait_for_release()
+        return PageObservation(self._page(request), self._totals(request.kind))
+
+    def _page(self, request: QueryRequest) -> QueryPage:
         status, last_good_at = self._freshness(request.kind)
         if status == "unavailable":
             return QueryPage(
@@ -400,8 +404,7 @@ class SnapshotQuerySource:
             result_limit=None,
         )
 
-    def totals(self, kind: ResourceKind) -> ProjectTotals:
-        self._wait_for_release()
+    def _totals(self, kind: ResourceKind) -> ProjectTotals:
         status, last_good_at = self._freshness(kind)
         if status == "unavailable":
             return ProjectTotals(

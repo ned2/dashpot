@@ -132,7 +132,7 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
 
 def test_page_text_reports_the_provider_limit_and_a_navigation_error(tmp_path):
     navigation = PageNavigation(QueryRequest(page_size=1))
-    page = markdown(tmp_path).query_page(navigation.request)
+    page = markdown(tmp_path).query_page(navigation.request).page
     limited = page.model_copy(update={"matched_count": 2000, "result_limit": 1000})
     assert navigation.accept(navigation.restart(), limited)
 
@@ -150,7 +150,7 @@ def test_page_text_reports_the_provider_limit_and_a_navigation_error(tmp_path):
 def test_page_text_dates_a_stale_page_and_leaves_a_fresh_one_undated(tmp_path):
     """Only retained records carry an age, as an age inline and exact in full."""
     navigation = PageNavigation(QueryRequest(page_size=1))
-    page = markdown(tmp_path).query_page(navigation.request)
+    page = markdown(tmp_path).query_page(navigation.request).page
     now = datetime(2026, 8, 27, 3, 0, 0, tzinfo=UTC)
     observed = "2026-08-27T00:00:00Z"
 
@@ -174,7 +174,7 @@ def test_page_text_dates_a_stale_page_and_leaves_a_fresh_one_undated(tmp_path):
 
 
 def test_totals_text_marks_stale_totals_and_never_substitutes_zero(tmp_path):
-    totals = markdown(tmp_path).totals("issues")
+    totals = markdown(tmp_path).query_page(QueryRequest()).totals
     assert totals_text(totals) == "Open 3 · Closed 0"
     stale = totals.model_copy(update={"status": "stale"})
     assert totals_text(stale) == "Open 3 · Closed 0 · stale totals"
@@ -212,33 +212,6 @@ async def test_the_legend_lists_the_shipped_screen_and_worktree_keys(tmp_path):
     ):
         assert (key, description) in listed
         assert description in rendered
-
-
-@pytest.mark.asyncio
-async def test_page_publishes_while_totals_are_delayed(tmp_path):
-    app = application(tmp_path)
-    started, release = threading.Event(), threading.Event()
-    source = app.queries.sources["totals:issues"]
-    totals = source.totals
-
-    def delayed(kind):
-        started.set()
-        release.wait(5)
-        return totals(kind)
-
-    source.totals = delayed
-    try:
-        async with app.run_test(size=(150, 55)):
-            await wait_until(
-                lambda: (
-                    started.is_set() and app.query_screen.queue_table().row_count == 1
-                ),
-            )
-            assert "issues" not in app.store.totals
-            assert app.store.projects()[0].snapshot.target_status == "fresh"
-            release.set()
-    finally:
-        release.set()
 
 
 @pytest.mark.asyncio
@@ -368,7 +341,7 @@ def count_queries(app):
     """Count each query key's requests to its Query Source."""
     counts = dict.fromkeys(QUERY_SOURCE_KEYS, 0)
     for key, source in app.queries.sources.items():
-        for name in ("query_page", "totals", "resolve_identities"):
+        for name in ("query_page", "resolve_identities"):
             method = getattr(source, name)
 
             def counted(*args, _key=key, _method=method, **kwargs):
@@ -420,8 +393,6 @@ async def test_a_local_tick_observes_and_a_query_tick_queries(tmp_path):
             **queried,
             "issues": queried["issues"] + 1,
             "pull-requests": queried["pull-requests"] + 1,
-            "totals:issues": queried["totals:issues"] + 1,
-            "totals:pull-requests": queried["totals:pull-requests"] + 1,
         }
         assert len(observed) == ticks
 

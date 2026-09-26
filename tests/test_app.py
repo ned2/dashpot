@@ -41,7 +41,7 @@ from dashpot.observation.keys import (
     ObservationOutcome,
     ObservationTicket,
 )
-from dashpot.queries.source_queries import QueryPage, QueryRequest
+from dashpot.queries.source_queries import PageObservation, QueryRequest
 from dashpot.ui.app import DashboardScreen, DashpotApp
 from dashpot.ui.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.ui.issue_view import selection_title
@@ -177,7 +177,7 @@ async def test_first_query_failure_reports_issues_unavailable() -> None:
 
     class FailingSource(SnapshotQuerySource):
         @override
-        def query_page(self, request: QueryRequest) -> QueryPage:
+        def query_page(self, request: QueryRequest) -> PageObservation:
             del request
             raise RuntimeError("Issue Source exploded")
 

@@ -83,37 +83,38 @@ Enumeration. Request count, not query shape, sets the spend.
 
 | Operation | Requests |
 | --- | --- |
-| Issues Query Page | One search and one batch per 24 Issues on the page: 4 for a full page of 50 |
-| Pull Requests Query Page | One search: 1 |
-| Project Totals, each kind | One count: 1 |
+| Issues Query Page | One search, which also counts the Issues' Project Totals, and one batch per 24 Issues on the page: 4 for a full page of 50 |
+| Pull Requests Query Page | One search, which also counts the Pull Requests' Project Totals: 1 |
 | Resolved Issues | One batch per 24 identities |
 | Repository/principal context, on its own | Once for the first Query Page a source asks for, and before each continuation (a page after the first) |
 | Issue Hint resolution (`work start`, `worktree create`, `issue show`) | 1 |
-| `issue list` or `pr list` | One Query Page and its Project Totals |
+| `issue list` or `pr list` | One Query Page, which counts its Project Totals |
 | Source Enumeration (`dashpot --json`) | 6 points per 100 Issues plus the Pull Request pages, bounded by the Refresh Budget |
 | Lifecycle hooks, `work show`, `work stop`, local observation | None |
 
 GitHub queries refresh on their own Refresh Period, 60 seconds by default,
 while local observation keeps refreshing every 15 seconds and costs nothing
 ([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)). One
-automatic GitHub refresh re-queries both Query Pages and both kinds' Project
-Totals, and resolves the Issues that Agent Runs are bound to (plus the
-selected Issue's relationships). Between GitHub refreshes, the bound and
-selected Issues are resolved again only when the set of them changes, as when
-an Agent Run starts or changes Issue work, or an opened Issue's relationships
-arrive. Each
-request verifies the Repository and principal in its own response
+automatic GitHub refresh re-queries both Query Pages, each counting its kind's
+Project Totals in the same request
+([ADR 0057](adr/0057-observe-project-totals-in-the-query-page-request.md)),
+and resolves the Issues that Agent Runs are bound to (plus the selected
+Issue's relationships). Between GitHub refreshes, the bound and selected
+Issues are resolved again only when the set of them changes, as when an Agent
+Run starts or changes Issue work, or an opened Issue's relationships arrive.
+Each request verifies the Repository and principal in its own response
 ([ADR 0055](adr/0055-verify-the-query-context-in-the-response-that-carries-it.md)),
 so a refresh sends no separate context request.
 
-On 2026-09-26 this Repository had 27 open Issues. Over four minutes, every
-GitHub refresh sent 7 requests: 2 Query Pages, 2 Project Totals, the 2 Issue
-batches that complete the Issues page, and 1 Resolved Issues batch. The local
-refreshes between them sent none. That is about 7 to 9 points a minute,
-depending on how many Issues the page and the bound Issues span. One open
-dashboard spends roughly 420 to 540 points an hour, around a tenth of a
-personal account's 5,000. Before ADR 0056, the 15-second period spent 1,900
-to 2,400.
+On 2026-09-26 this Repository had 33 open Issues. Over four minutes, every
+GitHub refresh sent 5 requests: 2 Query Pages, each counting its Project
+Totals, the 2 Issue batches that complete the Issues page, and 1 Resolved
+Issues batch. The local refreshes between them sent none. That is about 5 to 7
+points a minute, depending on how many Issues the page and the bound Issues
+span. One open dashboard spends roughly 300 to 420 points an hour, under a
+tenth of a personal account's 5,000. Before ADR 0057, separate Project Totals
+requests made it 7 a refresh, 420 to 540 an hour; before ADR 0056, the
+15-second period spent 1,900 to 2,400.
 
 [#308](https://github.com/ned2/dashpot/issues/308) tracks bringing an open
 dashboard well inside the allowance; update this section as its sub-issues

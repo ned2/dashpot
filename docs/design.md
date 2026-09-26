@@ -131,9 +131,9 @@ crosses the Query Source enumeration seam before the collector shapes snapshot
 output. [ADR 0043](adr/0043-retain-distinct-query-and-collection-adapters.md)
 records the caller trace, remaining duplication, and rejected consolidation options.
 
-The dashboard ([app.py](../src/dashpot/ui/app.py)) schedules Issue pages,
-Pull Request pages, both kinds of Project Totals, targeted identities and local
-observations independently: the page runner
+The dashboard ([app.py](../src/dashpot/ui/app.py)) schedules Issue pages and
+Pull Request pages, each counting its kind's Project Totals, targeted
+identities and local observations independently: the page runner
 ([page_runner.py](../src/dashpot/ui/page_runner.py)) runs one source query per
 key at a time and keeps each paged kind's navigation, and the observation
 runner ([observation_runner.py](../src/dashpot/ui/observation_runner.py)) observes
@@ -171,7 +171,8 @@ change.
 
 A Query Page has its submitted request, effective ordering, matching count,
 returned count, continuation outcome and its own attempt/last-good times. Project
-Totals have independent status and times. Source caches retain at most 16 pages
+Totals are counted by the same request but have independent status and times
+([ADR 0057](adr/0057-observe-project-totals-in-the-query-page-request.md)). Source caches retain at most 16 pages
 and 256 identities. Navigation retains eight accepted pages. Previous reuses its
 retained observation; eviction requires restart instead of reconstructing history.
 Refreshing a page discards its forward history. A failed Next leaves the accepted
@@ -425,7 +426,7 @@ records the selected ownership and rejected alternatives.
 Dashboard lists every active Agent Session, observed Worktree and Branch in
 three full-width panes. Issues & Pull Requests keeps both query panes visible:
 Pull Requests is content-sized to its cap and Issues receives the remaining
-height. Both query pane titles show independently observed Project Totals.
+height. Both query pane titles show Project Totals, whatever the page's query.
 Lifecycle selection constrains source results before pagination. Draft
 filtering uses `draft:true` or `draft:false` in the query. Both search boxes
 submit on Enter; clearing search submits the default source query. GitHub owns

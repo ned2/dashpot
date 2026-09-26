@@ -380,16 +380,15 @@ def _list_page(
     compact: bool,
     timeout: float,
 ) -> int:
-    """Emit one Query Page and independently scoped Project Totals."""
+    """Emit one Query Page and the Project Totals its request counted."""
     root = worktree_root(Path.cwd().resolve())
     source = configured_query_source(root, timeout=timeout)
-    page = source.query_page(
+    observation = source.query_page(
         QueryRequest(
             kind=kind, query=query, state=state, page_size=page_size, cursor=cursor
         )
     )
-    totals = source.totals(kind)
-    print(render_json(list_page_document(page, totals), compact=compact))
+    print(render_json(list_page_document(observation), compact=compact))
     return 0
 
 

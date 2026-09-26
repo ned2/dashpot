@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dashpot.ui.messages import FetchFinished, TotalsFinished
+from dashpot.ui.messages import FetchFinished, IdentitiesFinished
 
 
 def test_messages_carry_their_payload_and_textual_message_state() -> None:
@@ -21,7 +21,7 @@ def test_messages_carry_their_payload_and_textual_message_state() -> None:
 
 
 def test_messages_are_compared_by_identity_not_payload() -> None:
-    first = TotalsFinished("issues")
-    second = TotalsFinished("issues")
+    first = IdentitiesFinished()
+    second = IdentitiesFinished()
     assert first != second
     assert first == first

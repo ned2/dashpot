@@ -72,3 +72,4 @@ of date.
 | 0054 | [Finish a Worktree with its Branch by default](0054-finish-a-worktree-with-its-branch-by-default.md) | accepted | — |
 | 0055 | [Verify the query context in the response that carries it](0055-verify-the-query-context-in-the-response-that-carries-it.md) | accepted | — |
 | 0056 | [Refresh GitHub queries on their own period](0056-refresh-github-queries-on-their-own-period.md) | accepted | — |
+| 0057 | [Observe Project Totals in the Query Page request](0057-observe-project-totals-in-the-query-page-request.md) | accepted | — |

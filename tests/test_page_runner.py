@@ -11,7 +11,7 @@ from textual.message import Message
 from app_harness import SnapshotQuerySource, issue, workspace_snapshot
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
-from dashpot.ui.messages import IdentitiesFinished, PageFinished, TotalsFinished
+from dashpot.ui.messages import IdentitiesFinished, PageFinished
 from dashpot.ui.page_runner import PageRunner
 
 
@@ -72,59 +72,47 @@ def test_a_page_landing_changes_the_revision_the_read_models_report() -> None:
     assert "issues" not in store.pages
 
     pages.refresh(restart=True)
-    assert pages.busy == {
-        "issues",
-        "pull-requests",
-        "totals:issues",
-        "totals:pull-requests",
-    }
+    # A page's own query counts its kind's Project Totals.
+    assert pages.busy == {"issues", "pull-requests"}
     message = host.pop_call("issues").land()
     assert isinstance(message, PageFinished)
     pages.finish_page(message)
+    assert set(store.totals) == {"issues"}
+    assert store.totals["issues"].open_count == 2
+    assert store.source_revision == 1
     pages.publish()
-    assert store.totals == {}
 
     assert "issues" not in pages.busy
     assert store.pages["issues"] is pages.navigation["issues"].page
     # The observation revision is untouched; the joined revision moved on.
     assert store.revision == 1
-    assert store.source_revision == 1
-    assert store.query_issues().revision == before + 1
+    assert store.source_revision == 2
+    assert store.query_issues().revision == before + 2
     assert len(store.query_issues().rows) == 2
-    # Publishing the same page again changes nothing.
+    # Landing and publishing the same page and totals again changes nothing.
+    store.accept_totals(store.totals["issues"])
     pages.publish()
-    assert store.source_revision == 1
+    assert store.source_revision == 2
 
 
-def test_totals_and_identities_land_with_a_revision_bump() -> None:
+def test_identities_land_with_a_revision_bump() -> None:
     pages, store, host = runner()
-    pages.request_totals("issues")
-    totals = host.pop_call("totals:issues").land()
-    assert isinstance(totals, TotalsFinished)
-    pages.finish_totals(totals)
-    assert store.totals["issues"].open_count == 2
-    assert store.source_revision == 1
-
     pages.request_identities(("I_test/repo#1",))
     identities = host.pop_call("identities").land()
     assert isinstance(identities, IdentitiesFinished)
     pages.finish_identities(identities)
     assert "I_test/repo#1" in store.resolved
-    assert store.source_revision == 2
-    assert store.query_sessions().revision == store.revision + 2
-    # Landing the same totals and identities again changes nothing.
-    store.accept_totals(store.totals["issues"])
+    assert store.source_revision == 1
+    assert store.query_sessions().revision == store.revision + 1
+    # Landing the same identities again changes nothing.
     store.accept_identities(tuple(store.resolved.values()))
-    assert store.source_revision == 2
+    assert store.source_revision == 1
 
 
 def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
     pages, store, host = runner()
-    pages.request_totals("issues")
     pages.request_identities(("I_test/repo#1",))
-    host.pop_call("totals:issues")
     host.pop_call("identities")
-    pages.finish_totals(TotalsFinished("issues", error="boom"))
     pages.finish_identities(IdentitiesFinished(error="boom"))
     assert pages.busy == set()
     assert store.source_revision == 0
@@ -133,6 +121,8 @@ def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
     failed = host.pop_call("issues").land(error="Issue Source exploded")
     assert isinstance(failed, PageFinished)
     pages.finish_page(failed)
+    # A query that failed as a whole counted no Project Totals either.
+    assert store.totals == {}
     assert pages.navigation["issues"].error == "Issue Source exploded"
     assert pages.navigation["issues"].page is None
     assert pages.page_states["issues"].failed_without_page
@@ -147,7 +137,7 @@ def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
 
 
 def test_a_request_for_a_busy_key_waits_and_only_the_latest_runs() -> None:
-    pages, _store, host = runner()
+    pages, store, host = runner()
     pages.submit("issues", query="First")
     running = host.pop_call("issues")
     pages.submit("issues", query="Second")
@@ -158,8 +148,10 @@ def test_a_request_for_a_busy_key_waits_and_only_the_latest_runs() -> None:
     superseded = running.land()
     assert isinstance(superseded, PageFinished)
     pages.finish_page(superseded)
-    # The stale ticket's page is rejected; the latest submission runs next.
+    # The stale ticket's page is rejected, but not the Project Totals it
+    # counted; the latest submission runs next.
     assert pages.navigation["issues"].page is None
+    assert store.totals["issues"].open_count == 2
     assert pages.page_states["issues"].in_flight
     latest = host.pop_call("issues").land()
     assert isinstance(latest, PageFinished)

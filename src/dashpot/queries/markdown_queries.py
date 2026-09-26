@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import override
 
@@ -114,14 +114,31 @@ class MarkdownQuerySource(CachedQuerySource):
         request: QueryRequest,
         token: Continuation | None,
         attempted: str,
+        count_totals: Callable[[ProjectTotals], None],
     ) -> QueryPage:
-        """Filter and order the local collection before selecting a page."""
+        """Filter and order the local collection before selecting a page.
+
+        The Project Totals count the complete collection first, so a search
+        the source refuses still reports them.
+        """
+        if request.kind != "issues":
+            raise ValueError("Pull Requests are not configured for a Markdown Project")
+        opened = sum(issue.state == "open" for issue in self.records)
+        count_totals(
+            ProjectTotals(
+                context=context,
+                kind=request.kind,
+                open_count=opened,
+                closed_count=len(self.records) - opened,
+                status="fresh",
+                attempted_at=attempted,
+                last_good_at=attempted,
+            )
+        )
         if context.configuration != self.config.model_dump_json():
             raise ValueError(
                 "Project source configuration changed; reopen the dashboard"
             )
-        if request.kind != "issues":
-            raise ValueError("Pull Requests are not configured for a Markdown Project")
         project = ProjectObservation(
             project_id=context.project_id,
             repository_id=context.repository_id,
@@ -190,24 +207,6 @@ class MarkdownQuerySource(CachedQuerySource):
             next_cursor=next_cursor,
             continuation="more" if next_cursor else "end",
             result_limit=None,
-        )
-
-    @override
-    def fetch_totals(
-        self, context: SourceContext, kind: ResourceKind, attempted: str
-    ) -> ProjectTotals:
-        """Count the complete local collection without query constraints."""
-        if kind != "issues":
-            raise ValueError("Pull Requests are not configured for a Markdown Project")
-        opened = sum(issue.state == "open" for issue in self.records)
-        return ProjectTotals(
-            context=context,
-            kind=kind,
-            open_count=opened,
-            closed_count=len(self.records) - opened,
-            status="fresh",
-            attempted_at=attempted,
-            last_good_at=attempted,
         )
 
     @override

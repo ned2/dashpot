@@ -13,6 +13,7 @@ from ..core.timestamps import utc_now
 from .source_queries import (
     Continuation,
     InvalidContinuation,
+    PageObservation,
     ProjectTotals,
     QueryPage,
     QueryRequest,
@@ -38,20 +39,25 @@ class CachedQuerySource(ABC):
         self._totals: dict[ResourceKind, ProjectTotals] = {}
         self._identities: OrderedDict[str, ResolvedIssue] = OrderedDict()
 
-    def query_page(self, request: QueryRequest) -> QueryPage:
-        """Accept one complete page or retain only its verified last-good request."""
+    def query_page(self, request: QueryRequest) -> PageObservation:
+        """Accept one complete page or retain only its verified last-good request.
+
+        The same request counts the kind's Project Totals, which land even
+        when the page itself fails after the source counted them.
+        """
         token = decode_continuation(request.cursor) if request.cursor else None
         attempted = self.clock()
         key: tuple[str, str | None] | None = None
         sent: SourceContext | None = None
         context: SourceContext | None = None
+        counted: list[ProjectTotals] = []
         try:
             sent = self.request_context()
             # Only a continuation must know its context before it is sent;
             # every other request is verified in the response it gets back.
             context = self.observe_continuation(sent) if token else sent
             verify_continuation(token, context, request)
-            page = self.fetch_page(context, request, token, attempted)
+            page = self.fetch_page(context, request, token, attempted, counted.append)
         except InvalidContinuation:
             raise
         except QUERY_OBSERVATION_FAILURES as exc:
@@ -60,65 +66,84 @@ class CachedQuerySource(ABC):
                 key = (context_fingerprint(known, request), request.cursor)
             previous = self._pages.get(key) if key else None
             diagnostic = self.diagnostic(exc)
-            if previous is not None:
-                return previous.model_copy(
-                    update={
-                        "status": "stale",
-                        "attempted_at": attempted,
-                        "diagnostics": (diagnostic,),
-                    }
-                )
-            return QueryPage(
-                context=context or self.context,
-                request=request,
-                effective_ordering=request.ordering,
-                status="unavailable",
-                attempted_at=attempted,
-                last_good_at=None,
-                diagnostics=(diagnostic,),
-                returned_count=0,
-                matched_count=None,
-                next_cursor=None,
-                continuation="unavailable",
-                result_limit=self.result_limit,
+            totals = (
+                self._accept_totals(counted[-1])
+                if counted
+                else self._failed_totals(request.kind, known, attempted, diagnostic)
             )
+            if previous is not None:
+                return PageObservation(
+                    previous.model_copy(
+                        update={
+                            "status": "stale",
+                            "attempted_at": attempted,
+                            "diagnostics": (diagnostic,),
+                        }
+                    ),
+                    totals,
+                )
+            return PageObservation(
+                QueryPage(
+                    context=context or self.context,
+                    request=request,
+                    effective_ordering=request.ordering,
+                    status="unavailable",
+                    attempted_at=attempted,
+                    last_good_at=None,
+                    diagnostics=(diagnostic,),
+                    returned_count=0,
+                    matched_count=None,
+                    next_cursor=None,
+                    continuation="unavailable",
+                    result_limit=self.result_limit,
+                ),
+                totals,
+            )
+        if not counted:
+            raise AssertionError("A source must count Project Totals with its page")
         key = (context_fingerprint(page.context, request), request.cursor)
         self._pages[key] = page
         self._pages.move_to_end(key)
         while len(self._pages) > 16:
             self._pages.popitem(last=False)
-        return page
+        return PageObservation(page, self._accept_totals(counted[-1]))
 
-    def totals(self, kind: ResourceKind) -> ProjectTotals:
-        """Observe Project-wide counts independently of all query requests."""
-        attempted = self.clock()
-        context: SourceContext | None = None
-        try:
-            context = self.request_context()
-            result = self.fetch_totals(context, kind, attempted)
-        except QUERY_OBSERVATION_FAILURES as exc:
-            previous = self._totals.get(kind)
-            diagnostic = self.diagnostic(exc)
-            if previous and previous.context == self._failed_context(context):
-                return previous.model_copy(
-                    update={
-                        "status": "stale",
-                        "attempted_at": attempted,
-                        "diagnostics": (diagnostic,),
-                    }
-                )
-            return ProjectTotals(
-                context=self.context,
-                kind=kind,
-                open_count=None,
-                closed_count=None,
-                status="unavailable",
-                attempted_at=attempted,
-                last_good_at=None,
-                diagnostics=(diagnostic,),
+    def _accept_totals(self, totals: ProjectTotals) -> ProjectTotals:
+        """Retain counted Project Totals as their kind's last good observation."""
+        self._totals[totals.kind] = totals
+        return totals
+
+    def _failed_totals(
+        self,
+        kind: ResourceKind,
+        known: SourceContext | None,
+        attempted: str,
+        diagnostic: Diagnostic,
+    ) -> ProjectTotals:
+        """The Project Totals of a request that failed before counting them.
+
+        ``known`` is the context the failure finds last good observations
+        under; totals counted under another are never shown as stale.
+        """
+        previous = self._totals.get(kind)
+        if previous and previous.context == known:
+            return previous.model_copy(
+                update={
+                    "status": "stale",
+                    "attempted_at": attempted,
+                    "diagnostics": (diagnostic,),
+                }
             )
-        self._totals[kind] = result
-        return result
+        return ProjectTotals(
+            context=self.context,
+            kind=kind,
+            open_count=None,
+            closed_count=None,
+            status="unavailable",
+            attempted_at=attempted,
+            last_good_at=None,
+            diagnostics=(diagnostic,),
+        )
 
     def resolve_identities(
         self, identities: Sequence[str]
@@ -230,12 +255,13 @@ class CachedQuerySource(ABC):
         request: QueryRequest,
         token: Continuation | None,
         attempted: str,
-    ) -> QueryPage: ...
+        count_totals: Callable[[ProjectTotals], None],
+    ) -> QueryPage:
+        """Complete one page, reporting the kind's Project Totals to ``count_totals``.
 
-    @abstractmethod
-    def fetch_totals(
-        self, context: SourceContext, kind: ResourceKind, attempted: str
-    ) -> ProjectTotals: ...
+        The totals are reported as soon as they are counted, before any later
+        part of the page can fail, and always before a page is returned.
+        """
 
     @abstractmethod
     def fetch_identities(

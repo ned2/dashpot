@@ -23,8 +23,7 @@ from textual.message import Message
 from ..observation.keys import ObservationOutcome, ObservationTicket
 from ..queries.page_navigation import PageTicket
 from ..queries.source_queries import (
-    ProjectTotals,
-    QueryPage,
+    PageObservation,
     ResolvedIssue,
     ResourceKind,
 )
@@ -62,20 +61,11 @@ class OffLoopHost(Protocol):
 
 @dataclass(eq=False)
 class PageFinished(Message):
-    """One Query Page was observed for its ticket, or the query failed."""
+    """One Query Page and its Project Totals were observed, or the query failed."""
 
     kind: ResourceKind
     ticket: PageTicket
-    page: QueryPage | None = None
-    error: str | None = None
-
-
-@dataclass(eq=False)
-class TotalsFinished(Message):
-    """One kind's Project Totals were observed, or the query failed."""
-
-    kind: ResourceKind
-    totals: ProjectTotals | None = None
+    observation: PageObservation | None = None
     error: str | None = None
 
 

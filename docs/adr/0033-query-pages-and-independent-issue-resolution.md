@@ -62,7 +62,8 @@ each carrying the Repository/principal context. A continuation, and the first
 page a source asks for, observe the context in one request more. Required nested
 Profile pages spend the same Refresh Budget. Auxiliary Linked Pull Request
 completion spends one separate budget shared by the page, after required Profiles
-complete. Project Totals take one count request carrying the context. Targeted
+complete. Project Totals are counted in the Query Page request itself
+([ADR 0057](0057-observe-project-totals-in-the-query-page-request.md)). Targeted
 lookups deduplicate identities and batch by 24; they never recursively enumerate
 relationship targets.
 

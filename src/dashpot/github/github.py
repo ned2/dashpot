@@ -173,7 +173,7 @@ class GitHubGateway:
                 "GitHub response has a malformed GraphQL errors value",
             )
         if errors and not _all_tolerated(errors, tolerated):
-            raise _graphql_failure(errors)
+            raise graphql_failure(errors)
         data = payload.get("data")
         if not isinstance(data, Mapping):
             raise GitHubRequestError(
@@ -197,7 +197,7 @@ class GitHubGateway:
         data = payload.get("data")
         if not isinstance(data, Mapping):
             if errors:
-                raise _graphql_failure(errors)
+                raise graphql_failure(errors)
             raise GitHubRequestError(
                 MALFORMED_RESPONSE, "GitHub response has no data object"
             )
@@ -284,7 +284,7 @@ class GitHubGateway:
                     # beside data every tolerated error leaves usable.
                     if partial or _all_tolerated(errors, tolerated):
                         return payload
-                    raise _graphql_failure(errors)
+                    raise graphql_failure(errors)
                 message = payload.get("message")
                 status = payload.get("status")
                 if isinstance(message, str) and message:
@@ -390,7 +390,7 @@ def _all_tolerated(errors: Sequence[object], tolerated: Container[str]) -> bool:
     return True
 
 
-def _graphql_failure(errors: Sequence[object]) -> GitHubRequestError:
+def graphql_failure(errors: Sequence[object]) -> GitHubRequestError:
     """Read a GraphQL ``errors`` list: its first typed error names the code."""
     messages: list[str] = []
     code: str | None = None

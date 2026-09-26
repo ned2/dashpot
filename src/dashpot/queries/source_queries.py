@@ -7,6 +7,7 @@ import binascii
 import hashlib
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Annotated, Literal, Protocol
 
 from pydantic import ConfigDict, Field, model_validator
@@ -31,19 +32,9 @@ ResourceKind = Literal["issues", "pull-requests"]
 Lifecycle = Literal["open", "closed", "all"]
 PAGED_KINDS: tuple[ResourceKind, ...] = ("issues", "pull-requests")
 
-
-def totals_key(kind: ResourceKind) -> str:
-    """Name the query key of a kind's Project Totals."""
-    return f"totals:{kind}"
-
-
 # The Query Sources the shipped app consults, one per concurrent consumer:
 # each key runs against its own source instance.
-QUERY_SOURCE_KEYS: tuple[str, ...] = (
-    *PAGED_KINDS,
-    *(totals_key(kind) for kind in PAGED_KINDS),
-    "identities",
-)
+QUERY_SOURCE_KEYS: tuple[str, ...] = (*PAGED_KINDS, "identities")
 
 
 class QueryRequest(ObservationModel):
@@ -130,6 +121,18 @@ class ProjectTotals(ObservationFacts):
     closed_count: Annotated[int, Field(ge=0)] | None
 
 
+@dataclass(frozen=True, slots=True)
+class PageObservation:
+    """A Query Page and the Project Totals observed by the same request.
+
+    The totals keep their own status: they count the whole Project whatever
+    the page's query, so a search the source refuses can still count.
+    """
+
+    page: QueryPage
+    totals: ProjectTotals
+
+
 class ResolvedIssue(ObservationFacts):
     context: SourceContext
     issue_id: NonEmptyString
@@ -176,9 +179,7 @@ class QuerySource(Protocol):
     @property
     def context(self) -> SourceContext: ...
 
-    def query_page(self, request: QueryRequest) -> QueryPage: ...
-
-    def totals(self, kind: ResourceKind) -> ProjectTotals: ...
+    def query_page(self, request: QueryRequest) -> PageObservation: ...
 
     def resolve_identities(
         self, identities: Sequence[str]

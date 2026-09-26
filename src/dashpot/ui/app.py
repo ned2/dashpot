@@ -62,7 +62,6 @@ from .messages import (
     ObservationFinished,
     ObservationTrigger,
     PageFinished,
-    TotalsFinished,
 )
 from .navigation_summary import navigation_summary
 from .observation_runner import (
@@ -1210,10 +1209,6 @@ class DashpotApp(App[None]):
 
     def on_page_finished(self, message: PageFinished) -> None:
         self.queries.finish_page(message)
-        self.render_pages()
-
-    def on_totals_finished(self, message: TotalsFinished) -> None:
-        self.queries.finish_totals(message)
         self.render_pages()
 
     def on_identities_finished(self, message: IdentitiesFinished) -> None:
