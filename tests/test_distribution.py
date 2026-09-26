@@ -24,6 +24,15 @@ COMMIT = "a" * 40
 OTHER = "b" * 40
 
 
+def committed(root: Path) -> Path:
+    """A Git repository at ``root`` with one empty commit, by a named committer."""
+    init_repository(root)
+    git(root, "config", "user.email", "sim@example.invalid")
+    git(root, "config", "user.name", "Sim")
+    git(root, "commit", "-q", "--allow-empty", "-m", "first")
+    return root
+
+
 def dist_info(root: Path, *, version: str = "1.2.3", direct: object = None) -> Path:
     directory = root / f"dashpot-{version}.dist-info"
     directory.mkdir(parents=True)
@@ -77,8 +86,7 @@ def test_an_archive_install_names_itself(tmp_path: Path) -> None:
 def test_a_directory_install_reads_its_source_checkouts_commit(
     tmp_path: Path, editable: bool | None, kind: InstallKind
 ) -> None:
-    source = init_repository(tmp_path / "source with space")
-    git(source, "commit", "-q", "--allow-empty", "-m", "first")
+    source = committed(tmp_path / "source with space")
     info = {} if editable is None else {"editable": editable}
     direct = {"url": (source.as_uri()), "dir_info": info}
 
@@ -163,8 +171,7 @@ def test_a_detached_head_is_its_own_commit(tmp_path: Path) -> None:
 
 
 def test_a_linked_worktree_is_followed_to_its_shared_refs(tmp_path: Path) -> None:
-    main = init_repository(tmp_path / "main")
-    git(main, "commit", "-q", "--allow-empty", "-m", "first")
+    main = committed(tmp_path / "main")
     git(main, "branch", "feature")
     linked = tmp_path / "linked"
     git(main, "worktree", "add", "-q", str(linked), "feature")
@@ -202,8 +209,7 @@ def test_a_directory_that_is_no_checkout_is_unknown(tmp_path: Path) -> None:
 
 
 def test_a_source_checkout_with_changes_is_dirty(tmp_path: Path) -> None:
-    source = init_repository(tmp_path / "source")
-    git(source, "commit", "-q", "--allow-empty", "-m", "first")
+    source = committed(tmp_path / "source")
 
     assert source_dirty(source) is False
     (source / "new.txt").write_text("x")
