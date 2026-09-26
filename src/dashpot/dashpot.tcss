@@ -583,12 +583,12 @@ CleanupScreen, CleanupReportScreen {
     text-style: bold;
 }
 
-#cleanup-context, #cleanup-freshness {
+#cleanup-freshness {
     height: auto;
     color: $text-muted;
 }
 
-#cleanup-freshness, #cleanup-help {
+#cleanup-help {
     margin-top: 1;
     height: auto;
 }
@@ -601,7 +601,8 @@ CleanupScreen, CleanupReportScreen {
     margin-top: 1;
 }
 
-.cleanup-target-heading {
+.cleanup-target-body {
+    width: 1fr;
     height: auto;
 }
 
@@ -635,10 +636,13 @@ CleanupScreen, CleanupReportScreen {
     color: $text;
 }
 
+/* A gutter as wide as the longer marker, so every target's text wraps
+   beside its marker at the same width and never beneath it. */
 .cleanup-availability {
-    width: auto;
+    width: 9;
     height: 1;
-    margin-left: 1;
+    margin-left: 2;
+    text-align: right;
     color: $success;
     text-style: bold;
 }

@@ -194,8 +194,12 @@ class CleanupChoice(MarkedCheckbox):
             choices[(choices.index(self) + step) % len(choices)].focus()
 
 
-class CleanupTargetView(Vertical):
-    """Group one Cleanup choice with its availability and consequences."""
+class CleanupTargetView(Horizontal):
+    """Group one Cleanup choice with its availability and consequences.
+
+    The availability marker has a gutter of its own, so the choice, its
+    reasons, and its consequences wrap beside it and never beneath it.
+    """
 
     def __init__(
         self,
@@ -217,21 +221,24 @@ class CleanupTargetView(Vertical):
 
     @override
     def compose(self) -> ComposeResult:
+        with Vertical(classes="cleanup-target-body"):
+            yield from self.compose_body()
+        yield Static(
+            "AVAILABLE" if self.target.available else "BLOCKED",
+            classes="cleanup-availability"
+            + (" -blocked" if not self.target.available else ""),
+        )
+
+    def compose_body(self) -> ComposeResult:
         target = self.target
-        with Horizontal(classes="cleanup-target-heading"):
-            if self.primary:
-                yield Static(target.label, markup=False, classes="cleanup-primary")
-            else:
-                yield CleanupChoice(
-                    target.label,
-                    self.chosen and target.available,
-                    id=f"cleanup-target-{self.index}",
-                    disabled=not target.available,
-                )
-            yield Static(
-                "AVAILABLE" if target.available else "BLOCKED",
-                classes="cleanup-availability"
-                + (" -blocked" if not target.available else ""),
+        if self.primary:
+            yield Static(target.label, markup=False, classes="cleanup-primary")
+        else:
+            yield CleanupChoice(
+                target.label,
+                self.chosen and target.available,
+                id=f"cleanup-target-{self.index}",
+                disabled=not target.available,
             )
         for blocker in target.blockers:
             yield Static(
@@ -347,10 +354,13 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         with Vertical(id="cleanup-dialog"):
             with VerticalScroll(id="cleanup-body"):
                 yield Static(label, id="cleanup-title")
-                yield Static(subject, markup=False, id="cleanup-subject")
-                yield Static(
-                    f"Anchor: {preview.anchor}", markup=False, id="cleanup-context"
+                subject_view = Static(subject, markup=False, id="cleanup-subject")
+                # The name is enough to recognize the subject; the full path
+                # stays one hover away rather than a line of its own.
+                subject_view.tooltip = (
+                    preview.subject if preview.kind == "worktree" else preview.anchor
                 )
+                yield subject_view
                 if self.changed:
                     yield Static(
                         CHANGED_HELP, id="cleanup-help", classes="cleanup-blocker"
@@ -377,17 +387,16 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                         ),
                         None,
                     )
-                    freshness = "Uses last fetched state. Press f here to fetch and prune remotes."
+                    age = fetch_age_text(fetched_at, datetime.now(UTC))
+                    freshness = Static(
+                        age[:1].upper() + age[1:], markup=False, id="cleanup-freshness"
+                    )
                     if fetched_at:
-                        freshness += "\nRepository fetch timestamp: " + fetched_at
-                        freshness += (
-                            " ("
-                            + fetch_age_text(
-                                fetched_at, datetime.now(UTC)
-                            ).removeprefix("remote last fetched ")
-                            + "; not per-remote verification)"
+                        freshness.tooltip = (
+                            f"Repository fetch timestamp: {fetched_at} "
+                            "(not per-remote verification)"
                         )
-                    yield Static(freshness, id="cleanup-freshness")
+                    yield freshness
                 if preview.kind == "branch" and self.primary_identity is None:
                     yield Static(
                         "Select each concrete Branch to delete below; unselected targets are retained.",

@@ -155,7 +155,11 @@ rest; when the inventories cannot all fit, panes with remaining rows share the
 live height and scroll independently. Pull Requests remains bounded to eight
 content lines so the Issues table keeps its minimum height.
 
-Cleanup previews show the concrete primary target without a redundant checkbox.
+Cleanup previews open with the subject's name — hover it for the Worktree's
+full path, or the Repository Anchor's for a Branch — and how long ago the Repository
+was last fetched, with the exact fetch time as its tooltip. Each target's
+availability sits in a right-hand gutter, and its reasons and consequences wrap
+beside it. The concrete primary target shows without a redundant checkbox.
 Removing a Worktree is finishing its work, so its attached local Branch starts
 selected, as does the same Branch at the remote a plain `git push` reaches when
 it is integrated and at the local Branch's tip; untick either to retain it.

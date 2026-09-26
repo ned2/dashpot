@@ -66,9 +66,9 @@ async def test_fetch_stays_in_same_dialog_and_holds_confirmation(kind):
     try:
         async with app.run_test(size=(100, 40)) as pilot:
             screen = await open_preview(app, pilot, kind)
-            assert "Press f here to fetch and prune remotes" in str(
+            assert str(
                 screen.query_one("#cleanup-freshness", Static).render()
-            )
+            ).startswith("Remote ")
             assert screen.query_one(Footer)
             assert (
                 screen.active_bindings["f"].binding.description
@@ -527,8 +527,14 @@ async def test_worktree_fetch_age_covers_detached_and_independent_branch_blocker
     app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
     async with app.run_test(size=(80, 24)) as pilot:
         screen = await open_preview(app, pilot, "worktree")
-        guidance = str(screen.query_one("#cleanup-freshness", Static).render())
-        assert "Press f here" in guidance and "2026-09-11" in guidance
+        freshness = screen.query_one("#cleanup-freshness", Static)
+        # The age is what reads at a glance; the exact time stays a hover away.
+        assert str(freshness.render()).startswith("Remote last fetched ")
+        assert str(freshness.render()).endswith(" ago")
+        assert freshness.tooltip == (
+            "Repository fetch timestamp: 2026-09-11T00:00:00+00:00 "
+            "(not per-remote verification)"
+        )
         assert screen.selected() == (TREE.identity,)
         if detached:
             assert not screen.query("#cleanup-target-1")
@@ -703,7 +709,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
             assert app.screen is screen and screen.preview_valid
             assert app.fetches.fetcher.anchors == [Path(ANCHOR)]
             assert "2026-09-12" in str(
-                screen.query_one("#cleanup-freshness", Static).render()
+                screen.query_one("#cleanup-freshness", Static).tooltip
             )
             assert not cleaner.confirmations
     finally:

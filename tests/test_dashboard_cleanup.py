@@ -52,6 +52,7 @@ from dashpot.ui.cleanup_view import (
     FETCH_HINT,
     CleanupReportScreen,
     CleanupScreen,
+    CleanupTargetView,
     blocker_summary,
 )
 from dashpot.ui.legend import LegendScreen
@@ -583,6 +584,25 @@ BLOCKED_WORKTREE_PREVIEW = preview("worktree", WORKTREE, BLOCKED_TREE, HELD)
 
 
 @pytest.mark.asyncio
+async def test_a_target_wraps_its_reasons_beside_its_marker_never_beneath() -> None:
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
+    async with app.run_test(size=(72, 40)) as pilot:
+        await app.push_screen(CleanupScreen(WORKTREE_REQUEST, BLOCKED_WORKTREE_PREVIEW))
+        await pilot.pause()
+        views = cleanup_screen(app).query(CleanupTargetView)
+        assert len(views) == 2
+        for view in views:
+            marker = view.query_one(".cleanup-availability", Static)
+            assert str(marker.render()) == "BLOCKED"
+            assert marker.region.y == view.region.y
+            blocker = view.query(".cleanup-blocker").first(Static)
+            # Too long for one line here, so it wraps — within its column.
+            assert blocker.region.height > 1
+            for line in view.query_one(".cleanup-target-body").query(Static):
+                assert line.region.right <= marker.region.x
+
+
+@pytest.mark.asyncio
 async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
     cleaner = FakeCleaner(BLOCKED_WORKTREE_PREVIEW)
     app = dashboard_app(
@@ -1021,6 +1041,8 @@ async def test_long_worktree_identity_and_all_ignored_paths_are_accessible(size)
         screen = cleanup_screen(app)
         subject = screen.query_one("#cleanup-subject", Static)
         assert str(subject.render()) == Path(long_path).name
+        # The full path is a hover away rather than a line of its own.
+        assert subject.tooltip == long_path
         assert subject.region.height > 1
         assert long_path in details(app)
         paths = screen.query_one("#cleanup-paths", Collapsible)
