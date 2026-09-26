@@ -21,6 +21,7 @@ from dashpot.core.commands import (
     run_command,
 )
 from dashpot.core.git import Git, GitError
+from dashpot.core.project_state import ensure_state_directory
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     BranchCleanupRequest,
@@ -883,6 +884,54 @@ def test_a_changed_preview_performs_nothing_and_returns_the_fresh_one(
     assert report.preview.fingerprint != stale.fingerprint
     assert report.preview.target("local:refs/heads/feat") is not None
     assert git(root, "rev-parse", "--verify", "refs/heads/feat")
+
+
+def test_state_ignoring_itself_after_the_preview_leaves_the_removal_confirmed(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    # State written before its directory ignored itself.
+    state = worktree / ".dashpot" / "state" / "work"
+    state.mkdir(parents=True)
+    (state / ".codex-4242.lock").write_text("")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    (tree, _local) = preview.targets
+
+    ensure_state_directory(worktree)
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, delete_ignored=True)
+    )
+
+    assert preview.ignored == (".dashpot/", ".venv/")
+    assert report.changed is False
+    assert report.succeeded is True
+    assert not worktree.exists()
+
+
+def test_state_created_after_the_preview_refuses_the_removal(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    (tree, _local) = preview.targets
+
+    # The acknowledgement covered the ignored content the preview listed, not
+    # state a session wrote since.
+    ensure_state_directory(worktree)
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, delete_ignored=True)
+    )
+
+    assert report.changed is True
+    assert report.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert ".dashpot/" in report.preview.ignored
+    assert worktree.exists()
 
 
 def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> None:

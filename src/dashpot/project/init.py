@@ -17,8 +17,6 @@ from ..github.github_repository import (
 )
 from .project_config import PROJECT_CONFIG_NAME
 
-STATE_IGNORE_RULE = ".dashpot/state/"
-
 
 class InitError(DashpotError):
     """A ``dashpot init`` refused before writing the Project configuration."""
@@ -74,18 +72,4 @@ def initialize_project(
     }
     config_path.parent.mkdir(exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    messages = [f"created {config_path}"]
-    if not _ignores_state_directory(adapter):
-        messages.append(
-            f"add '{STATE_IGNORE_RULE}' to {root / '.gitignore'} so local "
-            f"runtime state never dirties the worktree"
-        )
-    return messages
-
-
-def _ignores_state_directory(git: Git) -> bool:
-    try:
-        result = git.run("check-ignore", "-q", f"{STATE_IGNORE_RULE}probe")
-    except GitError:
-        return False
-    return result.returncode == 0
+    return [f"created {config_path}"]

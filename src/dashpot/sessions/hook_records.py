@@ -15,6 +15,7 @@ from pydantic import AfterValidator, BeforeValidator, Field
 from ..core.git import Git, GitError
 from ..core.json_records import HookRecordError, optional_string, require_string
 from ..core.model import Harness
+from ..core.project_state import project_state_directory
 from ..core.pydantic import NonEmptyString, PersistedRecord
 from ..core.record_store import LockedRecordStore
 from ..core.timestamps import observed_instant, utc_now
@@ -246,12 +247,16 @@ class HookRecordStore(LockedRecordStore):
 
     Events are published atomically, a graceful ``SessionEnd`` removes the
     session's record, and confirmed stale records can be pruned without
-    racing a concurrent hook write.
+    racing a concurrent hook write. A Project-local store names its
+    ``checkout`` (see ``project_session_store``).
     """
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, *, checkout: Path | None = None) -> None:
         super().__init__(
-            directory, SESSION_ID, "hook sessionId contains unsupported characters"
+            directory,
+            SESSION_ID,
+            "hook sessionId contains unsupported characters",
+            checkout=checkout,
         )
 
     def write(self, record: dict[str, Any]) -> Path:
@@ -332,4 +337,9 @@ class HookRecordStore(LockedRecordStore):
 
 def session_directory(worktree: Path) -> Path:
     """The Project-local session record store beneath one Worktree."""
-    return worktree / ".dashpot" / "state" / "sessions"
+    return project_state_directory(worktree) / "sessions"
+
+
+def project_session_store(worktree: Path) -> HookRecordStore:
+    """The Project-local hook store of one Worktree, whose writes keep it out of Git."""
+    return HookRecordStore(session_directory(worktree), checkout=worktree)

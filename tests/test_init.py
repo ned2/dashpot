@@ -117,17 +117,16 @@ def test_gh_failure_leaves_no_partial_configuration(tmp_path: Path) -> None:
     assert not (root / ".dashpot").exists()
 
 
-def test_reminds_about_state_ignore_rule_only_when_missing(
-    tmp_path: Path,
+def test_gives_no_ignore_advice_since_the_state_directory_ignores_itself(
+    git_repository: Path,
 ) -> None:
-    unignored = init_repository(tmp_path / "unignored")
-    messages = initialize_project(unignored, markdown_path="issues")
-    assert any(".dashpot/state/" in message for message in messages)
+    root = git_repository
 
-    ignored = init_repository(tmp_path / "ignored")
-    (ignored / ".gitignore").write_text(".dashpot/state/\n")
-    messages = initialize_project(ignored, markdown_path="issues")
-    assert messages == [f"created {ignored / '.dashpot' / 'config.json'}"]
+    messages = initialize_project(root, markdown_path="issues")
+
+    assert messages == [f"created {root / '.dashpot' / 'config.json'}"]
+    assert not (root / ".gitignore").exists()
+    assert not (root / ".dashpot" / "state").exists()
 
 
 def test_init_runs_at_the_worktree_root_from_a_subdirectory(

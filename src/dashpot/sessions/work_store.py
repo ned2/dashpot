@@ -14,6 +14,7 @@ from pydantic import ValidationError, model_validator
 
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic, Harness
+from ..core.project_state import project_state_directory
 from ..core.pydantic import (
     NonEmptyString,
     PersistedRecord,
@@ -173,9 +174,10 @@ class WorkStore(LockedRecordStore):
 
     def __init__(self, worktree: Path) -> None:
         super().__init__(
-            worktree / ".dashpot" / "state" / "work",
+            project_state_directory(worktree) / "work",
             SESSION_KEY,
             "Work Store session key contains unsupported characters",
+            checkout=worktree,
         )
 
     def start(self, work: ActiveWork) -> Path:

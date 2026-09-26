@@ -60,8 +60,8 @@ Git 2.39+, and gh 2.100.0+ for GitHub-backed Projects. See
 status, candidate installation before publication, PATH setup, harness setup,
 diagnosis, upgrades, and uninstall instructions.
 
-For a repository with a GitHub `origin`, authenticate `gh`, run `dashpot init`
-and add `.dashpot/state/` to `.gitignore`, then run `dashpot`. For a Project
+For a repository with a GitHub `origin`, authenticate `gh`, run `dashpot init`,
+commit `.dashpot/config.json`, then run `dashpot`. For a Project
 without GitHub, create an `issues` directory and use `dashpot init --markdown
 issues`; that source uses the [Local Issue Markdown grammar](conformance/issue/local-markdown.md).
 
@@ -640,13 +640,12 @@ to proceed.
 
 Every Repository Anchor has a tracked `.dashpot/config.json` containing stable
 Project and Repository identities, a mutable display label, and the active
-Issue Source. The `.dashpot/state/` directory holds ignored local runtime
-state, including the Work Store; add it to your repository's `.gitignore` so it never
-dirties the worktree or gets committed:
-
-```gitignore
-.dashpot/state/
-```
+Issue Source. The `.dashpot/state/` directory holds local runtime state,
+including the Work Store. It ignores itself: Dashpot writes a `.gitignore`
+containing `*` into it whenever it writes state there, as `.venv` does, so it
+never dirties the worktree or gets committed whatever the repository's own
+`.gitignore` says. A state directory written by an earlier Dashpot gains the
+file the next time Dashpot writes state there.
 
 A GitHub-backed Project looks like this:
 
