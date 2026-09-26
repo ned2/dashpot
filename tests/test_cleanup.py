@@ -961,16 +961,21 @@ def test_state_ignoring_itself_without_a_rule_unblocks_the_worktree(
     (tree, _local) = fresh.targets
     # The person confirmed a preview that found the Worktree dirty; the one
     # that offers its removal is a different preview, so it is refused.
-    report = perform_cleanup(
+    refused = perform_cleanup(
         confirm(request, stale, stale_tree.identity, delete_ignored=True)
+    )
+    assert worktree.exists()
+    removed = perform_cleanup(
+        confirm(request, fresh, tree.identity, delete_ignored=True)
     )
 
     assert kinds(stale_tree) == {"dirty"}
     assert tree.available is True
     assert fresh.ignored == (".dashpot/", ".venv/")
-    assert report.changed is True
-    assert report.refusals == (CHANGED_SINCE_PREVIEW,)
-    assert worktree.exists()
+    assert refused.changed is True
+    assert refused.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert removed.succeeded is True
+    assert not worktree.exists()
 
 
 def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> None:
