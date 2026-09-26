@@ -601,6 +601,19 @@ def test_the_rest_of_the_account_is_counted_within_each_reset_window() -> None:
     assert account_spend(()) is None
 
 
+def test_the_earliest_of_equal_readings_is_taken_as_the_first() -> None:
+    clock = Clock()
+    log = stats_log(None, clock)
+    parent = refresh(log, "github")
+    request(log, clock, parent, "Q", cost=1, remaining=100)
+    request(log, clock, parent, "Q", cost=10, remaining=100)
+    request(log, clock, parent, "Q", cost=5, remaining=80)
+    parent.end()
+
+    # 20 points used, of which the two later requests spent 15.
+    assert account_spend(log.recent_events()) == 5
+
+
 def test_a_request_whose_refresh_is_not_recorded_belongs_to_no_last_refresh() -> None:
     clock = Clock()
     log = stats_log(None, clock)
@@ -657,7 +670,7 @@ def test_a_duration_reads_in_its_best_unit(seconds: float, text: str) -> None:
     ("seconds", "text"),
     [(9, "9s"), (61, "1m 01s"), (3725, "1h 02m 05s"), (90_061, "1d 1h 01m")],
 )
-def test_uptime_reads_leading_unit_first(seconds: float, text: str) -> None:
+def test_a_long_duration_reads_leading_unit_first(seconds: float, text: str) -> None:
     assert long_duration_text(seconds) == text
 
 

@@ -571,7 +571,7 @@ refresh, observation, query and command span. The `event_level` setting chooses 
 own for the rest of the run. Each Runtime Event carries the level it belongs
 to, and a count read from the Event Log's files counts only what is always
 written at the level in force; a dashboard's in-memory buffer keeps every
-event whatever the level, so Runtime Stats count everything in it.
+event whatever the level, so Runtime Stats counts everything in it.
 _Avoid_: telemetry level; log level or verbosity, which suggest the
 severity of a Diagnostic
 

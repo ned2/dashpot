@@ -2,9 +2,9 @@
 
 Every figure is computed when read, from the events a dashboard keeps in
 memory: nothing here keeps a running total, and nothing is counted beside
-the events (ADR 0059). The counting rule reads the Event Log's files; the
-buffer holds every event at full detail whatever the level in force, so
-every event in it counts. Each aggregation is a pure
+the events (ADR 0059). The counting rule applies to counts read from the
+Event Log's files; the buffer holds every event at full detail whatever the
+level in force, so every event in it counts. Each aggregation is a pure
 function over events, so a section is one function more.
 """
 
