@@ -11,11 +11,12 @@ its ``DashpotError`` code or class, never its message.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import TypeAdapter, ValidationError
 
 from .errors import DashpotError
 from .event_log import EventLog, error_type
@@ -23,13 +24,14 @@ from .model import Harness
 from .runtime_events import (
     CommandAction,
     CommandOutcome,
+    DiagnosticCode,
     ManagementCommand,
     OutcomeResult,
     fitting,
 )
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class OutcomeNote:
     """What one management command has learned about its work so far.
 
@@ -80,13 +82,16 @@ def outcome_error(error: BaseException) -> str:
     ever its message.
     """
     code = getattr(error, "code", None)
-    if isinstance(code, str) and _ERROR_CODE.fullmatch(code):
-        return code
+    if isinstance(code, str):
+        try:
+            return _ERROR_CODE.validate_python(code)
+        except ValidationError:
+            pass
     return error_type(error)
 
 
-# The shape of a Diagnostic code, which an error that carries one uses too.
-_ERROR_CODE = re.compile(r"[a-z][a-z0-9]*(-[a-z0-9]+)*")
+# An error that carries a code carries a Diagnostic's.
+_ERROR_CODE: TypeAdapter[str] = TypeAdapter(DiagnosticCode)
 
 
 @contextmanager

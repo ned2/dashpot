@@ -30,6 +30,7 @@ from dashpot.event_logs import (
     process_identity,
     route_event_log,
 )
+from dashpot.github.github import GitHubRequestError
 from dashpot.sessions.hook_publish import HookPublication
 from factories import init_repository, write_project_config
 
@@ -410,6 +411,24 @@ def test_a_hook_whose_publish_fails_records_the_error_class_never_its_message(
     text = "".join(path.read_text() for path in tmp_path.glob("*.jsonl"))
     assert "/secret/place" not in text
     assert "Permission denied" not in text
+
+
+def test_a_hook_error_that_carries_a_code_is_recorded_by_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+
+    def fail(event: object, harness: str) -> HookPublication:
+        raise GitHubRequestError("github-timeout", "gh timed out for someone")
+
+    monkeypatch.setattr(hook, "publish_hook_event", fail)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "s"})))
+
+    assert hook.main(event_log=EventLogDestination(tmp_path)) == 1
+
+    _, outcome, _ = written(tmp_path)
+    assert outcome["error.type"] == "github-timeout"
+    assert "someone" not in "".join(p.read_text() for p in tmp_path.glob("*.jsonl"))
 
 
 def test_a_hook_whose_event_log_cannot_be_written_says_nothing(
