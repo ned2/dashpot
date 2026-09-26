@@ -53,7 +53,7 @@ class CachedQuerySource(ABC):
         except InvalidContinuation:
             raise
         except QUERY_OBSERVATION_FAILURES as exc:
-            known = context or self.last_known_context()
+            known = self._failed_context(context)
             if known is not None:
                 key = (context_fingerprint(known, request), request.cursor)
             previous = self._pages.get(key) if key else None
@@ -97,7 +97,7 @@ class CachedQuerySource(ABC):
         except QUERY_OBSERVATION_FAILURES as exc:
             previous = self._totals.get(kind)
             diagnostic = self.diagnostic(exc)
-            if previous and previous.context == (context or self.last_known_context()):
+            if previous and previous.context == self._failed_context(context):
                 return previous.model_copy(
                     update={
                         "status": "stale",
@@ -143,7 +143,7 @@ class CachedQuerySource(ABC):
                 )
                 for identity in requested
             )
-        known = context or self.last_known_context()
+        known = self._failed_context(context)
         retained: list[ResolvedIssue] = []
         for result in results:
             previous = self._identities.get(result.issue_id)
@@ -168,6 +168,19 @@ class CachedQuerySource(ABC):
             self._identities.popitem(last=False)
         return tuple(retained)
 
+    def _failed_context(self, context: SourceContext | None) -> SourceContext | None:
+        """The context a failed request finds its last good observation under.
+
+        A response can report a new principal before a later part of the same
+        request fails, so the context a response last reported wins over the
+        one the request was sent under; the request's configuration still
+        applies. Another principal's observation is then never shown as stale.
+        """
+        known = self.last_known_context()
+        if known is None or context is None:
+            return known or context
+        return known.model_copy(update={"configuration": context.configuration})
+
     def diagnostic(self, exc: Exception) -> Diagnostic:
         """Report an adapter failure without manufacturing empty success."""
         return Diagnostic(
@@ -189,9 +202,9 @@ class CachedQuerySource(ABC):
         """Observe the source context before sending a request that depends on it."""
 
     def request_context(self) -> SourceContext:
-        """The context a request without a continuation is sent under.
+        """Begin a request without a continuation, returning the context it is sent under.
 
-        A source whose responses carry their own context answers from what it
+        A source whose responses carry their own context starts from what it
         last observed and verifies the response; the default observes first.
         """
         return self.observe_context()
@@ -199,9 +212,8 @@ class CachedQuerySource(ABC):
     def last_known_context(self) -> SourceContext | None:
         """The context a response most recently answered for, when one has.
 
-        A failure proves nothing about the context (ADR 0033), so this is how
-        a request that failed before its context was known still finds its
-        last good observation.
+        A failure proves nothing about the context (ADR 0033), so a failed
+        request finds its last good observation under this context.
         """
         return None
 

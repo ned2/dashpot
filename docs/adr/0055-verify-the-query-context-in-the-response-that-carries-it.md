@@ -40,19 +40,30 @@ its own data at no extra cost, and be verified in its response.
   not in the Project configuration. The first Query Page a source asks for
   therefore observes the context separately, once, to learn it. Each response
   then reports the current name; when it reports a new name for the same
-  Repository, page one is searched again once under the new name, and a
-  continuation restarts from page one.
+  Repository, page one is searched again once under the new name. A
+  continuation searches under the name its own context observation reported;
+  only a rename between that observation and its search restarts it from
+  page one.
 - The Project configuration is re-read before every request, locally, so an
   edited configuration is still refused before anything is sent.
 - A failed request proves nothing about the context: the last good page,
   Project Totals or Resolved Issue is found under the last context a response
-  reported, and shown as stale.
+  reported, with the configuration the request was sent under, and shown as
+  stale. When a response reported a new principal before a later part of the
+  same request failed, that is the new principal, so the previous principal's
+  observation is not shown.
 
 ## Consequences
 
 A dashboard's steady refresh sends no `DashpotQueryContext` request; only a
 source's first Query Page and each continuation do. A principal or Repository
 change is still detected by the next request that reaches GitHub.
+
+Two failures now keep a last good observation where the separate context
+request made them unavailable, because neither reports a context that
+replaces the one it was made under: a Project configuration that cannot be
+read, and a response for another Repository, which is discarded with its
+mismatch Diagnostic while the last good observation is shown as stale.
 
 A local Markdown Issue Source is unchanged: its context is local, so it is
 observed before every request as before.

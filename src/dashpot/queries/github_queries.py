@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, override
+from typing import Annotated, Any, override
+
+from pydantic import Field
 
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile
@@ -85,6 +87,15 @@ _IDENTITIES = f"""query DashpotResolvedIssues($repositoryId: ID!, $ids: [ID!]!) 
 class _Context(WireModel):
     repository: Repository
     viewer: Identity
+
+
+class _Count(WireModel):
+    total_count: Annotated[int, Field(ge=0)]
+
+
+class _Totals(WireModel):
+    opened: _Count
+    closed: _Count
 
 
 def explicit_sort(query: str) -> bool:
@@ -184,7 +195,7 @@ class GitHubQuerySource(CachedQuerySource):
             budget=budget,
         )
         self.repository_name = ""
-        self._known: SourceContext | None = None
+        self._last_context: SourceContext | None = None
 
     @property
     @override
@@ -209,13 +220,13 @@ class GitHubQuerySource(CachedQuerySource):
         detected on the next refresh.
         """
         self._meter = self.budget.start()
-        return (self._known or self.context).model_copy(
+        return (self._last_context or self.context).model_copy(
             update={"configuration": load_project_config(self.root).model_dump_json()}
         )
 
     @override
     def last_known_context(self) -> SourceContext | None:
-        return self._known
+        return self._last_context
 
     def _observe(self, context: SourceContext) -> SourceContext:
         self._meter.next_request("Repository and principal context")
@@ -233,10 +244,13 @@ class GitHubQuerySource(CachedQuerySource):
         *,
         principal: str | None = None,
     ) -> SourceContext:
-        """Read the context a response answered for, refusing any other Repository.
+        """Verify the context a response answered for and record it as the last known.
 
-        ``principal``, when given, is the principal the request was sent under:
-        a response answering for another is discarded rather than shown.
+        A response for another Repository is refused. ``principal``, when
+        given, is the principal the request was sent under: a response
+        answering for another is discarded rather than shown. Records the
+        Repository's current name for the next search, and the verified
+        context for :meth:`last_known_context`.
         """
         value = _Context.model_validate(
             {"repository": data.get("repository"), "viewer": data.get("viewer")}
@@ -249,7 +263,7 @@ class GitHubQuerySource(CachedQuerySource):
             )
         self.repository_name = value.repository.name_with_owner
         observed = context.model_copy(update={"principal": value.viewer.id})
-        self._known = observed
+        self._last_context = observed
         return observed
 
     @override
@@ -340,11 +354,18 @@ class GitHubQuerySource(CachedQuerySource):
         if len(ids) != len(set(ids)):
             raise ValueError("GitHub returned duplicate Query Page identities")
         if request.kind == "issues":
-            outcomes = self._resolve(context, ids, attempted, meter, verified=True)
+            outcomes = self._resolve(
+                context, ids, attempted, meter, principal=context.principal
+            )
             for outcome in outcomes:
                 if outcome.outcome != "resolved" or outcome.issue is None:
+                    reason = (
+                        outcome.diagnostics[0].message
+                        if outcome.diagnostics
+                        else outcome.outcome
+                    )
                     raise ValueError(
-                        f"Cannot complete Query Page Issue {outcome.issue_id}: {outcome.outcome}"
+                        f"Cannot complete Query Page Issue {outcome.issue_id}: {reason}"
                     )
                 issues.append(outcome.issue)
                 if outcome.auxiliary:
@@ -415,19 +436,12 @@ class GitHubQuerySource(CachedQuerySource):
         self._meter.next_request("Project lifecycle totals")
         data = self.gateway.graphql(query, {"repositoryId": self.context.repository_id})
         context = self._verify(data, context)
-        raw = data["totals"]
-        opened, closed_count = raw["opened"]["totalCount"], raw["closed"]["totalCount"]
-        if (
-            type(opened) is not int
-            or type(closed_count) is not int
-            or min(opened, closed_count) < 0
-        ):
-            raise ValueError("GitHub lifecycle totals are malformed")
+        counts = _Totals.model_validate(data.get("totals"))
         return ProjectTotals(
             context=context,
             kind=kind,
-            open_count=opened,
-            closed_count=closed_count,
+            open_count=counts.opened.total_count,
+            closed_count=counts.closed.total_count,
             status="fresh",
             attempted_at=attempted,
             last_good_at=attempted,
@@ -447,15 +461,14 @@ class GitHubQuerySource(CachedQuerySource):
         attempted: str,
         meter: RefreshMeter,
         *,
-        verified: bool = False,
+        principal: str | None = None,
     ) -> tuple[ResolvedIssue, ...]:
         """Resolve identities in batches that all answer for one principal.
 
-        ``verified`` says ``context`` came from a response already, as a Query
-        Page's search does; otherwise the first batch's answer supplies the
-        principal and every later batch must match it.
+        ``principal`` is the one a Query Page's search already answered for;
+        without it, the first batch's answer supplies the principal and every
+        later batch must match it.
         """
-        principal = context.principal if verified else None
         results: list[ResolvedIssue] = []
         completed: dict[str, Mapping[str, Any]] = {}
         for start in range(0, len(identities), 24):

@@ -514,14 +514,19 @@ def test_query_programmer_faults_escape_instead_of_becoming_stale(tmp_path, oper
             source.resolve_identities(["I_1"])
 
 
-def operations(runner):
-    """The GraphQL operation each recorded ``gh`` call sent, in order."""
+def arguments(runner, prefix):
+    """Every recorded ``gh`` argument starting with ``prefix``, without it, in order."""
     return [
-        argument.removeprefix("query=query ").split("(")[0]
+        argument.removeprefix(prefix)
         for args, *_ in runner.calls
         for argument in args
-        if argument.startswith("query=query ")
+        if argument.startswith(prefix)
     ]
+
+
+def operations(runner):
+    """The GraphQL operation each recorded ``gh`` call sent, in order."""
+    return [query.split("(")[0] for query in arguments(runner, "query=query ")]
 
 
 def test_repeated_page_one_verifies_context_in_its_own_response(tmp_path):
@@ -565,6 +570,7 @@ def test_page_batch_answering_another_principal_rejects_the_page(tmp_path):
     )
     page = source.query_page(QueryRequest())
     assert page.status == "unavailable" and not page.issues
+    assert "different principal" in page.diagnostics[0].message
 
 
 def test_continuation_answered_for_another_principal_is_discarded(tmp_path):
@@ -596,17 +602,28 @@ def test_renamed_repository_is_searched_again_under_its_new_name(tmp_path):
     source.query_page(QueryRequest())
     page = source.query_page(QueryRequest())
     assert page.status == "fresh" and page.returned_count == 1
-    searches = [
-        argument
-        for args, *_ in runner.calls
-        for argument in args
-        if argument.startswith("searchQuery=")
+    assert arguments(runner, "searchQuery=") == [
+        "repo:ned2/dashpot is:issue is:open",
+        "repo:ned2/dashpot is:issue is:open",
+        "repo:ned2/renamed is:issue is:open",
     ]
-    assert searches == [
-        "searchQuery=repo:ned2/dashpot is:issue is:open",
-        "searchQuery=repo:ned2/dashpot is:issue is:open",
-        "searchQuery=repo:ned2/renamed is:issue is:open",
-    ]
+
+
+def test_continuation_searches_under_the_name_its_context_reported(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(name="ned2/renamed"),
+        search(hit(2), count=2, name="ned2/renamed"),
+        batch(node(2)),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    second = source.query_page(request.model_copy(update={"cursor": first.next_cursor}))
+    assert second.status == "fresh" and second.issues[0].number == 2
+    assert arguments(runner, "searchQuery=")[-1] == "repo:ned2/renamed is:issue is:open"
 
 
 def test_repository_renamed_again_during_its_retry_fails_the_page(tmp_path):
@@ -621,7 +638,7 @@ def test_repository_renamed_again_during_its_retry_fails_the_page(tmp_path):
     assert "renamed" in page.diagnostics[0].message
 
 
-def test_continuation_across_a_rename_restarts_from_page_one(tmp_path):
+def test_rename_between_continuation_context_and_search_restarts(tmp_path):
     source, _ = github(
         tmp_path,
         context(),
@@ -753,3 +770,46 @@ def test_markdown_source_that_cannot_observe_has_no_last_good_page(tmp_path):
         path.unlink()
     (tmp_path / "issues").rmdir()
     assert source.query_page(QueryRequest()).status == "unavailable"
+
+
+def test_page_failing_after_a_new_principal_never_shows_the_old_one(tmp_path):
+    source, runner = github(tmp_path, context(), search(hit(1)), batch(node(1)))
+    source.query_page(QueryRequest())
+    runner.results = iter(
+        [
+            completed(json.dumps({"data": search(hit(1), principal="U_2")})),
+            OSError("network down"),
+        ]
+    )
+    page = source.query_page(QueryRequest())
+    assert page.status == "unavailable" and not page.issues
+
+
+def test_totals_failing_after_a_new_principal_never_show_the_old_one(tmp_path):
+    malformed = totals(3, 5, principal="U_2")
+    malformed["totals"]["opened"]["totalCount"] = -1
+    source, _ = github(tmp_path, totals(3, 5), malformed)
+    source.totals("issues")
+    result = source.totals("issues")
+    assert result.status == "unavailable" and result.open_count is None
+
+
+def test_identities_failing_after_a_new_principal_never_show_the_old_one(tmp_path):
+    identities = [f"I_issue_{n}" for n in range(1, 26)]
+    source, runner = github(
+        tmp_path, batch(*(node(n) for n in range(1, 25))), batch(node(25))
+    )
+    source.resolve_identities(identities)
+    runner.results = iter(
+        [
+            completed(
+                json.dumps(
+                    {"data": batch(*(node(n) for n in range(1, 25)), principal="U_2")}
+                )
+            ),
+            OSError("network down"),
+        ]
+    )
+    results = source.resolve_identities(identities)
+    assert all(result.context.principal == "U_2" for result in results[:24])
+    assert results[24].status == "unavailable" and results[24].issue is None
