@@ -64,40 +64,36 @@ def branch(name: str, *, remote: str | None = None) -> Branch:
     )
 
 
-def header_offsets(table: DataTable[Any]) -> list[int]:
-    """The x offset at which each column's header starts."""
-    offsets: list[int] = []
-    x = 0
-    for column in table.columns.values():
-        offsets.append(x)
-        x += column.get_render_width(table)
-    return offsets
+def painted_headers(app: App[Any], table: DataTable[Any]) -> list[tuple[int, object]]:
+    """Each header's start x and column, as the table paints its header row now.
+
+    The segment meta is read the way a hover reads it, so painting the row
+    is a side effect, as it is for a hover.
+    """
+    region = table.region
+    starts: dict[object, int] = {}
+    for x in range(region.width):
+        meta = app.screen.get_style_at(region.x + x, region.y).meta
+        if meta.get("row") == -1:
+            starts.setdefault(meta.get("column"), x)
+    return sorted((x, column) for column, x in starts.items())
 
 
 async def settled_header_offsets(
     pilot: Pilot[Any], table: DataTable[Any], what: str
 ) -> list[int]:
-    """Settle the x offset at which each header starts on the rendered frame.
+    """Settle the x offset at which each header starts, as the table paints it.
 
-    A hover reads the column from the segment meta of the frame on screen,
-    and a change of columns or of the terminal's size reaches that frame a
-    few frames after the table reports it. The offsets are therefore found
-    on the frame itself, the way a hover reads it, rather than from the
-    columns' widths: under load Textual can paint a table before measuring
-    its cells, and the painted headers then keep their label widths while
-    the columns report their measured ones.
+    A hover reads the column from the segment meta of the header row as the
+    table paints it, and a change of columns or of the terminal's size
+    reaches that paint a few frames after the table reports it. The offsets
+    are therefore read the way a hover reads them rather than summed from
+    the columns' widths: Textual can paint a redeclared table's header
+    before it measures the cells, and that header keeps its labels' widths
+    while the columns report their measured ones, until the table next
+    redraws it, as the first hover does. Read them again before each hover.
     """
-
-    def headers() -> list[tuple[int, object]]:
-        region = table.region
-        starts: dict[object, int] = {}
-        for x in range(region.width):
-            meta = pilot.app.screen.get_style_at(region.x + x, region.y).meta
-            if meta.get("row") == -1:
-                starts.setdefault(meta.get("column"), x)
-        return sorted((x, column) for column, x in starts.items())
-
-    cells = await settled(pilot, headers, what)
+    cells = await settled(pilot, lambda: painted_headers(pilot.app, table), what)
     # Every column is painted once, in order, before any is hovered.
     assert [column for _x, column in cells] == list(range(len(table.columns))), (
         what,
@@ -118,6 +114,30 @@ async def hover_afresh(
     await leave(pilot, tooltip)
     assert await pilot.hover(selector, offset=(x, y))
     await hover_settled(pilot, tooltip, selector)
+
+
+async def hover_header(
+    pilot: Pilot[Any], tooltip: Tooltip, selector: str, index: int
+) -> None:
+    """Enter the table from outside it over the header of column ``index``.
+
+    The header is found after leaving, just before the mouse enters, so it
+    is where the entering move will read it.
+    """
+    table = pilot.app.screen.query_one(selector, DataTable)
+    await leave(pilot, tooltip)
+    offsets = await settled_header_offsets(pilot, table, f"the {selector} headers")
+    assert await pilot.hover(selector, offset=(offsets[index], 0))
+    await hover_settled(pilot, tooltip, selector)
+
+
+async def move_to_header(
+    pilot: Pilot[Any], tooltip: Tooltip, selector: str, index: int
+) -> None:
+    """Move the mouse onto the header of column ``index`` without leaving the table."""
+    table = pilot.app.screen.query_one(selector, DataTable)
+    offsets = await settled_header_offsets(pilot, table, f"the {selector} headers")
+    await move_within(pilot, tooltip, selector, offsets[index], 0)
 
 
 async def hover_settled(pilot: Pilot[Any], tooltip: Tooltip, selector: str) -> None:
@@ -158,8 +178,8 @@ async def assert_every_header_shows_its_help(
     offsets = await settled_header_offsets(pilot, table, f"the {selector} headers")
     assert len(offsets) == len(columns)
     assert table.virtual_size.width <= table.size.width
-    for x, column in zip(offsets, columns, strict=True):
-        await hover_afresh(pilot, tooltip, selector, x, 0)
+    for index, column in enumerate(columns):
+        await hover_header(pilot, tooltip, selector, index)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(column)), column.label
         # A box a person can take in beside the header, not a page: the
@@ -170,7 +190,7 @@ async def assert_every_header_shows_its_help(
     # Moving between headers without leaving follows the mouse, and a body
     # cell clears it: the cell is at the far right, clear of the box the
     # first header opened beneath itself.
-    await move_within(pilot, tooltip, selector, offsets[0], 0)
+    await move_to_header(pilot, tooltip, selector, 0)
     await wait_until(lambda: tooltip.display)
     assert str(tooltip.content) == required(column_help(columns[0]))
     await move_within(pilot, tooltip, selector, table.size.width - 3, 1)
@@ -183,10 +203,7 @@ async def assert_every_header_shows_its_help(
     before = table.size.width
     await pilot.resize_terminal(width + 20, height)
     await wait_until(lambda: table.size.width > before)
-    widened = await settled_header_offsets(
-        pilot, table, f"the {selector} headers after widening"
-    )
-    await hover_afresh(pilot, tooltip, selector, widened[-1], 0)
+    await hover_header(pilot, tooltip, selector, len(columns) - 1)
     await wait_until(lambda: tooltip.display)
     assert str(tooltip.content) == required(column_help(columns[-1]))
     await leave(pilot, tooltip)
@@ -227,11 +244,11 @@ async def test_every_branches_header_shows_its_help_and_only_its_help() -> None:
         table = pane.table
         tooltip = app.screen.query_one(Tooltip)
         assert table.show_header
-        offsets = header_offsets(table)
+        offsets = await settled_header_offsets(pilot, table, "the #branches headers")
         assert len(offsets) == len(BRANCH_COLUMNS)
 
-        for x, column in zip(offsets, BRANCH_COLUMNS, strict=True):
-            await hover_afresh(pilot, tooltip, "#branches", x, 0)
+        for index, column in enumerate(BRANCH_COLUMNS):
+            await hover_header(pilot, tooltip, "#branches", index)
             await wait_until(lambda: tooltip.display)
             assert str(tooltip.content) == required(column_help(column))
             assert required(column.description) in str(tooltip.content)
@@ -241,20 +258,21 @@ async def test_every_branches_header_shows_its_help_and_only_its_help() -> None:
             assert tooltip.region.height <= 20, column.key
 
         # Moving between headers without leaving follows the mouse.
-        await move_within(pilot, tooltip, "#branches", offsets[6], 0)
+        await move_to_header(pilot, tooltip, "#branches", 6)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(BRANCH_COLUMNS[6]))
-        await move_within(pilot, tooltip, "#branches", offsets[3], 0)
+        await move_to_header(pilot, tooltip, "#branches", 3)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(BRANCH_COLUMNS[3]))
 
         # A body cell clears it, and so does leaving. The cell is one to the
         # right of the box the LOCAL header opened beneath itself, since a
         # mouse inside that box rests on the tooltip rather than the table.
+        offsets = await settled_header_offsets(pilot, table, "the #branches headers")
         await move_within(pilot, tooltip, "#branches", offsets[7] + 30, 1)
         assert not tooltip.display
         assert table.tooltip is None
-        await hover_afresh(pilot, tooltip, "#branches", offsets[6], 0)
+        await hover_header(pilot, tooltip, "#branches", 6)
         await wait_until(lambda: tooltip.display)
         await leave(pilot, tooltip)
         await wait_until(lambda: table.tooltip is None)
@@ -297,17 +315,16 @@ async def test_headers_explain_themselves_over_an_empty_table_and_after_changes(
         tooltip = app.screen.query_one(Tooltip)
         assert table.row_count == 0
         assert table.show_header
-        offsets = header_offsets(table)
 
         # Nothing beneath the headers, and they still explain themselves; a
         # header without help offers none.
-        await hover_afresh(pilot, tooltip, "#table", offsets[0], 0)
+        await hover_header(pilot, tooltip, "#table", 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == "the first column"
-        await hover_afresh(pilot, tooltip, "#table", offsets[1], 0)
+        await hover_header(pilot, tooltip, "#table", 1)
         assert not tooltip.display
         assert table.tooltip is None
-        await hover_afresh(pilot, tooltip, "#table", offsets[2], 0)
+        await hover_header(pilot, tooltip, "#table", 2)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == "third"
 
@@ -321,6 +338,34 @@ async def test_headers_explain_themselves_over_an_empty_table_and_after_changes(
         assert table.header_tooltip_at({"row": -1, "column": 2}) is None
         assert table.header_tooltip_at({"row": 0, "column": 0}) is None
         assert table.header_tooltip_at({}) is None
+
+
+@pytest.mark.asyncio
+async def test_a_header_painted_before_its_cells_are_measured_explains_its_column() -> (
+    None
+):
+    """The help is the column's under the mouse, wherever the header is painted.
+
+    Textual paints a redeclared table's header at its labels' widths when it
+    paints before measuring the new row, and keeps that header, while the
+    columns report their measured widths, until it next redraws the table.
+    """
+    columns = [("A", "the first"), ("B", "the second"), ("C", "the third")]
+    app = TableApp(columns)
+    app.TOOLTIP_DELAY = TOOLTIP_DELAY
+
+    async with app.run_test(size=(80, 10), tooltips=True) as pilot:
+        table = app.query_one("#table", FocusCursorTable)
+        tooltip = app.screen.query_one(Tooltip)
+        await pilot.pause()
+        app.declare(columns)
+        table.add_row("a-long-first-value", "a-long-second-value", "c")
+        painted_headers(app, table)
+
+        for index, (_label, help_text) in enumerate(columns):
+            await hover_header(pilot, tooltip, "#table", index)
+            await wait_until(lambda: tooltip.display)
+            assert str(tooltip.content) == help_text
 
 
 @pytest.mark.asyncio
@@ -385,10 +430,7 @@ async def test_every_sessions_header_shows_its_help_through_a_dropped_column() -
         assert [column.key for column in pane.columns] == [
             column.key for column in SESSION_COLUMNS if column.key != "target"
         ]
-        offsets = await settled_header_offsets(
-            pilot, table, "the #sessions headers without TARGET"
-        )
-        await hover_afresh(pilot, tooltip, "#sessions", offsets[2], 0)
+        await hover_header(pilot, tooltip, "#sessions", 2)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(SESSION_COLUMNS[3]))
         await assert_every_header_shows_its_help(
@@ -491,7 +533,6 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
         # Selecting a header orders the page and marks the header, and the
         # help is still the column's own; moving between headers without
         # leaving follows the mouse, and a body cell clears the box.
-        offsets = header_offsets(table)
         number = next(key for key in table.columns if key.value == "number")
         table.post_message(
             DataTable.HeaderSelected(
@@ -502,10 +543,10 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
             )
         )
         await wait_until(lambda: table_labels(table)[2] == "# ↑")
-        await hover_afresh(pilot, tooltip, "#queue", offsets[2], 0)
+        await hover_header(pilot, tooltip, "#queue", 2)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(COLUMNS_BY_KEY["number"]))
-        await move_within(pilot, tooltip, "#queue", offsets[3], 0)
+        await move_to_header(pilot, tooltip, "#queue", 3)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(COLUMNS_BY_KEY["title"]))
         # A body cell clears it: one at the right edge, clear of the box the
@@ -534,12 +575,12 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
         await wait_until(lambda: "PRIORITY ↕" in table_labels(table))
         await pilot.pause()
         assert issue_columns(app) == DEFAULT_COLUMNS
-        priority_x = header_offsets(table)[DEFAULT_COLUMNS.index("priority")]
-        await hover_afresh(pilot, tooltip, "#queue", priority_x, 0)
+        await hover_header(pilot, tooltip, "#queue", DEFAULT_COLUMNS.index("priority"))
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(COLUMNS_BY_KEY["priority"]))
-        waiting_x = header_offsets(table)[DEFAULT_COLUMNS.index("waiting_on")]
-        await move_within(pilot, tooltip, "#queue", waiting_x, 0)
+        await move_to_header(
+            pilot, tooltip, "#queue", DEFAULT_COLUMNS.index("waiting_on")
+        )
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
             column_help(COLUMNS_BY_KEY["waiting_on"])
