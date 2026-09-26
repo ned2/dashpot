@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from ..core.commands import nonzero_exit_fails
 from ..core.git import Git, GitError
 from ..core.model import (
     Branch,
@@ -636,7 +637,8 @@ def _merge_tree(git: Git, onto: str, branch_ref: str) -> str | None:
     any other non-zero exit is Git failing to answer and raises.
     """
     args = ("merge-tree", "--write-tree", "--no-messages", onto, branch_ref)
-    result = git.run(*args)
+    with nonzero_exit_fails(GitError, answers=(1,)):
+        result = git.run(*args)
     if result.returncode == 0:
         return result.stdout.split("\n", 1)[0].strip()
     if result.returncode == 1:

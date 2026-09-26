@@ -6,14 +6,18 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+import pytest
 from textual.message import Message
 
 from app_harness import SnapshotQuerySource, issue, workspace_snapshot
+from dashpot.core.event_log import EventLog
 from dashpot.core.model import Diagnostic
+from dashpot.core.runtime_events import ProcessIdentity, QueryAttributes, SpanEnded
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.messages import IdentitiesFinished, PageFinished
 from dashpot.ui.page_runner import PageRunner
+from dashpot.ui.refresh_spans import Refresh
 
 
 @dataclass
@@ -219,3 +223,169 @@ def test_the_navigation_starts_from_each_kind_default_request() -> None:
         kind="pull-requests"
     )
     pages.shutdown()
+
+
+# --- Refresh spans ---------------------------------------------------------
+
+
+def spanned_runner() -> tuple[PageRunner, FakeHost, EventLog]:
+    log = EventLog(
+        None,
+        identity=ProcessIdentity(run_id="0" * 32, kind="dashboard"),
+        level="full",
+        facts=lambda: pytest.fail("no process.start is recorded"),
+        keep_recent=1000,
+    )
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    host = FakeHost()
+    sources = {key: SnapshotQuerySource(snapshot) for key in QUERY_SOURCE_KEYS}
+    pages = PageRunner(sources, PagedObservationStore(snapshot), host, event_log=log)
+    return pages, host, log
+
+
+def query_spans(log: EventLog) -> list[SpanEnded]:
+    return [
+        event.body
+        for event in log.recent
+        if isinstance(event.body, SpanEnded) and event.body.span_name == "query"
+    ]
+
+
+def outcomes(spans: list[SpanEnded]) -> list[tuple[str, str | None]]:
+    return [
+        (span.attributes.key, span.attributes.outcome)
+        for span in spans
+        if isinstance(span.attributes, QueryAttributes)
+    ]
+
+
+def test_a_query_no_refresh_asked_for_is_a_root_span() -> None:
+    pages, host, log = spanned_runner()
+    pages.submit("issues", query="First")
+    landed = host.pop_call("issues").land()
+    assert isinstance(landed, PageFinished)
+
+    pages.finish_page(landed)
+
+    (span,) = query_spans(log)
+    assert span.parent_span_id is None
+    assert (span.status, span.attributes) == (
+        "OK",
+        QueryAttributes(key="issues", outcome="landed"),
+    )
+
+
+def test_a_queued_request_that_is_replaced_is_dropped() -> None:
+    pages, host, log = spanned_runner()
+    pages.submit("issues", query="First")
+    running = host.pop_call("issues")
+    pages.submit("issues", query="Second")
+    pages.submit("issues", query="Sec")
+    assert outcomes(query_spans(log)) == [("issues", "dropped")]
+
+    stale = running.land()
+    assert isinstance(stale, PageFinished)
+    pages.finish_page(stale)
+    latest = host.pop_call("issues").land()
+    assert isinstance(latest, PageFinished)
+    pages.finish_page(latest)
+
+    assert outcomes(query_spans(log)) == [
+        ("issues", "dropped"),
+        ("issues", "superseded"),
+        ("issues", "landed"),
+    ]
+
+
+def test_a_refresh_tick_skips_a_busy_key_and_ends_with_its_last_query() -> None:
+    pages, host, log = spanned_runner()
+    first = Refresh(log, "github")
+    pages.refresh(restart=False, refresh=first)
+    first.seal()
+    running = {
+        key: host.pop_call(key) for key in QUERY_SOURCE_KEYS if key != "identities"
+    }
+
+    tick = Refresh(log, "github")
+    pages.refresh(restart=False, refresh=tick)
+    tick.seal()
+    assert tick.ended
+    assert not first.ended
+
+    for call in running.values():
+        landed = call.land()
+        assert isinstance(landed, PageFinished)
+        pages.finish_page(landed)
+    assert first.ended
+
+    by_parent = {
+        refresh.span.span_id: sorted(
+            outcomes(
+                [
+                    span
+                    for span in query_spans(log)
+                    if span.parent_span_id == refresh.span.span_id
+                ]
+            )
+        )
+        for refresh in (first, tick)
+    }
+    assert by_parent == {
+        first.span.span_id: [("issues", "landed"), ("pull-requests", "landed")],
+        tick.span.span_id: [("issues", "skipped"), ("pull-requests", "skipped")],
+    }
+
+
+def test_the_identities_a_refresh_asks_for_end_under_it() -> None:
+    pages, host, log = spanned_runner()
+    refresh = Refresh(log, "manual")
+    pages.request_identities(("I_test/repo#1",), refresh=refresh)
+    refresh.seal()
+    host.pop_call("identities")
+
+    pages.finish_identities(IdentitiesFinished(error="boom"))
+
+    assert refresh.ended
+    (span,) = query_spans(log)
+    assert span.parent_span_id == refresh.span.span_id
+    assert span.attributes == QueryAttributes(key="identities", outcome="landed")
+
+
+def test_a_queued_request_keeps_the_refresh_that_asked_for_it() -> None:
+    pages, host, log = spanned_runner()
+    first = Refresh(log, "initial")
+    pages.request_page("issues", pages.navigation["issues"].refresh(), refresh=first)
+    first.seal()
+    running = host.pop_call("issues")
+    pressed = Refresh(log, "manual")
+    pages.refresh(restart=True, refresh=pressed)
+    pressed.seal()
+
+    # The first refresh's answer releases the request the press queued.
+    stale = running.land()
+    assert isinstance(stale, PageFinished)
+    pages.finish_page(stale)
+    assert first.ended
+    assert not pressed.ended
+    latest = host.pop_call("issues").land()
+    assert isinstance(latest, PageFinished)
+    pages.finish_page(latest)
+    pages.finish_page(_landed(host.pop_call("pull-requests")))
+
+    assert pressed.ended
+
+    def under(refresh: Refresh) -> list[tuple[str, str | None]]:
+        spans = query_spans(log)
+        children = [
+            span for span in spans if span.parent_span_id == refresh.span.span_id
+        ]
+        return sorted(outcomes(children))
+
+    assert under(first) == [("issues", "superseded")]
+    assert under(pressed) == [("issues", "landed"), ("pull-requests", "landed")]
+
+
+def _landed(call: QueryCall) -> PageFinished:
+    message = call.land()
+    assert isinstance(message, PageFinished)
+    return message

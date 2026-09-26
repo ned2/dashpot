@@ -7,10 +7,12 @@ import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from ..core.errors import DashpotError
+from ..core.event_log import carry_current_span
 from ..core.git import Git
 from ..core.issue_profile import IssueProfile
 from ..core.model import (
@@ -598,8 +600,11 @@ class ObservationCoordinator:
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=worker_count
             ) as pool:
+                # Each observation keeps the current span and Event Log, so
+                # a headless refresh records its commands like a dashboard's.
                 futures = [
-                    pool.submit(self.observe, ticket) for ticket in project_tickets
+                    pool.submit(carry_current_span(partial(self.observe, ticket)))
+                    for ticket in project_tickets
                 ]
                 for future in futures:
                     future.result()

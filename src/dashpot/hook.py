@@ -10,7 +10,12 @@ from typing import Any, TextIO
 
 from .core.command_outcomes import outcome_error
 from .core.errors import DashpotError
-from .core.event_log import EventLog, EventLogDestination, working_directory
+from .core.event_log import (
+    EventLog,
+    EventLogDestination,
+    use_event_log,
+    working_directory,
+)
 from .core.json_records import HookRecordError
 from .core.model import Harness
 from .core.runtime_events import HookOutcome, OutcomeResult, fitting
@@ -121,7 +126,9 @@ def _run(
     try:
         if failure is not None:
             raise failure
-        publication, output = _publish(event, harness)
+        # Identifying the session runs ``ps``; its spans are the hook's.
+        with use_event_log(log):
+            publication, output = _publish(event, harness)
         if output is not None:
             print(output)
     except (OSError, ValueError, RuntimeError, DashpotError) as exc:

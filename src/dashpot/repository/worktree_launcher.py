@@ -9,7 +9,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.commands import CommandResult, CommandRunner
+from ..core.commands import (
+    CommandRecord,
+    CommandResult,
+    CommandRunner,
+    nonzero_exit_fails,
+    recording_command,
+)
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic
 from ..project.settings import (
@@ -27,7 +33,19 @@ class WorktreeLaunchError(DashpotError):
 
 
 def run_launch_command(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
-    """Bound a launch request even when a descendant retains its output pipes."""
+    """Bound a launch request even when a descendant retains its output pipes.
+
+    The request is timed as a command span, like every command Dashpot runs.
+    """
+    with recording_command(args) as record:
+        result = _run_launch_command(args, cwd, timeout, record)
+        record.exited(result.returncode)
+    return result
+
+
+def _run_launch_command(
+    args: Sequence[str], cwd: Path, timeout: float, record: CommandRecord
+) -> CommandResult:
     try:
         process = subprocess.Popen(
             list(args),
@@ -40,6 +58,7 @@ def run_launch_command(args: Sequence[str], cwd: Path, timeout: float) -> Comman
             start_new_session=True,
         )
     except OSError as exc:
+        record.could_not_run(exc)
         raise WorktreeLaunchError(f"cannot launch {args[0]}: {exc}") from exc
     try:
         try:
@@ -50,6 +69,7 @@ def run_launch_command(args: Sequence[str], cwd: Path, timeout: float) -> Comman
             if process.poll() is None:
                 process.kill()
             process.wait()
+            record.could_not_run(exc)
             raise WorktreeLaunchError(
                 f"launch request timed out after {timeout:g}s; it may have opened a "
                 "terminal already. Wrappers must detach children and redirect their streams"
@@ -96,7 +116,9 @@ class WorktreeLauncher:
                 f"Configure worktree_open_command in {self.settings_path} or run "
                 "Dashpot inside tmux; press y to copy the path"
             )
-        result = self.runner(args, path, self.timeout)
+        # A launcher that exits non-zero did not open the Worktree.
+        with nonzero_exit_fails(WorktreeLaunchError):
+            result = self.runner(args, path, self.timeout)
         if result.returncode:
             detail = " ".join((result.stderr or result.stdout).split())[:500]
             raise WorktreeLaunchError(f"{args[0]} exited {result.returncode}: {detail}")
