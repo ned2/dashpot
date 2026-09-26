@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from dashpot.core import event_log as event_log_module
 from dashpot.core.event_log import (
@@ -337,10 +338,16 @@ def test_an_event_longer_than_a_line_may_be_is_dropped_and_reported(
     log.end(0)
 
     monkeypatch.undo()
-    assert names(tmp_path / "events-2026-09-27.jsonl") == ["process.start"]
     assert failures == [EVENT_TOO_LARGE]
     assert log.write_failure == EVENT_TOO_LARGE
     assert isinstance(log.recent[-1].body, EventLogWriteFailed)
+    # Nothing reached the file, so the next event follows on without a
+    # ``process.continued``, as if the dropped one had never been.
+    log.end(1)
+    assert names(tmp_path / "events-2026-09-27.jsonl") == [
+        "process.start",
+        "process.end",
+    ]
 
 
 def test_a_failed_write_is_dropped_into_the_buffer_and_never_raised(
@@ -396,6 +403,21 @@ def test_a_write_that_fails_closes_the_file_and_the_next_event_opens_it_again(
     assert names(path)[0] == "process.start"
     last = read_runtime_event(path.read_bytes().splitlines()[-1])
     assert last is not None and last.body.name == "process.end"
+
+
+def test_a_span_failed_with_a_message_is_refused_where_it_fails(
+    tmp_path: Path,
+) -> None:
+    log = make_log(tmp_path, level="full")
+
+    with log.start_as_current_span("command") as span:
+        with pytest.raises(ValidationError):
+            span.fail("fatal: not a git repository (or any parent)")
+        assert not span.failed
+
+    assert (
+        span_lines(tmp_path / "events-2026-09-27.jsonl")[0]["otel.status_code"] == "OK"
+    )
 
 
 def test_an_error_is_named_by_its_errno_or_class() -> None:

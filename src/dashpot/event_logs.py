@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from .core.distribution import process_start
 from .core.event_log import (
+    DASHBOARD_KIND,
     DASHBOARD_RECENT_EVENTS,
     EventLog,
     EventLogDestination,
@@ -49,38 +50,35 @@ def event_level(settings_path: Path | None = None) -> EventLevel:
             return level
     try:
         settings = load_settings(settings_path)
-    except SettingsError:
+    except (SettingsError, RuntimeError):
+        # ``RuntimeError``: no home directory to find the settings under.
         return DEFAULT_LEVEL
     return settings.event_level or DEFAULT_LEVEL
 
 
-def route_event_log(working_directory: Path | None) -> EventLogDestination:
+def route_event_log(working_directory: Path | None) -> EventLogDestination | None:
     """The Event Log of the configured checkout containing ``working_directory``, else the fallback.
 
-    A working directory that is gone, or cannot be searched, has no
-    configured checkout.
+    The directory is resolved first, as Git reports a checkout's root. One
+    that is gone, or cannot be searched, has no configured checkout. With no
+    home directory to hold the fallback there is nowhere to write: ``None``.
     """
     try:
         checkout = (
             None
             if working_directory is None
-            else configured_checkout(working_directory)
+            else configured_checkout(working_directory.resolve())
         )
-    except OSError:
+    except (OSError, RuntimeError):
         checkout = None
     if checkout is None:
-        return EventLogDestination(machine_state_directory() / EVENTS_DIRECTORY)
+        try:
+            return EventLogDestination(machine_state_directory() / EVENTS_DIRECTORY)
+        except RuntimeError:
+            return None
     return EventLogDestination(
         project_state_directory(checkout) / EVENTS_DIRECTORY, checkout=checkout
     )
-
-
-def working_directory() -> Path | None:
-    """This process's working directory, or ``None`` when it no longer exists."""
-    try:
-        return Path.cwd()
-    except OSError:
-        return None
 
 
 def process_identity(
@@ -125,11 +123,14 @@ def open_event_log(
     target = (
         destination if destination is not None else route_event_log(working_directory)
     )
-    dashboard = kind == "dashboard"
+    dashboard = kind == DASHBOARD_KIND
     return EventLog(
         target,
         identity=process_identity(
-            kind, worktree=target.checkout, harness=harness, session_id=session_id
+            kind,
+            worktree=None if target is None else target.checkout,
+            harness=harness,
+            session_id=session_id,
         ),
         level=event_level(settings_path),
         facts=lambda: process_start(

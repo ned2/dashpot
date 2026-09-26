@@ -294,7 +294,8 @@ the file format is not.
   hook process took 175.9 ms before and 187.4 ms with the Event Log at the
   default level, reading `config.toml` — 11.5 ms added, within the 30 ms
   budget. With `DASHPOT_EVENT_LEVEL=off` it added 12.3 ms, and at `full`
-  14.3 ms, so the cost is almost all import: building the Runtime Event
+  14.3 ms; a second run of 40 after review fixes measured 14.7 ms added at
+  every level. The cost is almost all import: building the Runtime Event
   models takes about 7 ms of it, and the Event Log modules with the settings
   loader about 12 ms cumulatively, part of which the hook already imported.
   Reading the version, install kind and source commit takes about 0.5 ms.

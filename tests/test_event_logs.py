@@ -20,6 +20,7 @@ from dashpot.core.event_log import (
     EventLog,
     EventLogDestination,
     unrecorded_event_log,
+    working_directory,
 )
 from dashpot.core.project_state import STATE_GITIGNORE
 from dashpot.event_logs import (
@@ -100,7 +101,9 @@ def test_a_linked_worktree_is_its_own_checkout(tmp_path: Path) -> None:
     (linked / ".git").write_text("gitdir: /somewhere/else\n")
     write_project_config(linked)
 
-    assert route_event_log(linked).checkout == linked
+    assert route_event_log(linked) == EventLogDestination(
+        linked / ".dashpot" / "state" / "events", checkout=linked
+    )
 
 
 @pytest.mark.parametrize("configured", [False, True])
@@ -168,7 +171,8 @@ def test_a_log_opened_in_a_checkout_names_its_worktree(
         (["work", "show"], "command:work-show", "work show"),
         (["work", "start", "#7", "--timeout", "3"], "command:work-start", "work start"),
         (["worktree", "check", "--help"], "command:worktree-check", "worktree check"),
-        (["no-such-command"], DASHBOARD_KIND, None),
+        (["no-such-command"], "command:observe", "observe"),
+        (["--workspace"], "command:observe", "observe"),
     ],
 )
 def test_a_command_line_runs_as_its_process_kind(
@@ -377,7 +381,7 @@ def test_the_machine_local_state_follows_the_platform_without_xdg(
     monkeypatch.setattr(state_paths.sys, "platform", platform)
 
     assert state_paths.machine_state_directory() == tmp_path / expected
-    assert route_event_log(None).directory == tmp_path / expected / "events"
+    assert route_event_log(None) == EventLogDestination(tmp_path / expected / "events")
 
 
 def test_a_working_directory_that_is_gone_has_no_checkout(
@@ -389,17 +393,48 @@ def test_a_working_directory_that_is_gone_has_no_checkout(
         event_logs, "configured_checkout", mock.Mock(side_effect=PermissionError)
     )
 
-    assert event_logs.working_directory() is None
+    assert working_directory() is None
     assert route_event_log(tmp_path) == EventLogDestination(
         tmp_path / "state" / "dashpot" / "events"
     )
     assert unrecorded_event_log()._facts_source().working_directory is None
 
 
-def test_a_command_line_that_cannot_be_parsed_opens_the_dashboards_kind() -> None:
+def test_a_command_line_that_cannot_be_parsed_opens_no_dashboard() -> None:
     # Cyclopts parses leniently today; a stricter release must still leave
     # the usage error to dispatch rather than fail before it.
     with mock.patch.object(
         type(cli.app), "parse_commands", side_effect=CycloptsError(msg="bad")
     ):
-        assert cli.process_kind(["--bad"]) == (DASHBOARD_KIND, None)
+        assert cli.process_kind([]) == ("command:observe", "observe")
+
+
+def test_with_no_home_directory_a_hook_records_nowhere_and_carries_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv(LEVEL_VARIABLE)
+    monkeypatch.delenv("XDG_STATE_HOME")
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    monkeypatch.setattr(Path, "home", mock.Mock(side_effect=RuntimeError("no home")))
+    monkeypatch.setattr(
+        hook, "publish_hook_event", lambda event, harness: HookPublication(tmp_path)
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"cwd": str(tmp_path)})))
+
+    assert event_level() == "standard"
+    assert route_event_log(tmp_path) is None
+    assert hook.main() == 0
+    assert capsys.readouterr() == ("", "")
+
+
+def test_a_symlinked_working_directory_routes_to_the_checkout_git_reports(
+    tmp_path: Path,
+) -> None:
+    checkout = init_repository(tmp_path / "checkout")
+    write_project_config(checkout)
+    link = tmp_path / "link"
+    link.symlink_to(checkout)
+
+    assert route_event_log(link) == EventLogDestination(
+        checkout / ".dashpot" / "state" / "events", checkout=checkout
+    )

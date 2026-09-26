@@ -546,7 +546,8 @@ for a process outside every configured checkout
 ([ADR 0059](adr/0059-keep-an-append-only-event-log-in-each-checkout.md)).
 Hooks and one-shot commands share `events-YYYY-MM-DD.jsonl`; each dashboard
 run writes its own file. Dashpot never deletes, compresses or renames one on
-its own; `dashpot events remove` removes them on explicit invocation.
+its own; only an explicit command removes one (`dashpot events remove`,
+[#316](https://github.com/ned2/dashpot/issues/316)).
 _Avoid_: telemetry; log for a Diagnostic, or for the Diagnostics box; prune
 for removing an Event Log, which is the Remote Fetch's word
 

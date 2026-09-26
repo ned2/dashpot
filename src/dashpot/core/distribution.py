@@ -44,7 +44,7 @@ def installed_distribution(search: list[str] | None = None) -> Path | None:
     the package is imported from its source, so every ``sys.path`` entry is
     searched after that, in order, as ``importlib.metadata`` would.
     """
-    package_parent = str(Path(__file__).resolve().parents[2])
+    package_parent = str(Path(__file__).absolute().parents[2])
     for entry in [package_parent, *(sys.path if search is None else search)]:
         try:
             candidates = sorted(Path(entry or ".").glob(f"{DISTRIBUTION}-*.dist-info"))
@@ -151,7 +151,8 @@ def source_revision(checkout: Path) -> str:
                 value = loose.read_text().strip()
                 return value if _OBJECT_ID.match(value) else UNKNOWN
         return _packed_ref(common / "packed-refs", ref)
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError, RuntimeError):
+        # ``RuntimeError``: a symlink loop under ``resolve`` on Python 3.12.
         return UNKNOWN
 
 

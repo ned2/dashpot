@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from .core.errors import DashpotError
-from .core.event_log import EventLog, EventLogDestination
+from .core.event_log import EventLog, EventLogDestination, working_directory
 from .core.json_records import HookRecordError
 from .core.model import Harness
-from .event_logs import open_event_log, working_directory
+from .event_logs import open_event_log
 from .sessions.hook_publish import publish_hook_event
 from .sessions.work_store import ActiveWork
 

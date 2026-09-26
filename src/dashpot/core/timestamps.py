@@ -7,7 +7,14 @@ from datetime import UTC, datetime
 
 def utc_now() -> str:
     """Stamp an observation, at a fixed width so records order by text too."""
-    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return utc_stamp(datetime.now(UTC))
+
+
+def utc_stamp(moment: datetime) -> str:
+    """Stamp one instant in UTC, at the fixed width :func:`utc_now` uses."""
+    return (
+        moment.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    )
 
 
 def observed_instant(value: str | None) -> datetime:

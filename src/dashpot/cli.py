@@ -19,10 +19,15 @@ from .composition import (
     run_cleanup,
 )
 from .core.errors import DashpotError
-from .core.event_log import DASHBOARD_KIND, EventLog, EventLogDestination
+from .core.event_log import (
+    DASHBOARD_KIND,
+    EventLog,
+    EventLogDestination,
+    working_directory,
+)
 from .core.model import Harness
 from .core.worktree_paths import worktree_root
-from .event_logs import open_event_log, working_directory
+from .event_logs import open_event_log
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
 from .project.workspace import RepositoryAnchor, Workspace
@@ -75,7 +80,9 @@ USAGE_EXIT_CODE = 2
 # The default command's flags that print instead of opening the dashboard.
 HEADLESS_FLAGS = frozenset({"--json", "--compact-json"})
 INFORMATION_FLAGS = frozenset({"--help", "-h", "--version"})
-# The Event Log of the command line's own process, while ``main`` runs it.
+# The Event Log of the command line's own process, while ``main`` runs it:
+# the hand-off from ``main`` to the ``observe`` command Cyclopts calls, set
+# and reset around one dispatch rather than configured for the process.
 _EVENT_LOG: ContextVar[EventLog | None] = ContextVar(
     "dashpot_cli_event_log", default=None
 )
@@ -790,8 +797,9 @@ def process_kind(tokens: Sequence[str]) -> tuple[str, str | None]:
     """The process kind a command line runs as, and its subcommand without arguments.
 
     The default command opens the dashboard unless it is asked for a
-    headless snapshot, help or the version; that is read from the tokens
-    before parsing, since the dashboard's Event Log is its own file.
+    headless snapshot, help or the version, or its arguments are refused;
+    that is read from the tokens before dispatch, since the dashboard's
+    Event Log is its own file.
     """
     try:
         chain, _apps, _unused = app.parse_commands(list(tokens))
@@ -802,9 +810,18 @@ def process_kind(tokens: Sequence[str]) -> tuple[str, str | None]:
         return f"command:{'-'.join(words)}", " ".join(words)
     if INFORMATION_FLAGS.intersection(tokens):
         return "command:help", "help"
-    if HEADLESS_FLAGS.intersection(tokens):
+    if HEADLESS_FLAGS.intersection(tokens) or not _opens_dashboard(tokens):
         return "command:observe", "observe"
     return DASHBOARD_KIND, None
+
+
+def _opens_dashboard(tokens: Sequence[str]) -> bool:
+    # Dispatch parses again and reports the refusal; this parse stays quiet.
+    try:
+        app.parse_args(list(tokens), exit_on_error=False, print_error=False)
+    except (CycloptsError, DashpotError, ValueError):
+        return False
+    return True
 
 
 def main(
@@ -829,7 +846,8 @@ def main(
     log.start()
     active = _EVENT_LOG.set(log)
     # A traceback leaves no ``process.end``: a missing end is a crash. An
-    # orderly exit, Ctrl-C among them, ends the process with its status.
+    # orderly exit ends the process with its status; Cyclopts turns Ctrl-C
+    # into one, exit 130.
     try:
         code = _dispatch(tokens)
     except SystemExit as stop:

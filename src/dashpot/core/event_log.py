@@ -32,10 +32,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
+from pydantic import TypeAdapter
+
 from .distribution import process_start
 from .project_state import ensure_state_directory
 from .runtime_events import (
     MAX_EVENT_BYTES,
+    ErrorType,
     EventBody,
     EventLevel,
     EventLogWriteFailed,
@@ -51,12 +54,14 @@ from .runtime_events import (
     SpanName,
     is_recorded,
 )
+from .timestamps import utc_stamp
 
 DASHBOARD_KIND = "dashboard"
 # How many recent events a dashboard keeps in memory for Runtime Stats.
 DASHBOARD_RECENT_EVENTS = 10_000
 # The error type of an event too long to append whole.
 EVENT_TOO_LARGE = "EventTooLarge"
+_ERROR_TYPE: TypeAdapter[str] = TypeAdapter(ErrorType)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,12 +89,6 @@ def new_run_id() -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def _stamp(moment: datetime) -> str:
-    return (
-        moment.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
-    )
 
 
 def error_type(error: BaseException) -> str:
@@ -179,7 +178,13 @@ class Span:
         A non-zero exit read as an answer is not a failure; it belongs in the
         attributes.
         """
-        self.error_type = error if isinstance(error, str) else error_type(error)
+        # A code is checked here, where a message passed by mistake is the
+        # caller's bug, rather than when the span ends inside a ``finally``.
+        self.error_type = (
+            _ERROR_TYPE.validate_python(error)
+            if isinstance(error, str)
+            else error_type(error)
+        )
 
     @property
     def failed(self) -> bool:
@@ -366,7 +371,7 @@ class EventLog:
     ) -> None:
         """Record one event: kept in memory, and written when the level records it."""
         event = RuntimeEvent(
-            time=_stamp(at if at is not None else self.clock()),
+            time=utc_stamp(at if at is not None else self.clock()),
             level=body.LEVEL if level is None else level,
             process=self.identity,
             body=body,
@@ -381,7 +386,8 @@ class EventLog:
         if self.destination is None:
             return
         if len(line) > MAX_EVENT_BYTES:
-            self._failed(EVENT_TOO_LARGE)
+            # Nothing was written, so the open file stays the writer's own.
+            self._failed(EVENT_TOO_LARGE, close=False)
             return
         try:
             self._append(line, is_start=isinstance(body, ProcessStart))
@@ -399,7 +405,7 @@ class EventLog:
             opened = self._open(path)
             if opened and not is_start:
                 continued = RuntimeEvent(
-                    time=_stamp(self.clock()),
+                    time=utc_stamp(self.clock()),
                     level="standard",
                     process=self.identity,
                     body=ProcessContinued.model_validate(
@@ -454,11 +460,12 @@ class EventLog:
             self._facts = self._facts_source()
         return self._facts
 
-    def _failed(self, error: str) -> None:
-        with self._lock, suppress(OSError):
-            self._close()
+    def _failed(self, error: str, *, close: bool = True) -> None:
+        if close:
+            with self._lock, suppress(OSError):
+                self._close()
         failure = RuntimeEvent(
-            time=_stamp(self.clock()),
+            time=utc_stamp(self.clock()),
             level="standard",
             process=self.identity,
             body=EventLogWriteFailed(error_type=error),
@@ -470,21 +477,20 @@ class EventLog:
             self.on_write_failure(error)
 
 
-def _working_directory() -> Path | None:
+def working_directory() -> Path | None:
+    """This process's working directory, or ``None`` when it no longer exists."""
     try:
         return Path.cwd()
     except OSError:
         return None
 
 
-def unrecorded_event_log(
-    kind: str = DASHBOARD_KIND, *, keep_recent: int = 0
-) -> EventLog:
-    """A writer with nowhere to write, keeping only its recent events in memory."""
+def unrecorded_event_log(*, keep_recent: int = 0) -> EventLog:
+    """A dashboard's writer with nowhere to write, keeping only recent events in memory."""
     return EventLog(
         None,
-        identity=ProcessIdentity(run_id=new_run_id(), kind=kind),
+        identity=ProcessIdentity(run_id=new_run_id(), kind=DASHBOARD_KIND),
         level="off",
-        facts=lambda: process_start(_working_directory()),
+        facts=lambda: process_start(working_directory()),
         keep_recent=keep_recent,
     )
