@@ -65,6 +65,25 @@ and add `.dashpot/state/` to `.gitignore`, then run `dashpot`. For a Project
 without GitHub, create an `issues` directory and use `dashpot init --markdown
 issues`; that source uses the [Local Issue Markdown grammar](conformance/issue/local-markdown.md).
 
+### GitHub authentication
+
+A GitHub-backed Project requires an authenticated GitHub CLI. Dashpot keeps
+no credential of its own: it asks GitHub every question through `gh`, as
+whichever account `gh auth status` reports. Run `gh auth login` before
+`dashpot init`. The account must be able to read the repository, its Issues
+and its Pull Requests. A Project whose Issue Source is Local Issues needs
+neither `gh` nor a login.
+
+GitHub's rate limit constrains how Dashpot can be used. Nearly every query
+Dashpot sends is GraphQL, and a personal account gets 5,000 GraphQL points an
+hour whatever its plan. That allowance is shared by every tool acting as the
+same user, including `gh` run by agents. An open dashboard spends points on
+every automatic refresh, so several dashboards at once or a short
+`--refresh-seconds` can exhaust the hour, leaving GitHub observations stale
+until it resets. [GitHub rate limits](docs/github-rate-limits.md) gives the
+limits for each authentication method, how Dashpot spends them, and how to
+stay inside them.
+
 ## Usage
 
 Open the TUI for a Project — Dashpot observes exactly one Project per run:
@@ -836,6 +855,9 @@ These `living` documents carry the detail this README points at:
 
 - [`docs/installation.md`](docs/installation.md) covers installation, support,
   configuration, diagnosis, upgrades, and removal.
+- [`docs/github-rate-limits.md`](docs/github-rate-limits.md) records GitHub's
+  rate limits for each authentication method, how Dashpot spends them, and how
+  to stay inside them.
 - [`docs/releasing.md`](docs/releasing.md) covers release gates, publishing, and recovery.
 - [`docs/development-integration.md`](docs/development-integration.md) covers
   Dashpot's required CI ruleset and the integration procedure.

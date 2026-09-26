@@ -73,7 +73,9 @@ dashpot
 
 The authenticated account must be able to read the repository, its Issues, and
 Pull Requests. Private repositories and organization SSO may require additional
-authorization. No Dashpot-specific credential file is needed.
+authorization. No Dashpot-specific credential file is needed. Dashpot's GitHub
+queries count against that account's hourly allowance, which `gh` and agents
+acting as the same user share; see [GitHub rate limits](github-rate-limits.md).
 
 For a Project without GitHub:
 
@@ -232,6 +234,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | A different Dashpot version runs | Inspect `command -v dashpot` and `uv tool list`; select the intended tool installation before integrating. |
 | Git is missing or an option is unsupported | Check `git --version`, install Git 2.39+, and ensure that version is on PATH. Content-based integration requires `merge-tree --write-tree`. |
 | GitHub collection fails | Check `gh --version` and `gh auth status`, repository access, network connectivity, and the reported Diagnostic. Authentication failures remain distinct from an empty Issue collection. |
+| GitHub observations go stale with a `github-rate-limit` Diagnostic | The account's hourly GraphQL allowance is spent. Close other dashboards or lengthen `--refresh-seconds`, and wait for the reset; see [GitHub rate limits](github-rate-limits.md#staying-inside-the-limit). |
 | The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and ignore `.dashpot/state/`. |
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |
 | Sessions are missing or Issue opt-in is refused | Run `dashpot integrate <harness> --status` inside the session's Worktree; inspect hook trust, publisher path, skill version, and the confirmed Agent Session Identity. |
