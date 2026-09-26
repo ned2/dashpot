@@ -38,7 +38,7 @@ def transfer() -> tuple[PagedObservationStore, SnapshotQuerySource]:
 
 
 def page(source: SnapshotQuerySource) -> QueryPage:
-    return source.query_page(QueryRequest(kind="issues"))
+    return source.query_page(QueryRequest(kind="issues")).page
 
 
 def observed(source: SnapshotQuerySource) -> WorkspaceSnapshot:

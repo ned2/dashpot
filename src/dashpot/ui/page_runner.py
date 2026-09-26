@@ -1,9 +1,9 @@
-"""Run the source queries behind the pages, totals and identities.
+"""Run the source queries behind the pages and identities.
 
-Each query key — a kind's page, a kind's totals, the identities — runs on
-its own executor thread against its own Query Source, one query at a time:
-a request for a key whose query is running waits its turn, and only the
-latest such request runs when the key is free. The runner owns each paged
+Each query key — a kind's page, which counts its Project Totals too, and the
+identities — runs on its own executor thread against its own Query Source,
+one query at a time: a request for a key whose query is running waits its
+turn, and only the latest such request runs when the key is free. The runner owns each paged
 kind's navigation and publishes its accepted page to the store, so every
 store write goes through a method that advances the store's revision.
 """
@@ -23,13 +23,11 @@ from ..queries.source_queries import (
     QueryRequest,
     QuerySource,
     ResourceKind,
-    totals_key,
 )
 from .messages import (
     IdentitiesFinished,
     OffLoopHost,
     PageFinished,
-    TotalsFinished,
 )
 
 if TYPE_CHECKING:
@@ -81,10 +79,11 @@ class PageRunner:
         }
 
     def refresh(self, *, restart: bool) -> None:
-        """Re-query every page and every total.
+        """Re-query every page, and with it every kind's Project Totals.
 
         A restart begins each navigation at page one; otherwise the displayed
-        page is repeated unless its query is still running.
+        page is repeated unless its query is still running, and that query
+        brings the totals.
         """
         for kind in PAGED_KINDS:
             navigation = self.navigation[kind]
@@ -92,8 +91,6 @@ class PageRunner:
                 self.request_page(kind, navigation.restart())
             elif kind not in self.busy:
                 self.request_page(kind, navigation.refresh())
-            if totals_key(kind) not in self.busy:
-                self.request_totals(kind)
 
     def submit(self, kind: ResourceKind, **updates: str) -> None:
         """Submit a new query context and invalidate prior navigation history."""
@@ -121,18 +118,11 @@ class PageRunner:
         return self.sources[kind].supports_sort(self.navigation[kind].request, column)
 
     def request_page(self, kind: ResourceKind, ticket: PageTicket) -> None:
-        """Query the page a ticket names."""
+        """Query the page a ticket names, counting the kind's Project Totals."""
         self._launch(
             kind,
             lambda: self.sources[kind].query_page(ticket.request),
             partial(PageFinished, kind, ticket),
-        )
-
-    def request_totals(self, kind: ResourceKind) -> None:
-        """Query a kind's Project Totals."""
-        key = totals_key(kind)
-        self._launch(
-            key, lambda: self.sources[key].totals(kind), partial(TotalsFinished, kind)
         )
 
     def request_identities(self, identities: tuple[str, ...]) -> None:
@@ -166,22 +156,25 @@ class PageRunner:
             queued()
 
     def finish_page(self, message: PageFinished) -> None:
-        """Land a page on its navigation, which rejects a superseded ticket."""
+        """Land a page on its navigation, and its Project Totals in the store.
+
+        The navigation rejects a superseded ticket's page, but not its totals:
+        they count the whole Project whatever the page asked, and a kind's
+        queries answer in the order they were sent.
+        """
+        observation = message.observation
+        page = observation.page if observation is not None else None
         accepted = self.navigation[message.kind].accept(
-            message.ticket, message.page, message.error
+            message.ticket, page, message.error
         )
         if accepted:
-            if message.page is None:
+            if page is None:
                 self._page_failures.add(message.kind)
             else:
                 self._page_failures.discard(message.kind)
+        if observation is not None:
+            self.store.accept_totals(observation.totals)
         self._release(message.kind)
-
-    def finish_totals(self, message: TotalsFinished) -> None:
-        """Land a kind's totals in the store."""
-        if message.totals is not None:
-            self.store.accept_totals(message.totals)
-        self._release(totals_key(message.kind))
 
     def finish_identities(self, message: IdentitiesFinished) -> None:
         """Land the resolved identities in the store."""

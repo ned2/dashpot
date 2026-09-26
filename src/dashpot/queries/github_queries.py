@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Annotated, Any, override
 
@@ -21,6 +21,7 @@ from ..github.github import (
     GraphQLVariables,
     RefreshBudget,
     RefreshMeter,
+    graphql_failure,
 )
 from ..github.github_wire import (
     ISSUE_NODE_FIELDS,
@@ -42,6 +43,7 @@ from ..issues.github_pull_requests import (
 from ..project.project_config import ProjectConfig, load_project_config
 from .query_source import CachedQuerySource
 from .source_queries import (
+    PAGED_KINDS,
     AuxiliaryObservation,
     Continuation,
     InvalidContinuation,
@@ -70,14 +72,31 @@ _CONTEXT = f"""query DashpotQueryContext($repositoryId: ID!) {{
 _PR_FIELDS = (
     " ".join(PULL_REQUEST_FIELDS[:9]) + "\n" + " ".join(PULL_REQUEST_FIELDS[9:])
 )
-_SEARCH = f"""query DashpotQueryPage($repositoryId: ID!, $searchQuery: String!, $size: Int!, $cursor: String) {{
+
+
+def _search_query(kind: ResourceKind) -> str:
+    """One kind's Query Page request, which also counts its Project Totals.
+
+    The counts select the Repository node the context is verified on, so they
+    cost nothing beyond the search (ADR 0057).
+    """
+    field = "issues" if kind == "issues" else "pullRequests"
+    closed = "CLOSED" if kind == "issues" else "CLOSED, MERGED"
+    return f"""query DashpotQueryPage($repositoryId: ID!, $searchQuery: String!, $size: Int!, $cursor: String) {{
   {_CONTEXT_FIELDS}
+  totals: node(id: $repositoryId) {{ ... on Repository {{
+    opened: {field}(states: [OPEN]) {{ totalCount }}
+    closed: {field}(states: [{closed}]) {{ totalCount }}
+  }} }}
   search(query: $searchQuery, type: ISSUE_ADVANCED, first: $size, after: $cursor) {{
     issueCount nodes {{ __typename ... on Issue {{ id repository {{ id }} }}
       ... on PullRequest {{ {_PR_FIELDS} repository {{ id }} }} }}
     pageInfo {{ hasNextPage endCursor }}
   }}
 }}"""
+
+
+_SEARCH = {kind: _search_query(kind) for kind in PAGED_KINDS}
 _IDENTITIES = f"""query DashpotResolvedIssues($repositoryId: ID!, $ids: [ID!]!) {{
   {_CONTEXT_FIELDS}
   nodes(ids: $ids) {{ __typename ... on Issue {{ {ISSUE_NODE_FIELDS} }} }}
@@ -96,6 +115,12 @@ class _Count(WireModel):
 class _Totals(WireModel):
     opened: _Count
     closed: _Count
+
+
+def _on_search(error: Mapping[str, Any]) -> bool:
+    """Report whether a GraphQL error belongs to the search alone."""
+    path = error.get("path")
+    return isinstance(path, list) and path[:1] == ["search"]
 
 
 def explicit_sort(query: str) -> bool:
@@ -278,8 +303,14 @@ class GitHubQuerySource(CachedQuerySource):
         request: QueryRequest,
         token: Continuation | None,
         attempted: str,
+        count_totals: Callable[[ProjectTotals], None],
     ) -> QueryPage:
-        """Complete exactly one provider page and preserve its search ordering."""
+        """Complete exactly one provider page and preserve its search ordering.
+
+        An error inside the search's results leaves the rest of the answer
+        usable, so the Project Totals it carries are counted before the error
+        fails the page.
+        """
         if context.configuration != self.config.model_dump_json():
             raise ValueError(
                 "Project source configuration changed; reopen the dashboard"
@@ -316,13 +347,18 @@ class GitHubQuerySource(CachedQuerySource):
             name = self.repository_name
             variables["searchQuery"] = f"repo:{name} {qualifiers}"
             meter.next_request("Query Page")
-            data = self.gateway.graphql(_SEARCH, variables)
+            data, errors = self.gateway.graphql_result(_SEARCH[request.kind], variables)
+            if not all(_on_search(error) for error in errors):
+                raise graphql_failure(errors)
             # A continuation was sent under a context observed just before;
             # page one takes its principal from the response itself.
             context = self._verify(
                 data, context, principal=context.principal if token else None
             )
+            count_totals(self._counted_totals(data, context, request.kind, attempted))
             if self.repository_name == name:
+                if errors:
+                    raise graphql_failure(errors)
                 break
             if token:
                 raise InvalidContinuation(
@@ -424,23 +460,14 @@ class GitHubQuerySource(CachedQuerySource):
             result_limit=1000,
         )
 
-    @override
-    def fetch_totals(
-        self, context: SourceContext, kind: ResourceKind, attempted: str
+    @staticmethod
+    def _counted_totals(
+        data: Mapping[str, Any],
+        context: SourceContext,
+        kind: ResourceKind,
+        attempted: str,
     ) -> ProjectTotals:
-        """Observe lifecycle totals without fetching their constituent records."""
-        field = "issues" if kind == "issues" else "pullRequests"
-        closed = "CLOSED" if kind == "issues" else "CLOSED, MERGED"
-        query = f"""query DashpotProjectTotals($repositoryId: ID!) {{
-          {_CONTEXT_FIELDS}
-          totals: node(id: $repositoryId) {{ ... on Repository {{
-            opened: {field}(states: [OPEN]) {{ totalCount }}
-            closed: {field}(states: [{closed}]) {{ totalCount }}
-          }} }}
-        }}"""
-        self._meter.next_request("Project lifecycle totals")
-        data = self.gateway.graphql(query, {"repositoryId": self.context.repository_id})
-        context = self._verify(data, context)
+        """Read the lifecycle totals a verified Query Page answer carries."""
         counts = _Totals.model_validate(data.get("totals"))
         return ProjectTotals(
             context=context,

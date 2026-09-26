@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from dashpot.core.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.source_queries import PageObservation, QueryRequest
 from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
@@ -377,10 +377,11 @@ def test_the_removability_document_keeps_its_keys_and_nulls() -> None:
 
 def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None:
     source = markdown(tmp_path)
-    page = source.query_page(QueryRequest(kind="issues", page_size=1))
-    totals = source.totals("pull-requests")
+    page = source.query_page(QueryRequest(kind="issues", page_size=1)).page
+    # A Markdown Project has no Pull Requests, so their totals are all nulls.
+    totals = source.query_page(QueryRequest(kind="pull-requests")).totals
 
-    document = list_page_document(page, totals)
+    document = list_page_document(PageObservation(page, totals))
 
     assert set(document) == LIST_PAGE_KEYS
     page_document = document["page"]
