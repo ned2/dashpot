@@ -24,6 +24,7 @@ from .query_source import CachedQuerySource
 from .source_queries import (
     Continuation,
     InvalidContinuation,
+    ProjectTotals,
     QueryPage,
     QueryRequest,
     ResolvedIssue,
@@ -192,12 +193,22 @@ class MarkdownQuerySource(CachedQuerySource):
         )
 
     @override
-    def fetch_totals(self, kind: ResourceKind) -> tuple[int, int]:
+    def fetch_totals(
+        self, context: SourceContext, kind: ResourceKind, attempted: str
+    ) -> ProjectTotals:
         """Count the complete local collection without query constraints."""
         if kind != "issues":
             raise ValueError("Pull Requests are not configured for a Markdown Project")
         opened = sum(issue.state == "open" for issue in self.records)
-        return opened, len(self.records) - opened
+        return ProjectTotals(
+            context=context,
+            kind=kind,
+            open_count=opened,
+            closed_count=len(self.records) - opened,
+            status="fresh",
+            attempted_at=attempted,
+            last_good_at=attempted,
+        )
 
     @override
     def fetch_identities(

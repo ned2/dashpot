@@ -45,13 +45,17 @@ class CachedQuerySource(ABC):
         key: tuple[str, str | None] | None = None
         context: SourceContext | None = None
         try:
-            context = self.observe_context()
+            # Only a continuation must know its context before it is sent;
+            # every other request is verified in the response it gets back.
+            context = self.observe_context() if token else self.request_context()
             verify_continuation(token, context, request)
-            key = (context_fingerprint(context, request), request.cursor)
             page = self.fetch_page(context, request, token, attempted)
         except InvalidContinuation:
             raise
         except QUERY_OBSERVATION_FAILURES as exc:
+            known = context or self.last_known_context()
+            if known is not None:
+                key = (context_fingerprint(known, request), request.cursor)
             previous = self._pages.get(key) if key else None
             diagnostic = self.diagnostic(exc)
             if previous is not None:
@@ -76,6 +80,7 @@ class CachedQuerySource(ABC):
                 continuation="unavailable",
                 result_limit=self.result_limit,
             )
+        key = (context_fingerprint(page.context, request), request.cursor)
         self._pages[key] = page
         self._pages.move_to_end(key)
         while len(self._pages) > 16:
@@ -87,21 +92,12 @@ class CachedQuerySource(ABC):
         attempted = self.clock()
         context: SourceContext | None = None
         try:
-            context = self.observe_context()
-            opened, closed = self.fetch_totals(kind)
-            result = ProjectTotals(
-                context=context,
-                kind=kind,
-                open_count=opened,
-                closed_count=closed,
-                status="fresh",
-                attempted_at=attempted,
-                last_good_at=attempted,
-            )
+            context = self.request_context()
+            result = self.fetch_totals(context, kind, attempted)
         except QUERY_OBSERVATION_FAILURES as exc:
             previous = self._totals.get(kind)
             diagnostic = self.diagnostic(exc)
-            if previous and previous.context == context:
+            if previous and previous.context == (context or self.last_known_context()):
                 return previous.model_copy(
                     update={
                         "status": "stale",
@@ -132,7 +128,7 @@ class CachedQuerySource(ABC):
         attempted = self.clock()
         context: SourceContext | None = None
         try:
-            context = self.observe_context()
+            context = self.request_context()
             results = self.fetch_identities(context, requested, attempted)
         except QUERY_OBSERVATION_FAILURES as exc:
             results = tuple(
@@ -147,13 +143,14 @@ class CachedQuerySource(ABC):
                 )
                 for identity in requested
             )
+        known = context or self.last_known_context()
         retained: list[ResolvedIssue] = []
         for result in results:
             previous = self._identities.get(result.issue_id)
             if (
                 result.status == "unavailable"
                 and previous
-                and previous.context == context
+                and previous.context == known
             ):
                 result = previous.model_copy(
                     update={
@@ -188,7 +185,25 @@ class CachedQuerySource(ABC):
     def supports_sort(self, request: QueryRequest, column: str) -> bool: ...
 
     @abstractmethod
-    def observe_context(self) -> SourceContext: ...
+    def observe_context(self) -> SourceContext:
+        """Observe the source context before sending a request that depends on it."""
+
+    def request_context(self) -> SourceContext:
+        """The context a request without a continuation is sent under.
+
+        A source whose responses carry their own context answers from what it
+        last observed and verifies the response; the default observes first.
+        """
+        return self.observe_context()
+
+    def last_known_context(self) -> SourceContext | None:
+        """The context a response most recently answered for, when one has.
+
+        A failure proves nothing about the context (ADR 0033), so this is how
+        a request that failed before its context was known still finds its
+        last good observation.
+        """
+        return None
 
     @abstractmethod
     def fetch_page(
@@ -200,7 +215,9 @@ class CachedQuerySource(ABC):
     ) -> QueryPage: ...
 
     @abstractmethod
-    def fetch_totals(self, kind: ResourceKind) -> tuple[int, int]: ...
+    def fetch_totals(
+        self, context: SourceContext, kind: ResourceKind, attempted: str
+    ) -> ProjectTotals: ...
 
     @abstractmethod
     def fetch_identities(
