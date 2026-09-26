@@ -18,21 +18,26 @@ from factories import (
 from test_github_issues import PROJECT_ID, REPOSITORY_ID, issue_record
 
 
-def context(principal="U_1"):
+def context(principal="U_1", name="ned2/dashpot"):
     return {
-        "node": {"id": REPOSITORY_ID, "nameWithOwner": "ned2/dashpot"},
+        "repository": {"id": REPOSITORY_ID, "nameWithOwner": name},
         "viewer": {"id": principal},
     }
 
 
-def search(*nodes, count=None, cursor=None):
+def search(*nodes, count=None, cursor=None, principal="U_1", name="ned2/dashpot"):
     return {
+        **context(principal, name),
         "search": {
             "issueCount": len(nodes) if count is None else count,
             "nodes": list(nodes),
             "pageInfo": {"hasNextPage": cursor is not None, "endCursor": cursor},
-        }
+        },
     }
+
+
+def batch(*nodes, principal="U_1"):
+    return {**context(principal), "nodes": list(nodes)}
 
 
 def hit(number):
@@ -91,7 +96,7 @@ def test_github_large_history_only_completes_requested_page(tmp_path):
         context(),
         search(*(hit(n) for n in range(1, 51)), count=2400, cursor="next"),
         *(
-            {"nodes": [node(n) for n in range(start, min(start + 24, 51))]}
+            batch(*(node(n) for n in range(start, min(start + 24, 51))))
             for start in (1, 25, 49)
         ),
     )
@@ -131,13 +136,13 @@ def test_unbalanced_expression_cannot_escape_repository_scope(tmp_path, query):
     with pytest.raises(GitHubRequestError) as error:
         validate_grouping(query)
     assert error.value.code == "github-search-syntax"
-    # The page reports the refusal as its own diagnostic; only the context
-    # observation reached GitHub.
-    source, runner = github(tmp_path, context())
+    # The page reports the refusal as its own diagnostic; nothing reached
+    # GitHub, not even the context the search would have named.
+    source, runner = github(tmp_path)
     page = source.query_page(QueryRequest(query=query))
     assert page.status == "unavailable" and not page.issues
     assert [d.code for d in page.diagnostics] == ["github-search-syntax"]
-    assert len(runner.calls) == 1
+    assert not runner.calls
 
 
 @pytest.mark.parametrize(
@@ -149,7 +154,7 @@ def test_quoted_parentheses_and_apostrophes_stay_literal_in_scope_validation(que
 
 def test_missing_page_profile_rejects_page_atomically(tmp_path):
     source, _ = github(
-        tmp_path, context(), search(hit(1), hit(2)), {"nodes": [node(1), None]}
+        tmp_path, context(), search(hit(1), hit(2)), batch(node(1), None)
     )
     page = source.query_page(QueryRequest())
     assert page.status == "unavailable" and not page.issues
@@ -159,9 +164,7 @@ def test_identity_batches_preserve_siblings_and_transfer_evidence(tmp_path):
     transferred = node(3)
     transferred["repository"] = {"id": "R_elsewhere", "nameWithOwner": "other/repo"}
     source, runner = github(
-        tmp_path,
-        context(),
-        {"nodes": [node(1), {"id": "I_issue_2"}, transferred, None]},
+        tmp_path, batch(node(1), {"id": "I_issue_2"}, transferred, None)
     )
     results = source.resolve_identities(
         ["I_issue_1", "I_issue_2", "I_issue_3", "I_issue_4", "I_issue_1"]
@@ -173,12 +176,12 @@ def test_identity_batches_preserve_siblings_and_transfer_evidence(tmp_path):
         "not-resolved",
     ]
     assert results[2].issue is None and results[2].reference == "other/repo#3"
-    assert len(runner.calls) == 2
+    assert len(runner.calls) == 1
 
 
 def test_cross_process_principal_change_rejects_continuation(tmp_path):
     source, _ = github(
-        tmp_path, context(), search(hit(1), count=2, cursor="c"), {"nodes": [node(1)]}
+        tmp_path, context(), search(hit(1), count=2, cursor="c"), batch(node(1))
     )
     first = source.query_page(QueryRequest(page_size=1))
     other, runner = github(tmp_path, context("U_other"))
@@ -238,10 +241,8 @@ def test_same_verified_page_can_be_stale_but_new_query_cannot_inherit(tmp_path):
         tmp_path,
         context(),
         search(hit(1)),
-        {"nodes": [node(1)]},
-        context(),
+        batch(node(1)),
         {},
-        context(),
         {},
     )
     first = source.query_page(QueryRequest())
@@ -257,7 +258,7 @@ def test_context_observation_failure_does_not_assert_mismatch(tmp_path):
         tmp_path,
         context(),
         search(hit(1), count=2, cursor="next"),
-        {"nodes": [node(1)]},
+        batch(node(1)),
     )
     first = source.query_page(QueryRequest(page_size=1))
     failed, _ = github(tmp_path, {})
@@ -277,7 +278,7 @@ def test_provider_limit_is_distinct_from_end(tmp_path):
         tmp_path,
         context(),
         search(hit(1), count=2400, cursor="c"),
-        {"nodes": [node(1)]},
+        batch(node(1)),
     )
     request = QueryRequest(page_size=1)
     first = source.query_page(request)
@@ -290,7 +291,7 @@ def test_provider_limit_is_distinct_from_end(tmp_path):
         )
     )
     final, _ = github(
-        tmp_path, context(), search(hit(1000), count=2400), {"nodes": [node(1000)]}
+        tmp_path, context(), search(hit(1000), count=2400), batch(node(1000))
     )
     last = final.query_page(request.model_copy(update={"cursor": token}))
     assert last.status == "fresh" and last.continuation == "provider-limit"
@@ -302,13 +303,13 @@ def test_refreshing_same_page_does_not_count_as_repeated_forward_cursor(tmp_path
         tmp_path,
         context(),
         search(hit(1), count=3, cursor="c1"),
-        {"nodes": [node(1)]},
+        batch(node(1)),
         context(),
         search(hit(2), count=3, cursor="c2"),
-        {"nodes": [node(2)]},
+        batch(node(2)),
         context(),
         search(hit(2), count=4, cursor="c2"),
-        {"nodes": [node(2)]},
+        batch(node(2)),
     )
     request = QueryRequest(page_size=1)
     first = source.query_page(request)
@@ -336,7 +337,7 @@ def test_changed_source_config_rejects_continuation(tmp_path):
 def test_malformed_auxiliary_does_not_invalidate_complete_profile(tmp_path):
     raw = node(1)
     raw.pop("comments")
-    source, _ = github(tmp_path, context(), search(hit(1)), {"nodes": [raw]})
+    source, _ = github(tmp_path, context(), search(hit(1)), batch(raw))
     page = source.query_page(QueryRequest())
     assert page.status == "fresh"
     assert page.auxiliary["I_issue_1"].status == "unavailable"
@@ -373,11 +374,10 @@ def test_attributable_github_errors_preserve_siblings_and_auxiliary_failure(tmp_
     second["author"] = None
     runner.results = iter(
         [
-            completed(json.dumps({"data": context()})),
             completed(
                 json.dumps(
                     {
-                        "data": {"nodes": [first, second, node(3)]},
+                        "data": batch(first, second, node(3)),
                         "errors": [
                             {
                                 "type": "FORBIDDEN",
@@ -410,11 +410,10 @@ def test_unattributable_error_never_becomes_known_absence(tmp_path):
     source, runner = github(tmp_path)
     runner.results = iter(
         [
-            completed(json.dumps({"data": context()})),
             completed(
                 json.dumps(
                     {
-                        "data": {"nodes": [None, node(2)]},
+                        "data": batch(None, node(2)),
                         "errors": [
                             {
                                 "type": "FORBIDDEN",
@@ -444,7 +443,7 @@ def test_nested_profile_completion_spends_page_budget_and_is_atomic(tmp_path):
         tmp_path,
         context(),
         search(hit(1)),
-        {"nodes": [first]},
+        batch(first),
         {
             "node": {
                 "connection": {
@@ -458,7 +457,7 @@ def test_nested_profile_completion_spends_page_budget_and_is_atomic(tmp_path):
     assert page.status == "fresh"
     assert page.issues[0].relationships.sub_issues == ("related-1", "related-2")
     assert len(runner.calls) == 4
-    limited, runner = github(tmp_path, context(), search(hit(1)), {"nodes": [first]})
+    limited, runner = github(tmp_path, context(), search(hit(1)), batch(first))
     limited.budget = RefreshBudget(requests=3, seconds=60)
     failure = limited.query_page(QueryRequest())
     assert failure.status == "unavailable" and not failure.issues
@@ -489,15 +488,9 @@ def test_single_record_page_sizes_can_carry_full_search_cursor_history():
 @pytest.mark.parametrize(
     "failure", [OSError, RuntimeError, ValueError, KeyError, TypeError]
 )
-def test_expected_query_failures_publish_unavailable(
-    tmp_path, monkeypatch, operation, failure
-):
-    source, _ = github(tmp_path)
-
-    def fail():
-        raise failure("cannot observe")
-
-    monkeypatch.setattr(source, "observe_context", fail)
+def test_expected_query_failures_publish_unavailable(tmp_path, operation, failure):
+    source, runner = github(tmp_path)
+    runner.results = iter([failure("cannot observe")])
     if operation == "page":
         result = source.query_page(QueryRequest())
     elif operation == "totals":
@@ -509,15 +502,9 @@ def test_expected_query_failures_publish_unavailable(
 
 
 @pytest.mark.parametrize("operation", ["page", "totals", "identities"])
-def test_query_programmer_faults_escape_instead_of_becoming_stale(
-    tmp_path, monkeypatch, operation
-):
-    source, _ = github(tmp_path)
-
-    def fail():
-        raise AssertionError("adapter invariant")
-
-    monkeypatch.setattr(source, "observe_context", fail)
+def test_query_programmer_faults_escape_instead_of_becoming_stale(tmp_path, operation):
+    source, runner = github(tmp_path)
+    runner.results = iter([AssertionError("adapter invariant")])
     with pytest.raises(AssertionError, match="adapter invariant"):
         if operation == "page":
             source.query_page(QueryRequest())
@@ -525,3 +512,364 @@ def test_query_programmer_faults_escape_instead_of_becoming_stale(
             source.totals("issues")
         else:
             source.resolve_identities(["I_1"])
+
+
+def arguments(runner, prefix):
+    """Every recorded ``gh`` argument starting with ``prefix``, without it, in order."""
+    return [
+        argument.removeprefix(prefix)
+        for args, *_ in runner.calls
+        for argument in args
+        if argument.startswith(prefix)
+    ]
+
+
+def operations(runner):
+    """The GraphQL operation each recorded ``gh`` call sent, in order."""
+    return [query.split("(")[0] for query in arguments(runner, "query=query ")]
+
+
+def test_repeated_page_one_verifies_context_in_its_own_response(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1)),
+        batch(node(1)),
+        search(hit(1), principal="U_2"),
+        batch(node(1), principal="U_2"),
+    )
+    first = source.query_page(QueryRequest())
+    again = source.query_page(QueryRequest())
+    assert first.status == again.status == "fresh"
+    # Only the first page a source asks for learns the Repository's name
+    # separately; the refresh after it sends no context request.
+    assert operations(runner) == [
+        "DashpotQueryContext",
+        "DashpotQueryPage",
+        "DashpotResolvedIssues",
+        "DashpotQueryPage",
+        "DashpotResolvedIssues",
+    ]
+    assert first.context.principal == "U_1"
+    assert again.context.principal == "U_2"
+
+
+def test_page_one_answering_another_repository_is_refused(tmp_path):
+    other = search(hit(1))
+    other["repository"] = {"id": "R_elsewhere", "nameWithOwner": "other/repo"}
+    source, _ = github(tmp_path, context(), search(hit(1)), batch(node(1)), other)
+    first = source.query_page(QueryRequest())
+    refused = source.query_page(QueryRequest())
+    assert refused.status == "stale" and refused.issues == first.issues
+    assert "different Repository Identity" in refused.diagnostics[0].message
+
+
+def test_page_batch_answering_another_principal_rejects_the_page(tmp_path):
+    source, _ = github(
+        tmp_path, context(), search(hit(1)), batch(node(1), principal="U_2")
+    )
+    page = source.query_page(QueryRequest())
+    assert page.status == "unavailable" and not page.issues
+    assert "different principal" in page.diagnostics[0].message
+
+
+def test_continuation_answered_for_another_principal_is_discarded(tmp_path):
+    source, _ = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(),
+        search(hit(2), count=2, principal="U_2"),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    second = source.query_page(request.model_copy(update={"cursor": first.next_cursor}))
+    assert second.status == "unavailable" and not second.issues
+    assert "different principal" in second.diagnostics[0].message
+
+
+def test_renamed_repository_is_searched_again_under_its_new_name(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1)),
+        batch(node(1)),
+        search(name="ned2/renamed"),
+        search(hit(1), name="ned2/renamed"),
+        batch(node(1)),
+    )
+    source.query_page(QueryRequest())
+    page = source.query_page(QueryRequest())
+    assert page.status == "fresh" and page.returned_count == 1
+    assert arguments(runner, "searchQuery=") == [
+        "repo:ned2/dashpot is:issue is:open",
+        "repo:ned2/dashpot is:issue is:open",
+        "repo:ned2/renamed is:issue is:open",
+    ]
+
+
+def test_continuation_searches_under_the_name_its_context_reported(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(name="ned2/renamed"),
+        search(hit(2), count=2, name="ned2/renamed"),
+        batch(node(2)),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    second = source.query_page(request.model_copy(update={"cursor": first.next_cursor}))
+    assert second.status == "fresh" and second.issues[0].number == 2
+    assert arguments(runner, "searchQuery=")[-1] == "repo:ned2/renamed is:issue is:open"
+
+
+def test_repository_renamed_again_during_its_retry_fails_the_page(tmp_path):
+    source, _ = github(
+        tmp_path,
+        context(),
+        search(name="ned2/renamed"),
+        search(name="ned2/renamed-again"),
+    )
+    page = source.query_page(QueryRequest())
+    assert page.status == "unavailable"
+    assert "renamed" in page.diagnostics[0].message
+
+
+def test_rename_between_continuation_context_and_search_restarts(tmp_path):
+    source, _ = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(),
+        search(hit(2), count=2, name="ned2/renamed"),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    with pytest.raises(InvalidContinuation, match="renamed"):
+        source.query_page(request.model_copy(update={"cursor": first.next_cursor}))
+
+
+def test_edited_configuration_is_detected_before_any_request(tmp_path):
+    source, runner = github(tmp_path, context(), search(hit(1)), batch(node(1)))
+    source.query_page(QueryRequest())
+    write_project_config(
+        tmp_path,
+        project_id=PROJECT_ID,
+        repository_id=REPOSITORY_ID,
+        issue_source={"kind": "github"},
+        display_label="Edited",
+    )
+    page = source.query_page(QueryRequest())
+    assert page.status == "unavailable"
+    assert "configuration changed" in page.diagnostics[0].message
+    assert len(runner.calls) == 3
+
+
+def totals(opened, closed, principal="U_1"):
+    return {
+        **context(principal),
+        "totals": {
+            "opened": {"totalCount": opened},
+            "closed": {"totalCount": closed},
+        },
+    }
+
+
+def test_totals_verify_their_context_in_one_request(tmp_path):
+    source, runner = github(tmp_path, totals(3, 5))
+    result = source.totals("issues")
+    assert result.status == "fresh"
+    assert (result.open_count, result.closed_count) == (3, 5)
+    assert result.context.principal == "U_1"
+    assert operations(runner) == ["DashpotProjectTotals"]
+
+
+def test_totals_answering_another_repository_are_refused(tmp_path):
+    other = totals(3, 5)
+    other["repository"] = {"id": "R_elsewhere", "nameWithOwner": "other/repo"}
+    source, _ = github(tmp_path, other)
+    result = source.totals("issues")
+    assert result.status == "unavailable" and result.open_count is None
+
+
+def test_failed_totals_keep_their_last_good_counts(tmp_path):
+    source, runner = github(tmp_path, totals(3, 5))
+    source.totals("issues")
+    runner.results = iter([OSError("network down")])
+    stale = source.totals("issues")
+    assert stale.status == "stale"
+    assert (stale.open_count, stale.closed_count) == (3, 5)
+
+
+def test_identity_batches_take_one_principal_from_their_answers(tmp_path):
+    source, runner = github(
+        tmp_path,
+        batch(*(node(n) for n in range(1, 25))),
+        batch(node(25), principal="U_2"),
+    )
+    results = source.resolve_identities([f"I_issue_{n}" for n in range(1, 26)])
+    assert operations(runner) == ["DashpotResolvedIssues", "DashpotResolvedIssues"]
+    assert all(result.outcome == "resolved" for result in results[:24])
+    assert results[0].context.principal == "U_1"
+    assert results[24].outcome == "unavailable"
+    assert "different principal" in results[24].diagnostics[0].message
+
+
+def test_failed_identities_keep_their_last_good_resolution(tmp_path):
+    source, runner = github(tmp_path, batch(node(1)))
+    (first,) = source.resolve_identities(["I_issue_1"])
+    runner.results = iter([OSError("network down")])
+    (stale,) = source.resolve_identities(["I_issue_1"])
+    assert stale.status == "stale" and stale.issue == first.issue
+
+
+def test_unreadable_configuration_keeps_every_last_good_observation(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1)),
+        batch(node(1)),
+        totals(3, 5),
+        batch(node(1)),
+    )
+    page = source.query_page(QueryRequest())
+    source.totals("issues")
+    source.resolve_identities(["I_issue_1"])
+    (tmp_path / ".dashpot" / "config.json").write_text("{")
+    # The request never starts, so nothing about the context is disproved.
+    stale_page = source.query_page(QueryRequest())
+    stale_totals = source.totals("issues")
+    (stale_issue,) = source.resolve_identities(["I_issue_1"])
+    assert stale_page.status == "stale" and stale_page.issues == page.issues
+    assert stale_totals.status == "stale" and stale_totals.open_count == 3
+    assert stale_issue.status == "stale" and stale_issue.outcome == "unavailable"
+    assert len(runner.calls) == 5
+
+
+def test_column_ordering_becomes_the_search_sort_qualifier(tmp_path):
+    source, runner = github(tmp_path, context(), search())
+    page = source.query_page(QueryRequest(ordering="created:desc"))
+    assert page.status == "fresh"
+    assert (
+        "searchQuery=repo:ned2/dashpot is:issue is:open sort:created-desc"
+        in runner.calls[1][0]
+    )
+    refused = source.query_page(QueryRequest(ordering="title:asc"))
+    assert "no exact GitHub source ordering" in refused.diagnostics[0].message
+    assert len(runner.calls) == 2
+
+
+def test_markdown_source_that_cannot_observe_has_no_last_good_page(tmp_path):
+    source = markdown(tmp_path)
+    assert source.query_page(QueryRequest()).status == "fresh"
+    for path in (tmp_path / "issues").iterdir():
+        path.unlink()
+    (tmp_path / "issues").rmdir()
+    assert source.query_page(QueryRequest()).status == "unavailable"
+
+
+def test_page_failing_after_a_new_principal_never_shows_the_old_one(tmp_path):
+    source, runner = github(tmp_path, context(), search(hit(1)), batch(node(1)))
+    source.query_page(QueryRequest())
+    runner.results = iter(
+        [
+            completed(json.dumps({"data": search(hit(1), principal="U_2")})),
+            OSError("network down"),
+        ]
+    )
+    page = source.query_page(QueryRequest())
+    assert page.status == "unavailable" and not page.issues
+
+
+def test_totals_failing_after_a_new_principal_never_show_the_old_one(tmp_path):
+    malformed = totals(3, 5, principal="U_2")
+    malformed["totals"]["opened"]["totalCount"] = -1
+    source, _ = github(tmp_path, totals(3, 5), malformed)
+    source.totals("issues")
+    result = source.totals("issues")
+    assert result.status == "unavailable" and result.open_count is None
+
+
+def test_identities_failing_after_a_new_principal_never_show_the_old_one(tmp_path):
+    identities = [f"I_issue_{n}" for n in range(1, 26)]
+    source, runner = github(
+        tmp_path, batch(*(node(n) for n in range(1, 25))), batch(node(25))
+    )
+    source.resolve_identities(identities)
+    runner.results = iter(
+        [
+            completed(
+                json.dumps(
+                    {"data": batch(*(node(n) for n in range(1, 25)), principal="U_2")}
+                )
+            ),
+            OSError("network down"),
+        ]
+    )
+    results = source.resolve_identities(identities)
+    assert all(result.context.principal == "U_2" for result in results[:24])
+    assert results[24].status == "unavailable" and results[24].issue is None
+
+
+def test_refused_principal_never_leaves_the_old_page_stale(tmp_path):
+    source, _ = github(
+        tmp_path,
+        context(),
+        search(hit(1)),
+        batch(node(1)),
+        search(hit(1)),
+        batch(node(1), principal="U_2"),
+    )
+    source.query_page(QueryRequest())
+    page = source.query_page(QueryRequest())
+    assert page.status == "unavailable" and not page.issues
+
+
+def test_refused_continuation_never_leaves_the_old_page_stale(tmp_path):
+    source, _ = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(),
+        search(hit(2), count=2),
+        batch(node(2)),
+        context(),
+        search(hit(2), count=2, principal="U_2"),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    later = request.model_copy(update={"cursor": first.next_cursor})
+    assert source.query_page(later).status == "fresh"
+    page = source.query_page(later)
+    assert page.status == "unavailable" and not page.issues
+    assert "different principal" in page.diagnostics[0].message
+
+
+def test_continuation_under_an_edited_configuration_keeps_no_old_page(tmp_path):
+    source, runner = github(
+        tmp_path,
+        context(),
+        search(hit(1), count=2, cursor="c1"),
+        batch(node(1)),
+        context(),
+        search(hit(2), count=2),
+        batch(node(2)),
+    )
+    request = QueryRequest(page_size=1)
+    first = source.query_page(request)
+    later = request.model_copy(update={"cursor": first.next_cursor})
+    assert source.query_page(later).status == "fresh"
+    write_project_config(
+        tmp_path,
+        project_id=PROJECT_ID,
+        repository_id=REPOSITORY_ID,
+        issue_source={"kind": "github"},
+        display_label="Edited",
+    )
+    runner.results = iter([OSError("network down")])
+    assert source.query_page(later).status == "unavailable"

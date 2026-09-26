@@ -1,9 +1,15 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-11
+amended-by: 0055-verify-the-query-context-in-the-response-that-carries-it.md
 ---
 
 # Query pages and independent Issue resolution
+
+Amended by [ADR 0055](0055-verify-the-query-context-in-the-response-that-carries-it.md):
+the Repository and principal context is observed before sending only for a
+continuation; every other GitHub request carries it and is verified in its
+response.
 
 ## Context
 
@@ -50,13 +56,15 @@ See [GitHub's Issue reference](https://docs.github.com/en/graphql/reference/issu
 Historical inventory scheduling and Snapshot Seeds are retired from ordinary
 operation. `reconciliationSeconds` stays readable as a deprecated, unused setting.
 
-For a 50-Issue page with no additional nested pages, the source performs five
-requests: one Repository/principal context, one search page and three batches of
-complete Issue nodes (24, 24, 2). Required nested Profile pages spend the same
-Refresh Budget. Auxiliary Linked Pull Request completion spends one separate
-budget shared by the page, after required Profiles complete. Project Totals take
-a separate context and count request. Targeted lookups deduplicate identities and
-batch by 24; they never recursively enumerate relationship targets.
+For a 50-Issue page with no additional nested pages, the source performs four
+requests: one search page and three batches of complete Issue nodes (24, 24, 2),
+each carrying the Repository/principal context. A continuation, and the first
+page a source asks for, observe the context in one request more. Required nested
+Profile pages spend the same Refresh Budget. Auxiliary Linked Pull Request
+completion spends one separate budget shared by the page, after required Profiles
+complete. Project Totals take one count request carrying the context. Targeted
+lookups deduplicate identities and batch by 24; they never recursively enumerate
+relationship targets.
 
 GraphQL identity errors are attributed by their `nodes` response positions.
 Required-field errors make only that identity unavailable, including errors on

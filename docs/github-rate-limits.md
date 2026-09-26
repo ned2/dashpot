@@ -83,10 +83,11 @@ Enumeration. Request count, not query shape, sets the spend.
 
 | Operation | Requests |
 | --- | --- |
-| Issues Query Page | One Repository/principal context, one search, and one batch per 24 Issues on the page: 5 for a full page of 50 |
-| Pull Requests Query Page | One context and one search: 2 |
-| Project Totals, each kind | One context and one count: 2 |
-| Resolved Issues | One context and one batch per 24 identities |
+| Issues Query Page | One search and one batch per 24 Issues on the page: 4 for a full page of 50 |
+| Pull Requests Query Page | One search: 1 |
+| Project Totals, each kind | One count: 1 |
+| Resolved Issues | One batch per 24 identities |
+| Repository/principal context, on its own | Once for the first Query Page a source asks for, and before each continuation (a page after the first) |
 | Issue Hint resolution (`work start`, `worktree create`, `issue show`) | 1 |
 | `issue list` or `pr list` | One Query Page and its Project Totals |
 | Source Enumeration (`dashpot --json`) | 6 points per 100 Issues plus the Pull Request pages, bounded by the Refresh Budget |
@@ -95,10 +96,17 @@ Enumeration. Request count, not query shape, sets the spend.
 One automatic refresh re-queries both Query Pages and both kinds' Project
 Totals, and resolves the Issues that Agent Runs are bound to (plus the
 selected Issue's relationships). Resolved Issues currently run twice per
-refresh ([#304](https://github.com/ned2/dashpot/issues/304)). That is about 13 to 15 points per refresh. At the default 15-second
-`--refresh-seconds`, one open dashboard spends roughly 2,200 to 3,600 points
-an hour, most of a personal account's 5,000. A second dashboard, or an agent
-polling with `gh pr checks --watch`, can exhaust the hour.
+refresh ([#304](https://github.com/ned2/dashpot/issues/304)). Each request
+verifies the Repository and principal in its own response
+([ADR 0055](adr/0055-verify-the-query-context-in-the-response-that-carries-it.md)),
+so a refresh sends no separate context request. On 2026-09-26, on this
+Repository with 27 open Issues, every refresh sent 8 requests: 2 Query Pages,
+2 Project Totals and 4 Resolved Issues batches (down from 14 before ADR 0055).
+That is about 8 to 10 points per refresh, depending on how many Issues the
+page and the bound Issues span. At the default 15-second `--refresh-seconds`,
+one open dashboard spends roughly 1,900 to 2,400 points an hour, around half
+of a personal account's 5,000. A second dashboard, or an agent polling with
+`gh pr checks --watch`, can exhaust the hour.
 
 [#308](https://github.com/ned2/dashpot/issues/308) tracks bringing an open
 dashboard well inside the allowance; update this section as its sub-issues

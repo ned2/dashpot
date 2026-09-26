@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, override
+from typing import Annotated, Any, override
+
+from pydantic import Field
 
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile
@@ -43,6 +45,7 @@ from .source_queries import (
     AuxiliaryObservation,
     Continuation,
     InvalidContinuation,
+    ProjectTotals,
     QueryPage,
     QueryRequest,
     ResolvedIssue,
@@ -56,28 +59,43 @@ from .source_queries import (
 
 _COLUMN_SORTS = {"created": "created", "last_action": "updated", "comments": "comments"}
 
-_CONTEXT = """query DashpotQueryContext($repositoryId: ID!) {
-  node(id: $repositoryId) { ... on Repository { id nameWithOwner } }
-  viewer { id }
-}"""
+# The Repository and principal a response answers for. Every query selects
+# them beside its own data, so the context is verified in the response rather
+# than observed by a request of its own (ADR 0055).
+_CONTEXT_FIELDS = """repository: node(id: $repositoryId) { ... on Repository { id nameWithOwner } }
+  viewer { id }"""
+_CONTEXT = f"""query DashpotQueryContext($repositoryId: ID!) {{
+  {_CONTEXT_FIELDS}
+}}"""
 _PR_FIELDS = (
     " ".join(PULL_REQUEST_FIELDS[:9]) + "\n" + " ".join(PULL_REQUEST_FIELDS[9:])
 )
-_SEARCH = f"""query DashpotQueryPage($searchQuery: String!, $size: Int!, $cursor: String) {{
+_SEARCH = f"""query DashpotQueryPage($repositoryId: ID!, $searchQuery: String!, $size: Int!, $cursor: String) {{
+  {_CONTEXT_FIELDS}
   search(query: $searchQuery, type: ISSUE_ADVANCED, first: $size, after: $cursor) {{
     issueCount nodes {{ __typename ... on Issue {{ id repository {{ id }} }}
       ... on PullRequest {{ {_PR_FIELDS} repository {{ id }} }} }}
     pageInfo {{ hasNextPage endCursor }}
   }}
 }}"""
-_IDENTITIES = f"""query DashpotResolvedIssues($ids: [ID!]!) {{
+_IDENTITIES = f"""query DashpotResolvedIssues($repositoryId: ID!, $ids: [ID!]!) {{
+  {_CONTEXT_FIELDS}
   nodes(ids: $ids) {{ __typename ... on Issue {{ {ISSUE_NODE_FIELDS} }} }}
 }}"""
 
 
 class _Context(WireModel):
-    node: Repository
+    repository: Repository
     viewer: Identity
+
+
+class _Count(WireModel):
+    total_count: Annotated[int, Field(ge=0)]
+
+
+class _Totals(WireModel):
+    opened: _Count
+    closed: _Count
 
 
 def explicit_sort(query: str) -> bool:
@@ -121,6 +139,21 @@ def effective_ordering(request: QueryRequest) -> str:
     return "query" if explicit_sort(request.query) else request.ordering
 
 
+def search_qualifiers(request: QueryRequest, ordering: str) -> str:
+    """The search expression after its Repository scope: kind, state, query and sort."""
+    expression = f"is:{'issue' if request.kind == 'issues' else 'pr'}"
+    if request.state != "all":
+        expression += f" is:{request.state}"
+    if request.query.strip():
+        expression += f" ({request.query})"
+    if ordering not in {"query", "provider-default"}:
+        column, _, direction = ordering.rpartition(":")
+        if column not in _COLUMN_SORTS or direction not in {"asc", "desc"}:
+            raise ValueError("This column has no exact GitHub source ordering")
+        expression += f" sort:{_COLUMN_SORTS[column]}-{direction}"
+    return expression
+
+
 class GitHubQuerySource(CachedQuerySource):
     result_limit = 1000
 
@@ -162,6 +195,7 @@ class GitHubQuerySource(CachedQuerySource):
             budget=budget,
         )
         self.repository_name = ""
+        self._last_context: SourceContext | None = None
 
     @property
     @override
@@ -173,22 +207,69 @@ class GitHubQuerySource(CachedQuerySource):
         return column in _COLUMN_SORTS and not explicit_sort(request.query)
 
     @override
-    def observe_context(self) -> SourceContext:
-        """Observe Repository and principal identities before interpreting continuation."""
+    def request_context(self) -> SourceContext:
+        """Start a request under the last observed context and the current configuration.
+
+        Each request restarts the Refresh Budget and re-reads the Project
+        configuration, which is local, so an edited configuration is still
+        detected on the next refresh.
+        """
         self._meter = self.budget.start()
+        return (self._last_context or self.context).model_copy(
+            update={"configuration": load_project_config(self.root).model_dump_json()}
+        )
+
+    @override
+    def observe_continuation(self, context: SourceContext) -> SourceContext:
+        """Observe Repository and principal identities before interpreting continuation."""
+        return self._observe(context)
+
+    @override
+    def last_known_context(self) -> SourceContext | None:
+        return self._last_context
+
+    def _observe(self, context: SourceContext) -> SourceContext:
         self._meter.next_request("Repository and principal context")
+        return self._verify(
+            self.gateway.graphql(
+                _CONTEXT, {"repositoryId": self.context.repository_id}
+            ),
+            context,
+        )
+
+    def _verify(
+        self,
+        data: Mapping[str, Any],
+        context: SourceContext,
+        *,
+        principal: str | None = None,
+    ) -> SourceContext:
+        """Verify the context a response answered for and record it as the last known.
+
+        A response for another Repository is refused. ``principal``, when
+        given, is the principal the request was sent under: a response
+        answering for another is discarded rather than shown. Records the
+        Repository's current name for the next search, and the verified
+        context for :meth:`last_known_context`.
+        """
         value = _Context.model_validate(
-            self.gateway.graphql(_CONTEXT, {"repositoryId": self.context.repository_id})
+            {"repository": data.get("repository"), "viewer": data.get("viewer")}
         )
-        if value.node.id != self.context.repository_id:
+        if value.repository.id != self.context.repository_id:
             raise ValueError("GitHub answered a different Repository Identity")
-        self.repository_name = value.node.name_with_owner
-        return self.context.model_copy(
-            update={
-                "principal": value.viewer.id,
-                "configuration": load_project_config(self.root).model_dump_json(),
-            }
-        )
+        if principal is not None and value.viewer.id != principal:
+            # The refused answer still says whom GitHub now answers for, so a
+            # failure is never shown the previous principal's observation.
+            self._last_context = context.model_copy(
+                update={"principal": value.viewer.id}
+            )
+            raise ValueError(
+                "GitHub answered for a different principal; restart from page one"
+            )
+        self.repository_name = value.repository.name_with_owner
+        observed = context.model_copy(update={"principal": value.viewer.id})
+        self._last_context = observed
+        return observed
 
     @override
     def fetch_page(
@@ -205,25 +286,15 @@ class GitHubQuerySource(CachedQuerySource):
             )
         validate_grouping(request.query)
         ordering = effective_ordering(request)
-        expression = f"repo:{self.repository_name} is:{'issue' if request.kind == 'issues' else 'pr'}"
-        if request.state != "all":
-            expression += f" is:{request.state}"
-        if request.query.strip():
-            expression += f" ({request.query})"
-        if ordering not in {"query", "provider-default"}:
-            column, _, direction = ordering.rpartition(":")
-            if column not in _COLUMN_SORTS or direction not in {"asc", "desc"}:
-                raise ValueError("This column has no exact GitHub source ordering")
-            expression += f" sort:{_COLUMN_SORTS[column]}-{direction}"
+        qualifiers = search_qualifiers(request, ordering)
         offset = token.offset if token else 0
         if offset >= 1000:
             raise InvalidContinuation(
                 "GitHub search exposes only the first 1,000 results; narrow the query"
             )
         meter = self._meter
-        meter.next_request("Query Page")
         variables: GraphQLVariables = {
-            "searchQuery": expression,
+            "repositoryId": self.context.repository_id,
             "size": min(request.page_size, 1000 - offset),
         }
         if token:
@@ -236,9 +307,30 @@ class GitHubQuerySource(CachedQuerySource):
                     "Invalid GitHub continuation; restart from page one"
                 )
             variables["cursor"] = token.provider_cursor
-        connection = SearchConnection.model_validate(
-            self.gateway.graphql(_SEARCH, variables).get("search")
-        )
+        elif not self.repository_name:
+            # The search names the Repository, so the first page a source asks
+            # for learns that name by observing the context first.
+            context = self._observe(context)
+        data: Mapping[str, Any] = {}
+        for _ in range(2):
+            name = self.repository_name
+            variables["searchQuery"] = f"repo:{name} {qualifiers}"
+            meter.next_request("Query Page")
+            data = self.gateway.graphql(_SEARCH, variables)
+            # A continuation was sent under a context observed just before;
+            # page one takes its principal from the response itself.
+            context = self._verify(
+                data, context, principal=context.principal if token else None
+            )
+            if self.repository_name == name:
+                break
+            if token:
+                raise InvalidContinuation(
+                    "The Repository was renamed; restart from page one"
+                )
+        else:
+            raise ValueError("GitHub reported the Repository renamed during one page")
+        connection = SearchConnection.model_validate(data.get("search"))
         issues: list[IssueProfile] = []
         prs: list[PullRequest] = []
         auxiliary: dict[str, AuxiliaryObservation] = {}
@@ -267,11 +359,18 @@ class GitHubQuerySource(CachedQuerySource):
         if len(ids) != len(set(ids)):
             raise ValueError("GitHub returned duplicate Query Page identities")
         if request.kind == "issues":
-            outcomes = self._resolve(context, ids, attempted, meter)
+            outcomes = self._resolve(
+                context, ids, attempted, meter, principal=context.principal
+            )
             for outcome in outcomes:
                 if outcome.outcome != "resolved" or outcome.issue is None:
+                    reason = (
+                        outcome.diagnostics[0].message
+                        if outcome.diagnostics
+                        else outcome.outcome
+                    )
                     raise ValueError(
-                        f"Cannot complete Query Page Issue {outcome.issue_id}: {outcome.outcome}"
+                        f"Cannot complete Query Page Issue {outcome.issue_id}: {reason}"
                     )
                 issues.append(outcome.issue)
                 if outcome.auxiliary:
@@ -326,30 +425,32 @@ class GitHubQuerySource(CachedQuerySource):
         )
 
     @override
-    def fetch_totals(self, kind: ResourceKind) -> tuple[int, int]:
+    def fetch_totals(
+        self, context: SourceContext, kind: ResourceKind, attempted: str
+    ) -> ProjectTotals:
         """Observe lifecycle totals without fetching their constituent records."""
         field = "issues" if kind == "issues" else "pullRequests"
         closed = "CLOSED" if kind == "issues" else "CLOSED, MERGED"
         query = f"""query DashpotProjectTotals($repositoryId: ID!) {{
-          node(id: $repositoryId) {{ ... on Repository {{ id
+          {_CONTEXT_FIELDS}
+          totals: node(id: $repositoryId) {{ ... on Repository {{
             opened: {field}(states: [OPEN]) {{ totalCount }}
             closed: {field}(states: [{closed}]) {{ totalCount }}
           }} }}
         }}"""
         self._meter.next_request("Project lifecycle totals")
-        raw = self.gateway.graphql(query, {"repositoryId": self.context.repository_id})[
-            "node"
-        ]
-        if raw["id"] != self.context.repository_id:
-            raise ValueError("GitHub totals answered a different Repository")
-        opened, closed_count = raw["opened"]["totalCount"], raw["closed"]["totalCount"]
-        if (
-            type(opened) is not int
-            or type(closed_count) is not int
-            or min(opened, closed_count) < 0
-        ):
-            raise ValueError("GitHub lifecycle totals are malformed")
-        return opened, closed_count
+        data = self.gateway.graphql(query, {"repositoryId": self.context.repository_id})
+        context = self._verify(data, context)
+        counts = _Totals.model_validate(data.get("totals"))
+        return ProjectTotals(
+            context=context,
+            kind=kind,
+            open_count=counts.opened.total_count,
+            closed_count=counts.closed.total_count,
+            status="fresh",
+            attempted_at=attempted,
+            last_good_at=attempted,
+        )
 
     @override
     def fetch_identities(
@@ -364,7 +465,16 @@ class GitHubQuerySource(CachedQuerySource):
         identities: Sequence[str],
         attempted: str,
         meter: RefreshMeter,
+        *,
+        principal: str | None = None,
     ) -> tuple[ResolvedIssue, ...]:
+        """Resolve identities in batches that all answer for one principal.
+
+        ``principal`` is the one a Query Page's search already answered for;
+        without it, the first batch's answer supplies the principal and every
+        later batch must match it.
+        """
+        expected = principal
         results: list[ResolvedIssue] = []
         completed: dict[str, Mapping[str, Any]] = {}
         for start in range(0, len(identities), 24):
@@ -372,8 +482,11 @@ class GitHubQuerySource(CachedQuerySource):
             try:
                 meter.next_request(f"{start} resolved Issues")
                 data, errors = self.gateway.graphql_result(
-                    _IDENTITIES, {"ids": list(batch)}
+                    _IDENTITIES,
+                    {"repositoryId": self.context.repository_id, "ids": list(batch)},
                 )
+                context = self._verify(data, context, principal=expected)
+                expected = context.principal
                 attributed: dict[int, list[Mapping[str, Any]]] = {}
                 for error in errors:
                     path = error.get("path")
