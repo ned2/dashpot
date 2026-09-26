@@ -460,6 +460,17 @@ async def test_visible_filters_update_the_page_summary_but_not_the_totals() -> N
 
 @pytest.mark.asyncio
 async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
+    alpha = issue("test/repo#1", "Alpha")
+    waiting = issue(
+        "test/repo#2",
+        "Waiting",
+        relationships={
+            "parent": None,
+            "subIssues": [],
+            "blockedBy": [alpha.id],
+            "blocking": [],
+        },
+    )
     closed_issue = issue(
         "test/repo#3",
         "Done",
@@ -467,7 +478,7 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         stateReason="completed",
         closedAt=NOW,
     )
-    snapshot = workspace_snapshot(issue("test/repo#1", "Alpha"), closed_issue)
+    snapshot = workspace_snapshot(alpha, waiting, closed_issue)
     app = dashboard_app(SequenceCollector(snapshot))
 
     async with app.run_test(size=(100, 28)) as pilot:
@@ -476,11 +487,23 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         count = app.query_screen.query_one("#issue-count", Static)
         state = app.query_screen.query_one("#issue-state", Select)
         table = app.query_screen.query_one("#queue", DataTable)
-        inventory = "ISSUES · Open 1 · Closed 1"
-        assert str(count.render()) == page_summary(1)
+        inventory = "ISSUES · Open 2 · Closed 1"
+        assert str(count.render()) == page_summary(2)
         assert pane_title(app.query_screen, "#queue-pane") == inventory
 
         table.focus()
+        # Ready leaves out the open Issue that waits on Alpha.
+        await pilot.press("o")
+        await wait_until(lambda: state.value == "ready")
+        await wait_until(lambda: table.row_count == 1)
+        assert app.query_screen.issue_table.selected_row_key == row_key(
+            "issue", alpha.id
+        )
+        assert app.query_screen.list_queries.issues.lifecycle == "ready"
+        assert app.queries.navigation["issues"].request.state == "ready"
+        assert str(count.render()) == page_summary(1)
+        assert pane_title(app.query_screen, "#queue-pane") == inventory
+
         await pilot.press("o")
         await wait_until(lambda: state.value == "closed")
         await wait_until(
@@ -489,23 +512,23 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
                 == row_key("issue", closed_issue.id)
             )
         )
-        assert app.query_screen.list_queries.issues.states == frozenset({"closed"})
+        assert app.query_screen.list_queries.issues.lifecycle == "closed"
         assert app.queries.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
         assert pane_title(app.query_screen, "#queue-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "all")
-        await wait_until(lambda: table.row_count == 2)
+        await wait_until(lambda: table.row_count == 3)
         assert app.queries.navigation["issues"].request.state == "all"
-        assert str(count.render()) == page_summary(2)
+        assert str(count.render()) == page_summary(3)
         assert pane_title(app.query_screen, "#queue-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "open")
-        await wait_until(lambda: table.row_count == 1)
+        await wait_until(lambda: table.row_count == 2)
         assert app.queries.navigation["issues"].request.state == "open"
-        assert str(count.render()) == page_summary(1)
+        assert str(count.render()) == page_summary(2)
         assert pane_title(app.query_screen, "#queue-pane") == inventory
 
 

@@ -11,8 +11,13 @@ import pydantic
 
 from dashpot.core.commands import CommandError, CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue, issue_location
+from dashpot.core.model import OpenBlocker
 from dashpot.github.github import RefreshBudget
-from dashpot.issues.github_issues import GitHubIssuesSource, normalize_github_issue
+from dashpot.issues.github_issues import (
+    GitHubIssuesSource,
+    normalize_github_issue,
+    open_blockers,
+)
 from dashpot.issues.issue_sources import IssueSourceRefreshError, parse_issue_hint
 from issue_source_conformance import (
     assert_duplicate_identity_is_refused,
@@ -577,6 +582,79 @@ class GitHubIssueNormalizerTests(unittest.TestCase):
         normalize(record)
 
         self.assertEqual(before, record)
+
+
+def blocker(
+    identity: str, number: int, state: str, name: str = "ned2/dashpot"
+) -> dict[str, Any]:
+    return {
+        "id": identity,
+        "number": number,
+        "state": state,
+        "repository": {"nameWithOwner": name},
+    }
+
+
+class OpenBlockerTests(unittest.TestCase):
+    def test_only_open_blockers_are_named_by_their_reference(self) -> None:
+        record = raw_fixture()
+        record["blockedBy"]["nodes"] = [
+            blocker("I_open", 7, "OPEN"),
+            blocker("I_closed", 3, "CLOSED"),
+            blocker("I_elsewhere", 12, "OPEN", "ned2/other"),
+        ]
+
+        self.assertEqual(
+            (
+                OpenBlocker(id="I_open", reference="ned2/dashpot#7", number=7),
+                OpenBlocker(id="I_elsewhere", reference="ned2/other#12", number=12),
+            ),
+            open_blockers(record),
+        )
+
+    def test_no_blockers_and_only_closed_blockers_leave_none_open(self) -> None:
+        record = raw_fixture()
+        record["blockedBy"]["nodes"] = []
+        self.assertEqual((), open_blockers(record))
+        record["blockedBy"]["nodes"] = [blocker("I_closed", 3, "CLOSED")]
+        self.assertEqual((), open_blockers(record))
+
+    def test_an_open_blocker_knows_its_reference_and_number_together(self) -> None:
+        self.assertIsNone(OpenBlocker(id="I_unknown").number)
+        for fields in (
+            {"reference": "ned2/dashpot#7"},
+            {"number": 7},
+            {"reference": "ned2/dashpot#0", "number": 0},
+        ):
+            with (
+                self.subTest(fields=fields),
+                self.assertRaises(pydantic.ValidationError),
+            ):
+                OpenBlocker.model_validate({"id": "I_open", **fields})
+
+    def test_an_unreadable_blocker_fails_rather_than_reading_as_ready(self) -> None:
+        malformed: list[object] = [
+            None,
+            "I_open",
+            {"id": "I_open"},
+            {**blocker("I_open", 7, "OPEN"), "number": 0},
+            {**blocker("I_open", 7, "OPEN"), "number": True},
+            {**blocker("I_open", 7, "OPEN"), "state": "MERGED"},
+            {**blocker("I_open", 7, "OPEN"), "repository": None},
+            {**blocker("I_open", 7, "OPEN"), "id": ""},
+        ]
+        for node in malformed:
+            with self.subTest(node=node):
+                record = raw_fixture()
+                record["blockedBy"]["nodes"] = [node]
+                with self.assertRaises(ValueError):
+                    open_blockers(record)
+        for connection in (None, {"nodes": None}, {}):
+            with self.subTest(connection=connection):
+                record = raw_fixture()
+                record["blockedBy"] = connection
+                with self.assertRaises(ValueError):
+                    open_blockers(record)
 
 
 class GitHubIssuesSourceTests(unittest.TestCase):

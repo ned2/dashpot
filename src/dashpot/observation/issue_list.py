@@ -12,14 +12,15 @@ import json
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import (
     AgentRun,
+    OpenBlocker,
     ProjectObservation,
     SessionActivity,
 )
+from ..issues.lifecycle import Lifecycle, collection_open_blockers, in_lifecycle
 from ..issues.ordering import (
     IssueSortColumn,
     SortValue,
@@ -31,12 +32,10 @@ from ..issues.search import IssueSearchField, matches_issue_search, parse_search
 from ..queries.source_queries import AuxiliaryObservation
 from .list_result import ListResult
 
-IssueState = Literal["open", "closed"]
-
 
 @dataclass(frozen=True, slots=True)
 class IssueListQuery:
-    states: frozenset[IssueState] = frozenset({"open"})
+    lifecycle: Lifecycle = "open"
     text: str = ""
     search_fields: frozenset[IssueSearchField] = frozenset(IssueSearchField)
 
@@ -51,6 +50,32 @@ class IssueListRow:
     queried: bool = False
     auxiliary: AuxiliaryObservation | None = None
     related_issues: tuple[IssueProfile, ...] = ()
+
+
+def row_open_blockers(row: IssueListRow) -> tuple[OpenBlocker, ...] | None:
+    """The row's Open Blockers, or nothing when they were not observed.
+
+    A queried row carries them in its page's auxiliary facts; a row of a
+    complete snapshot judges them against the Project's other Issues.
+    """
+    if not row.queried:
+        blocked_by = frozenset(row.issue.relationships.blocked_by)
+        # Most Issues name no blocker, so they skip the scan of the snapshot.
+        if not blocked_by:
+            return ()
+        snapshot = row.project.snapshot
+        issues = snapshot.issues if snapshot is not None else ()
+        return collection_open_blockers(
+            row.issue, {issue.id: issue for issue in issues if issue.id in blocked_by}
+        )
+    if row.auxiliary is None or row.auxiliary.open_blockers is None:
+        return None
+    return tuple(row.auxiliary.open_blockers)
+
+
+def is_waiting(row: IssueListRow) -> bool:
+    """Tell whether the row's Issue is open and waits on some Open Blocker."""
+    return row.issue.state == "open" and bool(row_open_blockers(row))
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,10 +111,11 @@ def query_indexed_issue_list(
         project_issues = issues_by_project[project.project_id]
         observed_issue_count += len(project_issues)
         open_issue_count += sum(1 for issue in project_issues if issue.state == "open")
+        collection = {issue.id: issue for issue in project_issues}
         visible_issues = [
             issue
             for issue in project_issues
-            if issue.state in query.states
+            if in_lifecycle(issue, query.lifecycle, collection)
             and matches_issue_search(issue, project, query.search_fields, search_terms)
         ]
         # Only Issues are rows, like an Issue tracker's feed: a Project with
@@ -130,21 +156,6 @@ def query_indexed_issue_list(
     )
 
 
-ISSUE_STATE_CYCLE: tuple[frozenset[IssueState], ...] = (
-    frozenset({"open"}),
-    frozenset({"closed"}),
-    frozenset({"open", "closed"}),
-)
-
-
-def next_issue_states(states: frozenset[IssueState]) -> frozenset[IssueState]:
-    """Flip the lifecycle filter open -> closed -> all -> open."""
-    if states in ISSUE_STATE_CYCLE:
-        index = ISSUE_STATE_CYCLE.index(states)
-        return ISSUE_STATE_CYCLE[(index + 1) % len(ISSUE_STATE_CYCLE)]
-    return ISSUE_STATE_CYCLE[0]
-
-
 def issue_result_count_text(count: int) -> str:
     """Describe the filtered result: ``0 issues``, ``1 issue``, ``6 issues``.
 
@@ -164,13 +175,18 @@ def empty_issue_message(query: IssueListQuery) -> str:
     """Explain an empty Issue list in terms of the active query."""
     if parse_search(query.text).terms:
         return "no Issues match the current filters"
-    if query.states == frozenset({"open"}):
-        return "no open Issues"
-    if query.states == frozenset({"closed"}):
-        return "no closed Issues"
-    if query.states == frozenset({"open", "closed"}):
+    if query.lifecycle == "all":
         return "no Issues"
-    return "no Issues match the current filters"
+    if query.lifecycle == "ready":
+        return "no Ready Issues"
+    return f"no {query.lifecycle} Issues"
+
+
+def unobserved_auxiliary(row: IssueListRow) -> str:
+    """Say why a row lacks an auxiliary fact: never fetched, or failed."""
+    if row.auxiliary is not None and row.auxiliary.status == "unavailable":
+        return "unavailable"
+    return "not fetched"
 
 
 def row_sort_value(row: IssueListRow, column: IssueSortColumn) -> SortValue:

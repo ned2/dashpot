@@ -240,14 +240,18 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
             "issue_state",
             "number",
             "title",
+            "waiting_on",
             "priority",
             "last_action",
             "labels",
             "project",
         )
-        assert [key.value for key in table.columns] == list(
-            app.query_screen.issue_table.issue_view.columns
-        )
+        # WAITING ON stays chosen, but no row waits, so the table leaves it out.
+        assert [key.value for key in table.columns] == [
+            key
+            for key in app.query_screen.issue_table.issue_view.columns
+            if key != "waiting_on"
+        ]
         assert app.query_screen.issue_table.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
@@ -623,6 +627,47 @@ async def test_refresh_while_the_issue_view_is_open_reaches_both_screens() -> No
         assert app.query_screen.query_one("#queue", DataTable).row_count == 2
 
 
+def test_issue_metadata_names_each_related_issue_with_its_state() -> None:
+    open_blocker = issue("test/repo#1", "Schema")
+    closed_blocker = issue(
+        "test/repo#2",
+        "Parser",
+        state="closed",
+        stateReason="completed",
+        closedAt="2026-08-27T00:00:00Z",
+    )
+    blocked = issue("test/repo#4", "Report")
+    subject = issue(
+        "test/repo#3",
+        "Migrate",
+        relationships={
+            "parent": None,
+            "subIssues": [],
+            "blockedBy": [open_blocker.id, closed_blocker.id, "I_elsewhere"],
+            "blocking": [blocked.id],
+        },
+    )
+    snapshot = workspace_snapshot(open_blocker, closed_blocker, blocked, subject)
+    context = next(
+        row
+        for row in WorkspaceObservationStore(snapshot)
+        .query_issues(IssueListQuery(lifecycle="all"))
+        .rows
+        if row.issue.id == subject.id
+    )
+
+    lines = detail_items_text(issue_metadata_items(context)).splitlines()
+    related = lines[lines.index("Relationships:") + 1 : lines.index("Agent sessions:")]
+
+    # A blocker Dashpot does not hold is named by its identity alone.
+    assert related == [
+        "  Blocked by: I_elsewhere",
+        "  Blocked by: #1 Schema (open)",
+        "  Blocked by: #2 Parser (closed)",
+        "  Blocking: #4 Report (open)",
+    ]
+
+
 def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
     now = datetime(2026, 8, 29, 12, 0, tzinfo=UTC)
     parent = issue("test/repo#1", "Parent")
@@ -696,7 +741,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
             "  #9 merged https://github.com/test/repo/pull/9",
             "  and 2 more",
             "Relationships:",
-            "  Parent: #1 Parent",
+            "  Parent: #1 Parent (open)",
             "  Blocked by: I_elsewhere",
             "Agent sessions:",
             "  run-1 (running, feature/child)",
@@ -722,7 +767,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
     )
     bare_context = (
         WorkspaceObservationStore(workspace_snapshot(bare))
-        .query_issues(IssueListQuery(states=frozenset({"closed"})))
+        .query_issues(IssueListQuery(lifecycle="closed"))
         .rows[0]
     )
 
@@ -795,9 +840,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         assert any(line.startswith("?") and line.endswith("Legend") for line in keys)
         assert any(line.startswith("q") and line.endswith("Quit") for line in keys)
         # A dashboard key proves the screen's bindings reach the Legend too.
-        assert any(
-            line.startswith("o") and line.endswith("Open/Closed/All") for line in keys
-        )
+        assert any(line.startswith("o") and line.endswith("Lifecycle") for line in keys)
         # A colour-bearing Glyph shows the swatch the cell would.
         running = session_cells.STATE_GLYPHS["running"]
         sessions_index = next(
@@ -888,7 +931,7 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
         await pilot.pause()
-        states = app.query_screen.list_queries.issues.states
+        lifecycle = app.query_screen.list_queries.issues.lifecycle
         app.query_screen.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
@@ -902,7 +945,7 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         # focused, its state filter unchanged.
         assert isinstance(app.screen, IssueScreen)
         assert not app.query_screen.query_one("#issue-search", Input).has_focus
-        assert app.query_screen.list_queries.issues.states == states
+        assert app.query_screen.list_queries.issues.lifecycle == lifecycle
         assert len(app.screen_stack) == 2
 
 

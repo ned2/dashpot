@@ -28,7 +28,7 @@ from textual.worker import get_current_worker
 
 from ..core.commands import RunningCommands
 from ..observation.collect import ObservationScheduler
-from ..observation.issue_list import issue_result_count_text, next_issue_states
+from ..observation.issue_list import issue_result_count_text
 from ..observation.paged_store import PagedObservationStore
 from ..observation.related_rows import FocusedSource, query_related_rows
 from ..observation.session_list import SessionListRow, resume_command
@@ -48,7 +48,7 @@ from .issue_cells import issue_state_colors
 from .issue_table import COLUMNS_BY_KEY, ColumnKey, IssueTable, shown_columns
 from .issue_table_controller import IssueTableController
 from .issue_view import IssueScreen
-from .item_filter import LIFECYCLE_STATUSES, ItemFilterBar, lifecycle_value
+from .item_filter import ISSUE_LIFECYCLE_STATUSES, ItemFilterBar, next_status
 from .keyed_table import capture_selection
 from .legend import KeyGroup, LegendScreen
 from .list_pane import ISSUE_PANE_LABEL, ListPane
@@ -427,7 +427,7 @@ class IssuesPullRequestsScreen(Screen[None]):
         ("enter", "open_issue", "Open Issue"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
-        ("o", "cycle_issue_state", "Open/Closed/All"),
+        ("o", "cycle_issue_state", "Lifecycle"),
         ("n", "next_page", "Next page"),
         ("p", "previous_page", "Previous page"),
         # Not Home: the focused table and the search Input both bind it, so
@@ -445,8 +445,8 @@ class IssuesPullRequestsScreen(Screen[None]):
         query = self.list_queries.issues
         self.issue_filter_bar = ItemFilterBar(
             "issue",
-            statuses=LIFECYCLE_STATUSES,
-            status=lifecycle_value(query.states),
+            statuses=ISSUE_LIFECYCLE_STATUSES,
+            status=query.lifecycle,
             query=query.text,
             placeholder="Search Issues",
             count=issue_result_count_text(0),
@@ -677,10 +677,9 @@ class IssuesPullRequestsScreen(Screen[None]):
 
     def action_cycle_issue_state(self) -> None:
         kind = self.page_kind()
-        query = self.list_queries.query(kind)
-        states = next_issue_states(query.states)
+        bar = self.filter_bars[kind]
         # Drive the owning control so the label, query and Select agree.
-        self.filter_bars[kind].state.value = lifecycle_value(states)
+        bar.state.value = next_status(bar.statuses, self.list_queries.lifecycle(kind))
 
     def update_issue_inventory(self) -> None:
         """Title the Issue pane with the Project's totals, never the page's length."""

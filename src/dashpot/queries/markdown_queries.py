@@ -9,6 +9,7 @@ from typing import override
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import Diagnostic, ProjectObservation
+from ..issues.lifecycle import collection_open_blockers, in_lifecycle
 from ..issues.local_markdown_issues import (
     LocalMarkdownIssuesSource,
     parse_local_markdown_issue,
@@ -22,6 +23,7 @@ from ..project.project_config import (
 )
 from .query_source import CachedQuerySource
 from .source_queries import (
+    AuxiliaryObservation,
     Continuation,
     InvalidContinuation,
     ProjectTotals,
@@ -155,10 +157,11 @@ class MarkdownQuerySource(CachedQuerySource):
         if parsed.diagnostics:
             raise ValueError("; ".join(parsed.diagnostics))
         terms = tuple(term.casefold() for term in parsed.terms)
+        collection = {issue.id: issue for issue in self.records}
         records = [
             issue
             for issue in self.records
-            if (request.state == "all" or issue.state == request.state)
+            if in_lifecycle(issue, request.state, collection)
             and matches_issue_search(issue, project, frozenset(IssueSearchField), terms)
         ]
         ordering = (
@@ -202,6 +205,15 @@ class MarkdownQuerySource(CachedQuerySource):
             attempted_at=attempted,
             last_good_at=attempted,
             issues=page,
+            auxiliary={
+                issue.id: AuxiliaryObservation(
+                    status="fresh",
+                    attempted_at=attempted,
+                    last_good_at=attempted,
+                    open_blockers=collection_open_blockers(issue, collection),
+                )
+                for issue in page
+            },
             returned_count=len(page),
             matched_count=len(records),
             next_cursor=next_cursor,

@@ -24,7 +24,7 @@ from ..core.ages import relative_age
 from ..core.issue_profile import IssueProfile, issue_location
 from ..core.model import ProjectObservation
 from ..issues.ordering import is_priority_label, issue_activity, issue_priority
-from ..observation.issue_list import IssueListRow
+from ..observation.issue_list import IssueListRow, unobserved_auxiliary
 from .detail_fields import DetailFields, DetailItem
 from .issue_cells import (
     issue_state_chip,
@@ -209,7 +209,7 @@ def issue_metadata_items(
         else issue_activity(issue, context.project)
     )
     if activity is None:
-        availability = "unavailable" if context.auxiliary else "not fetched"
+        availability = unobserved_auxiliary(context)
         items.append(DetailItem(availability, "Comments"))
         items.append(DetailItem(availability, "Linked Pull Requests"))
     else:
@@ -273,13 +273,16 @@ def _timestamp(value: str | None, now: datetime) -> str:
 def _describe_related(
     issue_id: str, project: ProjectObservation, related: tuple[IssueProfile, ...] = ()
 ) -> str:
-    """Name a related Issue by number and title when it is in the same
-    Project, otherwise fall back to its opaque identity."""
-    for candidate in related:
+    """Name a related Issue by number, title and state, else by its identity.
+
+    Only an Issue Dashpot holds, related or in the same Project, has a number,
+    title and state to show.
+    """
+    candidates = (
+        *related,
+        *(project.snapshot.issues if project.snapshot is not None else ()),
+    )
+    for candidate in candidates:
         if candidate.id == issue_id:
-            return f"#{candidate.number} {candidate.title}"
-    if project.snapshot is not None:
-        for candidate in project.snapshot.issues:
-            if candidate.id == issue_id:
-                return f"#{candidate.number} {candidate.title}"
+            return f"#{candidate.number} {candidate.title} ({candidate.state})"
     return issue_id

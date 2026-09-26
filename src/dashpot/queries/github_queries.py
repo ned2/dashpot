@@ -35,6 +35,7 @@ from ..issues.github_issues import (
     issue_activity,
     label_colors,
     normalize_github_issue,
+    open_blockers,
 )
 from ..issues.github_pull_requests import (
     GitHubPullRequestsSource,
@@ -164,10 +165,18 @@ def effective_ordering(request: QueryRequest) -> str:
     return "query" if explicit_sort(request.query) else request.ordering
 
 
+# A blocker's facts beside the identity the Profile keeps: an error reading
+# one of them fails the auxiliary facts, never the Issue.
+_BLOCKER_AUXILIARY_FIELDS = frozenset({"number", "state", "repository"})
+
+
 def search_qualifiers(request: QueryRequest, ordering: str) -> str:
     """The search expression after its Repository scope: kind, state, query and sort."""
     expression = f"is:{'issue' if request.kind == 'issues' else 'pr'}"
-    if request.state != "all":
+    if request.state == "ready":
+        # GitHub counts only open blockers toward ``is:blocked``.
+        expression += " is:open -is:blocked"
+    elif request.state != "all":
         expression += f" is:{request.state}"
     if request.query.strip():
         expression += f" ({request.query})"
@@ -561,6 +570,12 @@ class GitHubQuerySource(CachedQuerySource):
                         if len(path) > 2 and (
                             path[2] in {"comments", "closedByPullRequestsReferences"}
                             or (path[2] == "labels" and path[-1] == "color")
+                            or (
+                                path[2] == "blockedBy"
+                                and len(path) > 5
+                                and path[3] == "nodes"
+                                and path[5] in _BLOCKER_AUXILIARY_FIELDS
+                            )
                         ):
                             auxiliary_failed = True
                             continue
@@ -710,6 +725,7 @@ class GitHubQuerySource(CachedQuerySource):
                 last_good_at=attempted,
                 activity=activity,
                 label_colors=colors,
+                open_blockers=open_blockers(complete),
             )
         except QUERY_OBSERVATION_FAILURES as exc:
             return AuxiliaryObservation(

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-20
+date: 2026-09-27
 ---
 
 # Domain language
@@ -70,6 +70,25 @@ subset independently of required Issue Profile relationships; missing auxiliary
 observations remain unavailable rather than known empty.
 _Avoid_: using this Issue relationship as the repository-wide Pull Request
 observation
+
+**Open Blocker**:
+An Issue that blocks another, through the blocked-by relationship of its
+Issue Profile, and is still open. A GitHub source reports each blocker's
+state beside the Profile with the page's auxiliary facts; a Markdown source
+judges each against its own Issues, and a blocker that is not one of them
+counts as open, since nothing shows it closed. An Open Blocker is named by
+number in the blocked Issue's Repository, by Reference outside it, and by
+identity when neither is known.
+_Avoid_: dependency, which could mean either direction of the relationship;
+blocker for a closed Issue that once blocked
+
+**Ready Issue**:
+An open Issue with no Open Blocker, so work on it can start now. Ready is an
+Issue lifecycle choice beside Open, Closed and All, never a Pull Request one.
+An open Issue that is not Ready waits on its Open Blockers; a closed Issue is
+neither.
+_Avoid_: unblocked, which GitHub also uses for an Issue whose blockers are all
+closed but which may itself be closed
 
 **Local Issue**:
 The local Markdown representation of an Issue.

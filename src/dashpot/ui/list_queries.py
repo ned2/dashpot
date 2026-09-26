@@ -18,7 +18,7 @@ from ..observation.pull_request_list import (
     PullRequestListQuery,
 )
 from ..queries.source_queries import ResourceKind
-from .item_filter import lifecycle_states, lifecycle_value
+from .item_filter import issue_lifecycle, lifecycle_states, lifecycle_value
 
 
 class SubmitPage(Protocol):
@@ -39,6 +39,12 @@ class ListQueries:
         """The query last submitted for one paged kind."""
         return self.issues if kind == "issues" else self.pull_requests
 
+    def lifecycle(self, kind: ResourceKind) -> str:
+        """The lifecycle choice last submitted for one paged kind."""
+        if kind == "issues":
+            return self.issues.lifecycle
+        return lifecycle_value(self.pull_requests.states)
+
     def submit_search(self, kind: ResourceKind, text: str) -> None:
         """Submit the whole search text on Enter; editing alone changes nothing."""
         self.record(kind, text=text)
@@ -46,8 +52,15 @@ class ListQueries:
 
     def change_lifecycle(self, kind: ResourceKind, value: object) -> None:
         """Record the chosen lifecycle, which submits a page when it differs."""
+        if kind == "issues":
+            lifecycle = issue_lifecycle(value)
+            if lifecycle is None or lifecycle == self.issues.lifecycle:
+                return
+            self.record(kind, lifecycle=lifecycle)
+            self.submit_page(kind, state=lifecycle)
+            return
         states = lifecycle_states(value)
-        if states is None or states == self.query(kind).states:
+        if states is None or states == self.pull_requests.states:
             return
         self.record(kind, states=states)
         self.submit_page(kind, state=lifecycle_value(states))

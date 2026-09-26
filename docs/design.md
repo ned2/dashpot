@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-20
+date: 2026-09-27
 ---
 
 # Design
@@ -120,7 +120,7 @@ explicit Source Enumeration ([source_queries.py](../src/dashpot/queries/source_q
 syntax, scoped by current Repository name and validated by opaque identity and
 resource type. Search pages contain IDs for Issues, completed in batches of 24;
 Pull Requests carry their existing complete compact records. Each required page
-is accepted atomically under a Refresh Budget. Auxiliary engagement and colour
+is accepted atomically under a Refresh Budget. Auxiliary engagement, colour and Open Blocker
 observations have a separate budget and availability. The declared lowest-numbered
 twenty Linked Pull Requests require deliberate connection completion when more
 exist; there is no incremental bookkeeping or counterpart expansion.
@@ -427,8 +427,9 @@ Dashboard lists every active Agent Session, observed Worktree and Branch in
 three full-width panes. Issues & Pull Requests keeps both query panes visible:
 Pull Requests is content-sized to its cap and Issues receives the remaining
 height. Both query pane titles show Project Totals, whatever the page's query.
-Lifecycle selection constrains source results before pagination. Draft
-filtering uses `draft:true` or `draft:false` in the query. Both search boxes
+Lifecycle selection, Ready Issues included, constrains source results before
+pagination. Draft filtering uses `draft:true` or `draft:false` in the query.
+Both search boxes
 submit on Enter; clearing search submits the default source query. GitHub owns
 advanced syntax and ordering; Markdown uses local lexical matching and local
 ordering before pagination.

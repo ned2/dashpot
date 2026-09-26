@@ -80,6 +80,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "issue_state",
             "number",
             "title",
+            "waiting_on",
             "priority",
             "labels",
             "project",
@@ -96,12 +97,14 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
             "issue_state",
             "number",
             "title",
+            "waiting_on",
             "priority",
             "labels",
             "last_action",
         )
         # Both fixtures carry a priority label, so the conditional column
-        # shows; the source's own order carries no arrow.
+        # shows, while neither waits on a blocker, so WAITING ON does not;
+        # the source's own order carries no arrow.
         assert [str(column.label) for column in table.columns.values()] == [
             "◈",
             "◉",

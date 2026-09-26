@@ -145,7 +145,7 @@ the management commands `init`, `integrate`,
 | `x` on Dashboard | Preview removing the highlighted Worktree or deleting the highlighted Branch, then confirm; `Escape` cancels. Optional additional targets start unchecked ([ADR 0036](docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)) |
 | `Tab` / `Shift+Tab` | Cycle through only the active peer's tables: Sessions → Worktrees → Branches, or Pull Requests → Issues |
 | `/` on Issues & Pull Requests | Focus the active query pane's search |
-| `o` on Issues & Pull Requests | Cycle the focused query pane between open, closed, and all records (the selector beside its search does the same) |
+| `o` on Issues & Pull Requests | Cycle the focused query pane's lifecycle — open, Ready (Issues only), closed, and all records (the selector beside its search does the same) |
 | `n` / `p` on Issues & Pull Requests | Move the focused query pane to its next or previous retained page |
 | `g` on Issues & Pull Requests | Restart the focused query pane from its first page |
 | `c` with Issues focused | Open the column editor: toggle the other Issue columns and reorder them with `Ctrl+Up` / `Ctrl+Down`; `Escape` cancels |
@@ -225,6 +225,12 @@ Projects retain local whitespace/quoted text matching. Both default to Open.
 Choose All when lifecycle belongs to the raw expression. Clearing search submits
 the default source query, without restoring a background inventory.
 
+The Issue lifecycle selector also offers Ready: the open Issues none of whose
+blockers is still open, so they can be picked up now. A GitHub Project asks
+GitHub for `is:open -is:blocked`, which counts only open blockers; a Markdown
+Project judges each blocker against its own Issues, and a blocker that is not
+one of them counts as open, so an Issue is never shown Ready on a guess.
+
 `n` requests Next, `p` returns to Previous, and `g` restarts the focused query
 pane from page one. Eight accepted pages are retained; an evicted Previous is
 unavailable and requires restart. The page displays its own observation time. The count separates
@@ -272,7 +278,7 @@ Distinct native Agent Session identities remain separate even on a shared
 backend. Issue Hints and process identities do not establish relationships.
 
 The Issue table's columns are `◈` (agent activity), `◉`
-(Issue state), both unsortable, then `#`, `TITLE`,
+(Issue state), both unsortable, then `#`, `TITLE`, `WAITING ON`,
 `PRIORITY`, `LABELS`, `PROJECT`, `ASSIGNEES`, `AUTHOR`, `MILESTONE`, `TYPE`,
 `COMMENTS`, `CREATED`, and `LAST ACTION`. Clicking a sortable column's
 header sorts by it, and clicking it again reverses the sort. `TITLE` keeps the first 70
@@ -285,6 +291,14 @@ conditional: it appears only while some Issue in the table carries such a
 label, an Issue without one shows nothing there, and a table with none omits
 the column rather than invent a default, so an Issue Source that does not use
 priority labels pays no width for it.
+
+`WAITING ON` lists an open Issue's Open Blockers by number — `#12 #15`, the
+first three and then `+2` for the rest — naming a blocker in another
+Repository by its whole Reference. It is blank for a Ready Issue and for a
+closed one, and like `PRIORITY` it appears only while some listed Issue waits.
+An open Issue that waits is also dimmed, so the Ready rows stand out; the
+column, not the colour, is what says it waits. The column is not sortable,
+because no Issue Source orders by it.
 
 The `PULL REQUESTS` pane defaults to open Pull Requests of a GitHub-backed
 Project, in provider search order. Its lifecycle selector offers `Open`, `Closed`,
@@ -335,7 +349,13 @@ Paged CLI queries share the dashboard's source semantics:
 dashpot issue list --query 'label:bug' --state open --page-size 50 --json
 dashpot pr list --query 'draft:true' --state open --page-size 50 --json
 dashpot issue list --query 'is:closed OR author:@me' --state all --compact-json
+dashpot issue list --state ready --json
 ```
+
+`--state ready` lists Ready Issues; a Pull Request list has no Ready state. Each
+Issue's auxiliary facts carry its `openBlockers`, each with its identity and,
+when known, its Reference and number; the field is `null` when the blockers
+were not observed, which is not the same as an empty list.
 
 Use `--cursor` with the same query, lifecycle and page size to continue. Page sizes
 range from 1 to 100, default 50. Each document contains `page` and the Project-wide

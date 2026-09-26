@@ -648,8 +648,8 @@ def test_checkpoint_round_trip_preserves_queries_across_rich_state() -> None:
     )
     queries = (
         IssueListQuery(),
-        IssueListQuery(states=frozenset({"open", "closed"})),
-        IssueListQuery(states=frozenset({"open", "closed"}), text="navigation"),
+        IssueListQuery(lifecycle="all"),
+        IssueListQuery(lifecycle="all", text="navigation"),
     )
 
     for query in queries:

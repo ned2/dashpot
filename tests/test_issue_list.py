@@ -9,7 +9,7 @@ import pytest
 import factories
 from app_harness import with_first_project_snapshot
 from dashpot.core.issue_profile import IssueProfile
-from dashpot.core.model import AgentRun, IssueActivity, WorkspaceSnapshot
+from dashpot.core.model import AgentRun, IssueActivity, OpenBlocker, WorkspaceSnapshot
 from dashpot.issues.ordering import (
     ISSUE_SORT_COLUMNS,
     IssueSortColumn,
@@ -19,8 +19,9 @@ from dashpot.issues.ordering import (
 from dashpot.observation.issue_list import (
     IssueListQuery,
     empty_issue_message,
+    is_waiting,
     issue_result_count_text,
-    next_issue_states,
+    row_open_blockers,
     row_sort_value,
     sort_issue_rows,
 )
@@ -114,10 +115,7 @@ def test_default_query_lists_no_rows_for_only_closed_issues() -> None:
     assert result.summary.matched_issue_count == 0
     assert result.rows == ()
     assert empty_issue_message(IssueListQuery()) == "no open Issues"
-    assert (
-        empty_issue_message(IssueListQuery(states=frozenset({"closed"})))
-        == "no closed Issues"
-    )
+    assert empty_issue_message(IssueListQuery(lifecycle="closed")) == "no closed Issues"
     assert empty_issue_message(IssueListQuery(text="x")) == (
         "no Issues match the current filters"
     )
@@ -184,19 +182,19 @@ def test_lifecycle_counts_ignore_the_query_and_result_text_singularizes() -> Non
         ),
         (
             WorkspaceObservationStore(observed).query_issues(
-                IssueListQuery(states=frozenset({"closed"}))
+                IssueListQuery(lifecycle="closed")
             ),
             "1 issue",
         ),
         (
             WorkspaceObservationStore(observed).query_issues(
-                IssueListQuery(states=frozenset({"open", "closed"}))
+                IssueListQuery(lifecycle="all")
             ),
             "3 issues",
         ),
         (
             WorkspaceObservationStore(observed).query_issues(
-                IssueListQuery(states=frozenset({"open", "closed"}), text="I_done")
+                IssueListQuery(lifecycle="all", text="I_done")
             ),
             "1 issue",
         ),
@@ -213,11 +211,85 @@ def test_lifecycle_counts_ignore_the_query_and_result_text_singularizes() -> Non
         assert "/" not in text
 
 
-def test_next_issue_states_cycles_open_closed_all() -> None:
-    assert next_issue_states(frozenset({"open"})) == frozenset({"closed"})
-    assert next_issue_states(frozenset({"closed"})) == frozenset({"open", "closed"})
-    assert next_issue_states(frozenset({"open", "closed"})) == frozenset({"open"})
-    assert next_issue_states(frozenset()) == frozenset({"open"})
+def blocked_by(*identities: str) -> dict[str, object]:
+    return {
+        "parent": None,
+        "subIssues": [],
+        "blockedBy": list(identities),
+        "blocking": [],
+    }
+
+
+def test_ready_lists_open_issues_whose_blockers_are_all_closed() -> None:
+    observed = workspace(
+        issue("I_free", "open", number=1, relationships=blocked_by()),
+        issue("I_done", "closed", number=2, relationships=blocked_by()),
+        issue("I_after_done", "open", number=3, relationships=blocked_by("I_done")),
+        issue("I_waiting", "open", number=4, relationships=blocked_by("I_free")),
+        issue("I_unknown", "open", number=5, relationships=blocked_by("I_elsewhere")),
+        issue(
+            "I_closed_waiting", "closed", number=6, relationships=blocked_by("I_free")
+        ),
+    )
+
+    result = WorkspaceObservationStore(observed).query_issues(
+        IssueListQuery(lifecycle="ready")
+    )
+
+    # A blocker the Project does not hold counts as open, so I_unknown waits.
+    assert [row.issue.id for row in result.rows] == ["I_free", "I_after_done"]
+    assert empty_issue_message(IssueListQuery(lifecycle="ready")) == "no Ready Issues"
+    assert empty_issue_message(IssueListQuery(lifecycle="all")) == "no Issues"
+
+
+def test_snapshot_rows_judge_open_blockers_against_the_project() -> None:
+    observed = workspace(
+        issue("I_free", "open", number=1, relationships=blocked_by()),
+        issue("I_done", "closed", number=2, relationships=blocked_by()),
+        issue(
+            "I_waiting",
+            "open",
+            number=3,
+            relationships=blocked_by("I_free", "I_done", "I_elsewhere"),
+        ),
+    )
+
+    rows = {
+        row.issue.id: row
+        for row in WorkspaceObservationStore(observed)
+        .query_issues(IssueListQuery(lifecycle="all"))
+        .rows
+    }
+
+    assert row_open_blockers(rows["I_free"]) == ()
+    # In the Profile's order of blocker identities; a closed blocker is not
+    # one, and a blocker the Project does not hold is named by identity alone.
+    assert row_open_blockers(rows["I_waiting"]) == (
+        OpenBlocker(id="I_elsewhere"),
+        OpenBlocker(id="I_free", reference=rows["I_free"].issue.reference, number=1),
+    )
+    assert is_waiting(rows["I_waiting"])
+    assert not is_waiting(rows["I_free"])
+
+
+def test_queried_rows_read_open_blockers_from_auxiliary_facts() -> None:
+    [row] = (
+        WorkspaceObservationStore(workspace(issue("I_open", "open")))
+        .query_issues()
+        .rows
+    )
+    blocker = OpenBlocker(id="I_other", reference="acme/other#9", number=9)
+    fresh = AuxiliaryObservation(
+        status="fresh", attempted_at=NOW, last_good_at=NOW, open_blockers=[blocker]
+    )
+    unobserved = AuxiliaryObservation(
+        status="unavailable", attempted_at=NOW, last_good_at=None
+    )
+
+    assert row_open_blockers(replace(row, queried=True)) is None
+    assert row_open_blockers(replace(row, queried=True, auxiliary=fresh)) == (blocker,)
+    assert row_open_blockers(replace(row, queried=True, auxiliary=unobserved)) is None
+    assert is_waiting(replace(row, queried=True, auxiliary=fresh))
 
 
 def test_text_query_matches_milestone_and_issue_type() -> None:
