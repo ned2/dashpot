@@ -33,8 +33,15 @@ from dashpot.core.event_log import (
     recorded_span,
     use_event_log,
 )
+from dashpot.core.event_log_files import EventSelection
 from dashpot.core.git import Git, GitError
-from dashpot.core.runtime_events import EventLevel, ProcessIdentity, ProcessStart
+from dashpot.core.runtime_events import (
+    EventLevel,
+    ObservationAttributes,
+    ProcessIdentity,
+    ProcessStart,
+    SpanEnded,
+)
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.github.github import GitHubGateway, GitHubRequestError
 from dashpot.repository.worktree_launcher import (
@@ -543,3 +550,28 @@ def test_a_hook_records_the_commands_that_identify_its_session(
     assert {command["dashpot.process.kind"] for command in commands} == {
         "hook:claude-code:Stop"
     }
+
+
+def test_an_observation_span_is_selected_by_the_project_it_observed() -> None:
+    log = EventLog(
+        None,
+        identity=ProcessIdentity(run_id="0" * 32, kind="dashboard"),
+        level="full",
+        facts=lambda: pytest.fail("no process.start is recorded"),
+        keep_recent=10,
+    )
+    for project in ("alpha", "beta"):
+        log.start_span(
+            "observation",
+            attributes=ObservationAttributes(kind="branches", project_id=project),
+        ).end()
+
+    selected = [
+        event for event in log.recent if EventSelection(project="alpha").admits(event)
+    ]
+
+    (event,) = selected
+    assert isinstance(event.body, SpanEnded)
+    assert event.body.attributes == ObservationAttributes(
+        kind="branches", project_id="alpha"
+    )
