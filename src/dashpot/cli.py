@@ -572,12 +572,6 @@ def events_remove(
         print(render_json(event_log_removal_document(removal)))
     else:
         _report(describe_event_log_removal(removal))
-        for file in removal.files:
-            if file.outcome == "failed":
-                print(
-                    f"dashpot: could not remove {file.path}: {file.error}",
-                    file=sys.stderr,
-                )
     return 0 if removal.succeeded else USAGE_EXIT_CODE
 
 

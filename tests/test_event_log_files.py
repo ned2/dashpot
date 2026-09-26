@@ -750,7 +750,9 @@ def test_events_remove_reports_a_file_it_could_not_remove_and_goes_on(
         f"already gone {gone}",
         f"removed {removed}",
     ]
-    assert captured.err == (f"dashpot: could not remove {stuck}: Permission denied\n")
+    assert captured.out.startswith(f"could not remove {stuck} (")
+    assert captured.out.splitlines()[0].endswith("): Permission denied")
+    assert captured.err == ""
     assert stuck.exists()
     assert not removed.exists()
 

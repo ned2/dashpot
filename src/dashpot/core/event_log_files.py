@@ -22,7 +22,7 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import computed_field
+from pydantic import BaseModel, computed_field
 
 from .errors import DashpotError
 from .event_log import EVENTS_DIRECTORY, EventLogDestination, event_log_file_day
@@ -30,7 +30,9 @@ from .model import Diagnostic, Harness
 from .project_state import project_state_directory
 from .pydantic import LaxSequence, PublishedModel
 from .runtime_events import (
+    EventBody,
     ProcessEnd,
+    ProcessIdentity,
     RecordedLevel,
     RuntimeEvent,
     SpanEnded,
@@ -40,14 +42,21 @@ from .state_paths import enclosing_checkout, machine_state_directory
 from .timestamps import observed_instant
 from .worktree_paths import repository_worktrees
 
+
+def _on_disk(model: type[BaseModel], field: str) -> str:
+    """The name ``field`` of ``model`` has in an Event Log line."""
+    alias = model.model_fields[field].alias
+    return field if alias is None else str(alias)
+
+
 # The size past which a dashboard warns about its own Event Log directory.
 LARGE_EVENT_LOG_BYTES = 200_000_000
 EVENT_LOG_LARGE = "event-log-large"
 # The fields a Runtime Event names what it worked for by, on disk.
-SESSION_FIELD = "dashpot.agent_session.id"
-HARNESS_FIELD = "dashpot.agent_session.harness"
-ISSUE_FIELD = "dashpot.issue.id"
-PROJECT_FIELD = "dashpot.project.id"
+SESSION_FIELD = _on_disk(ProcessIdentity, "session_id")
+HARNESS_FIELD = _on_disk(ProcessIdentity, "harness")
+ISSUE_FIELD = _on_disk(ProcessIdentity, "issue_id")
+PROJECT_FIELD = _on_disk(ProcessIdentity, "project_id")
 # What a process records about itself rather than about the work it did.
 PROCESS_BOOKKEEPING = frozenset(
     {"process.start", "process.continued", "level.changed", "event_log.write_failed"}
@@ -55,18 +64,18 @@ PROCESS_BOOKKEEPING = frozenset(
 # The fields a described event opens with, so each is not repeated after.
 _HEADLINE_FIELDS = frozenset(
     {
-        "schema",
-        "time",
-        "dashpot.level",
-        "event.name",
-        "service.instance.id",
-        "dashpot.process.kind",
+        _on_disk(RuntimeEvent, "schema_version"),
+        _on_disk(RuntimeEvent, "time"),
+        _on_disk(RuntimeEvent, "level"),
+        _on_disk(EventBody, "name"),
+        _on_disk(ProcessIdentity, "run_id"),
+        _on_disk(ProcessIdentity, "kind"),
     }
 )
 
 
 class EventLogError(DashpotError):
-    """A refusal to remove Event Log files: their directory could not be listed."""
+    """A refusal to remove Event Log files: nowhere to remove them from, or a directory that cannot be listed."""
 
 
 @dataclass(frozen=True, slots=True)

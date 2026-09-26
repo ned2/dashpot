@@ -1135,12 +1135,13 @@ class DashpotApp(App[None]):
         )
 
     def on_event_log_measured(self, message: EventLogMeasured) -> None:
-        self.show_event_log_size(message)
+        self.finish_event_log_measurement(message)
 
-    def show_event_log_size(self, message: EventLogMeasured) -> None:
-        """Raise ``event-log-large`` past its size and clear it below; it acts on nothing.
+    def finish_event_log_measurement(self, message: EventLogMeasured) -> None:
+        """End the measurement: raise ``event-log-large`` past its size, clear it below.
 
-        A directory that could not be measured leaves the Diagnostic as it was.
+        The Diagnostic acts on nothing. A directory that could not be measured
+        leaves it as it was, and the next refresh measures again.
         """
         self.measuring_event_log = False
         destination = self.event_log.destination

@@ -216,7 +216,8 @@ def test_show_lists_the_sessions_recent_outcomes_from_its_event_log(
 ) -> None:
     root = repository(tmp_path / "repo")
     hook_record(root, CODEX_SESSION, "codex", CODEX)
-    at = datetime.now(UTC) - timedelta(hours=1)
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
+    at = now - timedelta(hours=1)
     own = session_event_log(root, CODEX_SESSION, at)
     own.start()
     own.end(1)
@@ -224,7 +225,9 @@ def test_show_lists_the_sessions_recent_outcomes_from_its_event_log(
     other.end(1)
     stamp = utc_stamp(at)
 
-    assert show_session_events(root, lookup=codex_lookup, environ=CODEX_ENVIRON) == [
+    assert show_session_events(
+        root, lookup=codex_lookup, environ=CODEX_ENVIRON, now=now
+    ) == [
         "recent events of codex pid 4242:",
         f"  {stamp} standard hook:codex:Stop process.end "
         f"dashpot.agent_session.harness=codex "
@@ -232,13 +235,13 @@ def test_show_lists_the_sessions_recent_outcomes_from_its_event_log(
         f"process.exit.code=1 dashpot.duration_seconds=0",
     ]
     # Outside the session, or at a Worktree with nothing to list, nothing is added.
-    assert show_session_events(root, lookup=codex_lookup, environ={}) == []
+    assert show_session_events(root, lookup=codex_lookup, environ={}, now=now) == []
     assert (
         show_session_events(
             root,
             lookup=codex_lookup,
             environ=CODEX_ENVIRON,
-            now=datetime.now(UTC) + timedelta(days=8),
+            now=now + timedelta(days=8),
         )
         == []
     )

@@ -283,10 +283,12 @@ Worktree removes its Event Log with it.
 
 Scheduled removal can run the same command, or `find`; a writer whose current
 file was moved or deleted starts a new one. A daily `cron` entry keeping 30
-days (GNU `date`; `cron` needs `%` escaped):
+days, naming `dashpot` by its full path since `cron` runs with a minimal
+`PATH` (`command -v dashpot` prints it; GNU `date`; `cron` needs `%`
+escaped):
 
 ```sh
-0 3 * * * cd /path/to/project && dashpot events remove --before "$(date -u -d '30 days ago' +\%F)"
+0 3 * * * cd /path/to/project && ~/.local/bin/dashpot events remove --before "$(date -u -d '30 days ago' +\%F)"
 ```
 
 A systemd user timer running `find`, as

@@ -9,7 +9,7 @@ date: 2026-09-27
 `dashpot events --json` a published interface under
 [ADR 0034](0034-publish-an-alpha-with-patch-compatible-interfaces.md), and
 names a Runtime Event's fields after OpenTelemetry semantic conventions
-(`event.name`, `process.exit.code`, `dashpot.session.id`, …) where one
+(`event.name`, `process.exit.code`, `dashpot.agent_session.id`, …) where one
 exists. Every other `--json` document Dashpot publishes uses camelCase keys
 with an unknown value as an explicit `null`
 ([serialization](../../src/dashpot/serialization.py)). The two rules meet in
@@ -41,7 +41,7 @@ with an unknown value as an explicit `null`
 
 ## Considered options
 
-- **camelCase every event field** (`processExitCode`, `dashpotSessionId`).
+- **camelCase every event field** (`processExitCode`, `dashpotAgentSessionId`).
   Rejected: it would give every field a second name to maintain beside its
   on-disk one, lose the OpenTelemetry names that make the fields
   recognisable, and make a line copied from a file differ from the same
