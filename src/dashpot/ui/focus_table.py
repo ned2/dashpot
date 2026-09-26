@@ -25,11 +25,14 @@ class FocusCursorTable(DataTable[CellType]):
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = DataTable.COMPONENT_CLASSES | {
-        "datatable--related-row"
+        "datatable--related-activity"
     }
     # The rows related to the focused cursor and the columns that emphasise
     # them; a change repaints the table, and the watchers drop the cached
-    # row renders the old emphasis was painted into.
+    # row renders the old emphasis was painted into. A related row's first
+    # cell, the activity column every emphasising pane pins, takes the
+    # emphasis background, so a relationship is marked on one small surface
+    # rather than across the whole row.
     related_rows: reactive[frozenset[str]] = reactive(frozenset[str]())
     related_columns: reactive[frozenset[str]] = reactive(frozenset[str]())
     # Header tooltips by column key; created on first use rather than in
@@ -104,13 +107,6 @@ class FocusCursorTable(DataTable[CellType]):
         )
 
     @override
-    def _get_row_style(self, row_index: int, base_style: Style) -> Style:
-        style = super()._get_row_style(row_index, base_style)
-        if self.is_related_row(row_index):
-            style += self.get_component_rich_style("datatable--related-row")
-        return style
-
-    @override
     def _render_cell(
         self,
         row_index: int,
@@ -120,8 +116,8 @@ class FocusCursorTable(DataTable[CellType]):
         cursor: bool = False,
         hover: bool = False,
     ) -> list[list[Segment]]:
-        if self.is_related_row(row_index):
-            base_style += self.get_component_rich_style("datatable--related-row")
+        if self.is_related_row(row_index) and column_index == 0:
+            base_style += self.get_component_rich_style("datatable--related-activity")
         if (
             self.is_related_row(row_index)
             and 0 <= column_index < len(self.ordered_columns)

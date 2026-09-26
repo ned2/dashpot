@@ -130,7 +130,7 @@ shipped dashboard built by `dashboard_app`, `App.run_test` and the pilot:
   `test_slash_focuses_the_pull_request_search_from_its_table` in
   [`test_dashboard_interaction.py`](../../tests/test_dashboard_interaction.py).
 - Related-row emphasis and theme repaint:
-  `test_related_rows_have_background_and_bold_without_losing_glyph_colors` in
+  `test_related_rows_light_the_activity_cell_and_bold_identifying_cells` in
   [`test_app_activity.py`](../../tests/test_app_activity.py) and
   `test_a_theme_change_repaints_the_list_panes` in
   [`test_dashboard_panes.py`](../../tests/test_dashboard_panes.py).

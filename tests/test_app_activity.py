@@ -31,6 +31,27 @@ from test_app_query_pages import application
 from test_app_worktree_launcher import WorktreeCollector
 from test_related_rows import query_source, related, related_snapshot
 
+RELATED_ACTIVITY_BACKGROUNDS = {"textual-dark": "#3c1e70", "textual-light": "#e2d9ff"}
+
+
+def background(style):
+    """The hex background a rendered style paints, or nothing unpainted."""
+    if style is None or style.bgcolor is None or style.bgcolor.triplet is None:
+        return None
+    return style.bgcolor.triplet.hex
+
+
+def activity_cell(table, line):
+    """The segments of a rendered row's first cell, its agent-activity cell."""
+    width = table.ordered_columns[0].get_render_width(table)
+    cell = []
+    for segment in line:
+        if width <= 0:
+            break
+        cell.append(segment)
+        width -= segment.cell_length
+    return cell
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("source_pane", ["sessions", "worktrees", "branches"])
@@ -116,12 +137,13 @@ async def test_session_destinations_keep_glyph_colors_and_bold_identity_in_both_
             glyph = next(segment for segment in line if "●" in segment.text)
             assert glyph.style is not None and base_glyph.style is not None
             assert glyph.style.color == base_glyph.style.color
-            assert glyph.style.bgcolor != base_glyph.style.bgcolor
+            assert background(glyph.style) == RELATED_ACTIVITY_BACKGROUNDS[theme]
             for text in ("Codex", "/alpha"):
                 segment = next(segment for segment in line if text in segment.text)
-                assert segment.style is not None
-                assert segment.style.bold
-                assert segment.style.bgcolor == glyph.style.bgcolor
+                base = next(segment for segment in baseline if text in segment.text)
+                assert segment.style is not None and base.style is not None
+                assert segment.style.bold and not base.style.bold
+                assert segment.style.bgcolor == base.style.bgcolor
 
 
 @pytest.mark.asyncio
@@ -369,43 +391,125 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
 
 
 @pytest.mark.asyncio
-async def test_related_rows_have_background_and_bold_without_losing_glyph_colors():
+@pytest.mark.parametrize("theme", sorted(RELATED_ACTIVITY_BACKGROUNDS))
+async def test_related_rows_light_the_activity_cell_and_bold_identifying_cells(theme):
     app = dashboard_app(SequenceCollector(related_snapshot()))
     async with app.run_test(size=(150, 55)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        for theme in ("textual-dark", "textual-light"):
-            app.theme = theme
-            table = app.dashboard.worktrees_pane().table
-            app.dashboard.set_focus(None)
-            await wait_until(lambda table=table: not table.related_rows)
-            await pilot.pause()
-            row_key = next(
-                row.key
-                for row in app.store.query_worktrees().rows
-                if row.project.project_id == "project:alpha"
-                and row.target.path == "/alpha"
+        app.theme = theme
+        table = app.dashboard.worktrees_pane().table
+        app.dashboard.set_focus(None)
+        await wait_until(lambda: not table.related_rows)
+        await pilot.pause()
+        row_key = next(
+            row.key
+            for row in app.store.query_worktrees().rows
+            if row.project.project_id == "project:alpha" and row.target.path == "/alpha"
+        )
+        row_index = table.get_row_index(row_key)
+        baseline = table.render_line(row_index + 1)
+        base_glyph = next(segment for segment in baseline if "●" in segment.text)
+        base_path = next(segment for segment in baseline if "/alpha" in segment.text)
+        app.dashboard.sessions_pane().table.focus()
+        await wait_until(lambda: row_key in table.related_rows)
+        await pilot.pause()
+        line = table.render_line(row_index + 1)
+        glyph = next(segment for segment in line if "●" in segment.text)
+        path = next(segment for segment in line if "/alpha" in segment.text)
+        assert glyph.style is not None and base_glyph.style is not None
+        assert path.style is not None and base_path.style is not None
+        assert glyph.style.color == base_glyph.style.color
+        assert background(next(iter(line)).style) == RELATED_ACTIVITY_BACKGROUNDS[theme]
+        assert background(glyph.style) == RELATED_ACTIVITY_BACKGROUNDS[theme]
+        assert background(path.style) == background(base_path.style)
+        assert path.style.bold and not base_path.style.bold
+        unrelated = next(
+            index
+            for index, row in enumerate(table.ordered_rows)
+            if row.key.value not in table.related_rows
+        )
+        assert {
+            background(segment.style)
+            for segment in activity_cell(table, table.render_line(unrelated + 1))
+        } == {background(table.rich_style)}
+        table.focus()
+        await wait_until(lambda: not table.related_rows)
+
+
+@pytest.mark.asyncio
+async def test_a_related_row_without_agent_sessions_still_lights_its_activity_cell():
+    app = dashboard_app(SequenceCollector(related_snapshot(runs=[], bindings={})))
+    async with app.run_test(size=(150, 55)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        app.theme = "textual-dark"
+        worktrees = app.dashboard.worktrees_pane().table
+        branches = app.dashboard.branches_pane().table
+        worktrees.focus()
+        worktrees.move_cursor(
+            row=worktrees.get_row_index(
+                next(
+                    row.key
+                    for row in app.store.query_worktrees().rows
+                    if row.project.project_id == "project:alpha"
+                    and row.target.path == "/alpha"
+                )
             )
-            row_index = table.get_row_index(row_key)
-            baseline = table.render_line(row_index + 1)
-            base_glyph = next(segment for segment in baseline if "●" in segment.text)
-            app.dashboard.sessions_pane().table.focus()
-            await wait_until(
-                lambda row_key=row_key, table=table: row_key in table.related_rows
+        )
+        branch_key = next(
+            row.key
+            for row in app.store.query_branches().rows
+            if row.project.project_id == "project:alpha" and row.name == "main"
+        )
+        await wait_until(lambda: branches.related_rows == frozenset({branch_key}))
+        await pilot.pause()
+        line = branches.render_line(branches.get_row_index(branch_key) + 1)
+        cell = activity_cell(branches, line)
+        assert not "".join(segment.text for segment in cell).strip()
+        assert {background(segment.style) for segment in cell} == {
+            RELATED_ACTIVITY_BACKGROUNDS["textual-dark"]
+        }
+        name = next(segment for segment in line if "main" in segment.text)
+        assert name.style is not None and name.style.bold
+        unrelated = next(
+            index
+            for index, row in enumerate(branches.ordered_rows)
+            if row.key.value != branch_key
+        )
+        other = branches.render_line(unrelated + 1)
+        assert not any(
+            segment.style is not None and segment.style.bold for segment in other
+        )
+        assert {
+            background(segment.style) for segment in activity_cell(branches, other)
+        } == {background(branches.rich_style)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("theme", sorted(RELATED_ACTIVITY_BACKGROUNDS))
+async def test_pinned_activity_columns_paint_no_background_of_their_own(theme):
+    app = dashboard_app(SequenceCollector(related_snapshot()))
+    async with app.run_test(size=(150, 55)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        app.theme = theme
+        app.dashboard.set_focus(None)
+        await pilot.pause()
+        dashboard_tables = app.dashboard.focus_tables()
+        await show_query_peer(app, pilot)
+        app.query_screen.set_focus(None)
+        await pilot.pause()
+        pinned = [
+            table
+            for table in (*dashboard_tables, *app.query_screen.focus_tables())
+            if table.fixed_columns
+        ]
+        # Sessions, Worktrees, Branches, and the Issue table pin their
+        # agent-activity column; Pull Requests pins none.
+        assert len(pinned) == 4
+        for table in pinned:
+            assert table.row_count
+            assert background(next(iter(table.render_line(1))).style) == (
+                background(table.rich_style)
             )
-            line = table.render_line(row_index + 1)
-            glyph = next(segment for segment in line if "●" in segment.text)
-            path = next(segment for segment in line if "/alpha" in segment.text)
-            assert (
-                path.style is not None
-                and glyph.style is not None
-                and base_glyph.style is not None
-            )
-            assert path.style.bold
-            assert glyph.style.color == base_glyph.style.color
-            assert glyph.style.bgcolor != base_glyph.style.bgcolor
-            assert glyph.style.bgcolor == path.style.bgcolor
-            table.focus()
-            await wait_until(lambda table=table: not table.related_rows)
 
 
 @pytest.mark.asyncio

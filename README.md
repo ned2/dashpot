@@ -208,9 +208,10 @@ aggregate has a blank Glyph. The Issue column editor always keeps agent
 activity first and preserves the order of your other choices.
 
 While Sessions, Worktrees, or Branches has keyboard focus on Dashboard, the row
-under its cursor emphasizes direct relationships in the other Dashboard panes
-with a subtle background and bold identifying cells (HARNESS and TARGET for
-Sessions).
+under its cursor emphasizes direct relationships in the other Dashboard panes:
+a related row lights its `◈` agent-activity cell and bolds its identifying
+cells (HARNESS and TARGET for Sessions, PATH for Worktrees, BRANCH for
+Branches), and the rest of the row keeps its own background.
 Sessions emphasizes its observed Worktree and Branch. Worktrees emphasizes its
 located Sessions and checked-out Branch. Branches emphasizes its Worktrees and
 directly associated Sessions. Worktree–Branch topology also works

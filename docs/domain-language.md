@@ -408,8 +408,12 @@ Hints or shared backend processes; distinct native Agent Session identities stay
 separate. Each pane keeps its cursor across focus changes, and refresh
 preserves a surviving cursor key. Unsupported controls and modals clear
 emphasis; Issues and Pull Requests are excluded as sources and destinations.
-Background and bold identifying cells
-(HARNESS and TARGET for Sessions) preserve Glyph colours, activity, and counts.
+A related row lights its `◈` agent-activity cell with an emphasis background,
+blank or not, and bolds its identifying cells (HARNESS and TARGET for Sessions,
+PATH for Worktrees, BRANCH for Branches); the rest of the row keeps its own
+background, and Glyph colours, activity, and counts are preserved. The pinned
+agent-activity column paints no background of its own, so the lit cell stands
+alone.
 Emphasis never changes destination cursors or scroll positions, submits queries,
 or mutates Issue work.
 
