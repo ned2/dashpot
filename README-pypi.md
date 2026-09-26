@@ -36,9 +36,9 @@ dashpot init
 dashpot
 ```
 
-Commit `.dashpot/config.json` as Project configuration and add `.dashpot/state/`
-to `.gitignore`. For a Project without GitHub, use `dashpot init --markdown issues`
-with an existing directory of
+Commit `.dashpot/config.json` as Project configuration. Local runtime state
+lives in `.dashpot/state/`, which ignores itself in Git. For a Project without
+GitHub, use `dashpot init --markdown issues` with an existing directory of
 [Local Issue Markdown](https://github.com/ned2/dashpot/blob/main/conformance/issue/local-markdown.md).
 
 Harness observation is opt-in:

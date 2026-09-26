@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-12
+date: 2026-09-27
 ---
 
 # Install and maintain Dashpot
@@ -90,14 +90,13 @@ An existing empty directory is a valid empty Issue Source. Add Issues using the
 [Local Issue Markdown grammar](../conformance/issue/local-markdown.md); Dashpot
 does not create or edit them. This mode requires Git but does not require gh.
 
-Track `.dashpot/config.json` in the Project. Add this rule to `.gitignore`:
-
-```gitignore
-.dashpot/state/
-```
-
-The ignored state contains the Project-local Work Store and session records.
-Each linked Worktree owns its own state. The Work Store holds
+Track `.dashpot/config.json` in the Project. The `.dashpot/state/` directory
+beside it ignores itself: Dashpot writes a `.gitignore` containing `*` into it
+whenever it writes state there, so it needs no rule in the Project's own
+`.gitignore`. A state directory an earlier Dashpot wrote gains the file the
+next time Dashpot writes state there. The ignored state contains the
+Project-local Work Store and session records. Each linked Worktree owns its own
+state. The Work Store holds
 declared Issue work and is not a user-edited file format. Machine-local Workspace
 inventory and settings remain outside Project configuration. See
 [Project configuration](../README.md#project-configuration) for full discovery
@@ -253,7 +252,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | GitHub collection fails | Check `gh --version` and `gh auth status`, repository access, network connectivity, and the reported Diagnostic. Authentication failures remain distinct from an empty Issue collection. |
 | GitHub observations go stale with a `github-rate-limit` Diagnostic | The account's hourly GraphQL allowance is spent. Close other dashboards or lengthen `github_refresh_seconds` (or `--github-refresh-seconds`), and wait for the reset; see [GitHub rate limits](github-rate-limits.md#staying-inside-the-limit). |
 | GitHub Issues or Pull Requests lag a change by up to a minute | GitHub queries refresh on their own period, 60 seconds by default, while Worktrees and Agent Sessions refresh every 15. Press `r`, or lower `github_refresh_seconds`; see [Machine-local settings](#machine-local-settings). |
-| The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and ignore `.dashpot/state/`. |
+| The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and commit `.dashpot/config.json`. |
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |
 | Sessions are missing or Issue opt-in is refused | Run `dashpot integrate <harness> --status` inside the session's Worktree; inspect hook trust, publisher path, skill version, and the confirmed Agent Session Identity. |
 | Every hook event fails after a Worktree was removed, or `--status` warns that the publisher lives in a linked Worktree | The hooks were bound to a publisher in that Worktree's `.venv`, which the Cleanup removed. Rerun `dashpot integrate <harness>` from the Repository's main working tree or from an installed tool environment; `integrate` refuses to bind a linked Worktree's publisher in the first place. |

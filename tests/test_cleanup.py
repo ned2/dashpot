@@ -21,6 +21,7 @@ from dashpot.core.commands import (
     run_command,
 )
 from dashpot.core.git import Git, GitError
+from dashpot.core.project_state import ensure_state_directory
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     BranchCleanupRequest,
@@ -52,15 +53,21 @@ from factories import git
 from helpers import table_lookup
 
 
-def repo(tmp_path: Path, *, origin: bool = True) -> Path:
-    """A repository on ``main`` with one commit, and an origin it never fetches."""
+def repo(tmp_path: Path, *, origin: bool = True, ignore_state: bool = True) -> Path:
+    """A repository on ``main`` with one commit, and an origin it never fetches.
+
+    Its ``.gitignore`` holds a rule for Dashpot state unless ``ignore_state``
+    is false, as in a Project that never added one.
+    """
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
     git(root, "config", "user.email", "sim@example.invalid")
     git(root, "config", "user.name", "Sim")
     (root / "README.md").write_text("Sim\n")
-    (root / ".gitignore").write_text(".venv/\n.dashpot/state/\n")
+    (root / ".gitignore").write_text(
+        ".venv/\n.dashpot/state/\n" if ignore_state else ".venv/\n"
+    )
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "base")
     if origin:
@@ -883,6 +890,92 @@ def test_a_changed_preview_performs_nothing_and_returns_the_fresh_one(
     assert report.preview.fingerprint != stale.fingerprint
     assert report.preview.target("local:refs/heads/feat") is not None
     assert git(root, "rev-parse", "--verify", "refs/heads/feat")
+
+
+def test_state_ignoring_itself_after_the_preview_leaves_the_removal_confirmed(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    # State an earlier Dashpot wrote before its directory ignored itself,
+    # which no store can produce now, so it is written directly.
+    state = worktree / ".dashpot" / "state" / "work"
+    state.mkdir(parents=True)
+    (state / ".codex-4242.lock").write_text("")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    (tree, _local) = preview.targets
+
+    ensure_state_directory(worktree)
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, delete_ignored=True)
+    )
+
+    assert preview.ignored == (".dashpot/", ".venv/")
+    assert report.changed is False
+    assert report.succeeded is True
+    assert not worktree.exists()
+
+
+def test_state_created_after_the_preview_refuses_the_removal(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    (tree, _local) = preview.targets
+
+    # The acknowledgement covered the ignored content the preview listed, not
+    # state a session wrote since.
+    ensure_state_directory(worktree)
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, delete_ignored=True)
+    )
+
+    assert report.changed is True
+    assert report.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert ".dashpot/" in report.preview.ignored
+    assert worktree.exists()
+
+
+def test_state_ignoring_itself_without_a_rule_unblocks_the_worktree(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path, ignore_state=False)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    # State an earlier Dashpot wrote in a Project with no rule for it.
+    state = worktree / ".dashpot" / "state" / "work"
+    state.mkdir(parents=True)
+    (state / ".codex-4242.lock").write_text("")
+    request = WorktreeCleanupRequest(root, worktree)
+    stale = inspect_cleanup(request)
+    (stale_tree, _local) = stale.targets
+
+    ensure_state_directory(worktree)
+    fresh = inspect_cleanup(request)
+    (tree, _local) = fresh.targets
+    # The person confirmed a preview that found the Worktree dirty; the one
+    # that offers its removal is a different preview, so it is refused.
+    refused = perform_cleanup(
+        confirm(request, stale, stale_tree.identity, delete_ignored=True)
+    )
+    assert worktree.exists()
+    removed = perform_cleanup(
+        confirm(request, fresh, tree.identity, delete_ignored=True)
+    )
+
+    assert kinds(stale_tree) == {"dirty"}
+    assert tree.available is True
+    assert fresh.ignored == (".dashpot/", ".venv/")
+    assert refused.changed is True
+    assert refused.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert removed.succeeded is True
+    assert not worktree.exists()
 
 
 def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> None:

@@ -15,6 +15,7 @@ from typing import Any
 
 from .errors import DashpotError
 from .file_locks import locked_path, prune_lock_file
+from .project_state import ensure_state_directory
 
 
 class RecordKeyError(DashpotError):
@@ -65,14 +66,23 @@ class LockedRecordStore:
     Each key owns a ``<key>.json`` record and a ``.<key>.lock`` file; writers
     replace records durably via a same-directory temporary file, and sweeps
     reclaim locks that guard no record and temporaries a crash left behind.
+    A store beneath a checkout's Project-local state directory names that
+    ``checkout``, so its writers create the directory ignoring itself in Git;
+    a store elsewhere, such as the machine-local hook store, names none.
     """
 
     def __init__(
-        self, directory: Path, key_pattern: re.Pattern[str], key_error: str
+        self,
+        directory: Path,
+        key_pattern: re.Pattern[str],
+        key_error: str,
+        *,
+        checkout: Path | None = None,
     ) -> None:
         self.directory = directory
         self._key_pattern = key_pattern
         self._key_error = key_error
+        self._checkout = checkout
 
     def record_path(self, key: str) -> Path:
         """The key's record path, refusing keys that could escape the store."""
@@ -88,6 +98,8 @@ class LockedRecordStore:
     def locked(self, key: str) -> Iterator[None]:
         """Hold the key's lock, creating the store directory when absent."""
         self.record_path(key)
+        if self._checkout is not None:
+            ensure_state_directory(self._checkout)
         self.directory.mkdir(parents=True, exist_ok=True)
         with locked_path(self.lock_path(key)):
             yield

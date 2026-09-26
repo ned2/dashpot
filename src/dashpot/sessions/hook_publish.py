@@ -10,10 +10,10 @@ from typing import Any
 from ..core.json_records import optional_string
 from ..core.model import Harness
 from .hook_records import (
+    HookRecordStore,
     build_hook_record,
-    session_directory,
+    project_session_store,
     state_directory,
-    write_hook_record,
 )
 from .processes import (
     ProcessIdentity,
@@ -37,12 +37,12 @@ class HookPublication:
     continued: ActiveWork | None = None
 
 
-def route_record_directory(record: Mapping[str, Any]) -> Path:
+def route_record_store(record: Mapping[str, Any]) -> HookRecordStore:
     """Choose the Project-local store for a configured checkout, else global."""
     root = optional_string(record.get("repositoryRoot"))
     if root and (Path(root) / ".dashpot" / "config.json").is_file():
-        return session_directory(Path(root))
-    return state_directory()
+        return project_session_store(Path(root))
+    return HookRecordStore(state_directory())
 
 
 def publish_hook_event(
@@ -69,7 +69,12 @@ def publish_hook_event(
         # A target hook therefore either sees the old client and waits, or
         # sees that SessionEnd has already preserved the pending run.
         end_session_work(record, identity)
-    destination = write_hook_record(record, directory or route_record_directory(record))
+    store = (
+        HookRecordStore(directory)
+        if directory is not None
+        else route_record_store(record)
+    )
+    destination = store.write(record)
     if record.get("state") == "ended":
         return HookPublication(destination)
     complete_session_work_relocation(

@@ -13,7 +13,7 @@ from ..core.json_records import optional_string, require_harness, require_string
 from ..core.record_store import RecordKeyError
 from ..core.worktree_paths import repository_worktrees, same_path
 from .harnesses import adapter
-from .hook_records import HookRecordStore
+from .hook_records import HookRecordStore, session_directory
 from .hook_scan import (
     reachable_hook_stores,
     scan_hook_stores,
@@ -148,8 +148,14 @@ def complete_session_work_relocation(
         return False
     session_id = require_string(record.get("sessionId"), "sessionId")
     stores = reachable_hook_stores(worktrees, directory)
+    # Locking a Worktree's hook store may create its Project-local state, so
+    # each store names its Worktree to keep that state out of Git.
+    owners = {session_directory(worktree).resolve(): worktree for worktree in worktrees}
     hook_stores = sorted(
-        (HookRecordStore(store) for store in stores),
+        (
+            HookRecordStore(store, checkout=owners.get(store.resolve()))
+            for store in stores
+        ),
         key=lambda store: str(store.lock_path(session_id)),
     )
     with ExitStack() as stack:
