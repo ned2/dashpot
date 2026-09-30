@@ -138,14 +138,24 @@ Set how often the dashboard refreshes by itself, in seconds
 refresh_seconds = 15
 # GitHub Issues, Pull Requests, Project Totals and bound Issues.
 github_refresh_seconds = 60
+# How long without a key or mouse event before GitHub refreshes pause.
+unattended_seconds = 7200
 ```
 
 Each is a finite number of seconds, zero or more; 0 switches that automatic
 refresh off, and `r` still refreshes on demand. Omit a key for its default,
-shown above. `--refresh-seconds` and `--github-refresh-seconds` override the
-settings for one run. The dashboard still opens when the settings file cannot
-be read: the periods keep their defaults, unless a flag sets one, and the
-dashboard shows the settings error as a Diagnostic.
+shown above. `--refresh-seconds`, `--github-refresh-seconds` and
+`--unattended-seconds` override the settings for one run. The dashboard still
+opens when the settings file cannot be read: the periods keep their defaults,
+unless a flag sets one, and the dashboard shows the settings error as a
+Diagnostic.
+
+GitHub refreshes pause while nobody attends the dashboard: after
+`unattended_seconds` without a key or mouse event, or, inside tmux, while no
+client is attached to the dashboard's session. Any key, a mouse event, focus
+returning to the terminal, or a client reattaching resumes them with a GitHub
+refresh at once. An `unattended_seconds` of 0 turns off only the idle pause
+([ADR 0068](adr/0068-pause-github-queries-while-the-dashboard-is-unattended.md)).
 
 Parsing never performs shell or environment-variable expansion. For `worktree_root`, Dashpot
 strips surrounding whitespace, expands `~`, and resolves relative paths against
@@ -425,6 +435,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | Git is missing or an option is unsupported | Check `git --version`, install Git 2.39+, and ensure that version is on PATH. Content-based integration requires `merge-tree --write-tree`. |
 | GitHub collection fails | Check `gh --version` and `gh auth status`, repository access, network connectivity, and the reported Diagnostic. Authentication failures remain distinct from an empty Issue collection. |
 | GitHub observations go stale with a `github-rate-limit` Diagnostic | The account's hourly GraphQL allowance is spent. Close other dashboards or lengthen `github_refresh_seconds` (or `--github-refresh-seconds`), and wait for the reset; see [GitHub rate limits](github-rate-limits.md#staying-inside-the-limit). The dashboard sends no GitHub query until then and shows `github-rate-limit-paused` with the time it resumes; `r` tries once ([when the allowance runs out](github-rate-limits.md#when-the-allowance-runs-out)). |
+| GitHub observations stopped refreshing, with `github-unattended-paused` in the Diagnostics | Nobody attended the dashboard for `unattended_seconds`, or every tmux client detached, so GitHub refreshes paused. Press any key to resume at once; lengthen `unattended_seconds` (or `--unattended-seconds`), or set it to 0, to pause later or only on detach; see [Machine-local settings](#machine-local-settings). |
 | GitHub Issues or Pull Requests lag a change by up to a minute | GitHub queries refresh on their own period, 60 seconds by default, while Worktrees and Agent Sessions refresh every 15. Press `r`, or lower `github_refresh_seconds`; see [Machine-local settings](#machine-local-settings). |
 | The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and commit `.dashpot/config.json`. |
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |

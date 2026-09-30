@@ -37,6 +37,7 @@ from .repository.cleanup import (
 
 DEFAULT_REFRESH_SECONDS = 15.0
 DEFAULT_GITHUB_REFRESH_SECONDS = 60.0
+DEFAULT_UNATTENDED_SECONDS = 7200.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,11 +46,13 @@ class RefreshPeriods:
 
     ``local`` paces local observation: Worktrees, Branches, Agent Sessions and
     Agent Runs. ``github`` paces the queries GitHub meters against the hourly
-    allowance.
+    allowance. ``unattended`` is how long without a key or mouse event
+    pauses the GitHub period (ADR 0068).
     """
 
     local: float = DEFAULT_REFRESH_SECONDS
     github: float = DEFAULT_GITHUB_REFRESH_SECONDS
+    unattended: float = DEFAULT_UNATTENDED_SECONDS
 
     def query_seconds(self, sources: Mapping[str, QuerySource]) -> float:
         """The period of the dashboard's Query Sources.
@@ -57,18 +60,22 @@ class RefreshPeriods:
         Only a GitHub Query Source takes the GitHub period; a local one costs
         nothing, so it keeps pace with local observation.
         """
-        if any(source.context.source == "github" for source in sources.values()):
-            return self.github
-        return self.local
+        return self.github if reads_github(sources) else self.local
+
+
+def reads_github(sources: Mapping[str, QuerySource]) -> bool:
+    """Whether any of the dashboard's Query Sources asks GitHub."""
+    return any(source.context.source == "github" for source in sources.values())
 
 
 def refresh_periods(
     refresh_seconds: float | None = None,
     github_refresh_seconds: float | None = None,
+    unattended_seconds: float | None = None,
     *,
     settings_path: Path | None = None,
 ) -> RefreshPeriods:
-    """Take each refresh period from its flag, then its setting, then its default."""
+    """Take each period from its flag, then its setting, then its default."""
     try:
         settings = load_settings(settings_path)
     except SettingsError:
@@ -84,6 +91,11 @@ def refresh_periods(
             github_refresh_seconds,
             settings.github_refresh_seconds,
             DEFAULT_GITHUB_REFRESH_SECONDS,
+        ),
+        unattended=_first_given(
+            unattended_seconds,
+            settings.unattended_seconds,
+            DEFAULT_UNATTENDED_SECONDS,
         ),
     )
 

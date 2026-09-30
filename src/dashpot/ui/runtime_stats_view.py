@@ -45,6 +45,7 @@ from ..core.runtime_stats import (
 )
 from ..core.timestamps import observed_instant
 from ..github.github import LatestRateLimit, RateLimit, RateLimitPause
+from .attendance import Attendance, UnattendedPause
 
 ALLOWANCE_LABEL = "GITHUB ALLOWANCE"
 SPEND_LABEL = "GITHUB REQUESTS"
@@ -77,6 +78,11 @@ class RuntimeStatsSubject(Protocol):
     @property
     def rate_limit(self) -> LatestRateLimit | None:
         """The rate limit reading the Query Sources share, if they read GitHub."""
+        ...
+
+    @property
+    def attendance(self) -> Attendance | None:
+        """Whether anyone attends the dashboard, if its GitHub refreshes can pause."""
         ...
 
     @property
@@ -163,14 +169,22 @@ def allowance_text(
     window: str,
     now: datetime,
     pause: RateLimitPause | None,
+    attendance: Attendance | None,
 ) -> Text:
     """The latest rate limit reading any Query Source received, and the rest's spend.
 
     ``others`` is what the rest of the account spent within ``window``,
     beside this dashboard's own requests; ``pause`` is the Rate Limit Pause
-    in force, which leads while GitHub queries are held.
+    in force, which leads while GitHub queries are held, as does an
+    Unattended Pause while ``attendance`` holds one.
     """
-    paused = () if pause is None else (("paused", pause_text(pause, now)),)
+    paused: list[tuple[str, str]] = []
+    if pause is not None:
+        paused.append(("paused", pause_text(pause, now)))
+    if attendance is not None and attendance.pause is not None:
+        paused.append(
+            ("unattended", unattended_text(attendance, attendance.pause, now))
+        )
     if reading is None:
         if paused:
             return rows(paused)
@@ -198,6 +212,18 @@ def pause_text(pause: RateLimitPause, now: datetime) -> str:
     until = pause.until.astimezone(UTC)
     left = max(0.0, (until - now).total_seconds())
     return f"until {until:%H:%M:%S} UTC, in {long_duration_text(left)} ({pause.limit_text})"
+
+
+def unattended_text(
+    attendance: Attendance, pause: UnattendedPause, now: datetime
+) -> str:
+    """Since when automatic GitHub refreshes are held, and what showed nobody attending."""
+    since = pause.since.astimezone(UTC)
+    held = max(0.0, (now - since).total_seconds())
+    return (
+        f"since {since:%H:%M:%S} UTC, {long_duration_text(held)} ago "
+        f"({attendance.signal_text(pause)})"
+    )
 
 
 def table_text(header: Sequence[str], body: Sequence[Sequence[str]]) -> Text:
@@ -425,6 +451,7 @@ class RuntimeStatsScreen(ModalScreen[None]):
                 window=covered,
                 now=now,
                 pause=None if shared is None else shared.pause,
+                attendance=self.subject.attendance,
             ),
         )
         last = last_github_refresh(buffered)

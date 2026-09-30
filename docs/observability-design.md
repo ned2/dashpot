@@ -129,7 +129,7 @@ Dashpot's camelCase aliases with these names explicitly.
 | `schema` | every event | File-format version, `1` (the model field is `schema_version`) |
 | `time` | every event | RFC 3339 UTC timestamp, microseconds |
 | `dashpot.level` | every event | `standard` or `full`: the level the event belongs to |
-| `event.name` | every event | `process.start`, `process.continued`, `process.end`, `level.changed`, `event_log.write_failed`, `hook.outcome`, `command.outcome`, `agent_session.changed`, `diagnostic.changed`, `rate_limit_pause.changed`, `span` |
+| `event.name` | every event | `process.start`, `process.continued`, `process.end`, `level.changed`, `event_log.write_failed`, `hook.outcome`, `command.outcome`, `agent_session.changed`, `diagnostic.changed`, `rate_limit_pause.changed`, `unattended_pause.changed`, `span` |
 | `service.instance.id` | every event | The process's run ID, 32 hex digits |
 | `dashpot.process.kind` | every event | `dashboard`, `command:<words>`, `hook:<harness>[:<event>]` |
 | `dashpot.agent_session.harness`, `dashpot.agent_session.id` | when known | The Agent Session Identity |
@@ -156,6 +156,7 @@ Dashpot's camelCase aliases with these names explicitly.
 | `dashpot.diagnostic.source`, `dashpot.diagnostic.code` | `diagnostic.changed` | What identifies the Diagnostic, with its Project; `uncoded` for one without a code |
 | `dashpot.rate_limit_pause.change`, `dashpot.rate_limit_pause.limit` | `rate_limit_pause.changed` | A Rate Limit Pause `started`, `lapsed` at its due time, or `lifted`: ended early by a manual refresh's attempt that succeeded; and the limit that refused: `primary` or `secondary` |
 | `dashpot.rate_limit_pause.until` | `rate_limit_pause.changed` | When the pause was due to end; a `lifted` pause ended before it |
+| `dashpot.unattended_pause.change`, `dashpot.unattended_pause.signal` | `unattended_pause.changed` | An Unattended Pause `started`, or `ended` when someone attended the dashboard; and the signal that started it, on its end as on its start: `detached` (no tmux client attached) or `idle` (no input for the idle period) |
 | `dashpot.span.name`, `span_id`, `parent_span_id` | `span` | What the span timed, its ID and its parent's |
 | `otel.status_code` | `span` | `OK` or `ERROR` |
 | `attributes` | `span` | The span's own attributes, by the span's kind, below |
@@ -191,7 +192,9 @@ Project on its own events once it is observed. A `rate_limit_pause.changed` is
 recorded by the request that saw the change: the refused request records
 `started`, the first request admitted after the pause's due time records
 `lapsed`, and a manual refresh's attempt that succeeded before the due
-time records `lifted`. A runtime value that does not
+time records `lifted`. An `unattended_pause.changed` is recorded by the
+dashboard when a GitHub tick or tmux probe starts the pause, and when input,
+focus or a reattached client ends it. A runtime value that does not
 fit its field, such as a Branch name Git would refuse, is left out of the
 event rather than failing the work. The reader is tolerant: it ignores fields a newer Dashpot added and skips a line
 it cannot read, whose `schema` is newer, or whose `event.name` it does not
@@ -208,7 +211,7 @@ output.
 | Level | Written | Default |
 |---|---|---|
 | `off` | nothing; the dashboard's in-memory buffer still fills | |
-| `standard` | `process.start` and `process.end`; hook and management-command outcomes; Agent Session and Agent Run changes; Diagnostics appearing and clearing; Rate Limit Pauses starting, lapsing and being lifted; level changes; every GitHub request span; every failed span | ✔ |
+| `standard` | `process.start` and `process.end`; hook and management-command outcomes; Agent Session and Agent Run changes; Diagnostics appearing and clearing; Rate Limit Pauses starting, lapsing and being lifted; Unattended Pauses starting and ending; level changes; every GitHub request span; every failed span | ✔ |
 | `full` | plus every refresh, observation, query and command span | for development |
 
 - **Each event carries its level**, so a reader can filter by it.
@@ -354,6 +357,10 @@ output.
     after the first. While a Rate Limit Pause holds GitHub queries, the
     section leads with when it ends and which limit refused
     ([ADR 0065](adr/0065-pause-github-queries-after-a-rate-limit-refusal.md)).
+    While an Unattended Pause holds GitHub refreshes, it leads with when
+    that started and what showed nobody attending, after any Rate Limit
+    Pause
+    ([ADR 0068](adr/0068-pause-github-queries-while-the-dashboard-is-unattended.md)).
   - **GitHub requests:** requests, points and failures by GraphQL operation
     (or by API for a request that names none), for the latest ended refresh
     that sent any and for the window.

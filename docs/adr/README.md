@@ -80,3 +80,4 @@ of date.
 | 0065 | [Pause GitHub queries after a rate limit refusal](0065-pause-github-queries-after-a-rate-limit-refusal.md) | accepted | — |
 | 0066 | [Block Worktree removal while a sub-agent is working](0066-block-worktree-removal-while-a-sub-agent-is-working.md) | accepted | — |
 | 0067 | [Observe conversations apart from the runtimes that serve them](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) | proposed | — |
+| 0068 | [Pause GitHub queries while the dashboard is unattended](0068-pause-github-queries-while-the-dashboard-is-unattended.md) | accepted | — |

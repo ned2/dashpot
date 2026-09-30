@@ -60,6 +60,7 @@ class SettingsFile(PublishedModel):
     worktree_open_command: LaxSequence[str] | None = None
     refresh_seconds: RefreshSeconds | None = None
     github_refresh_seconds: RefreshSeconds | None = None
+    unattended_seconds: RefreshSeconds | None = None
     event_level: EventLevel | None = None
 
     @field_validator("worktree_open_command")
@@ -92,6 +93,7 @@ class Settings:
     worktree_open_command: tuple[str, ...] | None = None
     refresh_seconds: float | None = None
     github_refresh_seconds: float | None = None
+    unattended_seconds: float | None = None
     event_level: EventLevel | None = None
 
 
@@ -152,5 +154,6 @@ def load_settings(path: Path | None = None) -> Settings:
         worktree_open_command=command,
         refresh_seconds=file.refresh_seconds,
         github_refresh_seconds=file.github_refresh_seconds,
+        unattended_seconds=file.unattended_seconds,
         event_level=file.event_level,
     )
