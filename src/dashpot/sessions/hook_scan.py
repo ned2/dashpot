@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -59,6 +59,9 @@ class HookRecordClassification:
     # Malformed non-fatal fields the record was read without, by wire path.
     degraded: tuple[str, ...] = ()
     has_global_binding: bool = False
+    # The ``agent_id`` of each sub-agent the store holds started and not yet
+    # stopped (ADR 0016). Only Claude Code publishes sub-agent boundaries.
+    live_subagents: tuple[str, ...] = ()
 
     @property
     def process_key(self) -> ProcessKey | None:
@@ -204,6 +207,7 @@ def classify_hook_record(
         reason=liveness.reason,
         degraded=degraded,
         has_global_binding=record.has_global_binding,
+        live_subagents=tuple(record.live_subagents),
     )
 
 
@@ -316,32 +320,105 @@ def locate_agent_session(
     return freshest
 
 
+_SESSION_OVER: frozenset[HookRecordOutcome] = frozenset({"ended", "gone"})
+
+
+def _session_histories(
+    stores: Sequence[Path], lookup: ProcessLookup
+) -> list[list[SessionLocation]]:
+    """Each Agent Session's readable records across ``stores``, freshest first.
+
+    Each checkout keeps its own store, so a session that moved between
+    Worktrees has a record in each; a record that cannot be read is not
+    evidence and is skipped.
+    """
+    probe = LivenessProbe(lookup)
+    grouped: dict[tuple[str, str], list[SessionLocation]] = {}
+    for scanned in scan_hook_stores(stores, probe):
+        identity = (scanned.record.harness, scanned.record.session_id)
+        grouped.setdefault(identity, []).append(
+            SessionLocation(scanned.record, scanned.store)
+        )
+    # The sort is stable: of two records stamped alike, the first read leads.
+    return [
+        sorted(
+            history,
+            key=lambda location: observed_instant(location.record.last_activity_at),
+            reverse=True,
+        )
+        for _identity, history in sorted(grouped.items())
+    ]
+
+
+def _freshest_sessions(
+    stores: Sequence[Path], lookup: ProcessLookup
+) -> list[SessionLocation]:
+    """Each live or unknown Agent Session placed by its freshest readable record.
+
+    Ended and gone records describe sessions that are over and are not
+    reported.
+    """
+    return [
+        history[0]
+        for history in _session_histories(stores, lookup)
+        if history[0].record.outcome not in _SESSION_OVER
+    ]
+
+
 def sessions_at_worktree(
     worktree: Path,
     stores: Sequence[Path],
     lookup: ProcessLookup = host_process_lookup,
 ) -> list[SessionLocation]:
-    """Every live or unknown Agent Session whose hooks last placed it at ``worktree``.
-
-    Ended and gone records describe sessions that are over and are not
-    reported; a record that cannot be read is not evidence and is skipped.
-    """
-    probe = LivenessProbe(lookup)
+    """Every live or unknown Agent Session whose hooks last placed it at ``worktree``."""
     target = worktree.resolve()
-    freshest: dict[tuple[str, str], SessionLocation] = {}
-    for scanned in scan_hook_stores(stores, probe):
-        identity = (scanned.record.harness, scanned.record.session_id)
-        previous = freshest.get(identity)
-        if previous is None or observed_instant(
-            scanned.record.last_activity_at
-        ) > observed_instant(previous.record.last_activity_at):
-            freshest[identity] = SessionLocation(scanned.record, scanned.store)
     return [
         location
-        for _session_id, location in sorted(freshest.items())
-        if location.record.outcome not in {"ended", "gone"}
-        and same_path(location.worktree, target)
+        for location in _freshest_sessions(stores, lookup)
+        if same_path(location.worktree, target)
     ]
+
+
+def sessions_with_live_subagents(
+    worktrees: Sequence[Path],
+    stores: Sequence[Path],
+    lookup: ProcessLookup = host_process_lookup,
+) -> list[SessionLocation]:
+    """Every live or unknown Agent Session in ``worktrees`` with a live sub-agent.
+
+    A sub-agent's hooks carry its session's location, never its own, so where
+    it works is unknown: it may be in any Worktree of the Repository. Each
+    store derives its sub-agents from its own previous record, so a session
+    that moved on from the Worktree it dispatched them from leaves them in
+    that Worktree's record alone: every record of the session counts, and the
+    location reported is the freshest one's.
+    """
+    found: list[SessionLocation] = []
+    for history in _session_histories(stores, lookup):
+        freshest = history[0]
+        if freshest.record.outcome in _SESSION_OVER:
+            continue
+        current = [
+            location
+            for location in history
+            if location.record.outcome not in _SESSION_OVER
+        ]
+        working = sorted(
+            {agent for location in current for agent in location.record.live_subagents}
+        )
+        placed = any(
+            same_path(location.worktree, one)
+            for location in current
+            for one in worktrees
+        )
+        if working and placed:
+            found.append(
+                SessionLocation(
+                    replace(freshest.record, live_subagents=tuple(working)),
+                    freshest.store,
+                )
+            )
+    return found
 
 
 def summarize_session_records(

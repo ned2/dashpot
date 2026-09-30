@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md
+amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md, 0066-block-worktree-removal-while-a-sub-agent-is-working.md
 ---
 
 # Remove Branches and Worktrees on explicit confirmation
@@ -16,6 +16,11 @@ acknowledgement, a Worktree preview also offers its Branch at its push remote,
 and its local Branch starts selected by default — the Branch at the remote
 only at the local Branch's tip; the command line's
 `--delete-ignored` gate is unchanged.
+
+Amended by [ADR 0066](0066-block-worktree-removal-while-a-sub-agent-is-working.md):
+a live Claude Code sub-agent of an Agent Session in the Repository blocks the
+removal of every Worktree of that Repository, since its hooks do not say which
+Worktree it works in.
 
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),

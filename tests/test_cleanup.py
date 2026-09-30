@@ -43,14 +43,18 @@ from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH, counted
 from dashpot.repository.repository import LockHolderProbe, short_ref
 from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import cleanup_preview_document, cleanup_report_document
-from dashpot.sessions.hook_records import session_directory, write_hook_record
+from dashpot.sessions.hook_records import (
+    session_directory,
+    state_directory,
+    write_hook_record,
+)
 from dashpot.sessions.processes import (
     ProcessIdentity,
     ProcessLookup,
     host_process_lookup,
 )
 from factories import git
-from helpers import table_lookup
+from helpers import absent, table_lookup, unobservable
 
 
 def repo(tmp_path: Path, *, origin: bool = True, ignore_state: bool = True) -> Path:
@@ -476,6 +480,221 @@ def test_an_integrated_branch_under_a_blocked_worktree_stays_checked_out(
     assert blocker.detail == f"checked out at {worktree}, whose removal is blocked"
     assert local.requires == tree.identity
     assert preview.selectable == ()
+
+
+# --- Sub-agents -------------------------------------------------------------
+
+PARENT = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
+PARENT_SESSION = "5fa2138c-418a-492c-9efb-c192fc0d6def"
+
+
+def publish_subagent(
+    store: Path,
+    at: Path,
+    event: str,
+    agent: str,
+    *,
+    session: str = PARENT_SESSION,
+    minute: int = 41,
+    process: ProcessIdentity = PARENT,
+) -> None:
+    """Publish one sub-agent boundary as the Claude Code hook would.
+
+    Its ``cwd`` is the parent's location, whatever directory the sub-agent
+    works in, as measured on Claude Code 2.1.285; the store derives the live
+    set from the event.
+    """
+    write_hook_record(
+        {
+            "version": 2,
+            "sessionId": session,
+            "harness": "claude-code",
+            "state": "running" if event == "SubagentStart" else "waiting",
+            "cwd": str(at),
+            "repositoryRoot": str(at),
+            "branch": "main",
+            "event": event,
+            "agentId": agent,
+            "lastActivityAt": f"2026-08-30T03:{minute:02d}:00.000000Z",
+            "sessionProcess": process.as_record(),
+        },
+        store,
+    )
+
+
+def sub_agent_worktrees(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A Repository with two clean linked Worktrees, on integrated Branches."""
+    root = repo(tmp_path)
+    for name in ("feat", "other"):
+        branch(root, name)
+        integrate(root, name)
+    target = tmp_path / "wt"
+    sibling = tmp_path / "sibling"
+    git(root, "worktree", "add", "-q", str(target), "feat")
+    git(root, "worktree", "add", "-q", str(sibling), "other")
+    return root, target, sibling
+
+
+def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
+    tmp_path: Path,
+) -> None:
+    root, target, sibling = sub_agent_worktrees(tmp_path)
+    # The parent is at the main Worktree; one sub-agent works in the target
+    # and one in the sibling, which the hooks cannot tell apart.
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+    publish_subagent(session_directory(root), root, "SubagentStart", "a3932", minute=42)
+    lookup = table_lookup({PARENT.pid: PARENT})
+
+    for path in (target, sibling):
+        tree, _local = preview_worktree(root, path, lookup=lookup).targets
+        assert tree.available is False
+        (blocker,) = tree.blockers
+        assert blocker.kind == "sub-agent"
+        assert blocker.detail == (
+            f"Claude Code session {PARENT_SESSION} at {root} has 2 sub-agents "
+            "working (a3932, a686b12; session live). Dashpot cannot tell which "
+            "Worktree a Claude Code sub-agent works in, so one may be working "
+            "here; wait for it to finish or end that session."
+        )
+
+
+def test_a_stopped_sub_agent_no_longer_blocks(tmp_path: Path) -> None:
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    store = session_directory(root)
+    publish_subagent(store, root, "SubagentStart", "a686b12")
+    publish_subagent(store, root, "SubagentStop", "a686b12", minute=42)
+
+    preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    assert preview.targets[0].available is True
+
+
+def test_a_sub_agent_still_blocks_after_its_parent_moves_to_another_worktree(
+    tmp_path: Path,
+) -> None:
+    root, target, sibling = sub_agent_worktrees(tmp_path)
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+    # The parent then enters the sibling, whose store has no previous record
+    # of the session and so no sub-agents to carry.
+    write_hook_record(
+        {
+            "version": 2,
+            "sessionId": PARENT_SESSION,
+            "harness": "claude-code",
+            "state": "running",
+            "cwd": str(sibling),
+            "repositoryRoot": str(sibling),
+            "branch": "other",
+            "event": "UserPromptSubmit",
+            "lastActivityAt": "2026-08-30T03:45:00.000000Z",
+            "sessionProcess": PARENT.as_record(),
+        },
+        session_directory(sibling),
+    )
+
+    preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    (blocker,) = preview.targets[0].blockers
+    assert blocker.kind == "sub-agent"
+    assert blocker.detail.startswith(
+        f"Claude Code session {PARENT_SESSION} at {sibling} has 1 sub-agent "
+        "working (a686b12; session live)."
+    )
+
+
+def test_a_record_left_by_a_gone_process_holds_no_sub_agent(
+    tmp_path: Path,
+) -> None:
+    root, target, sibling = sub_agent_worktrees(tmp_path)
+    # A process that has since exited dispatched a sub-agent at the main
+    # Worktree; the session now runs under the live parent at the sibling.
+    exited = ProcessIdentity(6666, 1, "claude", "Tue Aug 25 01:00:00 2026")
+    publish_subagent(
+        session_directory(root), root, "SubagentStart", "a686b12", process=exited
+    )
+    publish_subagent(
+        session_directory(sibling), sibling, "SubagentStop", "a3932", minute=45
+    )
+
+    preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    assert preview.targets[0].available is True
+
+
+def test_a_parent_session_that_is_gone_leaves_no_sub_agent_blocker(
+    tmp_path: Path,
+) -> None:
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+
+    preview = preview_worktree(root, target, lookup=absent())
+
+    assert preview.targets[0].available is True
+
+
+def test_a_parent_of_unknown_liveness_still_blocks(tmp_path: Path) -> None:
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+
+    preview = preview_worktree(root, target, lookup=unobservable("ps is unavailable"))
+
+    (blocker,) = preview.targets[0].blockers
+    assert blocker.kind == "sub-agent"
+    assert "session unknown" in blocker.detail
+
+
+def test_a_session_outside_the_repository_does_not_block(tmp_path: Path) -> None:
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    publish_subagent(state_directory(), elsewhere, "SubagentStart", "a686b12")
+
+    preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    assert preview.targets[0].available is True
+
+
+def test_a_session_here_with_sub_agents_is_one_occupant(tmp_path: Path) -> None:
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    publish_subagent(session_directory(target), target, "SubagentStart", "a686b12")
+
+    preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    assert kinds(preview.targets[0]) == {"agent-session"}
+
+
+def test_a_sub_agent_started_after_the_preview_refuses_the_removal(
+    tmp_path: Path,
+) -> None:
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    lookup = table_lookup({PARENT.pid: PARENT})
+    request = WorktreeCleanupRequest(root, target)
+    preview = inspect_cleanup(request, lookup=lookup)
+    tree, _local = preview.targets
+    assert tree.available is True
+    store = session_directory(root)
+    publish_subagent(store, root, "SubagentStart", "a686b12")
+
+    refused = perform_cleanup(confirm(request, preview, tree.identity), lookup=lookup)
+
+    assert refused.performed is False
+    assert refused.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert kinds(refused.preview.targets[0]) == {"sub-agent"}
+    assert target.exists()
+    # Confirming the revised preview is refused too, until the sub-agent stops.
+    blocked = perform_cleanup(
+        confirm(request, refused.preview, tree.identity), lookup=lookup
+    )
+    assert blocked.performed is False
+    assert blocked.refusals
+    assert target.exists()
+
+    publish_subagent(store, root, "SubagentStop", "a686b12", minute=42)
+    fresh = inspect_cleanup(request, lookup=lookup)
+    removed = perform_cleanup(confirm(request, fresh, tree.identity), lookup=lookup)
+
+    assert removed.succeeded is True
+    assert not target.exists()
 
 
 def pushed_worktree(tmp_path: Path) -> tuple[Path, Path, str]:

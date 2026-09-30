@@ -39,6 +39,7 @@ from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import WORKTREE_PROTOCOL_ISSUES, git, write_issues
 from helpers import absent, make_issue, table_lookup
+from test_cleanup import PARENT, PARENT_SESSION, publish_subagent
 
 CONFIG = {
     "projectId": "project:sim",
@@ -878,6 +879,28 @@ def test_an_unreadable_work_store_record_is_an_obstacle(tmp_path: Path) -> None:
     (obstacle,) = report.obstacles
     assert obstacle.kind == "work-store"
     assert "Cannot read Work Store record" in obstacle.detail
+
+
+def test_a_live_sub_agent_elsewhere_is_an_obstacle(tmp_path: Path) -> None:
+    root = sim(tmp_path)
+    path = Path(create(root).path)
+    # The parent session is at the main Worktree, where its sub-agents'
+    # hooks place them too, whichever Worktree they work in.
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+
+    report = check_worktree(root, path, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    assert report.removable is False
+    (obstacle,) = report.obstacles
+    assert obstacle.kind == "sub-agent"
+    assert obstacle.command is None
+    lines = describe_removability(report)
+    assert lines[4].startswith(
+        f"  - sub-agent: Claude Code session {PARENT_SESSION} at {root.resolve()} "
+        "has 1 sub-agent working (a686b12; session live). Dashpot cannot tell "
+        "which Worktree"
+    )
+    assert "Remove with" not in lines
 
 
 def test_no_integration_branch_is_reported_not_assumed_merged(tmp_path: Path) -> None:

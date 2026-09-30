@@ -23,7 +23,7 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
@@ -836,6 +836,64 @@ according to the changelog; no measured sub-agent ran without a mode flag, so
 that the handback and its re-prompts apply to sessions that set no mode is
 inferred, not measured.
 
+### Sub-agent hooks and location at 2.1.285
+
+The [sub-agent location experiment](../scripts/experiments/claude-279/run.mjs)
+for [Issue #279](https://github.com/ned2/dashpot/issues/279) ran on Linux on
+2026-10-01 against 2.1.285. It used headless `claude -p` under
+`--dangerously-skip-permissions`, an isolated configuration, and a loopback
+Messages API. It subscribed a metadata-only publisher to every lifecycle and
+tool event and to `CwdChanged`. The fixture is a Repository with a `nested`
+directory and a sibling linked Worktree. The
+[verifier](../scripts/experiments/claude-279/verify.mjs) checks the claims
+below against the retained
+[trace](measurements/issue-279-claude-trace.jsonl). To reproduce, pass
+the runner the absolute path of a symlink named `claude` that points at the
+2.1.285 executable, then pass the verifier the printed trace path:
+
+```bash
+mkdir -p /tmp/claude-279
+ln -s ~/.local/share/claude/versions/2.1.285 /tmp/claude-279/claude
+node scripts/experiments/claude-279/run.mjs /tmp/claude-279/claude
+node scripts/experiments/claude-279/verify.mjs <printed trace path>
+node scripts/experiments/claude-279/verify.mjs docs/measurements/issue-279-claude-trace.jsonl
+```
+
+- **Payload fields.** `SubagentStart` carries `session_id`,
+  `transcript_path`, `cwd`, `prompt_id`, `agent_id`, `agent_type` and
+  `hook_event_name`. `SubagentStop` adds `permission_mode`, `effort`,
+  `stop_hook_active`, `agent_transcript_path`, `last_assistant_message`,
+  `background_tasks` and `session_crons`. In both, `session_id` and
+  `transcript_path` are the parent's. A sub-agent's `PreToolUse` and
+  `PostToolUse` carry its `agent_id` and `agent_type` beside the parent's
+  `session_id`. No sub-agent event names a worktree, a parent agent, or the
+  sub-agent's shell directory.
+- **`cwd` is the session's, not the sub-agent's.** The `cwd` on
+  `SubagentStart`, on the sub-agent's tool hooks, and on `SubagentStop` is
+  the parent's current directory, and the sub-agent's shell starts there.
+  That is the launch directory; a directory the parent reached with a
+  persisting `cd`; or the Worktree it entered with `EnterWorktree`. A
+  `run_in_background` sub-agent is no different. The exception is an Agent
+  tool call with `isolation: "worktree"`: its sub-agent runs, and its hooks
+  report, `<repo>/.claude/worktrees/agent-<agent_id>`, which was removed
+  when the unchanged sub-agent stopped.
+- **A sub-agent's change of directory reaches no hook.** A sub-agent's
+  `cd <Worktree> && <command>` runs the command in that Worktree, but its
+  `PreToolUse` and `PostToolUse` still report the parent's `cwd`. A
+  standalone `cd` in a sub-agent does not persist to its next Bash call and
+  fires no `CwdChanged`. Only the command text records the move, and file
+  tools take absolute paths anywhere, so no hook field says where a
+  sub-agent works.
+- **`CwdChanged` belongs to the main conversation.** A persisting `cd` inside
+  the project fired it with `old_cwd` and `new_cwd`, and later hooks carried
+  the new `cwd`. A `cd` outside the project was reset ("Shell cwd was reset
+  to …"). It still fired `CwdChanged` with `new_cwd` naming the target,
+  while its own `cwd` and every later hook stayed at the launch directory,
+  and no `CwdChanged` reported the reset.
+
+Dashpot acts on this in
+[ADR 0066](adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md).
+
 ### The Agent SDK normally owns a CLI subprocess
 
 Python's `ClaudeSDKClient` keeps one conversation across successive
@@ -891,7 +949,9 @@ parent's process with the parent's `session_id` and `CLAUDE_PID`; only
 every measured shell, so it is not a subagent marker. Do not treat a child's
 `agent_id` as interchangeable with its parent's `session_id`. The interactive
 terminal, Remote Control, and SDK values are not measured; `CwdChanged` did not
-fire for a background worker's `EnterWorktree`.
+fire for a background worker's `EnterWorktree`. A sub-agent's hooks carry
+its parent's `cwd`, not its own location
+([sub-agent hooks and location](#sub-agent-hooks-and-location-at-21285)).
 
 Ordinary subagents have separate contexts and can run alongside the main
 conversation. Their transcripts can be resumed through the containing session.

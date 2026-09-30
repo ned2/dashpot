@@ -34,6 +34,7 @@ BlockerKind = Literal[
     "dirty",
     "locked",
     "agent-session",
+    "sub-agent",
     "agent-run",
     "work-store",
     "unpushed",
