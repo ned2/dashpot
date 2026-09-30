@@ -697,6 +697,8 @@ class SessionStartStampTests(unittest.TestCase):
         self.assertNotIn("lastSessionStartAt", self.publish("UserPromptSubmit"))
 
     def test_a_sub_agents_session_start_is_not_its_parents(self) -> None:
+        self.publish("UserPromptSubmit")
+
         self.assertNotIn(
             "lastSessionStartAt", self.publish("SessionStart", agent_id="child")
         )

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from contextlib import ExitStack
+import contextlib
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,25 @@ def hook_store_at(store: Path, worktrees: Sequence[Path]) -> HookRecordStore:
     """
     owners = {session_directory(worktree).resolve(): worktree for worktree in worktrees}
     return HookRecordStore(store, checkout=owners.get(store.resolve()))
+
+
+@contextmanager
+def locked_session_stores(
+    stores: Sequence[Path], worktrees: Sequence[Path], session_id: str
+) -> Iterator[None]:
+    """Hold the session's record lock in every one of ``stores``, in path order.
+
+    Every writer of the session's hook records takes the same locks in the
+    same order, so two reconciling hooks never deadlock.
+    """
+    hook_stores = sorted(
+        (hook_store_at(store, worktrees) for store in stores),
+        key=lambda store: str(store.lock_path(session_id)),
+    )
+    with ExitStack() as stack:
+        for store in hook_stores:
+            stack.enter_context(store.locked(session_id))
+        yield
 
 
 def end_session_work(
@@ -173,7 +193,7 @@ def complete_session_work_relocation(
     if worktrees is None:
         try:
             worktrees = repository_worktrees(target, timeout=2)
-        except GitError:
+        except (GitError, OSError):
             return None
     # Without a Work Store there can be no Relocation Intent; locking hook
     # stores would otherwise create Project-local state in an unconfigured repo.
@@ -181,13 +201,7 @@ def complete_session_work_relocation(
         return None
     session_id = require_string(record.get("sessionId"), "sessionId")
     stores = reachable_hook_stores(worktrees, directory)
-    hook_stores = sorted(
-        (hook_store_at(store, worktrees) for store in stores),
-        key=lambda store: str(store.lock_path(session_id)),
-    )
-    with ExitStack() as stack:
-        for store in hook_stores:
-            stack.enter_context(store.locked(session_id))
+    with locked_session_stores(stores, worktrees, session_id):
         if not _sequential_target_is_confirmed(stores, session_id, target, lookup):
             return None
         matching: list[tuple[Path, WorkStore, ActiveWork]] = []
@@ -350,13 +364,7 @@ def carry_live_session_work(
         for store in reachable_hook_stores(worktrees, global_store)
         if store.is_dir()
     ]
-    hook_stores = sorted(
-        (hook_store_at(store, worktrees) for store in stores),
-        key=lambda store: str(store.lock_path(session_id)),
-    )
-    with ExitStack() as stack:
-        for store in hook_stores:
-            stack.enter_context(store.locked(session_id))
+    with locked_session_stores(stores, worktrees, session_id):
         origin = _live_origin(record, process, stores, written, target)
         if origin is None:
             return None
@@ -374,7 +382,8 @@ def _live_origin(
     harness = require_harness(record.get("harness"))
     session_id = require_string(record.get("sessionId"), "sessionId")
     records, unreadable = stored_session_records(stores, harness, session_id)
-    # A record that cannot be read may be the freshest; nothing moves on it.
+    # A record that cannot be read may be the freshest; nothing moves on it
+    # (ADR 0070).
     if unreadable:
         return None
     stamp = observed_instant(optional_string(record.get("lastActivityAt")))
@@ -420,7 +429,8 @@ def _carry_run(
         except OSError:
             return None
         if worktree == target:
-            # An unreadable or unresolved record at B may be a competing run.
+            # An unreadable or unresolved record at B may be a competing run
+            # (ADR 0070).
             if diagnostics:
                 return None
             for candidate in active:
@@ -476,7 +486,7 @@ def remove_ended_session_records(
     worktrees: Sequence[Path],
     written: Path,
     global_store: Path | None = None,
-) -> int:
+) -> None:
     """Remove the ended session's older records elsewhere in its Repository.
 
     A shared Host Process such as the Codex daemon outlives the session, so a
@@ -489,10 +499,11 @@ def remove_ended_session_records(
     Worktree of the Repository, names the Host Process the ``SessionEnd``
     itself was observed from (both observed, so another process's
     ``SessionEnd`` for the same id removes nothing), and is not newer than
-    the ``SessionEnd``. Returns how many records were removed.
+    the ``SessionEnd``. The global store counts as one of those stores, since
+    it holds records of Worktrees whose checkout is not configured (ADR 0069).
     """
     if process is None or not worktrees:
-        return 0
+        return
     harness = require_harness(record.get("harness"))
     session_id = require_string(record.get("sessionId"), "sessionId")
     ended_at = observed_instant(optional_string(record.get("lastActivityAt")))
@@ -501,14 +512,7 @@ def remove_ended_session_records(
         for store in reachable_hook_stores(worktrees, global_store)
         if store.is_dir() and not same_path(store, written)
     ]
-    hook_stores = sorted(
-        (hook_store_at(store, worktrees) for store in stores),
-        key=lambda store: str(store.lock_path(session_id)),
-    )
-    removed = 0
-    with ExitStack() as stack:
-        for store in hook_stores:
-            stack.enter_context(store.locked(session_id))
+    with locked_session_stores(stores, worktrees, session_id):
         records, _unreadable = stored_session_records(stores, harness, session_id)
         for item in records:
             if (
@@ -517,9 +521,7 @@ def remove_ended_session_records(
                 or not any(same_path(item.worktree, one) for one in worktrees)
             ):
                 continue
-            try:
+            # A record that cannot be removed now is left for observation,
+            # which reads it as the session's and prunes it once gone.
+            with contextlib.suppress(OSError):
                 item.path.unlink()
-            except OSError:
-                continue
-            removed += 1
-    return removed

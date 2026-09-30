@@ -640,6 +640,19 @@ def test_a_sub_agent_with_no_reachable_parent_is_routed_by_its_own_cwd(
     assert recorded(session_directory(a))["liveSubagents"] == ["child-thread"]
 
 
+@pytest.mark.parametrize("event", ["SessionEnd", "UserPromptSubmit", "Stop"])
+def test_a_sub_agent_event_with_no_parent_record_invents_no_parent(
+    tmp_path: Path, event: str
+) -> None:
+    a, _b = two_worktrees(tmp_path)
+
+    publication = publish(a, event, agent_id="child-thread")
+
+    assert publication.work == "unchanged"
+    assert stored(session_directory(a)) is None
+    assert observe(a) == ([], [])
+
+
 def test_an_isolated_claude_sub_agent_never_places_its_parent(tmp_path: Path) -> None:
     # A Claude sub-agent run with ``isolation: "worktree"`` reports its own
     # Worktree as its hook cwd (#358); it must not place its parent there.

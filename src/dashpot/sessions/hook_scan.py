@@ -235,6 +235,9 @@ def scan_hook_stores(
     are worth reading (``select``), what an unreadable record means to it
     (``on_unreadable``, which may raise to abort the scan; the default treats
     the record as no evidence and skips it), and how the yielded records fold.
+    The hook publisher, which must not probe processes while it holds the
+    session's locks, reads one identity's records with
+    ``stored_session_records`` instead.
     """
     for store in stores:
         if not store.is_dir():
@@ -252,17 +255,25 @@ def scan_hook_stores(
             yield ScannedRecord(store, path, raw, record)
 
 
+def session_record_stems(
+    session_id: str, harness: Harness | None = None
+) -> tuple[str, ...]:
+    """The legacy and harness-scoped filename stems a session's hook record may have."""
+    harnesses = (harness,) if harness is not None else tuple(HARNESS_DISPLAY)
+    return (
+        session_id,
+        *(
+            SessionEvidence(candidate, session_id).storage_key()
+            for candidate in harnesses
+        ),
+    )
+
+
 def session_record_named(
     path: Path, session_id: str, harness: Harness | None = None
 ) -> bool:
     """Select legacy and harness-scoped filenames for full record validation."""
-    if path.stem == session_id:
-        return True
-    harnesses = (harness,) if harness is not None else tuple(HARNESS_DISPLAY)
-    return any(
-        path.stem == SessionEvidence(candidate, session_id).storage_key()
-        for candidate in harnesses
-    )
+    return path.stem in session_record_stems(session_id, harness)
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,8 +318,7 @@ def stored_session_records(
     unreadable = 0
     expected = (harness, session_id)
     for store in stores:
-        names = (session_id, SessionEvidence(harness, session_id).storage_key())
-        for name in names:
+        for name in session_record_stems(session_id, harness):
             path = store / f"{name}.json"
             try:
                 raw = read_hook_record(path)

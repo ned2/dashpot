@@ -405,7 +405,10 @@ has reconciled the Work Store, but only records that:
   origin's `SessionEnd` in ADR 0029's daemon cold resume, is kept.
 
 No other session's record is touched, even when it shares the Host
-Process. ADR 0029's confirmation
+Process. [ADR 0069](adr/0069-remove-an-ended-sessions-records-from-every-store-of-its-repository.md)
+counts the global store among those Worktrees' stores, and
+[ADR 0070](adr/0070-refuse-a-live-relocation-on-evidence-it-cannot-read.md)
+refuses a carry on any of the session's evidence that cannot be read. ADR 0029's confirmation
 is unchanged: it sees S's record at A as a live claimant until S ends, which
 is the same guard it applies today.
 

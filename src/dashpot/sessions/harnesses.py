@@ -185,11 +185,9 @@ def is_claude_code_supervised_worker(process: ProcessIdentity) -> bool:
 
 def _codex_locates(event: HookEvent) -> bool:
     # Codex hooks report the turn's own ``cwd``, which follows a controller's
-    # ``turn/start`` override and a ``-C`` resume; a sub-agent's prompt is its
-    # own thread's, never its root's.
-    return event.get("hook_event_name") == "UserPromptSubmit" and not is_child_scoped(
-        event
-    )
+    # ``turn/start`` override and a ``-C`` resume. ``locates_session`` leaves
+    # out a sub-agent's prompt, which is its own thread's, never its root's.
+    return event.get("hook_event_name") == "UserPromptSubmit"
 
 
 def _codex_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:

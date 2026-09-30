@@ -256,12 +256,12 @@ def carried_state(
     previous record held; only the sub-agent boundaries change it (ADR 0016).
     A child-scoped event never ends its parent.
     """
-    state = str(current.get("state"))
     if not is_child_record(current) or current.get("event") in SUBAGENT_EVENTS:
-        return state
-    if previous is not None and previous.get("state") in {"running", "waiting"}:
-        return str(previous.get("state"))
-    return "running" if state == "ended" else state
+        return str(current.get("state"))
+    # A parent record whose state cannot be read is taken as busy: its
+    # Sub-agent is evidently at work.
+    recorded = None if previous is None else previous.get("state")
+    return str(recorded) if recorded in {"running", "waiting"} else "running"
 
 
 def observed_state(current: Mapping[str, Any]) -> str:
@@ -309,8 +309,10 @@ class HookRecordStore(LockedRecordStore):
         publisher found one: a session-scoped event of the same Host Process
         that moves the session's freshest record here derives its live
         sub-agents and turn clock from it rather than from an older record of
-        this store, so a move never forgets a live Sub-agent (ADR 0067). A child-scoped event instead
-        keeps this store's previous record's location, and never ends it.
+        this store, so a move never forgets a live Sub-agent (ADR 0067). A
+        child-scoped event instead keeps this store's previous record's
+        location, never ends it, and writes nothing but a sub-agent boundary
+        where there is no record.
         """
         session_id = require_string(record.get("sessionId"), "sessionId")
         harness = require_string(record.get("harness"), "harness")
@@ -349,6 +351,15 @@ class HookRecordStore(LockedRecordStore):
                 ):
                     return destination
                 destination.unlink(missing_ok=True)
+                return destination
+            if (
+                child
+                and previous is None
+                and record.get("event") not in SUBAGENT_EVENTS
+            ):
+                # With no parent record here, only a boundary has anything to
+                # say: the live set. Any other Sub-agent event would invent a
+                # parent at the Sub-agent's location (ADR 0067).
                 return destination
             current = dict(record)
             origin = previous

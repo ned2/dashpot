@@ -219,10 +219,11 @@ class ObservedActivityIndex:
     def consumed(self, session: HookSessionObservation) -> bool:
         return (session.run.harness, session.session_id) in self._consumed
 
-    def location(self, harness: Harness, session_id: str) -> str | None:
+    def location(self, harness: Harness, session_id: str) -> Path | None:
         """The Observation Target where the session's freshest live or unknown record places it."""
         session = self._by_session.get((harness, session_id))
-        return None if session is None else session.run.observation_target
+        located = None if session is None else session.run.observation_target
+        return None if located is None else Path(located)
 
 
 def observe_work_runs(
@@ -239,9 +240,12 @@ def observe_work_runs(
     runs: list[AgentRun] = []
     diagnostics: list[Diagnostic] = []
     sessions_seen: set[tuple[str, ...]] = set()
-    # Where each named session holds a run, and the runs it left elsewhere.
-    placed: dict[SessionIdentityKey, list[Path]] = {}
-    left: list[tuple[ActiveWork, ObservationTarget, str]] = []
+    # Where each named session holds a run, and the runs its freshest record
+    # places it away from.
+    run_locations: dict[SessionIdentityKey, list[Path]] = {}
+    runs_left_behind: list[
+        tuple[SessionIdentityKey, ActiveWork, ObservationTarget, Path]
+    ] = []
     for project_id, target in available_targets(targets_by_project):
         store = WorkStore(Path(target.path))
         active, store_diagnostics = store.active()
@@ -293,15 +297,14 @@ def observe_work_runs(
                 )
             runs.append(run)
             if work.session_id is not None:
-                placed.setdefault((work.harness, work.session_id), []).append(
-                    Path(target.path)
-                )
+                identity = (work.harness, work.session_id)
+                run_locations.setdefault(identity, []).append(Path(target.path))
                 if work.relocation is None and gone is None:
-                    elsewhere = activity.location(work.harness, work.session_id)
+                    elsewhere = activity.location(*identity)
                     if elsewhere is not None and not same_path(
-                        Path(elsewhere), Path(target.path)
+                        elsewhere, Path(target.path)
                     ):
-                        left.append((work, target, elsewhere))
+                        runs_left_behind.append((identity, work, target, elsewhere))
             if work.relocation is not None:
                 diagnostics.append(
                     relocation_diagnostic(
@@ -316,11 +319,8 @@ def observe_work_runs(
     # as a conflict; the other run is not merely left behind.
     diagnostics.extend(
         session_elsewhere_diagnostic(work, target, elsewhere)
-        for work, target, elsewhere in left
-        if not any(
-            same_path(Path(elsewhere), path)
-            for path in placed[work.harness, work.session_id or ""]
-        )
+        for identity, work, target, elsewhere in runs_left_behind
+        if not any(same_path(elsewhere, path) for path in run_locations[identity])
     )
     return runs, diagnostics
 
@@ -349,7 +349,7 @@ def host_restarted_since(process: SessionProcess, boot_time: BootTime) -> bool |
 
 
 def session_elsewhere_diagnostic(
-    work: ActiveWork, target: ObservationTarget, elsewhere: str
+    work: ActiveWork, target: ObservationTarget, elsewhere: Path
 ) -> Diagnostic:
     """Report a run left at one Worktree while its session executes at another.
 
