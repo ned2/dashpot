@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from textual.geometry import Region
 from textual.widgets import Input, Static
@@ -14,6 +12,7 @@ from app_harness import (
     await_issue_page,
     dashboard_app,
     first_load_landed,
+    footer_showing,
     issue,
     observation_landed,
     serve_snapshot,
@@ -26,11 +25,6 @@ from dashpot.ui.issue_table import COLUMN_KEYS
 from dashpot.ui.issue_view import IssueScreen
 from dashpot.ui.legend import LegendScreen
 from helpers import settled, wait_until
-
-
-def shown_footer_keys(app: Any) -> set[str]:
-    """The keys the Footer renders after unavailable bindings are hidden."""
-    return {widget.key for widget in app.screen.query("FooterKey") if widget.display}
 
 
 @pytest.mark.asyncio
@@ -129,8 +123,9 @@ async def test_number_keys_type_into_query_inputs_instead_of_switching() -> None
 
         assert app.screen is app.query_screen
         assert search.value == "12"
-        assert {"1", "2", "c", "o", "n", "p", "g", "slash"}.isdisjoint(
-            shown_footer_keys(app)
+        # The Footer recomposes once the search has focus.
+        await footer_showing(
+            app, {"ctrl+p"}, without={"1", "2", "c", "o", "n", "p", "g", "slash"}
         )
 
 
@@ -349,33 +344,15 @@ async def test_footer_tracks_the_active_peer_and_focused_query_pane() -> None:
         refresh_seconds=0,
     )
 
-    async def footer_showing(expected: set[str]) -> set[str]:
-        """Wait for the Footer to show ``expected``, and return its shown keys.
-
-        The Footer recomposes a frame or more after its bindings change, and
-        empties itself for a frame or two while it does, so the keys are
-        read from the reading that shows what the test expects rather than
-        after a pause.
-        """
-        shown: set[str] = set()
-
-        def showing() -> bool:
-            nonlocal shown
-            shown = shown_footer_keys(app)
-            return expected <= shown
-
-        await wait_until(showing)
-        return shown
-
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        keys = await footer_showing({"f", "x"})
+        keys = await footer_showing(app, {"f", "x"})
         assert {"c", "o", "n", "p", "g", "slash"}.isdisjoint(keys)
 
         await pilot.press("2")
         await wait_until(lambda: app.screen is app.query_screen)
-        keys = await footer_showing({"o", "n", "p", "g", "slash"})
+        keys = await footer_showing(app, {"o", "n", "p", "g", "slash"})
         assert {"f", "x", "c", "enter"}.isdisjoint(keys)
 
         app.query_screen.queue_table().focus()
-        await footer_showing({"c", "enter"})
+        await footer_showing(app, {"c", "enter"})

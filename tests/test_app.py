@@ -17,6 +17,7 @@ from textual.widgets import DataTable, Footer, Static
 import factories
 from app_harness import (
     NOW,
+    RELEASE_TIMEOUT,
     SequenceCollector,
     SnapshotQuerySource,
     assert_panes_stack_above_full_width_queue,
@@ -29,6 +30,7 @@ from app_harness import (
     pane_title,
     selected_title,
     serve_snapshot,
+    settle_screen,
     toasts,
     with_first_project,
     with_first_project_snapshot,
@@ -71,7 +73,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         release.set()
         await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
+        await settle_screen(app, pilot, "the Dashboard")
         table = app.query_screen.query_one("#queue", DataTable)
 
         assert table.row_count == 2
@@ -771,7 +773,7 @@ class RacingCollector:
             call = self.calls
         if call == 1:
             self.started.set()
-            self.release.wait(timeout=2)
+            self.release.wait(timeout=RELEASE_TIMEOUT)
             return self.old
         return self.new
 

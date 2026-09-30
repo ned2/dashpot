@@ -8,6 +8,7 @@ from app_harness import (
     dashboard_app,
     first_load_landed,
     footer_keys,
+    footer_showing,
     observation_landed,
     show_query_peer,
     toasts,
@@ -26,7 +27,7 @@ from dashpot.ui.keyed_table import capture_selection
 from dashpot.ui.marked_widgets import MarkedSelectionList
 from dashpot.ui.session_table import SessionTable
 from factories import agent_run, hook_record_document, target
-from helpers import present, wait_until
+from helpers import present, settled, wait_until
 from test_app_query_pages import application
 from test_app_worktree_launcher import WorktreeCollector
 from test_related_rows import query_source, related, related_snapshot
@@ -347,7 +348,13 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
         for theme in ("textual-dark", "textual-light"):
             app.theme = theme
             tables[0].focus()
-            await pilot.pause()
+            # The theme restyles every table, and each measures its columns
+            # again while idle, so read the headers once they settle.
+            await settled(
+                pilot,
+                lambda: [(table.region, table.render_line(0).text) for table in tables],
+                f"the {theme} activity columns",
+            )
             positions = []
             for table in tables:
                 assert table.ordered_columns[0].width == 1
@@ -362,7 +369,10 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
                 )
                 assert table.render_line(running_index + 1).text.index("●") == before
                 table.scroll_to(x=100, animate=False, force=True)
-                await pilot.pause()
+                # The scroll is applied after the next refresh, even unanimated.
+                await wait_until(
+                    lambda table=table: table.scroll_x == min(100, table.max_scroll_x)
+                )
                 assert table.render_line(0).text.index("◈") == before
                 assert table.render_line(running_index + 1).text.index("●") == before
             assert len(set(positions)) == 1
@@ -375,19 +385,22 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
                 dark=app.current_theme.dark
             )
             await pilot.press("1")
+
+        def activity_width() -> int:
+            """The activity column's width, which the table measures while idle."""
+            return app.query_screen.queue_table().ordered_columns[0].width
+
         # Two zero-weight columns used to let the activity Glyph take spare width.
         app.query_screen.issue_table.issue_view = replace(
             app.query_screen.issue_table.issue_view, columns=("issue_state",)
         )
         app.query_screen.issue_table.reconcile_rows()
-        await pilot.pause()
-        assert app.query_screen.queue_table().ordered_columns[0].width == 1
+        assert await settled(pilot, activity_width, "the activity column") == 1
         app.query_screen.issue_table.issue_view = replace(
             app.query_screen.issue_table.issue_view, columns=()
         )
         app.query_screen.issue_table.reconcile_rows()
-        await pilot.pause()
-        assert app.query_screen.queue_table().ordered_columns[0].width == 1
+        assert await settled(pilot, activity_width, "the activity column") == 1
 
 
 @pytest.mark.asyncio
@@ -558,7 +571,7 @@ async def test_offscreen_related_worktree_is_styled_only_when_person_scrolls():
         update={"projects": (project,), "agent_runs": (run,)}
     )
     app = dashboard_app(SequenceCollector(snapshot))
-    async with app.run_test(size=(85, 30)) as pilot:
+    async with app.run_test(size=(85, 30)):
         await wait_until(lambda: first_load_landed(app))
         table = app.dashboard.worktrees_pane().table
         app.dashboard.sessions_pane().table.focus()
@@ -567,7 +580,8 @@ async def test_offscreen_related_worktree_is_styled_only_when_person_scrolls():
         assert table.get_row_index(key) == 19
         assert table.scroll_y == 0 and table.cursor_row == 0
         table.scroll_to(y=19, animate=False, force=True)
-        await pilot.pause()
+        # The scroll is applied after the next refresh, even unanimated.
+        await wait_until(lambda: table.scroll_y == min(19, table.max_scroll_y) > 0)
         line = table.render_line(20 - int(table.scroll_y))
         path = next(segment for segment in line if "/tree-19" in segment.text)
         assert path.style is not None and path.style.bold
@@ -685,10 +699,9 @@ async def test_y_copies_the_resume_command_of_an_orphaned_session_only():
         await wait_until(lambda: first_load_landed(app))
         table = app.dashboard.sessions_pane().table
         table.focus()
-        await pilot.pause()
         # The live session ranks first; it has nothing to resume, so the key
         # is not offered there.
-        assert "y" not in footer_keys(app)
+        await footer_showing(app, {"f"}, without={"y"})
         await pilot.press("y")
         clipboard.assert_not_called()
         await pilot.press("down")
@@ -700,7 +713,7 @@ async def test_y_copies_the_resume_command_of_an_orphaned_session_only():
         assert toasts(app)[-1].startswith("Resume command sent to clipboard")
         # Moving back withdraws the offer.
         await pilot.press("up")
-        await wait_until(lambda: "y" not in footer_keys(app))
+        await footer_showing(app, {"f"}, without={"y"})
         # A row that left the pane after the key press copies nothing.
         app.dashboard.post_message(SessionTable.ResumeCopyRequested("gone-row"))
         await pilot.pause()

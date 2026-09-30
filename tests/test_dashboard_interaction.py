@@ -327,7 +327,6 @@ async def test_the_table_keeps_the_sources_page_order() -> None:
     async with app.run_test(size=(100, 24)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
 
         # The source's own order stands: nothing is re-sorted locally, and
         # no header claims an order the source did not apply.
@@ -651,7 +650,6 @@ async def test_tab_cycles_focus_within_the_query_peer() -> None:
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         queue = app.query_screen.query_one("#queue", DataTable)
         pull_requests = app.query_screen.query_one("#pull-requests", DataTable)
         assert pull_requests.has_focus
@@ -696,7 +694,6 @@ async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         pull_requests = app.query_screen.pull_requests_pane()
         pull_requests.show_rows(
             (ListRow("first", ("first", "-")), ListRow("last", ("last", "-")))
@@ -841,7 +838,6 @@ async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         assert app.query_screen.issue_table.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )

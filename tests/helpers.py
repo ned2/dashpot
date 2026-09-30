@@ -33,8 +33,17 @@ _GITHUB_FIXTURE: dict[str, Any] = json.loads(
 )
 
 
-async def wait_until(predicate: Callable[[], bool], timeout: float = 1.5) -> None:
-    """Poll inside the running event loop until ``predicate`` holds."""
+async def wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:
+    """Poll inside the running event loop until ``predicate`` holds.
+
+    The deadline bounds a predicate that never holds; it is not a budget a
+    passing test spends, since polling returns as soon as the predicate
+    holds, and no test waits it out on purpose. It is generous because a
+    frame is not: with the suite's workers oversubscribing a machine's cores,
+    a single ``pilot.pause()`` can take longer than a second, and a correct
+    app must not miss the deadline by a frame. A failing wait still reports
+    within seconds.
+    """
     deadline = asyncio.get_running_loop().time() + timeout
     while not predicate():
         if asyncio.get_running_loop().time() >= deadline:

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-17
+date: 2026-09-30
 ---
 
 # CI and test performance
@@ -121,11 +121,23 @@ rejected four workers on Debian and macOS: Debian's serial and two-worker runs
 passed in 330.42 and 213.13 seconds; four workers failed the refresh indicator's
 layout-readiness assertion. macOS passed its first four-worker run, then failed
 the same assertion on the second. Explicitly holding the fake source until
-release removes its separate two-second lifetime race, but did not resolve this
-four-worker rendering failure.
-The test retains its assertions and 1.5-second readiness deadline. Deeper
-four-worker rendering diagnosis is deferred; two workers are the CI candidate,
-and local four-worker success does not establish hosted reliability.
+release, for at most two seconds, was meant to remove a separate lifetime race,
+but did not resolve this four-worker rendering failure. The test kept its
+assertions and 1.5-second readiness deadline.
+
+Two workers are the CI candidate: local four-worker success does not establish
+hosted reliability.
+
+[#341](https://github.com/ned2/dashpot/issues/341) later found two local causes
+of the same assertion failing under contention, with 16 workers on two cores.
+The test read the alert's region one frame after it was shown. The fake
+source's hold also still expired after two seconds, and a single
+`pilot.pause()` took 1.7 seconds there, so the held refresh landed and hid the
+alert while the test was still reading it. The test now settles the alert's
+geometry, gated fakes hold for `RELEASE_TIMEOUT` (10 seconds) in
+`tests/app_harness.py`, and `wait_until` defaults to 5 seconds. Whether these
+were also the hosted four-worker failure is untested: that comparison has not
+been repeated.
 
 The completed Ubuntu 3.14 coverage repetitions in that run had serial times of
 261.35, 236.29, and 248.87 seconds (median 248.87), versus 160.57, 154.34, and

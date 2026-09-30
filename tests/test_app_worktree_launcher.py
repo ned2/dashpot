@@ -6,6 +6,7 @@ import pytest
 from textual.widgets import Static
 
 from app_harness import (
+    RELEASE_TIMEOUT,
     SequenceCollector,
     dashboard_app,
     first_load_landed,
@@ -86,7 +87,7 @@ async def test_pending_request_keeps_captured_path_and_refuses_duplicates(tmp_pa
 
     def opener(path):
         captured.append(path)
-        release.wait(timeout=3)
+        release.wait(timeout=RELEASE_TIMEOUT)
 
     app = dashboard_app(
         SequenceCollector(snapshot),
@@ -147,7 +148,7 @@ async def test_paged_launch_keeps_path_through_refresh_and_empty_footer(tmp_path
 
     def opener(path):
         captured.append(path)
-        release.wait(timeout=5)
+        release.wait(timeout=RELEASE_TIMEOUT)
 
     app = application(
         tmp_path,
