@@ -640,3 +640,79 @@ class SubagentBoundaryTests(unittest.TestCase):
         self.assertEqual(
             ["agent-session-record-degraded"], [d.code for d in diagnostics]
         )
+
+    def test_a_sub_agents_own_events_keep_the_parents_turn(self) -> None:
+        self.publish("UserPromptSubmit")
+        self.publish("Stop")
+
+        # A sub-agent's prompt and tool calls are not its parent's turn.
+        self.publish("UserPromptSubmit", "agent-1")
+        self.publish("PostToolUse", "agent-1")
+
+        record = self.stored()
+        self.assertEqual("waiting", record["state"])
+        self.assertIsNone(record["turnStartedAt"])
+        self.assertEqual([], record["liveSubagents"])
+
+
+class SessionStartStampTests(unittest.TestCase):
+    """A store remembers when it last saw its session begin an incarnation."""
+
+    @override
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.state_dir = Path(self.temporary.name)
+        self.process = ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")
+
+    @override
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def publish(self, event_name: str, **fields: object) -> dict[str, Any]:
+        publish_hook_event(
+            {
+                "session_id": "restarting",
+                "cwd": "/repo",
+                "hook_event_name": event_name,
+                **fields,
+            },
+            self.state_dir,
+            process=self.process,
+            harness="codex",
+        )
+        path = self.state_dir / "restarting.json"
+        return cast("dict[str, Any]", json.loads(path.read_text()))
+
+    def test_session_start_sets_the_stamp_and_later_events_carry_it(self) -> None:
+        started = self.publish("SessionStart")
+        self.assertEqual(started["lastActivityAt"], started["lastSessionStartAt"])
+        self.assertEqual(2, started["version"])
+
+        later = self.publish("UserPromptSubmit")
+
+        self.assertEqual(started["lastSessionStartAt"], later["lastSessionStartAt"])
+        self.assertNotEqual(later["lastActivityAt"], later["lastSessionStartAt"])
+
+    def test_a_store_that_saw_no_session_start_writes_no_stamp(self) -> None:
+        self.assertNotIn("lastSessionStartAt", self.publish("UserPromptSubmit"))
+
+    def test_a_sub_agents_session_start_is_not_its_parents(self) -> None:
+        self.assertNotIn(
+            "lastSessionStartAt", self.publish("SessionStart", agent_id="child")
+        )
+
+    def test_a_record_written_before_the_stamp_existed_stays_readable(self) -> None:
+        legacy = hook_record_document(
+            "/repo", "restarting", "codex", self.process, at="2026-08-24T15:00:00Z"
+        )
+        (self.state_dir / "restarting.json").write_text(json.dumps(legacy))
+
+        runs, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+
+        self.assertEqual([], diagnostics)
+        self.assertEqual(["running"], [run.state for run in runs])
+        self.assertNotIn("lastSessionStartAt", self.publish("Stop"))

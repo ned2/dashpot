@@ -43,9 +43,9 @@ manual Codex configuration.
 
 The hooks report session lifecycle only: which agent sessions are alive at a
 worktree and whether they are running or waiting. Codex registers
-`SessionStart`, `UserPromptSubmit`, `Stop`, `Interrupt`, and `SessionEnd`;
-Claude Code the same set without `Interrupt`, plus `SubagentStart` and
-`SubagentStop`, and `PostToolUse` matched to its `EnterWorktree` and
+`SessionStart`, `UserPromptSubmit`, `Stop`, `Interrupt`, `SubagentStart`,
+`SubagentStop`, and `SessionEnd`; Claude Code the same set without
+`Interrupt`, plus `PostToolUse` matched to its `EnterWorktree` and
 `ExitWorktree` tools alone, so a session that moves to another Worktree, or
 back, is placed there as soon as it arrives — one hook invocation per
 relocation, never per tool call
@@ -53,6 +53,13 @@ relocation, never per tool call
 A session whose main turn has stopped stays running while a sub-agent it
 delegated to is still working, since sub-agents share the session's Agent Run
 ([ADR 0016](adr/0016-hold-a-session-running-while-its-sub-agents-work.md)).
+A hook event carrying `agent_id` is a sub-agent's, not its session's: it is
+recorded with the parent's freshest record and that record's location, and
+it never places, binds, ends or moves the parent
+([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
+An installation made before Codex sub-agents were subscribed reports
+`SubagentStart` and `SubagentStop` missing until `dashpot integrate codex`
+runs again.
 A session that has not
 declared an Issue is not listed as Work; it is listed in the Sessions pane
 with `no active Issue work` until it opts in with `dashpot work start`. Codex
@@ -70,14 +77,16 @@ application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
 Cleanup refuses to remove a Worktree when an Agent Session is there, when
 an Agent Run is recorded there, or when its Work Store cannot be read
 ([ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
-A Claude Code sub-agent is none of these. Its hooks carry its parent
-session's identity and the parent's `cwd`, even when its shell has run
-`cd` into an Issue Worktree, and it holds no Agent Run of its own. Dashpot
-knows a session's sub-agents are live but cannot tell which Worktree any of
-them works in
-([measured on 2.1.285](agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)).
+A sub-agent is none of these. A Claude Code sub-agent's hooks carry its
+parent session's identity and the parent's `cwd`, even when its shell has run
+`cd` into an Issue Worktree
+([measured on 2.1.285](agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)),
+and a Codex sub-agent thread's carry its root thread's identity; Dashpot
+records either at its parent's location, and neither holds an Agent Run of
+its own. Dashpot knows a session's sub-agents are live but cannot tell which
+Worktree any of them works in.
 
-While any live Claude Code session in the Repository has a sub-agent
+While any live Agent Session in the Repository has a sub-agent
 working, removal of every Worktree of that Repository is blocked
 ([ADR 0066](adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md)).
 A session whose liveness is unknown counts as live here. The session is in
@@ -97,8 +106,8 @@ reported as that Worktree's `agent-session` occupant instead.
 
 This covers only sessions whose hooks place them in the Repository. A
 sub-agent of a session launched outside every Worktree of the Repository is
-not seen, nor is a sub-agent of a Codex session: the Codex integration does
-not subscribe to `SubagentStart` or `SubagentStop`.
+not seen, nor is one of a Codex session whose installation predates the
+`SubagentStart` and `SubagentStop` subscription.
 
 ### Agent-facing Issue-work skill
 
@@ -228,8 +237,9 @@ adds a Relocation Intent without changing the Issue Binding, run identity, or
 hook at the intended target completes the second phase only when no hook record
 places a live or unobservable client with that identity elsewhere; completion
 moves the same Work Store record, adopts the resumed process, working directory,
-and Branch, and clears the intent. A mismatched target emits
-`work-relocation-mismatched`; concurrent locations emit
+and Branch, and clears the intent. When the session's freshest live record
+places it at neither its origin nor the intended target, the pending run
+emits `work-relocation-mismatched`; otherwise concurrent locations emit
 `work-relocation-concurrent`. Either case, a missing hook, or unreadable state
 leaves the intent unchanged and cannot make `work start` reassign it. A
 proven-gone old process permits recovery when `SessionEnd` was lost. `work
@@ -237,6 +247,27 @@ relocate .` cancels after the same session resumes at its origin, while `work
 stop --session KEY` explicitly ends an abandoned pending run. Claude Code
 continues to move its live process with `EnterWorktree` and `ExitWorktree`
 instead.
+
+A live session that moves without ending is a Live Relocation
+([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
+For Codex, a session-scoped `UserPromptSubmit` at another Worktree of the
+Repository, from the Host Process the run records, carries its run there with
+its session key, run identity, `startedAt` and Issue Binding, adopting the new
+working directory and Branch; the hook reports it as `relocated`. It carries
+only when that hook record is the session's freshest, the record it follows
+is from the same Host Process and not ended, no `SessionStart` began a new
+incarnation at the target since, no other run of the session is there, and
+any Relocation Intent names exactly that target, which the carry completes.
+Every other event, a sub-agent's included, carries nothing, and an unbound
+session stays unbound. Claude Code designates no event yet, so its
+`EnterWorktree` still leaves the run for `work start` to switch. A run left
+at one Worktree while its session's freshest live record places it at
+another is reported as `work-session-elsewhere`, naming both; run
+`dashpot work start` there or `dashpot work stop`. A `SessionEnd` also
+removes the session's older records elsewhere in the Repository that its own
+Host Process wrote no later than it, so a record a move left behind does not
+read live after the session ends while a shared Codex process keeps
+running.
 
 ### How the session is identified
 

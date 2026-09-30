@@ -134,7 +134,10 @@ Who may trigger such a move stays #148's decision.
   whose Relocation Intent a Live Relocation to exactly its target also
   completes; ADR 0029's own confirmation is unchanged. It also extends
   ADR 0015: a `SessionEnd` removes the session's older records at other
-  Worktrees that name the ending event's own observed Host Process. Each gains `amended-by` when #161 or #162 delivers the change.
+  Worktrees that name the ending event's own observed Host Process. ADR
+  0015, ADR 0016 and ADR 0029 gained `amended-by` when #161 delivered their
+  part, as did ADR 0066, whose blocker now covers Codex sub-agents; ADR 0009
+  gains it when #162 designates Claude Code's worktree tools.
 - The Harness Adapter gains a predicate naming its designated location
   evidence. The hook record gains the optional `lastSessionStartAt` and stays
   version 2. The Work Store, the published models and the Runtime Event

@@ -16,8 +16,13 @@ Reusable upstream facts stay in the
 [harness reference](agent-harness-server-client-reference.md), and the dated
 experiments stay as they were written.
 
-Nothing here is implemented yet. The contract is concrete enough that its
-consumers implement it rather than choose it:
+[#161](https://github.com/ned2/dashpot/issues/161) implemented the shared
+core and the Codex part of Q4 to Q6: the `locates` predicate, the child-scope
+rule and seeding, `lastSessionStartAt`, the Live Relocation step, the guarded
+`SessionEnd` removal, `work-session-elsewhere`, and the Codex sub-agent
+subscription. Claude Code still designates no location evidence, and the
+unmeasured rows below stay unsupported. The contract is concrete enough that
+its consumers implement it rather than choose it:
 [#161](https://github.com/ned2/dashpot/issues/161) (the Codex slice and the
 shared core), [#162](https://github.com/ned2/dashpot/issues/162) (Claude Code),
 [#163](https://github.com/ned2/dashpot/issues/163) (OpenCode),
@@ -120,7 +125,7 @@ these kinds. They are a vocabulary for this design, not a new type.
 | Turn started | `UserPromptSubmit` | `UserPromptSubmit` | `session.status` busy |
 | Turn ended | `Stop` | `Stop`, reconciled against live sub-agents ([ADR 0016](adr/0016-hold-a-session-running-while-its-sub-agents-work.md)) | `session.status` idle, which can repeat |
 | Interrupted | `Interrupt` | — | The interrupted command aborts; its event is #163's to translate |
-| Delegate started / ended | `SubagentStart` / `SubagentStop` (emitted at `0.155.1`, not yet subscribed) | `SubagentStart` / `SubagentStop` | Child session events with `parentID` |
+| Delegate started / ended | `SubagentStart` / `SubagentStop` (emitted at `0.155.1`, subscribed since #161) | `SubagentStart` / `SubagentStop` | Child session events with `parentID` |
 | Moved (designated location evidence, Q5) | Session-scoped `UserPromptSubmit` | Session-scoped `PostToolUse` of `EnterWorktree`, or of `ExitWorktree` with `action: keep` | None (unsupported) |
 | Ended (positive) | `SessionEnd` | `SessionEnd` | `session.deleted` |
 
@@ -276,16 +281,18 @@ record of the session. A record the publisher could not reach when the session
 moved, or one an older publisher left, can still hold a delegate the freshest
 record lacks, and Cleanup reads only the Repository's own stores.
 
-Codex's `SubagentStart` and `SubagentStop` are emitted at `0.155.1` but not
-subscribed. #161 subscribes them so that a Codex parent's delegates hold it
-running, extending ADR 0016's live set to Codex.
+Codex's `SubagentStart` and `SubagentStop` are emitted at `0.155.1`. #161
+subscribes them so that a Codex parent's delegates hold it running,
+extending ADR 0016's live set to Codex.
 
-Two defects in today's publisher follow from this rule and are #161's and
-#162's to fix: a child-scoped event currently overwrites the parent record's
-`cwd`, `repositoryRoot` and `branch` and routes it by the child's location, so
-an isolated Claude sub-agent can place its parent at
+Two defects in the publisher before #161 followed from this rule and were
+#161's and #162's to fix: a child-scoped event overwrote the parent record's
+`cwd`, `repositoryRoot` and `branch` and routed it by the child's location, so
+an isolated Claude sub-agent could place its parent at
 `.claude/worktrees/agent-<id>`; and a Codex sub-agent's `UserPromptSubmit`
-currently sets the root's turn state and location.
+set the root's turn state and location. The child-scope rule
+#161 put in the shared publisher fixes both, since it keys on `agent_id`
+whichever harness sent it.
 
 ## Q5. Observation Location and Live Relocation
 

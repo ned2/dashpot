@@ -416,6 +416,13 @@ skill. It preserves unrelated settings; repeated installation refreshes its
 own entries. An Agent Session declares Issue work with `dashpot work start`
 from inside that session, as described in [Agent sessions](agent-sessions.md).
 
+A Codex integration installed before Dashpot subscribed Codex's
+`SubagentStart` and `SubagentStop` still works, but its sub-agents neither
+hold their parent running nor block Worktree Cleanup:
+`dashpot integrate codex --status` lists both events as missing. Run
+`dashpot integrate codex` again to add them, and accept Codex's trust prompt
+for the new hooks when it asks.
+
 ## Diagnose an installation
 
 | Symptom | Check and next action |
@@ -432,6 +439,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 | Every hook event fails after a Worktree was removed, or `--status` warns that the publisher lives in a linked Worktree | The hooks were bound to a publisher in that Worktree's `.venv`, which the Cleanup removed. Rerun `dashpot integrate <harness>` from the Repository's main working tree or from an installed tool environment; `integrate` refuses to bind a linked Worktree's publisher in the first place. |
 | The dashboard shows an `event-log-unavailable` Diagnostic | It could not write its [Event Log](#event-log); the work carries on and the events are dropped. Check that the checkout's `.dashpot/state/events/`, or the machine-local fallback, is writable and its disk is not full, or set `event_level = 'off'`. |
 | The dashboard shows an `event-log-large` Diagnostic | Its checkout's Event Log holds more than 200 MB. Preview with `dashpot events remove --before DATE --dry-run` in the directory the Diagnostic names, then remove, or schedule removal; see [Remove old Event Log files](#remove-old-event-log-files). |
+| A `work-session-elsewhere` Diagnostic names two Worktrees | The session's freshest hook record places it at one Worktree while its Issue work is recorded at another, and no Live Relocation carried it. From inside that session at the Worktree where it now runs, run `dashpot work start` with the same Issue to switch the work there, or `dashpot work stop` to end it; see [Agent sessions](agent-sessions.md#issue-work-opt-in). |
 | Session liveness is unknown | Read the Diagnostic: an isolated process namespace can hide a live process. Unknown does not mean the Agent Session ended. |
 
 ## Upgrade and uninstall
