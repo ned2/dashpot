@@ -981,6 +981,9 @@ state.
 [`README-pypi.md`](README-pypi.md) is the compact package-index description.
 [`conformance/`](conformance/) documents owned file grammars, and
 [AGENTS.md](AGENTS.md) is the working guidance for coding agents.
+[`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) tells
+`code-review` and other skills that look it up by path how to reach this
+Repository's Issues.
 
 Every document under `docs/` declares in its frontmatter how it should be read,
 so its standing is visible without reading it:
