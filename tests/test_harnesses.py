@@ -42,6 +42,102 @@ def test_codex_adapter_never_treats_the_sandbox_helper_as_the_host() -> None:
     assert CLAUDE_CODE.is_host_process(ProcessIdentity(40, 1, "claude", STARTED))
 
 
+VERSIONS = "/home/person/.local/share/claude/versions"
+SESSION = "8730ba65-e1a8-4318-a083-a66c5e615b86"
+DAEMON = "/tmp/cc-daemon-1000/b4bd083d"
+
+
+# Argument vectors as ``ps`` reported them for the supervisor's processes on
+# Linux (docs/measurements/issue-326-claude-trace.jsonl, and
+# issue-160-claude-trace.jsonl at 2.1.276).
+@pytest.mark.parametrize(
+    ("command", "arguments", "host"),
+    [
+        pytest.param(
+            "2.1.285",
+            f"{VERSIONS}/2.1.285 --session-id {SESSION} fix it --name a",
+            True,
+            id="worker-spawned-for-its-session",
+        ),
+        pytest.param(
+            "2.1.285",
+            f"{VERSIONS}/2.1.285 --resume /config/projects/-r/{SESSION}.jsonl --name a",
+            True,
+            id="worker-resumed-after-a-crash",
+        ),
+        pytest.param(
+            "2.1.276",
+            f"claude bg-spare --bg-spare {DAEMON}/spare/cc5d327e.claim.sock",
+            True,
+            id="worker-claimed-from-a-spare",
+        ),
+        pytest.param(
+            "2.1.285",
+            f"/Users/A Person/.local/share/claude/versions/2.1.285 --session-id {SESSION}",
+            True,
+            id="worker-under-a-home-with-a-space",
+        ),
+        pytest.param(
+            f"{VERSIONS}/2.1.285",
+            f"{VERSIONS}/2.1.285 --session-id {SESSION} fix it",
+            True,
+            id="comm-given-as-the-executable-path",
+        ),
+        pytest.param(
+            "2.1.285",
+            f"{VERSIONS}/2.1.285 daemon run --origin transient --spawned-by {{}}",
+            False,
+            id="supervisor",
+        ),
+        pytest.param(
+            "2.1.285",
+            f"claude bg-pty-host --bg-pty-host {DAEMON}/pty/8730ba65.sock 200 50 -- "
+            f"{VERSIONS}/2.1.285 --session-id {SESSION}",
+            False,
+            id="pty-host-carrying-its-workers-command",
+        ),
+        pytest.param(
+            "2.1.285", f"{VERSIONS}/2.1.285 agents", False, id="agents-client"
+        ),
+        pytest.param(
+            "2.1.285", f"{VERSIONS}/2.1.285 attach 8730ba65", False, id="attach-client"
+        ),
+        pytest.param(
+            "2.1.283",
+            "/opt/pin/claude/versions/2.1.283 --model m --agents {}",
+            False,
+            id="versioned-executable-without-a-worker-shape",
+        ),
+        pytest.param(
+            "2.1.285",
+            f"{VERSIONS}/2.1.284 --session-id {SESSION}",
+            False,
+            id="executable-of-another-version",
+        ),
+        pytest.param(
+            "1.4.2",
+            f"/opt/sync/1.4.2 --session-id {SESSION}",
+            False,
+            id="unrelated-version-named-process",
+        ),
+        pytest.param("2.1.285", None, False, id="version-name-alone"),
+        pytest.param(
+            "node",
+            f"claude bg-spare --bg-spare {DAEMON}/spare/cc5d327e.claim.sock",
+            False,
+            id="worker-shape-without-a-version-name",
+        ),
+    ],
+)
+def test_claude_code_adapter_locates_a_supervised_worker_by_its_arguments(
+    command: str, arguments: str | None, host: bool
+) -> None:
+    process = ProcessIdentity(50, 40, command, STARTED, arguments)
+
+    assert CLAUDE_CODE.is_host_process(process) is host
+    assert CODEX.is_host_process(process) is False
+
+
 def test_codex_adapter_claims_the_thread_identity_its_hooks_publish() -> None:
     assert CODEX.claim_session_identity({}) is None
     assert CODEX.claim_session_identity({"CODEX_THREAD_ID": "not valid!"}) is None

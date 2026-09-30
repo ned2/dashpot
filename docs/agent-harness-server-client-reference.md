@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-30
+date: 2026-10-01
 ---
 
 # Agent harness server and client reference
@@ -23,12 +23,12 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
-2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19 and
-2026-09-30, and Codex measurements on 2026-09-19. Current documentation
+2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19,
+2026-09-30 and 2026-10-01, and Codex measurements on 2026-09-19. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -659,6 +659,29 @@ a headless process started through the launcher symlink has `comm` `claude`.
 An executable-name test written for that launcher does not recognise a
 supervised worker; the interactive terminal process was not measured.
 
+The [supervised worker process experiment](claude-code-supervised-worker-process-spike.md)
+probed each process with `ps` on Linux at 2.1.285 (2026-10-01); macOS is
+unmeasured. `comm` is `2.1.285` for all of them, and `args` tells them apart:
+
+| Process | `ps` `args` |
+| --- | --- |
+| Supervisor | `<home>/.local/share/claude/versions/2.1.285 daemon run --origin transient --spawned-by {…}` |
+| PTY host | `claude bg-pty-host --bg-pty-host <daemon>/pty/<job>.sock 200 50 -- <its worker's command>`, or `…/spare/<id>.pty.sock … -- <versioned executable> --bg-spare` for a spare |
+| Worker spawned for a new session | `<versioned executable> --session-id <sessionId> <prompt> --name <name> …` |
+| Worker replacing one that died | `<versioned executable> --resume <config>/projects/<project>/<sessionId>.jsonl --name <name> …` |
+| Pre-warmed spare, before and after it is claimed | `claude bg-spare --bg-spare <daemon>/spare/<id>.claim.sock` |
+
+A dispatch finding a pre-warmed spare, and `claude respawn`, run the session in
+that spare, so a respawned worker's vector names no session. A worker's
+process, spares included, hosted one session for its whole life. The
+PTY host's vector carries its worker's flags after `--`, so only the start of
+the vector identifies a worker; Dashpot's Claude Code adapter locates a
+version-named process as a host only when its vector starts with one of the
+three worker shapes. A worker the supervisor replaces after an abrupt exit,
+measured with the `--resume` shape, therefore continues its Agent Run under
+[ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md),
+while `claude stop` ends it before any `claude respawn`.
+
 | Lifecycle event | Measured effect on the worker | Hooks delivered |
 | --- | --- | --- |
 | Attached terminal killed | Worker keeps its pid and continues | None |
@@ -754,9 +777,10 @@ telemetry and non-essential traffic off:
   refuses every form with other wording. `claude -p --resume <id>` is refused
   the same way and, on both versions, publishes `SessionEnd` with `reason` =
   `other` for the running session's `session_id` from the refused process's
-  own `CLAUDE_PID` while the worker runs on; while Dashpot does not identify
-  the worker, that `SessionEnd` ends the worker's Agent Run
-  ([implications](claude-code-2-1-285-changes-spike.md#implications-for-dashpot)).
+  own `CLAUDE_PID` while the worker runs on. Before Dashpot located
+  supervised workers, that `SessionEnd` ended the worker's Agent Run
+  ([implications](claude-code-2-1-285-changes-spike.md#implications-for-dashpot));
+  a run started from a located worker records its process and survives it.
   `claude --bg --resume <id>` starts a copy under a new `session_id` with
   `SessionStart` `source` = `fork`. After `claude stop <id>`,
   an interactive `--resume` continues the conversation in the terminal's own
@@ -804,7 +828,8 @@ telemetry and non-essential traffic off:
 
 A supervised worker's executable is still named after its version (`2.1.285`)
 while a process started through the launcher is named `claude`, as measured at
-[2.1.276](#measured-supervisor-and-worker-lifecycle-at-21276). Auto mode became
+[2.1.276](#measured-supervisor-and-worker-lifecycle-at-21276), where the
+argument vectors that distinguish a worker are listed. Auto mode became
 the default permission mode of interactive sessions in 2.1.284 and, on
 third-party providers or with telemetry off, of `claude -p` in 2.1.285,
 according to the changelog; no measured sub-agent ran without a mode flag, so
