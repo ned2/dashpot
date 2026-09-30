@@ -107,17 +107,18 @@ the isolated `.claude.json` with completed onboarding, accepted bypass
 permissions, an approved fixture API key, trust for the main working tree,
 and the cached prompt-suggestion flag, which only a session given
 `CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1` reads. No ordinary
-configuration, credentials, saved conversations, Git metadata, or sibling Worktrees are copied or modified, and
-the runner only ever signals processes whose environment names the fixture
-`CLAUDE_CONFIG_DIR`.
+configuration, credentials, saved conversations, Git metadata, or sibling
+Worktrees are copied or modified, and the runner only ever signals processes
+whose environment names the fixture `CLAUDE_CONFIG_DIR`.
 
 The runner stops the fixture supervisor, kills any process it left behind,
 and closes both loopback servers in `finally`. It retains its fixture for
 inspection; prefix the runner command with `SPIKE_REMOVE_FIXTURE=1` to delete
 the root that run created. `SPIKE_ONLY` narrows a run to scenarios whose names
 start with a listed prefix (`resume-running-background` runs all of scenario
-3), and `SPIKE_DEBUG_TERMINAL=1` and `SPIKE_DEBUG_REQUESTS=1` retain terminal output and model requests inside the
-fixture for diagnosis; neither is part of the retained evidence.
+3), and `SPIKE_DEBUG_TERMINAL=1` and `SPIKE_DEBUG_REQUESTS=1` retain terminal
+output and model requests inside the fixture for diagnosis; neither is part of
+the retained evidence.
 
 ## Tested configuration and evidence boundary
 
@@ -251,8 +252,9 @@ them, as the 2.1.276 experiment found.
 - Leaving an opened session through `/exit` shows the `claude agents` view,
   where a pre-warmed spare publishes `SessionStart` for a session of its own
   until the client closes. Its hooks carry the Repository's cwd, so Dashpot
-  would show that session there as a running Agent Session for that time. The `SessionEnd` the client publishes
-  for a session that never started finds no record to remove.
+  would show that session there as a running Agent Session for that time. The
+  `SessionEnd` the client publishes for a session that never started finds no
+  record to remove.
 - The repeated `SubagentStop` of an auto-mode sub-agent that does not hand
   back removes the agent from `liveSubagents` at the first stop; the later
   ones find nothing to remove. Replayed through `HookRecordStore`, the

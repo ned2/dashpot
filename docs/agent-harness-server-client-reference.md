@@ -27,8 +27,8 @@ below where their meanings differ.
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
-2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19 and 2026-09-30, and Codex
-measurements on 2026-09-19. Current documentation
+2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19 and
+2026-09-30, and Codex measurements on 2026-09-19. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -751,13 +751,14 @@ telemetry and non-essential traffic off:
   `--agent`, `--mcp-config`, and `--add-dir`, only while the agents view is
   enabled, only when the client is not itself a background session, and only
   while a `tengu_resume_open_live_bg` gate, on by default, allows it. 2.1.280
-  refuses every form with other wording. `claude -p --resume <id>` is refused the same way and, on both versions, publishes `SessionEnd`
-  with `reason` = `other` for the running session's `session_id` from the
-  refused process's own `CLAUDE_PID` while the worker runs on; while Dashpot
-  does not identify the worker, that `SessionEnd` ends the worker's Agent Run
+  refuses every form with other wording. `claude -p --resume <id>` is refused
+  the same way and, on both versions, publishes `SessionEnd` with `reason` =
+  `other` for the running session's `session_id` from the refused process's
+  own `CLAUDE_PID` while the worker runs on; while Dashpot does not identify
+  the worker, that `SessionEnd` ends the worker's Agent Run
   ([implications](claude-code-2-1-285-changes-spike.md#implications-for-dashpot)).
-  `claude --bg --resume <id>` starts a copy under a new
-  `session_id` with `SessionStart` `source` = `fork`. After `claude stop <id>`,
+  `claude --bg --resume <id>` starts a copy under a new `session_id` with
+  `SessionStart` `source` = `fork`. After `claude stop <id>`,
   an interactive `--resume` continues the conversation in the terminal's own
   `claude` process with `source` = `resume`.
 - **`claude --desktop`** is new in 2.1.285. On Linux it exits 1 without
@@ -781,8 +782,9 @@ telemetry and non-essential traffic off:
   `run_in_background` alike.
 - **After an interactive turn** nothing fired in the ten seconds after `Stop`,
   whether or not the session read the cached prompt-suggestion flag, under
-  bypass and in auto mode. A `SubagentStop` without a `SubagentStart` seen after `Stop` in a live
-  2.1.285 session was not reproduced. Without a served classifier an
+  bypass and in auto mode. A `SubagentStop` without a `SubagentStart` seen
+  after `Stop` in a live 2.1.285 session was not reproduced. Without a served
+  classifier an
   interactive auto-mode session stalls at its first tool call, presumably
   waiting for the server-side classifier, unless
   `CLAUDE_CODE_AUTO_MODE_SERVER=0` selects the local one; `claude -p` did not
