@@ -44,8 +44,9 @@ might be working in it.
   Worktree holds them only in the record it left behind: the live set is the
   union over every record of the session that is not over, and the blocker
   reports the session's freshest location. The blocker names the session,
-  where it is, and the agent IDs. It also says that Dashpot cannot tell which Worktree a sub-agent
-  works in, so the block is not read as a claim that a sub-agent is here. A
+  where it is, and the agent IDs. It also says that Dashpot cannot tell
+  which Worktree a sub-agent works in, so the block is not read as a claim
+  that a sub-agent is here. A
   session that is already at the target is reported only as the
   `agent-session` occupant.
 - **The evidence ends with the sub-agent or its session.** `SubagentStop`
