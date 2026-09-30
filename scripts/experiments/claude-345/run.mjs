@@ -251,7 +251,8 @@ const agentsJSON = async (label, all = false) => {
   return parsed ?? [];
 };
 const hooks = () => records.filter((record) => record.kind === "hook");
-const hooksSince = (count) => hooks().slice(count).map((record) => [record.event, record.payload.session_id, record.payload.agent_id ?? null, record.payload.agent_type ?? record.payload.source ?? record.payload.reason ?? null, record.env.CLAUDE_PID]);
+const hooksSince = (count) => hooks().slice(count).map((record) => ({ event: record.event, session: record.payload.session_id, agentId: record.payload.agent_id ?? null,
+  agentType: record.payload.agent_type ?? null, source: record.payload.source ?? null, reason: record.payload.reason ?? null, claudePid: record.env.CLAUDE_PID }));
 const commands = () => records.filter((record) => record.kind === "command");
 const waitFor = async (predicate, label, timeout = 60000) => {
   const end = Date.now() + timeout;
@@ -359,79 +360,119 @@ try {
   // the background"; either is the refusal.
   const backgroundRefusal = /running\s*(?:in\s*the\s*background|as\s*a\s*background\s*session)/i;
   const screenTail = (session) => session.output.replace(/\s+/g, " ").trim().slice(-400);
-  if (only("resume")) {
-  trace("scenario", { name: "resume-running-background" });
-  const dispatch = await claude(["--bg", "SPIKE:bg-first", "--name", "fixture-bg", ...bypass], { timeout: 60000 });
-  trace("dispatch", { status: dispatch.status, stdout: dispatch.stdout, stderr: dispatch.stderr });
-  await settle("background worker Stop", () => hooks().slice(before).some((record) => record.event === "Stop"), 90000);
-  listing = await agentsJSON("background-idle");
-  job = listing.find((entry) => entry.name === "fixture-bg");
-  const worker = job ? claudeProcesses().find((entry) => entry.pid === job.pid) : null;
-  trace("background.job", { job, worker, hooks: hooksSince(before) });
-  if (job?.sessionId) {
-    // 3a: an interactive `claude --resume <id>`, with a prompt, without one
-    // (a prompt is then typed), and without the bypass flag.
-    for (const [variant, args] of [["prompt", ["SPIKE:resumed-prompt", ...bypass]], ["bare", bypass], ["default-mode", ["SPIKE:resumed-default-mode", "--model", "fixture-model"]]]) {
-      const name = `resume-interactive-${variant}`;
-      const label = variant === "bare" ? "resumed-bare" : `resumed-${variant}`;
-      before = hooks().length;
-      const resumed = terminal(name, ["--resume", job.sessionId, ...args], fixture);
-      await settle(`${name} settled`, () => resumed.exited || backgroundRefusal.test(resumed.output) || commands().some((record) => record.label === label), 20000);
-      if (variant === "bare" && !resumed.exited && !backgroundRefusal.test(resumed.output)) {
-        resumed.child.stdin.write(`SPIKE:${label}\r`);
+  if (only("resume-running-background")) {
+    trace("scenario", { name: "resume-running-background" });
+    const dispatch = await claude(["--bg", "SPIKE:bg-first", "--name", "fixture-bg", ...bypass], { timeout: 60000 });
+    trace("dispatch", { status: dispatch.status, stdout: dispatch.stdout, stderr: dispatch.stderr });
+    await settle("background worker Stop", () => hooks().slice(before).some((record) => record.event === "Stop"), 90000);
+    listing = await agentsJSON("background-idle");
+    job = listing.find((entry) => entry.name === "fixture-bg");
+    const worker = job ? claudeProcesses().find((entry) => entry.pid === job.pid) : null;
+    trace("background.job", { job, worker, hooks: hooksSince(before) });
+    if (job?.sessionId) {
+      // 3a: an interactive `claude --resume <id>`, with a prompt, without one
+      // (a prompt is then typed), and without the bypass flag. Each carries a
+      // session-configuring flag (`--model`, and the bypass), which 2.1.285
+      // treats as configuration the running session cannot adopt; 3d omits them.
+      for (const [variant, args] of [["prompt", ["SPIKE:resumed-prompt", ...bypass]], ["bare", bypass], ["default-mode", ["SPIKE:resumed-default-mode", "--model", "fixture-model"]]]) {
+        const name = `resume-interactive-${variant}`;
+        const label = variant === "bare" ? "resumed-bare" : `resumed-${variant}`;
+        before = hooks().length;
+        const resumed = terminal(name, ["--resume", job.sessionId, ...args], fixture);
+        await settle(`${name} settled`, () => resumed.exited || backgroundRefusal.test(resumed.output) || commands().some((record) => record.label === label), 20000);
+        if (variant === "bare" && !resumed.exited && !backgroundRefusal.test(resumed.output)) {
+          resumed.child.stdin.write(`SPIKE:${label}\r`);
+        }
+        await settle(`${name} command`, () => resumed.exited || backgroundRefusal.test(resumed.output) || commands().some((record) => record.label === label && record.phase === "end"), 30000);
+        await delay(2000);
+        listing = await agentsJSON(`after-${name}`, true);
+        const resumedPid = interactivePid(resumed);
+        const resumedCommand = commands().find((record) => record.label === label && record.phase === "start");
+        trace("resume.interactive", { variant, job: job.sessionId, workerPid: job.pid, terminalClaudePid: resumedPid, terminalProcess: claudeProcesses().find((entry) => entry.pid === resumedPid) ?? null,
+          exited: resumed.exited, refused: backgroundRefusal.test(resumed.output),
+          screen: screenTail(resumed),
+          workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid),
+          command: resumedCommand ? { session: resumedCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(resumedCommand.env.CLAUDE_PID), cwd: resumedCommand.cwd, ancestry: resumedCommand.ancestry.map((entry) => [entry.pid, entry.comm, entry.cmdline.slice(0, 80)]) } : null,
+          newHooks: hooksSince(before), listing: listing.filter((entry) => entry.sessionId === job.sessionId || entry.pid === resumedPid) });
+        before = hooks().length;
+        await closeTerminal(resumed);
+        await delay(2000);
+        trace("resume.interactive-exit", { variant, workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid), newHooks: hooksSince(before) });
       }
-      await settle(`${name} command`, () => resumed.exited || backgroundRefusal.test(resumed.output) || commands().some((record) => record.label === label && record.phase === "end"), 30000);
-      await delay(2000);
-      listing = await agentsJSON(`after-${name}`, true);
-      const resumedPid = interactivePid(resumed);
-      const resumedCommand = commands().find((record) => record.label === label && record.phase === "start");
-      trace("resume.interactive", { variant, job: job.sessionId, workerPid: job.pid, terminalClaudePid: resumedPid, terminalProcess: claudeProcesses().find((entry) => entry.pid === resumedPid) ?? null,
-        exited: resumed.exited, refused: backgroundRefusal.test(resumed.output),
-        screen: screenTail(resumed),
-        workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid),
-        command: resumedCommand ? { session: resumedCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(resumedCommand.env.CLAUDE_PID), cwd: resumedCommand.cwd, ancestry: resumedCommand.ancestry.map((entry) => [entry.pid, entry.comm, entry.cmdline.slice(0, 80)]) } : null,
-        newHooks: hooksSince(before), listing: listing.filter((entry) => entry.sessionId === job.sessionId || entry.pid === resumedPid) });
+
+      // 3b: headless `claude -p --resume <id>` against the same session.
       before = hooks().length;
-      await closeTerminal(resumed);
+      const headless = await claude(["-p", "SPIKE:resumed-headless", "--resume", job.sessionId, "--output-format", "json", ...bypass], { timeout: 60000 });
+      let headlessOutput = null;
+      try { headlessOutput = JSON.parse(headless.stdout); } catch {}
       await delay(2000);
-      trace("resume.interactive-exit", { variant, workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid), newHooks: hooksSince(before) });
+      const headlessCommand = commands().find((record) => record.label === "resumed-headless" && record.phase === "start");
+      listing = await agentsJSON("after-headless-resume", true);
+      trace("resume.headless", { job: job.sessionId, workerPid: job.pid, headlessPid: headless.pid, status: headless.status, sessionId: headlessOutput?.session_id ?? null, stderr: headless.stderr.slice(-600),
+        workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid),
+        command: headlessCommand ? { session: headlessCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(headlessCommand.env.CLAUDE_PID) } : null, newHooks: hooksSince(before), listing: listing.filter((entry) => entry.sessionId === job.sessionId) });
+
+      // 3c: `claude --bg --resume <id>` while the session is running.
+      before = hooks().length;
+      const copy = await claude(["--bg", "--resume", job.sessionId, "SPIKE:resumed-bg", ...bypass], { timeout: 60000 });
+      await settle("background resume command", () => commands().some((record) => record.label === "resumed-bg" && record.phase === "end"), 60000);
+      await delay(2000);
+      const copyCommand = commands().find((record) => record.label === "resumed-bg" && record.phase === "start");
+      listing = await agentsJSON("after-background-resume", true);
+      trace("resume.background", { job: job.sessionId, workerPid: job.pid, status: copy.status, stdout: copy.stdout.slice(-600), stderr: copy.stderr.slice(-600),
+        command: copyCommand ? { session: copyCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(copyCommand.env.CLAUDE_PID) } : null, newHooks: hooksSince(before), listing: listing.filter((entry) => entry.kind === "background") });
+
+      // 3d: an interactive `claude --resume <id>` with no session-configuring
+      // flag, with a prompt and without one (a prompt is then typed once the
+      // session is open). The fixture model ignores the model name, and a
+      // forwarded prompt runs under the worker's own permission mode.
+      for (const [variant, args] of [["open-prompt", ["SPIKE:resumed-open-prompt"]], ["open-bare", []]]) {
+        const name = `resume-interactive-${variant}`;
+        const label = `resumed-${variant}`;
+        before = hooks().length;
+        const opened = terminal(name, ["--resume", job.sessionId, ...args], fixture);
+        await settle(`${name} settled`, () => opened.exited || backgroundRefusal.test(opened.output) || /background session/i.test(opened.output) || commands().some((record) => record.label === label), 20000);
+        await delay(3000);
+        if (variant === "open-bare" && !opened.exited) opened.child.stdin.write(`SPIKE:${label}\r`);
+        await settle(`${name} command`, () => opened.exited || commands().some((record) => record.label === label && record.phase === "end"), 30000);
+        await settle(`${name} Stop`, () => opened.exited || hooks().slice(before).some((record) => record.event === "Stop"), 15000);
+        await delay(2000);
+        listing = await agentsJSON(`after-${name}`, true);
+        const openedPid = interactivePid(opened);
+        const openedCommand = commands().find((record) => record.label === label && record.phase === "start");
+        trace("resume.open", { variant, job: job.sessionId, workerPid: job.pid, terminalClaudePid: openedPid, terminalProcess: claudeProcesses().find((entry) => entry.pid === openedPid) ?? null,
+          exited: opened.exited, refused: backgroundRefusal.test(opened.output), screen: screenTail(opened),
+          workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid),
+          command: openedCommand ? { session: openedCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(openedCommand.env.CLAUDE_PID), cwd: openedCommand.cwd, ancestry: openedCommand.ancestry.map((entry) => [entry.pid, entry.comm, entry.cmdline.slice(0, 80)]) } : null,
+          newHooks: hooksSince(before), listing: listing.filter((entry) => entry.sessionId === job.sessionId || entry.pid === openedPid) });
+        snapshot(`${name} open`, { workerPid: job.pid, terminalClaudePid: openedPid });
+        // `/exit` in the opened view leaves the client running; what it runs
+        // next is recorded before the terminal is closed.
+        before = hooks().length;
+        opened.child.stdin.write("/exit\r");
+        await settle(`${name} exit`, () => opened.exited, 10000);
+        const afterExit = claudeProcesses().find((entry) => entry.pid === openedPid) ?? null;
+        const exitedOnExit = opened.exited;
+        await closeTerminal(opened);
+        await delay(2000);
+        listing = await agentsJSON(`after-${name}-exit`, true);
+        trace("resume.open-exit", { variant, exitedOnExit, clientAfterExit: afterExit, exited: opened.exited, workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid), newHooks: hooksSince(before),
+          listing: listing.filter((entry) => entry.sessionId === job.sessionId) });
+      }
+
+      // 3e: stop the worker, then an interactive resume opens the saved conversation.
+      before = hooks().length;
+      const stopped = await claude(["stop", job.id], { timeout: 30000 });
+      await delay(2500);
+      const reopened = terminal("resume-stopped", ["--resume", job.sessionId, "SPIKE:resumed-stopped", ...bypass], fixture);
+      await settle("stopped resume command", () => commands().some((record) => record.label === "resumed-stopped" && record.phase === "end"), 60000);
+      await delay(1500);
+      const reopenedPid = interactivePid(reopened);
+      const reopenedCommand = commands().find((record) => record.label === "resumed-stopped" && record.phase === "start");
+      trace("resume.stopped", { job: job.sessionId, stopStatus: stopped.status, terminalClaudePid: reopenedPid, terminalProcess: claudeProcesses().find((entry) => entry.pid === reopenedPid),
+        command: reopenedCommand ? { session: reopenedCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(reopenedCommand.env.CLAUDE_PID), ancestry: reopenedCommand.ancestry.map((entry) => [entry.pid, entry.comm]) } : null, newHooks: hooksSince(before) });
+      await closeTerminal(reopened);
     }
-
-    // 3b: headless `claude -p --resume <id>` against the same session.
-    before = hooks().length;
-    const headless = await claude(["-p", "SPIKE:resumed-headless", "--resume", job.sessionId, "--output-format", "json", ...bypass], { timeout: 60000 });
-    let headlessOutput = null;
-    try { headlessOutput = JSON.parse(headless.stdout); } catch {}
-    await delay(2000);
-    const headlessCommand = commands().find((record) => record.label === "resumed-headless" && record.phase === "start");
-    listing = await agentsJSON("after-headless-resume", true);
-    trace("resume.headless", { job: job.sessionId, workerPid: job.pid, headlessPid: headless.pid, status: headless.status, sessionId: headlessOutput?.session_id ?? null, stderr: headless.stderr.slice(-600),
-      workerAlive: claudeProcesses().some((entry) => entry.pid === job.pid),
-      command: headlessCommand ? { session: headlessCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(headlessCommand.env.CLAUDE_PID) } : null, newHooks: hooksSince(before), listing: listing.filter((entry) => entry.sessionId === job.sessionId) });
-
-    // 3c: `claude --bg --resume <id>` while the session is running.
-    before = hooks().length;
-    const copy = await claude(["--bg", "--resume", job.sessionId, "SPIKE:resumed-bg", ...bypass], { timeout: 60000 });
-    await settle("background resume command", () => commands().some((record) => record.label === "resumed-bg" && record.phase === "end"), 60000);
-    await delay(2000);
-    const copyCommand = commands().find((record) => record.label === "resumed-bg" && record.phase === "start");
-    listing = await agentsJSON("after-background-resume", true);
-    trace("resume.background", { job: job.sessionId, workerPid: job.pid, status: copy.status, stdout: copy.stdout.slice(-600), stderr: copy.stderr.slice(-600),
-      command: copyCommand ? { session: copyCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(copyCommand.env.CLAUDE_PID) } : null, newHooks: hooksSince(before), listing: listing.filter((entry) => entry.kind === "background") });
-
-    // 3d: stop the worker, then an interactive resume opens the saved conversation.
-    before = hooks().length;
-    const stopped = await claude(["stop", job.id], { timeout: 30000 });
-    await delay(2500);
-    const reopened = terminal("resume-stopped", ["--resume", job.sessionId, "SPIKE:resumed-stopped", ...bypass], fixture);
-    await settle("stopped resume command", () => commands().some((record) => record.label === "resumed-stopped" && record.phase === "end"), 60000);
-    await delay(1500);
-    const reopenedPid = interactivePid(reopened);
-    const reopenedCommand = commands().find((record) => record.label === "resumed-stopped" && record.phase === "start");
-    trace("resume.stopped", { job: job.sessionId, stopStatus: stopped.status, terminalClaudePid: reopenedPid, terminalProcess: claudeProcesses().find((entry) => entry.pid === reopenedPid),
-      command: reopenedCommand ? { session: reopenedCommand.env.CLAUDE_CODE_SESSION_ID, claudePid: Number(reopenedCommand.env.CLAUDE_PID), ancestry: reopenedCommand.ancestry.map((entry) => [entry.pid, entry.comm]) } : null, newHooks: hooksSince(before) });
-    await closeTerminal(reopened);
-  }
   }
 
   // Scenario 4: `claude --desktop`, with and without a session to open, on a
@@ -458,9 +499,10 @@ try {
     if (!session.exited) await closeTerminal(session);
   }
 
-  // Scenario 5: background dispatch into untrusted directories, without a
-  // terminal: inside the trusted Repository, its sibling linked Worktree, and
-  // an unrelated Repository, the last also without the bypass flag.
+  // Scenario 5: background dispatch, without a terminal, into directories with
+  // no trust entry of their own: one nested in the trusted main working tree,
+  // its sibling linked Worktree, and an unrelated Repository, the last also
+  // without the bypass flag.
   for (const [name, cwd, args] of [["bg-trust-nested", nested, bypass], ["bg-trust-sibling", sibling, bypass], ["bg-trust-unrelated", unrelated, bypass], ["bg-trust-unrelated-default-mode", unrelated, ["--model", "fixture-model"]]]) {
     if (!only(name)) continue;
     trace("scenario", { name });

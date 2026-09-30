@@ -23,7 +23,7 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; Remote Control server mode refused to start without a claude.ai login; opening a running background session on resume, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
@@ -556,7 +556,7 @@ installed release.
 | --- | --- |
 | `claude`, `claude -p <prompt>` | Interactive conversation or one-shot programmatic request |
 | `claude --resume <id>`, `claude --continue` | Saved conversation or most recent conversation in this directory |
-| `claude --desktop [--continue \| --resume <id>]` | The Claude desktop app on this directory or conversation (macOS and Windows) |
+| `claude --desktop [--continue \| --resume <id>]` | The Claude desktop app on this directory or conversation (macOS and Windows x64) |
 | `claude --bg <prompt>`, `claude agents` | Background dispatch or agent view |
 | `claude attach <id>`, `claude respawn <id>` | Attach to a background job or replace its worker |
 | `claude agents --json`, `claude daemon status` | Supported job/worker listing or supervisor diagnostics |
@@ -730,17 +730,33 @@ telemetry and non-essential traffic off:
 - **Resuming a running background session.** 2.1.285's changelog says
   `/resume` and `claude --resume <id>` now open a session running under
   `--bg`, and send a prompt given with `--resume <id> "prompt"` as its next
-  turn. In the isolated configuration every interactive `claude --resume <id>`
-  form still exited 1 without a hook: "That session is running in the
+  turn. On an idle worker, an interactive `claude --resume <id>` with no
+  session-configuring flag replaces its own process with a `claude attach
+  <job>` client, whose executable is named after its version. The prompt,
+  given on the command line or typed into the opened session, runs as a turn
+  in the worker: its hooks carry the worker's `session_id` and `CLAUDE_PID`,
+  with no new `SessionStart`, and its shells descend from the worker. `/exit`
+  in the opened session does not detach; the client switches to the
+  `claude agents` view, a pre-warmed spare publishes `SessionStart` `startup`
+  for a session of its own, and by the time the client has closed,
+  `SessionEnd` `other` has been published for the spare's session and, from
+  the client, for a session id that never started, never for the worker's.
+  The worker stays running and idle. With `--model` alone, or with
+  `--dangerously-skip-permissions` and `--model`, the resume is
+  refused instead and exits 1 without a hook: "That session is running in the
   background (`<id>`). Run `claude attach <id>` to open it, or `claude stop
-  <id>` first to resume it here." 2.1.280 refuses with other wording. The
-  2.1.285 executable carries the messages of the new path, so the path is
-  presumably gated by a remotely served setting the fixture cannot fetch; no
-  gate was identified, and the opened session's host process and `CLAUDE_PID`
-  stay unmeasured. `claude -p --resume <id>` is refused the same way and, on
-  both versions, publishes `SessionEnd` with `reason` = `other` for the running
-  session's `session_id` from the refused process's own `CLAUDE_PID` while the
-  worker runs on. `claude --bg --resume <id>` starts a copy under a new
+  <id>` first to resume it here." By the executable's source, the session
+  opens only for a client given no session-configuring option, a list that
+  also names `--permission-mode`, `--settings`, `--setting-sources`,
+  `--agent`, `--mcp-config`, and `--add-dir`, only while the agents view is
+  enabled, only when the client is not itself a background session, and only
+  while a `tengu_resume_open_live_bg` gate, on by default, allows it. 2.1.280
+  refuses every form with other wording. `claude -p --resume <id>` is refused the same way and, on both versions, publishes `SessionEnd`
+  with `reason` = `other` for the running session's `session_id` from the
+  refused process's own `CLAUDE_PID` while the worker runs on; while Dashpot
+  does not identify the worker, that `SessionEnd` ends the worker's Agent Run
+  ([implications](claude-code-2-1-285-changes-spike.md#implications-for-dashpot)).
+  `claude --bg --resume <id>` starts a copy under a new
   `session_id` with `SessionStart` `source` = `fork`. After `claude stop <id>`,
   an interactive `--resume` continues the conversation in the terminal's own
   `claude` process with `source` = `resume`.
@@ -764,19 +780,20 @@ telemetry and non-essential traffic off:
   arrives as a new `UserPromptSubmit` turn before `SessionEnd`, foreground or
   `run_in_background` alike.
 - **After an interactive turn** nothing fired in the ten seconds after `Stop`,
-  with the prompt-suggestion flag seeded or not, under bypass and in auto
-  mode. A `SubagentStop` without a `SubagentStart` seen after `Stop` in a live
+  whether or not the session read the cached prompt-suggestion flag, under
+  bypass and in auto mode. A `SubagentStop` without a `SubagentStart` seen after `Stop` in a live
   2.1.285 session was not reproduced. Without a served classifier an
   interactive auto-mode session stalls at its first tool call, presumably
   waiting for the server-side classifier, unless
   `CLAUDE_CODE_AUTO_MODE_SERVER=0` selects the local one; `claude -p` did not
   stall.
 - **Workspace trust for `--bg`** (2.1.281). A non-interactive `claude --bg` in
-  an untrusted Repository exits 1 with "Workspace not trusted. Run `claude` in
+  an untrusted directory exits 1 with "Workspace not trusted. Run `claude` in
   `<dir>` once and accept the trust prompt, then retry." and starts no session
   or hook, with or without `--dangerously-skip-permissions`; 2.1.280 started it
-  and ran its hooks. A subdirectory of a trusted Repository and a sibling linked
-  Worktree of it inherit its trust.
+  and ran its hooks. Trust is recorded per directory; a subdirectory of a
+  trusted main working tree and a sibling linked Worktree of it inherit its
+  trust. The interactive trust prompt was not measured.
 - **`--setting-sources`** (2.1.281). A `claude -p` session and a `claude --bg`
   worker started with `--setting-sources project,local` run no user-scope hook
   on either version. The fix forwards the restriction to sessions spawned from
@@ -787,8 +804,10 @@ A supervised worker's executable is still named after its version (`2.1.285`)
 while a process started through the launcher is named `claude`, as measured at
 [2.1.276](#measured-supervisor-and-worker-lifecycle-at-21276). Auto mode became
 the default permission mode of interactive sessions in 2.1.284 and, on
-third-party providers or with telemetry off, of `claude -p` in 2.1.285, so the
-handback and its re-prompts above now apply to sessions that set no mode.
+third-party providers or with telemetry off, of `claude -p` in 2.1.285,
+according to the changelog; no measured sub-agent ran without a mode flag, so
+that the handback and its re-prompts apply to sessions that set no mode is
+inferred, not measured.
 
 ### The Agent SDK normally owns a CLI subprocess
 
@@ -1029,8 +1048,11 @@ available, preserving release and mode boundaries.
 Remaining reference gaps include hook delivery on Claude idle eviction;
 worker process ancestry and remote URL identity in
 Claude Remote Control, whose server mode needs a claude.ai login;
-plugin-distributed Claude channels; the process that hosts a running Claude
-background session opened by `--resume`, and the Claude desktop app's host;
+plugin-distributed Claude channels; resuming a Claude background session
+while its worker is mid-turn, and how a person detaches from one opened by
+`--resume`; the Claude desktop app's host; `--setting-sources` forwarding to
+sessions spawned from a restricted one; the source of a `SubagentStop` with no
+`SubagentStart` seen after `Stop` in a live Claude session;
 Codex
 `/cd`, managed `/worktree`, Remote Control pairing, a terminal started before
 the daemon, and
