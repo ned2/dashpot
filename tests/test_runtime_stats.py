@@ -460,6 +460,39 @@ async def test_the_allowance_shows_the_latest_reading_the_sources_share(
 
 
 @pytest.mark.asyncio
+async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    shared = LatestRateLimit(clock=clock.wall)
+    app = stats_app(stats_log(tmp_path, clock), rate_limit=shared)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        screen = await open_stats(app, pilot)
+        shared.refused(shared.admit(), "secondary")
+        screen.update_stats()
+
+        # Refused before any response reported the rate limit.
+        assert squeezed(section(app, "allowance")) == [
+            "paused until 12:01:00 UTC, in 1m 00s (secondary rate limit)"
+        ]
+
+        shared.record(RateLimit(cost=1, limit=5000, remaining=0, reset_at=RESET))
+        clock.advance(30)
+        screen.update_stats()
+
+        assert squeezed(section(app, "allowance"))[:2] == [
+            "paused until 12:01:00 UTC, in 30s (secondary rate limit)",
+            "remaining 0 of 5,000 points",
+        ]
+
+        clock.advance(30)
+        screen.update_stats()
+
+        assert squeezed(section(app, "allowance"))[0] == "remaining 0 of 5,000 points"
+
+
+@pytest.mark.asyncio
 async def test_github_requests_are_counted_by_operation_for_the_last_refresh_and_hour(
     tmp_path: Path,
 ) -> None:

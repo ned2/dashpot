@@ -11,6 +11,7 @@ import json
 import os
 import sys
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,7 @@ from dashpot.core.runtime_events import (
     SpanEnded,
 )
 from dashpot.event_logs import LEVEL_VARIABLE
-from dashpot.github.github import GitHubGateway, GitHubRequestError
+from dashpot.github.github import GitHubGateway, GitHubRequestError, LatestRateLimit
 from dashpot.repository.worktree_launcher import (
     WorktreeLauncher,
     WorktreeLaunchError,
@@ -494,6 +495,40 @@ def test_each_request_of_a_fan_out_records_its_own_reading(
     ) == [4970, 4980, 4990]
 
 
+def test_an_attempt_answered_after_the_pause_was_due_records_a_lapse(
+    recording: Path, tmp_path: Path
+) -> None:
+    refusal = json.dumps({"data": None, "errors": [{"type": "RATE_LIMITED"}]})
+    clock = [datetime(2026, 9, 27, 12, 30, tzinfo=UTC)]
+    answers = iter(
+        [
+            CommandResult([], 1, refusal, ""),
+            CommandResult([], 0, json.dumps({"data": reading(4000)}), ""),
+        ]
+    )
+
+    def runner(args: object, cwd: object, timeout: object) -> CommandResult:
+        answer = next(answers)
+        if answer.returncode == 0:
+            # The attempt comes back after the pause was due to end.
+            clock[0] += timedelta(minutes=2)
+        return answer
+
+    shared = LatestRateLimit(clock=lambda: clock[0])
+    gateway = GitHubGateway(tmp_path, runner=runner, latest_rate_limit=shared)
+    with pytest.raises(GitHubRequestError):
+        gateway.graphql(QUERY, {"id": "I_1"})
+
+    shared.lift()
+    gateway.graphql(QUERY, {"id": "I_1"})
+
+    assert [
+        event["dashpot.rate_limit_pause.change"]
+        for event in written(recording)
+        if event["event.name"] == "rate_limit_pause.changed"
+    ] == ["started", "lapsed"]
+
+
 def test_a_rest_request_is_a_span_of_its_own(recording: Path, tmp_path: Path) -> None:
     gateway = GitHubGateway(
         tmp_path,
@@ -505,6 +540,78 @@ def test_a_rest_request_is_a_span_of_its_own(recording: Path, tmp_path: Path) ->
     (request,) = spans(recording, "github.request")
     assert request["attributes"] == {"dashpot.github.api": "rest"}
     assert "ned2" not in json.dumps(request)
+
+
+def test_a_pause_records_each_change_and_a_held_request_no_span(
+    recording: Path, tmp_path: Path
+) -> None:
+    refusal = json.dumps(
+        {
+            "data": None,
+            "errors": [{"type": "RATE_LIMITED", "message": "secret GitHub message"}],
+        }
+    )
+    answers = iter(
+        [
+            CommandResult([], 0, json.dumps({"data": reading(10)}), ""),
+            CommandResult([], 1, refusal, "gh: secret stderr text"),
+            CommandResult([], 0, json.dumps({"data": reading(5000)}), ""),
+            CommandResult([], 1, refusal, "gh: secret stderr text"),
+            CommandResult([], 0, json.dumps({"data": reading(4999)}), ""),
+        ]
+    )
+    now = datetime(2026, 9, 27, 12, 30, tzinfo=UTC)
+    shared = LatestRateLimit(clock=lambda: now)
+    gateway = GitHubGateway(
+        tmp_path,
+        runner=lambda args, cwd, timeout: next(answers),
+        latest_rate_limit=shared,
+    )
+
+    gateway.graphql(QUERY, {"id": "I_1"})
+    for _ in range(2):
+        with pytest.raises(GitHubRequestError):
+            gateway.graphql(QUERY, {"id": "I_1"})
+    now = datetime(2026, 9, 27, 13, tzinfo=UTC)
+    gateway.graphql(QUERY, {"id": "I_1"})
+    # Refused with the points ample, so this pause backs off a minute.
+    with pytest.raises(GitHubRequestError):
+        gateway.graphql(QUERY, {"id": "I_1"})
+    shared.lift()
+    gateway.graphql(QUERY, {"id": "I_1"})
+
+    # The held request between the first refusal and the reset sent nothing.
+    assert [span.get("error.type") for span in spans(recording, "github.request")] == [
+        None,
+        "github-rate-limit",
+        None,
+        "github-rate-limit",
+        None,
+    ]
+    changes = [
+        event
+        for event in written(recording)
+        if event["event.name"] == "rate_limit_pause.changed"
+    ]
+    assert [
+        {key: value for key, value in event.items() if key.startswith("dashpot.")}
+        for event in changes
+    ] == [
+        {
+            "dashpot.level": "standard",
+            "dashpot.process.kind": "command:observe",
+            "dashpot.rate_limit_pause.change": change,
+            "dashpot.rate_limit_pause.limit": "primary",
+            "dashpot.rate_limit_pause.until": until,
+        }
+        for change, until in (
+            ("started", "2026-09-27T13:00:00.000000Z"),
+            ("lapsed", "2026-09-27T13:00:00.000000Z"),
+            ("started", "2026-09-27T13:01:00.000000Z"),
+            ("lifted", "2026-09-27T13:01:00.000000Z"),
+        )
+    ]
+    assert "secret" not in json.dumps(written(recording))
 
 
 # --- Processes -------------------------------------------------------------

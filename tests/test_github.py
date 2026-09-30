@@ -7,8 +7,9 @@ import threading
 import unittest
 from collections.abc import Mapping, Sequence
 from contextvars import copy_context
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from dashpot.core.commands import (
     CommandError,
@@ -22,8 +23,10 @@ from dashpot.github.github import (
     GitHubRequestError,
     LatestRateLimit,
     RateLimit,
+    RateLimitPause,
     RefreshBudget,
     classify_failure_text,
+    pause_diagnostics,
     rate_limit_diagnostics,
 )
 
@@ -391,6 +394,260 @@ class RequestTests(unittest.TestCase):
         gate = gateway(completed(json.dumps({"node_id": "R_1", "full_name": "a/b"})))
 
         self.assertEqual({"node_id": "R_1", "full_name": "a/b"}, gate.rest("repos/a/b"))
+
+
+class Clock:
+    """A settable clock, half an hour before ``RESET_AT``."""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 9, 27, 12, 30, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, **delta: float) -> None:
+        self.now += timedelta(**delta)
+
+
+def answered(remaining: int = 4000) -> CommandResult:
+    return completed(json.dumps({"data": rate_limit_block(remaining)}))
+
+
+def primary_refusal() -> CommandResult:
+    return graphql_failure(
+        type="RATE_LIMITED",
+        path=[],
+        message="API rate limit already exceeded for user ID 1.",
+    )
+
+
+def secondary_refusal() -> CommandResult:
+    return completed(
+        stderr="gh: You have exceeded a secondary rate limit (HTTP 403)",
+        returncode=1,
+    )
+
+
+class RateLimitPauseTests(unittest.TestCase):
+    @override
+    def setUp(self) -> None:
+        self.clock = Clock()
+        self.shared = LatestRateLimit(clock=self.clock)
+
+    def sharing(self, *results: CommandResult) -> tuple[GitHubGateway, RecordingRunner]:
+        runner = RecordingRunner(*results)
+        return (
+            GitHubGateway(Path("/repo"), runner=runner, latest_rate_limit=self.shared),
+            runner,
+        )
+
+    def refuse(self, gate: GitHubGateway) -> None:
+        with self.assertRaises(GitHubRequestError) as caught:
+            gate.graphql(QUERY, {})
+        self.assertEqual("github-rate-limit", caught.exception.code)
+
+    def held(self, gate: GitHubGateway, runner: RecordingRunner) -> str:
+        """Ask through ``gate`` while paused: refused without running ``gh``."""
+        sent = len(runner.calls)
+        with self.assertRaises(GitHubRequestError) as caught:
+            gate.graphql_result(QUERY, {})
+        self.assertEqual(sent, len(runner.calls))
+        self.assertEqual("github-rate-limit", caught.exception.code)
+        return str(caught.exception)
+
+    def wait(self) -> timedelta:
+        """How long the pause in force holds requests from now."""
+        pause = self.shared.pause
+        assert pause is not None
+        return pause.until - self.clock.now
+
+    def test_a_refusal_with_the_points_low_holds_every_gateway_until_the_reset(
+        self,
+    ) -> None:
+        first, first_runner = self.sharing(answered(40), primary_refusal(), answered())
+        second, second_runner = self.sharing(answered())
+
+        first.graphql(QUERY, {})
+        self.refuse(first)
+
+        pause = self.shared.pause
+        assert pause is not None
+        self.assertEqual(
+            ("primary", datetime(2026, 9, 27, 13, tzinfo=UTC)),
+            (pause.limit, pause.until),
+        )
+        self.assertIn(
+            "paused until 2026-09-27T13:00:00Z", self.held(second, second_runner)
+        )
+
+        self.clock.advance(minutes=30)
+        self.assertIsNone(self.shared.pause)
+        second.graphql(QUERY, {})
+        first.graphql(QUERY, {})
+        self.assertEqual((3, 1), (len(first_runner.calls), len(second_runner.calls)))
+
+    def test_a_refusal_with_the_points_ample_backs_off_doubling_until_one_answers(
+        self,
+    ) -> None:
+        # The reading's reset is ahead, but its points do not explain a refusal.
+        gate, runner = self.sharing(
+            answered(),
+            primary_refusal(),
+            primary_refusal(),
+            answered(),
+            primary_refusal(),
+        )
+        gate.graphql(QUERY, {})
+        waits: list[timedelta] = []
+        for _ in range(2):
+            self.refuse(gate)
+            waits.append(self.wait())
+            self.held(gate, runner)
+            self.clock.now += waits[-1]
+
+        gate.graphql(QUERY, {})
+        self.refuse(gate)
+        waits.append(self.wait())
+
+        self.assertEqual(
+            [timedelta(minutes=1), timedelta(minutes=2), timedelta(minutes=1)], waits
+        )
+        self.assertEqual(5, len(runner.calls))
+
+    def test_the_backoff_stops_doubling_at_an_hour(self) -> None:
+        waits: list[timedelta] = []
+        # Far past the refusals in a row at which doubling a minute would
+        # outgrow ``timedelta``.
+        for _ in range(100):
+            self.shared.refused(self.shared.admit(), "primary")
+            waits.append(self.wait())
+            self.clock.now += waits[-1]
+
+        self.assertEqual(
+            [timedelta(minutes=minutes) for minutes in (1, 2, 4, 8, 16, 32)],
+            waits[:6],
+        )
+        self.assertEqual({timedelta(hours=1)}, set(waits[6:]))
+
+    def test_a_secondary_limit_backs_off_even_with_the_points_low(self) -> None:
+        gate, _ = self.sharing(answered(40), secondary_refusal())
+
+        gate.graphql(QUERY, {})
+        self.refuse(gate)
+
+        pause = self.shared.pause
+        assert pause is not None
+        self.assertEqual("secondary", pause.limit)
+        self.assertEqual(timedelta(minutes=1), self.wait())
+
+    def test_a_lifted_pause_sends_one_attempt_whose_answer_ends_it(self) -> None:
+        gate, runner = self.sharing(
+            secondary_refusal(), secondary_refusal(), answered()
+        )
+        other, other_runner = self.sharing(answered())
+
+        self.refuse(gate)
+        self.shared.lift()
+        # The attempt is refused too: the pause restarts, still doubling.
+        self.refuse(gate)
+        self.assertEqual(timedelta(minutes=2), self.wait())
+        self.held(other, other_runner)
+
+        self.shared.lift()
+        gate.graphql(QUERY, {})
+        self.assertIsNone(self.shared.pause)
+        other.graphql(QUERY, {})
+        self.assertEqual((3, 1), (len(runner.calls), len(other_runner.calls)))
+
+    def test_a_lifted_pause_holds_every_request_but_its_attempt(self) -> None:
+        self.shared.refused(self.shared.admit(), "primary")
+        started = self.shared.pause
+
+        self.shared.lift()
+        self.shared.admit()
+        with self.assertRaises(GitHubRequestError):
+            self.shared.admit()
+        # The attempt failed some other way, so it reported no outcome: the
+        # pause stays in force, and holds the next request too.
+        self.assertEqual(started, self.shared.pause)
+        with self.assertRaises(GitHubRequestError):
+            self.shared.admit()
+
+        self.shared.lift()
+        attempt = self.shared.admit()
+        self.shared.answered(attempt)
+        self.assertIsNone(self.shared.pause)
+
+    def test_an_attempt_github_answers_with_another_error_leaves_the_pause(
+        self,
+    ) -> None:
+        gate, runner = self.sharing(
+            primary_refusal(),
+            graphql_failure(type="FORBIDDEN", path=[], message="denied"),
+        )
+        self.refuse(gate)
+
+        self.shared.lift()
+        with self.assertRaises(GitHubRequestError) as caught:
+            gate.graphql(QUERY, {})
+
+        self.assertEqual("github-permission", caught.exception.code)
+        self.assertEqual(timedelta(minutes=1), self.wait())
+        self.held(gate, runner)
+        self.assertEqual(2, len(runner.calls))
+
+    def test_lifting_without_a_pause_changes_nothing(self) -> None:
+        self.shared.lift()
+
+        self.assertIsNone(self.shared.pause)
+        self.shared.refused(self.shared.admit(), "primary")
+        self.assertEqual(timedelta(minutes=1), self.wait())
+
+    def test_a_request_sent_before_a_pause_neither_extends_nor_ends_it(self) -> None:
+        earlier = self.shared.admit()
+        refused = self.shared.admit()
+        self.shared.refused(refused, "primary")
+        started = self.shared.pause
+
+        self.shared.refused(earlier, "primary")
+        self.assertIs(started, self.shared.pause)
+        self.shared.answered(earlier)
+        self.assertIs(started, self.shared.pause)
+        assert started is not None
+        self.clock.now = started.until
+        # The earlier answer did not clear the refusals in a row either.
+        self.shared.refused(self.shared.admit(), "primary")
+        self.assertEqual(timedelta(minutes=2), self.wait())
+
+    def test_another_failure_does_not_pause(self) -> None:
+        gate, runner = self.sharing(
+            graphql_failure(type="FORBIDDEN", path=[], message="denied"), answered()
+        )
+
+        with self.assertRaises(GitHubRequestError):
+            gate.graphql(QUERY, {})
+
+        self.assertIsNone(self.shared.pause)
+        gate.graphql(QUERY, {})
+        self.assertEqual(2, len(runner.calls))
+
+    def test_a_pause_is_one_warning_naming_when_queries_resume(self) -> None:
+        until = datetime(2026, 9, 27, 13, 0, 5, 250_000, tzinfo=UTC)
+
+        (primary,) = pause_diagnostics(RateLimitPause("primary", until), "github")
+        (secondary,) = pause_diagnostics(RateLimitPause("secondary", until), "github")
+
+        self.assertEqual(
+            ("github", "github-rate-limit-paused", "warning"),
+            (primary.source, primary.code, primary.severity),
+        )
+        self.assertEqual(
+            "GitHub queries paused until 2026-09-27T13:00:05Z after GitHub refused "
+            "one for its rate limit; a manual refresh tries once",
+            primary.message,
+        )
+        self.assertIn("for its secondary rate limit", secondary.message)
+        self.assertEqual((), pause_diagnostics(None, "github"))
 
 
 class ConcurrentRunner:

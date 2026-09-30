@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-27
+date: 2026-10-01
 ---
 
 # GitHub rate limits
@@ -70,11 +70,13 @@ that no rate-limit query reports:
 - No more than 60 seconds of GraphQL server CPU time in any 60 seconds.
 - Limits GitHub does not disclose, which it may apply at any time.
 
-Dashpot runs at most five queries at once, one per Query Source, plus up to
-four during Source Enumeration. Its per-minute request count is far below
+Dashpot runs at most three queries at once, one per Query Source, plus up
+to four during Source Enumeration. Its per-minute request count is far below
 2,000. Secondary limits become a risk mainly when requests continue after a
 refusal: GitHub asks clients to wait for `retry-after`, otherwise until
 `x-ratelimit-reset`, otherwise at least a minute, backing off exponentially.
+Dashpot stops sending after a refusal
+([below](#when-the-allowance-runs-out)).
 
 ## How Dashpot spends the allowance
 
@@ -153,16 +155,33 @@ each Query Page's last good observation and shows it as stale, with a
 Project Totals and Resolved Issues degrade the same way. Worktrees, Branches
 and Agent Sessions are local observations and keep refreshing.
 
-Before that, every query Dashpot sends reads the remaining allowance from its
+After the first refusal, the dashboard stops sending GitHub queries
+([ADR 0065](adr/0065-pause-github-queries-after-a-rate-limit-refusal.md)).
+This Rate Limit Pause holds every Query Source's GraphQL requests until the
+reset the latest reading named, when that reading showed fewer than a tenth
+of the hour's points left. Otherwise, as when GitHub refused for a secondary
+limit, it holds them for a minute, doubling with each refusal in a row up to
+an hour. While it lasts:
+
+- The Diagnostics show one `github-rate-limit-paused` warning naming when
+  queries resume.
+- Runtime Stats (`s`) leads its GitHub allowance section with the pause.
+- The Event Log records a `rate_limit_pause.changed` event when the pause
+  starts, and when it lapses or is lifted.
+- A GitHub refresh sends nothing. `r` lifts the pause for one attempt: the
+  next GraphQL request goes to GitHub and the rest stay held. Its success
+  ends the pause; a refusal pauses again.
+
+The pause belongs to one dashboard. Another dashboard, or an agent's `gh`,
+still spends the allowance and is refused in its own way.
+
+Before the allowance runs out, every query Dashpot sends reads the remaining allowance from its
 own response. While fewer than a tenth of the hour's points remain, the
 dashboard's Diagnostics show one `github-rate-limit-low` warning naming the
 points left and when the hour resets, taken from the most recent response any
 of its queries received, and `issue list` and `pr list` add it to the
 Diagnostics of the page they print
 ([ADR 0061](adr/0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md)).
-
-One gap makes this worse today: the dashboard keeps querying at its refresh
-period while refused ([#306](https://github.com/ned2/dashpot/issues/306)).
 
 ## Sources
 

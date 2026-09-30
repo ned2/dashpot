@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-27
+date: 2026-10-01
 ---
 
 # Architecture decision records
@@ -77,3 +77,4 @@ of date.
 | 0059 | [Keep an append-only Event Log in each checkout](0059-keep-an-append-only-event-log-in-each-checkout.md) | accepted | — |
 | 0061 | [Warn of a low rate limit from the latest reading across Query Sources](0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md) | accepted | — |
 | 0064 | [Publish Runtime Events under their Event Log field names](0064-publish-runtime-events-under-their-event-log-field-names.md) | accepted | — |
+| 0065 | [Pause GitHub queries after a rate limit refusal](0065-pause-github-queries-after-a-rate-limit-refusal.md) | accepted | — |

@@ -24,6 +24,7 @@ from ..github.github import (
     RefreshBudget,
     RefreshMeter,
     graphql_failure,
+    pause_diagnostics,
     rate_limit_diagnostics,
 )
 from ..github.github_wire import (
@@ -263,9 +264,11 @@ class GitHubQuerySource(CachedQuerySource):
 
     @override
     def source_diagnostics(self) -> tuple[Diagnostic, ...]:
-        """Warn while the most recent reading shows the hour's points running low."""
-        return rate_limit_diagnostics(
-            self.latest_rate_limit.reading, self.context.source
+        """Warn while the hour's points run low, and while GitHub queries are paused."""
+        latest = self.latest_rate_limit
+        return (
+            *rate_limit_diagnostics(latest.reading, self.context.source),
+            *pause_diagnostics(latest.pause, self.context.source),
         )
 
     @override

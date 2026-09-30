@@ -1,6 +1,7 @@
 """Exercise page coverage, source scope and portable continuation at the public seam."""
 
 import json
+from datetime import UTC, datetime
 from typing import override
 
 import pydantic
@@ -1320,8 +1321,10 @@ def test_a_failed_page_still_warns_from_the_reading_before_it(tmp_path):
     runner.results = iter([*runner.results, OSError("rate limited")])
     observation = source.query_page(QueryRequest())
     assert observation.page.status == "unavailable"
-    (warning,) = source.source_diagnostics()
+    # The refusal also pauses the source's queries; the warning stays.
+    warning, paused = source.source_diagnostics()
     assert "440 of 5000 points remain" in warning.message
+    assert paused.code == "github-rate-limit-paused"
 
 
 def test_a_partial_answer_that_fails_the_page_still_warns_from_its_reading(
@@ -1347,6 +1350,54 @@ def test_a_partial_answer_that_fails_the_page_still_warns_from_its_reading(
     assert observation.page.status == "unavailable"
     (warning,) = source.source_diagnostics()
     assert "420 of 5000 points remain" in warning.message
+
+
+def test_a_rate_limit_refusal_pauses_every_sharing_source_until_the_reset(
+    tmp_path,
+):
+    now = datetime(2026, 9, 27, 12, 30, tzinfo=UTC)
+    shared = LatestRateLimit(clock=lambda: now)
+    pages, page_runner = github(
+        tmp_path,
+        reading(context(), 4000),
+        reading(search(hit(1)), 40),
+        reading(batch(node(1)), 30),
+        latest_rate_limit=shared,
+    )
+    identities, identity_runner = github(tmp_path, latest_rate_limit=shared)
+    pages.query_page(QueryRequest())
+    page_runner.results = iter(
+        [
+            refused(
+                None,
+                {"type": "RATE_LIMITED", "message": "API rate limit already exceeded"},
+            )
+        ]
+    )
+
+    refused_page = pages.query_page(QueryRequest()).page
+    held_page = pages.query_page(QueryRequest()).page
+    (resolved,) = identities.resolve_identities(["I_issue_1"])
+
+    # One request was refused; nothing was sent after it.
+    assert len(page_runner.calls) == 4 and identity_runner.calls == []
+    assert [page.status for page in (refused_page, held_page)] == ["stale", "stale"]
+    assert resolved.status == "unavailable"
+    (held,) = held_page.diagnostics
+    assert held.code == resolved.diagnostics[0].code == "github-rate-limit"
+    assert "not sent" in held.message
+    assert "paused until 2026-09-27T13:00:00Z" in held.message
+    # Both sources say so once, beside the low-allowance warning.
+    assert pages.source_diagnostics() == identities.source_diagnostics()
+    low, paused = pages.source_diagnostics()
+    assert (low.code, paused.code) == (
+        "github-rate-limit-low",
+        "github-rate-limit-paused",
+    )
+    now = datetime(2026, 9, 27, 13, tzinfo=UTC)
+    assert [warning.code for warning in pages.source_diagnostics()] == [
+        "github-rate-limit-low"
+    ]
 
 
 def test_markdown_source_reports_no_source_diagnostics(tmp_path):

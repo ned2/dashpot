@@ -1311,10 +1311,17 @@ class DashpotApp(App[None]):
                 self.dashboard.query_one(WorktreeTable).opening = False
 
     def action_refresh(self) -> None:
-        """Refresh every observation in the Workspace."""
+        """Refresh every observation in the Workspace.
+
+        A Rate Limit Pause is lifted first, so a person asking for GitHub's
+        state gets one attempt, which explains itself if GitHub refuses it
+        again and shows whether the limit has lifted.
+        """
         for timer in (self.refresh_timer, self.query_refresh_timer):
             if timer is not None:
                 timer.reset()
+        if self.rate_limit is not None:
+            self.rate_limit.lift()
         self.request_refresh("manual")
 
     def timer_refresh(self) -> None:
