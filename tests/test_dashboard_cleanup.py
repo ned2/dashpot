@@ -19,13 +19,14 @@ from textual.widgets import Button, Collapsible, Static
 
 import factories
 from app_harness import (
+    RELEASE_TIMEOUT,
     SequenceCollector,
     dashboard_app,
     first_load_landed,
     footer_showing,
     issue,
     legend_keys_text,
-    screen_regions,
+    settle_screen,
     toast_titles,
     toasts,
     with_first_project,
@@ -60,7 +61,7 @@ from dashpot.ui.cleanup_view import (
 )
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.list_pane import ListPane
-from helpers import settled, wait_until
+from helpers import wait_until
 
 ANCHOR = "/repo"
 WORKTREE = "/repo.worktrees/feat"
@@ -273,7 +274,7 @@ class FakeCleaner:
         self, confirmation: CleanupConfirmation, *, protected: Sequence[Path]
     ) -> CleanupReport:
         self.confirmations.append(confirmation)
-        self.release.wait(timeout=2)
+        self.release.wait(timeout=RELEASE_TIMEOUT)
         answer = self.reports.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -591,7 +592,7 @@ async def test_a_target_wraps_its_reasons_beside_its_marker_never_beneath() -> N
     app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=(72, 40)) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, BLOCKED_WORKTREE_PREVIEW))
-        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
+        await settle_screen(app, pilot, "the Cleanup preview")
         views = cleanup_screen(app).query(CleanupTargetView)
         assert len(views) == 2
         # The Worktree's reason is too long for one line here, so it wraps.
@@ -617,7 +618,7 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
-        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
+        await settle_screen(app, pilot, "the Cleanup preview")
 
         screen = cleanup_screen(app)
         targets = choices(app)
@@ -738,7 +739,7 @@ async def test_a_fetch_in_flight_refuses_the_key() -> None:
     hold = Event()
 
     def fetcher(anchor: Path) -> FetchReport:
-        hold.wait(timeout=2)
+        hold.wait(timeout=RELEASE_TIMEOUT)
         raise OSError("stopped")
 
     cleaner = FakeCleaner(BRANCH_PREVIEW)
@@ -800,7 +801,7 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
-        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
+        await settle_screen(app, pilot, "the Cleanup preview")
 
         # The first choice has focus, never the button, so a stray Enter
         # after x confirms nothing; the reason and the buttons are on screen
@@ -1033,7 +1034,7 @@ async def test_long_worktree_identity_and_all_ignored_paths_are_accessible(size)
     app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=size) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, shown))
-        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
+        await settle_screen(app, pilot, "the Cleanup preview")
         screen = cleanup_screen(app)
         subject = screen.query_one("#cleanup-subject", Static)
         assert str(subject.render()) == Path(long_path).name
@@ -1100,7 +1101,7 @@ async def test_content_integration_and_changed_preview_keep_consequences_explici
         await wait_until(
             lambda: app.focused is not None and branch in app.focused.ancestors
         )
-        await settled(pilot, lambda: screen_regions(app), "the focused Branch")
+        await settle_screen(app, pilot, "the focused Branch")
         branch_summary = branch.query_one(".cleanup-summary", Static)
         body = screen.query_one("#cleanup-body")
         assert branch_summary.region.bottom <= body.region.bottom

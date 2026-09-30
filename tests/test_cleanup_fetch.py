@@ -10,6 +10,7 @@ from app_harness import (
     SequenceCollector,
     dashboard_app,
     first_load_landed,
+    settle_screen,
     with_first_project_snapshot,
 )
 from dashpot.repository.fetch import FetchReport, RemoteFetch
@@ -490,6 +491,8 @@ async def test_partial_fetch_labels_repository_age_and_retained_remote_facts():
         screen = await open_preview(app, pilot, "branch")
         await pilot.press("f")
         await wait_until(lambda: len(cleaner.requests) == 2 and not screen.busy)
+        # The reinspected preview recomposes before it is laid out.
+        await settle_screen(app, pilot, "the reinspected preview")
         views = list(screen.query(CleanupTargetView))
         assert not views[1].unverified_remote and views[2].unverified_remote
         evidence = "\n".join(str(item.render()) for item in screen.query(Static))

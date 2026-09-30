@@ -610,9 +610,17 @@ def first_load_landed(app: DashpotApp) -> bool:
     return observation_landed(app, 1)
 
 
-def screen_regions(app: DashpotApp) -> tuple[Region, ...]:
-    """The region of every widget on the current screen, in document order."""
-    return tuple(widget.region for widget in app.screen.query("*"))
+async def settle_screen(app: DashpotApp, pilot: Pilot[None], what: str) -> None:
+    """Drive the app until every region on the current screen has settled.
+
+    Wait on a proxy for the change first, as ``settled`` asks; ``what`` names
+    the layout in the failure when it does not settle.
+    """
+
+    def regions() -> tuple[Region, ...]:
+        return tuple(widget.region for widget in app.screen.query("*"))
+
+    await settled(pilot, regions, what)
 
 
 async def show_query_peer(
@@ -625,7 +633,7 @@ async def show_query_peer(
     """
     await pilot.press("2")
     await wait_until(lambda: app.screen is app.query_screen)
-    await settled(pilot, lambda: screen_regions(app), "the query peer")
+    await settle_screen(app, pilot, "the query peer")
     return app.query_screen
 
 
@@ -666,7 +674,7 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     await wait_until(
         lambda: isinstance(app.screen, IssueScreen) and not app.queries.busy
     )
-    await settled(pilot, lambda: screen_regions(app), "the Issue view")
+    await settle_screen(app, pilot, "the Issue view")
     screen = app.screen
     assert isinstance(screen, IssueScreen)
     return screen
@@ -773,25 +781,35 @@ def footer_keys(app: DashpotApp) -> set[str]:
     return set(footer_entries(app))
 
 
-async def footer_showing(app: DashpotApp, expected: Iterable[str]) -> dict[str, str]:
-    """Wait for the Footer to show every key in ``expected``, and return its entries.
+async def footer_showing(
+    app: DashpotApp, expected: Iterable[str], *, without: Iterable[str] = ()
+) -> dict[str, str]:
+    """Wait for the Footer to show ``expected`` and none of ``without``.
 
     The Footer recomposes a frame or more after its bindings change, and
-    empties itself for a frame or two while it does, so the entries come from
-    the reading that shows what the test expects rather than from one taken
-    after a pause. A test asserting that a key is absent waits here for the
-    keys that should be shown alongside it, since an emptied Footer shows
-    none of them.
+    empties itself for a frame or two while it does, so the entries returned
+    are those of the reading that showed what the test expects rather than of
+    one taken after a pause. An emptied Footer shows no key at all, so a key
+    that should be gone is waited out with ``without`` beside a key that
+    should be shown. A key in ``expected`` proves the Footer has recomposed
+    only when it was not shown before the change: one shown in both states
+    can be read from the Footer the change replaces.
     """
-    wanted = set(expected)
+    wanted, unwanted = set(expected), set(without)
     shown: dict[str, str] = {}
 
     def showing() -> bool:
         nonlocal shown
         shown = footer_entries(app)
-        return wanted <= shown.keys()
+        return wanted <= shown.keys() and unwanted.isdisjoint(shown)
 
-    await wait_until(showing)
+    try:
+        await wait_until(showing)
+    except AssertionError:
+        raise AssertionError(
+            f"the Footer never showed {sorted(wanted)} without {sorted(unwanted)}; "
+            f"it last showed {sorted(shown)}"
+        ) from None
     return shown
 
 

@@ -571,7 +571,7 @@ async def test_offscreen_related_worktree_is_styled_only_when_person_scrolls():
         update={"projects": (project,), "agent_runs": (run,)}
     )
     app = dashboard_app(SequenceCollector(snapshot))
-    async with app.run_test(size=(85, 30)) as pilot:
+    async with app.run_test(size=(85, 30)):
         await wait_until(lambda: first_load_landed(app))
         table = app.dashboard.worktrees_pane().table
         app.dashboard.sessions_pane().table.focus()
@@ -580,7 +580,8 @@ async def test_offscreen_related_worktree_is_styled_only_when_person_scrolls():
         assert table.get_row_index(key) == 19
         assert table.scroll_y == 0 and table.cursor_row == 0
         table.scroll_to(y=19, animate=False, force=True)
-        await pilot.pause()
+        # The scroll is applied after the next refresh, even unanimated.
+        await wait_until(lambda: table.scroll_y == min(19, table.max_scroll_y) > 0)
         line = table.render_line(20 - int(table.scroll_y))
         path = next(segment for segment in line if "/tree-19" in segment.text)
         assert path.style is not None and path.style.bold
@@ -700,7 +701,7 @@ async def test_y_copies_the_resume_command_of_an_orphaned_session_only():
         table.focus()
         # The live session ranks first; it has nothing to resume, so the key
         # is not offered there.
-        assert "y" not in await footer_showing(app, {"f"})
+        await footer_showing(app, {"f"}, without={"y"})
         await pilot.press("y")
         clipboard.assert_not_called()
         await pilot.press("down")
@@ -712,7 +713,7 @@ async def test_y_copies_the_resume_command_of_an_orphaned_session_only():
         assert toasts(app)[-1].startswith("Resume command sent to clipboard")
         # Moving back withdraws the offer.
         await pilot.press("up")
-        await wait_until(lambda: "y" not in footer_keys(app))
+        await footer_showing(app, {"f"}, without={"y"})
         # A row that left the pane after the key press copies nothing.
         app.dashboard.post_message(SessionTable.ResumeCopyRequested("gone-row"))
         await pilot.pause()

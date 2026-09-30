@@ -12,7 +12,6 @@ from app_harness import (
     await_issue_page,
     dashboard_app,
     first_load_landed,
-    footer_keys,
     footer_showing,
     issue,
     observation_landed,
@@ -124,14 +123,9 @@ async def test_number_keys_type_into_query_inputs_instead_of_switching() -> None
 
         assert app.screen is app.query_screen
         assert search.value == "12"
-        # The Footer recomposes once the search has focus, and an emptied
-        # Footer shows no key at all, so wait for the command palette's key
-        # to be shown without the peer's rather than read the keys at once.
-        peer_keys = {"1", "2", "c", "o", "n", "p", "g", "slash"}
-        await wait_until(
-            lambda: (
-                "ctrl+p" in (shown := footer_keys(app)) and peer_keys.isdisjoint(shown)
-            )
+        # The Footer recomposes once the search has focus.
+        await footer_showing(
+            app, {"ctrl+p"}, without={"1", "2", "c", "o", "n", "p", "g", "slash"}
         )
 
 

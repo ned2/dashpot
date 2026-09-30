@@ -24,7 +24,7 @@ from app_harness import (
     pane_subtitle,
     pane_title,
     prepare_pane,
-    screen_regions,
+    settle_screen,
     show_query_peer,
     workspace_snapshot,
 )
@@ -63,7 +63,7 @@ async def test_every_peer_pane_owns_the_same_top_gutter() -> None:
 
         await pilot.resize_terminal(60, 24)
         await wait_until(lambda: app.screen.has_class("-compact"))
-        await settled(pilot, lambda: screen_regions(app), "the compact query peer")
+        await settle_screen(app, pilot, "the compact query peer")
         assert_top_gutters(
             app,
             (*app.query_screen.list_panes(), app.query_screen.query_one("#queue-pane")),
@@ -117,14 +117,14 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         # The breakpoint class lands before the panes are laid out for it.
         await pilot.resize_terminal(120, 32)
         await wait_until(lambda: app.screen.has_class("-wide"))
-        await settled(pilot, lambda: screen_regions(app), "the wide query peer")
+        await settle_screen(app, pilot, "the wide query peer")
         assert_panes_stack_above_full_width_queue(app)
         assert_counts_share_the_search_row(page_summary)
         assert_search_row_fits_the_queue_pane(app, page_summary)
 
         await pilot.resize_terminal(60, 20)
         await wait_until(lambda: app.screen.has_class("-compact"))
-        await settled(pilot, lambda: screen_regions(app), "the compact query peer")
+        await settle_screen(app, pilot, "the compact query peer")
         assert_counts_share_the_search_row("1/1 matches · fresh")
         assert_search_row_fits_the_queue_pane(app, "1/1 matches · fresh")
 
@@ -172,7 +172,7 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
         await pilot.press("p")
         # The notice is rendered before the search row is laid out around it.
         await wait_until(lambda: "Already at first page" in str(count.render()))
-        await settled(pilot, lambda: screen_regions(app), "the paging notice")
+        await settle_screen(app, pilot, "the paging notice")
         assert count.tooltip is not None
         assert "Already at first page" in str(count.tooltip)
         assert (
@@ -259,7 +259,7 @@ async def test_each_peer_stacks_only_its_own_full_width_panes() -> None:
 
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        await settled(pilot, lambda: screen_regions(app), "the Dashboard")
+        await settle_screen(app, pilot, "the Dashboard")
 
         sessions = app.query_one("#sessions-pane", ListPane)
         worktrees = app.query_one("#worktrees-pane", ListPane)
@@ -331,7 +331,7 @@ async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> 
 
     async with app.run_test(size=(120, 43)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        await settled(pilot, lambda: screen_regions(app), "the Dashboard")
+        await settle_screen(app, pilot, "the Dashboard")
         pane = prepare_pane(app, "sessions-pane")
 
         def other_panes_height() -> int:
@@ -351,7 +351,7 @@ async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> 
         pane.show_rows(list_rows(3))
         # The pane reaches its height before the row holding it is refitted.
         await wait_until(lambda: pane.region.height == pane_chrome(pane) + 3)
-        await settled(pilot, lambda: screen_regions(app), "three Sessions")
+        await settle_screen(app, pilot, "three Sessions")
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
         # Frame, header and three records on the Dashboard peer alone.
         assert pane.region.height == pane_chrome(pane) + 3
@@ -364,7 +364,7 @@ async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> 
 
         pane.show_rows(list_rows(12))
         await wait_until(lambda: pane.region.height == pane_chrome(pane) + 12)
-        await settled(pilot, lambda: screen_regions(app), "twelve Sessions")
+        await settle_screen(app, pilot, "twelve Sessions")
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
         assert pane.region.height == pane_chrome(pane) + 12
         assert list_row.region.height == (
@@ -375,6 +375,7 @@ async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> 
 
         pane.show_rows(())
         await wait_until(lambda: pane.region.height == 3)
+        await settle_screen(app, pilot, "no Sessions")
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane.region.height == 3
         assert list_row.region.height == initial_row_height
@@ -506,13 +507,13 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None
         alert = screen.query_one("#alert", Static)
         # The alert is shown a frame or more before it is laid out.
         await wait_until(lambda: alert.has_class("-visible"))
-        shown, shown_geometry = await settled(
+        shown, (body_region, pane_regions) = await settled(
             pilot, lambda: (alert.region, geometry()), "the shown alert"
         )
         assert shown.height == 1
         # It overlays the body's last row rather than following it.
-        assert shown.bottom == shown_geometry[0].bottom
-        assert shown_geometry == fitted
+        assert shown.bottom == body_region.bottom
+        assert (body_region, pane_regions) == fitted
 
         release.set()
         await wait_until(lambda: not alert.has_class("-visible"))
@@ -601,7 +602,7 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         # The Sessions pane growing past its three-row empty frame is the
         # first of the frames that fit both panes to their records.
         await wait_until(lambda: sessions.region.height > 3)
-        await settled(pilot, lambda: screen_regions(app), "the compact Dashboard")
+        await settle_screen(app, pilot, "the compact Dashboard")
         body = app.query_one("#body")
         assert sessions.region.width == worktrees.region.width == body.region.width
         assert sessions.region.bottom <= worktrees.region.y
@@ -612,9 +613,9 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         await pilot.resize_terminal(120, 50)
         await wait_until(lambda: app.screen.has_class("-wide"))
         await wait_until(lambda: sessions.region.width == body.region.width)
-        await settled(pilot, lambda: screen_regions(app), "the wide Dashboard")
+        await settle_screen(app, pilot, "the wide Dashboard")
         await show_query_peer(app, pilot)
-        await settled(pilot, lambda: screen_regions(app), "the wide query peer")
+        await settle_screen(app, pilot, "the wide query peer")
         assert_panes_stack_above_full_width_queue(app)
         assert sessions.region.height == pane_chrome(sessions) + 12
         assert worktrees.region.height == pane_chrome(worktrees) + 2

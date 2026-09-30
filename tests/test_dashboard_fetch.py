@@ -15,6 +15,7 @@ import pytest
 from textual.widgets import Static
 
 from app_harness import (
+    RELEASE_TIMEOUT,
     SequenceCollector,
     dashboard_app,
     first_load_landed,
@@ -97,7 +98,7 @@ class RecordingFetcher:
 
     def __call__(self, anchor: Path) -> FetchReport:
         self.anchors.append(anchor)
-        self.release.wait(timeout=2)
+        self.release.wait(timeout=RELEASE_TIMEOUT)
         report = self.reports.pop(0) if self.reports else success(anchor)
         if isinstance(report, Exception):
             raise report

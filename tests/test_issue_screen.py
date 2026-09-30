@@ -25,6 +25,7 @@ from app_harness import (
     open_issue_view,
     pane_title,
     serve_snapshot,
+    settle_screen,
     show_issue_states,
     show_query_peer,
     with_first_project_snapshot,
@@ -592,7 +593,6 @@ async def test_issue_view_does_nothing_without_an_issue_row() -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         assert app.query_screen.issue_table.selected_row_key is None
         app.query_screen.queue_table().focus()
         await pilot.press("enter")
@@ -878,9 +878,11 @@ async def test_the_legend_scrolls_through_every_column_description() -> None:
     async with app.run_test(size=(100, 30)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         await pilot.press("question_mark")
         await wait_until(lambda: isinstance(app.screen, LegendScreen))
+        # The Legend is pushed before it is laid out, and its scroll extent
+        # with it.
+        await settle_screen(app, pilot, "the Legend")
         screen = app.screen
         dialog = screen.query_one("#legend-dialog", VerticalScroll)
         sections = list(screen.query(".legend-section"))
@@ -933,7 +935,6 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         lifecycle = app.query_screen.list_queries.issues.lifecycle
         app.query_screen.queue_table().focus()
         await pilot.press("enter")
@@ -961,7 +962,6 @@ async def test_legend_is_reachable_from_the_issue_view() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         app.query_screen.queue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))

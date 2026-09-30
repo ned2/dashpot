@@ -481,7 +481,6 @@ async def test_every_pull_requests_header_shows_its_help() -> None:
     async with app.run_test(size=(160, 40), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         pane = app.query_screen.query_one("#pull-requests-pane", ListPane)
         assert pane.count == 2
         assert pane.columns == PULL_REQUEST_COLUMNS
@@ -524,7 +523,6 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
     async with app.run_test(size=(160, 40), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         table = app.query_screen.query_one("#queue", DataTable)
         tooltip = app.screen.query_one(Tooltip)
         # No listed Issue carries a priority or waits on a blocker, so

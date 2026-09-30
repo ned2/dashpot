@@ -38,11 +38,11 @@ async def wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> Non
 
     The deadline bounds a predicate that never holds; it is not a budget a
     passing test spends, since polling returns as soon as the predicate
-    holds, and no test waits it out on purpose. It was 1.5 s until #341:
-    with the suite's workers oversubscribing two cores eightfold, a single
-    ``pilot.pause()`` took 1.7 s, so a correct app could miss the deadline
-    by a frame. At 5 s the touched layout tests ran 700 times there without
-    a timeout, and a failing wait still reports within seconds.
+    holds, and no test waits it out on purpose. It is generous because a
+    frame is not: with the suite's workers oversubscribing a machine's cores,
+    a single ``pilot.pause()`` can take longer than a second, and a correct
+    app must not miss the deadline by a frame. A failing wait still reports
+    within seconds.
     """
     deadline = asyncio.get_running_loop().time() + timeout
     while not predicate():
