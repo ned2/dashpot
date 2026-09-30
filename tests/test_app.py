@@ -38,6 +38,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.model import AgentRun, Diagnostic, WorkspaceSnapshot
+from dashpot.github.github import LatestRateLimit
 from dashpot.observation.issue_list import row_key
 from dashpot.observation.keys import (
     ObservationKey,
@@ -546,6 +547,28 @@ async def test_a_low_github_rate_limit_is_one_diagnostic_line() -> None:
         assert rendered.count("rate limit is low") == 1
         assert f"⚠ github: {low.message}" in rendered
         assert diagnostics.has_class("-warning")
+
+
+@pytest.mark.asyncio
+async def test_a_manual_refresh_lifts_a_rate_limit_pause_for_one_attempt() -> None:
+    shared = LatestRateLimit()
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        rate_limit=shared,
+    )
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        shared.refused(shared.admit(), "API rate limit exceeded")
+        # A GitHub tick leaves the pause in force.
+        app.timer_query_refresh()
+        assert shared.pause is not None
+
+        await pilot.press("r")
+
+        assert shared.pause is None
+        # The attempt the press allows is admitted.
+        shared.admit()
 
 
 @pytest.mark.asyncio

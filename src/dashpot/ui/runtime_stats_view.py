@@ -44,7 +44,7 @@ from ..core.runtime_stats import (
     write_failures,
 )
 from ..core.timestamps import observed_instant
-from ..github.github import LatestRateLimit, RateLimit
+from ..github.github import LatestRateLimit, RateLimit, RateLimitPause
 
 ALLOWANCE_LABEL = "GITHUB ALLOWANCE"
 SPEND_LABEL = "GITHUB REQUESTS"
@@ -157,19 +157,29 @@ def points_text(points: int) -> str:
 
 
 def allowance_text(
-    reading: RateLimit | None, *, others: int | None, window: str, now: datetime
+    reading: RateLimit | None,
+    *,
+    others: int | None,
+    window: str,
+    now: datetime,
+    pause: RateLimitPause | None = None,
 ) -> Text:
     """The latest rate limit reading any Query Source received, and the rest's spend.
 
     ``others`` is what the rest of the account spent within ``window``,
-    beside this dashboard's own requests.
+    beside this dashboard's own requests; ``pause`` is the Rate Limit Pause
+    in force, which leads while GitHub queries are held.
     """
+    paused = () if pause is None else (("paused", pause_text(pause, now)),)
     if reading is None:
+        if paused:
+            return rows(paused)
         return note("no GitHub response has reported the rate limit yet")
     reset = observed_instant(reading.reset_at)
     left = max(0.0, (reset - now).total_seconds())
     return rows(
         (
+            *paused,
             ("remaining", f"{reading.remaining:,} of {points_text(reading.limit)}"),
             ("resets", f"{reset:%H:%M:%S} UTC, in {long_duration_text(left)}"),
             ("last request", points_text(reading.cost)),
@@ -181,6 +191,13 @@ def allowance_text(
             ),
         )
     )
+
+
+def pause_text(pause: RateLimitPause, now: datetime) -> str:
+    """Until when GitHub queries are held, and which limit refused them."""
+    left = max(0.0, (pause.until - now).total_seconds())
+    limit = "secondary limit" if pause.limit == "secondary" else "rate limit"
+    return f"until {pause.until:%H:%M:%S} UTC, in {long_duration_text(left)} ({limit})"
 
 
 def table_text(header: Sequence[str], body: Sequence[Sequence[str]]) -> Text:
@@ -407,6 +424,7 @@ class RuntimeStatsScreen(ModalScreen[None]):
                 others=account_spend(window),
                 window=covered,
                 now=now,
+                pause=None if shared is None else shared.pause,
             ),
         )
         last = last_github_refresh(buffered)

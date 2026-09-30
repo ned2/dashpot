@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-27
+date: 2026-10-01
 ---
 
 # Domain language
@@ -236,10 +236,13 @@ carry a warning (a rate limit running low). A Query Source may also report
 Diagnostics about itself rather than any one observation: a GitHub source
 warns with `github-rate-limit-low` from the most recent rate limit reading
 any of the dashboard's queries received
-([ADR 0061](adr/0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md)). Codes are prefixed by the source
+([ADR 0061](adr/0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md)),
+and with `github-rate-limit-paused` while a Rate Limit Pause holds its
+queries. Codes are prefixed by the source
 family — a GitHub Issue Source reports `github-authentication`,
 `github-permission`, `github-not-found`, `github-repository`,
-`github-rate-limit`, `github-rate-limit-low`, `github-refresh-budget`,
+`github-rate-limit`, `github-rate-limit-low`, `github-rate-limit-paused`,
+`github-refresh-budget`,
 `github-timeout`, `github-network`, `github-pagination`,
 `github-malformed-response` and `github-profile` — and
 are read from the tracker's structured signals before its prose. A Project
@@ -275,6 +278,19 @@ spend the account's hourly allowance. A manual refresh (`r`) refreshes both
 at once
 ([ADR 0056](adr/0056-refresh-github-queries-on-their-own-period.md)).
 _Avoid_: polling interval, or one refresh period for the whole dashboard
+
+**Rate Limit Pause**:
+A stretch after GitHub refused a GraphQL request for its rate limit when no
+gateway sharing that rate limit sends another; each request is held,
+failing with `github-rate-limit` without reaching GitHub. It lasts until the
+reset the latest reading names, or for a backoff that doubles with each
+refusal in a row when GitHub named a secondary limit or no reset is ahead. A
+manual refresh (`r`) lifts it for one attempt. Local observation never
+pauses. A dashboard's Query Sources share one pause, so one refusal holds
+them all; another dashboard, or an agent's `gh`, is not held
+([ADR 0065](adr/0065-pause-github-queries-after-a-rate-limit-refusal.md)).
+_Avoid_: backoff alone, which is how long one kind of pause lasts; throttling,
+which suggests requests are slowed rather than held
 
 **Interruptible Command**:
 A `git` or `gh` child an observation or query runs, which the dashboard's
@@ -539,7 +555,7 @@ work could not be done, so a non-zero exit read as an answer is an attribute
 of a successful span. A standalone event is something that is not a unit of
 work: a process starting or ending, a level change, a hook's or management
 command's outcome, an Agent Session changing, a Diagnostic appearing or
-clearing. Every Runtime Event names its process by an opaque run ID and
+clearing, a Rate Limit Pause starting or ending. Every Runtime Event names its process by an opaque run ID and
 kind, and the Agent Session Identity, Project, Worktree and Issue when they
 are known; an event a dashboard records about an Agent Session or a
 Diagnostic names that subject's instead of its own. It holds identifiers and
