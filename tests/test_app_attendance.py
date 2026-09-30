@@ -10,13 +10,14 @@ from unittest import mock
 
 import pytest
 from textual import events
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from app_harness import (
     SequenceCollector,
     dashboard_app,
     first_load_landed,
     issue,
+    show_query_peer,
     workspace_snapshot,
 )
 from dashpot.core.event_log import DASHBOARD_KIND, EventLog, EventLogDestination
@@ -26,8 +27,14 @@ from dashpot.core.runtime_events import (
     UnattendedPauseChanged,
 )
 from dashpot.github.github import GitHubRequestError, LatestRateLimit
+from dashpot.observation.keys import (
+    ObservationKey,
+    ObservationOutcome,
+    ObservationTicket,
+)
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.attendance import Attendance
+from dashpot.ui.messages import ObservationFinished
 from helpers import wait_until
 
 RUN = "0123456789abcdef0123456789abcdef"
@@ -99,6 +106,16 @@ def attended_app(
         attendance=Attendance(
             idle_seconds=IDLE, probe=probe, clock=clock, wall_clock=lambda: NOON
         ),
+    )
+
+
+def agent_runs_landed(app: DashpotApp) -> None:
+    """Deliver one landed Agent Runs observation, as the local period does."""
+    ticket = ObservationTicket(ObservationKey("agent-runs", "project:test-repo"), 1)
+    app.on_observation_finished(
+        ObservationFinished(
+            ticket, "timer", outcome=ObservationOutcome(ticket, accepted=True)
+        )
     )
 
 
@@ -176,7 +193,7 @@ async def test_resuming_sends_the_github_refresh_it_skipped(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_the_refresh_key_resumes_without_a_second_refresh(
+async def test_the_refresh_key_resumes_and_still_refreshes_everything(
     tmp_path: Path,
 ) -> None:
     clock = Clock()
@@ -192,9 +209,60 @@ async def test_the_refresh_key_resumes_without_a_second_refresh(
 
             await pilot.press("r")
 
+            await wait_until(lambda: manual.call_count == 1)
             manual.assert_called_once_with("manual")
-            ticks.assert_not_called()
+            ticks.assert_called_once_with()
         assert pause_changes(app) == [("started", "idle"), ("ended", "idle")]
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_key_typed_into_search_still_resumes_with_a_refresh(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    app = attended_app(tmp_path, clock)
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
+        search = app.query_screen.query_one("#pull-request-search", Input)
+        search.focus()
+        await wait_until(lambda: search.has_focus)
+        with (
+            mock.patch.object(app, "query_tick") as ticks,
+            mock.patch.object(app, "request_refresh") as manual,
+        ):
+            idle_pause(app, clock, ticks)
+
+            await pilot.press("r")
+
+            # The Input took the key, so no manual refresh stood in for
+            # the resume's own.
+            ticks.assert_called_once_with()
+            await wait_until(lambda: search.value == "r")
+            manual.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bound_issues_wait_for_the_resume_while_paused(tmp_path: Path) -> None:
+    clock = Clock()
+    app = attended_app(tmp_path, clock)
+
+    async with app.run_test(size=(120, 30)):
+        await wait_until(lambda: first_load_landed(app))
+        with (
+            mock.patch.object(app, "query_tick") as ticks,
+            mock.patch.object(app, "request_identities") as identities,
+        ):
+            # Attended, a local tick's Agent Runs resolve any newly bound Issue.
+            agent_runs_landed(app)
+            identities.assert_called_once_with(changed_only=True)
+            identities.reset_mock()
+
+            idle_pause(app, clock, ticks)
+            agent_runs_landed(app)
+
+            identities.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -203,19 +271,17 @@ async def test_mouse_input_and_focus_each_resume(tmp_path: Path) -> None:
     app = attended_app(tmp_path, clock)
     moved = events.MouseMove(None, 1, 1, 0, 0, 0, False, False, False)
 
-    async with app.run_test(size=(120, 30)) as pilot:
+    async with app.run_test(size=(120, 30)):
         await wait_until(lambda: first_load_landed(app))
         with mock.patch.object(app, "query_tick") as ticks:
             idle_pause(app, clock, ticks)
             app.post_message(moved)
-            await pilot.pause()
-            ticks.assert_called_once_with()
+            await wait_until(lambda: ticks.call_count == 1)
 
             ticks.reset_mock()
             idle_pause(app, clock, ticks)
             app.post_message(events.AppFocus())
-            await pilot.pause()
-            ticks.assert_called_once_with()
+            await wait_until(lambda: ticks.call_count == 1)
 
 
 @pytest.mark.asyncio

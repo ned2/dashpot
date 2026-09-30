@@ -113,8 +113,6 @@ FOCUS_CYCLE_BINDINGS: tuple[BindingType, ...] = (
     ("tab", "focus_next", "Next list"),
     ("shift+tab", "focus_previous", "Previous list"),
 )
-# The manual refresh's key, which an Unattended Pause also recognises.
-REFRESH_KEY = "r"
 
 
 class PeerBody(Container):
@@ -208,9 +206,7 @@ def update_peer_diagnostics(screen: Screen[None], app: DashpotApp) -> None:
             *app.event_log_diagnostics,
             *app.event_log_size_diagnostics,
         ),
-        attendance_diagnostics=(
-            () if app.attendance is None else app.attendance.diagnostics()
-        ),
+        attendance_diagnostics=app.attendance_diagnostics(),
     )
     paint_readout(
         screen.query_one("#diagnostics", Static),
@@ -863,7 +859,7 @@ class DashpotApp(App[None]):
         ),
         ("q", "quit", "Quit"),
         ("question_mark", "legend", "Legend"),
-        (REFRESH_KEY, "refresh", "Refresh"),
+        ("r", "refresh", "Refresh"),
         ("s", "runtime_stats", "Runtime Stats"),
     ]
 
@@ -1224,7 +1220,7 @@ class DashpotApp(App[None]):
                 for diagnostic in (
                     *self.launcher_configuration.diagnostics,
                     *self.event_log_diagnostics,
-                    *(() if self.attendance is None else self.attendance.diagnostics()),
+                    *self.attendance_diagnostics(),
                 )
             ),
             *self.fetches.failure_diagnostics(),
@@ -1352,7 +1348,7 @@ class DashpotApp(App[None]):
         if attendance is not None:
             self.probe_attachment()
             self.attendance_changed(attendance.check_idle())
-            if attendance.pause is not None:
+            if self.unattended():
                 return
         self.query_tick()
 
@@ -1361,6 +1357,14 @@ class DashpotApp(App[None]):
         refresh = Refresh(self.event_log, "github")
         self.refresh_queries(restart=False, refresh=refresh)
         refresh.seal()
+
+    def unattended(self) -> bool:
+        """Whether an Unattended Pause holds automatic GitHub refreshes."""
+        return self.attendance is not None and self.attendance.pause is not None
+
+    def attendance_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """The Unattended Pause's Diagnostic line while one holds."""
+        return () if self.attendance is None else self.attendance.diagnostics()
 
     def probe_attachment(self) -> None:
         """Ask the tmux session off the loop whether a client is attached, unless asking."""
@@ -1385,10 +1389,12 @@ class DashpotApp(App[None]):
     async def on_event(self, event: events.Event) -> None:
         # Unlike a message handler, ``on_event`` is the dispatch itself and
         # runs once, so the base must still run to deliver the event.
+        # Every key resumes with its own GitHub refresh, ``r`` too: whether a
+        # key reaches its binding is only known after dispatch, and a resume
+        # that waited on a binding a focused Input consumed would refresh
+        # nothing. Pressing ``r`` to resume spends one more refresh.
         if isinstance(event, events.InputEvent) and not event.is_forwarded:
-            # The refresh key brings its own refresh, so resuming adds none.
-            refreshing = isinstance(event, events.Key) and event.key == REFRESH_KEY
-            self.note_attended(refresh=not refreshing)
+            self.note_attended()
         await super().on_event(event)
 
     def on_app_focus(self, event: events.AppFocus) -> None:
@@ -1396,14 +1402,12 @@ class DashpotApp(App[None]):
         # focus events, which resumes sooner than the next probe.
         self.note_attended()
 
-    def note_attended(self, *, refresh: bool = True) -> None:
+    def note_attended(self) -> None:
         """Note someone attending the dashboard, ending an Unattended Pause if one holds."""
         if self.attendance is not None:
-            self.attendance_changed(self.attendance.attended(), refresh=refresh)
+            self.attendance_changed(self.attendance.attended())
 
-    def attendance_changed(
-        self, change: AttendanceChange | None, *, refresh: bool = True
-    ) -> None:
+    def attendance_changed(self, change: AttendanceChange | None) -> None:
         """Record an Unattended Pause starting or ending; an ending refreshes GitHub.
 
         The resumed refresh restarts the GitHub Refresh Period from now. A
@@ -1417,7 +1421,7 @@ class DashpotApp(App[None]):
         if self.closing:
             return
         self.update_diagnostics()
-        if change.change == "ended" and refresh:
+        if change.change == "ended":
             if self.query_refresh_timer is not None:
                 self.query_refresh_timer.reset()
             self.query_tick()
@@ -1549,7 +1553,9 @@ class DashpotApp(App[None]):
         self.show_observation(landed)
         # Agent Runs are observed on the local period; resolving their Issues
         # again follows the query period unless which Issues are bound changed.
-        if message.ticket.key.kind == "agent-runs":
+        # While an Unattended Pause holds they wait for the resume, which
+        # resolves every bound Issue.
+        if message.ticket.key.kind == "agent-runs" and not self.unattended():
             self.request_identities(changed_only=True)
 
     def show_observation(self, landed: Acceptance) -> None:

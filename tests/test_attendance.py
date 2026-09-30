@@ -103,6 +103,16 @@ def test_a_detached_session_pauses_until_a_client_reattaches() -> None:
     assert watched.pause is None
 
 
+def test_a_client_reattaching_after_an_unreadable_probe_resumes() -> None:
+    watched = attendance(Clock())
+    watched.probed(False)
+    watched.probed(None)
+
+    assert watched.probed(True) == AttendanceChange(
+        "ended", UnattendedPause("detached", NOON)
+    )
+
+
 def test_an_unknown_answer_changes_nothing() -> None:
     watched = attendance(Clock())
     watched.probed(False)
@@ -166,7 +176,15 @@ def test_a_pause_is_one_info_diagnostic_line(
 
 @pytest.mark.parametrize(
     ("seconds", "text"),
-    [(0, "0s"), (45, "45s"), (60, "1m"), (3_600, "1h"), (3_661, "1h 1m 1s")],
+    [
+        (0, "0s"),
+        (0.5, "0.5s"),
+        (45, "45s"),
+        (60, "1m"),
+        (90.5, "1m 30s"),
+        (3_600, "1h"),
+        (3_661, "1h 1m 1s"),
+    ],
 )
 def test_a_period_is_written_in_its_largest_units(seconds: float, text: str) -> None:
     assert period_text(seconds) == text

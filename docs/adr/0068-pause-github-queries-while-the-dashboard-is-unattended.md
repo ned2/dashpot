@@ -42,14 +42,17 @@ no allowance, so it is not the concern here; its process spend is
 - **While the Unattended Pause holds, a GitHub tick sends nothing.** The
   tick checks the two signals again and returns without refreshing Query
   Pages, Project Totals or Resolved Issues. Local observation continues on
-  its own period.
+  its own period, but a change in which Issues its Agent Runs are bound to
+  waits for the resume to resolve them.
 - **Any sign of someone attending resumes, with a GitHub refresh at once.**
   A key, a mouse event, the terminal reporting focus-in, or the probe
   finding a client attached again after it found none ends the pause. The
   GitHub refresh it skipped runs immediately and the GitHub Refresh Period
-  restarts from then. `r` resumes too, but its own manual refresh is the
-  refresh, so it adds none. A client that stayed attached ends nothing: an
-  idle pause outlasts it.
+  restarts from then. `r` resumes the same way, and its manual refresh
+  follows. Whether a key reaches its binding is known only after the
+  dashboard has dispatched it: an `r` typed into a search field refreshes
+  nothing itself, so no key's resume waits on one. A client that stayed
+  attached ends nothing: an idle pause outlasts it.
 - **Resuming lifts nothing else.** The Unattended Pause and the Rate Limit
   Pause
   ([ADR 0065](0065-pause-github-queries-after-a-rate-limit-refusal.md)) are
@@ -73,23 +76,28 @@ no allowance, so it is not the concern here; its process spend is
 
 ## Consequences
 
-- **An abandoned dashboard stops spending.** A detached tmux session costs
-  at most one more GitHub refresh, the one whose tick started the probe.
-  Any other unattended dashboard spends for the idle period and then
-  nothing, however long it runs.
+- **An abandoned dashboard stops spending.** Detaching from an attended
+  dashboard costs at most one more GitHub refresh, the one whose tick
+  started the probe. Any other unattended dashboard spends for the idle
+  period and then nothing, however long it runs.
 - **Pages keep what they last observed.** While paused, each Query Page,
   Project Totals and Resolved Issue stays as its last observation landed,
-  and the Diagnostic line says since when nothing has been asked. Nothing
-  is marked stale, since nothing failed.
+  and the Diagnostic line says since when the pause has held. That is when the
+  tick or probe that started it saw nobody, so the data can be up to one GitHub
+  Refresh Period older; Runtime Stats names the last GitHub refresh.
+  Nothing is marked stale, since nothing failed.
 - **A dashboard someone only looks at pauses after the idle period.**
   Reading a dashboard without touching it for two hours is
   indistinguishable from leaving it. The first key or mouse movement
   refreshes it at once, and the period can be lengthened or turned off.
-- **A spurious focus-in costs one refresh.** A focus-in that is not someone
-  returning ends the pause as if it were; while tmux still reports no
-  client, the next tick's probe starts a detached pause again. That spends
-  one GitHub refresh. The focus-in tmux delivers on detach arrives before
-  any probe has seen the detachment, so it ends nothing.
+- **A spurious focus-in costs a refresh or two.** A focus-in that is not
+  someone returning ends the pause as if it were, and restarts the idle
+  period. tmux delivers one about 10 ms after a detach. Detaching from an
+  attended dashboard ends nothing, since no pause holds yet. Detaching from
+  one already in an idle pause ends it: the resume refreshes, the next tick
+  refreshes again because the idle period restarted, and the probe that
+  tick starts pauses it as detached. The Event Log shows the ended and
+  started pair.
 - **An SSH drop may pause only after the idle period.** Whether tmux counts
   a client whose connection dropped as attached depends on when tmux
   notices the dead client, which is untested. The idle signal covers that

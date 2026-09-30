@@ -63,8 +63,8 @@ class Attendance:
         self._clock = clock
         self._wall_clock = wall_clock or _utc_now
         self._last_input = clock()
-        # The last probe's answer, so a client reattaching is told apart
-        # from one that never left.
+        # The last probe's readable answer, so a client reattaching is told
+        # apart from one that never left, even across an unreadable probe.
         self._attached: bool | None = None
         self.pause: UnattendedPause | None = None
 
@@ -84,9 +84,9 @@ class Attendance:
 
     def probed(self, attached: bool | None) -> AttendanceChange | None:
         """Take a probe's answer: detached starts a pause, reattached attends."""
-        was, self._attached = self._attached, attached
         if attached is None:
             return None
+        was, self._attached = self._attached, attached
         if not attached:
             return None if self.pause is not None else self._start("detached")
         if was is False:
@@ -128,6 +128,8 @@ def _utc_now() -> datetime:
 
 def period_text(seconds: float) -> str:
     """A configured period in its largest units, leaving out those that are zero."""
+    if seconds < 60 and seconds != int(seconds):
+        return f"{seconds:g}s"
     hours, rest = divmod(int(seconds), 3_600)
     minutes, secs = divmod(rest, 60)
     parts = [
