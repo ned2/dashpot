@@ -17,13 +17,14 @@ from app_harness import (
     assert_panes_stack_above_full_width_queue,
     dashboard_app,
     first_load_landed,
-    footer_keys,
+    footer_showing,
     issue,
     list_rows,
     pane_chrome,
     pane_subtitle,
     pane_title,
     prepare_pane,
+    screen_regions,
     show_query_peer,
     workspace_snapshot,
 )
@@ -33,11 +34,6 @@ from dashpot.ui.item_filter import ItemFilterBar
 from dashpot.ui.list_pane import ListColumn, ListPane, ListRow
 from dashpot.ui.pane_layout import PANE_MARGIN
 from helpers import required, settled, wait_until
-
-
-def screen_regions(app: DashpotApp) -> tuple[Region, ...]:
-    """The region of every widget on the current screen, in document order."""
-    return tuple(widget.region for widget in app.screen.query("*"))
 
 
 def assert_top_gutters(app: DashpotApp, panes: tuple[Any, ...]) -> None:
@@ -115,7 +111,6 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
     async with app.run_test(size=(60, 20)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         assert app.screen.has_class("-compact")
         assert_counts_share_the_search_row("1/1 matches · fresh")
 
@@ -152,7 +147,6 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
     async with app.run_test(size=(60, 20)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         assert app.screen.has_class("-compact")
         count = app.query_screen.query_one("#issue-count", Static)
         assert str(count.render()) == page_summary
@@ -176,8 +170,9 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
 
         app.query_screen.queue_table().focus()
         await pilot.press("p")
+        # The notice is rendered before the search row is laid out around it.
         await wait_until(lambda: "Already at first page" in str(count.render()))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the paging notice")
         assert count.tooltip is not None
         assert "Already at first page" in str(count.tooltip)
         assert (
@@ -264,7 +259,7 @@ async def test_each_peer_stacks_only_its_own_full_width_panes() -> None:
 
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the Dashboard")
 
         sessions = app.query_one("#sessions-pane", ListPane)
         worktrees = app.query_one("#worktrees-pane", ListPane)
@@ -324,7 +319,7 @@ async def test_each_peer_stacks_only_its_own_full_width_panes() -> None:
             "3",
             "4",
             "shift+r",
-        }.isdisjoint(footer_keys(app))
+        }.isdisjoint(await footer_showing(app, {"o", "n", "p", "g", "slash"}))
 
 
 @pytest.mark.asyncio
@@ -336,7 +331,7 @@ async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> 
 
     async with app.run_test(size=(120, 43)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the Dashboard")
         pane = prepare_pane(app, "sessions-pane")
 
         def other_panes_height() -> int:
@@ -354,7 +349,9 @@ async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> 
         initial_row_height = list_row.region.height
 
         pane.show_rows(list_rows(3))
+        # The pane reaches its height before the row holding it is refitted.
         await wait_until(lambda: pane.region.height == pane_chrome(pane) + 3)
+        await settled(pilot, lambda: screen_regions(app), "three Sessions")
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 3"
         # Frame, header and three records on the Dashboard peer alone.
         assert pane.region.height == pane_chrome(pane) + 3
@@ -367,6 +364,7 @@ async def test_dashboard_pane_grows_to_show_its_records_when_height_allows() -> 
 
         pane.show_rows(list_rows(12))
         await wait_until(lambda: pane.region.height == pane_chrome(pane) + 12)
+        await settled(pilot, lambda: screen_regions(app), "twelve Sessions")
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 12"
         assert pane.region.height == pane_chrome(pane) + 12
         assert list_row.region.height == (
@@ -499,34 +497,26 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None
             return (body.region, tuple(pane.region for pane in tracked))
 
         # The first observation lands a moment before the panes are fitted to
-        # it, so settle on the geometry the alert is measured against. The fit
-        # converges in one pass; the bound turns a hypothetical non-converging
-        # layout into a failure rather than a hung worker.
-        settled = geometry()
-        for _ in range(20):
-            await pilot.pause()
-            current = geometry()
-            if current == settled:
-                break
-            settled = current
-        else:
-            raise AssertionError("pane geometry never settled")
+        # it, so settle on the geometry the alert is measured against.
+        fitted = await settled(pilot, geometry, f"the {peer} panes")
 
         # Hold the next observation open so the indicator is on screen.
         release.clear()
         await app.run_action("refresh")
         alert = screen.query_one("#alert", Static)
+        # The alert is shown a frame or more before it is laid out.
         await wait_until(lambda: alert.has_class("-visible"))
-        await pilot.pause()
-        assert alert.region.height == 1
+        shown, shown_geometry = await settled(
+            pilot, lambda: (alert.region, geometry()), "the shown alert"
+        )
+        assert shown.height == 1
         # It overlays the body's last row rather than following it.
-        assert alert.region.bottom == body.region.bottom
-        assert geometry() == settled
+        assert shown.bottom == shown_geometry[0].bottom
+        assert shown_geometry == fitted
 
         release.set()
         await wait_until(lambda: not alert.has_class("-visible"))
-        await pilot.pause()
-        assert geometry() == settled
+        assert await settled(pilot, geometry, "the hidden alert") == fitted
 
 
 @pytest.mark.asyncio
@@ -553,7 +543,6 @@ async def test_pull_requests_pane_scrolls_vertically_and_horizontally_at_narrow_
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
         pane = app.query_screen.pull_requests_pane()
-        await pilot.pause()
 
         assert pane.count == 12
         assert (
@@ -642,7 +631,6 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
     async with app.run_test(size=(80, 25)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         pull_requests = app.query_screen.pull_requests_pane()
         pull_requests.show_rows(list_rows(12, prefix="pull-request"))
         queue_pane = app.query_screen.query_one("#queue-pane")
@@ -709,12 +697,24 @@ async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
         # The list panes stay content-sized.
         sessions = prepare_pane(app, "sessions-pane")
         sessions.show_rows(list_rows(2, prefix="session"))
-        await pilot.pause()
-        for table_id in ("sessions", "worktrees", "branches"):
-            table = app.query_one(f"#{table_id}", DataTable)
+        list_tables = [
+            app.query_one(f"#{table_id}", DataTable)
+            for table_id in ("sessions", "worktrees", "branches")
+        ]
+        # A table measures the columns of new records while it is idle, which
+        # can come a frame or more after the records land.
+        fits = await settled(
+            pilot,
+            lambda: [
+                (column_widths(table), table.scrollable_content_region.width)
+                for table in list_tables
+            ],
+            "the list panes' columns",
+        )
+        for table, (widths, visible) in zip(list_tables, fits, strict=True):
             assert not table.ordered_columns[0].auto_width
             assert all(column.auto_width for column in table.ordered_columns[1:])
-            assert sum(column_widths(table)) < table.scrollable_content_region.width
+            assert sum(widths) < visible
 
         # Too narrow to spread: the columns are their content and the table
         # scrolls sideways instead of squeezing anything.

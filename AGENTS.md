@@ -208,7 +208,9 @@ The conventions the tooling enforces or the code assumes:
   for the geometry Textual lays out after it. A test of the shipped
   dashboard builds it with `dashboard_app` in `tests/app_harness.py`, whose
   `SnapshotQuerySource` serves the snapshot the collector observes, and
-  waits on `first_load_landed` before reading a pane. Fakes stand in for
+  waits on `first_load_landed` before reading a pane; it settles a whole
+  screen with `screen_regions`, and waits with `footer_showing` for the
+  Footer, which recomposes rather than settles. Fakes stand in for
   GitHub; nothing in the suite talks to the network.
 - Every document under `docs/` declares `status` and `date` in frontmatter,
   every in-repo Markdown link resolves — path, heading anchor, and `#L`

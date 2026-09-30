@@ -19,7 +19,7 @@ from app_harness import (
     SequenceCollector,
     dashboard_app,
     first_load_landed,
-    footer_keys,
+    footer_showing,
     issue,
     issue_metadata_text,
     open_issue_view,
@@ -816,8 +816,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
-        assert "question_mark" in footer_keys(app)
+        await footer_showing(app, {"question_mark"})
 
         await pilot.press("question_mark")
         await wait_until(lambda: isinstance(app.screen, LegendScreen))

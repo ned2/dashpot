@@ -12,13 +12,13 @@ from pathlib import Path
 from threading import Event
 
 import pytest
-from textual.widgets import Footer, Static
-from textual.widgets._footer import FooterKey
+from textual.widgets import Static
 
 from app_harness import (
     SequenceCollector,
     dashboard_app,
     first_load_landed,
+    footer_showing,
     issue,
     legend_keys_text,
     pane_subtitle,
@@ -391,20 +391,8 @@ async def test_f_is_listed_in_the_footer_and_the_legend() -> None:
     async with app.run_test(size=(160, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
 
-        # The Footer recomposes its keys after the bindings settle, emptying
-        # itself for a frame or two each time, so wait for the shown entry
-        # rather than read the keys after one pause.
-        footer = app.query_one(Footer)
-        await wait_until(
-            lambda: (
-                ("f", "Fetch & prune remotes")
-                in [
-                    (key.key, key.description)
-                    for key in footer.query(FooterKey)
-                    if key.display
-                ]
-            )
-        )
+        shown = await footer_showing(app, {"f"})
+        assert shown["f"] == "Fetch & prune remotes"
 
         await pilot.press("question_mark")
         await pilot.pause()

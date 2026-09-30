@@ -12,14 +12,16 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from threading import Event, Lock
 from typing import Protocol
 
 from textual.dom import DOMNode
+from textual.geometry import Region
 from textual.pilot import Pilot
 from textual.widgets import Select
+from textual.widgets._footer import FooterKey
 
 import factories
 from dashpot.core.event_log import EventLog
@@ -74,13 +76,21 @@ from dashpot.ui.detail_fields import detail_items_text
 from dashpot.ui.issue_view import IssueScreen, issue_metadata_items, selection_title
 from dashpot.ui.list_pane import ListPane, ListRow
 from dashpot.ui.pane_layout import PANE_MARGIN
-from helpers import snapshot_of, wait_until
+from helpers import settled, snapshot_of, wait_until
 
 NOW = "2026-08-25T01:00:00Z"
 
 # The one Project every harness snapshot observes; its Issues carry the same
 # identity so a Query Page built from them belongs to it.
 PROJECT_ID = "project:test-repo"
+
+# How long a gated collector or source holds an observation the test has not
+# released. The hold is a backstop against a worker hanging on a test that
+# never releases it, not a delay any test waits out, and it must outlast the
+# frames a test drives while holding: under CPU contention a single
+# ``pilot.pause()`` has taken 1.7 s, so a 2 s hold expired while a test was
+# still reading the state it held.
+RELEASE_TIMEOUT = 10.0
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -241,7 +251,7 @@ class SequenceCollector:
 
     def refresh(self) -> WorkspaceSnapshot:
         if self.release is not None:
-            self.release.wait(timeout=2)
+            self.release.wait(timeout=RELEASE_TIMEOUT)
         with self.lock:
             result = self.results.pop(0)
             self.calls += 1
@@ -287,7 +297,7 @@ class SnapshotQuerySource:
 
     def _wait_for_release(self) -> None:
         if self.release is not None:
-            self.release.wait(timeout=2)
+            self.release.wait(timeout=RELEASE_TIMEOUT)
 
     def supports_sort(self, request: QueryRequest, column: str) -> bool:
         return is_issue_sort_column(column) and parse_search(request.query).sort is None
@@ -600,13 +610,22 @@ def first_load_landed(app: DashpotApp) -> bool:
     return observation_landed(app, 1)
 
 
+def screen_regions(app: DashpotApp) -> tuple[Region, ...]:
+    """The region of every widget on the current screen, in document order."""
+    return tuple(widget.region for widget in app.screen.query("*"))
+
+
 async def show_query_peer(
     app: DashpotApp, pilot: Pilot[None]
 ) -> IssuesPullRequestsScreen:
-    """Switch directly to the query peer and wait for its first layout."""
+    """Switch directly to the query peer and wait for its first layout to settle.
+
+    The screen switches a frame or more before its panes are laid out, so a
+    test reading geometry once the switch is seen could read a passing layout.
+    """
     await pilot.press("2")
     await wait_until(lambda: app.screen is app.query_screen)
-    await pilot.pause()
+    await settled(pilot, lambda: screen_regions(app), "the query peer")
     return app.query_screen
 
 
@@ -647,7 +666,7 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     await wait_until(
         lambda: isinstance(app.screen, IssueScreen) and not app.queries.busy
     )
-    await pilot.pause()
+    await settled(pilot, lambda: screen_regions(app), "the Issue view")
     screen = app.screen
     assert isinstance(screen, IssueScreen)
     return screen
@@ -736,13 +755,44 @@ def pane_chrome(pane: ListPane) -> int:
     return 2 + 1 + (1 if pane.table.show_horizontal_scrollbar else 0)
 
 
-def footer_keys(app: DashpotApp) -> set[str]:
-    """The keys the rendered Footer exposes, excluding hidden bindings."""
+def footer_entries(app: DashpotApp) -> dict[str, str]:
+    """The description of each key the rendered Footer shows, by key.
+
+    A binding that is unavailable is still composed but hidden, so only the
+    shown entries count.
+    """
     return {
-        key
-        for widget in app.screen.query("FooterKey")
-        if widget.display and isinstance((key := getattr(widget, "key", None)), str)
+        widget.key: widget.description
+        for widget in app.screen.query(FooterKey)
+        if widget.display
     }
+
+
+def footer_keys(app: DashpotApp) -> set[str]:
+    """The keys the rendered Footer shows, excluding hidden bindings."""
+    return set(footer_entries(app))
+
+
+async def footer_showing(app: DashpotApp, expected: Iterable[str]) -> dict[str, str]:
+    """Wait for the Footer to show every key in ``expected``, and return its entries.
+
+    The Footer recomposes a frame or more after its bindings change, and
+    empties itself for a frame or two while it does, so the entries come from
+    the reading that shows what the test expects rather than from one taken
+    after a pause. A test asserting that a key is absent waits here for the
+    keys that should be shown alongside it, since an emptied Footer shows
+    none of them.
+    """
+    wanted = set(expected)
+    shown: dict[str, str] = {}
+
+    def showing() -> bool:
+        nonlocal shown
+        shown = footer_entries(app)
+        return wanted <= shown.keys()
+
+    await wait_until(showing)
+    return shown
 
 
 def toasts(app: DashpotApp) -> list[str]:

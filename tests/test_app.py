@@ -27,6 +27,7 @@ from app_harness import (
     observation_landed,
     page_summary,
     pane_title,
+    screen_regions,
     selected_title,
     serve_snapshot,
     toasts,
@@ -71,7 +72,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         release.set()
         await wait_until(lambda: first_load_landed(app))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the Dashboard")
         table = app.query_screen.query_one("#queue", DataTable)
 
         assert table.row_count == 2

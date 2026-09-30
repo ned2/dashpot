@@ -15,16 +15,17 @@ from typing import Literal
 
 import pytest
 from textual.pilot import Pilot
-from textual.widgets import Button, Collapsible, Footer, Static
-from textual.widgets._footer import FooterKey
+from textual.widgets import Button, Collapsible, Static
 
 import factories
 from app_harness import (
     SequenceCollector,
     dashboard_app,
     first_load_landed,
+    footer_showing,
     issue,
     legend_keys_text,
+    screen_regions,
     toast_titles,
     toasts,
     with_first_project,
@@ -59,7 +60,7 @@ from dashpot.ui.cleanup_view import (
 )
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.list_pane import ListPane
-from helpers import wait_until
+from helpers import settled, wait_until
 
 ANCHOR = "/repo"
 WORKTREE = "/repo.worktrees/feat"
@@ -590,7 +591,7 @@ async def test_a_target_wraps_its_reasons_beside_its_marker_never_beneath() -> N
     app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=(72, 40)) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, BLOCKED_WORKTREE_PREVIEW))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
         views = cleanup_screen(app).query(CleanupTargetView)
         assert len(views) == 2
         # The Worktree's reason is too long for one line here, so it wraps.
@@ -616,7 +617,7 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
 
         screen = cleanup_screen(app)
         targets = choices(app)
@@ -774,20 +775,8 @@ async def test_x_is_listed_in_the_footer_and_the_legend() -> None:
     async with app.run_test(size=(160, 50)) as pilot:
         await wait_until(lambda: first_load_landed(app))
 
-        # The Footer recomposes its keys after the bindings settle, emptying
-        # itself for a frame or two each time, so wait for the shown entry
-        # rather than read the keys after one pause.
-        footer = app.query_one(Footer)
-        await wait_until(
-            lambda: (
-                ("x", "Delete Branch/Worktree")
-                in [
-                    (key.key, key.description)
-                    for key in footer.query(FooterKey)
-                    if key.display
-                ]
-            )
-        )
+        shown = await footer_showing(app, {"x"})
+        assert shown["x"] == "Delete Branch/Worktree"
 
         await pilot.press("question_mark")
         await pilot.pause()
@@ -811,7 +800,7 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
         await wait_until(lambda: isinstance(app.screen, CleanupScreen))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
 
         # The first choice has focus, never the button, so a stray Enter
         # after x confirms nothing; the reason and the buttons are on screen
@@ -1044,7 +1033,7 @@ async def test_long_worktree_identity_and_all_ignored_paths_are_accessible(size)
     app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
     async with app.run_test(size=size) as pilot:
         await app.push_screen(CleanupScreen(WORKTREE_REQUEST, shown))
-        await pilot.pause()
+        await settled(pilot, lambda: screen_regions(app), "the Cleanup preview")
         screen = cleanup_screen(app)
         subject = screen.query_one("#cleanup-subject", Static)
         assert str(subject.render()) == Path(long_path).name
@@ -1105,8 +1094,14 @@ async def test_content_integration_and_changed_preview_keep_consequences_explici
         # default Branch choice: the person selects and confirms again.
         assert screen.selected() == (TREE.identity,)
         await pilot.press("space", "down")
-        await pilot.pause()
-        branch_summary = screen.targets()[1].query_one(".cleanup-summary", Static)
+        # Focus moves at once; the preview scrolls the Branch into view once
+        # it is laid out.
+        branch = screen.targets()[1]
+        await wait_until(
+            lambda: app.focused is not None and branch in app.focused.ancestors
+        )
+        await settled(pilot, lambda: screen_regions(app), "the focused Branch")
+        branch_summary = branch.query_one(".cleanup-summary", Static)
         body = screen.query_one("#cleanup-body")
         assert branch_summary.region.bottom <= body.region.bottom
         assert branch_summary.region.y >= body.region.y

@@ -184,8 +184,8 @@ async def assert_every_header_shows_its_help(
         assert str(tooltip.content) == required(column_help(column)), column.label
         # A box a person can take in beside the header, not a page: the
         # help stays a short paragraph at the widened tooltip.
-        await pilot.pause()
-        assert tooltip.region.height <= 20, column.label
+        box = await settled(pilot, lambda: tooltip.region, f"the {column.label} help")
+        assert box.height <= 20, column.label
 
     # Moving between headers without leaving follows the mouse, and a body
     # cell clears it: the cell is at the far right, clear of the box the
@@ -254,8 +254,8 @@ async def test_every_branches_header_shows_its_help_and_only_its_help() -> None:
             assert required(column.description) in str(tooltip.content)
             # A box a person can take in beside the header, not a page:
             # the help stays a short paragraph at the widened tooltip.
-            await pilot.pause()
-            assert tooltip.region.height <= 20, column.key
+            box = await settled(pilot, lambda: tooltip.region, f"the {column.key} help")
+            assert box.height <= 20, column.key
 
         # Moving between headers without leaving follows the mouse.
         await move_to_header(pilot, tooltip, "#branches", 6)
@@ -378,8 +378,13 @@ async def test_header_help_follows_the_column_under_a_scrolled_header() -> None:
         table = app.query_one("#table", FocusCursorTable)
         tooltip = app.screen.query_one(Tooltip)
         table.add_row("a", "b", "c")
-        await pilot.pause()
-        assert table.virtual_size.width > table.size.width
+        # The table measures the new row's cells while idle.
+        virtual, visible = await settled(
+            pilot,
+            lambda: (table.virtual_size.width, table.size.width),
+            "the wide table's width",
+        )
+        assert virtual > visible
 
         await hover_afresh(pilot, tooltip, "#table", 0, 0)
         await wait_until(lambda: tooltip.display)
@@ -388,7 +393,8 @@ async def test_header_help_follows_the_column_under_a_scrolled_header() -> None:
         # Scroll the wide column away; the header at the left edge is now
         # a later column, and so is its help.
         table.scroll_to(x=table.virtual_size.width, animate=False, force=True)
-        await pilot.pause()
+        # The scroll is applied after the next refresh, even unanimated.
+        await wait_until(lambda: table.scroll_x == table.max_scroll_x > 0)
         await hover_afresh(pilot, tooltip, "#table", table.size.width - 2, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == "last"
@@ -608,7 +614,6 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
     async with app.run_test(size=(100, 30), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        await pilot.pause()
         table = app.query_screen.query_one("#queue", DataTable)
         tooltip = app.screen.query_one(Tooltip)
         assert table.row_count == 0
@@ -621,10 +626,15 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
 
         # Every column but PRIORITY, which no listed Issue gives a value.
         app.query_screen.issue_table.apply_issue_columns(COLUMN_KEYS)
-        await pilot.pause()
         assert issue_columns(app) == shown_columns(COLUMN_KEYS, ())
         assert "priority" not in issue_columns(app)
-        assert table.virtual_size.width > table.size.width
+        # The redeclared table measures its columns while idle.
+        virtual, visible = await settled(
+            pilot,
+            lambda: (table.virtual_size.width, table.size.width),
+            "the Issue table's width",
+        )
+        assert virtual > visible
         await hover_afresh(pilot, tooltip, "#queue", 0, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
@@ -634,7 +644,8 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
         # Scrolled to the end, the header at the right edge is the last
         # column, and so is its help; the frozen first column stays.
         table.scroll_to(x=table.virtual_size.width, animate=False, force=True)
-        await pilot.pause()
+        # The scroll is applied after the next refresh, even unanimated.
+        await wait_until(lambda: table.scroll_x == table.max_scroll_x > 0)
         await hover_afresh(pilot, tooltip, "#queue", table.size.width - 2, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
