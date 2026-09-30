@@ -108,19 +108,27 @@ Each request verifies the Repository and principal in its own response
 ([ADR 0055](adr/0055-verify-the-query-context-in-the-response-that-carries-it.md)),
 so a refresh sends no separate context request.
 
-On 2026-09-26 this Repository had 33 open Issues. Over four minutes, every
-GitHub refresh sent 5 requests: 2 Query Pages, each counting its Project
+On 2026-09-30 one dashboard ran on this Repository, which had 30 open
+Issues, for exactly an hour at the default Refresh Periods. Its Event Log's
+`github.request` spans
+([Read the Event Log](installation.md#read-the-event-log)) recorded 61
+GitHub refreshes of 5 requests each: 2 Query Pages, each counting its Project
 Totals, the 2 Issue batches that complete the Issues page, and 1 Resolved
-Issues batch. The local refreshes between them sent none. That is about 5 to 7
-points a minute, depending on how many Issues the page and the bound Issues
-span. One open dashboard spends roughly 300 to 420 points an hour, under a
-tenth of a personal account's 5,000. Before ADR 0057, separate Project Totals
-requests made it 7 a refresh, 420 to 540 an hour; before ADR 0056, the
-15-second period spent 1,900 to 2,400.
+Issues batch. None was a separate context request, and the local refreshes
+between them sent nothing. That hour came to 307 requests and 307 points,
+every request costing 1 point and none failing. One open dashboard spends
+about 300 points an hour, 6% of a personal account's 5,000. It spent about
+3,500 before ADR 0055 removed the separate context requests, 1,900 to 2,400
+at the 15-second period before ADR 0056, and 420 to 540 with separate
+Project Totals requests before ADR 0057.
 
-[#308](https://github.com/ned2/dashpot/issues/308) tracks bringing an open
-dashboard well inside the allowance; update this section as its sub-issues
-land.
+That is the final measurement for
+[#308](https://github.com/ned2/dashpot/issues/308), which brought an open
+dashboard well inside the allowance. Each of the 5 requests keeps the Query
+Pages, their Project Totals or the bound Issues current within the GitHub
+Refresh Period, so none can be removed without leaving them stale. What
+remains is [#354](https://github.com/ned2/dashpot/issues/354): pausing GitHub
+queries while nobody is watching the dashboard.
 
 ## Staying inside the limit
 
