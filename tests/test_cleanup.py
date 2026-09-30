@@ -496,6 +496,7 @@ def publish_subagent(
     *,
     session: str = PARENT_SESSION,
     minute: int = 41,
+    process: ProcessIdentity = PARENT,
 ) -> None:
     """Publish one sub-agent boundary as the Claude Code hook would.
 
@@ -515,7 +516,7 @@ def publish_subagent(
             "event": event,
             "agentId": agent,
             "lastActivityAt": f"2026-08-30T03:{minute:02d}:00.000000Z",
-            "sessionProcess": PARENT.as_record(),
+            "sessionProcess": process.as_record(),
         },
         store,
     )
@@ -599,6 +600,25 @@ def test_a_sub_agent_still_blocks_after_its_parent_moves_to_another_worktree(
         f"Claude Code session {PARENT_SESSION} at {sibling} has 1 sub-agent "
         "working (a686b12; session live)."
     )
+
+
+def test_a_record_left_by_a_gone_process_holds_no_sub_agent(
+    tmp_path: Path,
+) -> None:
+    root, target, sibling = sub_agent_worktrees(tmp_path)
+    # A process that has since exited dispatched a sub-agent at the main
+    # Worktree; the session now runs under the live parent at the sibling.
+    exited = ProcessIdentity(6666, 1, "claude", "Tue Aug 25 01:00:00 2026")
+    publish_subagent(
+        session_directory(root), root, "SubagentStart", "a686b12", process=exited
+    )
+    publish_subagent(
+        session_directory(sibling), sibling, "SubagentStop", "a3932", minute=45
+    )
+
+    preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    assert preview.targets[0].available is True
 
 
 def test_a_parent_session_that_is_gone_leaves_no_sub_agent_blocker(

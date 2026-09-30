@@ -43,8 +43,8 @@ might be working in it.
   record, so a session that dispatched sub-agents and then entered another
   Worktree holds them only in the record it left behind: the live set is the
   union over every record of the session that is not over, and the blocker
-  reports the session's freshest location. The blocker names the session, where it is, and the
-  agent IDs. It also says that Dashpot cannot tell which Worktree a sub-agent
+  reports the session's freshest location. The blocker names the session,
+  where it is, and the agent IDs. It also says that Dashpot cannot tell which Worktree a sub-agent
   works in, so the block is not read as a claim that a sub-agent is here. A
   session that is already at the target is reported only as the
   `agent-session` occupant.
@@ -94,8 +94,12 @@ might be working in it.
 - A sub-agent that stops after its session has moved to another Worktree
   has its `SubagentStop` recorded in the new Worktree's store, which never
   listed it, so the record left behind keeps it live and the block holds
-  until the session's process exits. The block errs toward refusing a
-  removal rather than allowing one.
+  until that Worktree records the session's `SessionEnd` or the session's
+  process exits; a `SessionStart` in the new Worktree does not clear it.
+  Likewise a session that moved on from the Repository to a checkout outside
+  it still blocks the Repository's Worktrees while a record it left there
+  holds a live sub-agent, and the blocker names its location outside. Both
+  err toward refusing a removal rather than allowing one.
 - Relocating occupants during Cleanup
   ([#148](https://github.com/ned2/dashpot/issues/148)) must account for
   sub-agents under this rule. It cannot place one either, unless a new source

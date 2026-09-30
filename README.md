@@ -203,8 +203,8 @@ unavailable, and hold their Branches unavailable with them. That includes
 every Worktree of a Repository while a Claude Code session in it has a
 live sub-agent, since Dashpot cannot tell which Worktree a sub-agent works in
 ([sub-agents and Worktree Cleanup](docs/agent-sessions.md#sub-agents-and-worktree-cleanup)).
-A Branch blocked as unintegrated against a Remote-Tracking Branch says that `f` checks again if
-the work has since merged
+A Branch blocked as unintegrated against a Remote-Tracking Branch says that
+`f` checks again if the work has since merged
 ([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md)).
 
 For a Branch row, the local Branch is primary when present, otherwise the sole
@@ -839,8 +839,8 @@ Branch with commits the Integration Branch does not reach, or a Worktree that
 is the main one, dirty, locked, occupied by an Agent Session or Agent Run,
 possibly occupied by a live Claude Code sub-agent of a session in the
 Repository, the checkout the command runs from, or a configured Repository
-Anchor (the checkout's own root when it carries a Project configuration, and every anchor
-of the Workspace config). Every target reports its own outcome —
+Anchor (the checkout's own root when it carries a Project configuration, and
+every anchor of the Workspace config). Every target reports its own outcome —
 `deleted`, `already-absent`, `refused`, or `unknown` when Git did not answer —
 with the command that recreates a deleted one, and after a refused or unknown
 outcome the remaining targets are not attempted. `--dry-run` validates the

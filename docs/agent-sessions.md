@@ -83,16 +83,17 @@ working, removal of every Worktree of that Repository is blocked
 A session whose liveness is unknown counts as live here. The session is in
 the Repository when a hook record places it at one of the Repository's
 Worktrees; a session that moved between Worktrees has a record in each, and
-its sub-agents are those any of them holds. The `sub-agent` blocker appears in
-`dashpot worktree check`, the Cleanup preview, and `dashpot worktree remove`,
-and again on confirmation. It names the session, its location, and the
+its sub-agents are those any of them holds. The `sub-agent` blocker appears
+in `dashpot worktree check`, the Cleanup preview, and
+`dashpot worktree remove`, and again on confirmation. It names the session, its location, and the
 agent IDs, and says that Dashpot cannot tell where a sub-agent works. It
 clears when the last sub-agent's `SubagentStop` arrives, when the session
 ends or starts again, or when the session's process is gone. A sub-agent
 dispatched before its session entered another Worktree stays in the record
-left behind, so it holds the block until the session's process exits. A session at
-the Worktree itself is reported as that Worktree's `agent-session` occupant
-instead.
+left behind, so it holds the block until that Worktree records the
+session's end or the session's process exits, even after the session has
+left the Repository. A session at the Worktree itself is reported as that
+Worktree's `agent-session` occupant instead.
 
 This covers only sessions whose hooks place them in the Repository. A
 sub-agent of a session launched outside every Worktree of the Repository is
