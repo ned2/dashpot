@@ -568,7 +568,7 @@ async def test_a_manual_refresh_lifts_a_rate_limit_pause_for_one_attempt() -> No
         # the one after it is held.
         pause = shared.pause
         assert started is not None and pause is not None
-        assert (pause.until, pause.lifted) == (started.until, True)
+        assert (pause.until, pause.attempt_allowed) == (started.until, True)
         shared.admit()
         with pytest.raises(GitHubRequestError):
             shared.admit()

@@ -61,6 +61,8 @@ REFRESH_BUDGET = "github-refresh-budget"
 # back off exponentially; an hour is the longest a primary window lasts.
 PAUSE_BACKOFF = timedelta(minutes=1)
 PAUSE_BACKOFF_LIMIT = timedelta(hours=1)
+# The fewest doublings of the backoff that reach its limit.
+_PAUSE_BACKOFF_DOUBLINGS = (PAUSE_BACKOFF_LIMIT // PAUSE_BACKOFF).bit_length()
 
 # GitHub's structured GraphQL error types, the first signal read.
 _GRAPHQL_ERROR_TYPES = {
@@ -111,13 +113,13 @@ class RateLimit:
 class RateLimitPause:
     """A stretch when GraphQL requests are held after GitHub refused one for its rate limit.
 
-    ``until`` is when requests are due to be sent again; ``lifted`` is set
-    while a manual refresh's one attempt waits to be sent.
+    ``until`` is when requests are due to be sent again; ``attempt_allowed``
+    is set from a manual refresh until the one attempt it allows is sent.
     """
 
     limit: RateLimitKind
     until: datetime
-    lifted: bool = False
+    attempt_allowed: bool = False
 
     @property
     def until_text(self) -> str:
@@ -143,7 +145,7 @@ class LatestRateLimit:
 
     It also holds the Rate Limit Pause: once GitHub refuses one GraphQL
     request for its rate limit, no gateway sharing this one sends another
-    until the pause lapses, or a manual refresh's one attempt is answered
+    until the pause lapses, or a manual refresh's one attempt succeeds
     (ADR 0065).
     """
 
@@ -152,7 +154,7 @@ class LatestRateLimit:
         self._clock = clock or _utc_now
         self._reading: RateLimit | None = None
         self._pause: RateLimitPause | None = None
-        # Refusals in a row, which the first answer after them clears.
+        # Refusals in a row, which the first success after them clears.
         self._refusals = 0
         # Advanced by every refusal that starts a pause, so a request sent
         # before it neither extends that pause nor ends it. While a pause is
@@ -191,33 +193,34 @@ class LatestRateLimit:
 
         Returns the ticket the request's outcome is reported under. A lifted
         pause admits exactly one request, its attempt, and holds every other
-        until that attempt's answer ends the pause or its refusal restarts
+        until that attempt's success ends the pause or its refusal restarts
         it. The first request admitted after a pause lapses records the lapse.
         """
         with self._lock:
             pause = self._pause
             ticket = self._generation
             if pause is not None and self._clock() < pause.until:
-                if not pause.lifted:
+                if not pause.attempt_allowed:
                     raise GitHubRequestError(
                         RATE_LIMIT,
                         "GitHub query not sent: GitHub queries are paused until "
                         f"{pause.until_text} after a rate limit refusal",
                     )
-                self._pause = replace(pause, lifted=False)
+                self._pause = replace(pause, attempt_allowed=False)
                 return ticket
             self._pause = None
-        # Recorded outside the lock, like every pause change, so a request
-        # on another thread can record its own change first.
+        # Recorded outside the lock, like every pause change, so no request
+        # waits on the lock while an Event Log is written.
         if pause is not None:
             _record_pause("lapsed", pause)
         return ticket
 
     def answered(self, ticket: int) -> None:
-        """Clear the refusals in a row once a request sent since the last one answers.
+        """Clear the refusals in a row once a request sent since the last refusal succeeds.
 
-        A pause still in force was lifted, and this was its attempt: the
-        answer ends it.
+        A pause still held was lifted, and this was its attempt: its success
+        ends the pause, as lifted, or as lapsed when it came back after the
+        pause was due to end anyway.
         """
         with self._lock:
             if ticket != self._generation:
@@ -225,8 +228,9 @@ class LatestRateLimit:
             self._refusals = 0
             pause = self._pause
             self._pause = None
+            lapsed = pause is not None and self._clock() >= pause.until
         if pause is not None:
-            _record_pause("lifted", pause)
+            _record_pause("lapsed" if lapsed else "lifted", pause)
 
     def refused(self, ticket: int, limit: RateLimitKind) -> None:
         """Pause every sharing gateway after GitHub refused a request for its rate limit.
@@ -254,9 +258,10 @@ class LatestRateLimit:
             ):
                 until = reset
             else:
-                until = now + min(
-                    PAUSE_BACKOFF * 2 ** (self._refusals - 1), PAUSE_BACKOFF_LIMIT
-                )
+                # The exponent stops growing once the backoff passes its
+                # limit, before the doubling outgrows ``timedelta``.
+                doublings = min(self._refusals - 1, _PAUSE_BACKOFF_DOUBLINGS)
+                until = now + min(PAUSE_BACKOFF * 2**doublings, PAUSE_BACKOFF_LIMIT)
             pause = RateLimitPause(limit, until)
             self._pause = pause
         _record_pause("started", pause)
@@ -264,14 +269,14 @@ class LatestRateLimit:
     def lift(self) -> None:
         """Let exactly one request try GitHub before the pause is due to end.
 
-        Its answer ends the pause; a refusal restarts it, keeping the count
+        Its success ends the pause; a refusal restarts it, keeping the count
         of refusals in a row, so a secondary limit's backoff keeps doubling.
-        Failing for any other reason leaves the pause in force, no longer
-        lifted.
+        Failing for any other reason leaves the pause in force, holding the
+        next request again.
         """
         with self._lock:
             if self._pause is not None:
-                self._pause = replace(self._pause, lifted=True)
+                self._pause = replace(self._pause, attempt_allowed=True)
 
 
 def _utc_now() -> datetime:

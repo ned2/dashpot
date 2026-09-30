@@ -169,8 +169,8 @@ an hour. While it lasts:
 - The Event Log records a `rate_limit_pause.changed` event when the pause
   starts, and when it lapses or is lifted.
 - A GitHub refresh sends nothing. `r` lifts the pause for one attempt: the
-  next GraphQL request goes to GitHub and the rest stay held. An answer ends
-  the pause; a refusal pauses again.
+  next GraphQL request goes to GitHub and the rest stay held. Its success
+  ends the pause; a refusal pauses again.
 
 The pause belongs to one dashboard. Another dashboard, or an agent's `gh`,
 still spends the allowance and is refused in its own way.

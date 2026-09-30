@@ -11,7 +11,7 @@ import json
 import os
 import sys
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -493,6 +493,40 @@ def test_each_request_of_a_fan_out_records_its_own_reading(
         request["attributes"]["dashpot.github.rate_limit.remaining"]
         for request in requests
     ) == [4970, 4980, 4990]
+
+
+def test_an_attempt_answered_after_the_pause_was_due_records_a_lapse(
+    recording: Path, tmp_path: Path
+) -> None:
+    refusal = json.dumps({"data": None, "errors": [{"type": "RATE_LIMITED"}]})
+    clock = [datetime(2026, 9, 27, 12, 30, tzinfo=UTC)]
+    answers = iter(
+        [
+            CommandResult([], 1, refusal, ""),
+            CommandResult([], 0, json.dumps({"data": reading(4000)}), ""),
+        ]
+    )
+
+    def runner(args: object, cwd: object, timeout: object) -> CommandResult:
+        answer = next(answers)
+        if answer.returncode == 0:
+            # The attempt comes back after the pause was due to end.
+            clock[0] += timedelta(minutes=2)
+        return answer
+
+    shared = LatestRateLimit(clock=lambda: clock[0])
+    gateway = GitHubGateway(tmp_path, runner=runner, latest_rate_limit=shared)
+    with pytest.raises(GitHubRequestError):
+        gateway.graphql(QUERY, {"id": "I_1"})
+
+    shared.lift()
+    gateway.graphql(QUERY, {"id": "I_1"})
+
+    assert [
+        event["dashpot.rate_limit_pause.change"]
+        for event in written(recording)
+        if event["event.name"] == "rate_limit_pause.changed"
+    ] == ["started", "lapsed"]
 
 
 def test_a_rest_request_is_a_span_of_its_own(recording: Path, tmp_path: Path) -> None:

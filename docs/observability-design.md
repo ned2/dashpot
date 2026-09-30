@@ -154,7 +154,7 @@ Dashpot's camelCase aliases with these names explicitly.
 | `dashpot.issue.previous_id`, `dashpot.worktree.previous_path` | `agent_session.changed` | The Issue a session was bound to before `switched` or `unbound`; the Worktree it left when `relocated` |
 | `dashpot.diagnostic.change`, `dashpot.diagnostic.severity` | `diagnostic.changed` | `appeared` or `cleared`, and the Diagnostic's severity |
 | `dashpot.diagnostic.source`, `dashpot.diagnostic.code` | `diagnostic.changed` | What identifies the Diagnostic, with its Project; `uncoded` for one without a code |
-| `dashpot.rate_limit_pause.change`, `dashpot.rate_limit_pause.limit` | `rate_limit_pause.changed` | A Rate Limit Pause `started`, `lapsed` at its due time, or `lifted` by `r`, and the limit that refused: `primary` or `secondary` |
+| `dashpot.rate_limit_pause.change`, `dashpot.rate_limit_pause.limit` | `rate_limit_pause.changed` | A Rate Limit Pause `started`, `lapsed` at its due time, or `lifted`: ended early by a manual refresh's attempt that succeeded; and the limit that refused: `primary` or `secondary` |
 | `dashpot.rate_limit_pause.until` | `rate_limit_pause.changed` | When the pause was due to end; a `lifted` pause ended before it |
 | `dashpot.span.name`, `span_id`, `parent_span_id` | `span` | What the span timed, its ID and its parent's |
 | `otel.status_code` | `span` | `OK` or `ERROR` |
@@ -190,8 +190,8 @@ fields, beside the dashboard's own run ID and kind, so `dashpot events
 Project on its own events once it is observed. A `rate_limit_pause.changed` is
 recorded by the request that saw the change: the refused request records
 `started`, the first request admitted after the pause's due time records
-`lapsed`, and a manual refresh's attempt that GitHub answered records
-`lifted`. A runtime value that does not
+`lapsed`, and a manual refresh's attempt that succeeded before the due
+time records `lifted`. A runtime value that does not
 fit its field, such as a Branch name Git would refuse, is left out of the
 event rather than failing the work. The reader is tolerant: it ignores fields a newer Dashpot added and skips a line
 it cannot read, whose `schema` is newer, or whose `event.name` it does not

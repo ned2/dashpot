@@ -285,8 +285,8 @@ gateway sharing that rate limit sends another; each request is held,
 failing with `github-rate-limit` without reaching GitHub. It lasts until the
 reset the latest reading names when that reading showed the points running
 low, or otherwise for a backoff that doubles with each refusal in a row. A
-manual refresh (`r`) lifts it for one attempt, whose answer ends it. Local observation never
-pauses. A dashboard's Query Sources share one pause, so one refusal holds
+manual refresh (`r`) lifts it for one attempt, whose success ends it. Local
+observation never pauses. A dashboard's Query Sources share one pause, so one refusal holds
 them all; another dashboard, or an agent's `gh`, is not held
 ([ADR 0065](adr/0065-pause-github-queries-after-a-rate-limit-refusal.md)).
 _Avoid_: backoff alone, which is how long one kind of pause lasts; throttling,
@@ -555,8 +555,8 @@ work could not be done, so a non-zero exit read as an answer is an attribute
 of a successful span. A standalone event is something that is not a unit of
 work: a process starting or ending, a level change, a hook's or management
 command's outcome, an Agent Session changing, a Diagnostic appearing or
-clearing, a Rate Limit Pause starting, lapsing or being lifted. Every Runtime Event names its process by an opaque run ID and
-kind, and the Agent Session Identity, Project, Worktree and Issue when they
+clearing, a Rate Limit Pause starting, lapsing or being lifted. Every
+Runtime Event names its process by an opaque run ID and kind, and the Agent Session Identity, Project, Worktree and Issue when they
 are known; an event a dashboard records about an Agent Session or a
 Diagnostic names that subject's instead of its own. It holds identifiers and
 measurements, never free text: an error is its code or class, never its

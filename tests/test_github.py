@@ -516,15 +516,18 @@ class RateLimitPauseTests(unittest.TestCase):
 
     def test_the_backoff_stops_doubling_at_an_hour(self) -> None:
         waits: list[timedelta] = []
-        for _ in range(8):
+        # Far past the refusals in a row at which doubling a minute would
+        # outgrow ``timedelta``.
+        for _ in range(100):
             self.shared.refused(self.shared.admit(), "primary")
             waits.append(self.wait())
             self.clock.now += waits[-1]
 
         self.assertEqual(
-            [timedelta(minutes=minutes) for minutes in (1, 2, 4, 8, 16, 32, 60, 60)],
-            waits,
+            [timedelta(minutes=minutes) for minutes in (1, 2, 4, 8, 16, 32)],
+            waits[:6],
         )
+        self.assertEqual({timedelta(hours=1)}, set(waits[6:]))
 
     def test_a_secondary_limit_backs_off_even_with_the_points_low(self) -> None:
         gate, _ = self.sharing(answered(40), secondary_refusal())
@@ -574,6 +577,24 @@ class RateLimitPauseTests(unittest.TestCase):
         attempt = self.shared.admit()
         self.shared.answered(attempt)
         self.assertIsNone(self.shared.pause)
+
+    def test_an_attempt_github_answers_with_another_error_leaves_the_pause(
+        self,
+    ) -> None:
+        gate, runner = self.sharing(
+            primary_refusal(),
+            graphql_failure(type="FORBIDDEN", path=[], message="denied"),
+        )
+        self.refuse(gate)
+
+        self.shared.lift()
+        with self.assertRaises(GitHubRequestError) as caught:
+            gate.graphql(QUERY, {})
+
+        self.assertEqual("github-permission", caught.exception.code)
+        self.assertEqual(timedelta(minutes=1), self.wait())
+        self.held(gate, runner)
+        self.assertEqual(2, len(runner.calls))
 
     def test_lifting_without_a_pause_changes_nothing(self) -> None:
         self.shared.lift()

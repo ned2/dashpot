@@ -39,18 +39,22 @@ because the allowance is the account's, not one gateway's.
   `x-ratelimit-reset` are not read.
 - **Otherwise it backs off.** A secondary limit's refusal, named by
   `secondary` or `abuse detection` in GitHub's message, or a primary
-  refusal the latest reading does not explain, waits one minute. Each further refusal in a
-  row doubles the wait, up to an hour. The first request that GitHub
-  answers resets the count. A request sent before the pause started, and
-  answered or refused after it, neither extends the pause nor resets the
-  count.
+  refusal the latest reading does not explain, waits one minute. Each
+  further refusal in a row doubles the wait, up to an hour. The first
+  request that succeeds resets the count; a request failing for another
+  reason, even with an answer from GitHub, leaves it. A request sent before
+  the pause started, and succeeding or refused after it, neither extends
+  the pause nor resets the count.
 - **A manual refresh tries once.** `r` lifts the pause: exactly one
   GraphQL request, the first any Query Source sends after the press, goes to
-  GitHub, and every other stays held. If GitHub answers it, the pause ends.
-  If GitHub refuses it, the pause starts again, and the count of refusals in
-  a row is kept, so a secondary limit's backoff keeps doubling. If it fails
-  some other way, the pause stays in force, no longer lifted. The timers are not changed: a GitHub tick during a pause
-  asks its sources as usual, and their held requests fail at once.
+  GitHub, and every other stays held. If it succeeds, the pause ends. If
+  GitHub refuses it for its rate limit, the pause starts again, and the
+  count of refusals in a row is kept, so a secondary limit's backoff keeps
+  doubling. If it fails some other way, the pause stays in force and holds
+  the next request again: only a success shows the limit no longer
+  refuses. Each press allows one attempt. The timers are not changed: a
+  GitHub tick during a pause asks its sources as usual, and their held
+  requests fail at once.
 - **Local observation is unaffected.** Worktrees, Branches, Agent Sessions
   and Agent Runs do not go through the gateway.
 - **The pause shows in three places.**
@@ -62,7 +66,9 @@ because the allowance is the account's, not one gateway's.
   - The gateway records a standalone `rate_limit_pause.changed` Runtime
     Event at `standard`: `started` by the refused request, `lapsed` by the
     first request admitted after the pause's due time, and `lifted` by a
-    manual refresh's attempt that GitHub answered. Each carries the limit
+    manual refresh's attempt that succeeded before it. A press whose attempt
+    is refused records another `started`, and one whose attempt fails some
+    other way records nothing. Each carries the limit
     that refused (`primary` or `secondary`) and when the pause was due to
     end.
   - Runtime Stats leads its GitHub allowance section with the pause while
