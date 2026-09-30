@@ -103,8 +103,50 @@ def is_codex_host_process(process: ProcessIdentity) -> bool:
 
 
 def is_claude_code_host_process(process: ProcessIdentity) -> bool:
-    """Whether a process is the Claude Code harness itself."""
-    return Path(process.command).name.lower() == "claude"
+    """Whether a process is the Claude Code harness itself.
+
+    A process started through the launcher is named ``claude``. A worker of
+    the background supervisor is named after its version instead, as are the
+    supervisor and each worker's PTY host, so a version-shaped name admits
+    only a process whose argument vector has a measured worker shape.
+    """
+    if Path(process.command).name.lower() == "claude":
+        return True
+    return is_claude_code_supervised_worker(process)
+
+
+# The native installer's executable, and so the name of every process the
+# background supervisor runs, is its version: ``2.1.285``.
+CLAUDE_CODE_VERSION_NAME = re.compile(r"^\d+\.\d+\.\d+$")
+CLAUDE_CODE_SPARE_WORKER_ARGUMENTS = "claude bg-spare --bg-spare "
+# The executable's path is matched whole, so a home directory with a space in
+# it still reads as one path.
+CLAUDE_CODE_SPAWNED_WORKER_ARGUMENTS = re.compile(
+    r"^/.*/claude/versions/(\d+\.\d+\.\d+) (?:--session-id|--resume) \S"
+)
+
+
+def is_claude_code_supervised_worker(process: ProcessIdentity) -> bool:
+    """Whether a version-named process is a worker of Claude Code's supervisor.
+
+    Measured on Linux at 2.1.276 and 2.1.285, a worker starts in one of three
+    shapes: the installer's versioned executable with ``--session-id`` when
+    spawned for a new session, the same with ``--resume <transcript>`` when
+    the supervisor replaces a worker that died, or ``claude bg-spare`` when it
+    claimed a pre-warmed spare, as a new session or a respawn may. Only the
+    start of the argument vector counts, since a PTY host's arguments carry
+    its worker's whole command after ``--``. The supervisor (``daemon run``),
+    the PTY host (``bg-pty-host``), and the ``agents`` and ``attach`` clients
+    have other shapes and are no session's worker, so they are never the host.
+    """
+    version = Path(process.command).name
+    if not CLAUDE_CODE_VERSION_NAME.fullmatch(version):
+        return False
+    arguments = process.arguments or ""
+    if arguments.startswith(CLAUDE_CODE_SPARE_WORKER_ARGUMENTS):
+        return True
+    spawned = CLAUDE_CODE_SPAWNED_WORKER_ARGUMENTS.match(arguments)
+    return spawned is not None and str(spawned.group(1)) == version
 
 
 def _codex_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
@@ -144,7 +186,8 @@ CODEX = HarnessAdapter(
 )
 
 # One Claude Code process per session: its sub-agents share the parent's
-# session as well as its process.
+# session as well as its process, and each supervised worker, a spare
+# included, hosts one session for its whole life.
 CLAUDE_CODE = HarnessAdapter(
     harness="claude-code",
     display=HARNESS_DISPLAY["claude-code"],

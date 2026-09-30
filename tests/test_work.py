@@ -1700,3 +1700,198 @@ def test_an_unwritable_work_store_never_breaks_the_hook(
         resume(root, CLAUDE_SESSION, "claude-code", RESUMED_CLAUDE, ONLY_RESUMED)
 
     assert WorkStore(root).active() == before
+
+
+# --- A supervised Claude Code worker hosts its session (ADR 0053) ------------
+
+# The processes Claude Code's background supervisor runs, as ``ps`` reported
+# them at 2.1.285 (docs/measurements/issue-326-claude-trace.jsonl): each named
+# after its version, and told apart only by its argument vector.
+EXECUTABLE = "/home/person/.local/share/claude/versions/2.1.285"
+TRANSCRIPT = f"/home/person/.claude/projects/-repo/{CLAUDE_SESSION}.jsonl"
+DIRECT_WORKER = ProcessIdentity(
+    5100,
+    5090,
+    "2.1.285",
+    "Thu Oct 01 09:00:00 2026",
+    f"{EXECUTABLE} --session-id {CLAUDE_SESSION} fix the crash --name fixture",
+)
+# The supervisor's replacement for a worker that died, resumed from its
+# transcript as measured. A replacement in a pre-warmed spare is inferred, not
+# measured: ``claude respawn`` after ``claude stop`` landed in one.
+RESUMED_WORKER = ProcessIdentity(
+    5200,
+    5190,
+    "2.1.285",
+    "Thu Oct 01 09:05:00 2026",
+    f"{EXECUTABLE} --resume {TRANSCRIPT} --name fixture",
+)
+SPARE_WORKER = ProcessIdentity(
+    5300,
+    5290,
+    "2.1.285",
+    "Thu Oct 01 09:05:00 2026",
+    "claude bg-spare --bg-spare /tmp/cc-daemon-1000/b4bd083d/spare/c8d0aec7.claim.sock",
+)
+SUPERVISOR = ProcessIdentity(
+    5000,
+    1,
+    "2.1.285",
+    "Thu Oct 01 08:59:00 2026",
+    f'{EXECUTABLE} daemon run --origin transient --spawned-by {{"label":"claude --bg"}}',
+)
+# A PTY host's arguments carry its worker's whole command after ``--``.
+PTY_HOST = ProcessIdentity(
+    5190,
+    5000,
+    "2.1.285",
+    "Thu Oct 01 09:05:00 2026",
+    "claude bg-pty-host --bg-pty-host /tmp/cc-daemon-1000/b4bd083d/pty/01c7192b.sock "
+    f"200 50 -- {EXECUTABLE} --resume {TRANSCRIPT}",
+)
+UNRELATED = ProcessIdentity(
+    5400, 1, "1.4.2", "Thu Oct 01 09:05:00 2026", "/opt/sync/1.4.2 --session-id 7"
+)
+# The hook or shell's own parent: a shell below the harness process.
+SHELL_PID = 10
+WORKER_ENVIRON = {
+    "CLAUDE_CODE_SESSION_ID": CLAUDE_SESSION,
+    "CLAUDE_PID": str(DIRECT_WORKER.pid),
+}
+
+
+@pytest.fixture
+def shell_below(monkeypatch: pytest.MonkeyPatch) -> Callable[..., ProcessLookup]:
+    """Build a lookup whose ancestry walk meets ``host`` just above a shell.
+
+    ``running`` are the other processes still alive; every other PID is gone.
+    """
+    monkeypatch.setattr("dashpot.sessions.processes.os.getppid", lambda: SHELL_PID)
+
+    def lookup(host: ProcessIdentity, *running: ProcessIdentity) -> ProcessLookup:
+        shell = ProcessIdentity(SHELL_PID, host.pid, "bash", host.started_at)
+        return table_lookup(
+            {process.pid: process for process in (shell, host, *running)}
+        )
+
+    return lookup
+
+
+def worker_hook(
+    root: Path, lookup: ProcessLookup, event: str = "SessionStart"
+) -> HookPublication:
+    """Publish ``event`` as Claude Code's hook command below a worker would."""
+    return publish_hook_event(
+        {"session_id": CLAUDE_SESSION, "cwd": str(root), "hook_event_name": event},
+        harness="claude-code",
+        lookup=lookup,
+    )
+
+
+def worker_run(root: Path, lookup: ProcessLookup) -> None:
+    """Start Issue work from a shell of the directly spawned worker."""
+    worker_hook(root, lookup)
+    start_issue_work(root, "build-observer", lookup=lookup, environ=WORKER_ENVIRON)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        pytest.param(RESUMED_WORKER, id="resumed-from-its-transcript"),
+        pytest.param(SPARE_WORKER, id="replaced-in-a-spare"),
+    ],
+)
+def test_a_replaced_worker_continues_its_orphaned_run(
+    tmp_path: Path,
+    shell_below: Callable[..., ProcessLookup],
+    replacement: ProcessIdentity,
+) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    worker_run(root, shell_below(DIRECT_WORKER, SUPERVISOR))
+    (before,) = WorkStore(root).active()[0]
+    assert before.session_process == SessionProcess(
+        pid=DIRECT_WORKER.pid, started_at=DIRECT_WORKER.started_at
+    )
+    # The worker is killed; until the supervisor replaces it, the run is
+    # orphaned.
+    orphaned, _ = observe_agent_runs(
+        {"project:test": [target(root)]},
+        state_directory(),
+        lookup=table_lookup({SUPERVISOR.pid: SUPERVISOR}),
+    )
+    assert [run.orphaned for run in orphaned] == [True]
+
+    # Its replacement publishes SessionStart ``resume`` from a new pid at the
+    # same Worktree.
+    replaced = shell_below(replacement, SUPERVISOR)
+    publication = worker_hook(root, replaced)
+
+    assert (publication.work, publication.issue_id) == ("continued", before.issue_id)
+    runs, diagnostics = observe_agent_runs(
+        {"project:test": [target(root)]}, state_directory(), lookup=replaced
+    )
+    assert diagnostics == []
+    assert [(run.id, run.issue_id, run.orphaned) for run in runs] == [
+        (before.run_id, before.issue_id, False)
+    ]
+    (after,) = WorkStore(root).active()[0]
+    assert after.session_process == SessionProcess(
+        pid=replacement.pid, started_at=replacement.started_at
+    )
+
+
+@pytest.mark.parametrize(
+    "nearest",
+    [
+        pytest.param(UNRELATED, id="unrelated-version-named-process"),
+        pytest.param(PTY_HOST, id="pty-host-naming-its-worker"),
+        pytest.param(SUPERVISOR, id="supervisor"),
+    ],
+)
+def test_a_version_named_process_that_is_no_worker_continues_nothing(
+    tmp_path: Path,
+    shell_below: Callable[..., ProcessLookup],
+    nearest: ProcessIdentity,
+) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    worker_run(root, shell_below(DIRECT_WORKER))
+    (before,) = WorkStore(root).active()[0]
+
+    # The same identity reaches the Worktree from below a process named like
+    # a version whose arguments are no worker's, so no host is located.
+    elsewhere = shell_below(nearest, SUPERVISOR)
+    publication = worker_hook(root, elsewhere)
+
+    assert (publication.work, publication.issue_id) == ("unchanged", None)
+    runs, _ = observe_agent_runs(
+        {"project:test": [target(root)]}, state_directory(), lookup=elsewhere
+    )
+    # The run stays orphaned; the hook with no host is a session of its own.
+    assert [(run.id, run.orphaned) for run in runs if run.issue_id] == [
+        (before.run_id, True)
+    ]
+    assert WorkStore(root).active()[0] == [before]
+
+
+def test_another_processs_session_end_leaves_a_located_workers_run(
+    tmp_path: Path, shell_below: Callable[..., ProcessLookup]
+) -> None:
+    root = repository(tmp_path / "repo").resolve()
+    worker_run(root, shell_below(DIRECT_WORKER))
+    (before,) = WorkStore(root).active()[0]
+    # ``claude -p --resume <id>`` against the running worker is refused, yet
+    # publishes SessionEnd for the worker's session from its own process.
+    refused = ProcessIdentity(9100, 1, "claude", "Thu Oct 01 09:10:00 2026")
+
+    publication = worker_hook(root, shell_below(refused, DIRECT_WORKER), "SessionEnd")
+
+    assert (publication.work, publication.issue_id) == ("unchanged", None)
+    runs, _ = observe_agent_runs(
+        {"project:test": [target(root)]},
+        state_directory(),
+        lookup=table_lookup({DIRECT_WORKER.pid: DIRECT_WORKER}),
+    )
+    assert [(run.id, run.orphaned) for run in runs] == [(before.run_id, False)]
+    # The worker's own SessionEnd still ends it.
+    worker_hook(root, shell_below(DIRECT_WORKER), "SessionEnd")
+    assert WorkStore(root).active() == ([], [])

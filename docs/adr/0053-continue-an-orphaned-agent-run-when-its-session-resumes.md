@@ -73,7 +73,7 @@ session where it ran.
 
 | Harness | Exclusive session process | Continues |
 |---|---|---|
-| Claude Code | Yes: one `claude` process per conversation; sub-agents share it | Yes |
+| Claude Code | Yes: one process per conversation, a `claude` process or a supervised worker, spares included; sub-agents share their parent's | Yes |
 | Codex, daemon-hosted | No: one app-server serves many threads | No |
 | Codex, no daemon | Unmeasured | No, until measured |
 | OpenCode ([design](../opencode-integration-design.md)) | No: one backend serves many sessions | No |
@@ -81,10 +81,17 @@ session where it ran.
 Only Claude Code's adapter declares `exclusive_session_process`. A Codex
 thread resumed at the same Worktree after a crash keeps showing an orphaned
 run, and a person ends it or the session starts its work again. Claude Code's
-background workers name their host process by version (`2.1.276`), and
-Dashpot does not yet locate them as Claude Code hosts. The respawned-worker
-case therefore only continues once that locating lands; the crash-and-resume
-case works now.
+background workers name their host process by version (`2.1.285`), as do
+their supervisor and PTY hosts. Since
+[#326](https://github.com/ned2/dashpot/issues/326), Dashpot locates a worker
+as a Claude Code host by the start of its argument vector: the versioned
+executable with `--session-id` or `--resume`, or `claude bg-spare`
+([measurement](../claude-code-supervised-worker-process-spike.md)). A worker
+the supervisor replaces after an abrupt exit publishes no `SessionEnd` for it,
+so its replacement, measured with the `--resume` shape, continues the run
+like a crashed-and-resumed session.
+`claude stop` publishes `SessionEnd` from the worker itself, which ends the
+run, so the session a later `claude respawn` resumes has no run to continue.
 
 ## Considered options
 

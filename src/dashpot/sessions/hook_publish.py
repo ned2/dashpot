@@ -64,7 +64,7 @@ def publish_hook_event(
     identity = process
     process_unobservable: str | None = None
     if identity is None:
-        ancestry = observe_agent_ancestry(harness=harness)
+        ancestry = observe_agent_ancestry(lookup, harness=harness)
         identity = None if ancestry.located is None else ancestry.located[1]
         process_unobservable = ancestry.unobservable_reason
     record = build_hook_record(

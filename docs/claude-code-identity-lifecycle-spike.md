@@ -174,6 +174,10 @@ one.
   The versioned name is an installer artefact, not a contract; the shell claim
   `CLAUDE_CODE_SESSION_ID` / `CLAUDE_PID` and the hook `session_id` are the
   stable identity, corroborated by `agents --json` for background workers.
+  The adapter has since learned to locate a supervised worker by the start of
+  its argument vector
+  ([supervised worker process experiment](claude-code-supervised-worker-process-spike.md)),
+  and still never by its name alone.
 - A worker's pid and start time change on abrupt death and on `respawn`,
   while its session ID, name, and cwd persist and the listing had the new pid
   by the runner's next read, two to three seconds after the restart hook. A

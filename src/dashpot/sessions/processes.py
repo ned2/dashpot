@@ -150,8 +150,9 @@ def host_process_lookup(pid: int) -> ProcessObservation:
     # may contain spaces — so it comes last in its probe and the fixed-width
     # fields are parsed from the left. ``args`` is free-form too, so it gets a
     # probe of its own rather than sharing a line with ``comm``. A process that
-    # exits between the two probes reads as unobservable, never as exited, and
-    # ``arguments`` is only ever advisory beside the identity fields.
+    # exits between the two probes reads as unobservable, never as exited.
+    # ``arguments`` never enters the process key: a Harness Adapter reads it
+    # only to tell the harness from a helper or a supervisor beside it.
     identity_output = _ps_column_output(pid, ("pid", "ppid", "lstart", "comm"))
     if isinstance(identity_output, ProcessUnobservable):
         return identity_output

@@ -168,7 +168,7 @@ def test_an_occupied_destination_is_a_non_blocking_hook_exit(
     monkeypatch.setenv("DASHPOT_STATE_DIR", str(state_dir))
     monkeypatch.setattr(
         "dashpot.sessions.hook_publish.observe_agent_ancestry",
-        lambda harness: AgentAncestry(None, "isolated-namespace"),
+        lambda _lookup, harness: AgentAncestry(None, "isolated-namespace"),
     )
     state_dir.mkdir()
     # Only a record already sitting at this identity's own storage key can

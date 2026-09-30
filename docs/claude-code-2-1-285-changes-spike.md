@@ -237,8 +237,10 @@ them, as the 2.1.276 experiment found.
   `end_session_runs` ended it; with a recorded worker process it kept the run.
   So today, `claude -p --resume <id>` against a background worker that holds
   Issue work, anywhere in that Repository, ends the Issue work while the
-  worker runs on. #326's identification of the worker closes this; the
-  finding is recorded there.
+  worker runs on. The finding is recorded on #326, whose identification of
+  the worker has since closed it
+  ([supervised worker process experiment](claude-code-supervised-worker-process-spike.md#implications-for-dashpot));
+  a replay test keeps a located worker's run through such a `SessionEnd`.
 - Dashpot's Orphaned Agent Run resume command, `cd <location> && claude
   --resume <id>`, carries no session-configuring flag, so on 2.1.285 it opens
   a session still running in the background rather than being refused, unless
