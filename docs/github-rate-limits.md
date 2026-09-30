@@ -109,26 +109,34 @@ Each request verifies the Repository and principal in its own response
 so a refresh sends no separate context request.
 
 On 2026-09-30 one dashboard ran on this Repository, which had 30 open
-Issues, for exactly an hour at the default Refresh Periods. Its Event Log's
-`github.request` spans
-([Read the Event Log](installation.md#read-the-event-log)) recorded 61
-GitHub refreshes of 5 requests each: 2 Query Pages, each counting its Project
-Totals, the 2 Issue batches that complete the Issues page, and 1 Resolved
-Issues batch. None was a separate context request, and the local refreshes
-between them sent nothing. That hour came to 307 requests and 307 points,
-every request costing 1 point and none failing. One open dashboard spends
-about 300 points an hour, 6% of a personal account's 5,000. It spent about
-3,500 before ADR 0055 removed the separate context requests, 1,900 to 2,400
-at the 15-second period before ADR 0056, and 420 to 540 with separate
-Project Totals requests before ADR 0057.
+Issues, for exactly an hour at the default Refresh Periods. Its Event Log
+records every GitHub request as a `github.request` span with the cost GitHub
+reported ([Runtime Events on disk](observability-design.md#on-disk);
+[Read the Event Log](installation.md#read-the-event-log)). Over the hour
+there were 61 GitHub refreshes of 5 requests each: 2 Query Pages, each
+counting its Project Totals, the 2 Issue batches that complete the Issues
+page, and 1 Resolved Issues batch. Two more Resolved Issues batches went out
+when the set of bound Issues changed. None was a separate context request,
+and the local refreshes between GitHub refreshes sent nothing. The hour came
+to 307 requests and 307 points, every request costing 1 point and none
+failing. One open dashboard spends about 300 points an hour, 6% of a personal
+account's 5,000, at the low end of the 300 to 420 that four minutes measured
+after ADR 0057. It spent about 3,500 before ADR 0055 removed the separate
+context requests, 1,900 to 2,400 at the 15-second period before ADR 0056,
+and 420 to 540 with separate Project Totals requests before ADR 0057.
 
 That is the final measurement for
-[#308](https://github.com/ned2/dashpot/issues/308), which brought an open
-dashboard well inside the allowance. Each of the 5 requests keeps the Query
-Pages, their Project Totals or the bound Issues current within the GitHub
-Refresh Period, so none can be removed without leaving them stale. What
-remains is [#354](https://github.com/ned2/dashpot/issues/354): pausing GitHub
-queries while nobody is watching the dashboard.
+[#308](https://github.com/ned2/dashpot/issues/308), which has brought an
+open dashboard well inside the allowance. Each of the 5 requests is needed:
+each Query Page is one request that carries its Project Totals, the Issue
+batches complete the Issues page, and the bound-Issue batch keeps bound
+Issues current within the GitHub Refresh Period. Folding that batch into the
+Issues page would save at most a point a minute, but a slow or failed page
+would then stale the bound Issues
+([ADR 0033](adr/0033-query-pages-and-independent-issue-resolution.md)). The
+one sub-issue still open is
+[#354](https://github.com/ned2/dashpot/issues/354): stopping GitHub refresh
+while nobody is watching the dashboard.
 
 ## Staying inside the limit
 
