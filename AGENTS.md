@@ -246,6 +246,16 @@ plans and follow-ups, the [README](README.md) and `docs/*.md` for shared project
 context, and `docs/adr/` for decisions. If something is worth remembering,
 record it there.
 
+## Agent skills
+
+Installed skills such as `code-review` look up this section by heading and
+read `docs/agents/` by path.
+
+### Issue tracker
+
+The Issue Source named above, via `gh`. The fetch command and its pitfalls are
+in [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+
 ## Where rules live
 
 Agent-facing rules and recurring gotchas belong in this file. Claude Code
