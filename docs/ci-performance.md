@@ -121,10 +121,11 @@ rejected four workers on Debian and macOS: Debian's serial and two-worker runs
 passed in 330.42 and 213.13 seconds; four workers failed the refresh indicator's
 layout-readiness assertion. macOS passed its first four-worker run, then failed
 the same assertion on the second. Explicitly holding the fake source until
-release removes its separate two-second lifetime race, but did not resolve this
-four-worker rendering failure.
-The test retained its assertions and 1.5-second readiness deadline, and two
-workers are the CI candidate: local four-worker success does not establish
+release, for at most two seconds, was meant to remove a separate lifetime race,
+but did not resolve this four-worker rendering failure. The test kept its
+assertions and 1.5-second readiness deadline.
+
+Two workers are the CI candidate: local four-worker success does not establish
 hosted reliability.
 
 [#341](https://github.com/ned2/dashpot/issues/341) later found two local causes
