@@ -158,18 +158,19 @@ and Agent Sessions are local observations and keep refreshing.
 After the first refusal, the dashboard stops sending GitHub queries
 ([ADR 0065](adr/0065-pause-github-queries-after-a-rate-limit-refusal.md)).
 This Rate Limit Pause holds every Query Source's GraphQL requests until the
-reset the latest reading named. When GitHub refused for a secondary limit, or
-no reset is ahead, it holds them for a minute, doubling with each refusal in
-a row up to an hour. While it lasts:
+reset the latest reading named, when that reading showed fewer than a tenth
+of the hour's points left. Otherwise, as when GitHub refused for a secondary
+limit, it holds them for a minute, doubling with each refusal in a row up to
+an hour. While it lasts:
 
 - The Diagnostics show one `github-rate-limit-paused` warning naming when
   queries resume.
 - Runtime Stats (`s`) leads its GitHub allowance section with the pause.
-- The Event Log records a `github_pause.changed` event when the pause starts
-  and when it ends.
-- A GitHub refresh sends nothing. `r` lifts the pause for one attempt: it
-  finds out whether the limit has lifted, and pauses again if GitHub still
-  refuses.
+- The Event Log records a `rate_limit_pause.changed` event when the pause
+  starts, and when it lapses or is lifted.
+- A GitHub refresh sends nothing. `r` lifts the pause for one attempt: the
+  next GraphQL request goes to GitHub and the rest stay held. An answer ends
+  the pause; a refusal pauses again.
 
 The pause belongs to one dashboard. Another dashboard, or an agent's `gh`,
 still spends the allowance and is refused in its own way.

@@ -26,10 +26,10 @@ from ..core.errors import DashpotError
 from ..core.event_log import Span, current_event_log, recorded_span
 from ..core.model import Diagnostic
 from ..core.runtime_events import (
-    GitHubPauseChange,
-    GitHubPauseChanged,
-    GitHubPauseLimit,
     GitHubRequestAttributes,
+    RateLimitKind,
+    RateLimitPauseChange,
+    RateLimitPauseChanged,
     span_attributes,
 )
 from ..core.timestamps import observed_instant, utc_stamp
@@ -109,20 +109,25 @@ class RateLimit:
 
 @dataclass(frozen=True, slots=True)
 class RateLimitPause:
-    """GraphQL requests held after GitHub refused one for its rate limit.
+    """A stretch when GraphQL requests are held after GitHub refused one for its rate limit.
 
-    ``until`` is the moment requests are sent again; ``refusals`` counts the
-    refusals in a row, which set how long a pause without a reset time lasts.
+    ``until`` is when requests are due to be sent again; ``lifted`` is set
+    while a manual refresh's one attempt waits to be sent.
     """
 
-    limit: GitHubPauseLimit
+    limit: RateLimitKind
     until: datetime
-    refusals: int
+    lifted: bool = False
 
     @property
     def until_text(self) -> str:
         """``until`` to the second, in UTC."""
         return f"{self.until.astimezone(UTC):%Y-%m-%dT%H:%M:%SZ}"
+
+    @property
+    def limit_text(self) -> str:
+        """The limit that refused, as a person reads it."""
+        return "secondary rate limit" if self.limit == "secondary" else "rate limit"
 
 
 class LatestRateLimit:
@@ -138,7 +143,8 @@ class LatestRateLimit:
 
     It also holds the Rate Limit Pause: once GitHub refuses one GraphQL
     request for its rate limit, no gateway sharing this one sends another
-    until the pause lapses or is lifted (ADR 0065).
+    until the pause lapses, or a manual refresh's one attempt is answered
+    (ADR 0065).
     """
 
     def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
@@ -149,7 +155,8 @@ class LatestRateLimit:
         # Refusals in a row, which the first answer after them clears.
         self._refusals = 0
         # Advanced by every refusal that starts a pause, so a request sent
-        # before it neither extends that pause nor clears the refusals.
+        # before it neither extends that pause nor ends it. While a pause is
+        # in force, only its one attempt is sent under the current value.
         self._generation = 0
 
     @property
@@ -182,43 +189,54 @@ class LatestRateLimit:
     def admit(self) -> int:
         """Admit one GraphQL request, or hold it while a pause is in force.
 
-        Returns the ticket the request's outcome is reported under. The first
-        request admitted after a pause lapses records its end.
+        Returns the ticket the request's outcome is reported under. A lifted
+        pause admits exactly one request, its attempt, and holds every other
+        until that attempt's answer ends the pause or its refusal restarts
+        it. The first request admitted after a pause lapses records the lapse.
         """
         with self._lock:
             pause = self._pause
-            if pause is not None and self._clock() < pause.until:
-                raise GitHubRequestError(
-                    RATE_LIMIT,
-                    "GitHub query not sent: GitHub queries are paused until "
-                    f"{pause.until_text} after a rate limit refusal",
-                )
-            self._pause = None
             ticket = self._generation
+            if pause is not None and self._clock() < pause.until:
+                if not pause.lifted:
+                    raise GitHubRequestError(
+                        RATE_LIMIT,
+                        "GitHub query not sent: GitHub queries are paused until "
+                        f"{pause.until_text} after a rate limit refusal",
+                    )
+                self._pause = replace(pause, lifted=False)
+                return ticket
+            self._pause = None
+        # Recorded outside the lock, like every pause change, so a request
+        # on another thread can record its own change first.
         if pause is not None:
-            _record_pause("ended", pause)
+            _record_pause("lapsed", pause)
         return ticket
 
     def answered(self, ticket: int) -> None:
-        """Clear the refusals in a row once a request admitted after them answers."""
-        with self._lock:
-            if ticket == self._generation:
-                self._refusals = 0
+        """Clear the refusals in a row once a request sent since the last one answers.
 
-    def refused(self, ticket: int, message: str) -> None:
+        A pause still in force was lifted, and this was its attempt: the
+        answer ends it.
+        """
+        with self._lock:
+            if ticket != self._generation:
+                return
+            self._refusals = 0
+            pause = self._pause
+            self._pause = None
+        if pause is not None:
+            _record_pause("lifted", pause)
+
+    def refused(self, ticket: int, limit: RateLimitKind) -> None:
         """Pause every sharing gateway after GitHub refused a request for its rate limit.
 
-        A refusal of the hour's points waits for the reset the latest reading
-        names, when that is still ahead. A secondary limit's refusal, or one
-        with no such reading, waits a backoff that doubles with each refusal
-        in a row. A request sent before the pause started leaves it as it is.
+        A primary refusal waits for the reset the latest reading names when
+        that reading showed the hour's points running low and the reset is
+        still ahead: the points are then plausibly spent. Any other refusal
+        waits a backoff that doubles with each refusal in a row. A request
+        sent before the pause started leaves it as it is.
         """
-        normalized = message.casefold()
-        limit: GitHubPauseLimit = (
-            "secondary"
-            if any(text in normalized for text in _SECONDARY_LIMIT_TEXT)
-            else "primary"
-        )
         with self._lock:
             if ticket != self._generation:
                 return
@@ -227,39 +245,46 @@ class LatestRateLimit:
             now = self._clock()
             reading = self._reading
             reset = None if reading is None else observed_instant(reading.reset_at)
-            if limit == "primary" and reset is not None and reset > now:
+            if (
+                limit == "primary"
+                and reading is not None
+                and reading.low
+                and reset is not None
+                and reset > now
+            ):
                 until = reset
             else:
                 until = now + min(
                     PAUSE_BACKOFF * 2 ** (self._refusals - 1), PAUSE_BACKOFF_LIMIT
                 )
-            pause = RateLimitPause(limit, until, self._refusals)
+            pause = RateLimitPause(limit, until)
             self._pause = pause
         _record_pause("started", pause)
 
     def lift(self) -> None:
-        """Let the next request try GitHub once more, ending the pause early.
+        """Let exactly one request try GitHub before the pause is due to end.
 
-        The end is recorded by the request it admits. The refusals in a row
-        are kept, so a secondary limit refusing that request again doubles
-        the backoff.
+        Its answer ends the pause; a refusal restarts it, keeping the count
+        of refusals in a row, so a secondary limit's backoff keeps doubling.
+        Failing for any other reason leaves the pause in force, no longer
+        lifted.
         """
         with self._lock:
             if self._pause is not None:
-                self._pause = replace(self._pause, until=self._clock())
+                self._pause = replace(self._pause, lifted=True)
 
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _record_pause(change: GitHubPauseChange, pause: RateLimitPause) -> None:
-    """Record a pause starting or ending to the Event Log of the request that saw it."""
+def _record_pause(change: RateLimitPauseChange, pause: RateLimitPause) -> None:
+    """Record a pause changing to the Event Log of the request that saw it."""
     log = current_event_log()
     if log is None:
         return
     log.record(
-        GitHubPauseChanged(
+        RateLimitPauseChanged(
             change=change, limit=pause.limit, until=utc_stamp(pause.until)
         )
     )
@@ -291,7 +316,6 @@ def pause_diagnostics(
     """Say that GitHub queries are paused, and until when, while a pause is in force."""
     if pause is None:
         return ()
-    limit = "a secondary" if pause.limit == "secondary" else "its"
     return (
         Diagnostic(
             source=source,
@@ -299,7 +323,8 @@ def pause_diagnostics(
             severity="warning",
             message=(
                 f"GitHub queries paused until {pause.until_text} after GitHub "
-                f"refused one for {limit} rate limit; a manual refresh tries once"
+                f"refused one for its {pause.limit_text}; a manual refresh "
+                "tries once"
             ),
         ),
     )
@@ -407,7 +432,7 @@ class GitHubGateway:
         error is tolerated is returned rather than raised.
         """
         with (
-            self._allowance(),
+            self._unless_paused(),
             _request_span("graphql", operation_name(query)) as span,
         ):
             payload = self._graphql_payload(query, variables, tolerated=tolerated)
@@ -432,7 +457,7 @@ class GitHubGateway:
     ) -> GraphQLResponse:
         """Expose attributable GraphQL errors beside the data they leave usable."""
         with (
-            self._allowance(),
+            self._unless_paused(),
             _request_span("graphql", operation_name(query)) as span,
         ):
             payload = self._graphql_payload(query, variables, partial=True)
@@ -455,7 +480,7 @@ class GitHubGateway:
             return GraphQLResponse(data, errors, reading)
 
     @contextmanager
-    def _allowance(self) -> Iterator[None]:
+    def _unless_paused(self) -> Iterator[None]:
         """Send one GraphQL request only outside a pause, and report how it went.
 
         A held request raises before it is sent, so it is no request span
@@ -468,7 +493,7 @@ class GitHubGateway:
             yield
         except GitHubRequestError as exc:
             if exc.code == RATE_LIMIT:
-                latest.refused(ticket, str(exc))
+                latest.refused(ticket, rate_limit_kind(str(exc)))
             raise
         latest.answered(ticket)
 
@@ -677,6 +702,19 @@ def classify_failure_text(message: str) -> str:
     ):
         return "github-network"
     return "github-request"
+
+
+def rate_limit_kind(message: str) -> RateLimitKind:
+    """Name the limit a rate limit refusal describes: secondary only when it says so.
+
+    GitHub names a secondary limit, or its older abuse detection, in the
+    refusal's text; a refusal that names neither is read as the primary
+    limit on the hour's points.
+    """
+    normalized = message.casefold()
+    if any(text in normalized for text in _SECONDARY_LIMIT_TEXT):
+        return "secondary"
+    return "primary"
 
 
 def _status_code(status: str, normalized: str) -> str | None:

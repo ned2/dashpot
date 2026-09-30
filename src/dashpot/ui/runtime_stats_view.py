@@ -12,7 +12,7 @@ rest of the run.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar, Protocol, override
 
 from rich.text import Text
@@ -162,7 +162,7 @@ def allowance_text(
     others: int | None,
     window: str,
     now: datetime,
-    pause: RateLimitPause | None = None,
+    pause: RateLimitPause | None,
 ) -> Text:
     """The latest rate limit reading any Query Source received, and the rest's spend.
 
@@ -195,9 +195,9 @@ def allowance_text(
 
 def pause_text(pause: RateLimitPause, now: datetime) -> str:
     """Until when GitHub queries are held, and which limit refused them."""
-    left = max(0.0, (pause.until - now).total_seconds())
-    limit = "secondary limit" if pause.limit == "secondary" else "rate limit"
-    return f"until {pause.until:%H:%M:%S} UTC, in {long_duration_text(left)} ({limit})"
+    until = pause.until.astimezone(UTC)
+    left = max(0.0, (until - now).total_seconds())
+    return f"until {until:%H:%M:%S} UTC, in {long_duration_text(left)} ({pause.limit_text})"
 
 
 def table_text(header: Sequence[str], body: Sequence[Sequence[str]]) -> Text:

@@ -27,24 +27,29 @@ because the allowance is the account's, not one gateway's.
   running `gh`: the request is held. A held request is not a
   `github.request` span, so it spends nothing and counts as no request.
   REST requests are not held: they draw on a separate allowance, and the
-  only one Dashpot sends resolves a Repository Anchor at `init`.
-- **The pause lasts until GitHub's reset, when that is known.** A refused
-  request carries no `data`, so it has no reading of its own. A refusal of
-  the primary limit (the hour's points) waits until the `resetAt` of the
-  latest reading, when that is still ahead. `gh api` shows response headers
-  only with `--include`, so `retry-after` and `x-ratelimit-reset` are not
-  read.
+  only one Dashpot sends reads a GitHub repository's identity, at `init` and
+  when a dashboard or workspace command first observes a Project.
+- **The pause lasts until GitHub's reset, when the points explain the
+  refusal.** A refused request carries no `data`, so it has no reading of
+  its own. A refusal of the primary limit (the hour's points) waits until
+  the `resetAt` of the latest reading when that reading showed fewer than a
+  tenth of the hour's points left, the `github-rate-limit-low` threshold,
+  and the reset is still ahead. Response headers are deliberately unused:
+  `gh api` shows them only with `--include`, so `retry-after` and
+  `x-ratelimit-reset` are not read.
 - **Otherwise it backs off.** A secondary limit's refusal, named by
   `secondary` or `abuse detection` in GitHub's message, or a primary
-  refusal with no reset ahead, waits one minute. Each further refusal in a
+  refusal the latest reading does not explain, waits one minute. Each further refusal in a
   row doubles the wait, up to an hour. The first request that GitHub
   answers resets the count. A request sent before the pause started, and
   answered or refused after it, neither extends the pause nor resets the
   count.
-- **A manual refresh tries once.** `r` lifts the pause, and that refresh's
-  requests go to GitHub. If GitHub refuses one, the pause starts again, and
-  the count of refusals in a row is kept, so a secondary limit's backoff
-  keeps doubling. The timers are not changed: a GitHub tick during a pause
+- **A manual refresh tries once.** `r` lifts the pause: exactly one
+  GraphQL request, the first any Query Source sends after the press, goes to
+  GitHub, and every other stays held. If GitHub answers it, the pause ends.
+  If GitHub refuses it, the pause starts again, and the count of refusals in
+  a row is kept, so a secondary limit's backoff keeps doubling. If it fails
+  some other way, the pause stays in force, no longer lifted. The timers are not changed: a GitHub tick during a pause
   asks its sources as usual, and their held requests fail at once.
 - **Local observation is unaffected.** Worktrees, Branches, Agent Sessions
   and Agent Runs do not go through the gateway.
@@ -52,12 +57,14 @@ because the allowance is the account's, not one gateway's.
   - A GitHub Query Source reports `github-rate-limit-paused` in its
     `source_diagnostics`, beside `github-rate-limit-low`. It is one warning
     line in the Diagnostics box, naming when queries resume and that a
-    manual refresh tries once.
-  - The gateway records a standalone `github_pause.changed` Runtime Event at
-    `standard` when a pause starts. It records another when the first
-    request after the pause lapses or is lifted is admitted. Each carries
-    the limit that refused (`primary` or `secondary`) and when the pause was
-    due to end.
+    manual refresh tries once. Each held observation adds its own
+    `github-rate-limit` line, as a refused one does.
+  - The gateway records a standalone `rate_limit_pause.changed` Runtime
+    Event at `standard`: `started` by the refused request, `lapsed` by the
+    first request admitted after the pause's due time, and `lifted` by a
+    manual refresh's attempt that GitHub answered. Each carries the limit
+    that refused (`primary` or `secondary`) and when the pause was due to
+    end.
   - Runtime Stats leads its GitHub allowance section with the pause while
     one is in force.
 
@@ -81,7 +88,10 @@ because the allowance is the account's, not one gateway's.
 - **The pause ends when a request is admitted, not at its deadline.** Its
   Diagnostic clears on the first Query Source answer after the pause ends,
   so for up to one GitHub Refresh Period it can name a time already past.
-  Its `ended` event is recorded by the request it lets through.
+  Its `lapsed` event is recorded by the request it lets through.
+- **The pause follows the wall clock.** Its due time is a UTC instant, like
+  the reset it waits for, so stepping the system clock shortens or
+  lengthens it.
 
 ## Considered options
 

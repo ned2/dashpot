@@ -99,7 +99,7 @@ EventName = Literal[
     "command.outcome",
     "agent_session.changed",
     "diagnostic.changed",
-    "github_pause.changed",
+    "rate_limit_pause.changed",
 ]
 SpanName = Literal["command", "github.request", "refresh", "observation", "query"]
 SpanStatus = Literal["OK", "ERROR"]
@@ -269,10 +269,11 @@ AgentSessionChange = Literal[
     "appeared", "bound", "switched", "unbound", "relocated", "ended"
 ]
 DiagnosticChange = Literal["appeared", "cleared"]
-# A Rate Limit Pause starting after a refusal, or ending: lapsed or lifted.
-GitHubPauseChange = Literal["started", "ended"]
+# A Rate Limit Pause starting (or restarting) after a refusal, or ending:
+# lapsed at its due time, or lifted by a manual refresh's answered attempt.
+RateLimitPauseChange = Literal["started", "lapsed", "lifted"]
 # Which limit refused: the primary limit on the hour's points, or a secondary one.
-GitHubPauseLimit = Literal["primary", "secondary"]
+RateLimitKind = Literal["primary", "secondary"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
 
 
@@ -356,19 +357,19 @@ class DiagnosticChanged(EventBody):
     severity: DiagnosticSeverity = Field(alias="dashpot.diagnostic.severity")
 
 
-class GitHubPauseChanged(EventBody):
-    """GitHub queries paused after a rate limit refusal, or sent again.
+class RateLimitPauseChanged(EventBody):
+    """A Rate Limit Pause starting after a refusal, or ending.
 
-    ``until`` is when the pause was due to end; an ended pause lifted by a
-    manual refresh ended before it.
+    ``until`` is when the pause was due to end, however it ended: a lifted
+    pause ended before it.
     """
 
-    name: Literal["github_pause.changed"] = Field(
-        default="github_pause.changed", alias="event.name"
+    name: Literal["rate_limit_pause.changed"] = Field(
+        default="rate_limit_pause.changed", alias="event.name"
     )
-    change: GitHubPauseChange = Field(alias="dashpot.github.pause.change")
-    limit: GitHubPauseLimit = Field(alias="dashpot.github.pause.limit")
-    until: Rfc3339Timestamp = Field(alias="dashpot.github.pause.until")
+    change: RateLimitPauseChange = Field(alias="dashpot.rate_limit_pause.change")
+    limit: RateLimitKind = Field(alias="dashpot.rate_limit_pause.limit")
+    until: Rfc3339Timestamp = Field(alias="dashpot.rate_limit_pause.until")
 
 
 def fitting[M: EventModel](
@@ -543,7 +544,7 @@ EVENT_BODIES: Mapping[str, type[EventBody]] = {
     "command.outcome": CommandOutcome,
     "agent_session.changed": AgentSessionChanged,
     "diagnostic.changed": DiagnosticChanged,
-    "github_pause.changed": GitHubPauseChanged,
+    "rate_limit_pause.changed": RateLimitPauseChanged,
 }
 
 

@@ -469,12 +469,12 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
 
     async with app.run_test(size=(100, 40)) as pilot:
         screen = await open_stats(app, pilot)
-        shared.refused(shared.admit(), "You have exceeded a secondary rate limit")
+        shared.refused(shared.admit(), "secondary")
         screen.update_stats()
 
         # Refused before any response reported the rate limit.
         assert squeezed(section(app, "allowance")) == [
-            "paused until 12:01:00 UTC, in 1m 00s (secondary limit)"
+            "paused until 12:01:00 UTC, in 1m 00s (secondary rate limit)"
         ]
 
         shared.record(RateLimit(cost=1, limit=5000, remaining=0, reset_at=RESET))
@@ -482,7 +482,7 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
         screen.update_stats()
 
         assert squeezed(section(app, "allowance"))[:2] == [
-            "paused until 12:01:00 UTC, in 30s (secondary limit)",
+            "paused until 12:01:00 UTC, in 30s (secondary rate limit)",
             "remaining 0 of 5,000 points",
         ]
 

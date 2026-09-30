@@ -508,7 +508,7 @@ def test_a_rest_request_is_a_span_of_its_own(recording: Path, tmp_path: Path) ->
     assert "ned2" not in json.dumps(request)
 
 
-def test_a_pause_records_its_start_and_end_and_a_held_request_no_span(
+def test_a_pause_records_each_change_and_a_held_request_no_span(
     recording: Path, tmp_path: Path
 ) -> None:
     refusal = json.dumps(
@@ -522,6 +522,8 @@ def test_a_pause_records_its_start_and_end_and_a_held_request_no_span(
             CommandResult([], 0, json.dumps({"data": reading(10)}), ""),
             CommandResult([], 1, refusal, "gh: secret stderr text"),
             CommandResult([], 0, json.dumps({"data": reading(5000)}), ""),
+            CommandResult([], 1, refusal, "gh: secret stderr text"),
+            CommandResult([], 0, json.dumps({"data": reading(4999)}), ""),
         ]
     )
     now = datetime(2026, 9, 27, 12, 30, tzinfo=UTC)
@@ -538,9 +540,16 @@ def test_a_pause_records_its_start_and_end_and_a_held_request_no_span(
             gateway.graphql(QUERY, {"id": "I_1"})
     now = datetime(2026, 9, 27, 13, tzinfo=UTC)
     gateway.graphql(QUERY, {"id": "I_1"})
+    # Refused with the points ample, so this pause backs off a minute.
+    with pytest.raises(GitHubRequestError):
+        gateway.graphql(QUERY, {"id": "I_1"})
+    shared.lift()
+    gateway.graphql(QUERY, {"id": "I_1"})
 
-    # The held request between the refusal and the reset sent nothing.
+    # The held request between the first refusal and the reset sent nothing.
     assert [span.get("error.type") for span in spans(recording, "github.request")] == [
+        None,
+        "github-rate-limit",
         None,
         "github-rate-limit",
         None,
@@ -548,7 +557,7 @@ def test_a_pause_records_its_start_and_end_and_a_held_request_no_span(
     changes = [
         event
         for event in written(recording)
-        if event["event.name"] == "github_pause.changed"
+        if event["event.name"] == "rate_limit_pause.changed"
     ]
     assert [
         {key: value for key, value in event.items() if key.startswith("dashpot.")}
@@ -557,11 +566,16 @@ def test_a_pause_records_its_start_and_end_and_a_held_request_no_span(
         {
             "dashpot.level": "standard",
             "dashpot.process.kind": "command:observe",
-            "dashpot.github.pause.change": change,
-            "dashpot.github.pause.limit": "primary",
-            "dashpot.github.pause.until": "2026-09-27T13:00:00.000000Z",
+            "dashpot.rate_limit_pause.change": change,
+            "dashpot.rate_limit_pause.limit": "primary",
+            "dashpot.rate_limit_pause.until": until,
         }
-        for change in ("started", "ended")
+        for change, until in (
+            ("started", "2026-09-27T13:00:00.000000Z"),
+            ("lapsed", "2026-09-27T13:00:00.000000Z"),
+            ("started", "2026-09-27T13:01:00.000000Z"),
+            ("lifted", "2026-09-27T13:01:00.000000Z"),
+        )
     ]
     assert "secret" not in json.dumps(written(recording))
 

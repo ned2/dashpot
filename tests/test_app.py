@@ -38,7 +38,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.model import AgentRun, Diagnostic, WorkspaceSnapshot
-from dashpot.github.github import LatestRateLimit
+from dashpot.github.github import GitHubRequestError, LatestRateLimit
 from dashpot.observation.issue_list import row_key
 from dashpot.observation.keys import (
     ObservationKey,
@@ -559,16 +559,19 @@ async def test_a_manual_refresh_lifts_a_rate_limit_pause_for_one_attempt() -> No
 
     async with app.run_test(size=(80, 24)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        shared.refused(shared.admit(), "API rate limit exceeded")
-        # A GitHub tick leaves the pause in force.
-        app.timer_query_refresh()
-        assert shared.pause is not None
+        shared.refused(shared.admit(), "primary")
+        started = shared.pause
 
         await pilot.press("r")
 
-        assert shared.pause is None
-        # The attempt the press allows is admitted.
+        # The press lets one request through while the pause stays in force;
+        # the one after it is held.
+        pause = shared.pause
+        assert started is not None and pause is not None
+        assert (pause.until, pause.lifted) == (started.until, True)
         shared.admit()
+        with pytest.raises(GitHubRequestError):
+            shared.admit()
 
 
 @pytest.mark.asyncio
