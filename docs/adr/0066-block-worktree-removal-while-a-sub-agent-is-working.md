@@ -36,10 +36,14 @@ Cleanup will not call a Worktree unoccupied while a sub-agent it cannot place
 might be working in it.
 
 - **A live sub-agent blocks every Worktree of its Repository.** Cleanup
-  checks each live Agent Session, or one whose liveness is unknown, whose
-  freshest hook record places it at a Worktree of the target's Repository.
-  If that session has any live sub-agent, Worktree removal gets a
-  `sub-agent` blocker. The blocker names the session, where it is, and the
+  checks each live Agent Session, or one whose liveness is unknown, that a
+  hook record places at a Worktree of the target's Repository. If that
+  session has any live sub-agent, Worktree removal gets a `sub-agent`
+  blocker. Each checkout's store derives the live set from its own previous
+  record, so a session that dispatched sub-agents and then entered another
+  Worktree holds them only in the record it left behind: the live set is the
+  union over every record of the session that is not over, and the blocker
+  reports the session's freshest location. The blocker names the session, where it is, and the
   agent IDs. It also says that Dashpot cannot tell which Worktree a sub-agent
   works in, so the block is not read as a claim that a sub-agent is here. A
   session that is already at the target is reported only as the
@@ -87,6 +91,11 @@ might be working in it.
 - A `SubagentStop` that the harness never delivers keeps the block until the
   session ends or starts again. This is the same bound ADR 0016 accepted for
   holding the session running.
+- A sub-agent that stops after its session has moved to another Worktree
+  has its `SubagentStop` recorded in the new Worktree's store, which never
+  listed it, so the record left behind keeps it live and the block holds
+  until the session's process exits. The block errs toward refusing a
+  removal rather than allowing one.
 - Relocating occupants during Cleanup
   ([#148](https://github.com/ned2/dashpot/issues/148)) must account for
   sub-agents under this rule. It cannot place one either, unless a new source

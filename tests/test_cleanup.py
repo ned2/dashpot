@@ -568,6 +568,39 @@ def test_a_stopped_sub_agent_no_longer_blocks(tmp_path: Path) -> None:
     assert preview.targets[0].available is True
 
 
+def test_a_sub_agent_still_blocks_after_its_parent_moves_to_another_worktree(
+    tmp_path: Path,
+) -> None:
+    root, target, sibling = sub_agent_worktrees(tmp_path)
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+    # The parent then enters the sibling, whose store has no previous record
+    # of the session and so no sub-agents to carry.
+    write_hook_record(
+        {
+            "version": 2,
+            "sessionId": PARENT_SESSION,
+            "harness": "claude-code",
+            "state": "running",
+            "cwd": str(sibling),
+            "repositoryRoot": str(sibling),
+            "branch": "other",
+            "event": "UserPromptSubmit",
+            "lastActivityAt": "2026-08-30T03:45:00.000000Z",
+            "sessionProcess": PARENT.as_record(),
+        },
+        session_directory(sibling),
+    )
+
+    preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
+
+    (blocker,) = preview.targets[0].blockers
+    assert blocker.kind == "sub-agent"
+    assert blocker.detail.startswith(
+        f"Claude Code session {PARENT_SESSION} at {sibling} has 1 sub-agent "
+        "working (a686b12; session live)."
+    )
+
+
 def test_a_parent_session_that_is_gone_leaves_no_sub_agent_blocker(
     tmp_path: Path,
 ) -> None:

@@ -39,6 +39,7 @@ from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import WORKTREE_PROTOCOL_ISSUES, git, write_issues
 from helpers import absent, make_issue, table_lookup
+from test_cleanup import PARENT, PARENT_SESSION, publish_subagent
 
 CONFIG = {
     "projectId": "project:sim",
@@ -883,27 +884,11 @@ def test_an_unreadable_work_store_record_is_an_obstacle(tmp_path: Path) -> None:
 def test_a_live_sub_agent_elsewhere_is_an_obstacle(tmp_path: Path) -> None:
     root = sim(tmp_path)
     path = Path(create(root).path)
-    parent = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
     # The parent session is at the main Worktree, where its sub-agents'
     # hooks place them too, whichever Worktree they work in.
-    write_hook_record(
-        {
-            "version": 2,
-            "sessionId": "01c7192b-2990-4f83-ad33-290ac22eb4d1",
-            "harness": "claude-code",
-            "state": "running",
-            "cwd": str(root),
-            "repositoryRoot": str(root),
-            "branch": "main",
-            "event": "SubagentStart",
-            "agentId": "a686b1213b7c2a53f",
-            "lastActivityAt": "2026-08-30T03:40:00.000000Z",
-            "sessionProcess": parent.as_record(),
-        },
-        session_directory(root),
-    )
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
 
-    report = check_worktree(root, path, lookup=table_lookup({parent.pid: parent}))
+    report = check_worktree(root, path, lookup=table_lookup({PARENT.pid: PARENT}))
 
     assert report.removable is False
     (obstacle,) = report.obstacles
@@ -911,9 +896,9 @@ def test_a_live_sub_agent_elsewhere_is_an_obstacle(tmp_path: Path) -> None:
     assert obstacle.command is None
     lines = describe_removability(report)
     assert lines[4].startswith(
-        "  - sub-agent: Claude Code session 01c7192b-2990-4f83-ad33-290ac22eb4d1 "
-        f"at {root.resolve()} has 1 sub-agent working (a686b1213b7c2a53f; "
-        "session live). Dashpot cannot tell which Worktree"
+        f"  - sub-agent: Claude Code session {PARENT_SESSION} at {root.resolve()} "
+        "has 1 sub-agent working (a686b12; session live). Dashpot cannot tell "
+        "which Worktree"
     )
     assert "Remove with" not in lines
 

@@ -849,7 +849,15 @@ directory and a sibling linked Worktree. The
 below against the retained
 [trace](measurements/issue-279-claude-trace.jsonl). To reproduce, pass
 the runner the absolute path of a symlink named `claude` that points at the
-2.1.285 executable, then pass the verifier the printed trace path.
+2.1.285 executable, then pass the verifier the printed trace path:
+
+```bash
+mkdir -p /tmp/claude-279
+ln -s ~/.local/share/claude/versions/2.1.285 /tmp/claude-279/claude
+node scripts/experiments/claude-279/run.mjs /tmp/claude-279/claude
+node scripts/experiments/claude-279/verify.mjs <printed trace path>
+node scripts/experiments/claude-279/verify.mjs docs/measurements/issue-279-claude-trace.jsonl
+```
 
 - **Payload fields.** `SubagentStart` carries `session_id`,
   `transcript_path`, `cwd`, `prompt_id`, `agent_id`, `agent_type` and

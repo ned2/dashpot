@@ -81,13 +81,16 @@ While any live Claude Code session in the Repository has a sub-agent
 working, removal of every Worktree of that Repository is blocked
 ([ADR 0066](adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md)).
 A session whose liveness is unknown counts as live here. The session is in
-the Repository when its freshest hook record places it at one of the
-Repository's Worktrees. The `sub-agent` blocker appears in
+the Repository when a hook record places it at one of the Repository's
+Worktrees; a session that moved between Worktrees has a record in each, and
+its sub-agents are those any of them holds. The `sub-agent` blocker appears in
 `dashpot worktree check`, the Cleanup preview, and `dashpot worktree remove`,
 and again on confirmation. It names the session, its location, and the
 agent IDs, and says that Dashpot cannot tell where a sub-agent works. It
 clears when the last sub-agent's `SubagentStop` arrives, when the session
-ends or starts again, or when the session's process is gone. A session at
+ends or starts again, or when the session's process is gone. A sub-agent
+dispatched before its session entered another Worktree stays in the record
+left behind, so it holds the block until the session's process exits. A session at
 the Worktree itself is reported as that Worktree's `agent-session` occupant
 instead.
 
