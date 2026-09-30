@@ -65,6 +65,37 @@ worktree's ignored `.dashpot/state/sessions/`. Sessions outside any
 Dashpot-configured checkout fall back to the platform's normal
 application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
 
+### Sub-agents and Worktree Cleanup
+
+Cleanup refuses to remove a Worktree when an Agent Session is there, when
+an Agent Run is recorded there, or when its Work Store cannot be read
+([ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
+A Claude Code sub-agent is none of these. Its hooks carry its parent
+session's identity and the parent's `cwd`, even when its shell has run
+`cd` into an Issue Worktree, and it holds no Agent Run of its own. Dashpot
+knows a session's sub-agents are live but cannot tell which Worktree any of
+them works in
+([measured on 2.1.285](agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)).
+
+While any live Claude Code session in the Repository has a sub-agent
+working, removal of every Worktree of that Repository is blocked
+([ADR 0066](adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md)).
+A session whose liveness is unknown counts as live here. The session is in
+the Repository when its freshest hook record places it at one of the
+Repository's Worktrees. The `sub-agent` blocker appears in
+`dashpot worktree check`, the Cleanup preview, and `dashpot worktree remove`,
+and again on confirmation. It names the session, its location, and the
+agent IDs, and says that Dashpot cannot tell where a sub-agent works. It
+clears when the last sub-agent's `SubagentStop` arrives, when the session
+ends or starts again, or when the session's process is gone. A session at
+the Worktree itself is reported as that Worktree's `agent-session` occupant
+instead.
+
+This covers only sessions whose hooks place them in the Repository. A
+sub-agent of a session launched outside every Worktree of the Repository is
+not seen, nor is a sub-agent of a Codex session: the Codex integration does
+not subscribe to `SubagentStart` or `SubagentStop`.
+
 ### Agent-facing Issue-work skill
 
 Codex and Claude Code consume the same bundled Agent Skills payload. The

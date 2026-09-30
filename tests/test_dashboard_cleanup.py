@@ -8,6 +8,7 @@ observed the passive way afterwards ([ADR 0019]).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
@@ -47,8 +48,12 @@ from dashpot.repository.cleanup import (
     TargetKind,
     TargetResult,
     WorktreeCleanupRequest,
+    inspect_cleanup,
+    perform_cleanup,
 )
 from dashpot.repository.fetch import FetchReport
+from dashpot.sessions.hook_records import session_directory
+from dashpot.sessions.processes import ProcessLookup
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.cleanup_view import (
     FETCH_HINT,
@@ -61,7 +66,8 @@ from dashpot.ui.cleanup_view import (
 )
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.list_pane import ListPane
-from helpers import wait_until
+from helpers import table_lookup, wait_until
+from test_cleanup import PARENT, PARENT_SESSION, publish_subagent, sub_agent_worktrees
 
 ANCHOR = "/repo"
 WORKTREE = "/repo.worktrees/feat"
@@ -90,18 +96,23 @@ def remote(name: str) -> Branch:
     )
 
 
-def observed(*branches: Branch, linked: bool = True) -> WorkspaceSnapshot:
-    targets = [factories.target(ANCHOR)]
+def observed(
+    *branches: Branch,
+    linked: bool = True,
+    anchor: str = ANCHOR,
+    worktree: str = WORKTREE,
+) -> WorkspaceSnapshot:
+    targets = [factories.target(anchor)]
     if linked:
-        targets.append(factories.target(WORKTREE, role="linked", branch="feat"))
+        targets.append(factories.target(worktree, role="linked", branch="feat"))
     snapshot = with_first_project_snapshot(
         workspace_snapshot(issue("test/repo#1", "First")),
         branches=list(branches),
         observation_targets=tuple(targets),
         integration_ref="refs/remotes/origin/main",
-        branch_anchor=ANCHOR,
+        branch_anchor=anchor,
     )
-    return with_first_project(snapshot, anchors=(ANCHOR,), primary_anchor=ANCHOR)
+    return with_first_project(snapshot, anchors=(anchor,), primary_anchor=anchor)
 
 
 BEFORE = observed(local("main"), remote("main"), local("feat"), remote("feat"))
@@ -641,6 +652,58 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         await pilot.press("enter")
         await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
         assert app.cleanups.cleaning == {}
+
+
+@dataclass(frozen=True, slots=True)
+class InspectingCleaner:
+    """The real Cleanup inspection and performance, over a fake process table."""
+
+    lookup: ProcessLookup
+
+    def inspect(
+        self, request: CleanupRequest, *, protected: Sequence[Path]
+    ) -> CleanupPreview:
+        return inspect_cleanup(request, lookup=self.lookup, protected=protected)
+
+    def perform(
+        self, confirmation: CleanupConfirmation, *, protected: Sequence[Path]
+    ) -> CleanupReport:
+        return perform_cleanup(confirmation, lookup=self.lookup, protected=protected)
+
+
+@pytest.mark.asyncio
+async def test_a_live_sub_agent_blocks_the_worktree_and_says_why(
+    tmp_path: Path,
+) -> None:
+    root, target_path, _sibling = sub_agent_worktrees(tmp_path)
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+    cleaner = InspectingCleaner(table_lookup({PARENT.pid: PARENT}))
+    snapshot = observed(
+        local("main"), local("feat"), anchor=str(root), worktree=str(target_path)
+    )
+    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await focus_row(
+            app, pilot, "worktrees-pane", row_key("worktree", PROJECT, str(target_path))
+        )
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await settle_screen(app, pilot, "the Cleanup preview")
+
+        screen = cleanup_screen(app)
+        shown = details(app)
+        assert "A Claude Code sub-agent may be working here" in shown
+        assert "Dashpot cannot tell where one works. Wait for it to finish." in shown
+        assert f"Claude Code session {PARENT_SESSION}" in shown
+        assert "a686b12" in shown
+        unavailable = screen.query_one("#cleanup-unavailable", Static)
+        assert str(unavailable.render()) == "Nothing here can be deleted."
+        assert not screen.query("#cleanup-confirm")
+        await pilot.press("enter")
+        await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
+    assert target_path.exists()
 
 
 @pytest.mark.asyncio

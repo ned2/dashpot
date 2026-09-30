@@ -34,7 +34,7 @@ of date.
 | 0016 | [Hold a session running while its sub-agents work](0016-hold-a-session-running-while-its-sub-agents-work.md) | accepted | — |
 | 0017 | [Observe Branch integration by content when commits are unreachable](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md) | amended | [0018](0018-assess-remote-tracking-branch-integration.md), [0040](0040-summarize-integration-across-a-branch-rows-refs.md) |
 | 0018 | [Assess Remote-Tracking Branch integration](0018-assess-remote-tracking-branch-integration.md) | amended | [0040](0040-summarize-integration-across-a-branch-rows-refs.md) |
-| 0019 | [Remove Branches and Worktrees on explicit confirmation](0019-remove-branches-and-worktrees-on-explicit-confirmation.md) | amended | [0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md), [0054](0054-finish-a-worktree-with-its-branch-by-default.md) |
+| 0019 | [Remove Branches and Worktrees on explicit confirmation](0019-remove-branches-and-worktrees-on-explicit-confirmation.md) | amended | [0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md), [0054](0054-finish-a-worktree-with-its-branch-by-default.md), [0066](0066-block-worktree-removal-while-a-sub-agent-is-working.md) |
 | 0020 | [Coalesce requests onto the observation in flight](0020-coalesce-requests-onto-the-observation-in-flight.md) | accepted | — |
 | 0021 | [Bound each GitHub refresh by a budget](0021-bound-each-github-refresh-by-a-budget.md) | accepted | — |
 | 0022 | [Refresh GitHub Issues incrementally between Reconciliations](0022-refresh-github-issues-incrementally-between-reconciliations.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
@@ -78,3 +78,4 @@ of date.
 | 0061 | [Warn of a low rate limit from the latest reading across Query Sources](0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md) | accepted | — |
 | 0064 | [Publish Runtime Events under their Event Log field names](0064-publish-runtime-events-under-their-event-log-field-names.md) | accepted | — |
 | 0065 | [Pause GitHub queries after a rate limit refusal](0065-pause-github-queries-after-a-rate-limit-refusal.md) | accepted | — |
+| 0066 | [Block Worktree removal while a sub-agent is working](0066-block-worktree-removal-while-a-sub-agent-is-working.md) | accepted | — |

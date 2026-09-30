@@ -199,7 +199,10 @@ Ignored paths and their contents are listed rather than acknowledged. The
 confirm button always reads `Remove Worktree` or `Delete Branch`; a callout at
 the end of the preview states exactly what confirming removes and deletes.
 Occupied, dirty, locked, protected, and otherwise blocked Worktrees remain
-unavailable, and hold their Branches unavailable with them. A Branch blocked
+unavailable, and hold their Branches unavailable with them. That includes
+every Worktree of a Repository while a Claude Code session in it has a
+live sub-agent, since Dashpot cannot tell which Worktree a sub-agent works in
+([sub-agents and Worktree Cleanup](docs/agent-sessions.md#sub-agents-and-worktree-cleanup)). A Branch blocked
 as unintegrated against a Remote-Tracking Branch says that `f` checks again if
 the work has since merged
 ([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md)).
@@ -834,7 +837,8 @@ the same way); a successful delete push drops the Remote-Tracking Branch itself.
 Neither command deletes the Integration Branch, a checked-out Branch, a
 Branch with commits the Integration Branch does not reach, or a Worktree that
 is the main one, dirty, locked, occupied by an Agent Session or Agent Run,
-the checkout the command runs from, or a configured Repository Anchor (the
+possibly occupied by a live Claude Code sub-agent of a session in the
+Repository, the checkout the command runs from, or a configured Repository Anchor (the
 checkout's own root when it carries a Project configuration, and every anchor
 of the Workspace config). Every target reports its own outcome —
 `deleted`, `already-absent`, `refused`, or `unknown` when Git did not answer —

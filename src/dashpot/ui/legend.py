@@ -75,8 +75,10 @@ SESSION_ACTIONS_NOTE = (
     "work stop --session command that ends one that will not be resumed"
 )
 WORKTREE_ACTIONS_NOTE = (
-    "x removes a linked Worktree only when it is clean, unlocked, and no Agent "
-    "Session or Agent Run is here, and retains its Branch unless that is "
+    "x removes a linked Worktree only when it is clean, unlocked, no Agent "
+    "Session or Agent Run is here, and no Claude Code sub-agent is working "
+    "anywhere in the Repository, since Dashpot cannot tell where one works; it "
+    "retains its Branch unless that is "
     "selected too; the primary Worktree needs no checkbox, and f fetches and "
     "rebuilds the preview before confirmation; Enter opens the selected "
     "Worktree in tmux or a custom launcher, and y sends its full path to the "

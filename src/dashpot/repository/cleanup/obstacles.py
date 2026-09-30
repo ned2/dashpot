@@ -10,7 +10,11 @@ from typing import Literal
 from ...core.git import Git, GitError
 from ...core.model import HARNESS_DISPLAY
 from ...core.worktree_paths import worktree_paths, worktree_root
-from ...sessions.hook_scan import reachable_hook_stores, sessions_at_worktree
+from ...sessions.hook_scan import (
+    reachable_hook_stores,
+    sessions_at_worktree,
+    sessions_with_live_subagents,
+)
 from ...sessions.liveness import session_liveness
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.work_store import WorkStore
@@ -139,17 +143,43 @@ def assess_worktree_occupancy(
     worktrees: Sequence[Path],
     lookup: ProcessLookup = host_process_lookup,
 ) -> list[CleanupBlocker]:
-    """The Agent Sessions, Agent Runs, and unreadable Work Store records at a Worktree."""
+    """The Agent Sessions, sub-agents, and Agent Runs that may occupy a Worktree.
+
+    An unreadable Work Store record obstructs too, as a possible Agent Run.
+    A live sub-agent obstructs every Worktree of the Repository: its hooks
+    carry its session's location, never its own, so Dashpot cannot prove it
+    is not working here (ADR 0066).
+    """
     obstacles: list[CleanupBlocker] = []
     stores = reachable_hook_stores(worktrees)
+    occupants: set[tuple[str, str]] = set()
     for location in sessions_at_worktree(path, stores, lookup):
         record = location.record
+        occupants.add((record.harness, record.session_id))
         obstacles.append(
             CleanupBlocker(
                 kind="agent-session",
                 detail=f"{HARNESS_DISPLAY[record.harness]} session "
                 f"{record.session_id} is {record.outcome} here "
                 f"(last activity {record.last_activity_at})",
+            )
+        )
+    for location in sessions_with_live_subagents(worktrees, stores, lookup):
+        record = location.record
+        # A session here already blocks removal, its sub-agents with it.
+        if (record.harness, record.session_id) in occupants:
+            continue
+        harness = HARNESS_DISPLAY[record.harness]
+        agents = ", ".join(record.live_subagents)
+        obstacles.append(
+            CleanupBlocker(
+                kind="sub-agent",
+                detail=f"{harness} session {record.session_id} at "
+                f"{record.worktree} has "
+                f"{counted(len(record.live_subagents), 'sub-agent')} working "
+                f"({agents}; session {record.outcome}). Dashpot cannot tell "
+                f"which Worktree a {harness} sub-agent works in, so one may be "
+                f"working here; wait for it to finish or end that session.",
             )
         )
     active, work_diagnostics = WorkStore(path).active()

@@ -90,6 +90,9 @@ def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
         "dirty": "Uncommitted changes or untracked files; inspect before removal.",
         "locked": "The Worktree is locked; inspect the lock before removal.",
         "agent-session": "An Agent Session is still recorded; exit it or verify its liveness.",
+        # Only Claude Code publishes sub-agent boundaries (ADR 0066).
+        "sub-agent": "A Claude Code sub-agent may be working here: Dashpot "
+        "cannot tell where one works. Wait for it to finish.",
         "agent-run": "Active Issue work remains; finish it before removal.",
         "work-store": "The Work Store cannot be verified; inspect it before removal.",
         "protected": "This Worktree is in use by Dashpot or configured as a Repository Anchor.",
