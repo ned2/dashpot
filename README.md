@@ -953,7 +953,9 @@ measures whether an opted-in controller can move a live interactive session
 out of a Worktree on either harness, and proposes the arrangement per harness;
 the [Codex declared relocation on a daemon-hosted thread](docs/codex-declared-relocation-daemon-spike.md)
 experiment then verifies the sequential `codex resume -C` route of ADR 0029
-against the managed daemon.
+against the managed daemon. The
+[Claude Code 2.1.285 changes experiment](docs/claude-code-2-1-285-changes-spike.md)
+measures the 2.1.280–2.1.285 changes that touch the Claude Code integration.
 The [test-duration measurements](docs/test-duration-measurements.md) record the
 development-suite baseline and a focused synchronization improvement.
 The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
