@@ -108,10 +108,10 @@ Each request verifies the Repository and principal in its own response
 ([ADR 0055](adr/0055-verify-the-query-context-in-the-response-that-carries-it.md)),
 so a refresh sends no separate context request.
 
-On 2026-09-30 one dashboard ran on this Repository, which had 30 open
-Issues, for exactly an hour at the default Refresh Periods. Its Event Log
-records every GitHub request as a `github.request` span with the cost GitHub
-reported ([Runtime Events on disk](observability-design.md#on-disk);
+On 2026-09-30 one dashboard was measured for exactly an hour on this
+Repository, which had 30 open Issues, at the default Refresh Periods. Its
+Event Log records every GitHub request as a `github.request` span with the
+cost GitHub reported ([Runtime Events on disk](observability-design.md#on-disk);
 [Read the Event Log](installation.md#read-the-event-log)). Over the hour
 there were 61 GitHub refreshes of 5 requests each: 2 Query Pages, each
 counting its Project Totals, the 2 Issue batches that complete the Issues
@@ -120,7 +120,7 @@ when the set of bound Issues changed. None was a separate context request,
 and the local refreshes between GitHub refreshes sent nothing. The hour came
 to 307 requests and 307 points, every request costing 1 point and none
 failing. One open dashboard spends about 300 points an hour, 6% of a personal
-account's 5,000, at the low end of the 300 to 420 that four minutes measured
+account's 5,000, at the low end of the 300 to 420 measured over four minutes
 after ADR 0057. It spent about 3,500 before ADR 0055 removed the separate
 context requests, 1,900 to 2,400 at the 15-second period before ADR 0056,
 and 420 to 540 with separate Project Totals requests before ADR 0057.
