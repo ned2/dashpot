@@ -76,7 +76,7 @@ SESSION_ACTIONS_NOTE = (
 )
 WORKTREE_ACTIONS_NOTE = (
     "x removes a linked Worktree only when it is clean, unlocked, no Agent "
-    "Session or Agent Run is here, and no Claude Code session in the "
+    "Session or Agent Run is here, and no Agent Session in the "
     "Repository has a sub-agent working, since Dashpot cannot tell where one "
     "works; it retains its Branch unless that is selected too; the primary "
     "Worktree needs no checkbox, and f fetches and "

@@ -27,6 +27,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
 - Keep an Agent Run whose session ended without `SessionEnd` listed as
   orphaned (`orphaned`, `hostRestarted` in JSON) rather than as a Diagnostic,
   and continue it when its Claude Code session resumes at the same Worktree.
+- Carry a Codex session's Agent Run to the Worktree its next turn runs in,
+  with its identity, `startedAt` and Issue Binding, when the same Codex
+  process moved it; report a run left behind as `work-session-elsewhere`.
+  Codex sub-agents hold their session running and block Worktree Cleanup
+  like Claude Code's; rerun `dashpot integrate codex` to subscribe them.
 
 This release establishes the first compatibility baseline. Documented commands,
 JSON key sets and semantics, Local Issue Markdown, and `.dashpot/config.json`

@@ -43,6 +43,7 @@ from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH, counted
 from dashpot.repository.repository import LockHolderProbe, short_ref
 from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import cleanup_preview_document, cleanup_report_document
+from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
     session_directory,
     state_directory,
@@ -556,6 +557,39 @@ def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
             "Worktree a Claude Code sub-agent works in, so one may be working "
             "here; wait for it to finish or end that session."
         )
+
+
+def test_a_live_codex_sub_agent_blocks_like_a_claude_code_one(
+    tmp_path: Path,
+) -> None:
+    # Codex publishes its delegated threads' boundaries too, through the
+    # same hook seam (ADR 0067), so ADR 0066's blocker covers them.
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    codex = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
+    thread = "01a05099-1563-79a3-8504-e30d50949ca6"
+    for event in ("UserPromptSubmit", "SubagentStart", "Stop"):
+        publish_hook_event(
+            {
+                "session_id": thread,
+                "cwd": str(root),
+                "hook_event_name": event,
+                **({"agent_id": "child-thread"} if event == "SubagentStart" else {}),
+            },
+            directory=session_directory(root),
+            process=codex,
+            harness="codex",
+        )
+
+    tree, _local = preview_worktree(
+        root, target, lookup=table_lookup({codex.pid: codex})
+    ).targets
+
+    (blocker,) = tree.blockers
+    assert blocker.kind == "sub-agent"
+    assert blocker.detail.startswith(
+        f"Codex session {thread} at {root.resolve()} has 1 sub-agent working "
+        "(child-thread; session live)"
+    )
 
 
 def test_a_stopped_sub_agent_no_longer_blocks(tmp_path: Path) -> None:

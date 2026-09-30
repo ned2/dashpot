@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-01
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
 ---
 
 # Block Worktree removal while a sub-agent is working
@@ -62,6 +63,8 @@ might be working in it.
 - **Only Claude Code sub-agents are covered.** Dashpot's Codex integration
   does not subscribe to `SubagentStart` or `SubagentStop`, so a Codex
   session's sub-agents are not observed, and the refusal names Claude Code.
+  [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) subscribes them, so a Codex session's live sub-agents
+  block removal the same way, and the refusal names no harness.
 
 ## Considered options
 

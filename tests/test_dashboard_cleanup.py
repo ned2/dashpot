@@ -694,7 +694,7 @@ async def test_a_live_sub_agent_blocks_the_worktree_and_says_why(
 
         screen = cleanup_screen(app)
         shown = details(app)
-        assert "A Claude Code sub-agent may be working here" in shown
+        assert "A sub-agent may be working here" in shown
         assert "Dashpot cannot tell where one works. Wait for it to finish." in shown
         assert f"Claude Code session {PARENT_SESSION}" in shown
         assert "a686b12" in shown

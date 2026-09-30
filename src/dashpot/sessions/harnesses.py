@@ -1,13 +1,15 @@
 """Harness Adapters: how each supported harness identifies an Agent Session.
 
-An adapter answers two questions about its harness without Dashpot knowing
-the harness's internals: which host process is the harness itself (never a
-sandbox helper), and what Agent Session Identity the harness lets a command
-running inside the session see. Neither harness documents its identity
-variables as stable, so an adapter's claim is never trusted on its own: Issue
-opt-in validates every claim against the lifecycle hook record the harness
-published for the same Worktree, and a claim that names no such record
-cannot create an Issue Binding.
+An adapter answers its harness's questions without Dashpot knowing the
+harness's internals: which host process is the harness itself (never a
+sandbox helper), what Agent Session Identity the harness lets a command
+running inside the session see, whether that Host Process is exclusive to one
+session, and which of its hook events are designated location evidence
+(ADR 0067). Neither harness documents its identity variables as stable, so an
+adapter's claim is never trusted on its own: Issue opt-in validates every
+claim against the lifecycle hook record the harness published for the same
+Worktree, and a claim that names no such record cannot create an Issue
+Binding.
 """
 
 from __future__ import annotations
@@ -79,6 +81,33 @@ class SessionIdentityClaim:
     pid: int | None = None
 
 
+# A native hook event, as the harness wrote it to the publisher's stdin.
+HookEvent = Mapping[str, object]
+
+# The native field naming the delegated work an event belongs to: Codex and
+# Claude Code both put ``agent_id`` on a sub-agent's hook events beside the
+# parent's ``session_id``.
+CHILD_SCOPE_FIELD = "agent_id"
+
+
+def delegate_id(value: object) -> str | None:
+    """The delegate a child-scoped event or record names, if it names one."""
+    return value if isinstance(value, str) and value else None
+
+
+def is_child_scoped(event: HookEvent) -> bool:
+    """Whether a native hook event belongs to a Sub-agent rather than its session.
+
+    A child-scoped event updates only its parent's live sub-agents; it never
+    places, routes, binds, ends, or moves the parent (ADR 0067).
+    """
+    return delegate_id(event.get(CHILD_SCOPE_FIELD)) is not None
+
+
+def _designates_nothing(_event: HookEvent) -> bool:
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class HarnessAdapter:
     """One supported harness's process and session identity contract."""
@@ -91,6 +120,11 @@ class HarnessAdapter:
     # process being gone proves the session's own runtime ended. Only then can
     # a hook from a new process continue the session's Agent Run (ADR 0053).
     exclusive_session_process: bool = False
+    # Whether a native hook event is this harness's designated location
+    # evidence: where the harness itself says the session now executes, and
+    # so the only evidence that may carry an Agent Run to another Worktree
+    # (Live Relocation, ADR 0067). A tool call's working directory never is.
+    locates: Callable[[HookEvent], bool] = _designates_nothing
 
 
 def is_codex_host_process(process: ProcessIdentity) -> bool:
@@ -149,6 +183,13 @@ def is_claude_code_supervised_worker(process: ProcessIdentity) -> bool:
     return spawned is not None and str(spawned.group(1)) == version
 
 
+def _codex_locates(event: HookEvent) -> bool:
+    # Codex hooks report the turn's own ``cwd``, which follows a controller's
+    # ``turn/start`` override and a ``-C`` resume. ``locates_session`` leaves
+    # out a sub-agent's prompt, which is its own thread's, never its root's.
+    return event.get("hook_event_name") == "UserPromptSubmit"
+
+
 def _codex_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
     # Codex's shell tool exports its thread identifier, which is the
     # ``session_id`` its hooks publish. The variable is undocumented, so the
@@ -183,11 +224,15 @@ CODEX = HarnessAdapter(
     display=HARNESS_DISPLAY["codex"],
     is_host_process=is_codex_host_process,
     claim_session_identity=_codex_claim,
+    locates=_codex_locates,
 )
 
 # One Claude Code process per session: its sub-agents share the parent's
 # session as well as its process, and each supervised worker, a spare
-# included, hosts one session for its whole life.
+# included, hosts one session for its whole life. Its worktree tools'
+# ``PostToolUse`` are the designated location evidence ADR 0067 names; they
+# are left undesignated until #162 carries runs on them, so a Claude Code
+# session's run still moves only through ``work start``.
 CLAUDE_CODE = HarnessAdapter(
     harness="claude-code",
     display=HARNESS_DISPLAY["claude-code"],
@@ -199,6 +244,21 @@ CLAUDE_CODE = HarnessAdapter(
 ADAPTERS: dict[Harness, HarnessAdapter] = {
     adapter.harness: adapter for adapter in (CODEX, CLAUDE_CODE)
 }
+
+
+def locates_session(harness: Harness, event: HookEvent) -> bool:
+    """Whether a hook event is its harness's designated, session-scoped location evidence.
+
+    Only such an event may carry an Agent Run (ADR 0067): it is never a
+    child-scoped event, and never ``SessionStart`` or ``SessionEnd``, which
+    begin and end an incarnation rather than move one.
+    """
+    if is_child_scoped(event) or event.get("hook_event_name") in {
+        "SessionStart",
+        "SessionEnd",
+    }:
+        return False
+    return adapter(harness).locates(event)
 
 
 def adapter(harness: Harness) -> HarnessAdapter:

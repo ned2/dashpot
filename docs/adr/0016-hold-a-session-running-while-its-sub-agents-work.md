@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-02
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
 ---
 
 # Hold a session running while its sub-agents work
@@ -25,8 +26,10 @@ hold the session running while any sub-agent it started is alive:
 - The Claude Code integration subscribes to `SubagentStart` and
   `SubagentStop` beside the turn events. They fire once per sub-agent, not
   per tool call, so the per-invocation cost that ADR 0006 measured and
-  rejected for `PostToolUse` does not arise. Codex has no counterpart and is
-  unchanged.
+  rejected for `PostToolUse` does not arise. Codex had no counterpart when
+  this was decided; [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) subscribes Codex's `SubagentStart` and
+  `SubagentStop` too, so a Codex session's delegated threads hold it running
+  in the same way.
 - The hook record carries the session's live sub-agents (`liveSubagents`,
   the `agent_id` of each observed started and not yet stopped). The store
   derives it against the previous record, as it does the turn clock:
@@ -42,6 +45,12 @@ hold the session running while any sub-agent it started is alive:
   sub-agents hold the session running, so the Sessions pane ages a delegated
   interval from the last observed event rather than from a turn that has
   ended.
+- Under [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) any event carrying `agent_id` is the
+  sub-agent's, not the session's: it is written to the store of the parent's
+  freshest record with that record's location and state, and only the two
+  boundaries change the live set. A write that moves the session's freshest
+  record to another store seeds the set and the turn clock from the record
+  it moved from.
 - The field degrades like every non-fatal record field: a malformed
   `liveSubagents` reads as none, with a diagnostic, and the record stays
   version 2. A sub-agent event that names no agent changes nothing rather
