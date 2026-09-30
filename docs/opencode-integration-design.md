@@ -649,13 +649,25 @@ restart. Applying it to a Codex runtime or Claude worker replacement requires
 a separate decision; restarting only a supervisor must not silently become
 an equivalent trigger. The broader runtime contract remains proposed; #159 supplies the completed identity correction.
 
+Updated 2026-10-01: those decisions are now recorded. [ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)
+continues a Claude run through worker replacement in the same Worktree, and
+[ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+keeps explicit `work start` for a replaced Codex Host Process, makes
+supervisor replacement no boundary at all, aggregates OpenCode `parentID`
+children as Sub-agents, and leaves OpenCode's publisher generation as the only
+harness-specific incarnation record. The shared contract, its transition table
+and the support matrix OpenCode joins in #163 are in the
+[agent runtime lifecycle design](agent-runtime-lifecycle-design.md); where it
+and this proposal differ, it governs.
+
 The agreed delivery sequence is:
 
 | Issue | Deliverable | Dependencies |
 | --- | --- | --- |
 | [#159](https://github.com/ned2/dashpot/issues/159) | Completed identity correction for existing integrations (ADR 0038) | Independently delivered |
-| [#160](https://github.com/ned2/dashpot/issues/160) | Shared lifecycle contract, designed against all three harnesses with focused experiments | Can proceed alongside #159 |
-| [#161](https://github.com/ned2/dashpot/issues/161) | Shared runtime implementation with Codex support | #159 and #160 |
+| [#160](https://github.com/ned2/dashpot/issues/160) | Evidence for the shared lifecycle contract, from focused experiments on all three harnesses | Can proceed alongside #159 |
+| [#261](https://github.com/ned2/dashpot/issues/261) | The shared lifecycle contract ([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md), [design](agent-runtime-lifecycle-design.md)), split out of #160 | #160 |
+| [#161](https://github.com/ned2/dashpot/issues/161) | Shared runtime implementation with Codex support | #159, #160 and #261 |
 | [#162](https://github.com/ned2/dashpot/issues/162) | Claude clients and supervised workers through the shared model | #161 |
 | [#163](https://github.com/ned2/dashpot/issues/163) | Local OpenCode integration vertical slice | #162 |
 

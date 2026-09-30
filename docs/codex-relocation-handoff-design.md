@@ -180,6 +180,20 @@ another linked Worktree; observe A's `UserPromptSubmit`, `Stop`, and later
 B's hooks for any change, and the origin and target hook stores afterwards.
 Until that is measured, this document records Candidate 4 as unverified.
 
+Updated 2026-10-01: the scenario was measured under #267, and
+[ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+decides the completion rule this section anticipated, to be implemented by
+#161. The move will be a Live Relocation: the hook publisher will carry the
+run when a session-scoped `UserPromptSubmit` arrives at the new Worktree from
+the same Host Process that the run records, with no Relocation Intent
+required, and will complete a pending intent naming exactly that Worktree.
+The origin record the daemon leaves behind stays older than the session's
+record at the new Worktree, and the session's eventual `SessionEnd` removes
+it. The controller seam,
+its registration and authority stay #148's; the conditions and the verification
+#148 reads are in the
+[agent runtime lifecycle design](agent-runtime-lifecycle-design.md#live-relocation).
+
 ## Recommendation
 
 1. Apply Candidate 1 now, and document Candidate 2 as the same path with a
@@ -278,8 +292,15 @@ target `SessionStart`. What remains:
 - #148 and #261: Candidate 4 is measured feasible as a live-thread
   relocation by `turn/start` with a `cwd` override on an idle, opted-in
   thread, a separate lifecycle contract beside ADR 0029, not a replacement
-  for it. Its completion rule and controller evidence seam are those Issues'
-  scope; the sequential route needs no new completion meaning.
+  for it. Its completion rule is now ADR 0067's Live Relocation, to be
+  implemented by #161 and accepted under #278; the controller seam and the opt-in rule
+  stay #148's. The sequential route needs no new completion meaning.
+- Unmeasured on the live route: input joined to a running turn (whether it
+  publishes its own `UserPromptSubmit`, and at which `cwd`), a sub-agent live
+  during the move, and a terminal launched before the daemon or by daemon
+  autostart. The
+  [support matrix](agent-runtime-lifecycle-design.md#support-matrix) keeps
+  each unsupported until #161 measures it.
 - Upstream: the `fork` `SessionStart` source, default-enabled worktrees, and
   the `/cd` daemon-capability gate were on `main` at the time of writing;
   revalidate against the shipped `0.155.x` behaviour. The documentation's

@@ -12,6 +12,7 @@ that serve it, and to choose the right upstream interface without repeating
 three separate investigations.
 
 Dashpot's proposed integration behavior belongs in the
+[agent runtime lifecycle design](agent-runtime-lifecycle-design.md), the
 [OpenCode integration design](opencode-integration-design.md) and the
 [Codex relocation and handoff design](codex-relocation-handoff-design.md), not
 in this reference. The [domain language](domain-language.md#observation) defines

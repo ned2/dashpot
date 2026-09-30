@@ -315,11 +315,20 @@ supply accepted page data or trigger startup inventory reads.
 **Observation Location**:
 Where an agent session is executing, such as a branch, Worktree, or working
 directory. It is evidence about execution, never Project or Issue identity.
+A `cd` inside a tool call is wrong-location evidence for Issue-work
+commands, not relocation
+([ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md)).
+Under the proposed
+[ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+only the harness's designated location evidence (the session-scoped events
+its Harness Adapter names) can carry an Agent Run to a new location, and a
+Sub-agent's event never places its parent.
+_Avoid_: treating tool cwd as the session's location
 
 **Agent Session**:
 The lifetime of one harness conversation, such as one Codex thread or Claude
 Code conversation. A resumed conversation keeps its Agent Session Identity
-even when a new harness process continues it; process identity is liveness
+even when a new harness process continues it; its Host Process is liveness
 evidence, not the definition of the session. `SessionEnd` normally ends the
 session's Agent Run; when that run carries a Relocation Intent, it instead ends
 the old Codex client while the declared conversation continuation remains
@@ -339,7 +348,9 @@ Repository and starts work there switches its run rather than adding one
 Codex run can keep its identity and `startedAt` through a sequential resume
 only when its old client declared a Relocation Intent and the intended target's
 hook evidence completes it
-([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)).
+([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)),
+and, once the proposed ADR 0067 is implemented, any run keeps them through a
+Live Relocation ([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
 _Avoid_: Agent Run as a synonym for the whole session; a second run at
 another Worktree for a session that has relocated
 
@@ -351,15 +362,33 @@ resume at exactly that linked Worktree; completion moves the Work Store record
 without changing its Issue Binding, identity, or `startedAt`. A pending intent
 never places the session, creates work, expires by time, or authorizes a fresh
 Agent Session. It remains visible until completed, cancelled by the same
-session at its origin, or explicitly stopped.
+session at its origin, or explicitly stopped. Under the proposed ADR 0067, a
+Live Relocation to exactly its target completes it too, and one to any other
+Worktree is refused.
 _Avoid_: treating a planned path as an Observation Location
+
+**Live Relocation**:
+A same-identity live location change: an Agent Session keeps its Agent
+Session Identity and Host Process and continues at another Worktree of the
+same Git Repository, with no `SessionEnd`, no `SessionStart`, and no
+Relocation Intent, as after a controller's Codex `turn/start` with a `cwd`
+override or a Claude Code `EnterWorktree` or `ExitWorktree` (`keep`). The hook
+publisher carries the session's active Agent Run with it, unchanged, only on
+the harness's designated location evidence and under ADR 0067's guards; an
+unbound session stays unbound. It is a route beside the sequential
+relocation of ADR 0029, not a replacement, and says nothing about who may
+trigger the move. Decided in
+[ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+and not yet implemented.
+_Avoid_: calling a resume in a new process, or a shell `cd`, a Live
+Relocation
 
 **Agent Session Identity**:
 The stable, opaque identity a harness gives one Agent Session, as its
 lifecycle hooks publish it, scoped to that harness. The confirmed pair
 `(harness, native session ID)` identifies the session on both visible and
 sandboxed process routes. Distinct native identities never become one session
-because they share a host process. Process evidence corroborates lifecycle and
+because they share a Host Process. Process evidence corroborates lifecycle and
 location; it cannot authorize Issue work without a confirmed native identity
 ([ADR 0038](adr/0038-isolate-native-agent-session-identities.md)).
 _Avoid_: session key, which is the Work Store's record name, and process
@@ -374,18 +403,48 @@ so every model, record, and label spells a harness the same way. _Avoid_:
 
 **Harness Adapter**:
 The per-harness contract through which Dashpot identifies an Agent Session
-from a command running inside it: which host process is the harness itself
-(never a sandbox helper) and what Agent Session Identity the command can see.
+from a command running inside it: which Host Process is the harness itself
+(never a sandbox helper), what Agent Session Identity the command can see,
+and whether its Host Process is exclusive to one session. Under the proposed
+ADR 0067 it also names the events that are its designated location evidence.
 Work Store and observation code speak to the adapters and never to one
 harness's internals.
 
+**Host Process**:
+The nearest harness process that executes an Agent Session's turns, keyed by
+pid and start time: a Claude Code interactive, headless or supervised worker
+process, a Codex TUI, `exec`, app-server or daemon process, or, once
+OpenCode is supported, its backend. It is the session's liveness and runtime
+evidence. Each span of one Host Process holding a session, begun by
+`SessionStart`, is an incarnation; every `SessionStart` begins another,
+whether a resume in a new process, a cold resume inside the same daemon, or
+a `/clear`. One Host Process can serve several Agent Sessions, which never makes them one; the Harness
+Adapter says whether it is exclusive to one session. A supervisor, PTY host,
+attached client or terminal is not a Host Process and is not recorded
+([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
+_Avoid_: backend, server, runtime, or worker as synonyms without saying which
+process is meant; the supervisor as a session's process
+
+**Sub-agent**:
+Delegated work a harness runs inside an Agent Session: a Codex sub-agent
+thread, a Claude Code sub-agent in its parent's process, or, once OpenCode is
+supported, a child session with a `parentID`. Where Dashpot subscribes to
+them, a Sub-agent's events add to its parent's live sub-agents, which hold
+the parent running
+([ADR 0016](adr/0016-hold-a-session-running-while-its-sub-agents-work.md)).
+They never bind or end the parent, a Sub-agent's own claim never authorizes
+Issue work, and under the proposed ADR 0067 its events never place or move
+the parent either. A fork is a separate Agent Session, not a Sub-agent.
+_Avoid_: child session for a fork; treating a Sub-agent's location as its
+parent's Observation Location
+
 **Session Liveness**:
-An observation of whether an Agent Session's recorded host process is live,
+An observation of whether an Agent Session's recorded Host Process is live,
 gone, or unknown. Unknown means the process could not be observed and is never
 evidence that the session ended.
 
 **Orphaned Agent Run**:
-An active Work Store record whose Agent Session's recorded host process is
+An active Work Store record whose Agent Session's recorded Host Process is
 gone although no graceful `SessionEnd` was observed, as after a crash. It
 stays listed, marked orphaned, until its Claude Code session resumes at the
 same Worktree and continues it ([ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)) or a person ends it with `dashpot work
