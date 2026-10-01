@@ -41,6 +41,19 @@ def quiet_event_log(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("xdg-state")))
 
 
+@pytest.fixture(autouse=True)
+def bounded_checkout_search(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep every search for an enclosing checkout inside the suite's temporary tree.
+
+    Whatever holds the host's temporary directory — a stray ``.git`` there
+    once made ``/tmp`` a checkout (#359) — a test's directory is outside every
+    checkout it did not make, to Git and to Dashpot alike.
+    """
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path_factory.getbasetemp()))
+
+
 @pytest.fixture
 def git_repository(tmp_path: Path) -> Path:
     """An empty Git repository at ``tmp_path / "repo"``."""

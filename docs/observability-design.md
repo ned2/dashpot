@@ -243,8 +243,12 @@ output.
 - **Per checkout** ([ADR 0003](adr/0003-prefer-project-local-dashpot-state.md)):
   a process writes to `.dashpot/state/events/` in the configured checkout —
   the Worktree whose root carries `.dashpot/config.json` — containing its
-  working directory, found by walking up to the nearest `.git` entry without
-  starting Git. It is the rule the hook publisher's `route_record_store`
+  working directory, found by walking up to the nearest `.git` Git would
+  accept, without starting Git: a directory holding `HEAD`, or a `gitdir:`
+  file. As in Git, an empty `.git` directory claims nothing
+  ([#359](https://github.com/ned2/dashpot/issues/359)), a malformed `.git`
+  file ends the search, and the search stops below any directory that
+  `GIT_CEILING_DIRECTORIES` names. It is the rule the hook publisher's `route_record_store`
   applies to hook records, and a hook routes its Event Log from the
   payload's working directory the same way. A one-shot command writes to the
   checkout it runs in; a dashboard to the checkout it was started in,
