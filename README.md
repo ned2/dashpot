@@ -496,6 +496,15 @@ Run the commit hooks across every tracked file:
 uv run pre-commit run --all-files
 ```
 
+#### Harness acceptance runs
+
+Each supported harness release is pinned by an acceptance run: a runner that drives the real harness in an isolated, disposable fixture through Dashpot's real hook publisher and `dashpot work` commands, and a verifier that checks the documented claims against the runner's metadata-only trace, which records the SHA-256 of the runner and of the Dashpot sources it exercised. They launch real harness processes, so they run by hand when the pinned release or the lifecycle code changes, never in CI. A release is supported once its run passes, and its trace is retained in [`docs/spikes/measurements/`](docs/spikes/measurements/README.md).
+
+- **Codex 0.159.3**: [runner](scripts/experiments/codex-161/run.mjs) and
+  [verifier](scripts/experiments/codex-161/verify.mjs),
+  [trace](docs/spikes/measurements/issue-161-codex-trace.jsonl)
+  ([supported modes](docs/agent-sessions.md#codex-hosting-modes)).
+
 #### Local review gate
 
 Before every commit, run the all-files checks and the full suite with coverage:

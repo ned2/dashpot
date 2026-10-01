@@ -32,6 +32,10 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   process moved it; report a run left behind as `work-session-elsewhere`.
   Codex sub-agents hold their session running and block Worktree Cleanup
   like Claude Code's; rerun `dashpot integrate codex` to subscribe them.
+- Support Codex `codex-cli` 0.159.3 on Linux in each measured hosting mode:
+  the managed daemon a plain terminal starts, an App Server with attached
+  clients, a standalone terminal, and `codex exec`. A real-harness acceptance
+  run checks this support on a release bump.
 
 This release establishes the first compatibility baseline. Documented commands,
 JSON key sets and semantics, Local Issue Markdown, and `.dashpot/config.json`

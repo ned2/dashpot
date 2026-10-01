@@ -444,7 +444,7 @@ a `/clear`. A hook record keeps the start of the latest incarnation its
 store saw (`lastSessionStartAt`), so a restart is never taken for a Live
 Relocation. One Host Process can serve several Agent Sessions, which never makes them one; the Harness
 Adapter says whether it is exclusive to one session. A supervisor, PTY host,
-attached client or terminal is not a Host Process and is not recorded
+client or terminal attached to a server is not a Host Process and is not recorded
 ([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
 _Avoid_: backend, server, runtime, or worker as synonyms without saying which
 process is meant; the supervisor as a session's process

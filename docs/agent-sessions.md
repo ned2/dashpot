@@ -109,6 +109,73 @@ sub-agent of a session launched outside every Worktree of the Repository is
 not seen, nor is one of a Codex session whose installation predates the
 `SubagentStart` and `SubagentStop` subscription.
 
+### Codex hosting modes
+
+Codex support is pinned to `codex-cli` **0.159.3** on Linux, the release the
+[Codex acceptance run](../README.md#harness-acceptance-runs) last passed on;
+its trace is
+[`issue-161-codex-trace.jsonl`](spikes/measurements/issue-161-codex-trace.jsonl).
+Another release is unsupported until that run passes on it. The
+[harness reference](agent-harness-server-client-reference.md#hosting-modes-and-daemon-autostart-at-01593)
+holds the upstream detail. A Codex thread is one Agent Session wherever it
+runs. What changes between modes is its Host Process, the process whose pid
+and start time Dashpot records and checks for liveness:
+
+| How the thread runs | Host Process | Graceful end |
+| --- | --- | --- |
+| Plain `codex` terminal, the default | The managed daemon, which the first plain terminal starts | Not at `/exit`: `SessionEnd` about 60 s after the thread's last client leaves, or at `codex app-server daemon stop` |
+| `codex --remote`, or a controller on the daemon or on `codex app-server --listen` | The daemon or that app-server | As above |
+| `codex --disable daemon_auto_start`, launched while no daemon runs | The terminal itself | `SessionEnd` at `/exit` |
+| `codex exec` | The `exec` process | `SessionEnd` when it exits |
+
+Codex 0.159.3 starts the managed daemon automatically (`daemon_auto_start`
+is on by default), so a plain terminal's thread, its hooks and its shells all
+belong to the daemon, which outlives the terminal and serves every thread
+started that way. A terminal launched with `--disable daemon_auto_start`
+while a daemon runs attaches to it like a plain one.
+
+In the dashboard, a Codex session's state means:
+
+- **Running or waiting.** Its Host Process is live, and the state is that of
+  its current turn. Input typed during a turn joins that turn and its
+  `UserPromptSubmit` arrives when Codex takes it, so the session stays
+  running until the joined input's turn stops.
+- **Unloaded.** A daemon-hosted thread whose last terminal or client has
+  left stays listed as waiting, at its Worktree and with its run, until the
+  daemon unloads it about 60 s later. Its `SessionEnd` then ends its run and
+  removes the session from every Worktree of the Repository. Until then it
+  still occupies its Worktree for Cleanup. A thread resumed after it
+  unloaded is a new incarnation of the same session with no run.
+- **Gone.** The Host Process was killed or crashed: no hook says so. A bound
+  run is listed as an [Orphaned Agent Run](domain-language.md) (`◌`) under
+  the gone process (`codex pid N`), and an unbound session leaves the
+  Sessions pane. A killed daemon orphans every bound run it hosted at once.
+- **Unknown.** Dashpot cannot observe the Host Process, so liveness is
+  unconfirmed (`○`). Unknown never ends, carries or continues a run.
+
+To recover an orphaned Codex run, resume the conversation in the Worktree
+the run is in (the Sessions pane's `y` copies `codex resume <id> -C <worktree>`) and run
+`dashpot work start <issue>` from the resumed session. Until then the resumed
+session is listed unbound beside its orphaned run. `work start` reports that
+it restarted the run, and binds a new run, with a new `startedAt`, to the new
+Host Process. To abandon the run instead, run
+`dashpot work stop --session <key>`. Dashpot never continues an orphaned
+Codex run on its own, in any mode
+([ADR 0072](adr/0072-keep-every-codex-host-process-non-exclusive.md)).
+
+A controller's `turn/start` with a `cwd` override in another Worktree of the
+Repository carries a bound run there at the next turn's `UserPromptSubmit`,
+keeping its id, `startedAt` and Issue Binding (Live Relocation,
+[ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
+An override sent while a turn runs joins that turn in the old directory, so
+the run moves only when the following turn starts at the new one.
+
+Not supported, because they were not measured at the pinned release:
+switching conversations inside one terminal (`/new`, `/resume`, `/cd`) and
+Codex-managed `/worktree`; Remote Control paired with an account; the Code
+Mode remote host; the stdio transport; and every operating system other than
+Linux.
+
 ### Agent-facing Issue-work skill
 
 Codex and Claude Code consume the same bundled Agent Skills payload. The

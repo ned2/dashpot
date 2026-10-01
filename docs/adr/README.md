@@ -68,7 +68,7 @@ of date.
 | 0050 | [Describe every pane column once for the tooltip and the Legend](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md) | accepted | — |
 | 0051 | [Adopt long-lived peer dashboard screens](0051-adopt-long-lived-peer-dashboard-screens.md) | accepted | — |
 | 0052 | [Read machine-local settings as TOML](0052-read-machine-local-settings-as-toml.md) | accepted | — |
-| 0053 | [Continue an Orphaned Agent Run when its session resumes](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) | accepted | — |
+| 0053 | [Continue an Orphaned Agent Run when its session resumes](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md) | amended | [0072](0072-keep-every-codex-host-process-non-exclusive.md) |
 | 0054 | [Finish a Worktree with its Branch by default](0054-finish-a-worktree-with-its-branch-by-default.md) | accepted | — |
 | 0055 | [Verify the query context in the response that carries it](0055-verify-the-query-context-in-the-response-that-carries-it.md) | accepted | — |
 | 0056 | [Refresh GitHub queries on their own period](0056-refresh-github-queries-on-their-own-period.md) | accepted | — |
@@ -83,3 +83,4 @@ of date.
 | 0068 | [Pause GitHub queries while the dashboard is unattended](0068-pause-github-queries-while-the-dashboard-is-unattended.md) | accepted | — |
 | 0069 | [Remove an ended session's records from every store of its Repository](0069-remove-an-ended-sessions-records-from-every-store-of-its-repository.md) | accepted | — |
 | 0070 | [Refuse a Live Relocation on evidence it cannot read](0070-refuse-a-live-relocation-on-evidence-it-cannot-read.md) | accepted | — |
+| 0072 | [Keep every Codex Host Process non-exclusive](0072-keep-every-codex-host-process-non-exclusive.md) | accepted | — |

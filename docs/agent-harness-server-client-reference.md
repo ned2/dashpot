@@ -476,7 +476,9 @@ releases its writer lock while another subscriber remains; the last
 `thread/unsubscribe` starts the unload delay, after which `SessionEnd` `other`
 fires at the thread's current cwd (60,049 ms measured). `daemon stop` ends the
 remaining loaded threads with `SessionEnd` `other`. A terminal launched before
-the daemon starts, and `codex agents`, were not measured.
+the daemon starts was measured at 0.159.3
+([below](#hosting-modes-and-daemon-autostart-at-01593)); `codex agents` was
+not measured.
 
 The [declared-relocation experiment](spikes/codex-declared-relocation-daemon-spike.md#scenario-results)
 then measured the sequential `codex resume <id> -C <path>` route on the
@@ -498,6 +500,69 @@ daemon, the terminal's `/exit` runs `SessionEnd` at once and the resume is a
 new process with the same first-hook order. No read-only notice or picker
 appeared on any route. A resume launched while the old terminal is still
 attached was not measured.
+
+### Hosting modes and daemon autostart at 0.159.3
+
+The [Codex acceptance run](agent-sessions.md#codex-hosting-modes) for
+[#161](https://github.com/ned2/dashpot/issues/161) measured `codex-cli`
+0.159.3 on Linux. It ran the standalone release's binary with an isolated
+`CODEX_HOME` that had no `packages/standalone` link, a loopback Responses API
+as a custom provider, and Dashpot's real Codex publisher as a trusted command
+hook for seven events. Its metadata-only
+[trace](spikes/measurements/issue-161-codex-trace.jsonl) records each claim below,
+and the runner's verifier checks each one.
+
+- **Autostart.** `daemon_auto_start` is a stable feature, enabled by
+  default. A plain `codex` terminal with no daemon running installs the
+  managed daemon from its own binary into
+  `<CODEX_HOME>/packages/app-server-daemon/releases/<version>-<target>/`,
+  linked as `current`. It then starts
+  `codex app-server --remote-control --listen unix:// --managed-daemon` as
+  its own child. The terminal's thread is daemon-hosted from the first turn:
+  its hooks and shells descend from the daemon, not the terminal. When that
+  terminal exits, the daemon is reparented to pid 1 and keeps its pid and
+  start time. A companion `codex app-server daemon pid-update-loop` process
+  runs beside it and outlives `daemon stop` and `remote-control stop`.
+  `app-server daemon start` and `stop` now name
+  `packages/app-server-daemon/current`, where 0.155.1 required the
+  standalone release.
+- **Remote Control.** `codex remote-control start --json` installs and
+  starts the same daemon even with no account, then exits 1 because the
+  remote connection is errored. `remote-control stop` stops the daemon.
+- **Standalone terminal.** A terminal launched with
+  `--disable daemon_auto_start` while no daemon runs hosts its own thread:
+  its hooks and shells descend from the terminal process. It keeps hosting
+  that thread after a daemon starts beside it. Its `/exit` runs `SessionEnd`
+  `other` at once, and a SIGKILL of it runs no hook. `codex resume <id>` in a
+  new terminal publishes `SessionStart` `resume` under the same thread id
+  from the new process.
+- **Flag beside a daemon.** A terminal launched with
+  `--disable daemon_auto_start` while a daemon runs attaches to that daemon.
+  Its thread is daemon-hosted, its `/exit` runs no hook, and the thread
+  unloads after the usual delay. The flag disables only starting a daemon,
+  not using one.
+- **Joined input.** Input typed into a terminal while its turn runs a
+  command joins that turn. Its `UserPromptSubmit` carries the running turn's
+  `turn_id` and fires only after the running command finishes, at the turn's
+  cwd; one `Stop` ends the turn. A controller's `turn/start` on a busy
+  thread likewise returns the running turn's id, even with a `cwd`
+  override. The joined input's `UserPromptSubmit` and shell stay at the old
+  cwd, while `thread/read` already reports the new one. The next turn's
+  `UserPromptSubmit` is the first hook at the new cwd.
+- **Unload and timeouts.** The unload delay after the last subscriber left
+  measured 59.5 to 60.2 s, and `SessionEnd` `other` names the thread's
+  current cwd. `codex exec` warns that it clamps the `SessionEnd` and
+  `Interrupt` hook timeouts to 3 s.
+- **Identity.** The 0.155.1 identity equalities held: hook `session_id` =
+  `thread.id` = `CODEX_THREAD_ID` = `CODEX_SESSION_ID` for roots and forks. A
+  sub-agent's shell claims its own thread id in `CODEX_THREAD_ID` and its
+  root's in `CODEX_SESSION_ID`, and its hooks carry the root's `session_id`
+  plus `agent_id`. No `codex-code-mode-host` process appeared in any hook or
+  shell ancestry.
+
+Interactive conversation switches inside one terminal (`/new`, `/resume`),
+Remote Control pairing with an account, and other operating systems were not
+measured.
 
 ### Changes on `main` after `rust-v0.154.0`
 
