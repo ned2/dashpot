@@ -11,7 +11,7 @@ checked again without rerunning a harness or spending GitHub rate limit.
 A `.jsonl` trace is one JSON record per line, written by the experiment's
 `run.mjs` under [`scripts/experiments/`](../../../scripts/experiments/). Its
 first record has `"kind": "environment"` and names the harness version,
-platform, and isolated configuration; the records after it are the lifecycle
+platform, and, in most traces, the isolated configuration; the records after it are the lifecycle
 hooks, process ancestry samples, and scenario steps the run observed. The
 earlier traces keep the fixture's temporary paths; the later ones rewrite them
 to placeholders such as `$ROOT`. The same experiment's `verify.mjs` checks the

@@ -951,13 +951,13 @@ These `living` documents carry the detail this README points at:
 decision, indexed by number in
 [`docs/adr/README.md`](docs/adr/README.md).
 
-The top level of [`docs/`](docs/) holds only the `living` documents above,
-plus [`ci-performance.md`](docs/ci-performance.md) and
+The top level of [`docs/`](docs/) holds only `living` documents: those above,
+[`ci-performance.md`](docs/ci-performance.md), and
 [`textual-implementation-notes.md`](docs/textual-implementation-notes.md).
-Everything else is grouped by kind, never by `status`, so a document keeps its
-path when its status changes. Each kind directory has a `README.md` index
-giving every document's title, `status`, and date; a new document is added
-to its directory's index in the change that creates it:
+The other documents are grouped by kind, never by `status`, so a document
+keeps its path when its status changes. Each kind directory has a `README.md`
+index giving every document's title, `status`, and date; a new document is
+added to its directory's index in the change that creates it:
 
 - [`docs/research/`](docs/research/README.md) — investigations of upstream
   capabilities and of Dashpot's data access that informed a decision.
@@ -968,6 +968,13 @@ to its directory's index in the change that creates it:
   of the codebase, its models, and its open Issues.
 - [`docs/proposals/`](docs/proposals/README.md) — designs and the evidence
   assembled for them, open or superseded.
+
+Two directories sit outside this grouping. The design research above stays a
+self-contained corpus in [`docs/design-research/`](docs/design-research/README.md),
+with its own index, dating conventions, and cross-links, rather than joining
+`docs/research/`: it studies Dashpot's direction, not an upstream capability
+behind one decision. [`docs/agents/`](docs/agents/) holds the documents
+installed skills read by path, listed below.
 
 [ADR 0042](docs/adr/0042-group-leaf-and-domain-modules-into-subpackages.md)
 records the completed package layout and application composition seam.

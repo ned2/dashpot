@@ -13,7 +13,7 @@ behind that decision, not as a description of the code.
 
 | Document | Status | Date |
 | --- | --- | --- |
-| [Migrate machine-local settings to config.toml](toml-settings-migration-research.md) | superseded | 2026-09-12 |
+| [Machine-local settings migration to config.toml](toml-settings-migration-research.md) | superseded | 2026-09-12 |
 | [GitHub Pull Request search and state colours](github-pull-request-search-research.md) | research | 2026-09-06 |
 | [Sequencing GitHub observation data and state work](github-observation-state-sequencing-research.md) | research | 2026-09-05 |
 | [GitHub API batching and bulk queries for the GitHub Issue Source](github-api-batching-research.md) | research | 2026-09-05 |

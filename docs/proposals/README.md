@@ -7,8 +7,9 @@ date: 2026-10-01
 
 Designs and the evidence assembled for them, written before or alongside the
 ADRs that decide them. A `proposal` is still open; a `superseded` one names
-what replaced it in its frontmatter. Where a proposal and an ADR disagree,
-the ADR wins.
+what replaced it in its frontmatter; a `research` one is evidence gathered to
+weigh a proposed direction. Where a proposal and an ADR disagree, the ADR
+wins.
 
 | Document | Status | Date |
 | --- | --- | --- |
