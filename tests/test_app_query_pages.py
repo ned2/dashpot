@@ -14,6 +14,7 @@ from textual.binding import Binding
 from textual.widgets import Static
 
 from app_harness import (
+    RELEASE_TIMEOUT,
     SequenceCollector,
     SnapshotScheduler,
     await_issue_page,
@@ -140,10 +141,10 @@ async def test_paging_while_a_restart_is_in_flight_keeps_loading(tmp_path):
 
     def held(request):
         started.set()
-        release.wait(5)
+        release.wait(timeout=RELEASE_TIMEOUT)
         return query_page(request)
 
-    def count() -> str:
+    def issue_count_text() -> str:
         return str(app.query_screen.query_one("#issue-count", Static).render())
 
     try:
@@ -156,7 +157,7 @@ async def test_paging_while_a_restart_is_in_flight_keeps_loading(tmp_path):
             await wait_until(started.is_set)
             await pilot.press("n", "p")
             await pilot.pause()
-            assert count() == "Loading page"
+            assert issue_count_text() == "Loading page"
 
             release.set()
             await await_issue_page(app, lambda request: request.cursor is None)
@@ -168,7 +169,7 @@ async def test_paging_while_a_restart_is_in_flight_keeps_loading(tmp_path):
                     )
                 )
             await pilot.press("n")
-            await wait_until(lambda: count().endswith(" · No next page"))
+            await wait_until(lambda: issue_count_text().endswith(" · No next page"))
     finally:
         release.set()
 

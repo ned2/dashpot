@@ -115,11 +115,14 @@ class PageNavigation:
     def previous(self) -> None:
         """Return to a retained observation with its original timestamp.
 
-        A refusal moves nothing, so it supersedes no query; with no accepted
-        page it is silent, as ``next`` is.
+        With no accepted page there is nothing to go back from, so, as in
+        ``next``, the refusal is silent and leaves the query still to land
+        alone. On page one the refusal still supersedes a pending next page:
+        the person asked not to move on.
         """
         if self.page is None:
             return
+        self.generation += 1
         if self.index == 0:
             self.error = (
                 "Earlier page evicted; restart from page one"
@@ -127,7 +130,6 @@ class PageNavigation:
                 else "Already at first page"
             )
             return
-        self.generation += 1
         self.index -= 1
         self.request = self.history[self.index].request
         self.error = None

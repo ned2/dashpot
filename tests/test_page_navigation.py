@@ -6,7 +6,7 @@ from dashpot.queries.page_navigation import PageNavigation, page_text
 from dashpot.queries.source_queries import QueryRequest
 from test_source_queries import markdown
 
-# Nothing here reads a page's age, so a fixed instant keeps that true.
+# ``page_text`` takes the time, but no assertion here depends on a page's age.
 NOW = datetime(2026, 8, 27, 3, 0, 0, tzinfo=UTC)
 
 
@@ -38,7 +38,7 @@ def test_refresh_invalidates_forward_history_and_eviction_is_explicit(tmp_path):
     assert navigation.page is not None
     assert navigation.page.issues[0].number == 2
     navigation.previous()
-    assert "evicted" in (navigation.error or "")
+    assert navigation.error == "Earlier page evicted; restart from page one"
     assert len(navigation.history) == 2
     ticket = navigation.refresh()
     navigation.accept(ticket, source.query_page(ticket.request).page)
@@ -125,13 +125,16 @@ def test_an_accepted_page_without_a_continuation_has_no_next_page(tmp_path):
     assert navigation.error == "Narrow the query to see more results"
 
 
-def test_a_refused_previous_page_does_not_supersede_a_refresh(tmp_path):
+def test_previous_on_page_one_supersedes_a_pending_next_page(tmp_path):
     source = markdown(tmp_path)
     navigation = PageNavigation(QueryRequest(page_size=1))
     first = navigation.refresh()
     navigation.accept(first, source.query_page(first.request).page)
 
-    refreshed = navigation.refresh()
+    pending = navigation.next()
+    assert pending is not None
     navigation.previous()
     assert navigation.error == "Already at first page"
-    assert navigation.accept(refreshed, source.query_page(refreshed.request).page)
+    assert not navigation.accept(pending, source.query_page(pending.request).page)
+    assert navigation.page is not None
+    assert navigation.page.issues[0].number == 1
