@@ -295,6 +295,36 @@ class HookRecordStoreTests(unittest.TestCase):
             json.loads((self.state_dir / "reused.json").read_text())["state"],
         )
 
+    def test_session_end_matches_an_unreadable_process_only_as_recorded(
+        self,
+    ) -> None:
+        # A process record that cannot be read has no pid and start time to
+        # compare, so only the identical record names the same Host Process.
+        unreadable = {"pid": "unreadable", "command": "codex"}
+        for ending, removed in (
+            (unreadable, True),
+            ({**unreadable, "command": "other"}, False),
+            (self.process.as_record(), False),
+        ):
+            with self.subTest(ending=ending):
+                base = {
+                    "version": 2,
+                    "sessionId": "opaque",
+                    "harness": "codex",
+                    "lastActivityAt": "2026-08-25T16:00:00Z",
+                }
+                write_hook_record(
+                    {**base, "sessionProcess": unreadable, "state": "waiting"},
+                    self.state_dir,
+                )
+
+                write_hook_record(
+                    {**base, "sessionProcess": ending, "state": "ended"},
+                    self.state_dir,
+                )
+
+                self.assertEqual(not removed, (self.state_dir / "opaque.json").exists())
+
     def test_session_end_with_a_malformed_binding_still_removes_the_record(
         self,
     ) -> None:
