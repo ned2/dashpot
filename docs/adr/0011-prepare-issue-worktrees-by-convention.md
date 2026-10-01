@@ -10,7 +10,7 @@ amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0039
 lets `dashpot worktree create` create one linked Worktree for an Issue. It
 does not say where the Worktree goes, what its Branch is called, which commit
 it starts from, or what happens when one already exists. The
-[agent Worktree handoff proposal](../proposed-agent-worktree-protocol.md)
+[agent Worktree handoff proposal](../proposals/agent-worktree-protocol.md)
 walked those decisions with the user on 2026-08-30 (review outcomes 4, 5, 6,
 8, and 11, and recommendations 7 and 16); this ADR records them as the
 conventions the command owns, so that no agent skill re-derives them.

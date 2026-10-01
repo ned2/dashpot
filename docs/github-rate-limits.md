@@ -17,7 +17,7 @@ authenticating, how Dashpot spends them, and how to stay inside them.
 GitHub notes that "the formula for calculating points and the rate limit are
 subject to change". The figures here were checked against GitHub's
 documentation on the date above. The evidence behind the cost figures is in
-the [GitHub API batching research](github-api-batching-research.md#1-graphql-rate-limits-and-query-limits).
+the [GitHub API batching research](research/github-api-batching-research.md#1-graphql-rate-limits-and-query-limits).
 
 ## How Dashpot authenticates
 

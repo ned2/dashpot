@@ -328,7 +328,7 @@ parentheses, and `sort:`. For example:
 ```
 
 See [GitHub's qualifier reference](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests)
-and the [search research](docs/github-pull-request-search-research.md) for the
+and the [search research](docs/research/github-pull-request-search-research.md) for the
 operator inventory. GitHub's permissions, indexing, query limits, and search
 ordering apply. Scope qualifiers can narrow this Project's results; they do
 not expand the pane to other repositories. Lifecycle filtering happens at the
@@ -949,32 +949,26 @@ These `living` documents carry the detail this README points at:
 
 [`docs/adr/`](docs/adr/) records architectural decisions, one ADR per
 decision, indexed by number in
-[`docs/adr/README.md`](docs/adr/README.md). The other files in [`docs/`](docs/) are research, audits, and
-proposals that informed decisions and implementation.
-The [OpenCode identity and lifecycle experiment](docs/opencode-identity-lifecycle-spike.md)
-records the reproducible evidence for a possible OpenCode integration, the
-[Claude Code identity and lifecycle experiment](docs/claude-code-identity-lifecycle-spike.md)
-the measured Claude Code headless and background-worker lifecycle, and the
-[Codex identity and lifecycle experiment](docs/codex-identity-lifecycle-spike.md)
-the measured Codex app-server and `codex exec` thread lifecycle. The
-[Cleanup session handoff feasibility experiment](docs/cleanup-session-handoff-feasibility-spike.md)
-measures whether an opted-in controller can move a live interactive session
-out of a Worktree on either harness, and proposes the arrangement per harness;
-the [Codex declared relocation on a daemon-hosted thread](docs/codex-declared-relocation-daemon-spike.md)
-experiment then verifies the sequential `codex resume -C` route of ADR 0029
-against the managed daemon. The
-[Claude Code 2.1.285 changes experiment](docs/claude-code-2-1-285-changes-spike.md)
-measures the 2.1.280–2.1.285 changes that touch the Claude Code integration,
-and the
-[Claude Code supervised worker process experiment](docs/claude-code-supervised-worker-process-spike.md)
-measures what `ps` reports for each process of the background supervisor.
-The [test-duration measurements](docs/test-duration-measurements.md) record the
-development-suite baseline and a focused synchronization improvement.
-The [codebase review of 2026-09-13](docs/codebase-review-2026-09-13.md) records
-a point-in-time survey of clean-code uplifts, package boundaries, and
-decomposition seams for the largest modules; the
-[codebase review of 2026-09-17](docs/codebase-review-2026-09-17.md) audits
-how that plan landed and reviews the resulting state.
+[`docs/adr/README.md`](docs/adr/README.md).
+
+The top level of [`docs/`](docs/) holds only the `living` documents above,
+plus [`ci-performance.md`](docs/ci-performance.md) and
+[`textual-implementation-notes.md`](docs/textual-implementation-notes.md).
+Everything else is grouped by kind, never by `status`, so a document keeps its
+path when its status changes. Each kind directory has a `README.md` index
+giving every document's title, `status`, and date; a new document is added
+to its directory's index in the change that creates it:
+
+- [`docs/research/`](docs/research/README.md) — investigations of upstream
+  capabilities and of Dashpot's data access that informed a decision.
+- [`docs/spikes/`](docs/spikes/README.md) — dated, reproducible experiments
+  against a harness, GitHub, or the development suite, with their raw traces
+  indexed in [`docs/spikes/measurements/`](docs/spikes/measurements/README.md).
+- [`docs/reviews/`](docs/reviews/README.md) — point-in-time reviews and audits
+  of the codebase, its models, and its open Issues.
+- [`docs/proposals/`](docs/proposals/README.md) — designs and the evidence
+  assembled for them, open or superseded.
+
 [ADR 0042](docs/adr/0042-group-leaf-and-domain-modules-into-subpackages.md)
 records the completed package layout and application composition seam.
 [ADR 0043](docs/adr/0043-retain-distinct-query-and-collection-adapters.md)

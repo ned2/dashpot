@@ -10,7 +10,7 @@ has a `SessionEnd` remove the session's older hook records "at the
 Repository's other Worktrees", so that a record a Live Relocation left behind
 does not become the session's freshest, read live and occupy its Worktree
 while a shared Codex process keeps running. The
-[lifecycle design](../agent-runtime-lifecycle-design.md#live-relocation)
+[lifecycle design](../proposals/agent-runtime-lifecycle-design.md#live-relocation)
 lists the guards: the record carries the session's own identity, names the
 Host Process the `SessionEnd` itself was observed from (both observed), and
 is not newer than the `SessionEnd`.

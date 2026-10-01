@@ -283,7 +283,7 @@ A Claude Code host is a process named `claude`, or a worker of Claude Code's
 background supervisor: that is named after its version, like the supervisor
 and PTY hosts beside it, so it is located only when its argument vector starts
 with a measured worker shape
-([experiment](claude-code-supervised-worker-process-spike.md#implications-for-dashpot)).
+([experiment](spikes/claude-code-supervised-worker-process-spike.md#implications-for-dashpot)).
 Claude Code's claimed host PID must also agree when present. Process evidence
 alone cannot authorize starting, switching, stopping, or relocating Issue work,
 even if only one session hook is currently visible.

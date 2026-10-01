@@ -15,7 +15,7 @@ two hundred and forty of the hourly five thousand GraphQL points.
 
 Research for [#129](https://github.com/ned2/dashpot/issues/129) found that the
 validator cannot carry the same evidence as the combined GraphQL probe
-([research](../github-api-batching-research.md#issue-129-validator-scope-and-probe-limits)):
+([research](../research/github-api-batching-research.md#issue-129-validator-scope-and-probe-limits)):
 
 - GitHub defines an ETag for the exact requested representation. The
   repository Issues endpoint returns a paginated array without an exact total

@@ -8,7 +8,7 @@ superseded-by: 0033-query-pages-and-independent-issue-resolution.md
 
 The GitHub Issue Source will collect startup probe evidence beside a request
 it must already make, and will observe a pending Pull Request prefix before
-Reconciliation. [Issue 138's measurements](../github-startup-latency-experiments.md)
+Reconciliation. [Issue 138's measurements](../spikes/github-startup-latency-experiments.md)
 show repeatable removal of serial requests: the final settled-seed median fell
 from 2.79 to 2.31 seconds and pending-candidate startup from 5.30 to 3.33 seconds.
 The Snapshot Seed remains untrusted until complete live Reconciliation succeeds.

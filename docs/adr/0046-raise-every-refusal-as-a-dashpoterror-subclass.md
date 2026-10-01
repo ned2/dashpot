@@ -12,7 +12,7 @@ derives from `DashpotError`. The code kept the second promise unevenly:
 `core/errors.py` stated it, while 93 `raise RuntimeError` sites — 28 in
 `sessions/work.py` alone — relied on a second `RuntimeError` arm in
 `cli.main` that had been left "while bare raise sites migrate". The
-[2026-09-17 review](../codebase-review-2026-09-17.md) found the same gap in
+[2026-09-17 review](../reviews/codebase-review-2026-09-17.md) found the same gap in
 the `Literal` contracts: harness names were bare `str` on most models,
 `cli.py` defined a second `Harness` alias, and `observation/session_list.py`
 hand-copied the display names, because observation may not import

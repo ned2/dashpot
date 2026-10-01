@@ -1,0 +1,27 @@
+---
+status: living
+date: 2026-10-01
+---
+
+# Spikes
+
+Dated experiments that measure a harness, GitHub, or the development suite
+in disposable fixtures. Each records its method, its evidence boundary, and
+how to reproduce it; the runners and verifiers live under
+[`scripts/experiments/`](../../scripts/experiments/), and the retained traces
+under [`measurements/`](measurements/README.md). Reusable facts are folded
+into the living documents, chiefly the
+[harness reference](../agent-harness-server-client-reference.md); the spike
+stays as it was written.
+
+| Document | Status | Date |
+| --- | --- | --- |
+| [Claude Code supervised worker process experiment](claude-code-supervised-worker-process-spike.md) | research | 2026-10-01 |
+| [Claude Code 2.1.285 changes experiment](claude-code-2-1-285-changes-spike.md) | research | 2026-09-30 |
+| [Codex declared relocation on a daemon-hosted thread](codex-declared-relocation-daemon-spike.md) | research | 2026-09-20 |
+| [Codex identity and lifecycle experiment](codex-identity-lifecycle-spike.md) | research | 2026-09-19 |
+| [Cleanup session handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md) | research | 2026-09-19 |
+| [Claude Code identity and lifecycle experiment](claude-code-identity-lifecycle-spike.md) | research | 2026-09-18 |
+| [Dashpot development test durations](test-duration-measurements.md) | research | 2026-09-13 |
+| [OpenCode identity and lifecycle experiment](opencode-identity-lifecycle-spike.md) | research | 2026-09-12 |
+| [First-load GitHub observation latency](github-startup-latency-experiments.md) | research | 2026-09-06 |

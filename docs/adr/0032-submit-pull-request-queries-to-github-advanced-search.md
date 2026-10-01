@@ -19,7 +19,7 @@ including sorting. Check grouping before wrapping the expression in the Project
 scope. Read every page under a Refresh Budget and reject totals above GitHub's
 1,000-result limit, changing totals, duplicate identities or numbers, foreign
 Repository results, and incomplete collections. These choices follow the
-[primary-source research](../github-pull-request-search-research.md).
+[primary-source research](../research/github-pull-request-search-research.md).
 
 Keep search results and their freshness separate from background observations.
 Run only one search at a time; coalesce submissions to the latest query and

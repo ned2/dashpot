@@ -15,7 +15,7 @@ use TASKS.md as its model or backend interface. The upstream adapters expose
 different schemas, semantics, failure modes, and capabilities; inheriting that
 contract would make source discrepancies part of Dashpot's foundation. The
 evidence is recorded in the
-[upstream backend audit](../tasks-md-upstream-backend-audit.md).
+[upstream backend audit](../reviews/tasks-md-upstream-backend-audit.md).
 
 A Project is a durable body of work rooted in exactly one Git repository and
 has exactly one active Issue Source. GitHub-backed Projects require that

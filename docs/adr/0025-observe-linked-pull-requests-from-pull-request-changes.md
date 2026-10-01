@@ -25,7 +25,7 @@ and cursor-paged, but has no `since` or other time filter. Its derived
 `closingIssuesReferences` connection lagged the body and timestamp changes by
 7–9 seconds in the controlled experiment, and GitHub documents neither an
 indexing bound nor the tie order of equal timestamps
-([research](../github-api-batching-research.md#pull-request-refresh-has-ordering-but-no-server-side-delta)).
+([research](../research/github-api-batching-research.md#pull-request-refresh-has-ordering-but-no-server-side-delta)).
 
 The GitHub Issue Source will therefore extend its existing snapshot and
 Incremental Refresh:

@@ -12,9 +12,9 @@ that serve it, and to choose the right upstream interface without repeating
 three separate investigations.
 
 Dashpot's proposed integration behavior belongs in the
-[agent runtime lifecycle design](agent-runtime-lifecycle-design.md), the
-[OpenCode integration design](opencode-integration-design.md) and the
-[Codex relocation and handoff design](codex-relocation-handoff-design.md), not
+[agent runtime lifecycle design](proposals/agent-runtime-lifecycle-design.md), the
+[OpenCode integration design](proposals/opencode-integration-design.md) and the
+[Codex relocation and handoff design](proposals/codex-relocation-handoff-design.md), not
 in this reference. The [domain language](domain-language.md#observation) defines
 Dashpot's Agent Session and Agent Run; upstream products' terms are preserved
 below where their meanings differ.
@@ -37,12 +37,12 @@ unverified are not runtime findings.
 
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
-the [OpenCode experiment](opencode-identity-lifecycle-spike.md), the
-[Claude Code experiment](claude-code-identity-lifecycle-spike.md), the
-[Codex experiment](codex-identity-lifecycle-spike.md), the
-[Cleanup handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md)
+the [OpenCode experiment](spikes/opencode-identity-lifecycle-spike.md), the
+[Claude Code experiment](spikes/claude-code-identity-lifecycle-spike.md), the
+[Codex experiment](spikes/codex-identity-lifecycle-spike.md), the
+[Cleanup handoff feasibility experiment](spikes/cleanup-session-handoff-feasibility-spike.md)
 on both, and the
-[Claude Code 2.1.285 changes experiment](claude-code-2-1-285-changes-spike.md). Each
+[Claude Code 2.1.285 changes experiment](spikes/claude-code-2-1-285-changes-spike.md). Each
 experiment remains a dated evidence record with its fixtures and trace;
 maintain general server/client facts here instead of creating another
 comparison note.
@@ -101,10 +101,10 @@ These are distinct CLI routes. Bare `codex` selects the interactive UI; that
 alone does not prove one process per conversation. Managed Remote Control and
 custom protocol listeners serve different integrations.
 [Developer commands][commands] The
-[Codex experiment](codex-identity-lifecycle-spike.md) exercised
+[Codex experiment](spikes/codex-identity-lifecycle-spike.md) exercised
 `codex app-server --listen` with raw protocol clients, `codex exec`, and
 `codex exec resume` on `0.155.1`; the
-[handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md)
+[handoff feasibility experiment](spikes/cleanup-session-handoff-feasibility-spike.md)
 measured `codex --remote` and plain `codex` terminals on the managed daemon
 at the same release; Remote Control pairing is documented and source-read,
 not measured.
@@ -275,7 +275,7 @@ own loaded thread whose `thread/read` reports `parentThreadId` and
 `session_id` is therefore parent-scoped and does not identify the executing
 child; only `agent_id` and the child's own shell claim do. Hook processes
 receive `CODEX_HOME` and no thread variable
-([measured identity](codex-identity-lifecycle-spike.md#scenario-results)).
+([measured identity](spikes/codex-identity-lifecycle-spike.md#scenario-results)).
 
 ### Thread ownership and competing resume
 
@@ -306,7 +306,7 @@ active writer` and ran no command or hook, and a second app-server's
 sub-agent's included. After SIGKILL of the server the lock files stayed on
 disk, and a replacement server's `thread/resume` of the same thread succeeded
 without any cleanup; after SIGTERM only `.coordination.lock` remained
-([measured ownership](codex-identity-lifecycle-spike.md#scenario-results)).
+([measured ownership](spikes/codex-identity-lifecycle-spike.md#scenario-results)).
 The TUI's read-only fallback below is source reading only.
 
 The interactive TUI at this tag is backed by an embedded app-server, so bare
@@ -410,8 +410,8 @@ override; the resume ran no hook, and the first turn's `SessionStart`
 (`source` = `resume`) and every later hook and shell reported the new cwd
 under the same thread id. `codex exec resume` from another directory behaved
 the same way for a stored `exec` thread
-([measured lifecycle](codex-identity-lifecycle-spike.md#scenario-results)).
-The [handoff experiment](cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
+([measured lifecycle](spikes/codex-identity-lifecycle-spike.md#scenario-results)).
+The [handoff experiment](spikes/cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
 then exercised the two remaining paths on the managed daemon: `thread/resume`
 of a loaded, terminal-subscribed thread ignored its `cwd` override and ran no
 hook, while `turn/start` with a `cwd` override ran that turn's hooks and shell
@@ -424,7 +424,7 @@ one.
 
 ### Measured lifecycle at 0.155.1
 
-The [Codex experiment](codex-identity-lifecycle-spike.md) measured
+The [Codex experiment](spikes/codex-identity-lifecycle-spike.md) measured
 `codex app-server --listen` and `codex exec` on Linux with an isolated
 `CODEX_HOME`, a loopback Responses API as a custom provider, and nine command
 hooks trusted through `[hooks.state]`. Trace receipts are in the experiment's
@@ -448,7 +448,7 @@ scenario table.
 
 ### The managed daemon and attached terminals at 0.155.1
 
-The [handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
+The [handoff feasibility experiment](spikes/cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
 started `codex app-server daemon start` in an isolated `CODEX_HOME`. The
 command runs only the installer-managed standalone release at
 `<CODEX_HOME>/packages/standalone/current`, refusing any other binary, and
@@ -478,7 +478,7 @@ fires at the thread's current cwd (60,049 ms measured). `daemon stop` ends the
 remaining loaded threads with `SessionEnd` `other`. A terminal launched before
 the daemon starts, and `codex agents`, were not measured.
 
-The [declared-relocation experiment](codex-declared-relocation-daemon-spike.md#scenario-results)
+The [declared-relocation experiment](spikes/codex-declared-relocation-daemon-spike.md#scenario-results)
 then measured the sequential `codex resume <id> -C <path>` route on the
 daemon. When the old plain terminal has typed `/exit` and the thread is still
 loaded, idle, and locked with no subscriber, a `codex resume` of it launched
@@ -505,7 +505,7 @@ As of 2026-09-13 the newest stable release was `rust-v0.154.0` (published
 2026-09-09) and the newest prerelease `rust-v0.155.0-alpha.3.10`
 (2026-09-11), whose notes are stubs; `rust-v0.155.1` shipped as a stable
 release on 2026-09-18 and is the release the
-[Codex experiment](codex-identity-lifecycle-spike.md) measured. Merged PRs
+[Codex experiment](spikes/codex-identity-lifecycle-spike.md) measured. Merged PRs
 relevant to the mechanisms above: [#44349][pr-44349] adds `fork` as a
 `SessionStart` source and reports supplied-history resumes as `resume`,
 confirmed released by the measured `fork` source at `0.155.1`;
@@ -564,14 +564,14 @@ installed release.
 
 These are documented commands
 ([CLI reference](https://code.claude.com/docs/en/cli-reference)). The
-[Claude Code experiment](claude-code-identity-lifecycle-spike.md) exercised
+[Claude Code experiment](spikes/claude-code-identity-lifecycle-spike.md) exercised
 the headless, `--resume`, `--fork-session`, `--bg`, `agents --json`,
 `attach`, `stop`, `respawn`, and `daemon` forms on `2.1.276`; the
-[handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md)
+[handoff feasibility experiment](spikes/cleanup-session-handoff-feasibility-spike.md)
 measured the interactive terminal on `2.1.278` with a development channel
 loaded and the two worktree tools
 ([channels and worktree tools](#channels-and-worktree-tools-at-21278)); the
-[2.1.285 changes experiment](claude-code-2-1-285-changes-spike.md) measured
+[2.1.285 changes experiment](spikes/claude-code-2-1-285-changes-spike.md) measured
 `--resume` of a running background session and `--desktop` on Linux
 ([changes after 2.1.278](#changes-after-21278)).
 
@@ -604,7 +604,7 @@ claude.ai login: in the isolated experiment `claude remote-control` under an
 API key exited 1 with "You must be logged in to use Remote Control", so the
 server topology stays unmeasured rather than inferred, and the operator's
 account was not used
-([experiment](claude-code-identity-lifecycle-spike.md#scenario-results)).
+([experiment](spikes/claude-code-identity-lifecycle-spike.md#scenario-results)).
 
 ### The background supervisor explicitly has separate workers
 
@@ -634,7 +634,7 @@ page provides; it does not establish identical internals between the two modes.
 
 #### Measured supervisor and worker lifecycle at 2.1.276
 
-The [Claude Code experiment](claude-code-identity-lifecycle-spike.md) measured
+The [Claude Code experiment](spikes/claude-code-identity-lifecycle-spike.md) measured
 the supervised topology on Linux with an isolated `CLAUDE_CONFIG_DIR` and a
 loopback model. The first `claude --bg` starts a transient supervisor
 (`daemon run --origin transient`, reparented to pid 1). Each worker is its own
@@ -660,7 +660,7 @@ a headless process started through the launcher symlink has `comm` `claude`.
 An executable-name test written for that launcher does not recognise a
 supervised worker; the interactive terminal process was not measured.
 
-The [supervised worker process experiment](claude-code-supervised-worker-process-spike.md)
+The [supervised worker process experiment](spikes/claude-code-supervised-worker-process-spike.md)
 probed each process with `ps` on Linux at 2.1.285 (2026-10-01); macOS is
 unmeasured. `comm` is `2.1.285` for all of them, and `args` tells them apart:
 
@@ -704,7 +704,7 @@ hour, was not measured.
 Channels are the documented route for an external event source to reach a
 running session
 ([channels](https://code.claude.com/docs/en/channels)). The
-[handoff feasibility experiment](cleanup-session-handoff-feasibility-spike.md#scenario-results-claude-code)
+[handoff feasibility experiment](spikes/cleanup-session-handoff-feasibility-spike.md#scenario-results-claude-code)
 measured a development channel on `2.1.278`: an ordinary stdio MCP server
 whose `initialize` result declares the `claude/channel` experimental
 capability, loaded with `--mcp-config`, `--strict-mcp-config`, and
@@ -746,7 +746,7 @@ block `EnterWorktree`, and the listing reports `busy` while the job runs.
 The [changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md) from 2.1.280 to
 2.1.285 (there is no 2.1.279 entry) changes no hook, shell variable, or
 listing contract described above. The
-[2.1.285 changes experiment](claude-code-2-1-285-changes-spike.md) measured
+[2.1.285 changes experiment](spikes/claude-code-2-1-285-changes-spike.md) measured
 the entries that touch them on Linux on 2026-09-30, on 2.1.285 and on 2.1.280
 for comparison, in an isolated configuration with API-key credentials and
 telemetry and non-essential traffic off:
@@ -780,7 +780,7 @@ telemetry and non-essential traffic off:
   `other` for the running session's `session_id` from the refused process's
   own `CLAUDE_PID` while the worker runs on. Before Dashpot located
   supervised workers, that `SessionEnd` ended the worker's Agent Run
-  ([implications](claude-code-2-1-285-changes-spike.md#implications-for-dashpot));
+  ([implications](spikes/claude-code-2-1-285-changes-spike.md#implications-for-dashpot));
   a run started from a located worker records its process and survives it.
   `claude --bg --resume <id>` starts a copy under a new `session_id` with
   `SessionStart` `source` = `fork`. After `claude stop <id>`,
@@ -848,7 +848,7 @@ tool event and to `CwdChanged`. The fixture is a Repository with a `nested`
 directory and a sibling linked Worktree. The
 [verifier](../scripts/experiments/claude-279/verify.mjs) checks the claims
 below against the retained
-[trace](measurements/issue-279-claude-trace.jsonl). To reproduce, pass
+[trace](spikes/measurements/issue-279-claude-trace.jsonl). To reproduce, pass
 the runner the absolute path of a symlink named `claude` that points at the
 2.1.285 executable, then pass the verifier the printed trace path:
 
@@ -857,7 +857,7 @@ mkdir -p /tmp/claude-279
 ln -s ~/.local/share/claude/versions/2.1.285 /tmp/claude-279/claude
 node scripts/experiments/claude-279/run.mjs /tmp/claude-279/claude
 node scripts/experiments/claude-279/verify.mjs <printed trace path>
-node scripts/experiments/claude-279/verify.mjs docs/measurements/issue-279-claude-trace.jsonl
+node scripts/experiments/claude-279/verify.mjs docs/spikes/measurements/issue-279-claude-trace.jsonl
 ```
 
 - **Payload fields.** `SubagentStart` carries `session_id`,
@@ -935,7 +935,7 @@ also include `CwdChanged` with old/new locations.
 
 The reviewed hook reference does not document Dashpot's shell variables
 `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID`. The
-[Claude Code experiment](claude-code-identity-lifecycle-spike.md#scenario-results)
+[Claude Code experiment](spikes/claude-code-identity-lifecycle-spike.md#scenario-results)
 measured them at `2.1.276` in the headless and background modes: hook
 `session_id`, the shell's `CLAUDE_CODE_SESSION_ID`, and the headless result's
 `session_id` agree, and `CLAUDE_PID` is the pid of the process running the
@@ -1011,7 +1011,7 @@ a mechanism for copying its local checkout to that machine.
 The retained experiment ran `opencode serve --hostname 127.0.0.1 --port 0`
 with independent local HTTP/SSE clients and attached CLI requests. Two native
 conversations ran real shell tools concurrently under the same backend PID.
-[Measured configuration](opencode-identity-lifecycle-spike.md#tested-configuration-and-evidence-boundary)
+[Measured configuration](spikes/opencode-identity-lifecycle-spike.md#tested-configuration-and-evidence-boundary)
 
 ### SDK and editor transports
 
@@ -1072,14 +1072,14 @@ conversation, including a delegated child. The experimental plugin injected its
 own identity claim; this was not evidence of a built-in shell environment
 variable contract. A PTY invocation reached the same environment hook without a
 session ID and received no injected identity.
-[Measured identity cases](opencode-identity-lifecycle-spike.md#scenario-results)
+[Measured identity cases](spikes/opencode-identity-lifecycle-spike.md#scenario-results)
 
 Fetched native session metadata, plugin instance directory and Worktree context
 agreed on the conversation's directory even when a Bash command requested a
 different `workdir`. A command's cwd therefore did not change the conversation's
 native location. The SSE connection was directory-scoped rather than an
 identity authority for one conversation.
-[Measured location cases](opencode-identity-lifecycle-spike.md#scenario-results)
+[Measured location cases](spikes/opencode-identity-lifecycle-spike.md#scenario-results)
 
 A native task created a distinct child ID with `parentID` pointing to the parent.
 A fork also received a new ID but had no `parentID` in the measured release;
@@ -1087,7 +1087,7 @@ its provenance came from the explicit fork operation. Background children could
 remain busy after their parent became idle, with later completion notification
 making the parent busy again. Background behavior required the experiment's
 explicit feature flag.
-[Measured delegation](opencode-identity-lifecycle-spike.md#scenario-results)
+[Measured delegation](spikes/opencode-identity-lifecycle-spike.md#scenario-results)
 
 ### Lifecycle and observation
 
@@ -1103,7 +1103,7 @@ explicit feature flag.
 | Signal backend exit and restart | Native conversation resumed under a new backend PID; final plugin disposal was not observed for SIGTERM or SIGKILL |
 
 These are measured outcomes, with trace positions and exclusions in the
-[scenario results](opencode-identity-lifecycle-spike.md#scenario-results).
+[scenario results](spikes/opencode-identity-lifecycle-spike.md#scenario-results).
 
 Native `session.status` distinguishes busy, retry and idle. Idle can be reported
 more than once and does not establish conversation deletion. The pinned plugin
@@ -1117,7 +1117,7 @@ this release. No V2, remote backend, or installed Dashpot helper compatibility
 was established. The retained runner isolates home/XDG/configuration, uses a
 loopback model fixture, and records metadata only; its reproduction steps and
 exact flags remain in the
-[experiment](opencode-identity-lifecycle-spike.md#reproduce).
+[experiment](spikes/opencode-identity-lifecycle-spike.md#reproduce).
 
 ## Identity and lifecycle verification checklist
 

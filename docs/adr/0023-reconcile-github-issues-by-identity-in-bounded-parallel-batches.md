@@ -15,7 +15,7 @@ Issues therefore still spent a hundred and twenty points and a minute every
 five minutes — most of the hour's cost — on observing Issues it already
 held, and a Reconciliation the Refresh Budget abandoned stayed abandoned
 until the same sweep was retried a period later. The research
-([`docs/github-api-batching-research.md`](../github-api-batching-research.md))
+([`docs/research/github-api-batching-research.md`](../research/github-api-batching-research.md))
 established the alternative: a `nodes(ids:)` lookup answers up to
 twenty-four complete Issue nodes for one point, answers each identity
 independently — a missing one as `null` beside a positional `NOT_FOUND`, a
