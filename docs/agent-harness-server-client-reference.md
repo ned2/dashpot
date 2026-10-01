@@ -522,8 +522,9 @@ and the runner's verifier checks each one, timings within a tolerance.
   its own child. The terminal's thread is daemon-hosted from the first turn:
   its hooks and shells descend from the daemon, not the terminal. When that
   terminal exits, the daemon is reparented (to pid 1 in the retained trace)
-  and keeps its pid and start time. A companion `codex app-server daemon pid-update-loop` process
-  runs beside it and outlives `daemon stop` and `remote-control stop`.
+  and keeps its pid. A companion `codex app-server daemon pid-update-loop`
+  process runs beside it and outlives `daemon stop` and `remote-control
+  stop`.
   `app-server daemon start` and `stop` now name
   `packages/app-server-daemon/current`, where 0.155.1 required the
   standalone release.
@@ -551,8 +552,8 @@ and the runner's verifier checks each one, timings within a tolerance.
   cwd, while `thread/read` already reports the new one. The next turn's
   `UserPromptSubmit` is the first hook at the new cwd.
 - **Unload and timeouts.** The unload delay after the last subscriber left
-  was about 60 s (59.5 to 60.2 s in the retained trace), and `SessionEnd` `other` names the thread's
-  current cwd. `codex exec` warns that it clamps the `SessionEnd` and
+  was about 60 s (59.5 to 60.2 s in the retained trace), and `SessionEnd`
+  `other` names the thread's current cwd. `codex exec` warns that it clamps the `SessionEnd` and
   `Interrupt` hook timeouts to 3 s.
 - **Identity.** The 0.155.1 identity equalities held: hook `session_id` =
   `thread.id` = `CODEX_THREAD_ID` = `CODEX_SESSION_ID` for roots and forks. A
