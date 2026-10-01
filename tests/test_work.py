@@ -1705,7 +1705,7 @@ def test_an_unwritable_work_store_never_breaks_the_hook(
 # --- A supervised Claude Code worker hosts its session (ADR 0053) ------------
 
 # The processes Claude Code's background supervisor runs, as ``ps`` reported
-# them at 2.1.285 (docs/measurements/issue-326-claude-trace.jsonl): each named
+# them at 2.1.285 (docs/spikes/measurements/issue-326-claude-trace.jsonl): each named
 # after its version, and told apart only by its argument vector.
 EXECUTABLE = "/home/person/.local/share/claude/versions/2.1.285"
 TRANSCRIPT = f"/home/person/.claude/projects/-repo/{CLAUDE_SESSION}.jsonl"

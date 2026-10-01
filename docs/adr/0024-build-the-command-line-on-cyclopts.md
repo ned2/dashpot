@@ -12,7 +12,7 @@ hand-written conversion from strings to the domain values the commands take —
 `work`, `issue show`, `worktree create` / `check` / `remove`, and
 `branch delete` accumulated, the parser grew a second, untyped description of
 each command's signature beside the function that implements it, and the two
-drifted. The [Cyclopts research note](../cyclopts-cli-migration-research.md)
+drifted. The [Cyclopts research note](../research/cyclopts-cli-migration-research.md)
 measured the alternative against the CLI as it stood.
 
 Dashpot builds its command line on [Cyclopts](https://cyclopts.readthedocs.io/)
@@ -69,7 +69,7 @@ visible in the CLI's contract:
 - Every command's options are documented by its own `--help`, and the
   option-placement rule is stated in the README's
   [Usage](../../README.md#usage) section.
-- The [Cyclopts research note](../cyclopts-cli-migration-research.md) is
+- The [Cyclopts research note](../research/cyclopts-cli-migration-research.md) is
   superseded by this ADR: it describes the migration as prospective and its
   version findings are pinned to 2026-08-30.
 - Raising the pin past `<5` requires re-checking the exit-code, scoping, and

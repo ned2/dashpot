@@ -41,7 +41,7 @@ rewrites settings or discovers the old JSON file.
   recreating the preference rather than renaming JSON contents.
 - Workspace `--config`, tracked Project configuration, Work Store records,
   public JSON, and external harness configuration retain their contracts.
-- The [migration investigation](../toml-settings-migration-research.md) is
+- The [migration investigation](../research/toml-settings-migration-research.md) is
   superseded for the settings migration. Dashboard loading and launcher
   behavior are defined separately in
   [ADR 0035](0035-open-worktrees-on-explicit-key-press.md).

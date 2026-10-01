@@ -5,7 +5,7 @@ date: 2026-09-17
 
 # Group leaf and domain modules into subpackages
 
-The [codebase review](../codebase-review-2026-09-13.md#proposed-subpackage-layout)
+The [codebase review](../reviews/codebase-review-2026-09-13.md#proposed-subpackage-layout)
 derives a package layout from the import graph and shared domain language.
 [Issue #188](https://github.com/ned2/dashpot/issues/188) implements its first
 stage: `core` holds shared infrastructure and observation values, `project`
@@ -150,7 +150,7 @@ assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
 
 [Issue #238](https://github.com/ned2/dashpot/issues/238) makes the runtime
 import graph over these packages acyclic and keeps it so. The
-[2026-09-17 review](../codebase-review-2026-09-17.md#audit-what-did-not-land-or-landed-differently)
+[2026-09-17 review](../reviews/codebase-review-2026-09-17.md#audit-what-did-not-land-or-landed-differently)
 found five package cycles beneath the delivered layout; Python resolves
 modules, never packages, so none of them raised at import time and nothing
 prevented more. `tests/test_module_boundaries.py` now asserts acyclicity over
@@ -198,7 +198,7 @@ private-reach test now forbids importing across modules.
 
 ## Residual review suggestions
 
-The [original review](../codebase-review-2026-09-13.md) remains historical.
+The [original review](../reviews/codebase-review-2026-09-13.md) remains historical.
 Completion means the planned structural arc is delivered, not that every
 judgement suggestion is mandatory. These dispositions accompany #191:
 

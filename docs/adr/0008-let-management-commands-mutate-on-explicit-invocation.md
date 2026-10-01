@@ -20,7 +20,7 @@ removes a harness's user-level hook file, and `dashpot work start`, `dashpot
 work relocate`, and `dashpot work stop` write the Work Store — each touching
 only what its name says.
 
-The [agent Worktree handoff proposal](../proposed-agent-worktree-protocol.md)
+The [agent Worktree handoff proposal](../proposals/agent-worktree-protocol.md)
 needs a command that creates a Git-linked Worktree for an Issue. The review
 measured why that cannot be left to callers: `git worktree add` silently
 adopts an empty directory, a lost path race leaves the loser's `-b` Branch

@@ -13,7 +13,7 @@ minute on every tick and its hour's five thousand points in ten minutes. The
 Refresh Budget ([ADR 0021](0021-bound-each-github-refresh-by-a-budget.md))
 made that failure visible; it did not lower the cost, and GitHub offers no
 conditional GraphQL fetch. The research behind this decision
-([`docs/github-api-batching-research.md`](../github-api-batching-research.md))
+([`docs/research/github-api-batching-research.md`](../research/github-api-batching-research.md))
 established what an incremental refresh can and cannot see:
 
 - `issues(filterBy: {since})` lists exactly the Issues whose `updatedAt` is

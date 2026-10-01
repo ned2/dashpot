@@ -9,7 +9,7 @@ A Live Relocation
 ([ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md))
 moves an Agent Run with its identity, `startedAt` and Issue Binding on hook
 evidence alone, with no command from the session. The
-[lifecycle design](../agent-runtime-lifecycle-design.md#live-relocation)
+[lifecycle design](../proposals/agent-runtime-lifecycle-design.md#live-relocation)
 requires that the new record H be the session's freshest, that the record it
 follows be from the same Host Process, and that the target Worktree B hold no
 other run for the session. It does not say what the carry does when some of

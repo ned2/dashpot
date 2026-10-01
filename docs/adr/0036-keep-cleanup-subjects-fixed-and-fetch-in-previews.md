@@ -69,5 +69,5 @@ contracts and final execution safeguards stay in place.
 Automatic session relocation from [Issue #148](https://github.com/ned2/dashpot/issues/148)
 remains a separate, unverified part of that Issue. These changes do not grant
 Dashpot control of live terminals or implement a session handoff. See the
-[feasibility research](../cleanup-session-handoff-research.md). Occupying Agent
+[handoff proposal](../proposals/cleanup-session-handoff-proposal.md). Occupying Agent
 Sessions and active Agent Runs continue to block removal.

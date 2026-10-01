@@ -24,7 +24,7 @@ another Worktree without ending or declaring a Relocation Intent — the route
 [#148](https://github.com/ned2/dashpot/issues/148) needs to relocate occupants
 during Cleanup. The evidence, transition table, support and scenario matrices,
 worked examples and per-Issue work are in the
-[agent runtime lifecycle design](../agent-runtime-lifecycle-design.md).
+[agent runtime lifecycle design](../proposals/agent-runtime-lifecycle-design.md).
 
 Proposed here means decided but not yet implemented. The implementing Issues
 (#161, #162, #163) mark this ADR accepted as they deliver it, and any deviation
@@ -44,7 +44,7 @@ Dashpot models three facts and no more:
 - An **incarnation boundary**, observed as `SessionStart` and persisted only
   as a hook-record stamp, `lastSessionStartAt`. OpenCode, whose plugin can be
   replaced inside a live backend, keeps its publisher generation as the
-  [OpenCode design](../opencode-integration-design.md#track-publisher-lifetime-without-redefining-agent-session)
+  [OpenCode design](../proposals/opencode-integration-design.md#track-publisher-lifetime-without-redefining-agent-session)
   proposes.
 
 Supervisors, PTY hosts, attached clients and terminals are never recorded.
@@ -83,7 +83,7 @@ arrives at Worktree B from the same Host Process that S's active run records,
 the hook publisher carries the run from Worktree A to B, preserving its session
 key, `run_id`, `startedAt` and Issue Binding. It does so only under the eight
 conditions the design numbers in
-[Live Relocation](../agent-runtime-lifecycle-design.md#live-relocation), which
+[Live Relocation](../proposals/agent-runtime-lifecycle-design.md#live-relocation), which
 this ADR adopts as written: the run's identity is the event's; the Host
 Process is the same and observed on both sides; the event is designated,
 session-scoped, and neither `SessionStart` nor `SessionEnd`; B is another Worktree of A's Repository; under the session's

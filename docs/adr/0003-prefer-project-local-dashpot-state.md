@@ -13,7 +13,7 @@ checkout the owner and discovery point for its configuration and mutable local
 work state. Tracked configuration lives in `.dashpot/config.json`; ignored
 runtime state lives beneath `.dashpot/state/`. Issues #18 and #19 implemented
 this ownership model before the first release. The supporting evidence is captured in
-[the multi-repository Workspace audit](../multi-repository-workspace-evidence.md).
+[the multi-repository Workspace audit](../proposals/multi-repository-workspace-evidence.md).
 
 A Project remains rooted in exactly one Git Repository. Running Dashpot from a
 configured checkout is the primary experience. As amended by

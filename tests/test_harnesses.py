@@ -50,7 +50,7 @@ DAEMON = "/tmp/cc-daemon-1000/b4bd083d"
 
 
 # Argument vectors as ``ps`` reported them for the supervisor's processes on
-# Linux (docs/measurements/issue-326-claude-trace.jsonl, and
+# Linux (docs/spikes/measurements/issue-326-claude-trace.jsonl, and
 # issue-160-claude-trace.jsonl at 2.1.276).
 @pytest.mark.parametrize(
     ("command", "arguments", "host"),

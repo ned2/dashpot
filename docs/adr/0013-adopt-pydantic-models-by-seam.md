@@ -12,7 +12,7 @@ validator, raw dictionaries at JSON and subprocess seams, hand-mirrored
 writer/reader pairs for its persisted records, and a bespoke `to_jsonable`
 serializer. [#85](https://github.com/ned2/dashpot/issues/85) asked for one
 convention; the full survey is the
-[structured-value inventory](../model-inventory-2026-09-01.md), and this ADR
+[structured-value inventory](../reviews/model-inventory-2026-09-01.md), and this ADR
 records the convention and the classification so the migration is a series of
 mechanical steps rather than eighty per-class decisions.
 
@@ -138,7 +138,7 @@ All Pydantic models derive from one shared base (or an equivalent shared
 ## Classification
 
 Recorded in full, value by value, in the
-[inventory](../model-inventory-2026-09-01.md); the families:
+[inventory](../reviews/model-inventory-2026-09-01.md); the families:
 
 **Pydantic:** the Issue Profile with its nested relationships, origin, and
 location discriminated unions (§1); the persisted hook record and Work Store
