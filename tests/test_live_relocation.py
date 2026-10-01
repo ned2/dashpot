@@ -763,37 +763,7 @@ def test_another_processs_record_seeds_nothing(tmp_path: Path) -> None:
     assert (moved["state"], moved["liveSubagents"]) == ("waiting", [])
 
 
-# --- Claude Code designates nothing yet (#162) -------------------------------
-
-
-def test_claude_enter_worktree_still_leaves_the_run_for_work_start(
-    tmp_path: Path,
-) -> None:
-    a, b = two_worktrees(tmp_path)
-    hook_record(a, CLAUDE_SESSION, "claude-code", CLAUDE)
-    start_issue_work(
-        a, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
-    )
-
-    publication = publish(
-        b,
-        "PostToolUse",
-        tool_name="EnterWorktree",
-        session=CLAUDE_SESSION,
-        harness="claude-code",
-        process=CLAUDE,
-        lookup=present(CLAUDE),
-    )
-
-    assert publication.work == "unchanged"
-    assert len(WorkStore(a).active()[0]) == 1
-    _runs, diagnostics = observe(a, b, lookup=present(CLAUDE))
-    assert [item.code for item in diagnostics] == ["work-session-elsewhere"]
-    start_issue_work(
-        b, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
-    )
-    assert WorkStore(a).active()[0] == []
-    assert observe(a, b, lookup=present(CLAUDE))[1] == []
+# --- A gone session ---------------------------------------------------------
 
 
 def test_a_gone_session_left_elsewhere_is_orphaned_not_elsewhere(

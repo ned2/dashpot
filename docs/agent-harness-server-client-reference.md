@@ -24,7 +24,7 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
@@ -748,7 +748,10 @@ version-named process as a host only when its vector starts with one of the
 three worker shapes. A worker the supervisor replaces after an abrupt exit,
 measured with the `--resume` shape, therefore continues its Agent Run under
 [ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md),
-while `claude stop` ends it before any `claude respawn`.
+while `claude stop` ends it before any `claude respawn`. It continues at the
+first hook the replacement publishes from the run's Worktree, which
+[at 2.1.286](#clients-and-supervised-workers-through-dashpot-at-21286) is not
+always its `SessionStart`.
 
 | Lifecycle event | Measured effect on the worker | Hooks delivered |
 | --- | --- | --- |
@@ -764,7 +767,8 @@ while `claude stop` ends it before any `claude respawn`.
 `SessionEnd` therefore distinguishes an explicit or supervisor-driven stop from
 a crash, a respawn, or a supervisor replacement, none of which end the
 conversation. Idle eviction of an unattached worker, documented at about an
-hour, was not measured.
+hour, publishes no hook either: it was measured at `2.1.286`
+([idle eviction](#clients-and-supervised-workers-through-dashpot-at-21286)).
 
 ### Channels and worktree tools at 2.1.278
 
@@ -961,6 +965,99 @@ node scripts/experiments/claude-279/verify.mjs docs/spikes/measurements/issue-27
 
 Dashpot acts on this in
 [ADR 0066](adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md).
+
+### Clients and supervised workers through Dashpot at 2.1.286
+
+The [Claude Code acceptance runner](../scripts/experiments/claude-162/run.mjs)
+for [Issue #162](https://github.com/ned2/dashpot/issues/162) ran on Linux on
+2026-10-01 against 2.1.286. It drove headless `claude -p` clients, one
+stream-json turn per user message, and `claude --bg` supervised workers,
+whose later turns it typed through `claude attach` on a pseudo-terminal. All
+of them ran under `--dangerously-skip-permissions` with an isolated
+`CLAUDE_CONFIG_DIR` and a loopback Messages API. The hooks were subscribed
+exactly as `dashpot integrate claude-code` subscribes them, through a
+wrapper that hands each payload to Dashpot's real publisher, and the model's
+Bash calls ran the real `dashpot work` commands. The fixture is a Local Issue
+Markdown Project with a sibling linked Worktree and a nested one inside the
+main checkout. The [verifier](../scripts/experiments/claude-162/verify.mjs)
+checks the claims below against the retained
+[trace](spikes/measurements/issue-162-claude-trace.jsonl), which records the
+SHA-256 of the runner and of the Dashpot session modules it exercised. The
+runner refuses to start inside a Claude Code session, so launch it from a
+plain shell or with `setsid -f`; it creates its own `claude` launcher symlink
+from the executable it is given:
+
+```bash
+node scripts/experiments/claude-162/run.mjs ~/.local/share/claude/versions/2.1.286
+SPIKE_IDLE_MINUTES=80 node scripts/experiments/claude-162/run.mjs ~/.local/share/claude/versions/2.1.286
+node scripts/experiments/claude-162/verify.mjs <acceptance trace> [<idle trace>]
+node scripts/experiments/claude-162/verify.mjs docs/spikes/measurements/issue-162-claude-trace.jsonl \
+  docs/spikes/measurements/issue-162-claude-idle-trace.jsonl
+```
+
+- **Worktree tools.** A client's `EnterWorktree` with `path` and its
+  `ExitWorktree` with `action: keep` each fired one `PostToolUse` whose `cwd`
+  was the Worktree reached, from the same `CLAUDE_PID`. A bound client's run
+  moved with it both ways, keeping its Issue Binding and `startedAt`, and
+  `work show` run from the entered Worktree reported it there. An unbound
+  client's moves bound nothing.
+- **`ExitWorktree` with `remove`.** On a Worktree entered by `path` the tool
+  failed with "This session is not the owner of the worktree" and fired no
+  `PostToolUse`; the Worktree stayed. `EnterWorktree` with `name` created
+  `<repo>/.claude/worktrees/<name>`, and `ExitWorktree(remove)` deleted it
+  with the run its Work Store held; the `PostToolUse` arrived at the original
+  checkout afterwards and `work show` reported no active Issue work.
+- **Persistent shell `cd`.** After a client's Bash `cd` into the nested
+  Worktree, its `Stop` reported that Worktree. The run stayed at the main
+  checkout and observation reported `work-session-elsewhere`; `work start`
+  from the nested Worktree reported `switched from issue-2 at <main> to
+  issue-2 at <nested>`. Killed with SIGKILL, the client left that run
+  orphaned. In another client in the same state, `EnterWorktree` with the
+  nested Worktree's path failed with "Cannot enter worktree: <nested> is the
+  current working directory" and fired no `PostToolUse`.
+- **Sub-agent outliving its parent's turn.** A background sub-agent kept the
+  session running after the parent's `Stop`, and its `SubagentStop` returned
+  it to waiting.
+- **`SessionEnd`.** Closing a client's input published `SessionEnd`, which
+  ended its run and removed every record of the session in the Repository.
+- **Two workers under one supervisor.** Each was its own process, held its own
+  run, and only the worker that called `EnterWorktree` had its run carried.
+- **Abrupt exit under a live supervisor.** A worker that had entered the
+  sibling Worktree was killed with SIGKILL and replaced by
+  `<versioned executable> --resume <transcript>` for the same session, whose
+  process `cwd` and listing `cwd` were the sibling. The replacement's
+  `SessionStart` (`source` = `resume`) hook ran in, and reported as `cwd`,
+  the directory the worker was first dispatched from, so it continued
+  nothing: the run stayed orphaned at the sibling. The next attached turn's
+  `UserPromptSubmit` arrived at the sibling and continued it under
+  [ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md).
+  The other worker's run was untouched throughout.
+- **Replacement stopped before its first turn.** Killed again and replaced,
+  then stopped with `claude stop`, the replacement's only hook at the sibling
+  was its `SessionEnd`, from a process the run did not record. It ends the
+  run under
+  [ADR 0075](adr/0075-end-an-orphaned-run-at-its-replacements-session-end.md).
+- **Abrupt exit with no supervisor.** After `daemon stop --any
+  --keep-workers`, a worker killed with SIGKILL was not replaced, published
+  nothing, and was listed with `state` = `failed` and no pid; its run was
+  orphaned. `claude respawn` started a supervisor and ran the session in a
+  claimed spare (`claude bg-spare`), whose `SessionStart` (`resume`) arrived
+  at the Worktree holding the run and continued it with its `startedAt`.
+- **Supervisor replacement.** `daemon stop --any --keep-workers` followed by a
+  new dispatch left every worker's pid, process and run unchanged, and fired
+  no hook for them.
+- **Stop and respawn.** `claude stop` published `SessionEnd` (`other`) and
+  ended the worker's run; `claude respawn` published `SessionStart`
+  (`resume`) and found no run.
+- **Idle eviction.** A separate run left a bound worker idle with no client
+  attached; its supervisor retired it about 61 minutes after its last `Stop`,
+  as in two earlier exploratory runs. Retirement published no hook, not even
+  `SessionEnd`: the job was listed with `state` = `done` and no pid, and the
+  run was orphaned. `claude attach` respawned the worker as a new process
+  whose `SessionStart` (`resume`) at the Worktree holding the run continued it
+  with its `startedAt`. The retained
+  [idle trace](spikes/measurements/issue-162-claude-idle-trace.jsonl) is
+  verified with the acceptance trace.
 
 ### The Agent SDK normally owns a CLI subprocess
 
@@ -1200,8 +1297,8 @@ available, preserving release and mode boundaries.
 | Are hook/command IDs fully mapped? | Measured at `0.155.1` for app-server and `exec`: root and fork hook `session_id` = `thread.id` = `thread.sessionId` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; a sub-agent's shell claims its own id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID`, and its hooks carry the root `session_id` plus `agent_id`; hook processes carry no thread variable; Code Mode remote host unmeasured | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |
 | Is native parentage equivalent to fork origin? | No, measured at `0.155.1`: `thread/read` reports `forkedFromId` and `SessionStart` reports `source` = `fork`, but the payload has no parent field (`startup` for a fork at `0.154.0` by source reading); a sub-agent's `parentThreadId` is delegation, not fork origin | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No: measured fork lacked child `parentID` |
 
-Remaining reference gaps include hook delivery on Claude idle eviction;
-worker process ancestry and remote URL identity in
+Remaining reference gaps include worker process ancestry and remote URL
+identity in
 Claude Remote Control, whose server mode needs a claude.ai login;
 plugin-distributed Claude channels; resuming a Claude background session
 while its worker is mid-turn, and how a person detaches from one opened by

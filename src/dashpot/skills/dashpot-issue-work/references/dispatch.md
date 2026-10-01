@@ -17,9 +17,16 @@ in the intended Worktree.
 
 ## Move a Claude Code session
 
-Call `EnterWorktree` with the exact path reported above. After it succeeds, run
-`<dashpot> work start <reference>` and `<dashpot> work show` from the entered
-Worktree. The fresh relocation hook record must confirm that location.
+Call `EnterWorktree` with the exact path reported above. Its completion moves
+the Agent Session, and an Agent Run the session already holds moves with it.
+After it succeeds, run `<dashpot> work show` from the entered Worktree. If it
+reports this Agent Session working on the intended Issue at that Worktree,
+retain that Agent Run. Otherwise run `<dashpot> work start <reference>` and
+verify it with `<dashpot> work show`.
+
+To return, call `ExitWorktree` with `action: "keep"`, which moves the run back
+too. A shell `cd` places the session's later hooks elsewhere but never takes
+its run along.
 
 ## Resume a Codex session
 

@@ -32,9 +32,10 @@ This skill is written for Dashpot 0.1.0.
    workflow. Keep the Issue Binding active across the entire engagement.
 
 Never infer an Issue Binding from a Branch, Worktree, conversation, or Issue
-lookup. Only `work start` declares it; `work relocate` can preserve that
-existing binding but cannot create one. Observation commands and dashboards
-stay passive; run a management command only for the action the user requested.
+lookup. Only `work start` declares it; `work relocate` and Claude Code's
+`EnterWorktree` can preserve that existing binding but cannot create one.
+Observation commands and dashboards stay passive; run a management command
+only for the action the user requested.
 
 ## Finish the engagement
 

@@ -20,6 +20,17 @@ Claude Code's `EnterWorktree` or the sequential Codex resume flow in
 [dispatch](dispatch.md), then retry `work show` only after fresh hook evidence
 places the session there. Run `work start` only when no preserved run is shown.
 
+## Issue work recorded elsewhere
+
+A `work-session-elsewhere` Diagnostic means the session's hooks place it at one
+Worktree while its Agent Run is recorded at another. For Claude Code this
+follows a shell `cd` that persisted into another Worktree: later hooks report
+that Worktree, but the run stays where it was bound, and `EnterWorktree` refuses
+the directory the shell is already in. Return with `cd` to the Worktree that
+holds the run. Only when the work belongs in the new Worktree, run
+`<dashpot> work start <reference>` there, which switches the run, and confirm
+it with `work show`.
+
 ## Installed hooks have not published this session
 
 Do not continue past an unconfirmed identity. A non-interactive harness may be

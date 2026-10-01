@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-05
-amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
 ---
 
 # Hold one active Agent Run per Agent Session across a Repository's Worktrees
@@ -111,6 +111,20 @@ returned to was refused for the rest of that turn
 predates the subscription is reported by `dashpot integrate claude-code
 --status` as missing `PostToolUse(ExitWorktree)` and repaired by running
 `dashpot integrate claude-code` again.
+
+[ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+amends the switch above for Claude Code. The `PostToolUse` of `EnterWorktree`,
+and of `ExitWorktree` with `action: keep`, is the session's designated
+location evidence, so when the session already holds a run the hook
+publisher carries that run to the Worktree the tool reached, keeping its
+`startedAt` and Issue Binding, rather than leaving it for `work start` to
+end and replace. The Issue-work skill therefore runs `work show` after
+`EnterWorktree` and `work start` only when no carried run is shown. A
+session without a run gains none, and
+the rule against a `cd` stands:
+[ADR 0074](0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)
+records that a persistent shell `cd` still places the session without
+carrying its run.
 
 ## Considered options
 

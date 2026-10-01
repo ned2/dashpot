@@ -77,9 +77,10 @@ def publish_hook_event(
 
     A Sub-agent's event is written to the store that holds its parent's
     freshest record, with that record's location, and reconciles nothing: it
-    changes only the parent's live sub-agents (ADR 0067). ``SessionEnd`` ends
-    the session's run before its record is removed, then removes its older
-    records elsewhere in the Repository. Any other event is reconciled by at
+    changes only the parent's live sub-agents (ADR 0067). ``SessionEnd`` first
+    continues an orphaned run the session holds here (ADR 0075), then ends the
+    session's run before its record is removed, and removes its older records
+    elsewhere in the Repository. Any other event is reconciled by at
     most one route, in order: a declared relocation's completion (ADR 0029),
     a Live Relocation (ADR 0067), or an orphan continuation (ADR 0053).
     ``directory``, when given, is the one store every record is written to.
@@ -111,6 +112,10 @@ def publish_hook_event(
     ending = state == "ended" and not child
     ended: list[tuple[Path, ActiveWork]] = []
     if ending:
+        # A replaced Claude Code worker can end before any other hook of its
+        # new Host Process reaches the Worktree holding its orphaned run, so
+        # the end continues that run first and then ends it (ADR 0075).
+        continue_session_work(record, identity, lookup)
         # Reconcile the Work Store before removing the old location evidence.
         # A target hook therefore either sees the old client and waits, or
         # sees that SessionEnd has already preserved the pending run.
