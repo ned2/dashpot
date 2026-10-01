@@ -699,27 +699,31 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
 async def test_an_issue_pane_below_its_minimum_collapses_to_its_frame() -> None:
     """A body too short for the Issue pane's minimum drops its contents whole.
 
-    The pane's frame would clip the filter bar and the table anyway; hiding
-    them takes them out of the focus chain too, so `Tab` never lands on a
-    control or a table a person cannot see.
+    The pane's frame would clip the filter bar and the table anyway. Hiding
+    them keeps every focus path off them: Textual's focus chain, and the
+    peer's own table cycle that `Tab` and `Down` at a boundary take, so
+    `Enter` never opens an Issue a person could not see.
     """
-    app = dashboard_app(
-        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
-        refresh_seconds=0,
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "First"),
+        pull_requests=(factories.pull_request(1), factories.pull_request(2)),
     )
+    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0)
 
     async with app.run_test(size=(120, 30)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         screen = await show_query_peer(app, pilot)
         queue_pane = screen.query_one("#queue-pane")
-        contents = (screen.issue_filter_bar, screen.queue_table())
+        queue = screen.queue_table()
+        pull_requests = screen.pull_requests_pane().table
+        contents = (screen.issue_filter_bar, queue)
         issue_focus = {"issue-search", "issue-state", "queue"}
 
         def focusable() -> set[str | None]:
             return {widget.id for widget in screen.focus_chain}
 
-        screen.queue_table().focus()
-        await wait_until(lambda: screen.queue_table().has_focus)
+        queue.focus()
+        await wait_until(lambda: queue.has_focus)
 
         # One row short: the Pull Requests pane is already a bare frame.
         await pilot.resize_terminal(120, 11)
@@ -727,13 +731,23 @@ async def test_an_issue_pane_below_its_minimum_collapses_to_its_frame() -> None:
         await settle_screen(app, pilot, "the collapsed Issue pane")
         assert queue_pane.region.height == 5
         assert not focusable() & issue_focus
-        assert not screen.queue_table().has_focus
+        assert not queue.has_focus
+
+        pull_requests.focus()
+        await wait_until(lambda: pull_requests.has_focus)
+        for key in ("tab", "down", "down", "down", "shift+tab", "enter"):
+            await pilot.press(key)
+            await pilot.pause()
+            assert not queue.has_focus, key
+        assert app.screen is screen
 
         await pilot.resize_terminal(120, 12)
         await wait_until(lambda: all(widget.display for widget in contents))
         await settle_screen(app, pilot, "the Issue pane at its minimum")
         assert queue_pane.region.height == 6
         assert focusable() >= issue_focus
+        await pilot.press("tab")
+        await wait_until(lambda: queue.has_focus)
 
 
 def column_widths(table: DataTable[Any]) -> list[int]:

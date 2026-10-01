@@ -371,8 +371,11 @@ This is the shape Textual's own `ToastRack` uses (`layer:`, `dock: bottom`,
   not enough. Its bottom border then stays the body's last row at every height
   that holds the panes' frames, and below its minimum it collapses to that
   frame and its count (`pane_layout.keeps_minimum`), hiding the contents its
-  frame would clip so they leave the focus chain too. A body shorter than the
-  frames themselves still overflows, onto gutters and frames only.
+  frame would clip. Hiding takes them out of Textual's `focus_chain`, but
+  `Widget.focus()` checks visibility rather than `display`, so the peer's own
+  table cycle (`focus_tables`) must skip a hidden table itself. A body
+  shorter than the frames themselves still overflows, onto gutters and frames
+  only.
 
 Durable detail stays in the flow: `#diagnostics` sits below the body, because up
 to five rows of it overlaying the panes would hide more than it told.

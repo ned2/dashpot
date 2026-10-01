@@ -583,8 +583,16 @@ class IssuesPullRequestsScreen(Screen[None]):
         return tuple(self.list_pane(spec.pane_id) for spec in QUERY_PANE_SPECS)
 
     def focus_tables(self) -> tuple[FocusCursorTable[Any], ...]:
-        """Return the query peer's tables in their composed reading order."""
-        return tuple(self.query_one("#query-body").query(FocusCursorTable))
+        """Return the query peer's shown tables in their composed reading order.
+
+        A collapsed Issue pane hides its table, and Textual's `focus()` checks
+        visibility rather than display, so the cycle must leave it out itself.
+        """
+        return tuple(
+            table
+            for table in self.query_one("#query-body").query(FocusCursorTable)
+            if table.display
+        )
 
     def surfaces_mounted(self) -> bool:
         """Report whether dashboard updates can still reach every surface.
