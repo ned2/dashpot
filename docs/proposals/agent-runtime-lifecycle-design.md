@@ -137,7 +137,7 @@ these kinds. They are a vocabulary for this design, not a new type.
 | Harness | The only positive ended evidence | What silence means |
 | --- | --- | --- |
 | Codex | `SessionEnd`, from unload of a subscriber-less idle thread (60 s measured, 30 min documented), graceful server or daemon exit, SIGTERM, `exec` exit, or a standalone TUI's `/exit`. A daemon-hosted terminal's `/exit` runs no hook; its `SessionEnd` arrives only at the later unload. | A daemon-hosted thread whose terminal has exited stays live until unload. After SIGKILL no hook arrives at all, so the session reads gone only by its Host Process. |
-| Claude Code | `SessionEnd` (`prompt_input_exit`, `clear`, `resume`, `other` on `claude stop`, `daemon stop`, headless exit). A crash, a respawn and a supervisor replacement publish none. | No `Stop` between turns while a channel event is queued behind a running turn, so an absent `Stop` never means idle. An idle unattached worker may be evicted after about an hour; whether that publishes `SessionEnd` is unmeasured. |
+| Claude Code | `SessionEnd` (`prompt_input_exit`, `clear`, `resume`, `other` on `claude stop`, `daemon stop`, headless exit). A crash, a respawn, a supervisor replacement and idle eviction publish none. | No `Stop` between turns while a channel event is queued behind a running turn, so an absent `Stop` never means idle. An idle unattached worker is retired about an hour after its last turn without `SessionEnd`, measured at `2.1.286`, so it reads gone only by its Host Process. |
 | OpenCode | `session.deleted` | Backend exit and plugin disposal publish nothing that ends a session. Disposal is observation loss, not ending. |
 
 Three rules follow for every harness:
@@ -170,7 +170,7 @@ Process (#159).
 | Interrupt | Interrupted (Codex `Interrupt`) | Waiting | Unchanged |
 | Client detaches (terminal, `attach`, `--remote`, OpenCode CLI) | None | Unchanged | Unchanged |
 | Codex idle unload | `SessionEnd` after the unload delay | Ended | Ended ([ADR 0015](../adr/0015-reconcile-the-agent-run-at-session-end.md)), unless a Relocation Intent is pending ([ADR 0029](../adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)) |
-| Claude idle eviction | Unmeasured | Unresolved: `SessionEnd` would end the run; a silent exit would leave an Orphaned Agent Run for ADR 0053 | #162 measures before advertising support |
+| Claude idle eviction | None, measured at `2.1.286` | Gone by its Host Process | Orphaned; continued by the respawned worker's `SessionStart` at the run's Worktree ([ADR 0053](../adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)) |
 | Graceful exit (`/exit`, `claude stop`, `exec` exit, SIGTERM) | Ended | Ended | Ended, unless an intent is pending |
 | Daemon-hosted Codex terminal `/exit` | None until unload | Last-known state; live | Unchanged until the unload's `SessionEnd` |
 | Crash (SIGKILL of the Host Process) | None | Gone once the process is gone | Orphaned Agent Run; stays until a continuity route or `work stop --session` |
@@ -326,9 +326,10 @@ same Repository with no `SessionEnd`, no `SessionStart`, and no Relocation
 Intent. It is a route beside ADR 0029, not a replacement. The measured
 triggers are a controller's Codex `turn/start` with a `cwd` override and a
 Claude Code `EnterWorktree` or `ExitWorktree` with `action: keep`.
-`ExitWorktree` with `remove` deletes the Worktree it leaves, and would take
-that Worktree's Work Store with it, possibly before its `PostToolUse` runs;
-its hook order is unmeasured, and it gains no carry until #162 measures it.
+`ExitWorktree` with `remove` is not a trigger: measured at `2.1.286`, it is
+refused on a Worktree entered by path, and on one `EnterWorktree` created by
+name it deletes the Worktree, Work Store included, before its `PostToolUse`
+arrives ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
 
 When the hook publisher writes a record H for session S at Worktree B, it
 carries S's active Agent Run from Worktree A to B, preserving the Work Store
@@ -547,15 +548,15 @@ the stated release), **source** (pinned source or current documentation),
 | Several conversations on one Host Process | Measured: app-server and daemon host many threads; `exec` is one per thread | Measured: one per headless process and per worker; Remote Control server unresolved | Measured: many sessions per backend |
 | Hook id equals shell claim | Measured for roots and forks; a sub-agent's shell claims its own id | Measured headless and background; interactive inferred from the `2.1.278` channel environment | Measured for legacy Bash; a PTY can lack it |
 | Client detach | Measured: no hook, execution continues | Measured: killed `attach` terminal, no hook | Measured: attached CLI exit does not stop work |
-| Idle unload or eviction | Measured: `SessionEnd` 60 s after the last unsubscribe; source documents 30 min | Unresolved: documented about an hour, hook delivery unmeasured | Not applicable |
+| Idle unload or eviction | Measured: `SessionEnd` 60 s after the last unsubscribe; source documents 30 min | Measured at `2.1.286`: retired about 61 minutes after the last `Stop` with no hook; `claude attach` respawns it with `SessionStart` `resume` | Not applicable |
 | Graceful exit | Measured: `exec`, SIGTERM, daemon stop, standalone `/exit`; daemon-hosted `/exit` none until unload | Measured: `/exit`, `claude stop`, headless exit, `daemon stop --any` | Measured: only `session.deleted` ends; backend exit does not |
 | Crash | Measured: SIGKILL publishes nothing | Measured: SIGKILL publishes nothing; supervisor respawns with `resume` | Measured: backend exit publishes nothing |
-| Same identity in a new Host Process | Measured: `resume` from a replacement server or `exec resume` | Measured: `resume` and `respawn` | Measured: resumed in a replacement backend |
+| Same identity in a new Host Process | Measured: `resume` from a replacement server or `exec resume` | Measured: `resume` and `respawn`; at `2.1.286` a supervisor's `--resume` replacement reports the dispatch directory on `SessionStart`, and a `respawn` after an unsupervised crash runs a claimed spare | Measured: resumed in a replacement backend |
 | Supervisor replacement | Not applicable | Measured: workers keep pids, no hooks | Not applicable |
 | Conversation switch in one process | Source: `/cd` forks a new thread | Source: `SessionEnd` reasons `clear` and `resume` | Unresolved |
 | Fork | Measured: new id, `source` = `fork`, no parent field | Measured: new id, `source` = `fork`, no parent field | Measured: new id, no `parentID` |
 | Delegated child | Measured: root `session_id` plus `agent_id` | Measured: parent's id and pid plus `agent_id`; parent's cwd except isolated worktree ([measured under #279](../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)) | Measured: own id with `parentID` |
-| Live location change, idle | Measured: `turn/start` `cwd` override sticky, same id, no `SessionStart` | Measured: `EnterWorktree` and `ExitWorktree` (`keep`) `PostToolUse` at the new cwd, same id and pid; `remove` unresolved | Unresolved; Bash `workdir` measured not to move the session |
+| Live location change, idle | Measured: `turn/start` `cwd` override sticky, same id, no `SessionStart` | Measured: `EnterWorktree` and `ExitWorktree` (`keep`) `PostToolUse` at the new cwd, same id and pid, carrying a bound run at `2.1.286`; `remove` refused on a Worktree entered by path and deleting a managed one with its run ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) | Unresolved; Bash `workdir` measured not to move the session |
 | Live location change, mid-turn | Measured: joins the running turn in the old cwd; the joined input's `UserPromptSubmit` names that turn at the old cwd, and the next turn's is the first at the new one | Unresolved | Unsupported |
 | Declared sequential relocation | Measured on no-daemon, loaded and unloaded daemon routes | Not used | Unsupported |
 | Sub-agent during a move | Unresolved | Unresolved | Unresolved |
@@ -580,9 +581,9 @@ under its implementing Issue, never by assumption.
 | Codex `/cd`, managed `/worktree` | `/cd` is a new Agent Session (source); `/worktree` unsupported | Neither preserves a run |
 | Codex Remote Control pairing, Code Mode remote host, stdio transport, other operating systems | Unsupported | Unmeasured |
 | Claude Code interactive and headless | Supported today; lifecycle through #162 | Measured |
-| Claude Code supervised workers (`--bg`), including claimed spares | Recognised as Host Processes since #326 (Linux, `2.1.285`); lifecycle through #162 | A worker replaced after an abrupt exit continues its run under ADR 0053 (measured with the `--resume` shape); `claude stop` publishes its own `SessionEnd` and ends the run, so a later `claude respawn` has no run to continue; a respawn or spare replacement after an abrupt exit is unmeasured; macOS unmeasured |
-| Claude Code `EnterWorktree`/`ExitWorktree` (`keep`) Live Relocation | #162, #278 acceptance | One-sided reach as measured at `2.1.278`; `ExitWorktree` with `remove` unsupported until measured |
-| Claude Code idle eviction | Unresolved; #162 measures | Until then an evicted worker's run is treated by the transition table's measured rows only |
+| Claude Code supervised workers (`--bg`), including claimed spares | Supported (#162, Linux, `2.1.286`) | A worker replaced after an abrupt exit continues its run under ADR 0053 at its first hook at the run's Worktree, measured with the `--resume` shape and with a spare claimed by `claude respawn`; a replacement stopped before that ends it ([ADR 0075](../adr/0075-end-an-orphaned-run-at-its-replacements-session-end.md)); `claude stop` ends the run, so a later `claude respawn` has no run to continue; macOS unmeasured |
+| Claude Code `EnterWorktree`/`ExitWorktree` (`keep`) Live Relocation | Supported (#162, `2.1.286`); #278 acceptance | A persistent shell `cd` places the session without carrying; `ExitWorktree(remove)` of a Worktree that `EnterWorktree` created by `name` unsupported, as it deletes the run with the Worktree ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) |
+| Claude Code idle eviction | Supported (#162, Linux, `2.1.286`) | The retired worker's run is orphaned and continues when `claude attach` respawns the worker at the run's Worktree |
 | Claude Code Remote Control (attachment and server), SDK, agent teams, cloud, desktop | Unsupported | Unmeasured; server mode needs a claude.ai login |
 | OpenCode legacy local TUI | Later slice, #163 | TUI startup and exit unmeasured |
 | OpenCode attached or shared local backend | Later slice, #163 | Measured on the legacy plugin path |
@@ -642,9 +643,15 @@ W31) and `w2` (pid 6200, session `s2`, run for Issue 32 at W32).
 - `s1` calls `EnterWorktree` into W33: the `PostToolUse` at W33 is
   designated, from 6300, and follows `s1`'s record at W31, so Live
   Relocation carries the run to W33.
+- `w1` is killed again at W33. Its replacement's `SessionStart` reports W31,
+  the directory `w1` was dispatched from, so it continues nothing, and the
+  run stays orphaned at W33 until the replacement's next turn there
+  continues it. Stopped before that turn, its `SessionEnd` at W33 ends the
+  run ([ADR 0075](../adr/0075-end-an-orphaned-run-at-its-replacements-session-end.md)).
 
 Both continuing outcomes rely on #326's recognition of the supervised worker
-as the Host Process, measured on Linux at `2.1.285`.
+as the Host Process, measured on Linux at `2.1.285`; #162's acceptance run
+measured every step above end to end at `2.1.286`.
 
 ### Supervisor replacement with unchanged workers
 
@@ -669,8 +676,8 @@ mechanism. On a new supported release, rerun the matching runner and confirm:
   `UserPromptSubmit` `cwd` after a `turn/start` override; the unload delay and
   its `SessionEnd`; no hook on SIGKILL; `SessionEnd` at the old cwd before
   `SessionStart` at the new on a cold resume; `SubagentStart`/`SubagentStop`.
-- **Claude Code** (`claude-160`, `claude-148`, `claude-326`, `claude-345`,
-  `claude-279`): hook `session_id` = `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID` =
+- **Claude Code** (`claude-162`, the acceptance run, then `claude-160`,
+  `claude-148`, `claude-326`, `claude-345`, `claude-279`): hook `session_id` = `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID` =
   the worker pid; supervised worker and spare process names and argv;
   `PostToolUse` `cwd` after `EnterWorktree`/`ExitWorktree`; no `CwdChanged` for
   those tools; `SessionEnd` reasons for stop, exit and supervisor stop;
@@ -699,6 +706,9 @@ until the design or an ADR accounts for it.
   worktree case), carry supervised workers (recognised since #326) through
   Live Relocation, measure idle eviction and a respawn after an abrupt exit,
   and change the Issue-work skill to check `work show` after `EnterWorktree`.
+  Delivered with
+  [ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)
+  and [ADR 0075](../adr/0075-end-an-orphaned-run-at-its-replacements-session-end.md).
 - **#163 (OpenCode).** Translate `parentID` children, `session.deleted` and
   generation retirement into the shared rules; keep explicit `work start`
   after a backend restart; leave live relocation unsupported.
@@ -712,13 +722,7 @@ until the design or an ADR accounts for it.
 ## Open questions
 
 - #148 step 1: which Codex threads count as opted in (options 1, 2 or 3).
-- Claude Code idle eviction: whether it publishes `SessionEnd`.
 - A sub-agent live during a move, on every harness.
 - Claude Code Remote Control in both modes, the SDK, agent teams, the desktop
   app; Codex Remote Control pairing and the Code Mode host; OpenCode local TUI
   startup and exit, V2 and ACP.
-- A Claude session whose persistent shell `cd` inside the project enters a
-  nested Worktree: its ordinary hooks then place it there under today's
-  freshest-record rule, although no worktree tool ran. This design only keeps
-  such a move from carrying a run; whether it should place the session at all
-  is left to #162.

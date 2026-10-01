@@ -190,13 +190,68 @@ def test_override_claim_is_explicit_and_validated_in_shape() -> None:
         ("codex", {"hook_event_name": "Stop"}, False),
         ("codex", {"hook_event_name": "SessionStart"}, False),
         ("codex", {"hook_event_name": "SessionEnd"}, False),
-        # Claude Code's worktree tools are designated under #162, not yet.
         (
             "claude-code",
             {"hook_event_name": "PostToolUse", "tool_name": "EnterWorktree"},
+            True,
+        ),
+        (
+            "claude-code",
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "ExitWorktree",
+                "tool_input": {"action": "keep"},
+            },
+            True,
+        ),
+        # ``remove`` deletes the Worktree it leaves; it is not a move.
+        (
+            "claude-code",
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "ExitWorktree",
+                "tool_input": {"action": "remove"},
+            },
+            False,
+        ),
+        (
+            "claude-code",
+            {"hook_event_name": "PostToolUse", "tool_name": "ExitWorktree"},
+            False,
+        ),
+        (
+            "claude-code",
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "ExitWorktree",
+                "tool_input": "keep",
+            },
+            False,
+        ),
+        (
+            "claude-code",
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "EnterWorktree",
+                "agent_id": "child",
+            },
+            False,
+        ),
+        # A persistent shell ``cd`` moves every later hook's ``cwd``.
+        ("claude-code", {"hook_event_name": "PostToolUse", "tool_name": "Bash"}, False),
+        (
+            "claude-code",
+            {"hook_event_name": "PreToolUse", "tool_name": "EnterWorktree"},
             False,
         ),
         ("claude-code", {"hook_event_name": "UserPromptSubmit"}, False),
+        ("claude-code", {"hook_event_name": "Stop"}, False),
+        ("claude-code", {"hook_event_name": "SessionStart"}, False),
+        (
+            "codex",
+            {"hook_event_name": "PostToolUse", "tool_name": "EnterWorktree"},
+            False,
+        ),
     ],
 )
 def test_only_designated_session_scoped_evidence_locates_a_session(

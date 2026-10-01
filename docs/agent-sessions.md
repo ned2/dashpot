@@ -176,6 +176,77 @@ Codex-managed `/worktree`; Remote Control paired with an account; the Code
 Mode remote host; the stdio transport; and every operating system other than
 Linux.
 
+### Claude Code hosting modes
+
+Claude Code support is pinned to **2.1.286** on Linux, the release the
+[Claude Code acceptance run](../README.md#harness-acceptance-runs) last passed
+on; its trace is
+[`issue-162-claude-trace.jsonl`](spikes/measurements/issue-162-claude-trace.jsonl).
+Another release is unsupported until that run passes on it. The
+[harness reference](agent-harness-server-client-reference.md#clients-and-supervised-workers-through-dashpot-at-21286)
+holds the measured detail. The acceptance run drives headless clients and
+supervised workers; the interactive terminal runs the same `claude` process
+and hooks, measured at 2.1.278 and 2.1.285. Every Claude Code session runs in
+a process of its own, which is its Host Process; its sub-agents share it:
+
+| How the session runs | Host Process | Graceful end |
+| --- | --- | --- |
+| Interactive `claude` terminal, or headless `claude -p` | The `claude` process | `SessionEnd` when it exits |
+| Supervised worker, `claude --bg` | The worker the supervisor runs for the session: a versioned executable with `--session-id` or `--resume`, or a claimed `claude bg-spare` | `SessionEnd` at `claude stop` or `claude daemon stop`; none when the supervisor retires an idle worker |
+
+In the dashboard, a Claude Code session's state means:
+
+- **Running or waiting.** Its Host Process is live, and the state is that of
+  its current turn; a sub-agent still working holds it running after the
+  main turn stops.
+- **Moved.** `EnterWorktree`, and `ExitWorktree` with `action: keep`, move
+  the session and carry a bound run with it, keeping its id, `startedAt` and
+  Issue Binding. A Bash `cd` into another Worktree only places the session
+  there, and the run left behind is reported as `work-session-elsewhere`
+  until `work start` there switches it or the shell returns
+  ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
+- **Gone.** The Host Process was killed or crashed: no hook says so, and a
+  bound run is listed as an [Orphaned Agent Run](domain-language.md) (`◌`).
+  A worker killed under a live supervisor is replaced within seconds by a
+  new process for the same session. A worker killed while no supervisor runs
+  is listed `failed` until `claude respawn`. A worker left idle with no
+  client attached is retired by its supervisor about an hour after its last
+  turn, also without a hook, and is listed `done` until `claude attach`
+  respawns it. A terminal session resumes with
+  `claude --resume <id>`; the Sessions pane's `y` copies
+  `cd <worktree> && claude --resume <id>`.
+- **Unknown.** Dashpot cannot observe the Host Process, so liveness is
+  unconfirmed (`○`). Unknown never ends, carries or continues a run.
+
+An orphaned Claude Code run continues by itself
+([ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md))
+at the first hook its session's new Host Process publishes from the
+Worktree holding the run, and the hook tells the agent so. A replacement
+worker's `SessionStart` reports the directory the worker was first
+dispatched from, so a worker that had entered another Worktree continues its
+run only at its next turn there; stopped before that turn, its `SessionEnd`
+ends the run
+([ADR 0075](adr/0075-end-an-orphaned-run-at-its-replacements-session-end.md)).
+Replacing the supervisor with `claude daemon stop --keep-workers` changes
+nothing: workers keep their processes and runs. `claude stop` ends a worker's
+run, so a later `claude respawn` starts unbound.
+
+`ExitWorktree(remove)` of a Worktree that `EnterWorktree` created by `name`
+is not supported for Issue work: it deletes the Worktree and the run in it.
+Not supported, because they were not measured at the pinned release: several
+`claude attach` clients on one worker at once; Remote Control, whose server
+needs a claude.ai login the isolated runs do not have; the Agent SDK, agent
+teams, cloud and web sessions and the desktop app; and every operating system
+other than Linux, including macOS's supervised process shapes.
+
+Dashpot still records the hooks an unsupported release or mode publishes, but
+nothing vouches for what they mean. Its recovery is the same in every mode:
+`dashpot work show` from inside the session says which run it holds and
+where; `work-session-elsewhere` is answered by `dashpot work start` where the
+session now is; and a run whose session is not coming back is ended with
+`dashpot work stop --session <key>`. A new release becomes supported by
+passing the acceptance run.
+
 ### Agent-facing Issue-work skill
 
 Codex and Claude Code consume the same bundled Agent Skills payload. The
@@ -268,9 +339,9 @@ its Git Repository
 and its own hooks say where it is: the freshest hook record for the session
 across the stores of every Worktree `git worktree list` reports, plus the
 global store. When that record places the session at the Worktree where
-`start` runs, a run it still holds at another Worktree is a relocation (a
-Claude Code `EnterWorktree`, or the `ExitWorktree` that brings the session
-back): `start` ends it and reports
+`start` runs, a run it still holds at another Worktree is a move the hooks
+did not carry (a Claude Code shell `cd` into a nested Worktree, for
+instance): `start` ends it and reports
 `switched from <ref> at <old Worktree> to <ref> at <new Worktree>`. When it
 places the session elsewhere, the command is running where the session is
 not — a tool call that changed directory, or a sub-agent's shell — and
@@ -326,8 +397,12 @@ is from the same Host Process and not ended, no `SessionStart` began a new
 incarnation at the target since, no other run of the session is there, and
 any Relocation Intent names exactly that target, which the carry completes.
 Every other event, a sub-agent's included, carries nothing, and an unbound
-session stays unbound. Claude Code designates no event yet, so its
-`EnterWorktree` still leaves the run for `work start` to switch. A run left
+session stays unbound. Claude Code's designated events are the `PostToolUse`
+of `EnterWorktree`, and of `ExitWorktree` with `action: keep`, so a bound
+session that enters a Worktree or returns from one takes its run along under
+the same conditions; its shell `cd`, which moves the `cwd` of its later
+hooks, carries nothing
+([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)). A run left
 at one Worktree while its session's freshest live record places it at
 another is reported as `work-session-elsewhere`, naming both; run
 `dashpot work start` there or `dashpot work stop`. A `SessionEnd` also

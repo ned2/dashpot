@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0075-end-an-orphaned-run-at-its-replacements-session-end.md
 ---
 
 # Reconcile the session's Agent Run at SessionEnd
@@ -68,6 +68,12 @@ was observed from, both observed, and not newer than it. A shared Codex
 process outlives the thread, so a record a Live Relocation left behind would
 otherwise read live after the session ended. A `SessionEnd` carrying
 `agent_id` is a sub-agent's and ends nothing.
+
+[ADR 0075](0075-end-an-orphaned-run-at-its-replacements-session-end.md)
+lets a session's own `SessionEnd` first continue an Orphaned Agent Run it
+holds at that Worktree, under ADR 0053's conditions, and then end it, so a
+replacement worker stopped before its first turn there ends its
+predecessor's run.
 
 ## Considered options
 

@@ -190,6 +190,24 @@ def _codex_locates(event: HookEvent) -> bool:
     return event.get("hook_event_name") == "UserPromptSubmit"
 
 
+def _claude_code_locates(event: HookEvent) -> bool:
+    # The worktree tools move the session itself and fire no lifecycle hook,
+    # and their ``PostToolUse`` reports the Worktree it arrived at (ADR 0009).
+    # ``ExitWorktree`` with ``remove`` deletes the Worktree it leaves, so only
+    # ``keep`` is a move. Any other hook's ``cwd`` follows a persistent shell
+    # ``cd``, which places the session but never carries its run (ADR 0074).
+    if event.get("hook_event_name") != "PostToolUse":
+        return False
+    tool = event.get("tool_name")
+    if tool == "EnterWorktree":
+        return True
+    tool_input = event.get("tool_input")
+    if tool != "ExitWorktree" or not isinstance(tool_input, Mapping):
+        return False
+    action: object = tool_input.get("action")
+    return action == "keep"
+
+
 def _codex_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
     # Codex's shell tool exports its thread identifier, which is the
     # ``session_id`` its hooks publish. The variable is undocumented, so the
@@ -230,15 +248,15 @@ CODEX = HarnessAdapter(
 # One Claude Code process per session: its sub-agents share the parent's
 # session as well as its process, and each supervised worker, a spare
 # included, hosts one session for its whole life. Its worktree tools'
-# ``PostToolUse`` are the designated location evidence ADR 0067 names; they
-# are left undesignated until #162 carries runs on them, so a Claude Code
-# session's run still moves only through ``work start``.
+# ``PostToolUse`` are its designated location evidence, so a session that
+# enters or returns from a Worktree takes its run with it (ADR 0067).
 CLAUDE_CODE = HarnessAdapter(
     harness="claude-code",
     display=HARNESS_DISPLAY["claude-code"],
     is_host_process=is_claude_code_host_process,
     claim_session_identity=_claude_code_claim,
     exclusive_session_process=True,
+    locates=_claude_code_locates,
 )
 
 ADAPTERS: dict[Harness, HarnessAdapter] = {

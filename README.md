@@ -504,6 +504,11 @@ Each supported harness release is pinned by an acceptance run: a runner that dri
   [verifier](scripts/experiments/codex-161/verify.mjs),
   [trace](docs/spikes/measurements/issue-161-codex-trace.jsonl)
   ([supported modes](docs/agent-sessions.md#codex-hosting-modes)).
+- **Claude Code 2.1.286**: [runner](scripts/experiments/claude-162/run.mjs) and
+  [verifier](scripts/experiments/claude-162/verify.mjs),
+  [trace](docs/spikes/measurements/issue-162-claude-trace.jsonl) and
+  [idle-eviction trace](docs/spikes/measurements/issue-162-claude-idle-trace.jsonl)
+  ([supported modes](docs/agent-sessions.md#claude-code-hosting-modes)).
 
 #### Local review gate
 

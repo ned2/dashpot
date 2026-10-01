@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-23
-amended-by: 0072-keep-every-codex-host-process-non-exclusive.md
+amended-by: 0072-keep-every-codex-host-process-non-exclusive.md, 0075-end-an-orphaned-run-at-its-replacements-session-end.md
 ---
 
 # Continue an Orphaned Agent Run when its session resumes
@@ -93,6 +93,13 @@ so its replacement, measured with the `--resume` shape, continues the run
 like a crashed-and-resumed session.
 `claude stop` publishes `SessionEnd` from the worker itself, which ends the
 run, so the session a later `claude respawn` resumes has no run to continue.
+
+[ADR 0075](0075-end-an-orphaned-run-at-its-replacements-session-end.md)
+amends the replacement case. A replacement's `SessionStart` reports the
+directory the worker was first dispatched from, so a worker that had entered
+another Worktree continues its run only at its next turn there; and the
+session's own `SessionEnd` is now a hook that may continue the run, under the
+conditions above, so that a replacement stopped before that turn ends it.
 
 ## Considered options
 

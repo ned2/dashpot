@@ -337,10 +337,12 @@ commands, not relocation
 Under
 [ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
 only the harness's designated location evidence (the session-scoped events
-its Harness Adapter names; for Codex, a session-scoped `UserPromptSubmit`)
-can carry an Agent Run to a new location, and a Sub-agent's event never
-places its parent. The session's freshest hook record still says where it
-is; a run left at another Worktree is reported as `work-session-elsewhere`.
+its Harness Adapter names; for Codex, a session-scoped `UserPromptSubmit`;
+for Claude Code, the `PostToolUse` of `EnterWorktree` or of `ExitWorktree`
+with `action: keep`) can carry an Agent Run to a new location, and a
+Sub-agent's event never places its parent. The session's freshest hook
+record still says where it is; a run left at another Worktree is reported as
+`work-session-elsewhere`.
 _Avoid_: treating tool cwd as the session's location
 
 **Agent Session**:
@@ -369,7 +371,7 @@ hook evidence completes it
 ([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)),
 and through a Live Relocation
 ([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)),
-which a Claude Code run gains once its worktree tools are designated.
+which also carries a Claude Code run through its worktree tools.
 _Avoid_: Agent Run as a synonym for the whole session; a second run at
 another Worktree for a session that has relocated
 
@@ -399,8 +401,9 @@ unbound session stays unbound. It is a route beside the sequential
 relocation of ADR 0029, not a replacement, and says nothing about who may
 trigger the move. Decided in
 [ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md);
-the carry is implemented for Codex's designated evidence, and Claude Code
-designates no event until its worktree tools are measured.
+Claude Code designates only its worktree tools, so a persistent shell `cd`
+places its session without carrying the run
+([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
 _Avoid_: calling a resume in a new process, or a shell `cd`, a Live
 Relocation
 

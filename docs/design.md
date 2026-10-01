@@ -219,7 +219,10 @@ The adapter says which process is the Host Process, which Agent Session
 Identity a command can claim, whether its Host Process is exclusive to one
 session, and, through `locates`, which native events are the harness's
 designated location evidence: for Codex a session-scoped `UserPromptSubmit`,
-for Claude Code none yet. `locates_session` adds the shared rule that a
+for Claude Code the `PostToolUse` of `EnterWorktree`, and of `ExitWorktree`
+with `action: keep`
+([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
+`locates_session` adds the shared rule that a
 child-scoped event, `SessionStart` or `SessionEnd` is never designated. An
 event carrying `agent_id` is child-scoped (`is_child_scoped`) whichever
 harness sent it; OpenCode's `parentID` will be translated to it at its edge.
@@ -234,10 +237,13 @@ moved it here, so a move never forgets a live sub-agent; `lastSessionStartAt`
 it carries from its own previous record alone. A child-scoped event with no
 parent record to join writes nothing but a sub-agent boundary. Reconciliation
 ([`work_reconciliation.py`](../src/dashpot/sessions/work_reconciliation.py))
-then runs in one order: an ended event ends the session's run before its
-record is written and afterwards removes the session's older records
-elsewhere in the Repository; any other session-scoped event takes at most one
-of declared relocation completion (ADR 0029), Live Relocation
+then runs in one order: an ended event first continues an orphaned run the
+session holds at its Worktree
+([ADR 0075](adr/0075-end-an-orphaned-run-at-its-replacements-session-end.md)),
+then ends the session's run before its record is written and afterwards
+removes the session's older records elsewhere in the Repository; any other
+session-scoped event takes at most one of declared relocation completion
+(ADR 0029), Live Relocation
 (`carry_live_session_work`), and orphan continuation (ADR 0053). A
 child-scoped event reconciles nothing. Each route rereads the stores it
 depends on under their locks and moves a run only through the Work Store's

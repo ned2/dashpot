@@ -51,8 +51,9 @@ Codex relocation uses sequential `codex resume <session-id> -C <path>`, and
 the old client must exit to release the thread before the resumed client can
 continue it; an active run declares its target with `work relocate`
 before exit, and the resumed turn verifies the preserved run with `work show`
-before using `work start`. Claude Code uses `EnterWorktree`. Leave the Worktree
-in place unless the user explicitly requests Cleanup.
+before using `work start`. Claude Code uses `EnterWorktree`, which carries an
+active run along, so it too checks `work show` before using `work start`.
+Leave the Worktree in place unless the user explicitly requests Cleanup.
 
 The lifecycle hooks `dashpot integrate <harness>` installs observe a session in
 this checkout as live automatically. Observation is not Issue opt-in: the
