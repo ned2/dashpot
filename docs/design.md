@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-27
+date: 2026-10-01
 ---
 
 # Design
@@ -207,6 +207,49 @@ by the most severe line it holds. Headless JSON runs a coordinated barrier
 over every key and serializes the store's `checkpoint()`, so it remains one
 complete snapshot. Collection happens off the UI thread, and the table is
 reconciled by stable row keys.
+
+## Agent session evidence
+
+A harness's hook event reaches Dashpot through one publisher
+([`hook_publish.py`](../src/dashpot/sessions/hook_publish.py)), and everything
+harness-native is decided at its edge by the harness's
+[Harness Adapter](../src/dashpot/sessions/harnesses.py)
+([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
+The adapter says which process is the Host Process, which Agent Session
+Identity a command can claim, whether its Host Process is exclusive to one
+session, and, through `locates`, which native events are the harness's
+designated location evidence: for Codex a session-scoped `UserPromptSubmit`,
+for Claude Code none yet. `locates_session` adds the shared rule that a
+child-scoped event, `SessionStart` or `SessionEnd` is never designated. An
+event carrying `agent_id` is child-scoped (`is_child_scoped`) whichever
+harness sent it; OpenCode's `parentID` will be translated to it at its edge.
+
+The publisher builds the hook record, then chooses its store: a child-scoped
+event goes to the store holding the parent's freshest record, whose
+location it keeps, and any other event is routed by its own `cwd`. The
+store ([`hook_records.py`](../src/dashpot/sessions/hook_records.py)) derives
+the live sub-agents and the turn clock from its own previous record, or from
+the session's fresher record in another store when the same Host Process
+moved it here, so a move never forgets a live sub-agent; `lastSessionStartAt`
+it carries from its own previous record alone. A child-scoped event with no
+parent record to join writes nothing but a sub-agent boundary. Reconciliation
+([`work_reconciliation.py`](../src/dashpot/sessions/work_reconciliation.py))
+then runs in one order: an ended event ends the session's run before its
+record is written and afterwards removes the session's older records
+elsewhere in the Repository; any other session-scoped event takes at most one
+of declared relocation completion (ADR 0029), Live Relocation
+(`carry_live_session_work`), and orphan continuation (ADR 0053). A
+child-scoped event reconciles nothing. Each route rereads the stores it
+depends on under their locks and moves a run only through the Work Store's
+compare-and-replace, so a concurrent hook or command loses cleanly rather
+than duplicating a run.
+
+Observation ([`agents.py`](../src/dashpot/sessions/agents.py)) reads the same
+records and never writes beyond pruning: the freshest live or unknown record
+of a session places it, a run left at another Worktree is reported as
+`work-session-elsewhere`, and a pending Relocation Intent is diagnosed from the
+freshest record first. Liveness that cannot be observed stays unknown and never
+becomes gone.
 
 ## Accepted multi-screen target
 

@@ -19,7 +19,7 @@ from ..core.pydantic import NonEmptyString, PersistedRecord
 from ..core.record_store import LockedRecordStore
 from ..core.state_paths import machine_state_directory
 from ..core.timestamps import observed_instant, utc_now
-from .harnesses import SESSION_ID, HarnessName, HookSessionIdentity
+from .harnesses import SESSION_ID, HarnessName, HookSessionIdentity, delegate_id
 from .processes import ProcessIdentity, SessionProcessRecord
 from .session_matching import session_storage_key
 
@@ -40,6 +40,8 @@ EVENT_STATES: dict[str, ActiveState] = {
     "SubagentStop": "waiting",
 }
 SUBAGENT_EVENTS = frozenset({"SubagentStart", "SubagentStop"})
+# Where a record places its session; a Sub-agent's event keeps its parent's.
+LOCATION_FIELDS = ("cwd", "repositoryRoot", "branch")
 
 
 def state_directory() -> Path:
@@ -99,6 +101,11 @@ class HookRecord(PersistedRecord):
     # The session's sub-agents observed started and not yet stopped; a
     # session whose main turn has ended is still running while any is alive.
     live_subagents: list[str] = Field(default_factory=list)
+    # When this store last saw the session begin an incarnation (its latest
+    # ``SessionStart``), so a live move can be told from a restart (ADR
+    # 0067); absent on a record written before it was kept, or by a store
+    # that has seen none.
+    last_session_start_at: OptionalText = None
 
     @property
     def has_global_binding(self) -> bool:
@@ -160,11 +167,17 @@ def build_hook_record(
         session_process=SessionProcessRecord.of(process) if process else None,
         session_process_unobservable=None if process else process_unobservable,
     )
-    # ``turnStartedAt`` and ``liveSubagents`` are the store's to derive
-    # against the previous record.
+    # ``turnStartedAt``, ``liveSubagents`` and ``lastSessionStartAt`` are the
+    # store's to derive against the previous record.
     return record.model_dump(
-        by_alias=True, exclude={"turn_started_at", "live_subagents"}
+        by_alias=True,
+        exclude={"turn_started_at", "live_subagents", "last_session_start_at"},
     )
+
+
+def is_child_record(record: Mapping[str, Any]) -> bool:
+    """Whether a hook record was published for a Sub-agent's event, not its session's."""
+    return delegate_id(record.get("agentId")) is not None
 
 
 def turn_started_at(
@@ -175,8 +188,8 @@ def turn_started_at(
     A turn's age and a session's idle time are different questions, so the
     record keeps the turn's start rather than overloading its last activity.
     """
-    if current.get("event") in SUBAGENT_EVENTS:
-        # A sub-agent's boundary is not the main turn's: its clock carries.
+    if current.get("event") in SUBAGENT_EVENTS or is_child_record(current):
+        # A sub-agent's event is not the main turn's: its clock carries.
         if previous is None:
             return None
         return optional_string(previous.get("turnStartedAt"))
@@ -218,6 +231,39 @@ def live_subagents(
     return alive
 
 
+def last_session_start_at(
+    current: Mapping[str, Any], previous: Mapping[str, Any] | None
+) -> str | None:
+    """When this store last saw the session begin an incarnation.
+
+    Set by the session's own ``SessionStart`` and carried, like the turn
+    clock, from the same store's previous record of the identity.
+    """
+    if current.get("event") == "SessionStart" and not is_child_record(current):
+        return optional_string(current.get("lastActivityAt"))
+    if previous is None:
+        return None
+    return optional_string(previous.get("lastSessionStartAt"))
+
+
+def carried_state(
+    current: Mapping[str, Any], previous: Mapping[str, Any] | None
+) -> str:
+    """The base state a record starts from before its sub-agents are reconciled.
+
+    A Sub-agent's own events (its prompt, tool calls, or an end of its own)
+    say nothing about its parent's turn, so the parent keeps the state its
+    previous record held; only the sub-agent boundaries change it (ADR 0016).
+    A child-scoped event never ends its parent.
+    """
+    if not is_child_record(current) or current.get("event") in SUBAGENT_EVENTS:
+        return str(current.get("state"))
+    # A parent record whose state cannot be read is taken as busy: its
+    # Sub-agent is evidently at work.
+    recorded = None if previous is None else previous.get("state")
+    return str(recorded) if recorded in {"running", "waiting"} else "running"
+
+
 def observed_state(current: Mapping[str, Any]) -> str:
     """The session's state once its live sub-agents are accounted for.
 
@@ -254,8 +300,20 @@ class HookRecordStore(LockedRecordStore):
             checkout=checkout,
         )
 
-    def write(self, record: dict[str, Any]) -> Path:
-        """Publish one native identity without overwriting another harness."""
+    def write(
+        self, record: dict[str, Any], *, seed: Mapping[str, Any] | None = None
+    ) -> Path:
+        """Publish one native identity without overwriting another harness.
+
+        ``seed`` is the session's freshest record in another store, when the
+        publisher found one: a session-scoped event of the same Host Process
+        that moves the session's freshest record here derives its live
+        sub-agents and turn clock from it rather than from an older record of
+        this store, so a move never forgets a live Sub-agent (ADR 0067). A
+        child-scoped event instead keeps this store's previous record's
+        location, never ends it, and writes nothing but a sub-agent boundary
+        where there is no record.
+        """
         session_id = require_string(record.get("sessionId"), "sessionId")
         harness = require_string(record.get("harness"), "harness")
         # The store keeps what a harness published; a record naming an
@@ -284,7 +342,8 @@ class HookRecordStore(LockedRecordStore):
                     "hook destination is occupied by another Agent Session Identity"
                 )
             destination = self.record_path(key)
-            if record.get("state") == "ended":
+            child = is_child_record(record)
+            if record.get("state") == "ended" and not child:
                 if previous is not None and (
                     previous.get("sessionProcess") != record.get("sessionProcess")
                     or observed_instant(previous.get("lastActivityAt"))
@@ -293,9 +352,41 @@ class HookRecordStore(LockedRecordStore):
                     return destination
                 destination.unlink(missing_ok=True)
                 return destination
+            if (
+                child
+                and previous is None
+                and record.get("event") not in SUBAGENT_EVENTS
+            ):
+                # With no parent record here, only a boundary has anything to
+                # say: the live set. Any other Sub-agent event would invent a
+                # parent at the Sub-agent's location (ADR 0067).
+                return destination
             current = dict(record)
-            current["liveSubagents"] = live_subagents(current, previous)
-            current["turnStartedAt"] = turn_started_at(current, previous)
+            origin = previous
+            if child and previous is not None:
+                # A Sub-agent's event never places or routes its parent.
+                for field in LOCATION_FIELDS:
+                    current[field] = previous.get(field)
+            elif (
+                seed is not None
+                and current.get("event") != "SessionStart"
+                # Another process's sub-agents and turn are not this one's.
+                and current.get("sessionProcess") is not None
+                and seed.get("sessionProcess") == current.get("sessionProcess")
+                and observed_instant(optional_string(seed.get("lastActivityAt")))
+                > observed_instant(
+                    None
+                    if previous is None
+                    else optional_string(previous.get("lastActivityAt"))
+                )
+            ):
+                origin = seed
+            current["state"] = carried_state(current, previous)
+            current["liveSubagents"] = live_subagents(current, origin)
+            current["turnStartedAt"] = turn_started_at(current, origin)
+            started = last_session_start_at(current, previous)
+            if started is not None:
+                current["lastSessionStartAt"] = started
             current["state"] = observed_state(current)
             self.replace(key, current)
             return destination

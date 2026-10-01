@@ -501,6 +501,39 @@ def test_status_flags_missing_events_and_publisher(tmp_path: Path) -> None:
     assert "session records outside configured Projects: none" in joined
 
 
+def test_an_install_without_sub_agent_events_is_reported_and_upgraded(
+    tmp_path: Path,
+) -> None:
+    # An install written before Codex sub-agents held their parent running
+    # lacks the boundaries (ADR 0067); status names them and a rerun adds them.
+    home = codex_home(tmp_path)
+    command = publisher(tmp_path)
+    install_codex_integration(home, command_path=command)
+    document = read_hooks(home)
+    for event in ("SubagentStart", "SubagentStop"):
+        del document["hooks"][event]
+    (home / "hooks.json").write_text(json.dumps(document))
+
+    missing = [
+        message
+        for message in codex_integration_status(
+            home, state_dir=tmp_path / "no-state", current=tmp_path
+        )
+        if "missing hook events" in message
+    ]
+    assert missing and "SubagentStart" in missing[0] and "SubagentStop" in missing[0]
+
+    install_codex_integration(home, command_path=command)
+
+    assert {"SubagentStart", "SubagentStop"} <= set(read_hooks(home)["hooks"])
+
+
+def test_the_codex_example_subscribes_every_lifecycle_event() -> None:
+    example = Path(__file__).parents[1] / "examples" / "codex-hooks.json"
+
+    assert set(json.loads(example.read_text())["hooks"]) == set(CODEX_HOOK_EVENTS)
+
+
 def test_status_when_nothing_is_installed(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
 

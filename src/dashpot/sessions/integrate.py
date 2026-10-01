@@ -96,11 +96,15 @@ CODEX = HarnessIntegration(
     hooks_file="hooks.json",
     command_name="dashpot-codex-hook",
     skills_home=Path(".agents/skills"),
+    # A delegated thread's boundaries keep its parent's live set, as Claude
+    # Code's do, so a Codex sub-agent blocks Cleanup too (ADR 0066, ADR 0067).
     events=(
         "SessionStart",
         "UserPromptSubmit",
         "Stop",
         "Interrupt",
+        "SubagentStart",
+        "SubagentStop",
         "SessionEnd",
     ),
     checks_config_toml=True,

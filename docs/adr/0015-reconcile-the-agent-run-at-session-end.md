@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
 ---
 
 # Reconcile the session's Agent Run at SessionEnd
@@ -60,6 +60,14 @@ Unnamed legacy runs require explicit targeted recovery.
 Orphaned Agent Run stays listed as orphaned rather than raising a diagnostic,
 and a same-identity resume at the same Worktree continues it once its
 previous runtime is proven gone and exclusive to the session.
+
+[ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) extends the housekeeping: after reconciling the run, a
+`SessionEnd` also removes the session's older hook records elsewhere in its
+Repository, but only those naming the Host Process the `SessionEnd` itself
+was observed from, both observed, and not newer than it. A shared Codex
+process outlives the thread, so a record a Live Relocation left behind would
+otherwise read live after the session ended. A `SessionEnd` carrying
+`agent_id` is a sub-agent's and ends nothing.
 
 ## Considered options
 

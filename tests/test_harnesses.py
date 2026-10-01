@@ -13,6 +13,8 @@ from dashpot.sessions.harnesses import (
     HarnessError,
     SessionIdentityClaim,
     adapter,
+    is_child_scoped,
+    locates_session,
     native_claims,
     override_claim,
 )
@@ -178,3 +180,33 @@ def test_override_claim_is_explicit_and_validated_in_shape() -> None:
     for raw in ("01c7-session", "cursor:abc", "codex:", "codex:bad value"):
         with pytest.raises(HarnessError, match=SESSION_OVERRIDE_VARIABLE):
             override_claim({SESSION_OVERRIDE_VARIABLE: raw})
+
+
+@pytest.mark.parametrize(
+    ("harness", "event", "locates"),
+    [
+        ("codex", {"hook_event_name": "UserPromptSubmit"}, True),
+        ("codex", {"hook_event_name": "UserPromptSubmit", "agent_id": "child"}, False),
+        ("codex", {"hook_event_name": "Stop"}, False),
+        ("codex", {"hook_event_name": "SessionStart"}, False),
+        ("codex", {"hook_event_name": "SessionEnd"}, False),
+        # Claude Code's worktree tools are designated under #162, not yet.
+        (
+            "claude-code",
+            {"hook_event_name": "PostToolUse", "tool_name": "EnterWorktree"},
+            False,
+        ),
+        ("claude-code", {"hook_event_name": "UserPromptSubmit"}, False),
+    ],
+)
+def test_only_designated_session_scoped_evidence_locates_a_session(
+    harness: Harness, event: dict[str, object], locates: bool
+) -> None:
+    assert locates_session(harness, event) is locates
+
+
+def test_an_event_naming_a_delegate_is_child_scoped() -> None:
+    assert is_child_scoped({"agent_id": "a686b12"}) is True
+    assert is_child_scoped({"agent_id": ""}) is False
+    assert is_child_scoped({"agent_id": 7}) is False
+    assert is_child_scoped({}) is False

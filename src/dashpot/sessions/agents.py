@@ -219,6 +219,12 @@ class ObservedActivityIndex:
     def consumed(self, session: HookSessionObservation) -> bool:
         return (session.run.harness, session.session_id) in self._consumed
 
+    def location(self, harness: Harness, session_id: str) -> Path | None:
+        """The Observation Target where the session's freshest live or unknown record places it."""
+        session = self._by_session.get((harness, session_id))
+        located = None if session is None else session.run.observation_target
+        return None if located is None else Path(located)
+
 
 def observe_work_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
@@ -234,6 +240,12 @@ def observe_work_runs(
     runs: list[AgentRun] = []
     diagnostics: list[Diagnostic] = []
     sessions_seen: set[tuple[str, ...]] = set()
+    # Where each named session holds a run, and the runs its freshest record
+    # places it away from.
+    run_locations: dict[SessionIdentityKey, list[Path]] = {}
+    runs_left_behind: list[
+        tuple[SessionIdentityKey, ActiveWork, ObservationTarget, Path]
+    ] = []
     for project_id, target in available_targets(targets_by_project):
         store = WorkStore(Path(target.path))
         active, store_diagnostics = store.active()
@@ -284,6 +296,15 @@ def observe_work_runs(
                     }
                 )
             runs.append(run)
+            if work.session_id is not None:
+                identity = (work.harness, work.session_id)
+                run_locations.setdefault(identity, []).append(Path(target.path))
+                if work.relocation is None and gone is None:
+                    elsewhere = activity.location(*identity)
+                    if elsewhere is not None and not same_path(
+                        elsewhere, Path(target.path)
+                    ):
+                        runs_left_behind.append((identity, work, target, elsewhere))
             if work.relocation is not None:
                 diagnostics.append(
                     relocation_diagnostic(
@@ -294,6 +315,13 @@ def observe_work_runs(
                         probe,
                     )
                 )
+    # A session that also holds a run where it executes is already reported
+    # as a conflict; the other run is not merely left behind.
+    diagnostics.extend(
+        session_elsewhere_diagnostic(work, target, elsewhere)
+        for identity, work, target, elsewhere in runs_left_behind
+        if not any(same_path(elsewhere, path) for path in run_locations[identity])
+    )
     return runs, diagnostics
 
 
@@ -320,6 +348,30 @@ def host_restarted_since(process: SessionProcess, boot_time: BootTime) -> bool |
     return booted > started
 
 
+def session_elsewhere_diagnostic(
+    work: ActiveWork, target: ObservationTarget, elsewhere: Path
+) -> Diagnostic:
+    """Report a run left at one Worktree while its session executes at another.
+
+    A Live Relocation that was refused, or a move no harness evidence could
+    carry, leaves the run where it was (ADR 0067); the session's own command
+    is what moves it now.
+    """
+    return Diagnostic(
+        source=work.run_id,
+        severity="warning",
+        message=(
+            f"{work.session_label} is executing at {elsewhere} according to "
+            f"its freshest hook record, but its Issue work on "
+            f"{work.issue_reference} ({work.issue_id}) is recorded at "
+            f"{target.path}; run 'dashpot work start' inside that session at "
+            f"{elsewhere} to switch the work there (as a new Agent Run), or "
+            "'dashpot work stop' to end it"
+        ),
+        code="work-session-elsewhere",
+    )
+
+
 def relocation_diagnostic(
     work: ActiveWork,
     target: ObservationTarget,
@@ -333,6 +385,10 @@ def relocation_diagnostic(
         [Path(item.path) for item in project_targets], directory
     )
     locations: set[Path] = set()
+    # Where the session's freshest live or unknown record places it: a Live
+    # Relocation to another Worktree leaves the origin's record live, so the
+    # freshest record, not the count, says where the session went.
+    freshest: tuple[datetime, Path] | None = None
     if work.session_id is not None:
         for scanned in scan_hook_stores(
             stores,
@@ -346,9 +402,35 @@ def relocation_diagnostic(
                 and scanned.record.outcome not in {"ended", "gone"}
             ):
                 try:
-                    locations.add(scanned.record.worktree.resolve())
+                    location = scanned.record.worktree.resolve()
                 except (OSError, RuntimeError, ValueError):
                     continue
+                locations.add(location)
+                stamp = observed_instant(scanned.record.last_activity_at)
+                if freshest is None or stamp > freshest[0]:
+                    freshest = (stamp, location)
+    try:
+        intended = Path(work.relocation.target_worktree).resolve()
+        source = Path(target.path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        intended = source = None
+    if (
+        freshest is not None
+        and intended is not None
+        and freshest[1] not in {source, intended}
+    ):
+        return Diagnostic(
+            source=work.run_id,
+            severity="warning",
+            message=(
+                f"{work.session_label} resumed at {freshest[1]}, not its "
+                f"intended relocation target {intended}; the Issue work on "
+                f"{work.issue_reference} ({work.issue_id}) remains at "
+                f"{target.path} and cannot be reassigned there. Resume the "
+                "same Agent Session at the intended Worktree"
+            ),
+            code="work-relocation-mismatched",
+        )
     if len(locations) > 1:
         places = ", ".join(str(path) for path in sorted(locations, key=str))
         return Diagnostic(
@@ -362,26 +444,6 @@ def relocation_diagnostic(
             ),
             code="work-relocation-concurrent",
         )
-    if len(locations) == 1:
-        observed_location = next(iter(locations))
-        try:
-            intended = Path(work.relocation.target_worktree).resolve()
-            source = Path(target.path).resolve()
-        except (OSError, RuntimeError, ValueError):
-            intended = source = observed_location
-        if observed_location not in {source, intended}:
-            return Diagnostic(
-                source=work.run_id,
-                severity="warning",
-                message=(
-                    f"{work.session_label} resumed at {observed_location}, not its "
-                    f"intended relocation target {intended}; the Issue work on "
-                    f"{work.issue_reference} ({work.issue_id}) remains at "
-                    f"{target.path} and cannot be reassigned there. Resume the "
-                    "same Agent Session at the intended Worktree"
-                ),
-                code="work-relocation-mismatched",
-            )
     return Diagnostic(
         source=work.run_id,
         severity="warning",

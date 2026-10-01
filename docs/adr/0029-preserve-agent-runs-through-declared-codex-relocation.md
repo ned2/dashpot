@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-05
-amended-by: 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md
+amended-by: 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
 ---
 
 # Preserve Agent Runs through declared Codex relocation
@@ -20,6 +20,12 @@ exact target among the Repository's linked Worktrees. It records the target and
 request time on the existing Work Store record without changing the Issue
 Binding, Agent Run identity, or `startedAt`. `work relocate .` cancels a pending
 intent after the same session resumes at its original Worktree.
+
+[ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) adds a second way to complete an intent: a Live Relocation
+of the still-running session to exactly its target carries the run and clears
+the intent, while one to any other Worktree leaves it pending and is reported
+as `work-relocation-mismatched`, read from the session's freshest record. The
+sequential completion below runs first and is unchanged.
 
 The old client's `SessionEnd` preserves a run carrying that intent before it
 removes the old hook record. A later Codex hook completes the relocation only

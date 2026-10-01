@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -60,7 +61,7 @@ class HookRecordClassification:
     degraded: tuple[str, ...] = ()
     has_global_binding: bool = False
     # The ``agent_id`` of each sub-agent the store holds started and not yet
-    # stopped (ADR 0016). Only Claude Code publishes sub-agent boundaries.
+    # stopped (ADR 0016), from Claude Code or Codex (ADR 0067).
     live_subagents: tuple[str, ...] = ()
 
     @property
@@ -234,6 +235,9 @@ def scan_hook_stores(
     are worth reading (``select``), what an unreadable record means to it
     (``on_unreadable``, which may raise to abort the scan; the default treats
     the record as no evidence and skips it), and how the yielded records fold.
+    The hook publisher, which must not probe processes while it holds the
+    session's locks, reads one identity's records with
+    ``stored_session_records`` instead.
     """
     for store in stores:
         if not store.is_dir():
@@ -251,17 +255,97 @@ def scan_hook_stores(
             yield ScannedRecord(store, path, raw, record)
 
 
+def session_record_stems(
+    session_id: str, harness: Harness | None = None
+) -> tuple[str, ...]:
+    """The legacy and harness-scoped filename stems a session's hook record may have."""
+    harnesses = (harness,) if harness is not None else tuple(HARNESS_DISPLAY)
+    return (
+        session_id,
+        *(
+            SessionEvidence(candidate, session_id).storage_key()
+            for candidate in harnesses
+        ),
+    )
+
+
 def session_record_named(
     path: Path, session_id: str, harness: Harness | None = None
 ) -> bool:
     """Select legacy and harness-scoped filenames for full record validation."""
-    if path.stem == session_id:
-        return True
-    harnesses = (harness,) if harness is not None else tuple(HARNESS_DISPLAY)
-    return any(
-        path.stem == SessionEvidence(candidate, session_id).storage_key()
-        for candidate in harnesses
-    )
+    return path.stem in session_record_stems(session_id, harness)
+
+
+@dataclass(frozen=True, slots=True)
+class StoredSessionRecord:
+    """One hook record of a named Agent Session, read without probing its process.
+
+    The hook publisher reads these under its own locks to route and reconcile
+    one event, where a process probe per record would cost the harness time
+    and add nothing the event's own process does not already say.
+    """
+
+    store: Path
+    path: Path
+    raw: dict[str, Any]
+    record: HookRecord
+
+    @property
+    def worktree(self) -> Path:
+        """The Worktree the record places its session at: its root, else its cwd."""
+        return Path(self.record.repository_root or self.record.cwd)
+
+    @property
+    def process_key(self) -> ProcessKey | None:
+        process = self.record.session_process
+        return None if process is None else (process.pid, process.started_at)
+
+    @property
+    def last_activity(self) -> datetime:
+        return observed_instant(self.record.last_activity_at)
+
+
+def stored_session_records(
+    stores: Iterable[Path], harness: Harness, session_id: str
+) -> tuple[list[StoredSessionRecord], int]:
+    """Every readable record of one native identity across ``stores``, and how many were not.
+
+    Only the identity's own filenames are read. A record that cannot be read
+    or validated, or that names another identity, is counted rather than
+    returned, so a caller that must not act on missing evidence can refuse.
+    """
+    found: list[StoredSessionRecord] = []
+    unreadable = 0
+    expected = (harness, session_id)
+    for store in stores:
+        for name in session_record_stems(session_id, harness):
+            path = store / f"{name}.json"
+            try:
+                raw = read_hook_record(path)
+                record, _degraded = validate_degrading(
+                    HookRecord, raw, fatal=HOOK_RECORD_FATAL
+                )
+            except FileNotFoundError:
+                continue
+            except (OSError, ValueError):
+                unreadable += 1
+                continue
+            # A legacy filename may hold another harness's session.
+            if (record.harness, record.session_id) != expected:
+                continue
+            found.append(StoredSessionRecord(store, path, raw, record))
+    return found, unreadable
+
+
+def freshest_stored_record(
+    records: Iterable[StoredSessionRecord],
+) -> StoredSessionRecord | None:
+    """The record stamped latest; of two stamped alike, the first read."""
+    freshest: StoredSessionRecord | None = None
+    for candidate in records:
+        if freshest is None or candidate.last_activity > freshest.last_activity:
+            freshest = candidate
+    return freshest
 
 
 def locate_agent_session(
