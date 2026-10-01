@@ -46,6 +46,17 @@ def written(directory: Path) -> list[dict[str, Any]]:
     ]
 
 
+def git_toplevel(directory: Path) -> Path | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=directory,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return Path(result.stdout.strip()) if result.returncode == 0 else None
+
+
 # The fields every event carries in its envelope, whatever its body.
 ENVELOPE = {
     "schema",
@@ -126,17 +137,6 @@ def test_a_linked_worktree_is_its_own_checkout(tmp_path: Path) -> None:
     assert route_event_log(linked) == EventLogDestination(
         linked / ".dashpot" / "state" / "events", checkout=linked
     )
-
-
-def git_toplevel(directory: Path) -> Path | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        cwd=directory,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return Path(result.stdout.strip()) if result.returncode == 0 else None
 
 
 def test_an_empty_git_directory_does_not_claim_a_checkout(tmp_path: Path) -> None:

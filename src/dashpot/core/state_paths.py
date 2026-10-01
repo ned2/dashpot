@@ -21,12 +21,13 @@ def is_configured_checkout(root: Path) -> bool:
 def enclosing_checkout(directory: Path) -> Path | None:
     """The root of the Worktree containing ``directory``, found without running Git.
 
-    The nearest directory holding a ``.git`` Git accepts — a directory with a
+    The nearest directory holding a plausible ``.git`` — a directory with a
     ``HEAD`` in a main working tree, a ``gitdir:`` file in a linked Worktree —
     is the root ``git rev-parse --show-toplevel`` reports for an ordinary
-    checkout. As Git does, the search passes over any other ``.git``
-    directory, ends at a ``.git`` file that is no pointer, and never reaches
-    a directory ``GIT_CEILING_DIRECTORIES`` names above ``directory``.
+    checkout. The check is shallower than Git's own, but the search follows
+    Git's: it passes over any other ``.git`` directory, ends at a ``.git``
+    file it cannot read as a pointer, and never reaches a directory
+    ``GIT_CEILING_DIRECTORIES`` names above ``directory``.
     """
     ceilings = _git_ceiling_directories()
     for candidate in (directory, *directory.parents):
@@ -34,9 +35,13 @@ def enclosing_checkout(directory: Path) -> Path | None:
             return None
         dot_git = candidate / ".git"
         if dot_git.is_file():
-            # Git refuses a malformed ``.git`` file rather than look above it.
-            with dot_git.open("rb") as gitfile:
-                pointer = gitfile.read(len(GITFILE_PREFIX)) == GITFILE_PREFIX
+            # Git refuses a malformed or unreadable ``.git`` file rather than
+            # look above it.
+            try:
+                with dot_git.open("rb") as gitfile:
+                    pointer = gitfile.read(len(GITFILE_PREFIX)) == GITFILE_PREFIX
+            except OSError:
+                pointer = False
             return candidate if pointer else None
         if (dot_git / "HEAD").is_file():
             return candidate

@@ -215,6 +215,33 @@ def test_events_outside_every_repository_read_the_fallback_alone(
     assert document["directories"] == [str(fallback_directory())]
 
 
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root reads through file permissions",
+)
+def test_events_under_an_unreadable_git_file_read_the_fallback_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    writer(fallback_directory(), Clock()).start()
+    main, _linked = repository_with_linked_worktree(tmp_path)
+    unreadable = main / "unreadable"
+    unreadable.mkdir()
+    gitfile = unreadable / ".git"
+    gitfile.write_text("gitdir: /somewhere/else\n")
+    gitfile.chmod(0)
+    monkeypatch.chdir(unreadable)
+
+    try:
+        document = read_json(capsys)
+    finally:
+        gitfile.chmod(0o644)
+
+    assert names_and_runs(document) == [("process.start", RUN_A)]
+    assert document["directories"] == [str(fallback_directory())]
+
+
 def test_events_leave_out_the_reading_process_itself(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
