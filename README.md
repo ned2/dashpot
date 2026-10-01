@@ -115,6 +115,11 @@ Issue Source) refreshes every 15 seconds, set by `--refresh-seconds`. GitHub que
 [machine-local settings](docs/installation.md#machine-local-settings) as
 `refresh_seconds` and `github_refresh_seconds`. A flag overrides its setting,
 and zero disables that period's automatic refresh; `r` refreshes both at once.
+GitHub refreshes pause while nobody attends the dashboard: when every tmux
+client has detached from its session, or after two hours without a key or
+mouse event, set by `--unattended-seconds` or `unattended_seconds`, where zero
+disables the idle pause. Any key resumes them at once
+([ADR 0068](docs/adr/0068-pause-github-queries-while-the-dashboard-is-unattended.md)).
 `--timeout` bounds every external `git` and `gh` command (default 10
 seconds), `--state-dir` overrides where session records land outside a
 configured Project (the flag form of `DASHPOT_STATE_DIR`), and `--version`

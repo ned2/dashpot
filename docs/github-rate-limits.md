@@ -134,9 +134,9 @@ Issues current within the GitHub Refresh Period. Folding that batch into the
 Issues page would save at most a point a minute, but a slow or failed page
 would then stale the bound Issues
 ([ADR 0033](adr/0033-query-pages-and-independent-issue-resolution.md)). The
-one sub-issue still open is
-[#354](https://github.com/ned2/dashpot/issues/354): stopping GitHub refresh
-while nobody is watching the dashboard.
+last sub-issue, [#354](https://github.com/ned2/dashpot/issues/354), stops
+GitHub refresh while nobody is watching the dashboard
+([ADR 0068](adr/0068-pause-github-queries-while-the-dashboard-is-unattended.md)).
 
 ## Staying inside the limit
 
@@ -151,6 +151,15 @@ while nobody is watching the dashboard.
   [machine-local settings](installation.md#machine-local-settings), or pass
   `--github-refresh-seconds` for one run: 120 spends half the default, and 0
   stops automatic GitHub refresh, while `r` still refreshes on demand.
+- **Let an unattended dashboard pause.** GitHub refreshes pause after
+  `unattended_seconds` (two hours by default) without a key or mouse event,
+  and, inside tmux, while no client is attached to the dashboard's session.
+  The Diagnostics show one `github-unattended-paused` line, Runtime Stats
+  leads its allowance section with it, and the Event Log records an
+  `unattended_pause.changed` event when it starts and ends. Any key resumes
+  with a GitHub refresh at once. A Rate Limit Pause in force still holds
+  that refresh's requests
+  ([ADR 0068](adr/0068-pause-github-queries-while-the-dashboard-is-unattended.md)).
 - **Count the other consumers.** An agent running `gh` in a loop, or `gh pr
   checks --watch`, spends the same allowance as the dashboard.
 - **Read the allowance from GraphQL itself:**

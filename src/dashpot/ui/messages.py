@@ -125,6 +125,17 @@ class EventLogMeasured(Message):
 
 
 @dataclass(eq=False)
+class AttachmentProbed(Message):
+    """The dashboard's tmux session was asked whether a client is attached.
+
+    ``attached`` is None when that could not be told.
+    """
+
+    attached: bool | None = None
+    error: str | None = None
+
+
+@dataclass(eq=False)
 class BodyResized(Message):
     """The dashboard body was laid out at a new size."""
 

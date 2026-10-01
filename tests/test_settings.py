@@ -69,14 +69,20 @@ def test_refresh_periods_are_read_as_seconds(
     tmp_path: Path, text: str, seconds: float
 ) -> None:
     path = tmp_path / "config.toml"
-    path.write_text(f"refresh_seconds = {text}\ngithub_refresh_seconds = {text}\n")
+    path.write_text(
+        f"refresh_seconds = {text}\ngithub_refresh_seconds = {text}\n"
+        f"unattended_seconds = {text}\n"
+    )
     settings = load_settings(path)
     assert settings.refresh_seconds == seconds
     assert settings.github_refresh_seconds == seconds
+    assert settings.unattended_seconds == seconds
 
 
 @pytest.mark.parametrize("value", ["-1", "-0.5", "inf", "nan", "'15'", "true", "[]"])
-@pytest.mark.parametrize("field", ["refresh_seconds", "github_refresh_seconds"])
+@pytest.mark.parametrize(
+    "field", ["refresh_seconds", "github_refresh_seconds", "unattended_seconds"]
+)
 def test_a_refresh_period_that_is_not_seconds_is_refused(
     tmp_path: Path, field: str, value: str
 ) -> None:

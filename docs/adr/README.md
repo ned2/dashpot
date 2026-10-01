@@ -80,5 +80,6 @@ of date.
 | 0065 | [Pause GitHub queries after a rate limit refusal](0065-pause-github-queries-after-a-rate-limit-refusal.md) | accepted | — |
 | 0066 | [Block Worktree removal while a sub-agent is working](0066-block-worktree-removal-while-a-sub-agent-is-working.md) | amended | [0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) |
 | 0067 | [Observe conversations apart from the runtimes that serve them](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) | proposed | — |
+| 0068 | [Pause GitHub queries while the dashboard is unattended](0068-pause-github-queries-while-the-dashboard-is-unattended.md) | accepted | — |
 | 0069 | [Remove an ended session's records from every store of its Repository](0069-remove-an-ended-sessions-records-from-every-store-of-its-repository.md) | accepted | — |
 | 0070 | [Refuse a Live Relocation on evidence it cannot read](0070-refuse-a-live-relocation-on-evidence-it-cannot-read.md) | accepted | — |

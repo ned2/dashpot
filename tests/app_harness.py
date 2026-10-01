@@ -72,6 +72,7 @@ from dashpot.repository.cleanup import CleanupAdapter
 from dashpot.repository.fetch import RemoteFetcher
 from dashpot.repository.worktree_launcher import LauncherConfiguration
 from dashpot.ui.app import DashpotApp, IssuesPullRequestsScreen
+from dashpot.ui.attendance import Attendance
 from dashpot.ui.detail_fields import detail_items_text
 from dashpot.ui.issue_view import IssueScreen, issue_metadata_items, selection_title
 from dashpot.ui.list_pane import ListPane, ListRow
@@ -521,6 +522,7 @@ def dashboard_app(
     release: Event | None = None,
     event_log: EventLog | None = None,
     rate_limit: LatestRateLimit | None = None,
+    attendance: Attendance | None = None,
     runtime_stats_seconds: float = 1.0,
 ) -> DashpotApp:
     """Build the shipped app over a collector, its queries served from a snapshot.
@@ -553,6 +555,7 @@ def dashboard_app(
         launcher_configuration=launcher_configuration,
         event_log=event_log,
         rate_limit=rate_limit,
+        attendance=attendance,
         runtime_stats_seconds=runtime_stats_seconds,
     )
     # These tests assert settled layout and state, not intermediate animation frames.

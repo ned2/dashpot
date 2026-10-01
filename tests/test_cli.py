@@ -330,10 +330,75 @@ def test_tui_mode_paces_each_refresh_from_its_flag_or_setting(
     assert app.call_args.kwargs["query_refresh_seconds"] == github
 
 
+@pytest.mark.parametrize(
+    ("argv", "idle"), [([], 600.0), (["--unattended-seconds", "0"], 0.0)]
+)
+def test_tui_mode_watches_attendance_from_its_flag_or_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    argv: list[str],
+    idle: float,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,1,0")
+    monkeypatch.setenv("TMUX_PANE", "%3")
+    (tmp_path / "dashpot").mkdir()
+    (tmp_path / "dashpot" / "config.toml").write_text("unattended_seconds = 600\n")
+    sources = {key: source_of("github") for key in QUERY_SOURCE_KEYS}
+
+    with (
+        mock.patch.object(cli, "create_collector"),
+        mock.patch.object(cli, "create_query_sources", return_value=sources),
+        mock.patch.object(cli, "DashpotApp") as app,
+    ):
+        assert cli.main(["--workspace", "/repo", *argv]) == 0
+
+    attendance = app.call_args.kwargs["attendance"]
+    assert attendance.idle_seconds == idle
+    # Inside tmux, a detached session also shows nobody attending.
+    assert attendance.probe is not None
+
+
+def test_tui_mode_without_tmux_watches_only_idleness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("TMUX", raising=False)
+    sources = {key: source_of("github") for key in QUERY_SOURCE_KEYS}
+
+    with (
+        mock.patch.object(cli, "create_collector"),
+        mock.patch.object(cli, "create_query_sources", return_value=sources),
+        mock.patch.object(cli, "DashpotApp") as app,
+    ):
+        assert cli.main(["--workspace", "/repo"]) == 0
+
+    attendance = app.call_args.kwargs["attendance"]
+    assert attendance.idle_seconds == composition.DEFAULT_UNATTENDED_SECONDS
+    assert attendance.probe is None
+
+
+def test_tui_mode_without_a_github_query_source_never_pauses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A local Query Source spends nothing while nobody attends.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    sources = {key: source_of("local-markdown") for key in QUERY_SOURCE_KEYS}
+
+    with (
+        mock.patch.object(cli, "create_collector"),
+        mock.patch.object(cli, "create_query_sources", return_value=sources),
+        mock.patch.object(cli, "DashpotApp") as app,
+    ):
+        assert cli.main(["--workspace", "/repo"]) == 0
+
+    assert app.call_args.kwargs["attendance"] is None
+
+
 def test_refresh_periods_default_without_a_flag_or_setting(tmp_path: Path) -> None:
     assert composition.refresh_periods(
         settings_path=tmp_path / "config.toml"
-    ) == composition.RefreshPeriods(local=15.0, github=60.0)
+    ) == composition.RefreshPeriods(local=15.0, github=60.0, unattended=7200.0)
 
 
 def test_unreadable_settings_leave_the_default_refresh_periods(tmp_path: Path) -> None:
@@ -343,10 +408,27 @@ def test_unreadable_settings_leave_the_default_refresh_periods(tmp_path: Path) -
 
     assert composition.refresh_periods(
         settings_path=path
-    ) == composition.RefreshPeriods(local=15.0, github=60.0)
+    ) == composition.RefreshPeriods(local=15.0, github=60.0, unattended=7200.0)
     assert composition.refresh_periods(
         3, settings_path=path
     ) == composition.RefreshPeriods(local=3, github=60.0)
+    assert composition.refresh_periods(
+        unattended_seconds=0, settings_path=path
+    ) == composition.RefreshPeriods(unattended=0)
+
+
+def test_the_unattended_period_comes_from_its_flag_then_its_setting(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("unattended_seconds = 600\n")
+
+    assert composition.refresh_periods(
+        settings_path=path
+    ) == composition.RefreshPeriods(unattended=600)
+    assert composition.refresh_periods(
+        unattended_seconds=30, settings_path=path
+    ) == composition.RefreshPeriods(unattended=30)
 
 
 def test_only_a_github_query_source_takes_the_github_period() -> None:
@@ -1518,6 +1600,8 @@ def test_default_command_parses_every_observation_option(tmp_path: Path) -> None
             "0",
             "--github-refresh-seconds",
             "120",
+            "--unattended-seconds",
+            "600",
             "--state-dir",
             "/state",
             "--compact-json",
@@ -1533,6 +1617,7 @@ def test_default_command_parses_every_observation_option(tmp_path: Path) -> None
         "timeout": 2.5,
         "refresh_seconds": 0.0,
         "github_refresh_seconds": 120.0,
+        "unattended_seconds": 600.0,
         "state_dir": Path("/state"),
         "json_output": False,
         "compact_json": True,
@@ -1548,6 +1633,7 @@ def test_default_command_defaults_match_observation_options() -> None:
     # An absent period flag defers to the settings file, then the default.
     assert bound["refresh_seconds"] is None
     assert bound["github_refresh_seconds"] is None
+    assert bound["unattended_seconds"] is None
     assert bound["state_dir"] is None
     assert bound["json_output"] is False
 

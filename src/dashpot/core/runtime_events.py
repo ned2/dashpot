@@ -100,6 +100,7 @@ EventName = Literal[
     "agent_session.changed",
     "diagnostic.changed",
     "rate_limit_pause.changed",
+    "unattended_pause.changed",
 ]
 SpanName = Literal["command", "github.request", "refresh", "observation", "query"]
 SpanStatus = Literal["OK", "ERROR"]
@@ -274,6 +275,11 @@ DiagnosticChange = Literal["appeared", "cleared"]
 RateLimitPauseChange = Literal["started", "lapsed", "lifted"]
 # Which limit refused: the primary limit on the hour's points, or a secondary one.
 RateLimitKind = Literal["primary", "secondary"]
+# An Unattended Pause starting, or ending when someone attends the dashboard.
+UnattendedPauseChange = Literal["started", "ended"]
+# What showed nobody attending: every tmux client detached, or no input for
+# the idle period.
+UnattendedSignal = Literal["detached", "idle"]
 DiagnosticSeverity = Literal["info", "warning", "error"]
 
 
@@ -370,6 +376,19 @@ class RateLimitPauseChanged(EventBody):
     change: RateLimitPauseChange = Field(alias="dashpot.rate_limit_pause.change")
     limit: RateLimitKind = Field(alias="dashpot.rate_limit_pause.limit")
     until: Rfc3339Timestamp = Field(alias="dashpot.rate_limit_pause.until")
+
+
+class UnattendedPauseChanged(EventBody):
+    """An Unattended Pause starting, or ending when someone attends the dashboard.
+
+    ``signal`` is what started the pause, on its end as on its start.
+    """
+
+    name: Literal["unattended_pause.changed"] = Field(
+        default="unattended_pause.changed", alias="event.name"
+    )
+    change: UnattendedPauseChange = Field(alias="dashpot.unattended_pause.change")
+    signal: UnattendedSignal = Field(alias="dashpot.unattended_pause.signal")
 
 
 def fitting[M: EventModel](
@@ -545,6 +564,7 @@ EVENT_BODIES: Mapping[str, type[EventBody]] = {
     "agent_session.changed": AgentSessionChanged,
     "diagnostic.changed": DiagnosticChanged,
     "rate_limit_pause.changed": RateLimitPauseChanged,
+    "unattended_pause.changed": UnattendedPauseChanged,
 }
 
 

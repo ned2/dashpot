@@ -55,6 +55,7 @@ from dashpot.core.runtime_stats import (
 from dashpot.github.github import LatestRateLimit, RateLimit
 from dashpot.project.settings import default_settings_path
 from dashpot.ui.app import DashpotApp
+from dashpot.ui.attendance import Attendance
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.runtime_stats_view import (
     RuntimeStatsScreen,
@@ -201,11 +202,17 @@ def rows_starting(text: str, *prefixes: str) -> list[str]:
 
 
 def stats_app(
-    log: EventLog, *, rate_limit: LatestRateLimit | None = None
+    log: EventLog,
+    *,
+    rate_limit: LatestRateLimit | None = None,
+    attendance: Attendance | None = None,
 ) -> DashpotApp:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     return dashboard_app(
-        SequenceCollector(snapshot), event_log=log, rate_limit=rate_limit
+        SequenceCollector(snapshot),
+        event_log=log,
+        rate_limit=rate_limit,
+        attendance=attendance,
     )
 
 
@@ -490,6 +497,40 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
         screen.update_stats()
 
         assert squeezed(section(app, "allowance"))[0] == "remaining 0 of 5,000 points"
+
+
+@pytest.mark.asyncio
+async def test_the_allowance_says_since_when_nobody_has_attended(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    shared = LatestRateLimit(clock=clock.wall)
+    attendance = Attendance(
+        idle_seconds=600, clock=clock.monotonic, wall_clock=clock.wall
+    )
+    app = stats_app(
+        stats_log(tmp_path, clock), rate_limit=shared, attendance=attendance
+    )
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        screen = await open_stats(app, pilot)
+        clock.advance(600)
+        attendance.check_idle()
+        clock.advance(90)
+        screen.update_stats()
+
+        assert squeezed(section(app, "allowance")) == [
+            "unattended since 12:10:00 UTC, 1m 30s ago (no key or mouse input for 10m)"
+        ]
+
+        # A Rate Limit Pause leads: it holds even a person's refresh.
+        shared.refused(shared.admit(), "secondary")
+        screen.update_stats()
+
+        assert squeezed(section(app, "allowance")) == [
+            "paused until 12:12:30 UTC, in 1m 00s (secondary rate limit)",
+            "unattended since 12:10:00 UTC, 1m 30s ago (no key or mouse input for 10m)",
+        ]
 
 
 @pytest.mark.asyncio

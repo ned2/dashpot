@@ -19,6 +19,7 @@ from .composition import (
     ObservationOptions,
     create_collector,
     create_query_sources,
+    reads_github,
     refresh_periods,
     run_cleanup,
 )
@@ -95,6 +96,7 @@ from .sessions.work import (
     stop_issue_work,
 )
 from .ui.app import DashpotApp
+from .ui.attendance import Attendance, tmux_attachment
 
 USAGE_EXIT_CODE = 2
 # The default command's flags that print instead of opening the dashboard.
@@ -205,6 +207,17 @@ def observe(
             ),
         ),
     ] = None,
+    unattended_seconds: Annotated[
+        float | None,
+        Parameter(
+            validator=(validators.Number(gte=0), _finite_seconds),
+            help=(
+                "seconds without a key or mouse event before automatic GitHub "
+                "refreshes pause until the next one; zero disables that pause "
+                "(default: the unattended_seconds setting, else 7200)"
+            ),
+        ),
+    ] = None,
     state_dir: Annotated[
         Path | None,
         Parameter(
@@ -229,7 +242,9 @@ def observe(
 ) -> int:
     """Open the TUI for one Project, or print a headless snapshot."""
     headless = json_output or compact_json
-    periods = refresh_periods(refresh_seconds, github_refresh_seconds)
+    periods = refresh_periods(
+        refresh_seconds, github_refresh_seconds, unattended_seconds
+    )
     collector = create_collector(
         ObservationOptions(
             workspaces=tuple(workspace or ()),
@@ -248,11 +263,22 @@ def observe(
         # Runtime Stats shows the reading the Query Sources share.
         latest_rate_limit = LatestRateLimit()
         sources = create_query_sources(collector, latest_rate_limit)
+        # Only GitHub refreshes spend anything while nobody watches; inside
+        # tmux, a detached session also shows nobody watching.
+        attendance = (
+            Attendance(
+                idle_seconds=periods.unattended,
+                probe=tmux_attachment(os.environ, timeout),
+            )
+            if reads_github(sources)
+            else None
+        )
         DashpotApp(
             collector,
             sources=sources,
             event_log=_EVENT_LOG.get(),
             rate_limit=latest_rate_limit,
+            attendance=attendance,
             refresh_seconds=periods.local,
             query_refresh_seconds=periods.query_seconds(sources),
             fetcher=remote_fetcher(timeout),

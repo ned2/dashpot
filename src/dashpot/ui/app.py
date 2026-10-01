@@ -38,7 +38,7 @@ from ..core.event_log import (
 )
 from ..core.event_log_files import event_log_large_diagnostic, event_log_size
 from ..core.model import Diagnostic
-from ..core.runtime_events import EventLevel
+from ..core.runtime_events import EventLevel, UnattendedPauseChanged
 from ..github.github import LatestRateLimit
 from ..observation.collect import ObservationScheduler
 from ..observation.issue_list import issue_result_count_text
@@ -53,6 +53,7 @@ from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
 from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError
 from .alerts import Alert, list_diagnostics, summarize_alerts
+from .attendance import Attendance, AttendanceChange
 from .change_events import (
     AgentSessionChanges,
     DiagnosticChanges,
@@ -73,6 +74,7 @@ from .legend import KeyGroup, LegendScreen
 from .list_pane import ISSUE_PANE_LABEL, ListPane
 from .list_queries import ListQueries
 from .messages import (
+    AttachmentProbed,
     BodyResized,
     CleanupFinished,
     CleanupInspected,
@@ -204,6 +206,7 @@ def update_peer_diagnostics(screen: Screen[None], app: DashpotApp) -> None:
             *app.event_log_diagnostics,
             *app.event_log_size_diagnostics,
         ),
+        attendance_diagnostics=app.attendance_diagnostics(),
     )
     paint_readout(
         screen.query_one("#diagnostics", Static),
@@ -873,6 +876,7 @@ class DashpotApp(App[None]):
         launcher_configuration: LauncherConfiguration | None = None,
         event_log: EventLog | None = None,
         rate_limit: LatestRateLimit | None = None,
+        attendance: Attendance | None = None,
         runtime_stats_seconds: float = 1.0,
     ) -> None:
         super().__init__()
@@ -890,6 +894,10 @@ class DashpotApp(App[None]):
         # Stats shows, and how often that screen redraws while open.
         self.rate_limit = rate_limit
         self.runtime_stats_seconds = runtime_stats_seconds
+        # Whether anyone attends the dashboard, which holds automatic GitHub
+        # refreshes while nobody does (ADR 0068); without one they never pause.
+        self.attendance = attendance
+        self.probing_attachment = False
         # The Event Log directory's size when last measured.
         self.event_log_bytes: int | None = None
         self.event_log_diagnostics: tuple[Diagnostic, ...] = ()
@@ -1212,6 +1220,7 @@ class DashpotApp(App[None]):
                 for diagnostic in (
                     *self.launcher_configuration.diagnostics,
                     *self.event_log_diagnostics,
+                    *self.attendance_diagnostics(),
                 )
             ),
             *self.fetches.failure_diagnostics(),
@@ -1330,10 +1339,92 @@ class DashpotApp(App[None]):
         self.measure_event_log()
 
     def timer_query_refresh(self) -> None:
-        """One automatic query tick, repeating each displayed page."""
+        """One automatic query tick, repeating each displayed page.
+
+        While an Unattended Pause holds, the tick sends nothing; it still
+        checks whether anyone has come back, or has gone.
+        """
+        attendance = self.attendance
+        if attendance is not None:
+            self.probe_attachment()
+            self.attendance_changed(attendance.check_idle())
+            if self.unattended():
+                return
+        self.query_tick()
+
+    def query_tick(self) -> None:
+        """Repeat each displayed page, and resolve the identities, as a GitHub refresh."""
         refresh = Refresh(self.event_log, "github")
         self.refresh_queries(restart=False, refresh=refresh)
         refresh.seal()
+
+    def unattended(self) -> bool:
+        """Whether an Unattended Pause holds automatic GitHub refreshes."""
+        return self.attendance is not None and self.attendance.pause is not None
+
+    def attendance_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """The Unattended Pause's Diagnostic line while one holds."""
+        return () if self.attendance is None else self.attendance.diagnostics()
+
+    def probe_attachment(self) -> None:
+        """Ask the tmux session off the loop whether a client is attached, unless asking."""
+        probe = None if self.attendance is None else self.attendance.probe
+        if probe is None or self.probing_attachment:
+            return
+        self.probing_attachment = True
+        self.run_off_loop(
+            "probe tmux attachment", "attendance", probe, AttachmentProbed
+        )
+
+    def on_attachment_probed(self, message: AttachmentProbed) -> None:
+        self.finish_attachment_probe(message)
+
+    def finish_attachment_probe(self, message: AttachmentProbed) -> None:
+        """Take the probe's answer: every client detached pauses, one reattaching resumes."""
+        self.probing_attachment = False
+        if self.attendance is not None:
+            self.attendance_changed(self.attendance.probed(message.attached))
+
+    @override
+    async def on_event(self, event: events.Event) -> None:
+        # Unlike a message handler, ``on_event`` is the dispatch itself and
+        # runs once, so the base must still run to deliver the event.
+        # Every key resumes with its own GitHub refresh, ``r`` too: whether a
+        # key reaches its binding is only known after dispatch, and a resume
+        # that waited on a binding a focused Input consumed would refresh
+        # nothing. Pressing ``r`` to resume spends one more refresh.
+        if isinstance(event, events.InputEvent) and not event.is_forwarded:
+            self.note_attended()
+        await super().on_event(event)
+
+    def on_app_focus(self, event: events.AppFocus) -> None:
+        # Reattaching a tmux client reports focus where the terminal sends
+        # focus events, which resumes sooner than the next probe.
+        self.note_attended()
+
+    def note_attended(self) -> None:
+        """Note someone attending the dashboard, ending an Unattended Pause if one holds."""
+        if self.attendance is not None:
+            self.attendance_changed(self.attendance.attended())
+
+    def attendance_changed(self, change: AttendanceChange | None) -> None:
+        """Record an Unattended Pause starting or ending; an ending refreshes GitHub.
+
+        The resumed refresh restarts the GitHub Refresh Period from now. A
+        Rate Limit Pause in force still holds its requests.
+        """
+        if change is None:
+            return
+        self.event_log.record(
+            UnattendedPauseChanged(change=change.change, signal=change.pause.signal)
+        )
+        if self.closing:
+            return
+        self.update_diagnostics()
+        if change.change == "ended":
+            if self.query_refresh_timer is not None:
+                self.query_refresh_timer.reset()
+            self.query_tick()
 
     def request_refresh(self, trigger: ObservationTrigger) -> None:
         """Observe every key and re-query the pages, totals and identities.
@@ -1462,7 +1553,9 @@ class DashpotApp(App[None]):
         self.show_observation(landed)
         # Agent Runs are observed on the local period; resolving their Issues
         # again follows the query period unless which Issues are bound changed.
-        if message.ticket.key.kind == "agent-runs":
+        # While an Unattended Pause holds they wait for the resume, which
+        # resolves every bound Issue.
+        if message.ticket.key.kind == "agent-runs" and not self.unattended():
             self.request_identities(changed_only=True)
 
     def show_observation(self, landed: Acceptance) -> None:

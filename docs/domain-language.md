@@ -238,11 +238,12 @@ warns with `github-rate-limit-low` from the most recent rate limit reading
 any of the dashboard's queries received
 ([ADR 0061](adr/0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md)),
 and with `github-rate-limit-paused` while a Rate Limit Pause holds its
-queries. Codes are prefixed by the source
+queries. A dashboard reports `github-unattended-paused`, an `info` line, while
+an Unattended Pause holds its GitHub refreshes. Codes are prefixed by the source
 family — a GitHub Issue Source reports `github-authentication`,
 `github-permission`, `github-not-found`, `github-repository`,
 `github-rate-limit`, `github-rate-limit-low`, `github-rate-limit-paused`,
-`github-refresh-budget`,
+`github-unattended-paused`, `github-refresh-budget`,
 `github-timeout`, `github-network`, `github-pagination`,
 `github-malformed-response` and `github-profile` — and
 are read from the tracker's structured signals before its prose. A Project
@@ -291,6 +292,21 @@ them all; another dashboard, or an agent's `gh`, is not held
 ([ADR 0065](adr/0065-pause-github-queries-after-a-rate-limit-refusal.md)).
 _Avoid_: backoff alone, which is how long one kind of pause lasts; throttling,
 which suggests requests are slowed rather than held
+
+**Unattended Pause**:
+A stretch when a dashboard's automatic GitHub refreshes send nothing because
+nobody attends it: inside tmux, no client is attached to the dashboard's
+session; anywhere, no key or mouse event has come for the idle period
+(`unattended_seconds`, two hours by default; zero turns that signal off).
+Terminal blur alone is not a sign. Any key, a mouse event, focus-in, or a
+tmux client reattaching ends it, with a GitHub refresh at once. It is a
+hold at the GitHub Refresh Period's timer, not at the gateway, so nothing
+fails or goes stale; it is independent of a Rate Limit Pause, which ending it
+does not lift. Local observation continues. Only a dashboard with a GitHub
+Query Source pauses
+([ADR 0068](adr/0068-pause-github-queries-while-the-dashboard-is-unattended.md)).
+_Avoid_: idle mode or sleep, which suggest the whole dashboard stops; away,
+which names the person rather than the dashboard
 
 **Interruptible Command**:
 A `git` or `gh` child an observation or query runs, which the dashboard's
@@ -624,7 +640,8 @@ work could not be done, so a non-zero exit read as an answer is an attribute
 of a successful span. A standalone event is something that is not a unit of
 work: a process starting or ending, a level change, a hook's or management
 command's outcome, an Agent Session changing, a Diagnostic appearing or
-clearing, a Rate Limit Pause starting, lapsing or being lifted. Every
+clearing, a Rate Limit Pause starting, lapsing or being lifted, an
+Unattended Pause starting or ending. Every
 Runtime Event names its process by an opaque run ID and kind, and the Agent Session Identity, Project, Worktree and Issue when they
 are known; an event a dashboard records about an Agent Session or a
 Diagnostic names that subject's instead of its own. It holds identifiers and

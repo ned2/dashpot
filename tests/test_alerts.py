@@ -309,6 +309,23 @@ def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> 
     )
 
 
+def test_an_unattended_pause_reads_with_the_source_it_speaks_for() -> None:
+    paused = Diagnostic(
+        source="github",
+        severity="info",
+        message="GitHub queries paused",
+        code="github-unattended-paused",
+    )
+
+    readout = list_diagnostics(
+        store(project("alpha")), attendance_diagnostics=(paused,)
+    )
+
+    assert readout is not None
+    assert readout.severity == "info"
+    assert readout.lines == "↻ github: GitHub queries paused"
+
+
 def test_a_project_diagnostic_keeps_its_severity_and_names_its_project() -> None:
     readout = list_diagnostics(
         store(

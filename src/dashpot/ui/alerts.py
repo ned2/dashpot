@@ -90,6 +90,7 @@ def list_diagnostics(
     launcher_diagnostics: Iterable[Diagnostic] = (),
     fetch_failures: Mapping[str, str] | None = None,
     event_log_diagnostics: Iterable[Diagnostic] = (),
+    attendance_diagnostics: Iterable[Diagnostic] = (),
 ) -> Alert | None:
     """List every Diagnostic in full for the Diagnostics box, or nothing while it is empty.
 
@@ -100,7 +101,9 @@ def list_diagnostics(
     ``fetch_failures`` per Project are refresh and Remote Fetch failures,
     and ``launcher_diagnostics`` are what loading the launcher settings
     reported; ``event_log_diagnostics`` say the dashboard's own Event Log
-    could not be written.
+    could not be written. ``attendance_diagnostics`` say automatic GitHub
+    refreshes are paused while nobody attends the dashboard, and read, as a
+    Query Source's do, with the source they speak for.
     """
     items = [AlertItem("error", message) for message in (failures or {}).values()]
     items.extend(
@@ -109,6 +112,10 @@ def list_diagnostics(
     )
     items.extend(
         AlertItem("error", message) for message in (fetch_failures or {}).values()
+    )
+    items.extend(
+        AlertItem(diagnostic.severity, _diagnostic_line(ObservedDiagnostic(diagnostic)))
+        for diagnostic in attendance_diagnostics
     )
     items.extend(
         AlertItem(entry.diagnostic.severity, _diagnostic_line(entry))
