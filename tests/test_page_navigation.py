@@ -1,8 +1,13 @@
 """Check accepted history and generation behavior without remote requests."""
 
-from dashpot.queries.page_navigation import PageNavigation
+from datetime import UTC, datetime
+
+from dashpot.queries.page_navigation import PageNavigation, page_text
 from dashpot.queries.source_queries import QueryRequest
 from test_source_queries import markdown
+
+# Nothing here reads a page's age, so a fixed instant keeps that true.
+NOW = datetime(2026, 8, 27, 3, 0, 0, tzinfo=UTC)
 
 
 def test_failed_navigation_preserves_original_page_request(tmp_path):
@@ -74,3 +79,59 @@ def test_a_restart_keeps_showing_the_page_it_replaces_until_one_lands(tmp_path):
     landed = source.query_page(again.request).page
     assert navigation.accept(again, landed)
     assert navigation.shown == landed
+
+
+def test_paging_without_an_accepted_page_refuses_without_an_error(tmp_path):
+    source = markdown(tmp_path)
+    navigation = PageNavigation(QueryRequest(page_size=1))
+    first = navigation.refresh()
+    navigation.accept(first, source.query_page(first.request).page)
+
+    # A restart forgets the accepted page while its query is in flight: there
+    # is nothing to page from yet, which is not the same as no next page.
+    restarted = navigation.restart(QueryRequest(page_size=1, query="3"))
+    assert navigation.next() is None
+    navigation.previous()
+    assert navigation.error is None
+    assert page_text(navigation, NOW) == "Loading page"
+    # Neither refusal supersedes the query, so its page still lands.
+    assert navigation.accept(restarted, source.query_page(restarted.request).page)
+    assert navigation.page is not None
+    assert navigation.page.issues[0].number == 3
+
+
+def test_paging_after_a_failed_restart_keeps_its_error():
+    navigation = PageNavigation(QueryRequest(page_size=1))
+    restarted = navigation.restart()
+    assert navigation.accept(restarted, None, "Issue Source exploded")
+    assert navigation.next() is None
+    navigation.previous()
+    assert navigation.error == "Issue Source exploded"
+
+
+def test_an_accepted_page_without_a_continuation_has_no_next_page(tmp_path):
+    source = markdown(tmp_path)
+    navigation = PageNavigation(QueryRequest())
+    ticket = navigation.refresh()
+    page = source.query_page(ticket.request).page
+    assert page is not None
+    assert navigation.accept(ticket, page)
+    assert navigation.next() is None
+    assert navigation.error == "No next page"
+
+    limited = page.model_copy(update={"continuation": "provider-limit"})
+    assert navigation.accept(navigation.refresh(), limited)
+    assert navigation.next() is None
+    assert navigation.error == "Narrow the query to see more results"
+
+
+def test_a_refused_previous_page_does_not_supersede_a_refresh(tmp_path):
+    source = markdown(tmp_path)
+    navigation = PageNavigation(QueryRequest(page_size=1))
+    first = navigation.refresh()
+    navigation.accept(first, source.query_page(first.request).page)
+
+    refreshed = navigation.refresh()
+    navigation.previous()
+    assert navigation.error == "Already at first page"
+    assert navigation.accept(refreshed, source.query_page(refreshed.request).page)

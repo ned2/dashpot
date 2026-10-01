@@ -16,6 +16,7 @@ from textual.widgets import Static
 from app_harness import (
     SequenceCollector,
     SnapshotScheduler,
+    await_issue_page,
     dashboard_app,
     first_load_landed,
     issue,
@@ -128,6 +129,48 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
             ),
         )
         assert not app.store.checkpoint().projects[0].snapshot.issues
+
+
+@pytest.mark.asyncio
+async def test_paging_while_a_restart_is_in_flight_keeps_loading(tmp_path):
+    app = application(tmp_path)
+    source = app.queries.sources["issues"]
+    query_page = source.query_page
+    started, release = threading.Event(), threading.Event()
+
+    def held(request):
+        started.set()
+        release.wait(5)
+        return query_page(request)
+
+    def count() -> str:
+        return str(app.query_screen.query_one("#issue-count", Static).render())
+
+    try:
+        async with app.run_test(size=(150, 55)) as pilot:
+            await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
+            await show_query_peer(app, pilot)
+            app.query_screen.queue_table().focus()
+            source.query_page = held
+            await pilot.press("g")
+            await wait_until(started.is_set)
+            await pilot.press("n", "p")
+            await pilot.pause()
+            assert count() == "Loading page"
+
+            release.set()
+            await await_issue_page(app, lambda request: request.cursor is None)
+            for number in (2, 3):
+                await pilot.press("n")
+                await wait_until(
+                    lambda number=number: (
+                        app.queries.navigation["issues"].page.issues[0].number == number
+                    )
+                )
+            await pilot.press("n")
+            await wait_until(lambda: count().endswith(" · No next page"))
+    finally:
+        release.set()
 
 
 def test_page_text_reports_the_provider_limit_and_a_navigation_error(tmp_path):
