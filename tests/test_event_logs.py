@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,6 +44,17 @@ def written(directory: Path) -> list[dict[str, Any]]:
         for path in sorted(directory.glob("*.jsonl"))
         for line in path.read_bytes().splitlines()
     ]
+
+
+def git_toplevel(directory: Path) -> Path | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=directory,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return Path(result.stdout.strip()) if result.returncode == 0 else None
 
 
 # The fields every event carries in its envelope, whatever its body.
@@ -125,6 +137,81 @@ def test_a_linked_worktree_is_its_own_checkout(tmp_path: Path) -> None:
     assert route_event_log(linked) == EventLogDestination(
         linked / ".dashpot" / "state" / "events", checkout=linked
     )
+
+
+def test_an_empty_git_directory_does_not_claim_a_checkout(tmp_path: Path) -> None:
+    # A stray empty ``.git`` once claimed the whole of ``/tmp`` (#359).
+    checkout = init_repository(tmp_path / "checkout")
+    write_project_config(checkout)
+    stray = checkout / "stray"
+    (stray / ".git").mkdir(parents=True)
+    write_project_config(stray)
+
+    assert route_event_log(stray) == EventLogDestination(
+        checkout / ".dashpot" / "state" / "events", checkout=checkout
+    )
+    assert git_toplevel(stray) == checkout
+
+
+def test_a_git_file_that_is_no_pointer_ends_the_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    checkout = init_repository(tmp_path / "checkout")
+    write_project_config(checkout)
+    broken = checkout / "broken"
+    broken.mkdir()
+    (broken / ".git").write_bytes(b"\xffnot a pointer\n")
+    write_project_config(broken)
+
+    assert route_event_log(broken) == EventLogDestination(
+        tmp_path / "state" / "dashpot" / "events"
+    )
+    assert git_toplevel(broken) is None
+
+
+def test_the_search_stops_below_a_git_ceiling_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    checkout = init_repository(tmp_path / "checkout")
+    write_project_config(checkout)
+    (checkout / "src").mkdir()
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    # Git ignores a relative entry and one it cannot resolve.
+    monkeypatch.setenv(
+        "GIT_CEILING_DIRECTORIES",
+        os.pathsep.join(["relative", str(loop / "below"), str(checkout)]),
+    )
+
+    fallback = EventLogDestination(tmp_path / "state" / "dashpot" / "events")
+    assert route_event_log(checkout / "src") == fallback
+    assert git_toplevel(checkout / "src") is None
+    # A ceiling is never its own ancestor.
+    assert route_event_log(checkout) == EventLogDestination(
+        checkout / ".dashpot" / "state" / "events", checkout=checkout
+    )
+    assert git_toplevel(checkout) == checkout
+
+
+def test_an_unresolved_ceiling_does_not_match_its_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = init_repository(tmp_path / "checkout")
+    write_project_config(checkout)
+    (checkout / "src" / "deep").mkdir(parents=True)
+    linked = tmp_path / "linked"
+    linked.symlink_to(checkout)
+    # Git resolves no entry that follows an empty one.
+    monkeypatch.setenv(
+        "GIT_CEILING_DIRECTORIES", os.pathsep.join(["", str(linked / "src")])
+    )
+
+    assert route_event_log(checkout / "src" / "deep") == EventLogDestination(
+        checkout / ".dashpot" / "state" / "events", checkout=checkout
+    )
+    assert git_toplevel(checkout / "src" / "deep") == checkout
 
 
 @pytest.mark.parametrize("configured", [False, True])
