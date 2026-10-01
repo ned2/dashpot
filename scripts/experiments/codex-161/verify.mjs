@@ -39,7 +39,7 @@ const environment = records[0];
 assert.equal(environment.kind, "environment");
 assert.equal(environment.version, `codex-cli ${expectedVersion}`);
 const scripts = ["ancestry.mjs", "command.mjs", "hook.mjs", "run.mjs", "uds-websocket.mjs", "verify.mjs"];
-const modules = ["harnesses.py", "hook_publish.py", "hook_records.py", "work.py", "work_reconciliation.py"].map((file) => `src/dashpot/sessions/${file}`);
+const modules = ["harnesses.py", "hook_publish.py", "hook_records.py", "hook_scan.py", "processes.py", "work.py", "work_reconciliation.py"].map((file) => `src/dashpot/sessions/${file}`);
 assert.deepEqual(Object.keys(environment.sourceSHA256).sort(), [...scripts, ...modules].sort());
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
 // The runner's scripts change only with a new trace, so they must match.
@@ -64,7 +64,24 @@ for (const hook of hooks) {
 for (const record of of("dashpot.view")) assert.equal(record.status, 0, `dashpot view ${record.label}`);
 assert.equal(of("server.error").length, 0, "the fixture servers saw no error");
 
-// `codex exec` hosts its own thread, starts no daemon, and ends it.
+// The trace keeps Codex's status lines only: no prompt, model output or
+// command text from a one-shot command.
+for (const record of of("codex.command")) assert(!/SPIKE:|^user$/m.test(record.stderr ?? "") && !(record.args[0] === "exec" && record.stdout), `${record.label} keeps status lines only`);
+
+// Hook session_id = CODEX_THREAD_ID = CODEX_SESSION_ID for roots and forks.
+for (const label of ["exec", "ts-start", "ta-start", "r1-start", "r2-start", "fork"]) {
+  const { env } = shell(label);
+  assert(env.CODEX_THREAD_ID && env.CODEX_THREAD_ID === env.CODEX_SESSION_ID, `${label} claims one id`);
+  assert(hooks.some((record) => record.payload.session_id === env.CODEX_THREAD_ID && record.event === "UserPromptSubmit"), `${label}'s hooks carry its id`);
+}
+// No Code Mode host appears above any hook or shell.
+assert(![...hooks, ...of("command")].some((record) => record.ancestry.some((entry) => entry.comm.startsWith("codex-") || /code-mode/.test(entry.cmdline))), "no codex-* helper process hosts a hook or shell");
+
+// `codex exec` hosts its own thread, starts no daemon, and ends it; it
+// clamps the SessionEnd and Interrupt hook timeouts to 3 s.
+const execCommand = labelled("codex.command", "exec");
+assert.match(execCommand.stderr, /clamping SessionEnd hook timeout to 3s/);
+assert.match(execCommand.stderr, /clamping Interrupt hook timeout to 3s/);
 const execShell = shell("exec");
 assert.match(execShell.ancestry.find((entry) => entry.pid === hostOf(execShell)).cmdline, / exec /);
 assert.deepEqual(hooksIn("exec-no-daemon").map((record) => [record.event, record.payload.source ?? record.payload.reason ?? null]),
@@ -98,6 +115,7 @@ assert.deepEqual([tsBound.processOrSession, tsBound.workingDirectory], [hostedBy
 // command has finished, at the turn's directory.
 const joinedTerminal = one("terminal-joined.outcome");
 const prompts = joinedTerminal.hooks.filter(([event]) => event === "UserPromptSubmit");
+assert.deepEqual(joinedTerminal.hooks.filter(([event]) => event === "Stop").map(([, turn]) => turn), [prompts[0][1]], "one Stop ends the joined turn");
 assert.equal(prompts.length, 2);
 assert.equal(prompts[0][1], prompts[1][1], "one turn");
 assert(prompts[1][3] >= joinedTerminal.holdEnded && prompts[1][3] > joinedTerminal.typedAt, "the joined input's hook fires when it is taken, after the command");
@@ -151,6 +169,9 @@ assert.deepEqual(one("autostart-disabled.exit").newHooks, []);
 // The standalone terminal's `/exit` ends its thread and Issue 3's run at once.
 assert.deepEqual(one("standalone.exit").newHooks.map(([event, session, reason, , cwd]) => [event, session, reason, cwd]), [["SessionEnd", standalone.shell.thread, "other", third]]);
 assert.deepEqual(runFor(view("standalone-exited"), 3), []);
+const standaloneEnd = hooksIn("standalone-exit").find((record) => record.event === "SessionEnd");
+const standaloneExit = one("terminal.exit", (record) => record.name === "standalone-resumed");
+assert(Math.abs(standaloneEnd.receiptTime - standaloneExit.receiptTime) < 5000, "the standalone /exit ends its thread at once, not after the unload delay");
 
 // Two root threads in the main Worktree and the terminal's thread in
 // `other`, each with its own run, all on one daemon process.
@@ -167,7 +188,8 @@ const ta = autostart.shell.thread;
 const runIds = Object.fromEntries([1, 2, 4].map((number) => [number, onlyRun(rootsView, number).id]));
 
 // Attach and detach while a turn continues: no hook, no change to the run.
-assert.deepEqual(one("attach.outcome").newHooks, []);
+const attach = one("attach.outcome");
+assert.deepEqual([attach.error, attach.newHooks, attach.commandRunning, attach.thread.id], [null, [], true, r1], "a client attaches mid-turn");
 assert.equal(onlyRun(view("attach-turn-running"), 2).state, "running");
 const detach = one("detach.outcome");
 assert.deepEqual([detach.commandEnded, detach.status], [true, "completed"]);
@@ -248,6 +270,16 @@ assert.equal(shell("r1-span").cwd, third);
 // another thread's turn runs: each SessionEnd ends exactly its own run, the
 // moved thread's records are gone from every Worktree, and nothing ended
 // stays listed, though the daemon was reparented when its terminal exited.
+// Before the unload, the exited terminal's thread is still listed, bound and
+// waiting at `fourth`, which it occupies for Cleanup; the daemon it started
+// was reparented when it exited, keeping its pid.
+const reparented = labelled("processes", "after-terminal-exit").processes.find(([pid]) => pid === daemonPid);
+assert(reparented && reparented[1] !== terminalPid, "the daemon outlives and leaves its terminal");
+const beforeUnload = onlyRun(view("before-unload"), 1);
+assert.deepEqual([beforeUnload.state, beforeUnload.workingDirectory, beforeUnload.orphaned], ["waiting", fourth, false]);
+const occupied = labelled("dashpot.worktree-check", "before-unload-fourth").result;
+assert.equal(occupied.removable, false);
+assert(occupied.obstacles.some((obstacle) => obstacle.kind === "agent-run" && /fixture-1/.test(obstacle.detail)), "the unloading thread's run blocks Cleanup");
 const unload = one("unload.outcome");
 assert.equal(unload.spanRunning, true);
 const endedAfter = Object.fromEntries(unload.endedAfterMs);
@@ -288,10 +320,18 @@ const recoveredRun = onlyRun(view("recovered"), 2);
 assert.deepEqual([recoveredRun.orphaned, recoveredRun.processOrSession, recoveredRun.workingDirectory], [false, hostedBy(newDaemon), third]);
 assert.deepEqual(unbound(view("recovered")), []);
 
-// `daemon stop` publishes SessionEnd for the loaded thread, which ends its run.
+// `daemon start` and `stop` run the managed daemon from
+// packages/app-server-daemon, not from a standalone release.
+for (const label of ["daemon-start", "daemon-stop"]) {
+  assert.equal(JSON.parse(labelled("codex.command", label).stdout).managedCodexPath, "<root>/codex-home/packages/app-server-daemon/current/bin/codex");
+}
+// `daemon stop` publishes SessionEnd for the loaded thread, which ends its
+// run, and leaves only the pid-update-loop companion.
 assert.deepEqual(one("daemon-stop.outcome").newHooks.map(([event, session, reason]) => [event, session, reason]), [["SessionEnd", r1, "other"]]);
 assert.deepEqual(view("after-daemon-stop").agentRuns, []);
 assert.deepEqual(labelled("processes", "after-daemon-stop").daemons, []);
+const leftover = labelled("processes", "after-daemon-stop").processes;
+assert(leftover.length === 1 && / app-server daemon pid-update-loop$/.test(leftover[0][3]), "only the pid-update-loop outlives daemon stop");
 
 // Dashpot's Event Log reports each carry as `relocated`, each ending once,
 // and no continuation.

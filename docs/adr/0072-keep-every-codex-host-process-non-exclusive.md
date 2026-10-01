@@ -8,17 +8,21 @@ date: 2026-10-01
 [ADR 0053](0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)
 continues an Orphaned Agent Run when its conversation resumes in a new Host
 Process, but only when the Harness Adapter declares `exclusive_session_process`.
-For Codex it left one row open: "Codex, no daemon: Unmeasured". The
+For Codex it left one row open: "Codex, no daemon: Unmeasured".
+[ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+then listed a Codex terminal launched before the daemon, daemon autostart and
+input joined to a running Codex turn among the modes that stay unsupported
+until their implementing Issue measures them. The
 [agent runtime lifecycle design](../proposals/agent-runtime-lifecycle-design.md#q3-what-happens-to-the-agent-run-across-boundaries)
 said that a per-Host-Process answer (daemon shared, standalone exclusive) would
-need that measurement and an amendment to ADR 0053's table.
+need a measurement of the standalone TUI and an amendment to ADR 0053's table.
 [#161](https://github.com/ned2/dashpot/issues/161) made the measurement
 on `codex-cli` 0.159.3. Dashpot's real Codex publisher ran in an isolated
 `CODEX_HOME` with no standalone release linked, and the result is recorded in the
 [Codex acceptance run](../agent-sessions.md#codex-hosting-modes) and its
 [trace](../spikes/measurements/issue-161-codex-trace.jsonl). The measurement found:
 
-- `daemon_auto_start` is a stable feature, enabled by default. A plain `codex`
+- The `daemon_auto_start` feature is on by default. A plain `codex`
   terminal installs the managed daemon into
   `<CODEX_HOME>/packages/app-server-daemon` from its own binary. It starts the
   daemon as its child, and every hook and shell of the terminal then runs

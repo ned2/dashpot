@@ -262,7 +262,8 @@ class HookRecordStoreTests(unittest.TestCase):
     def test_session_end_from_a_reparented_host_removes_the_record(self) -> None:
         # A Codex daemon a terminal autostarted is reparented when that
         # terminal exits; its pid and start time still name the same Host
-        # Process (measured on 0.159.3, #161).
+        # Process, since neither its parent nor its arguments is identity
+        # (measured on 0.159.3, #161).
         launched = ProcessIdentity(
             42, 4100, "codex", "Tue Aug 25 01:00:00 2026", "app-server --listen"
         )
@@ -301,12 +302,14 @@ class HookRecordStoreTests(unittest.TestCase):
         # A process record that cannot be read has no pid and start time to
         # compare, so only the identical record names the same Host Process.
         unreadable = {"pid": "unreadable", "command": "codex"}
-        for ending, removed in (
-            (unreadable, True),
-            ({**unreadable, "command": "other"}, False),
-            (self.process.as_record(), False),
+        readable = self.process.as_record()
+        for previous, ending, removed in (
+            (unreadable, unreadable, True),
+            (unreadable, {**unreadable, "command": "other"}, False),
+            (unreadable, readable, False),
+            (readable, unreadable, False),
         ):
-            with self.subTest(ending=ending):
+            with self.subTest(previous=previous, ending=ending):
                 base = {
                     "version": 2,
                     "sessionId": "opaque",
@@ -314,7 +317,7 @@ class HookRecordStoreTests(unittest.TestCase):
                     "lastActivityAt": "2026-08-25T16:00:00Z",
                 }
                 write_hook_record(
-                    {**base, "sessionProcess": unreadable, "state": "waiting"},
+                    {**base, "sessionProcess": previous, "state": "waiting"},
                     self.state_dir,
                 )
 

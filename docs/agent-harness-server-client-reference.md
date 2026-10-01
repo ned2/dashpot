@@ -23,13 +23,14 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
+| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, idle eviction, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
 2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19,
-2026-09-30 and 2026-10-01, and Codex measurements on 2026-09-19. Current documentation
+2026-09-30 and 2026-10-01, and Codex measurements on 2026-09-19, 2026-09-20
+and 2026-10-01. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -510,18 +511,18 @@ The [Codex acceptance run](agent-sessions.md#codex-hosting-modes) for
 as a custom provider, and Dashpot's real Codex publisher as a trusted command
 hook for seven events. Its metadata-only
 [trace](spikes/measurements/issue-161-codex-trace.jsonl) records each claim below,
-and the runner's verifier checks each one.
+and the runner's verifier checks each one, timings within a tolerance.
 
-- **Autostart.** `daemon_auto_start` is a stable feature, enabled by
-  default. A plain `codex` terminal with no daemon running installs the
-  managed daemon from its own binary into
+- **Autostart.** The `daemon_auto_start` feature is on by default: the
+  fixture's configuration never sets it. A plain `codex` terminal with no
+  daemon running installs the managed daemon from its own binary into
   `<CODEX_HOME>/packages/app-server-daemon/releases/<version>-<target>/`,
   linked as `current`. It then starts
   `codex app-server --remote-control --listen unix:// --managed-daemon` as
   its own child. The terminal's thread is daemon-hosted from the first turn:
   its hooks and shells descend from the daemon, not the terminal. When that
-  terminal exits, the daemon is reparented to pid 1 and keeps its pid and
-  start time. A companion `codex app-server daemon pid-update-loop` process
+  terminal exits, the daemon is reparented (to pid 1 in the retained trace)
+  and keeps its pid and start time. A companion `codex app-server daemon pid-update-loop` process
   runs beside it and outlives `daemon stop` and `remote-control stop`.
   `app-server daemon start` and `stop` now name
   `packages/app-server-daemon/current`, where 0.155.1 required the
@@ -550,7 +551,7 @@ and the runner's verifier checks each one.
   cwd, while `thread/read` already reports the new one. The next turn's
   `UserPromptSubmit` is the first hook at the new cwd.
 - **Unload and timeouts.** The unload delay after the last subscriber left
-  measured 59.5 to 60.2 s, and `SessionEnd` `other` names the thread's
+  was about 60 s (59.5 to 60.2 s in the retained trace), and `SessionEnd` `other` names the thread's
   current cwd. `codex exec` warns that it clamps the `SessionEnd` and
   `Interrupt` hook timeouts to 3 s.
 - **Identity.** The 0.155.1 identity equalities held: hook `session_id` =
@@ -1192,7 +1193,7 @@ available, preserving release and mode boundaries.
 
 | Question | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- |
-| Does one selected host PID distinguish conversations? | No for app-server, measured at `0.155.1`: one `codex` process hosted two root threads, a fork, and a sub-agent thread, with every shell and hook below it; yes for `codex exec`, which is one process per thread; interactive TUI unmeasured | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No in the tested backend |
+| Does one selected host PID distinguish conversations? | No for app-server, measured at `0.155.1`: one `codex` process hosted two root threads, a fork, and a sub-agent thread, with every shell and hook below it; yes for `codex exec`, which is one process per thread; at `0.159.3` a plain terminal's thread is hosted by the managed daemon, and a terminal launched with `--disable daemon_auto_start` while no daemon runs is one process per thread | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No in the tested backend |
 | Does client disconnect stop execution? | Measured at `0.155.1`: a departing client's command ran to completion with its ordinary tool hooks and `Stop` and no `Interrupt` or `SessionEnd`, and the last unsubscription unloaded the thread with `SessionEnd` after 60,067 ms (sixty seconds by code default at `0.154.0`); the embedded TUI's shutdown on exit is source reading | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | Attached CLI exit did not stop its command |
 | Does process restart erase history? | Measured at `0.155.1`: after SIGKILL of the server a replacement server resumed the stored thread at another cwd under the same id, with `SessionStart` `resume` at the first turn and no `SessionEnd` for the kill; the stale lock file did not block it | Measured: a killed or respawned worker and a replaced supervisor keep the session ID; `SessionStart` reports `resume` for the new worker pid | Same native ID resumed after backend replacement |
 | Are hook/command IDs fully mapped? | Measured at `0.155.1` for app-server and `exec`: root and fork hook `session_id` = `thread.id` = `thread.sessionId` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; a sub-agent's shell claims its own id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID`, and its hooks carry the root `session_id` plus `agent_id`; hook processes carry no thread variable; Code Mode remote host unmeasured | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |

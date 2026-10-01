@@ -43,14 +43,15 @@ const worktrees = { main: fixture, other, third, fourth };
 const tracePath = path.join(root, "trace.jsonl");
 const records = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-// The operator's home directory never enters the trace; a hook's or shell's
-// ancestry keeps the processes up to the runner's own child.
+// The operator's home directory and host name never enter the trace; a
+// hook's or shell's ancestry keeps the processes up to the runner's own child.
 const home = os.homedir();
+const hostName = new RegExp(`\\b${os.hostname().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
 const trace = (kind, fields = {}) => {
   const record = { kind, ...fields, receipt: records.length + 1, receiptTime: Date.now() };
   records.push(record);
   const kept = record.ancestry ? { ...record, ancestry: record.ancestry.slice(0, 5) } : record;
-  appendFileSync(tracePath, JSON.stringify(kept).replaceAll(home, "~") + "\n");
+  appendFileSync(tracePath, JSON.stringify(kept).replaceAll(home, "~").replace(hostName, "<host>") + "\n");
   return record;
 };
 
@@ -227,7 +228,7 @@ const codexProcesses = () => {
   }
   return found;
 };
-const brief = (entry) => [entry.pid, entry.ppid, entry.comm, entry.cmdline.replaceAll(root, "<root>").slice(0, 120)];
+const brief = (entry) => [entry.pid, entry.ppid, entry.comm, entry.cmdline.replaceAll(root, "<root>").slice(0, 240)];
 // The managed daemon: `codex app-server ... --managed-daemon`, never its
 // `app-server daemon pid-update-loop` companion or a loopback `--listen` server.
 const isDaemon = (entry) => entry.comm.startsWith("codex") && / app-server /.test(entry.cmdline) && / --managed-daemon/.test(entry.cmdline);
@@ -291,8 +292,12 @@ const codex = async (args, label, { cwd = fixture, timeout = 60000 } = {}) => {
   const timer = setTimeout(() => child.kill("SIGTERM"), timeout);
   const [status, signal] = await once(child, "exit");
   clearTimeout(timer);
-  const clean = (text) => stripAnsi(text).replaceAll(root, "<root>").replace(/WARNING: proceeding, even though we could not create PATH aliases[^\n]*\n?/g, "");
-  trace("codex.command", { label, args: args.map((arg) => arg.replaceAll(root, "<root>")), status, signal, stdout: clean(stdout).slice(-1200), stderr: clean(stderr).slice(-1200) });
+  const clean = (text) => stripAnsi(text).replaceAll(root, "<root>");
+  // Only Codex's own status lines: never the prompt, the model's output, or
+  // the commands it ran.
+  const statusLines = (text) => clean(text).split("\n").filter((line) => /^(OpenAI Codex v|warning: |hook: |Installing |Error: )/.test(line)).join("\n");
+  trace("codex.command", { label, args: args.map((arg) => arg.replaceAll(root, "<root>")), status, signal,
+    stdout: args[0] === "exec" ? null : clean(stdout).slice(-1200), stderr: statusLines(stderr).slice(-1200) });
   return { status, signal, stdout, stderr };
 };
 const stopDaemon = async (label) => {
@@ -401,7 +406,7 @@ const shellSummary = (label) => {
 };
 
 const scripts = ["run.mjs", "verify.mjs", "hook.mjs", "command.mjs", "ancestry.mjs", "uds-websocket.mjs"];
-const modules = ["harnesses.py", "hook_publish.py", "work_reconciliation.py", "hook_records.py", "work.py"].map((file) => `src/dashpot/sessions/${file}`);
+const modules = ["harnesses.py", "hook_publish.py", "work_reconciliation.py", "hook_records.py", "work.py", "hook_scan.py", "processes.py"].map((file) => `src/dashpot/sessions/${file}`);
 let controllers = [];
 try {
   const head = execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -551,14 +556,14 @@ try {
 
   // Attach and detach while a turn continues.
   trace("scenario", { name: "attach-detach" });
+  const long = await runTurn(c1, r1.id, "SPIKE:r1-long hold=12000", { detached: true });
+  await waitFor(() => command("r1-long"), "r1-long command", 30000);
   const c2 = await daemonClient("controller-2");
   controllers.push(c2);
   hooksBefore = hooks().length;
   const attached = await c2.call("thread/resume", { threadId: r1.id });
   await delay(1000);
-  trace("attach.outcome", { thread: threadSummary(attached.result?.thread), error: attached.error ?? null, newHooks: hooksSince(hooksBefore) });
-  const long = await runTurn(c1, r1.id, "SPIKE:r1-long hold=6000", { detached: true });
-  await waitFor(() => command("r1-long"), "r1-long command", 30000);
+  trace("attach.outcome", { thread: threadSummary(attached.result?.thread), error: attached.error ?? null, newHooks: hooksSince(hooksBefore), commandRunning: !command("r1-long", "end") });
   view("attach-turn-running");
   c1.close();
   controllers = controllers.filter((client) => client !== c1);
@@ -652,6 +657,12 @@ try {
   await c3.call("thread/unsubscribe", { threadId: fork.id });
   await exitTerminal(ta);
   const leftAt = Date.now();
+  // Before the unload: the exited terminal's thread is still loaded, listed,
+  // and occupying its Worktree; the daemon outlives its parent terminal.
+  await delay(2000);
+  processes("after-terminal-exit");
+  view("before-unload");
+  worktreeCheck("before-unload-fourth", fourth);
   const ended = (thread) => hooks().slice(hooksBefore).some((record) => record.event === "SessionEnd" && record.payload.session_id === thread);
   await quietly(waitFor(() => ended(r2.id) && ended(taThread), "R2 and the terminal thread unload", 90000));
   await delay(1500);
