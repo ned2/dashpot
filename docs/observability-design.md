@@ -250,10 +250,11 @@ output.
   ([#359](https://github.com/ned2/dashpot/issues/359)), a malformed or
   unreadable `.git` file ends the search, and the search stops below any
   directory that `GIT_CEILING_DIRECTORIES` names. It is the rule the hook
-  publisher's `route_record_store` applies to hook records, and a hook routes its Event Log from the
-  payload's working directory the same way. A one-shot command writes to the
-  checkout it runs in; a dashboard to the checkout it was started in,
-  including events about other Projects in its Workspace.
+  publisher's `route_record_store` applies to hook records, and a hook
+  routes its Event Log from the payload's working directory the same way. A
+  one-shot command writes to the checkout it runs in; a dashboard to the
+  checkout it was started in, including events about other Projects in its
+  Workspace.
 - **Fallback:** `$XDG_STATE_HOME/dashpot/events/`, else
   `~/.local/state/dashpot/events/`, or
   `~/Library/Application Support/dashpot/events/` on macOS — beside the
