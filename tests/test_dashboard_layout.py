@@ -738,7 +738,8 @@ async def test_an_issue_pane_below_its_minimum_collapses_to_its_frame() -> None:
         for key in ("tab", "down", "down", "down", "shift+tab", "enter"):
             await pilot.press(key)
             await pilot.pause()
-            assert not queue.has_focus, key
+            # The only shown table keeps focus rather than losing it.
+            assert pull_requests.has_focus, key
         assert app.screen is screen
 
         await pilot.resize_terminal(120, 12)
