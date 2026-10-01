@@ -93,7 +93,7 @@ from .observation_runner import (
     ObservationRunner,
 )
 from .page_runner import PageRunner
-from .pane_layout import fit_panes
+from .pane_layout import PANE_FRAME, fit_panes
 from .panes import (
     DASHBOARD_PANE_SPECS,
     QUERY_PANE_SPECS,
@@ -113,6 +113,13 @@ FOCUS_CYCLE_BINDINGS: tuple[BindingType, ...] = (
     ("tab", "focus_next", "Next list"),
     ("shift+tab", "focus_previous", "Previous list"),
 )
+
+# The Issue pane's frame, filter bar and one table line. The fitting
+# arithmetic holds this minimum against the Pull Requests pane rather than the
+# stylesheet holding it against the body: a body too short for the whole stack
+# then shrinks the Issue pane instead of overflowing it, so the pane's bottom
+# border stays the body's last row, the one row the floating alert overlays.
+ISSUE_PANE_MINIMUM = PANE_FRAME + ItemFilterBar.HEIGHT + 1
 
 
 class PeerBody(Container):
@@ -735,17 +742,14 @@ class IssuesPullRequestsScreen(Screen[None]):
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
 
-        The Issue pane keeps its stylesheet minimum and top gutter; Textual
-        cannot resolve an over-constrained column (every `fr` row at its
-        minimum), so the cap shrinks first, to a frame with a count when
-        nothing else fits. The arithmetic itself is `pane_layout.fit_panes`;
-        this method only gathers the widget facts and applies the caps.
+        The Issue pane keeps `ISSUE_PANE_MINIMUM` and its top gutter, so the
+        Pull Requests cap shrinks first, to a frame with a count when nothing
+        else fits. Only a body too short even for that shrinks the Issue pane
+        itself. The arithmetic is `pane_layout.fit_panes`; this method only
+        gathers the widget facts and applies the caps.
         """
         queue_pane = self.query_one("#queue-pane")
-        minimum = queue_pane.styles.min_height
-        fixed_height = (
-            int(minimum.value) if minimum is not None else 0
-        ) + queue_pane.styles.margin.top
+        fixed_height = ISSUE_PANE_MINIMUM + queue_pane.styles.margin.top
         panes = self.list_panes()
         caps = fit_panes(
             body.height,

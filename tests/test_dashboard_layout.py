@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from rich.text import Text
 from textual.geometry import Region
+from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Input, Static
 
 import factories
@@ -456,9 +457,27 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
         assert selected.table.show_vertical_scrollbar
 
 
+def focusable_beneath(screen: Screen[None], alert: Static) -> set[str]:
+    """Every focusable widget the alert's row hides, by its id or class name.
+
+    The compositor reports each widget clipped to what is drawn, so a control
+    a pane's frame already clips out is not counted as hidden by the alert.
+    """
+    row = alert.region
+    return {
+        widget.id or type(widget).__name__
+        for x in range(row.x, row.right)
+        for widget, _region in screen.get_widgets_at(x, row.y)
+        if widget is not alert and widget.focusable
+    }
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("peer", ["dashboard", "queries"])
-async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None:
+@pytest.mark.parametrize("height", [9, 10, 11, 12, 30])
+async def test_the_refreshing_alert_never_moves_a_peer_screen(
+    peer: str, height: int
+) -> None:
     """The refresh indicator floats over the body instead of taking a row from it.
 
     The alert appears on every refresh that outlasts the indicator delay and
@@ -468,6 +487,11 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None
     layer so the geometry never moves. Both peers are checked, because only
     the Dashboard reflows visibly and a regression on the query peer would
     otherwise go unnoticed.
+
+    Floating, it overlays whatever the body's last row holds, so that row must
+    be a frame rather than a control or a record a person can still focus. The
+    cramped heights are where the query peer's stack once overflowed its body
+    and handed the filter controls (9) and the Issue table (11) that row.
     """
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     release = Event()
@@ -478,7 +502,7 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None
         refresh_indicator_seconds=0.01,
     )
 
-    async with app.run_test(size=(120, 30)) as pilot:
+    async with app.run_test(size=(120, height)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         if peer == "queries":
             screen = await show_query_peer(app, pilot)
@@ -514,6 +538,7 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(peer: str) -> None
         # It overlays the body's last row rather than following it.
         assert shown.bottom == body_region.bottom
         assert (body_region, pane_regions) == fitted
+        assert focusable_beneath(screen, alert) == set()
 
         release.set()
         await wait_until(lambda: not alert.has_class("-visible"))

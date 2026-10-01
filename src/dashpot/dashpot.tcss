@@ -152,10 +152,13 @@ ListPane > FocusCursorTable {
     text-style: italic;
 }
 
+/* No `min-height`: `IssuesPullRequestsScreen.fit_list_panes` keeps the Issue
+   pane's minimum by shrinking Pull Requests first. A stylesheet minimum would
+   overflow a short body instead, leaving a filter control or an Issue row as
+   the body's last row, under the floating alert. */
 #queue-pane {
     width: 1fr;
     height: 1fr;
-    min-height: 6;
     border: round $primary-darken-2;
     border-title-align: left;
     border-title-style: bold;
