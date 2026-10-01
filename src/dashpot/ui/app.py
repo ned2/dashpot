@@ -93,7 +93,7 @@ from .observation_runner import (
     ObservationRunner,
 )
 from .page_runner import PageRunner
-from .pane_layout import PANE_FRAME, fit_panes
+from .pane_layout import PANE_FRAME, fit_panes, keeps_minimum
 from .panes import (
     DASHBOARD_PANE_SPECS,
     QUERY_PANE_SPECS,
@@ -745,8 +745,10 @@ class IssuesPullRequestsScreen(Screen[None]):
         The Issue pane keeps `ISSUE_PANE_MINIMUM` and its top gutter, so the
         Pull Requests cap shrinks first, to a frame with a count when nothing
         else fits. Only a body too short even for that shrinks the Issue pane
-        itself. The arithmetic is `pane_layout.fit_panes`; this method only
-        gathers the widget facts and applies the caps.
+        itself, and then it collapses to a frame with its count, as a list pane
+        does at a cap of zero: a filter control or table its frame clipped would
+        otherwise stay focusable out of sight. The arithmetic is `pane_layout`'s;
+        this method only gathers the widget facts and applies the result.
         """
         queue_pane = self.query_one("#queue-pane")
         fixed_height = ISSUE_PANE_MINIMUM + queue_pane.styles.margin.top
@@ -759,6 +761,9 @@ class IssuesPullRequestsScreen(Screen[None]):
         )
         for pane, content_height_cap in zip(panes, caps, strict=True):
             pane.fit_rows(content_height_cap)
+        issue_pane_fits = keeps_minimum(body.height, fixed_height, len(panes))
+        self.issue_filter_bar.display = issue_pane_fits
+        self.queue_table().display = issue_pane_fits
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed record from the store."""

@@ -368,8 +368,11 @@ This is the shape Textual's own `ToastRack` uses (`layer:`, `dock: bottom`,
   at 11, still focusable under the alert. Hold a pane's minimum in the
   `fit_panes` arithmetic instead (`ISSUE_PANE_MINIMUM`), where it shrinks the
   other panes first, and leave the `1fr` pane free to shrink when even that is
-  not enough: it then clips its own children inside its frame, and its bottom
-  border stays the body's last row at every height.
+  not enough. Its bottom border then stays the body's last row at every height
+  that holds the panes' frames, and below its minimum it collapses to that
+  frame and its count (`pane_layout.keeps_minimum`), hiding the contents its
+  frame would clip so they leave the focus chain too. A body shorter than the
+  frames themselves still overflows, onto gutters and frames only.
 
 Durable detail stays in the flow: `#diagnostics` sits below the body, because up
 to five rows of it overlaying the panes would hide more than it told.

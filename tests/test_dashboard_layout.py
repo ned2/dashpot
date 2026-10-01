@@ -460,8 +460,9 @@ async def test_dashboard_panes_share_live_height_and_keep_native_positions() -> 
 def focusable_beneath(screen: Screen[None], alert: Static) -> set[str]:
     """Every focusable widget the alert's row hides, by its id or class name.
 
-    The compositor reports each widget clipped to what is drawn, so a control
-    a pane's frame already clips out is not counted as hidden by the alert.
+    The compositor reports every widget on every layer, each clipped by its
+    containers rather than by what overlays it, so a control under the alert
+    is counted while one a pane's frame already clips out is not.
     """
     row = alert.region
     return {
@@ -474,9 +475,14 @@ def focusable_beneath(screen: Screen[None], alert: Static) -> set[str]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("peer", ["dashboard", "queries"])
-@pytest.mark.parametrize("height", [9, 10, 11, 12, 30])
+@pytest.mark.parametrize(
+    "size",
+    # The compact layout's two-row Peer Status Bar moves the cramped heights.
+    [(120, 9), (120, 10), (120, 11), (120, 12), (120, 30), (80, 10), (80, 12)],
+    ids=lambda size: "x".join(map(str, size)),
+)
 async def test_the_refreshing_alert_never_moves_a_peer_screen(
-    peer: str, height: int
+    peer: str, size: tuple[int, int]
 ) -> None:
     """The refresh indicator floats over the body instead of taking a row from it.
 
@@ -491,7 +497,8 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(
     Floating, it overlays whatever the body's last row holds, so that row must
     be a frame rather than a control or a record a person can still focus. The
     cramped heights are where the query peer's stack once overflowed its body
-    and handed the filter controls (9) and the Issue table (11) that row.
+    and handed the filter controls (120x9, 80x10) and the Issue table (120x11,
+    80x12) that row.
     """
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     release = Event()
@@ -502,7 +509,7 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(
         refresh_indicator_seconds=0.01,
     )
 
-    async with app.run_test(size=(120, height)) as pilot:
+    async with app.run_test(size=size) as pilot:
         await wait_until(lambda: first_load_landed(app))
         if peer == "queries":
             screen = await show_query_peer(app, pilot)
@@ -535,6 +542,8 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(
             pilot, lambda: (alert.region, geometry()), "the shown alert"
         )
         assert shown.height == 1
+        # The full width, so the row checked for hidden controls is all of it.
+        assert shown.width == body_region.width
         # It overlays the body's last row rather than following it.
         assert shown.bottom == body_region.bottom
         assert (body_region, pane_regions) == fitted
@@ -684,6 +693,47 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         assert cap < initial_cap
         assert queue_region.height >= 6
         assert queue_region.bottom <= footer_region.y
+
+
+@pytest.mark.asyncio
+async def test_an_issue_pane_below_its_minimum_collapses_to_its_frame() -> None:
+    """A body too short for the Issue pane's minimum drops its contents whole.
+
+    The pane's frame would clip the filter bar and the table anyway; hiding
+    them takes them out of the focus chain too, so `Tab` never lands on a
+    control or a table a person cannot see.
+    """
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First"))),
+        refresh_seconds=0,
+    )
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        screen = await show_query_peer(app, pilot)
+        queue_pane = screen.query_one("#queue-pane")
+        contents = (screen.issue_filter_bar, screen.queue_table())
+        issue_focus = {"issue-search", "issue-state", "queue"}
+
+        def focusable() -> set[str | None]:
+            return {widget.id for widget in screen.focus_chain}
+
+        screen.queue_table().focus()
+        await wait_until(lambda: screen.queue_table().has_focus)
+
+        # One row short: the Pull Requests pane is already a bare frame.
+        await pilot.resize_terminal(120, 11)
+        await wait_until(lambda: not any(widget.display for widget in contents))
+        await settle_screen(app, pilot, "the collapsed Issue pane")
+        assert queue_pane.region.height == 5
+        assert not focusable() & issue_focus
+        assert not screen.queue_table().has_focus
+
+        await pilot.resize_terminal(120, 12)
+        await wait_until(lambda: all(widget.display for widget in contents))
+        await settle_screen(app, pilot, "the Issue pane at its minimum")
+        assert queue_pane.region.height == 6
+        assert focusable() >= issue_focus
 
 
 def column_widths(table: DataTable[Any]) -> list[int]:
