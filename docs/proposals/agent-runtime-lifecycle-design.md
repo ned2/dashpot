@@ -20,8 +20,11 @@ experiments stay as they were written.
 core and the Codex part of Q4 to Q6: the `locates` predicate, the child-scope
 rule and seeding, `lastSessionStartAt`, the Live Relocation step, the guarded
 `SessionEnd` removal, `work-session-elsewhere`, and the Codex sub-agent
-subscription. Claude Code still designates no location evidence, and the
-unmeasured rows below stay unsupported. The contract is concrete enough that
+subscription. Its acceptance run then measured the Codex rows left open at
+`0.159.3` and pinned Codex support to that release
+([Codex hosting modes](../agent-sessions.md#codex-hosting-modes)). Claude Code
+still designates no location evidence, and the unmeasured rows below stay
+unsupported. The contract is concrete enough that
 its consumers implement it rather than choose it:
 [#161](https://github.com/ned2/dashpot/issues/161) (the Codex slice and the
 shared core), [#162](https://github.com/ned2/dashpot/issues/162) (Claude Code),
@@ -212,11 +215,12 @@ therefore fixed, and #161, #162 and #163 implement it rather than choose it:
 - **Codex.** A daemon-hosted or app-server-hosted thread is never
   continued by ADR 0053, because its Host Process is shared. A thread resumed
   after its server died is orphaned until the session runs `work start`. A
-  standalone TUI or `exec` thread is also not continued until #161 measures
-  that its process is exclusive; the adapter's `exclusive_session_process`
-  stays false for Codex until then, and a per-Host-Process answer (daemon
-  shared, standalone exclusive) needs that measurement and an amendment to
-  ADR 0053's table.
+  standalone TUI or `exec` thread is not continued either: #161 measured
+  that a plain terminal is daemon-hosted by default at `0.159.3` and that a
+  standalone one is not stably told apart, so `exclusive_session_process`
+  stays false for every Codex mode
+  ([ADR 0072](../adr/0072-keep-every-codex-host-process-non-exclusive.md),
+  amending ADR 0053's table).
 - **Claude Code.** ADR 0053 continues a run through a crash or a resume in
   the same Worktree, including a supervised worker the supervisor replaces
   after an abrupt exit (following from #326's measurement of the `--resume`
@@ -417,14 +421,15 @@ is the same guard it applies today.
 A Codex `turn/start` issued while a turn runs joins that turn and executes in
 the old directory while `thread/read` already reports the new one. Observation
 follows execution: the carry happens only at the next session-scoped
-`UserPromptSubmit` at B. Whether the joined input publishes a
-`UserPromptSubmit` of its own, and at which `cwd`, is unmeasured; #161 measures
-it before a mid-turn move is claimed. A late `Stop` from the old turn is not
-designated evidence and cannot move the run back, but it does place the
-session at A again under the freshest-record rule until S's next designated
-event; that is one reason a mid-turn move stays unsupported until measured.
-#148's preflight requires an idle session, so its controller turn is itself
-the designated evidence.
+`UserPromptSubmit` at B. #161 measured the joined input at `0.159.3`: it
+publishes a `UserPromptSubmit` of its own under the running turn's id, once
+the running command finishes, at A, and its shell runs at A; the next turn's
+`UserPromptSubmit` is the first at B and carries the run. A mid-turn move
+therefore carries the run one turn late and never early. A late `Stop` from
+the old turn is not designated evidence and cannot move the run back, but it
+does place the session at A again under the freshest-record rule until S's
+next designated event. #148's preflight requires an idle session, so its
+controller turn is itself the designated evidence.
 
 ### What #148 verifies from this seam alone
 
@@ -551,10 +556,10 @@ the stated release), **source** (pinned source or current documentation),
 | Fork | Measured: new id, `source` = `fork`, no parent field | Measured: new id, `source` = `fork`, no parent field | Measured: new id, no `parentID` |
 | Delegated child | Measured: root `session_id` plus `agent_id` | Measured: parent's id and pid plus `agent_id`; parent's cwd except isolated worktree ([measured under #279](../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)) | Measured: own id with `parentID` |
 | Live location change, idle | Measured: `turn/start` `cwd` override sticky, same id, no `SessionStart` | Measured: `EnterWorktree` and `ExitWorktree` (`keep`) `PostToolUse` at the new cwd, same id and pid; `remove` unresolved | Unresolved; Bash `workdir` measured not to move the session |
-| Live location change, mid-turn | Measured: joins the running turn in the old cwd; joined input's hooks unresolved | Unresolved | Unsupported |
+| Live location change, mid-turn | Measured: joins the running turn in the old cwd; the joined input's `UserPromptSubmit` names that turn at the old cwd, and the next turn's is the first at the new one | Unresolved | Unsupported |
 | Declared sequential relocation | Measured on no-daemon, loaded and unloaded daemon routes | Not used | Unsupported |
 | Sub-agent during a move | Unresolved | Unresolved | Unresolved |
-| Terminal launched before the daemon; daemon autostart | Unresolved | Not applicable | Not applicable |
+| Terminal launched before the daemon; daemon autostart | Measured at `0.159.3`: a plain terminal autostarts the daemon as its child and is hosted by it; with autostart disabled and no daemon it hosts itself, and keeps doing so after a daemon starts | Not applicable | Not applicable |
 | Remote Control | Unresolved (pairing) | Unresolved (attachment and server) | Not applicable |
 | Event ordering | Source: hooks dispatched from one core `Session` | Inference from measured traces | Measured: callback order not guaranteed |
 
@@ -566,12 +571,12 @@ under its implementing Issue, never by assumption.
 
 | Harness and mode | Status | Notes |
 | --- | --- | --- |
-| Codex standalone TUI | Supported today; lifecycle through #161 | Continuation not offered until #161 measures exclusivity |
+| Codex standalone TUI (`--disable daemon_auto_start` with no daemon) | Supported, measured at `0.159.3` | Never continued ([ADR 0072](../adr/0072-keep-every-codex-host-process-non-exclusive.md)); recovery is `work start` |
 | Codex `exec` | Supported today | Measured |
-| Codex shared local App Server (`app-server --listen` with `--remote` clients) | First slice, #161 | Measured at `0.155.1` |
-| Codex managed daemon with plain or `--remote` terminals | First slice, #161 | Measured at `0.155.1` |
-| Codex Live Relocation by a controller | #161 core, #278 acceptance, triggered only by #148 | Idle only until the mid-turn row is measured |
-| Codex terminal launched before the daemon; daemon autostart | Unsupported until #161 measures | Recorded on #161's acceptance matrix |
+| Codex shared local App Server (`app-server --listen` with `--remote` clients) | Supported, #161 | Measured at `0.155.1` |
+| Codex managed daemon with plain or `--remote` terminals | Supported, #161 | Accepted at `0.159.3` by #161's acceptance run |
+| Codex Live Relocation by a controller | #161 core, #278 acceptance, triggered only by #148 | Accepted idle at `0.159.3`; a mid-turn override carries the run at the following turn |
+| Codex terminal launched before the daemon; daemon autostart | Supported, measured at `0.159.3` | Autostart is the default; the daemon hosts the terminal's thread |
 | Codex `/cd`, managed `/worktree` | `/cd` is a new Agent Session (source); `/worktree` unsupported | Neither preserves a run |
 | Codex Remote Control pairing, Code Mode remote host, stdio transport, other operating systems | Unsupported | Unmeasured |
 | Claude Code interactive and headless | Supported today; lifecycle through #162 | Measured |
@@ -656,7 +661,9 @@ The identity equalities and hook shapes are per-release measurements, and the
 pinned runners under `scripts/experiments/` are the only revalidation
 mechanism. On a new supported release, rerun the matching runner and confirm:
 
-- **Codex** (`codex-160`, `codex-269`, `codex-148`): hook `session_id` =
+- **Codex** (`codex-161`, the pinned acceptance gate, then `codex-160`,
+  `codex-269`, `codex-148`): daemon autostart and the host of a plain and a
+  standalone terminal; the joined input's `UserPromptSubmit`; hook `session_id` =
   `thread.id` = `CODEX_THREAD_ID` = `CODEX_SESSION_ID` for roots and forks;
   a sub-agent's root `session_id` plus `agent_id` and its child shell claim;
   `UserPromptSubmit` `cwd` after a `turn/start` override; the unload delay and
@@ -706,8 +713,6 @@ until the design or an ADR accounts for it.
 
 - #148 step 1: which Codex threads count as opted in (options 1, 2 or 3).
 - Claude Code idle eviction: whether it publishes `SessionEnd`.
-- Codex standalone TUI exclusivity, a terminal launched before the daemon,
-  daemon autostart, and the hooks of input joined to a running turn.
 - A sub-agent live during a move, on every harness.
 - Claude Code Remote Control in both modes, the SDK, agent teams, the desktop
   app; Codex Remote Control pairing and the Code Mode host; OpenCode local TUI

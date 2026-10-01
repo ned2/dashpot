@@ -37,11 +37,14 @@ cites each file.
 | [`issue-151-trace.jsonl`](issue-151-trace.jsonl) | JSONL trace, OpenCode 1.18.30 | [#151](https://github.com/ned2/dashpot/issues/151) | [`opencode-151`](../../../scripts/experiments/opencode-151/) | [OpenCode identity and lifecycle experiment](../opencode-identity-lifecycle-spike.md) |
 | [`issue-160-claude-trace.jsonl`](issue-160-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.276 | [#160](https://github.com/ned2/dashpot/issues/160) | [`claude-160`](../../../scripts/experiments/claude-160/) | [Claude Code identity and lifecycle experiment](../claude-code-identity-lifecycle-spike.md) |
 | [`issue-160-codex-trace.jsonl`](issue-160-codex-trace.jsonl) | JSONL trace, Codex CLI 0.155.1 | [#160](https://github.com/ned2/dashpot/issues/160) | [`codex-160`](../../../scripts/experiments/codex-160/) | [Codex identity and lifecycle experiment](../codex-identity-lifecycle-spike.md) |
+| [`issue-161-codex-trace.jsonl`](issue-161-codex-trace.jsonl) | JSONL trace, Codex CLI 0.159.3 | [#161](https://github.com/ned2/dashpot/issues/161) | [`codex-161`](../../../scripts/experiments/codex-161/), the Codex acceptance run | [Agent sessions: Codex hosting modes](../../agent-sessions.md#codex-hosting-modes) |
 | [`issue-269-codex-trace.jsonl`](issue-269-codex-trace.jsonl) | JSONL trace, Codex CLI 0.155.1 | [#269](https://github.com/ned2/dashpot/issues/269) | [`codex-269`](../../../scripts/experiments/codex-269/) | [Codex declared relocation on a daemon-hosted thread](../codex-declared-relocation-daemon-spike.md) |
 | [`issue-279-claude-trace.jsonl`](issue-279-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.285 | [#279](https://github.com/ned2/dashpot/issues/279) | [`claude-279`](../../../scripts/experiments/claude-279/) | [Harness reference: sub-agent hooks and location](../../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285) |
 | [`issue-326-claude-trace.jsonl`](issue-326-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.285 | [#326](https://github.com/ned2/dashpot/issues/326) | [`claude-326`](../../../scripts/experiments/claude-326/) | [Claude Code supervised worker process experiment](../claude-code-supervised-worker-process-spike.md) |
 | [`issue-345-claude-2.1.280-trace.jsonl`](issue-345-claude-2.1.280-trace.jsonl) | JSONL trace, Claude Code 2.1.280 | [#345](https://github.com/ned2/dashpot/issues/345) | [`claude-345`](../../../scripts/experiments/claude-345/) | [Claude Code 2.1.285 changes experiment](../claude-code-2-1-285-changes-spike.md) |
 | [`issue-345-claude-2.1.285-trace.jsonl`](issue-345-claude-2.1.285-trace.jsonl) | JSONL trace, Claude Code 2.1.285 | [#345](https://github.com/ned2/dashpot/issues/345) | [`claude-345`](../../../scripts/experiments/claude-345/) | [Claude Code 2.1.285 changes experiment](../claude-code-2-1-285-changes-spike.md) |
 
-The #279 trace is the one whose writeup is not a spike: its findings went
-straight into the living harness reference, which links it.
+The #279 trace and the #161 acceptance trace are the ones whose writeups are
+not spikes: their findings went straight into the living harness reference
+and agent sessions, which link them. The #161 trace is regenerated whenever
+the pinned Codex release changes.

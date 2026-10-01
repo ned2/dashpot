@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-23
+amended-by: 0072-keep-every-codex-host-process-non-exclusive.md
 ---
 
 # Continue an Orphaned Agent Run when its session resumes
@@ -75,7 +76,7 @@ session where it ran.
 |---|---|---|
 | Claude Code | Yes: one process per conversation, a `claude` process or a supervised worker, spares included; sub-agents share their parent's | Yes |
 | Codex, daemon-hosted | No: one app-server serves many threads | No |
-| Codex, no daemon | Unmeasured | No, until measured |
+| Codex, no daemon | No: measured at 0.159.3, a terminal is daemon-hosted by default and a standalone one is not stably distinguishable ([ADR 0072](0072-keep-every-codex-host-process-non-exclusive.md)) | No |
 | OpenCode ([design](../proposals/opencode-integration-design.md)) | No: one backend serves many sessions | No |
 
 Only Claude Code's adapter declares `exclusive_session_process`. A Codex

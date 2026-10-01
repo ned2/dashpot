@@ -706,6 +706,46 @@ def test_a_move_carries_the_live_sub_agents_and_turn_clock(tmp_path: Path) -> No
     assert recorded(session_directory(b))["state"] == "running"
 
 
+def test_a_reparented_host_still_seeds_the_move(tmp_path: Path) -> None:
+    # The daemon a terminal autostarted outlives it under a new parent; the
+    # Host Process is its pid and start time, not its parent or arguments.
+    a, b = two_worktrees(tmp_path)
+    launched = replace(CODEX, parent_pid=4100, arguments="app-server --listen")
+    reparented = replace(CODEX, parent_pid=1, arguments="app-server --managed-daemon")
+    publish(b, "Stop", process=launched, lookup=present(launched))
+    publish(a, "UserPromptSubmit", process=launched, lookup=present(launched))
+    publish(
+        a,
+        "SubagentStart",
+        agent_id="child-thread",
+        process=launched,
+        lookup=present(launched),
+    )
+    turn = recorded(session_directory(a))["turnStartedAt"]
+
+    publish(b, "UserPromptSubmit", process=reparented, lookup=present(reparented))
+
+    moved = recorded(session_directory(b))
+    assert (moved["state"], moved["liveSubagents"]) == ("running", ["child-thread"])
+    assert moved["turnStartedAt"] == turn
+
+
+def test_a_reused_pid_seeds_nothing(tmp_path: Path) -> None:
+    # The same pid with another start time is another Host Process.
+    a, b = two_worktrees(tmp_path)
+    reused = replace(CODEX, started_at="Sun Sep 06 05:20:00 2026")
+    publish(b, "Stop")
+    publish(a, "UserPromptSubmit")
+    publish(a, "SubagentStart", agent_id="child-thread")
+    turn = recorded(session_directory(a))["turnStartedAt"]
+
+    publish(b, "UserPromptSubmit", process=reused, lookup=present(reused))
+
+    moved = recorded(session_directory(b))
+    assert moved["liveSubagents"] == []
+    assert moved["turnStartedAt"] != turn
+
+
 def test_another_processs_record_seeds_nothing(tmp_path: Path) -> None:
     a, b = two_worktrees(tmp_path)
     hook_record(a, CODEX_SESSION, "codex", OTHER_CODEX)

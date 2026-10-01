@@ -259,6 +259,75 @@ class HookRecordStoreTests(unittest.TestCase):
         self.assertEqual([], runs)
         self.assertEqual([], diagnostics)
 
+    def test_session_end_from_a_reparented_host_removes_the_record(self) -> None:
+        # A Codex daemon a terminal autostarted is reparented when that
+        # terminal exits; its pid and start time still name the same Host
+        # Process, since neither its parent nor its arguments is identity
+        # (measured on 0.159.3, #161).
+        launched = ProcessIdentity(
+            42, 4100, "codex", "Tue Aug 25 01:00:00 2026", "app-server --listen"
+        )
+        reparented = ProcessIdentity(
+            42, 1, "codex", "Tue Aug 25 01:00:00 2026", "app-server --managed-daemon"
+        )
+        event = {"session_id": "unloaded", "cwd": "/repo", "hook_event_name": "Stop"}
+        publish_hook_event(event, self.state_dir, process=launched)
+
+        publish_hook_event(
+            {**event, "hook_event_name": "SessionEnd"},
+            self.state_dir,
+            process=reparented,
+        )
+
+        self.assertFalse((self.state_dir / "unloaded.json").exists())
+
+    def test_session_end_from_a_reused_pid_keeps_the_record(self) -> None:
+        event = {"session_id": "reused", "cwd": "/repo", "hook_event_name": "Stop"}
+        publish_hook_event(event, self.state_dir, process=self.process)
+
+        publish_hook_event(
+            {**event, "hook_event_name": "SessionEnd"},
+            self.state_dir,
+            process=ProcessIdentity(42, 1, "codex", "Wed Aug 26 01:00:00 2026"),
+        )
+
+        self.assertEqual(
+            "waiting",
+            json.loads((self.state_dir / "reused.json").read_text())["state"],
+        )
+
+    def test_session_end_matches_an_unreadable_process_only_as_recorded(
+        self,
+    ) -> None:
+        # A process record that cannot be read has no pid and start time to
+        # compare, so only the identical record names the same Host Process.
+        unreadable = {"pid": "unreadable", "command": "codex"}
+        readable = self.process.as_record()
+        for previous, ending, removed in (
+            (unreadable, unreadable, True),
+            (unreadable, {**unreadable, "command": "other"}, False),
+            (unreadable, readable, False),
+            (readable, unreadable, False),
+        ):
+            with self.subTest(previous=previous, ending=ending):
+                base = {
+                    "version": 2,
+                    "sessionId": "opaque",
+                    "harness": "codex",
+                    "lastActivityAt": "2026-08-25T16:00:00Z",
+                }
+                write_hook_record(
+                    {**base, "sessionProcess": previous, "state": "waiting"},
+                    self.state_dir,
+                )
+
+                write_hook_record(
+                    {**base, "sessionProcess": ending, "state": "ended"},
+                    self.state_dir,
+                )
+
+                self.assertEqual(not removed, (self.state_dir / "opaque.json").exists())
+
     def test_session_end_with_a_malformed_binding_still_removes_the_record(
         self,
     ) -> None:

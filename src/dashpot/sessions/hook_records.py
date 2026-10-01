@@ -9,7 +9,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import AfterValidator, BeforeValidator, Field
+from pydantic import AfterValidator, BeforeValidator, Field, ValidationError
 
 from ..core.git import Git, GitError
 from ..core.json_records import HookRecordError, optional_string, require_string
@@ -20,7 +20,7 @@ from ..core.record_store import LockedRecordStore
 from ..core.state_paths import machine_state_directory
 from ..core.timestamps import observed_instant, utc_now
 from .harnesses import SESSION_ID, HarnessName, HookSessionIdentity, delegate_id
-from .processes import ProcessIdentity, SessionProcessRecord
+from .processes import ProcessIdentity, ProcessKey, SessionProcessRecord
 from .session_matching import session_storage_key
 
 # What a hook record says its session is doing; ``ended`` is the state a
@@ -279,6 +279,32 @@ def observed_state(current: Mapping[str, Any]) -> str:
     return state
 
 
+def _same_host_process(one: Mapping[str, Any], other: Mapping[str, Any]) -> bool:
+    """Whether two hook records name the same Host Process: its pid and start time.
+
+    The parent and the argument vector are what a process was observed with,
+    not its identity (ADR 0067): a Codex daemon that a terminal autostarted
+    is reparented when that terminal exits and still serves the same
+    sessions. Two records without a process match, as do two whose process
+    cannot be read but is recorded identically; a process on one side only
+    never matches.
+    """
+    first, second = one.get("sessionProcess"), other.get("sessionProcess")
+    if first is None or second is None:
+        return first is None and second is None
+    first_key, second_key = _process_key(first), _process_key(second)
+    if first_key is None or second_key is None:
+        return first == second
+    return first_key == second_key
+
+
+def _process_key(raw: object) -> ProcessKey | None:
+    try:
+        return SessionProcessRecord.model_validate(raw).identity.key
+    except ValidationError:
+        return None
+
+
 def write_hook_record(record: dict[str, Any], directory: Path) -> Path:
     return HookRecordStore(directory).write(record)
 
@@ -345,7 +371,7 @@ class HookRecordStore(LockedRecordStore):
             child = is_child_record(record)
             if record.get("state") == "ended" and not child:
                 if previous is not None and (
-                    previous.get("sessionProcess") != record.get("sessionProcess")
+                    not _same_host_process(previous, record)
                     or observed_instant(previous.get("lastActivityAt"))
                     > observed_instant(record.get("lastActivityAt"))
                 ):
@@ -372,7 +398,7 @@ class HookRecordStore(LockedRecordStore):
                 and current.get("event") != "SessionStart"
                 # Another process's sub-agents and turn are not this one's.
                 and current.get("sessionProcess") is not None
-                and seed.get("sessionProcess") == current.get("sessionProcess")
+                and _same_host_process(seed, current)
                 and observed_instant(optional_string(seed.get("lastActivityAt")))
                 > observed_instant(
                     None
