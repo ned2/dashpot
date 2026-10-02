@@ -180,7 +180,11 @@ def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobse
     selectors: list[str] = []
     for column in columns:
         selectors.extend(("-o", f"{column}="))
-    args = ["ps", "-p", str(pid), *selectors]
+    # ``-ww`` keeps a free-form column whole: without it ``ps`` cuts the line
+    # to an inherited ``COLUMNS``, as a Host Process started from a terminal
+    # passes to its hooks, and a cut ``args`` loses the trailing flags an
+    # adapter reads, such as a managed Codex daemon's ``--managed-daemon``.
+    args = ["ps", "-ww", "-p", str(pid), *selectors]
     with recording_command(args) as record:
         try:
             result = subprocess.run(

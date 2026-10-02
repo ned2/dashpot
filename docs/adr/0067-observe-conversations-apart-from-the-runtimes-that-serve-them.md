@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-01
+amended-by: 0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md
 ---
 
 # Observe conversations apart from the runtimes that serve them
@@ -56,6 +57,10 @@ Ending needs positive evidence: `SessionEnd` for Codex and Claude Code,
 liveness is never gone, and `SessionEnd` ends only work from its own Host
 Process that did not start after it. A daemon-hosted Codex terminal's `/exit`
 therefore ends nothing until the thread's unload publishes `SessionEnd`.
+[ADR 0086](0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)
+qualifies the evidence for the managed daemon, whose stop and restart publish
+the same `SessionEnd` as an unload: its run ends only once the daemon is seen
+to outlive the `SessionEnd`, and is left orphaned when the daemon exits.
 
 An Agent Run keeps its identity, `startedAt` and Issue Binding across a
 boundary only through one of four routes: [ADR 0029](0029-preserve-agent-runs-through-declared-codex-relocation.md)'s

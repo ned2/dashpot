@@ -49,8 +49,9 @@ cites each file.
 | [`issue-327-claude-2.1.287-trace.jsonl`](issue-327-claude-2.1.287-trace.jsonl) | JSONL trace, Claude Code 2.1.287 | [#327](https://github.com/ned2/dashpot/issues/327) | [`claude-327`](../../../scripts/experiments/claude-327/) | [Harness reference: worktree tools between Issue Worktrees](../../agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286) |
 | [`issue-345-claude-2.1.280-trace.jsonl`](issue-345-claude-2.1.280-trace.jsonl) | JSONL trace, Claude Code 2.1.280 | [#345](https://github.com/ned2/dashpot/issues/345) | [`claude-345`](../../../scripts/experiments/claude-345/) | [Claude Code 2.1.285 changes experiment](../claude-code-2-1-285-changes-spike.md) |
 | [`issue-345-claude-2.1.285-trace.jsonl`](issue-345-claude-2.1.285-trace.jsonl) | JSONL trace, Claude Code 2.1.285 | [#345](https://github.com/ned2/dashpot/issues/345) | [`claude-345`](../../../scripts/experiments/claude-345/) | [Claude Code 2.1.285 changes experiment](../claude-code-2-1-285-changes-spike.md) |
+| [`issue-356-codex-trace.jsonl`](issue-356-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#356](https://github.com/ned2/dashpot/issues/356) | [`codex-356`](../../../scripts/experiments/codex-356/), the managed daemon restart acceptance run | [Harness reference: managed daemon restart and stop](../../agent-harness-server-client-reference.md#managed-daemon-restart-and-stop-at-01600) |
 
-The #279 and #327 traces and the #161, #162 and #163 acceptance traces are
+The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the
 living harness reference and agent sessions, which link them. The acceptance traces
 are regenerated whenever the pinned Codex, Claude Code or OpenCode release, or

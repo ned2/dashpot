@@ -325,16 +325,41 @@ def end_session_runs(
     *,
     ended_at: str | None = None,
 ) -> list[tuple[Path, ActiveWork]]:
-    """End unchanged runs owned by the named session and ending runtime."""
+    """End unchanged runs owned by the named session and ending Host Process."""
     ended: list[tuple[Path, ActiveWork]] = []
-    for worktree in worktrees:
-        store = WorkStore(worktree)
+    for worktree, work in session_runs_to_end(
+        worktrees, harness, session_id, process_key, ended_at=ended_at
+    ):
         try:
-            active, _diagnostics = store.active()
+            if WorkStore(worktree).stop_current(work):
+                ended.append((worktree, work))
+        except (OSError, ValueError):
+            continue
+    return ended
+
+
+def session_runs_to_end(
+    worktrees: Iterable[Path],
+    harness: Harness,
+    session_id: str,
+    process_key: ProcessKey | None,
+    *,
+    ended_at: str | None = None,
+) -> list[tuple[Path, ActiveWork]]:
+    """The runs a ``SessionEnd`` of the named session and Host Process would end.
+
+    A run is the session's when it carries the session's identity and records
+    no process or the ending one. A run that started after the end, or a Codex
+    run carrying a Relocation Intent (ADR 0029), is never one of them.
+    """
+    found: list[tuple[Path, ActiveWork]] = []
+    identity = SessionEvidence(harness, session_id, process_key)
+    for worktree in worktrees:
+        try:
+            active, _diagnostics = WorkStore(worktree).active()
         except OSError:
             continue
         for work in active:
-            identity = SessionEvidence(harness, session_id, process_key)
             recorded = work.evidence
             if identity.match(recorded) != "same":
                 continue
@@ -346,9 +371,5 @@ def end_session_runs(
                 continue
             if work.harness == "codex" and work.relocation is not None:
                 continue
-            try:
-                if store.stop_current(work):
-                    ended.append((worktree, work))
-            except (OSError, ValueError):
-                continue
-    return ended
+            found.append((worktree, work))
+    return found

@@ -111,6 +111,10 @@ def _designates_nothing(_event: HookEvent) -> bool:
     return False
 
 
+def _defers_nothing(_process: ProcessIdentity) -> bool:
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class HarnessAdapter:
     """One supported harness's process and session identity contract."""
@@ -128,6 +132,11 @@ class HarnessAdapter:
     # so the only evidence that may carry an Agent Run to another Worktree
     # (Live Relocation, ADR 0067). A tool call's working directory never is.
     locates: Callable[[HookEvent], bool] = _designates_nothing
+    # Whether a ``SessionEnd`` from this Host Process may be the host's own
+    # stop or restart rather than the session's end. Such an end is settled
+    # by whether the host keeps running: a host that exits leaves the run an
+    # Orphaned Agent Run, and nothing is ever continued (ADR 0086).
+    defers_session_end: Callable[[ProcessIdentity], bool] = _defers_nothing
 
 
 def is_codex_host_process(process: ProcessIdentity) -> bool:
@@ -137,6 +146,21 @@ def is_codex_host_process(process: ProcessIdentity) -> bool:
     if "codex-linux-sandbox" in arguments or "sandbox" in name:
         return False
     return name == "codex" or name.startswith("codex-")
+
+
+def is_codex_managed_daemon(process: ProcessIdentity) -> bool:
+    """Whether a Codex Host Process is the managed daemon, by its argument vector.
+
+    Measured at 0.159.3 and 0.160.0, the daemon runs as ``codex app-server``
+    with ``--managed-daemon``, beside ``--listen unix://`` and, when a
+    terminal autostarted it, ``--remote-control``. A stop or restart of the
+    daemon publishes ``SessionEnd`` for every thread it holds, as an idle
+    unload does, and then exits (ADR 0086).
+    """
+    if not is_codex_host_process(process):
+        return False
+    tokens = (process.arguments or "").split()
+    return "app-server" in tokens and "--managed-daemon" in tokens
 
 
 def is_claude_code_host_process(process: ProcessIdentity) -> bool:
@@ -278,13 +302,15 @@ def _opencode_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
 
 
 # A daemon-hosted Codex terminal records the daemon, which serves many threads
-# and outlives any one of them.
+# and outlives any one of them. The managed daemon's own stop or restart
+# publishes the same ``SessionEnd`` as an unload, so its end is deferred.
 CODEX = HarnessAdapter(
     harness="codex",
     display=HARNESS_DISPLAY["codex"],
     is_host_process=is_codex_host_process,
     claim_session_identity=_codex_claim,
     locates=_codex_locates,
+    defers_session_end=is_codex_managed_daemon,
 )
 
 # One Claude Code process per session: its sub-agents share the parent's

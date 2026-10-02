@@ -6,6 +6,8 @@ import json
 import re
 import signal
 import sys
+import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -21,6 +23,7 @@ from .core.json_records import HookRecordError
 from .core.model import Harness
 from .core.runtime_events import HookOutcome, OutcomeResult, fitting
 from .event_logs import open_event_log
+from .sessions.deferred_end import SETTLE_COMMAND, DeferredEnd, settle_session_end
 from .sessions.hook_publish import HookPublication, publish_hook_event
 from .sessions.opencode_publish import (
     OpenCodeOutcome,
@@ -28,6 +31,7 @@ from .sessions.opencode_publish import (
     parse_publication,
     publish_opencode,
 )
+from .sessions.processes import ProcessLookup, host_process_lookup
 from .sessions.work_store import ActiveWork
 
 # A failed publish is reported but never blocks the session: Claude Code reads
@@ -261,5 +265,68 @@ def opencode_main(*, event_log: EventLogDestination | None = None) -> int:
     return _run_opencode(event_log=event_log)
 
 
+def settle_main(
+    argv: Sequence[str],
+    *,
+    event_log: EventLogDestination | None = None,
+    lookup: ProcessLookup = host_process_lookup,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    """Settle one deferred ``SessionEnd`` a managed Codex daemon published.
+
+    It runs detached from the hook that started it, and records its own
+    Event Log process as the ``SessionEnd`` hook it completes: ``ended`` when
+    the daemon kept running and the runs ended, ``unchanged`` when they were
+    left as Orphaned Agent Runs (ADR 0086).
+    """
+    deferred: DeferredEnd | None = None
+    failure: Exception | None = None
+    try:
+        deferred = DeferredEnd.parse(argv[0]) if argv else None
+    except ValueError as exc:
+        failure = exc
+    # Only the Codex adapter defers an end, so an unreadable one is Codex's.
+    harness: Harness = "codex" if deferred is None else deferred.harness
+    log = open_event_log(
+        f"hook:{harness}:SessionEnd",
+        working_directory=None if deferred is None else Path(deferred.cwd),
+        destination=event_log,
+        harness=harness,
+        session_id=None if deferred is None else deferred.session_id,
+    )
+    log.start()
+    code = 0
+    publication: HookPublication | None = None
+    error: Exception | None = None
+    try:
+        if deferred is None:
+            raise failure or ValueError("no deferred SessionEnd to settle")
+        with use_event_log(log):
+            ended = settle_session_end(deferred, lookup, clock=clock, sleep=sleep)
+        # The settler writes no hook record; its outcome names the directory
+        # the deferred end was published from.
+        publication = HookPublication(
+            Path(deferred.cwd),
+            state="ended",
+            work="ended" if ended else "unchanged",
+            issue_id=ended[0][1].issue_id if ended else None,
+        )
+    except (OSError, ValueError, RuntimeError, DashpotError) as exc:
+        error = exc
+        code = NON_BLOCKING_FAILURE_EXIT_CODE
+    record_hook_outcome(log, {"hook_event_name": "SessionEnd"}, publication, error)
+    log.end(code)
+    log.close()
+    return code
+
+
+def module_main(argv: Sequence[str]) -> int:
+    """Run this module: settle a deferred ``SessionEnd``, else publish a Codex event."""
+    if tuple(argv[:1]) == (SETTLE_COMMAND,):
+        return settle_main(argv[1:])
+    return main()
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(module_main(sys.argv[1:]))

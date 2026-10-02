@@ -12,6 +12,13 @@ from ..core.model import Harness
 from ..core.runtime_events import HookRecordState, WorkStoreChange
 from ..core.state_paths import is_configured_checkout
 from ..core.worktree_paths import same_path
+from .deferred_end import (
+    DeferredEnd,
+    Settler,
+    defers_session_end,
+    pending_session_end,
+    spawn_settler,
+)
 from .hook_records import (
     HookRecordStore,
     build_hook_record,
@@ -72,6 +79,7 @@ def publish_hook_event(
     process: ProcessIdentity | None = None,
     harness: Harness = "codex",
     lookup: ProcessLookup = host_process_lookup,
+    settle: Settler = spawn_settler,
 ) -> HookPublication:
     """Publish one hook event and reconcile its session's Agent Run.
 
@@ -80,7 +88,10 @@ def publish_hook_event(
     changes only the parent's live sub-agents (ADR 0067). ``SessionEnd`` first
     continues an orphaned run the session holds here (ADR 0075), then ends the
     session's run before its record is removed, and removes its older records
-    elsewhere in the Repository. Any other event is reconciled by at
+    elsewhere in the Repository; a ``SessionEnd`` from a managed Codex daemon
+    instead leaves its runs to a settler ``settle`` starts once the record is
+    written, which ends them only if the daemon keeps running (ADR 0086).
+    Any other event is reconciled by at
     most one route, in order: a declared relocation's completion (ADR 0029),
     a Live Relocation (ADR 0067), or an orphan continuation (ADR 0053).
     ``directory``, when given, is the one store every record is written to.
@@ -110,16 +121,27 @@ def publish_hook_event(
     else:
         store = route_record_store(record)
     ending = state == "ended" and not child
-    ended: list[tuple[Path, ActiveWork]] = []
+    # The runs this end ended, or left to a settler when it is ``deferred``.
+    reconciled: list[tuple[Path, ActiveWork]] = []
+    deferred: DeferredEnd | None = None
     if ending:
         # A replaced Claude Code worker can end before any other hook of its
         # new Host Process reaches the Worktree holding its orphaned run, so
         # the end continues that run first and then ends it (ADR 0075).
         continue_session_work(record, identity, lookup)
-        # Reconcile the Work Store before removing the old location evidence.
-        # A target hook therefore either sees the old client and waits, or
-        # sees that SessionEnd has already preserved the pending run.
-        ended = end_session_work(record, identity, worktrees=worktrees)
+        if identity is not None and defers_session_end(record, identity):
+            # A managed daemon ends a thread the same way when it unloads it
+            # and when it is stopped or restarted, and waits for this hook
+            # before it exits; only a settler outliving the hook can tell.
+            pending = pending_session_end(record, identity, worktrees=worktrees)
+            if pending is not None:
+                deferred, reconciled = pending
+        else:
+            # Reconcile the Work Store before removing the old location
+            # evidence. A target hook therefore either sees the old client
+            # and waits, or sees that SessionEnd has already preserved the
+            # pending run.
+            reconciled = end_session_work(record, identity, worktrees=worktrees)
     seed = (
         None
         if child or freshest is None or same_path(freshest.store, store.directory)
@@ -134,8 +156,18 @@ def publish_hook_event(
             written=destination.parent,
             global_store=directory,
         )
-        work: WorkStoreChange = "ended" if ended else "unchanged"
-        changed = ended[0][1] if ended else None
+        if deferred is not None:
+            # Started last, so a settler that cannot start leaves the runs
+            # as they are, recoverable as orphans, and fails only the hook.
+            settle(deferred)
+        work: WorkStoreChange = (
+            "deferred"
+            if deferred is not None
+            else "ended"
+            if reconciled
+            else "unchanged"
+        )
+        changed = reconciled[0][1] if reconciled else None
         return HookPublication(
             destination,
             state=state,

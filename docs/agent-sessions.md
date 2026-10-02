@@ -204,8 +204,9 @@ and start time Dashpot records and checks for liveness:
 
 | How the thread runs | Host Process | Graceful end |
 | --- | --- | --- |
-| Plain `codex` terminal, the default | The managed daemon, which the first plain terminal starts | Not at `/exit`: `SessionEnd` about 60 s after the thread's last client leaves, or at `codex app-server daemon stop` |
-| `codex --remote`, or a controller on the daemon or on `codex app-server --listen` | The daemon or that app-server | As above |
+| Plain `codex` terminal, the default | The managed daemon, which the first plain terminal starts | Not at `/exit`: `SessionEnd` about 60 s after the thread's last client leaves. A `codex app-server daemon stop` or `restart` publishes `SessionEnd` too, but leaves the run orphaned |
+| `codex --remote`, or a controller on the daemon | The daemon | As above |
+| A controller on `codex app-server --listen` | That app-server | `SessionEnd` about 60 s after the thread's last client leaves, or when the server exits |
 | `codex --disable daemon_auto_start`, launched while no daemon runs | The terminal itself | `SessionEnd` at `/exit` |
 | `codex exec` | The `exec` process | `SessionEnd` when it exits |
 
@@ -232,21 +233,38 @@ In the dashboard, a Codex session's state means:
   controller, leaves its children working to their own `SubagentStop`.
 - **Unloaded.** A daemon-hosted thread whose last terminal or client has
   left stays listed as waiting, at its Worktree and with its run, until the
-  daemon unloads it about 60 s later. Its `SessionEnd` then ends its run and
-  removes the session from every Worktree of the Repository. Until then it
-  still occupies its Worktree for Cleanup. A thread resumed after it
-  unloaded is a new incarnation of the same session with no run.
-- **Gone.** The Host Process was killed or crashed: no hook says so. A bound
-  run is listed as an [Orphaned Agent Run](domain-language.md) (`◌`) under
-  the gone process (`codex pid N`), and an unbound session leaves the
-  Sessions pane. A killed daemon orphans every bound run it hosted at once.
+  daemon unloads it about 60 s later. Its `SessionEnd` then removes the
+  session from every Worktree of the Repository, and its run ends about 10 s
+  later, once Dashpot has seen the daemon keep running
+  ([ADR 0086](adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)).
+  Until the unload the thread still occupies its Worktree for Cleanup. A
+  thread resumed after it unloaded is a new incarnation of the same session
+  with no run, though one resumed on the same daemon within those 10 s can
+  show the old run until it ends.
+- **Gone.** The Host Process was killed or crashed, and no hook says so, or
+  the managed daemon was stopped or restarted. A bound run is listed as an
+  [Orphaned Agent Run](domain-language.md) (`◌`) under the gone process
+  (`codex pid N`), and an unbound session leaves the Sessions pane. A killed
+  daemon orphans every bound run it hosted at once. So does
+  `codex app-server daemon stop` or `restart`: the daemon publishes
+  `SessionEnd` for every thread it holds, as an unload does, but exits within
+  a few seconds of it, so Dashpot leaves each bound run orphaned under the
+  stopped daemon rather than ending it (ADR 0086). A stop with a turn
+  running first lets the turn finish, and ends no thread, busy or idle,
+  until it has. A restart reloads every thread it held
+  into the replacement daemon, with no hook: a reloaded thread's next turn
+  runs there and is listed unbound beside its orphaned run, and a reloaded
+  thread no client holds unloads about 60 s later, leaving the orphan as it
+  was ([measured at 0.160.0](agent-harness-server-client-reference.md#managed-daemon-restart-and-stop-at-01600)).
 - **Unknown.** Dashpot cannot observe the Host Process, so liveness is
   unconfirmed (`○`). Unknown never ends, carries or continues a run.
 
 To recover an orphaned Codex run, resume the conversation in the Worktree
 the run is in (the Sessions pane's `y` copies `codex resume <id> -C <worktree>`) and run
-`dashpot work start <issue>` from the resumed session. Until then the resumed
-session is listed unbound beside its orphaned run. `work start` reports that
+`dashpot work start <issue>` from the resumed session. After a restart the
+conversation is already loaded in the replacement daemon, so its next turn
+can run `work start` without a resume. Until then the session is listed
+unbound beside its orphaned run. `work start` reports that
 it restarted the run, and binds a new run, with a new `startedAt`, to the new
 Host Process. To abandon the run instead, run
 `dashpot work stop --session <key>`. Dashpot never continues an orphaned

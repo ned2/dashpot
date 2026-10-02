@@ -23,14 +23,14 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
+| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off, for [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted while its sibling works and the parent's own turn interrupted, and for [#356](https://github.com/ned2/dashpot/issues/356) with the managed daemon's `SessionEnd` deferred to a settler and the daemon's hooks inheriting a terminal's `COLUMNS`; the [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached process outliving the hook and the daemon, and threads reloaded into the replacement; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction; a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
 2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19,
-2026-09-30 and 2026-10-01, and Codex measurements on 2026-09-19, 2026-09-20
-and 2026-10-01. Current documentation
+2026-09-30 and 2026-10-01, and Codex measurements on 2026-09-19, 2026-09-20,
+2026-10-01 and 2026-10-02. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -476,7 +476,8 @@ them. A terminal's `/exit` runs no hook and neither unloads the thread nor
 releases its writer lock while another subscriber remains; the last
 `thread/unsubscribe` starts the unload delay, after which `SessionEnd` `other`
 fires at the thread's current cwd (60,049 ms measured). `daemon stop` ends the
-remaining loaded threads with `SessionEnd` `other`. A terminal launched before
+remaining loaded threads with `SessionEnd` `other`, as `daemon restart` does
+([measured at 0.160.0](#managed-daemon-restart-and-stop-at-01600)). A terminal launched before
 the daemon starts was measured at 0.159.3
 ([below](#hosting-modes-and-daemon-autostart-at-01593)); `codex agents` was
 not measured.
@@ -537,6 +538,14 @@ that run's trace is retained at commit `d0a0a52`.
   `app-server daemon start` and `stop` now name
   `packages/app-server-daemon/current`, where 0.155.1 required the
   standalone release.
+- **Inherited environment.** The autostarted daemon keeps the environment of
+  the terminal that started it, and its hooks inherit it in turn. The runner
+  starts each terminal with `COLUMNS=120`. In an unretained
+  [#356](https://github.com/ned2/dashpot/issues/356) rerun before the fix,
+  the daemon's hooks saw `ps` cut its command line, about 200 characters in
+  the fixture, at 120 columns, before `--managed-daemon`. Dashpot's probe
+  now asks `ps` for unlimited width with `-ww`, and the retained trace's
+  deferred unload ends depend on it.
 - **Remote Control.** `codex remote-control start --json` installs and
   starts the same daemon even with no account, then exits 1 because the
   remote connection is errored. `remote-control stop` stops the daemon.
@@ -563,7 +572,9 @@ that run's trace is retained at commit `d0a0a52`.
 - **Unload and timeouts.** The unload delay after the last subscriber left
   was about 60 s (59.6 to 60.2 s in the retained trace), and `SessionEnd`
   `other` names the thread's current cwd. `codex exec` warns that it clamps the `SessionEnd` and
-  `Interrupt` hook timeouts to 3 s.
+  `Interrupt` hook timeouts to 3 s; the daemon clamps `SessionEnd` the same
+  way without a warning
+  ([measured at 0.160.0](#managed-daemon-restart-and-stop-at-01600)).
 - **Identity.** The 0.155.1 identity equalities held: hook `session_id` =
   `thread.id` = `CODEX_THREAD_ID` = `CODEX_SESSION_ID` for roots and forks. A
   sub-agent's shell claims its own thread id in `CODEX_THREAD_ID` and its
@@ -628,6 +639,73 @@ that run's trace is retained at commit `d0a0a52`.
 Interactive conversation switches inside one terminal (`/new`, `/resume`),
 Remote Control pairing with an account, and other operating systems were not
 measured.
+
+### Managed daemon restart and stop at 0.160.0
+
+The [restart acceptance run](../scripts/experiments/codex-356/run.mjs) for
+[#356](https://github.com/ned2/dashpot/issues/356) measured `codex-cli`
+0.160.0 on Linux (2026-10-02) with the fixture of the [#161
+run](#hosting-modes-and-daemon-autostart-at-01593): an isolated `CODEX_HOME`
+with the daemon's updater off, a loopback Responses API, and Dashpot's real
+Codex publisher as a trusted command hook. The hook wrapper could also hold a
+`SessionEnd` hook, posting a beat every 0.5 s, and start a waiter in a session
+of its own, with none of the hook's streams, that watched the hook's Codex
+host for 15 s. `codex app-server daemon start` ran the daemon as `codex
+app-server --listen unix:// --managed-daemon`. The metadata-only
+[trace](spikes/measurements/issue-356-codex-trace.jsonl) records each claim
+below and the [verifier](../scripts/experiments/codex-356/verify.mjs) checks
+it, timings within a tolerance. How Dashpot acts on it is [ADR
+0086](adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md).
+
+- **One `SessionEnd` for three causes.** An idle unload, `daemon restart` and
+  `daemon stop` each run `SessionEnd` for every thread they end, with the same
+  payload keys and `reason` `other`. Nothing in the payload tells them apart.
+- **The 3 s clamp.** The daemon kills a `SessionEnd` hook about 3 s after it
+  begins, although the hook configuration names 30 s, on an unload as on a
+  stop: a hook holding for 6 s posted its last beat at 2.75 to 2.79 s and
+  never reached its end. `codex exec` warns of this clamp; the daemon applies
+  it without a warning.
+- **Parallel hooks.** The four threads loaded at the restart began their
+  `SessionEnd` hooks within 8 ms of one another, 40 ms after `daemon restart`
+  began.
+- **The daemon waits for its hooks.** On the restart, whose hooks ran only the
+  publisher, the old daemon exited 0.39 s after the first hook began and
+  within 43 ms of the last hook's end; the replacement was already listening,
+  and `daemon restart` returned after 0.67 s. On the stop, whose hooks held
+  until the clamp killed them, the daemon exited 3.0 s after they began.
+- **A running turn drains first.** `daemon stop` sent while one thread's turn
+  waited on the model and another thread sat idle let the turn finish before
+  ending either: the model was released 20.0 s after the stop began, the turn
+  completed, and both threads' `SessionEnd` hooks began 0.32 s later; `daemon
+  stop` returned after 23.3 s. A restart with a turn running was not measured.
+- **A detached process outlives both.** The waiter outlived the killed hook
+  and the daemon. It saw the old daemon exit 0.36 to 0.38 s after its hook
+  began on the restart and 3.00 to 3.01 s after on the stop, and on an unload
+  saw the daemon still running 15 s later.
+- **Reload with no hook.** The replacement daemon held every thread the old
+  one had loaded: its `thread/loaded/list` named all four, and neither the
+  reload nor a controller's `thread/resume` of one ran a hook. That thread's
+  next turn ran on the replacement, its first hook `SessionStart` with
+  `source` `resume`, under the same thread id.
+- **A reloaded thread unloads.** The three reloaded threads no client resumed
+  ran `SessionEnd` from the replacement 60.2 to 60.3 s after the old daemon
+  exited, the unload delay counted from the reload.
+- **Unload timing.** An idle thread's `SessionEnd` began 60.0 s after its last
+  client left, as at 0.159.3.
+- **Not measured.** The fixture's updater was off, so a restart the updater
+  starts after installing a release was not seen; nor were a restart with a
+  turn running, a `SIGTERM` of the daemon, or `remote-control stop`.
+
+Through Dashpot's publisher and settler, `exec` and a standalone terminal's
+`/exit` ended their runs at once. The unloaded thread's run ended 10.1 s after
+its `SessionEnd`, once the settler had seen the daemon outlive it. The restart
+left the three bound runs orphaned under the old daemon, each settler deciding
+within 0.3 s; the reloaded thread's next turn was listed unbound beside its
+orphaned run until `work start` bound a new run on the replacement; the
+reloaded threads' later unload ended nothing of the orphans and started no
+settler; and the stop left the recovered run and its idle sibling's run
+orphaned under the replacement. Every hook and settler process had exited by
+the end of the run.
 
 ### Changes on `main` after `rust-v0.154.0`
 

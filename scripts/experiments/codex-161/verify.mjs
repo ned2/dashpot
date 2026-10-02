@@ -39,7 +39,7 @@ const environment = records[0];
 assert.equal(environment.kind, "environment");
 assert.equal(environment.version, `codex-cli ${expectedVersion}`);
 const scripts = ["ancestry.mjs", "command.mjs", "hook.mjs", "run.mjs", "uds-websocket.mjs", "verify.mjs"];
-const modules = ["harnesses.py", "hook_publish.py", "hook_records.py", "hook_scan.py", "processes.py", "work.py", "work_reconciliation.py"].map((file) => `src/dashpot/sessions/${file}`);
+const modules = ["deferred_end.py", "harnesses.py", "hook_publish.py", "hook_records.py", "hook_scan.py", "processes.py", "work.py", "work_reconciliation.py"].map((file) => `src/dashpot/sessions/${file}`);
 assert.deepEqual(Object.keys(environment.sourceSHA256).sort(), [...scripts, ...modules].sort());
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
 // The runner's scripts change only with a new trace, so they must match.
@@ -472,10 +472,11 @@ assert.deepEqual(unbound(view("recovered")), []);
 for (const label of ["daemon-start", "daemon-stop"]) {
   assert.equal(JSON.parse(labelled("codex.command", label).stdout).managedCodexPath, "<root>/codex-home/packages/app-server-daemon/current/bin/codex");
 }
-// `daemon stop` publishes SessionEnd for the loaded thread, which ends its
-// run, and leaves no fixture process behind.
+// `daemon stop` publishes SessionEnd for the loaded thread, but the daemon
+// exits with it, so its run is left orphaned under the stopped daemon
+// (ADR 0086), and no fixture process, the settler included, stays behind.
 assert.deepEqual(one("daemon-stop.outcome").newHooks.map(([event, session, reason]) => [event, session, reason]), [["SessionEnd", r1, "other"]]);
-assert.deepEqual(view("after-daemon-stop").agentRuns, []);
+assert.deepEqual(view("after-daemon-stop").agentRuns.map((run) => [run.issueId, run.orphaned, run.state, run.processOrSession]), [["I_fixture_2", true, "unknown", hostedBy(newDaemon)]]);
 assert.deepEqual(labelled("processes", "after-daemon-stop").daemons, []);
 assert.deepEqual(labelled("processes", "after-daemon-stop").processes, [], "nothing outlives daemon stop");
 
@@ -486,8 +487,17 @@ assert.equal(events.status, 0);
 const outcomes = events.events.filter((event) => event["event.name"] === "hook.outcome");
 assert(outcomes.some((event) => event["dashpot.agent_session.id"] === ta && event["dashpot.hook.event"] === "UserPromptSubmit" && event["dashpot.work_store.change"] === "relocated" && event["dashpot.worktree.path"] === fourth));
 assert(outcomes.some((event) => event["dashpot.agent_session.id"] === r1 && event["dashpot.work_store.change"] === "relocated" && event["dashpot.worktree.path"] === third));
-assert.deepEqual(outcomes.filter((event) => event["dashpot.work_store.change"] === "ended").map((event) => event["dashpot.issue.id"]).sort(),
-  ["I_fixture_1", "I_fixture_2", "I_fixture_3", "I_fixture_4"]);
+// The standalone session's SessionEnd ends Issue 3's run at once. Each of the
+// managed daemon's defers its run's end to a settler (ADR 0086): an unload's
+// settler sees the daemon keep running and ends the run, while `daemon stop`'s
+// sees it exit and leaves Issue 2's run orphaned.
+const changed = (change) => outcomes.filter((event) => event["dashpot.work_store.change"] === change).map((event) => event["dashpot.issue.id"] ?? null).sort();
+assert.deepEqual(changed("ended"), ["I_fixture_1", "I_fixture_3", "I_fixture_4"]);
+assert.deepEqual(changed("deferred"), ["I_fixture_1", "I_fixture_2", "I_fixture_4"]);
+const endsOf = (session) => outcomes.filter((event) => event["dashpot.agent_session.id"] === session && event["dashpot.hook.event"] === "SessionEnd")
+  .sort((left, right) => left.time.localeCompare(right.time)).map((event) => [event["dashpot.work_store.change"], event["dashpot.issue.id"] ?? null]);
+assert.deepEqual(endsOf(ta), [["deferred", "I_fixture_1"], ["ended", "I_fixture_1"]], "the unloading daemon's settler ends Issue 1's run");
+assert.deepEqual(endsOf(r1), [["deferred", "I_fixture_2"], ["unchanged", null]], "the stopped daemon's settler leaves Issue 2's run");
 assert(!outcomes.some((event) => event["dashpot.work_store.change"] === "continued"), "Codex never continues an orphaned run");
 assert(outcomes.every((event) => event["dashpot.outcome.result"] === "succeeded"));
 

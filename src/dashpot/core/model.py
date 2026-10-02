@@ -219,7 +219,7 @@ class AgentRun(ObservationModel):
     turn_started_at: str | None = None
     started_at: str | None = None
     # An Orphaned Agent Run: its session's recorded process is gone although
-    # no graceful end was observed. Its ``state`` is then ``unknown`` and its
+    # no graceful end ended the run. Its ``state`` is then ``unknown`` and its
     # last activity is when the session was last seen. ``host_restarted`` says
     # whether the host has booted since that process started, when known.
     orphaned: bool = False

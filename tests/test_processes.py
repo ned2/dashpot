@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime
@@ -97,12 +99,53 @@ class ProcessLookupTests(unittest.TestCase):
         kill.assert_called_once_with(42, 0)
         identity_probe, arguments_probe = run.call_args_list
         self.assertEqual(
-            ["-o", "pid=", "-o", "ppid=", "-o", "lstart=", "-o", "comm="],
-            identity_probe.args[0][3:],
+            [
+                "-ww",
+                "-p",
+                "42",
+                "-o",
+                "pid=",
+                "-o",
+                "ppid=",
+                "-o",
+                "lstart=",
+                "-o",
+                "comm=",
+            ],
+            identity_probe.args[0][1:],
         )
-        self.assertEqual(["-o", "args="], arguments_probe.args[0][3:])
+        self.assertEqual(
+            ["-ww", "-p", "42", "-o", "args="], arguments_probe.args[0][1:]
+        )
         self.assertEqual("C", identity_probe.kwargs["env"]["LC_ALL"])
         self.assertEqual("UTC", identity_probe.kwargs["env"]["TZ"])
+
+    def test_host_process_lookup_reads_arguments_past_an_inherited_width(
+        self,
+    ) -> None:
+        # A Host Process started from a terminal can pass ``COLUMNS`` to its
+        # hooks; the probe must still read a managed daemon's trailing flags,
+        # past BSD's 132 columns for a single ``-w`` too.
+        flag = "--managed-daemon"
+        host = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.read()", "x" * 160, flag],
+            stdin=subprocess.PIPE,
+        )
+        try:
+            with (
+                mock.patch(
+                    "dashpot.sessions.processes.process_namespace_is_isolated",
+                    return_value=False,
+                ),
+                mock.patch.dict(os.environ, {"COLUMNS": "10"}),
+            ):
+                observed = host_process_lookup(host.pid)
+        finally:
+            host.communicate()
+
+        assert isinstance(observed, ProcessPresent)
+        assert observed.identity.arguments is not None
+        self.assertTrue(observed.identity.arguments.endswith(f" {flag}"))
 
     def test_host_process_lookup_reads_a_spaced_macos_comm_intact(self) -> None:
         # macOS renders ``comm`` as the executable's full path, which may

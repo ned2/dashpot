@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0075-end-an-orphaned-run-at-its-replacements-session-end.md
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0053-continue-an-orphaned-agent-run-when-its-session-resumes.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0075-end-an-orphaned-run-at-its-replacements-session-end.md, 0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md
 ---
 
 # Reconcile the session's Agent Run at SessionEnd
@@ -74,6 +74,12 @@ lets a session's own `SessionEnd` first continue an Orphaned Agent Run it
 holds at that Worktree, under ADR 0053's conditions, and then end it, so a
 replacement worker stopped before its first turn there ends its
 predecessor's run.
+
+[ADR 0086](0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)
+defers the end when the `SessionEnd` comes from the managed Codex daemon,
+which publishes the same end when it unloads a thread as when it is stopped or
+restarted. A settler ends the run only once the daemon is seen still running
+10 s later, and otherwise leaves it an Orphaned Agent Run.
 
 ## Considered options
 
