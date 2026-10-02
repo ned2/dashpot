@@ -279,7 +279,7 @@ No claim is made that #148 can relocate arbitrary observed sessions.
 
 ## Open questions and dependencies
 
-Updated 2026-09-20. The
+Updated 2026-10-02. The
 [Cleanup handoff feasibility experiment](../spikes/cleanup-session-handoff-feasibility-spike.md#scenario-results-codex)
 answered the daemon two-thread `turn/start` scenario, the unload timing, and
 the controller-turn hook points on `0.155.1`, and the
@@ -292,15 +292,15 @@ target `SessionStart`. What remains:
 - #148 and #261: Candidate 4 is measured feasible as a live-thread
   relocation by `turn/start` with a `cwd` override on an idle, opted-in
   thread, a separate lifecycle contract beside ADR 0029, not a replacement
-  for it. Its completion rule is now ADR 0067's Live Relocation, to be
-  implemented by #161 and accepted under #278; the controller seam and the opt-in rule
+  for it. Its completion rule is now ADR 0067's Live Relocation, implemented
+  by #161 and accepted under #278; the controller seam and the opt-in rule
   stay #148's. The sequential route needs no new completion meaning.
-- Unmeasured on the live route: input joined to a running turn (whether it
-  publishes its own `UserPromptSubmit`, and at which `cwd`), a sub-agent live
-  during the move, and a terminal launched before the daemon or by daemon
-  autostart. The
-  [support matrix](agent-runtime-lifecycle-design.md#support-matrix) keeps
-  each unsupported until #161 measures it.
+- Measured on the live route by #161 at `0.159.3`: input joined to a running
+  turn publishes its own `UserPromptSubmit` at the old `cwd`, so the run moves
+  at the following turn, and a terminal launched before the daemon or by
+  daemon autostart is hosted as the
+  [support matrix](agent-runtime-lifecycle-design.md#support-matrix) records.
+  A sub-agent live during the move stays unmeasured and unsupported.
 - Upstream: the `fork` `SessionStart` source, default-enabled worktrees, and
   the `/cd` daemon-capability gate were on `main` at the time of writing;
   revalidate against the shipped `0.155.x` behaviour. The documentation's

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -12,7 +13,7 @@ import pytest
 
 from dashpot.core.git import GitError
 from dashpot.core.model import Harness
-from dashpot.sessions import work_reconciliation
+from dashpot.sessions import hook_records, work_reconciliation
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import (
@@ -20,10 +21,16 @@ from dashpot.sessions.hook_records import (
     session_directory,
     state_directory,
 )
+from dashpot.sessions.hook_scan import (
+    locate_agent_session,
+    reachable_hook_stores,
+    sessions_at_worktree,
+)
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup
 from dashpot.sessions.work import (
     IssueWorkError,
     relocate_issue_work,
+    show_issue_work,
     start_issue_work,
     stop_issue_work,
 )
@@ -777,3 +784,285 @@ def test_a_gone_session_left_elsewhere_is_orphaned_not_elsewhere(
 
     assert [run.orphaned for run in runs] == [True]
     assert "work-session-elsewhere" not in {item.code for item in diagnostics}
+
+
+# --- Accepting the Live Relocation route (#278) ------------------------------
+
+# Hook stamps either side of a carry, for evidence that arrives out of order.
+BEFORE_THE_MOVE = LATER
+AT_THE_MOVE = "2026-08-30T03:45:00.000000Z"
+NO_WORK_HERE = ["no active Issue work at this worktree"]
+
+
+@dataclass(frozen=True, slots=True)
+class Mover:
+    """One harness's session and the designated events that move it live."""
+
+    harness: Harness
+    session: str
+    process: ProcessIdentity
+    environ: dict[str, str]
+    # The designated event's name, its fields for a move onward to another
+    # Worktree, and its fields for a return to the Worktree the session left.
+    event: str
+    onward_fields: dict[str, Any]
+    return_fields: dict[str, Any]
+
+    @property
+    def lookup(self) -> ProcessLookup:
+        """A lookup that finds the session's Host Process at every PID."""
+        return present(self.process)
+
+    def publish(self, at: Path, event: str, **fields: Any) -> HookPublication:
+        """Publish ``event`` of the session from its Host Process at ``at``."""
+        return publish(
+            at,
+            event,
+            session=self.session,
+            harness=self.harness,
+            process=self.process,
+            lookup=self.lookup,
+            **fields,
+        )
+
+    def bind(self, at: Path) -> None:
+        """Start Issue work for the session at ``at``, as ``work start`` does."""
+        hook_record(at, self.session, self.harness, self.process)
+        start_issue_work(at, "build-observer", lookup=self.lookup, environ=self.environ)
+
+    def place(self, at: Path) -> None:
+        """Place the session at ``at`` with no Issue work."""
+        hook_record(at, self.session, self.harness, self.process)
+
+    def move(self, at: Path) -> HookPublication:
+        """Publish the designated event of a move onward to ``at``."""
+        return self.publish(at, self.event, **self.onward_fields)
+
+    def move_back(self, at: Path) -> HookPublication:
+        """Publish the designated event of a return to ``at``."""
+        return self.publish(at, self.event, **self.return_fields)
+
+
+MOVERS = [
+    # A controller's ``turn/start`` with a ``cwd`` override: the next turn's
+    # UserPromptSubmit is the first hook at the new Worktree.
+    Mover(
+        "codex",
+        CODEX_SESSION,
+        CODEX,
+        CODEX_ENVIRON,
+        "UserPromptSubmit",
+        onward_fields={},
+        return_fields={},
+    ),
+    # The worktree tools' PostToolUse arrives at the Worktree they moved to.
+    Mover(
+        "claude-code",
+        CLAUDE_SESSION,
+        CLAUDE,
+        CLAUDE_ENVIRON,
+        "PostToolUse",
+        onward_fields={"tool_name": "EnterWorktree"},
+        return_fields={"tool_name": "ExitWorktree", "tool_input": {"action": "keep"}},
+    ),
+]
+movers = pytest.mark.parametrize(
+    "mover", MOVERS, ids=[mover.harness for mover in MOVERS]
+)
+
+
+# Both Host Processes, each found only at its own PID, for a Worktree that a
+# Codex thread shares with the session that moves.
+BOTH_HOSTS = table_lookup({CODEX.pid: CODEX, CLAUDE.pid: CLAUDE})
+
+
+def bystander_at(at: Path) -> list[Any]:
+    """Bind another Codex thread at ``at``, and return the Work Store's runs there.
+
+    Its run gives the Repository a Work Store outside the moving session's
+    Worktree, so a carry looks for that session's run rather than stopping
+    at an empty Repository.
+    """
+    codex_run(at, session=SECOND_THREAD, issue="fix-crash")
+    return WorkStore(at).active()[0]
+
+
+def stamp_hooks_at(monkeypatch: pytest.MonkeyPatch, at: str) -> None:
+    """Stamp every hook record published from now on at ``at``.
+
+    The publisher takes no clock, so this stands in for one: it orders two
+    events' stamps apart from the order they are published in.
+    """
+    monkeypatch.setattr(hook_records, "utc_now", lambda: at)
+
+
+@movers
+def test_work_show_and_observation_report_the_carried_run_unchanged(
+    tmp_path: Path, mover: Mover
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    mover.bind(a)
+    (before,) = WorkStore(a).active()[0]
+    shown_before = show_issue_work(a)
+
+    assert mover.move(b).work == "relocated"
+
+    # ``dashpot work show`` names the same run, Issue and ``startedAt`` at B.
+    assert show_issue_work(b) == shown_before
+    assert show_issue_work(a) == NO_WORK_HERE
+    runs, diagnostics = observe(a, b, lookup=mover.lookup)
+    assert [
+        (run.id, run.observation_target, run.issue_id, run.started_at) for run in runs
+    ] == [(before.run_id, str(b), before.issue_id, before.started_at)]
+    assert diagnostics == []
+
+
+@movers
+def test_an_unbound_session_is_reported_unbound_at_its_new_worktree(
+    tmp_path: Path, mover: Mover
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    others = bystander_at(a)
+    mover.place(a)
+
+    assert mover.move(b).work == "unchanged"
+
+    assert WorkStore(a).active()[0] == others
+    assert show_issue_work(b) == NO_WORK_HERE
+    runs, diagnostics = observe(a, b, lookup=BOTH_HOSTS)
+    assert sorted(
+        (run.session_id, run.observation_target, run.issue_id) for run in runs
+    ) == sorted([(mover.session, str(b), None), (SECOND_THREAD, str(a), "I_crash")])
+    assert diagnostics == []
+
+
+# Late evidence at the origin: the designated event of a return there, and the
+# end of a turn there. A sub-agent's late event is left out: a sub-agent live
+# during a move is unmeasured, and so unsupported, on every harness.
+LATE_AT_ORIGIN: list[Callable[[Mover, Path], HookPublication]] = [
+    Mover.move_back,
+    lambda mover, at: mover.publish(at, "Stop"),
+]
+
+
+@movers
+@pytest.mark.parametrize("late", LATE_AT_ORIGIN, ids=["designated", "Stop"])
+def test_late_evidence_from_the_origin_never_moves_the_run_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mover: Mover,
+    late: Callable[[Mover, Path], HookPublication],
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    mover.bind(a)
+    (before,) = WorkStore(a).active()[0]
+    stamp_hooks_at(monkeypatch, AT_THE_MOVE)
+    assert mover.move(b).work == "relocated"
+
+    # The event was stamped at A before the carry and published after it.
+    stamp_hooks_at(monkeypatch, BEFORE_THE_MOVE)
+    publication = late(mover, a)
+
+    assert publication.work == "unchanged"
+    assert WorkStore(a).active()[0] == []
+    (carried,) = WorkStore(b).active()[0]
+    assert (carried.run_id, carried.started_at) == (before.run_id, before.started_at)
+    # It is not fresher than the session's record at B, so B still
+    # places the session and nothing reports it elsewhere.
+    runs, diagnostics = observe(a, b, lookup=mover.lookup)
+    assert [run.observation_target for run in runs] == [str(b)]
+    assert diagnostics == []
+
+
+def test_a_codex_move_during_a_turn_carries_the_run_at_the_next_turn(
+    tmp_path: Path,
+) -> None:
+    # A ``turn/start`` override sent while a turn runs joins that turn, which
+    # keeps executing at A although ``thread/read`` already reports B. The
+    # joined input publishes its own UserPromptSubmit under the running turn,
+    # at A, and the next turn's is the first at B (measured at 0.159.3).
+    a, b = two_worktrees(tmp_path)
+    codex_run(a)
+    (before,) = WorkStore(a).active()[0]
+    publish(a, "UserPromptSubmit", turn_id="turn-1")
+
+    assert publish(a, "UserPromptSubmit", turn_id="turn-1").work == "unchanged"
+    assert publish(a, "Stop", turn_id="turn-1").work == "unchanged"
+
+    # Observation follows execution: the run is still at A, and never early at B.
+    assert WorkStore(a).active()[0] == [before]
+    assert observe(a, b)[1] == []
+    assert publish(b, "UserPromptSubmit", turn_id="turn-2").work == "relocated"
+    (carried,) = WorkStore(b).active()[0]
+    assert (carried.run_id, carried.started_at) == (before.run_id, before.started_at)
+    assert observe(a, b)[1] == []
+
+
+def test_a_declared_relocation_of_a_daemon_hosted_thread_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    # The managed daemon hosts the thread before and after ``codex resume -C``,
+    # so both sides share one Host Process. Whether the thread was still
+    # loaded or already unloaded at the resume, the daemon publishes the
+    # origin's SessionEnd and then the target's SessionStart (#272).
+    a, b = two_worktrees(tmp_path)
+    codex_run(a)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+
+    assert publish(a, "SessionEnd", reason="other").work == "unchanged"
+    assert WorkStore(a).active()[0] == [before]
+    resumed = publish(b, "SessionStart", source="resume")
+
+    assert (resumed.work, resumed.issue_id) == ("relocated", before.issue_id)
+    assert WorkStore(a).active()[0] == []
+    (moved,) = WorkStore(b).active()[0]
+    assert moved == replace(
+        before, working_directory=str(b), branch="linked", relocation=None
+    )
+    # The resumed turn finds the run already there; nothing else moves it.
+    assert publish(b, "UserPromptSubmit").work == "unchanged"
+    assert WorkStore(b).active()[0] == [moved]
+    assert observe(a, b)[1] == []
+    assert publish(b, "SessionEnd", reason="other").work == "ended"
+    assert observe(a, b) == ([], [])
+
+
+@movers
+@pytest.mark.parametrize("bound", [True, False], ids=["bound", "unbound"])
+def test_a_handoff_is_verified_from_the_seam_alone(
+    tmp_path: Path, mover: Mover, bound: bool
+) -> None:
+    # What #148 reads after a controller move, with no harness-specific
+    # location logic: the session's freshest record, each Worktree's
+    # occupants, and each Worktree's Work Store.
+    a, b = two_worktrees(tmp_path)
+    others = bystander_at(a)
+    if bound:
+        mover.bind(a)
+    else:
+        mover.place(a)
+    own = [work for work in WorkStore(a).active()[0] if work not in others]
+
+    publication = mover.move(b)
+
+    stores = reachable_hook_stores([a, b])
+    location = locate_agent_session(
+        stores, mover.lookup, session_id=mover.session, harness=mover.harness
+    )
+    assert location is not None
+    assert location.worktree == b
+    assert location.record.process_key == mover.process.key
+    assert mover.session not in {
+        item.record.session_id for item in sessions_at_worktree(a, stores, BOTH_HOSTS)
+    }
+    assert [
+        item.record.session_id for item in sessions_at_worktree(b, stores, BOTH_HOSTS)
+    ] == [mover.session]
+    assert WorkStore(a).active() == (others, [])
+    carried = WorkStore(b).active()[0]
+    assert [(work.run_id, work.started_at, work.issue_id) for work in carried] == [
+        (work.run_id, work.started_at, work.issue_id) for work in own
+    ]
+    assert publication.work == ("relocated" if bound else "unchanged")
+    assert len(own) == (1 if bound else 0)
