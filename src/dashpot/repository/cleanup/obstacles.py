@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git, GitError
-from ...core.model import HARNESS_DISPLAY
+from ...core.model import HARNESS_DISPLAY, Harness
 from ...core.worktree_paths import worktree_paths, worktree_root
 from ...sessions.hook_scan import (
+    HookRecordClassification,
     reachable_hook_stores,
     sessions_at_worktree,
     sessions_with_live_subagents,
@@ -138,6 +139,103 @@ def assess_worktree_safety(
     return obstacles
 
 
+@dataclass(frozen=True, slots=True)
+class SessionExit:
+    """How a person frees a Worktree from one harness's Agent Session.
+
+    ``move`` takes the session, conversation and all, out of the Worktree;
+    ``end`` ends it. Each is a clause that names the session as "that
+    session"; ``{session_id}`` in ``move`` is replaced by its identity.
+    """
+
+    move: str
+    end: str
+
+
+# Each harness's way out, which every session-derived Cleanup blocker reads:
+# a harness adds its entry here, and one without an entry is given
+# ``ANY_SESSION_EXIT``.
+SESSION_EXITS: Mapping[Harness, SessionExit] = {
+    # ExitWorktree(keep) returns only a session EnterWorktree brought here; a
+    # shell cd back into the checkout the session started in places it there
+    # without its run (ADR 0074); a session started here can only be ended.
+    "claude-code": SessionExit(
+        move="run ExitWorktree with action: keep in that session if "
+        "EnterWorktree brought it here, or cd its shell back to the checkout "
+        "it started in if it came by cd (leaving any Agent Run here)",
+        end="end that session",
+    ),
+    # The declared resume of ADR 0029 carries an Agent Run; a session without
+    # one just resumes elsewhere. A daemon-hosted thread outlives its
+    # terminal until the daemon unloads it (ADR 0072).
+    "codex": SessionExit(
+        move="resume that session elsewhere with codex resume {session_id} "
+        "-C <worktree> once its client exits, running dashpot work relocate "
+        "<worktree> in it first if it holds an Agent Run",
+        end="end that session's client (a daemon-hosted thread ends about "
+        "60 s after its last client leaves)",
+    ),
+}
+
+
+ANY_SESSION_EXIT = SessionExit(
+    move="move that session out of this Worktree with its harness's own tool",
+    end="end that session",
+)
+
+
+def session_exit(harness: Harness) -> SessionExit:
+    """The way out of a Worktree for a session of ``harness``."""
+    return SESSION_EXITS.get(harness, ANY_SESSION_EXIT)
+
+
+def session_blocker(record: HookRecordClassification) -> CleanupBlocker:
+    """The ``agent-session`` blocker of a live or unknown session placed here.
+
+    It names the session, says whether it is live here or of unknown
+    liveness, and how to free the Worktree from it. Only verifying an
+    unknown session's Host Process is a command a person runs.
+    """
+    session = f"{HARNESS_DISPLAY[record.harness]} session {record.session_id}"
+    way = session_exit(record.harness)
+    move = way.move.replace("{session_id}", record.session_id)
+    steps = f"{move}, or {way.end}"
+    activity = f"last activity {record.last_activity_at}"
+    if record.outcome == "live":
+        return CleanupBlocker(
+            kind="agent-session",
+            detail=f"{session} is live here ({activity}). "
+            f"To free this Worktree, {steps}.",
+        )
+    if record.process is None:
+        return CleanupBlocker(
+            kind="agent-session",
+            detail=f"{session} may be live here: its liveness is unknown, as "
+            f"its hook record names no Host Process ({activity}). If that "
+            f"session is still open, free this Worktree: {steps}. If it has "
+            f"ended, resume it and end it again so that it publishes its end.",
+        )
+    process = record.process
+    if record.reason == "isolated-namespace":
+        verify = (
+            f"Dashpot cannot see its Host Process, pid {process.pid}, from "
+            f"inside this sandbox: check again from a shell outside it."
+        )
+    else:
+        verify = (
+            f"Dashpot could not observe its Host Process ({record.reason}): "
+            f"check whether pid {process.pid}, started {process.started_at} "
+            f"UTC, still runs."
+        )
+    return CleanupBlocker(
+        kind="agent-session",
+        detail=f"{session} may be live here: its liveness is unknown "
+        f"({activity}). {verify} If it is live, free this Worktree: {steps}.",
+        # The start time is recorded as ps renders it in the C locale and UTC.
+        command=f"env LC_ALL=C TZ=UTC ps -p {process.pid} -o lstart=,args=",
+    )
+
+
 def assess_worktree_occupancy(
     path: Path,
     worktrees: Sequence[Path],
@@ -156,14 +254,7 @@ def assess_worktree_occupancy(
     for location in sessions_at_worktree(path, stores, lookup):
         record = location.record
         occupants.add((record.harness, record.session_id))
-        obstacles.append(
-            CleanupBlocker(
-                kind="agent-session",
-                detail=f"{HARNESS_DISPLAY[record.harness]} session "
-                f"{record.session_id} is {record.outcome} here "
-                f"(last activity {record.last_activity_at})",
-            )
-        )
+        obstacles.append(session_blocker(record))
     for location in sessions_with_live_subagents(worktrees, stores, lookup):
         record = location.record
         # A session here already blocks removal, its sub-agents with it.
@@ -179,7 +270,8 @@ def assess_worktree_occupancy(
                 f"{counted(len(record.live_subagents), 'sub-agent')} working "
                 f"({agents}; session {record.outcome}). Dashpot cannot tell "
                 f"which Worktree a {harness} sub-agent works in, so one may be "
-                f"working here; wait for it to finish or end that session.",
+                f"working here; wait for it to finish, or "
+                f"{session_exit(record.harness).end}.",
             )
         )
     active, work_diagnostics = WorkStore(path).active()

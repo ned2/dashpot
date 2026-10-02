@@ -39,7 +39,12 @@ from dashpot.repository.cleanup import (
     perform_cleanup,
 )
 from dashpot.repository.cleanup.adapter import GitCleanupAdapter
-from dashpot.repository.cleanup.obstacles import NO_INTEGRATION_BRANCH, counted
+from dashpot.repository.cleanup.obstacles import (
+    NO_INTEGRATION_BRANCH,
+    SESSION_EXITS,
+    assess_worktree_occupancy,
+    counted,
+)
 from dashpot.repository.repository import LockHolderProbe, short_ref
 from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import cleanup_preview_document, cleanup_report_document
@@ -460,6 +465,175 @@ def test_dirty_locked_and_occupied_worktree_is_blocked(tmp_path: Path) -> None:
     assert preview.selectable == ()
 
 
+# --- Agent Sessions here -----------------------------------------------------
+
+SESSION = "01c7192b-2990-4f83-ad33-290ac22eb4d1"
+THREAD = "01a05099-1563-79a3-8504-e30d50949ca6"
+CLAUDE = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
+CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
+
+
+# The way out of a Worktree each harness's session is given, verbatim.
+CLAUDE_CODE_STEPS = (
+    "run ExitWorktree with action: keep in that session if EnterWorktree "
+    "brought it here, or cd its shell back to the checkout it started in if it "
+    "came by cd (leaving any Agent Run here), or end that session"
+)
+
+
+def codex_steps(thread: str = THREAD) -> str:
+    return (
+        f"resume that session elsewhere with codex resume {thread} -C <worktree> "
+        "once its client exits, running dashpot work relocate <worktree> in it "
+        "first if it holds an Agent Run, or end that session's client (a "
+        "daemon-hosted thread ends about 60 s after its last client leaves)"
+    )
+
+
+def occupied_worktree(
+    tmp_path: Path,
+    harness: str,
+    session: str,
+    process: ProcessIdentity | None,
+) -> tuple[Path, tuple[Path, ...]]:
+    """A linked Worktree whose hooks last placed one Agent Session there."""
+    root = repo(tmp_path)
+    branch(root, "feat")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "feat")
+    record: dict[str, object] = {
+        "version": 2,
+        "sessionId": session,
+        "harness": harness,
+        "state": "waiting",
+        "cwd": str(worktree),
+        "repositoryRoot": str(worktree),
+        "branch": "feat",
+        "event": "Stop",
+        "lastActivityAt": "2026-09-30T03:40:00.000000Z",
+    }
+    if process is not None:
+        record["sessionProcess"] = process.as_record()
+    write_hook_record(record, session_directory(worktree))
+    return worktree.resolve(), (root.resolve(), worktree.resolve())
+
+
+def test_a_harness_without_its_own_way_out_is_given_the_general_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As a newly supported harness is until its entry is written.
+    monkeypatch.delitem(SESSION_EXITS, "codex")
+    worktree, worktrees = occupied_worktree(tmp_path, "codex", THREAD, CODEX)
+
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, table_lookup({CODEX.pid: CODEX})
+    )
+
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"Codex session {THREAD} is live here (last activity "
+        "2026-09-30T03:40:00.000000Z). To free this Worktree, move that session "
+        "out of this Worktree with its harness's own tool, or end that session.",
+    )
+
+
+def test_a_live_claude_code_session_here_names_its_worktree_tools(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(tmp_path, "claude-code", SESSION, CLAUDE)
+
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, table_lookup({CLAUDE.pid: CLAUDE})
+    )
+
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"Claude Code session {SESSION} is live here (last activity "
+        f"2026-09-30T03:40:00.000000Z). To free this Worktree, {CLAUDE_CODE_STEPS}.",
+    )
+
+
+def test_a_live_codex_session_here_names_its_resume_and_its_client(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(tmp_path, "codex", THREAD, CODEX)
+
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, table_lookup({CODEX.pid: CODEX})
+    )
+
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"Codex session {THREAD} is live here (last activity "
+        f"2026-09-30T03:40:00.000000Z). To free this Worktree, {codex_steps()}.",
+    )
+
+
+def test_a_session_unobservable_from_a_sandbox_says_to_check_outside_it(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(tmp_path, "claude-code", SESSION, CLAUDE)
+
+    # Unknown is never evidence that the session ended, so it still blocks.
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, unobservable("isolated-namespace")
+    )
+
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"Claude Code session {SESSION} may be live here: its liveness "
+        "is unknown (last activity 2026-09-30T03:40:00.000000Z). Dashpot cannot "
+        f"see its Host Process, pid {CLAUDE.pid}, from inside this sandbox: "
+        "check again from a shell outside it. If it is live, free this "
+        f"Worktree: {CLAUDE_CODE_STEPS}.",
+        command=f"env LC_ALL=C TZ=UTC ps -p {CLAUDE.pid} -o lstart=,args=",
+    )
+
+
+def test_a_session_whose_probe_failed_names_the_process_to_check(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(tmp_path, "codex", THREAD, CODEX)
+
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, unobservable("ps-unavailable")
+    )
+
+    # The start time tells the session's process from a later one at its pid.
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"Codex session {THREAD} may be live here: its liveness is "
+        "unknown (last activity 2026-09-30T03:40:00.000000Z). Dashpot could not "
+        "observe its Host Process (ps-unavailable): check whether pid "
+        f"{CODEX.pid}, started {CODEX.started_at} UTC, still runs. If it is live, "
+        f"free this Worktree: {codex_steps()}.",
+        command=f"env LC_ALL=C TZ=UTC ps -p {CODEX.pid} -o lstart=,args=",
+    )
+
+
+def test_a_session_with_no_recorded_host_process_cannot_be_verified(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(tmp_path, "codex", THREAD, None)
+
+    (blocker,) = assess_worktree_occupancy(worktree, worktrees, absent())
+
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"Codex session {THREAD} may be live here: its liveness is "
+        "unknown, as its hook record names no Host Process (last activity "
+        "2026-09-30T03:40:00.000000Z). If that session is still open, free "
+        f"this Worktree: {codex_steps()}. If it has ended, resume it and end it "
+        "again so that it publishes its end.",
+    )
+
+
+def test_a_gone_session_here_does_not_block(tmp_path: Path) -> None:
+    worktree, worktrees = occupied_worktree(tmp_path, "codex", THREAD, CODEX)
+
+    assert assess_worktree_occupancy(worktree, worktrees, absent()) == []
+
+
 def test_an_integrated_branch_under_a_blocked_worktree_stays_checked_out(
     tmp_path: Path,
 ) -> None:
@@ -555,7 +729,7 @@ def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
             f"Claude Code session {PARENT_SESSION} at {root} has 2 sub-agents "
             "working (a3932, a686b12; session live). Dashpot cannot tell which "
             "Worktree a Claude Code sub-agent works in, so one may be working "
-            "here; wait for it to finish or end that session."
+            "here; wait for it to finish, or end that session."
         )
 
 
@@ -586,9 +760,12 @@ def test_a_live_codex_sub_agent_blocks_like_a_claude_code_one(
 
     (blocker,) = tree.blockers
     assert blocker.kind == "sub-agent"
-    assert blocker.detail.startswith(
+    assert blocker.detail == (
         f"Codex session {thread} at {root.resolve()} has 1 sub-agent working "
-        "(child-thread; session live)"
+        "(child-thread; session live). Dashpot cannot tell which Worktree a "
+        "Codex sub-agent works in, so one may be working here; wait for it to "
+        "finish, or end that session's client (a daemon-hosted thread ends "
+        "about 60 s after its last client leaves)."
     )
 
 
