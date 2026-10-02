@@ -1,13 +1,13 @@
 // Real-adapter acceptance run for Issue #161: drives a pinned Codex CLI
-// against a loopback Responses API fixture with an isolated CODEX_HOME and
-// Dashpot's own Codex hook publisher, in a disposable Dashpot Project whose
-// Issues are Local Issue Markdown. It measures the hosting modes ADR 0067
-// leaves to #161 (a standalone terminal, daemon autostart, `codex exec`,
-// `codex remote-control start`, input joined to a running turn), then
-// exercises the shared runtime core through the real Codex adapter on the
-// managed daemon, including sub-agents that outlive their parent's turn
-// (#355), and records each step's hooks, shells, protocol results,
-// and Dashpot's own published view as a metadata-only trace.
+// against a loopback Responses API fixture with an isolated CODEX_HOME, whose
+// daemon updater is off, and Dashpot's own Codex hook publisher, in a
+// disposable Dashpot Project whose Issues are Local Issue Markdown. It
+// measures the hosting modes ADR 0067 leaves to #161 (a standalone terminal,
+// daemon autostart, `codex exec`, `codex remote-control start`, input joined
+// to a running turn), then exercises the shared runtime core through the
+// real Codex adapter on the managed daemon, including sub-agents that outlive
+// their parent's turn (#355), and records each step's hooks, shells, protocol
+// results, and Dashpot's own published view as a metadata-only trace.
 //
 //   node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
 //   node verify.mjs <trace.jsonl> [expected version]
@@ -28,7 +28,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const checkout = path.resolve(here, "..", "..", "..");
 const binary = process.argv[2];
 assert(binary && path.isAbsolute(binary), "Pass the absolute path to the Codex binary");
-const expectedVersion = process.argv[3] ?? "0.159.3";
+const expectedVersion = process.argv[3] ?? "0.160.0";
 // Dashpot attributes a fixture process it does not recognise to the first
 // harness process above it, so the runner refuses to start below one.
 const harnessAbove = ancestry(process.ppid, 64, 1).find((entry) => entry.comm.startsWith("codex") || entry.comm === "claude"
@@ -225,6 +225,15 @@ wire_api = "responses"
 request_max_retries = 0
 stream_max_retries = 0
 ${Object.values(worktrees).map((dir) => `\n[projects."${dir}"]\ntrust_level = "trusted"\n`).join("")}`);
+// The fixture daemon's updater stays off: it would fetch the standalone
+// installer over the network, and installing a release could replace or
+// restart the pinned daemon mid-run.
+const daemonSettingsPath = path.join(env.CODEX_HOME, "app-server-daemon", "settings.json");
+mkdirSync(path.dirname(daemonSettingsPath), { recursive: true });
+writeFileSync(daemonSettingsPath, JSON.stringify({ updater: { autoUpdateEnabled: false } }));
+const daemonSettings = () => {
+  try { return JSON.parse(readFileSync(daemonSettingsPath, "utf8")); } catch (error) { return { unreadable: String(error) }; }
+};
 
 // Every process whose environment names the fixture CODEX_HOME.
 const codexProcesses = () => {
@@ -247,7 +256,8 @@ const brief = (entry) => [entry.pid, entry.ppid, entry.comm, entry.cmdline.repla
 const isDaemon = (entry) => entry.comm.startsWith("codex") && / app-server /.test(entry.cmdline) && / --managed-daemon/.test(entry.cmdline);
 const daemons = () => codexProcesses().filter(isDaemon);
 const socketPath = path.join(env.CODEX_HOME, "app-server-control", "app-server-control.sock");
-const processes = (label) => trace("processes", { label, processes: codexProcesses().map(brief), daemons: daemons().map((entry) => entry.pid), socketExists: existsSync(socketPath) });
+const processes = (label) => trace("processes", { label, processes: codexProcesses().map(brief), daemons: daemons().map((entry) => entry.pid), socketExists: existsSync(socketPath),
+  daemonSettings: daemonSettings() });
 const hooks = () => records.filter((record) => record.kind === "hook");
 const hooksSince = (count) => hooks().slice(count).map((record) => [record.event, record.payload.session_id, record.payload.reason ?? record.payload.source ?? null, record.payload.agent_id ?? null, record.payload.cwd, record.publisher.status]);
 const commands = () => records.filter((record) => record.kind === "command");

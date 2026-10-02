@@ -147,9 +147,9 @@ records the session's end or the session's process exits, even after the
 session has left the Repository. A session at the Worktree itself is
 reported as that Worktree's `agent-session` occupant instead.
 
-A Codex session's sub-agents block the same way: the pinned 0.159.3 trace
-of [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) shows the
-blocker naming live Codex children. A Codex child interrupted through its
+A Codex session's sub-agents block the same way: the 0.159.3 trace of
+[#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) and its 0.160.0
+rerun show the blocker naming live Codex children. A Codex child interrupted through its
 own thread publishes no hook, so it keeps the block up until the session's
 next `SessionStart` or `SessionEnd`
 ([#374](https://github.com/ned2/dashpot/issues/374)). A Codex installation
@@ -173,7 +173,7 @@ so: "Sub-agents of Agent Sessions outside this Repository are not checked."
 
 ### Codex hosting modes
 
-Codex support is pinned to `codex-cli` **0.159.3** on Linux, the release the
+Codex support is pinned to `codex-cli` **0.160.0** on Linux, the release the
 [Codex acceptance run](../README.md#harness-acceptance-runs) last passed on;
 its trace is
 [`issue-161-codex-trace.jsonl`](spikes/measurements/issue-161-codex-trace.jsonl).
@@ -190,7 +190,7 @@ and start time Dashpot records and checks for liveness:
 | `codex --disable daemon_auto_start`, launched while no daemon runs | The terminal itself | `SessionEnd` at `/exit` |
 | `codex exec` | The `exec` process | `SessionEnd` when it exits |
 
-Codex 0.159.3 starts the managed daemon automatically (`daemon_auto_start`
+Codex 0.160.0 starts the managed daemon automatically (`daemon_auto_start`
 is on by default), so a plain terminal's thread, its hooks and its shells all
 belong to the daemon, which outlives the terminal and serves every thread
 started that way. A terminal launched with `--disable daemon_auto_start`
