@@ -141,3 +141,13 @@ might be working in it.
   ([#148](https://github.com/ned2/dashpot/issues/148)) must account for
   sub-agents under this rule. It cannot place one either, unless a new source
   of evidence says where a sub-agent works.
+- Clarified for [#374](https://github.com/ned2/dashpot/issues/374): a
+  sub-agent that was interrupted without a `SubagentStop`, as a Codex child
+  is when a controller interrupts the child's own turn, or, as reported
+  upstream in [openai/codex#38142](https://github.com/openai/codex/issues/38142),
+  when the parent model calls `interrupt_agent` on it, stays listed and
+  keeps the block up, since nothing Dashpot receives tells it from one still
+  working ([ADR 0016](0016-hold-a-session-running-while-its-sub-agents-work.md)).
+  The blocker therefore says that the session has sub-agents listed as
+  working, that one may have been interrupted, and that if none is still
+  working, the way out is to end the session in its harness's words.

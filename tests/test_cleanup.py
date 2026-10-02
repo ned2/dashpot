@@ -42,7 +42,6 @@ from dashpot.repository.cleanup import (
 from dashpot.repository.cleanup.adapter import GitCleanupAdapter
 from dashpot.repository.cleanup.obstacles import (
     NO_INTEGRATION_BRANCH,
-    SESSION_EXITS,
     assess_worktree_occupancy,
     counted,
 )
@@ -60,6 +59,7 @@ from dashpot.sessions.processes import (
     ProcessLookup,
     host_process_lookup,
 )
+from dashpot.sessions.session_exits import SESSION_EXITS
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import git
 from helpers import absent, table_lookup, unobservable
@@ -889,9 +889,11 @@ def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
         assert blocker.kind == "sub-agent"
         assert blocker.detail == (
             f"Claude Code session {PARENT_SESSION} at {root} has 2 sub-agents "
-            "working (a3932, a686b12; session live). Dashpot cannot tell which "
-            "Worktree a Claude Code sub-agent works in, so one may be working "
-            "here; wait for it to finish, or end that session."
+            "listed as working (a3932, a686b12; session live). Dashpot cannot "
+            "tell which Worktree a Claude Code sub-agent works in, so one may be "
+            "working here: wait for it to finish. Dashpot lists a sub-agent "
+            "until Claude Code reports that it stopped, which an interrupted one "
+            "may never do, so if none is still working, end that session."
         )
         # A blocked Worktree claims no absence of occupants to qualify.
         assert SUB_AGENT_SCOPE not in "\n".join(describe_cleanup_preview(preview))
@@ -925,11 +927,13 @@ def test_a_live_codex_sub_agent_blocks_like_a_claude_code_one(
     (blocker,) = tree.blockers
     assert blocker.kind == "sub-agent"
     assert blocker.detail == (
-        f"Codex session {thread} at {root.resolve()} has 1 sub-agent working "
-        "(child-thread; session live). Dashpot cannot tell which Worktree a "
-        "Codex sub-agent works in, so one may be working here; wait for it to "
-        "finish, or end that session's client (a daemon-hosted thread ends "
-        "about 60 s after its last client leaves)."
+        f"Codex session {thread} at {root.resolve()} has 1 sub-agent listed "
+        "as working (child-thread; session live). Dashpot cannot tell which "
+        "Worktree a Codex sub-agent works in, so one may be working here: wait "
+        "for it to finish. Dashpot lists a sub-agent until Codex reports that "
+        "it stopped, which an interrupted one may never do, so if none "
+        "is still working, end that session's client (a daemon-hosted thread "
+        "ends about 60 s after its last client leaves)."
     )
 
 
@@ -973,7 +977,7 @@ def test_a_sub_agent_still_blocks_after_its_parent_moves_to_another_worktree(
     assert blocker.kind == "sub-agent"
     assert blocker.detail.startswith(
         f"Claude Code session {PARENT_SESSION} at {sibling} has 1 sub-agent "
-        "working (a686b12; session live)."
+        "listed as working (a686b12; session live)."
     )
 
 

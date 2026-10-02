@@ -88,3 +88,22 @@ hold the session running while any sub-agent it started is alive:
   ([#355](https://github.com/ned2/dashpot/issues/355)): a `SubagentStop` that
   finds no record of its session writes nothing, so one arriving after the
   session's `SessionEnd` never lists the ended session as waiting.
+- Clarified for [#374](https://github.com/ned2/dashpot/issues/374): the
+  risk is kept, not narrowed. On Codex 0.160.0 a child interrupted through
+  its own thread and a sibling still working have the same hooks, and the
+  parent's next prompt and `Stop` arrive while the sibling works, so neither
+  is evidence that a child has ended; the child thread's status that tells
+  them apart reaches only a controller, which Dashpot is not. Upstream
+  tracks the missing `SubagentStop` as
+  [openai/codex#38142](https://github.com/openai/codex/issues/38142), which
+  reports it for the parent model's `interrupt_agent` tool too, a path not
+  measured here. Interrupting
+  the parent's own turn, by Esc in a daemon-attached terminal or through a
+  controller, leaves its children working to their own `SubagentStop`
+  ([measurement](../agent-harness-server-client-reference.md#hosting-modes-and-daemon-autostart-at-01593)).
+  Nor is a live sub-agent timed out on a clock. Instead `dashpot work show`
+  lists the sub-agents that hold an Agent Run running and, like the
+  `sub-agent` Cleanup blocker of
+  [ADR 0066](0066-block-worktree-removal-while-a-sub-agent-is-working.md),
+  says one may have been interrupted and names the harness's way to end the
+  session.

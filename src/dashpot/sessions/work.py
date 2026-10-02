@@ -37,6 +37,7 @@ from .hook_scan import (
     SessionLocation,
     locate_agent_session,
     reachable_hook_stores,
+    sessions_with_live_subagents,
 )
 from .liveness import session_liveness
 from .processes import (
@@ -46,6 +47,7 @@ from .processes import (
     host_process_lookup,
     observe_agent_ancestry,
 )
+from .session_exits import listed_subagents, unreported_subagent_stop
 from .session_labels import work_session_label
 from .session_matching import SessionEvidence
 from .work_store import (
@@ -594,20 +596,42 @@ def _recorded_session_is_live(
     return location is not None and location.record.outcome not in {"ended", "gone"}
 
 
-def show_issue_work(current: Path) -> list[str]:
-    """Read the active Agent Runs recorded at the current Worktree."""
+def show_issue_work(
+    current: Path, *, lookup: ProcessLookup = host_process_lookup
+) -> list[str]:
+    """Read the active Agent Runs recorded at the current Worktree.
+
+    A run whose session has sub-agents listed as working is followed by
+    them: they hold the run running, and one that was interrupted may never
+    be reported stopped, so the line names the harness's way out (#374).
+    """
     root = worktree_root(current)
     active, diagnostics = WorkStore(root).active()
-    messages = [
-        f"{work.session_label}: {work.issue_reference} ({work.issue_id}) "
-        f"since {work.started_at}"
-        + (
-            f"; relocation pending to {work.relocation.target_worktree}"
-            if work.relocation is not None
-            else ""
+    delegating: list[SessionLocation] = []
+    if active:
+        worktrees = repository_worktrees(root)
+        delegating = sessions_with_live_subagents(
+            worktrees, reachable_hook_stores(worktrees), lookup
         )
-        for work in active
-    ]
+    messages: list[str] = []
+    for work in active:
+        messages.append(
+            f"{work.session_label}: {work.issue_reference} ({work.issue_id}) "
+            f"since {work.started_at}"
+            + (
+                f"; relocation pending to {work.relocation.target_worktree}"
+                if work.relocation is not None
+                else ""
+            )
+        )
+        for location in delegating:
+            if location.record.evidence.match(work.evidence) != "same":
+                continue
+            agents = location.record.live_subagents
+            messages.append(
+                f"  {work.session_label} has {listed_subagents(len(agents))} "
+                f"({', '.join(agents)}). {unreported_subagent_stop(work.harness)}"
+            )
     messages.extend(diagnostic.message for diagnostic in diagnostics)
     if not messages:
         messages = ["no active Issue work at this worktree"]

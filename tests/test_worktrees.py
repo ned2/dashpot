@@ -899,8 +899,8 @@ def test_a_live_sub_agent_elsewhere_is_an_obstacle(tmp_path: Path) -> None:
     lines = describe_removability(report)
     assert lines[4].startswith(
         f"  - sub-agent: Claude Code session {PARENT_SESSION} at {root.resolve()} "
-        "has 1 sub-agent working (a686b12; session live). Dashpot cannot tell "
-        "which Worktree"
+        "has 1 sub-agent listed as working (a686b12; session live). Dashpot "
+        "cannot tell which Worktree"
     )
     assert "Remove with" not in lines
 
