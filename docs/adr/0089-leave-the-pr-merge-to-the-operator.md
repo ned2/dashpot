@@ -10,15 +10,16 @@ implementing agent's authority at queueing its PR with
 `gh pr merge --squash --auto`, and
 [ADR 0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md),
 finding no merge queue on a user-owned repository, kept that command to
-enable the squash merge. The agent instructions followed: an agent that
-finished its PR enabled auto-merge, and GitHub merged the PR as soon as its
-CI went green.
+enable the squash merge. The agent instructions followed: they directed an
+agent that finished its PR to enable auto-merge, so that GitHub would merge
+the PR as soon as its CI went green.
 
 Commit `0193a6d` (2026-09-18) restored the practice from before ADR 0044.
 It changed the [agent instructions](../../AGENTS.md#independent-review-before-integration)
 alone and recorded no decision, so ADRs 0044 and 0045 went on naming
 auto-merge as the agent's last step until
-[#276](https://github.com/ned2/dashpot/issues/276) noted the withdrawal in
+[#276](https://github.com/ned2/dashpot/issues/276) (PR
+[#381](https://github.com/ned2/dashpot/pull/381)) noted the withdrawal in
 their text. Meanwhile the README and the integration procedure still told
 an agent to enable auto-merge; on
 [#273](https://github.com/ned2/dashpot/pull/273) that was caught only before
@@ -33,10 +34,12 @@ recorded evidence, and squash-merges it, as the
 [development integration procedure](../development-integration.md#integrate-a-verified-pr)
 sets out.
 
-The merge is the one step that changes remote `main`. Without an up-to-date
-rule or a merge queue, a PR merges on its own green `pull_request` run, and
-no CI run checks `main` itself afterwards (ADR 0045). The agent's independent review is a repository process gate, not
-a GitHub approving review
+Commit `0193a6d` gives no reason beyond restoring the earlier practice; the
+reasons below are the ones the surrounding decisions supply. The merge is
+the one step that changes remote `main`. Without an up-to-date rule or a
+merge queue, a PR merges on its own green `pull_request` run, and no CI run
+checks `main` itself afterwards (ADR 0045). The agent's independent review
+is a repository process gate, not a GitHub approving review
 ([ADR 0037](0037-review-locally-and-verify-pr-head-before-integration.md)).
 With auto-merge, a green run alone would carry the PR onto `main` with no
 person having looked at it. The squash commit carries the PR title and body,
@@ -49,15 +52,29 @@ operator, who sees every open PR, chooses the order in which they land.
   with no up-to-date requirement (ADR 0045).
 - There is still no merge queue. ADR 0044 describes the queue to reinstate if
   the repository moves to an organization.
+- The `Protect main` ruleset is unchanged and requires no approving review.
+  The operator's review is part of performing the merge, not a GitHub
+  approval the ruleset enforces.
 - A rebase is still the authorized response to a textual conflict with
   `main`, with focused follow-up review when it resolves conflicts.
 - The local review gate, independent review, and exact-head verification of
   the `pull_request` run stand as ADR 0037 records them.
 
+## Considered options
+
+- **Keep auto-merge.** Rejected: a green `pull_request` run alone would put
+  the PR on `main`, with no person looking at it first.
+- **Let the agent merge once CI is green.** Rejected for the same reason,
+  and because the merge is a mutation of the shared `main` that the operator
+  reserves.
+- **Require an approving review in the ruleset.** Not adopted: it would
+  enforce what the operator already does by merging, and changes no outcome
+  while one operator both reviews and merges.
+
 ## Consequences
 
 - ADRs 0044 and 0045 are amended by this decision. Their merge-queue and
-  up-to-date-rule analysis stands; only the closing instruction to run
+  up-to-date-rule analysis stands; only the instruction to run
   `gh pr merge --squash --auto` is withdrawn.
 - A PR waits for the operator after its CI is green. A semantic conflict
   between two such PRs still surfaces on the first later run that contains
