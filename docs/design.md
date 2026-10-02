@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Design
@@ -225,7 +225,12 @@ with `action: keep`
 `locates_session` adds the shared rule that a
 child-scoped event, `SessionStart` or `SessionEnd` is never designated. An
 event carrying `agent_id` is child-scoped (`is_child_scoped`) whichever
-harness sent it; OpenCode's `parentID` will be translated to it at its edge.
+harness sent it. OpenCode has no hook events: its plugin's helper
+([`opencode_publish.py`](../src/dashpot/sessions/opencode_publish.py))
+translates a session's native status, deletion and `parentID` into these
+events, under a Publisher Generation that owns the backend's directory
+([ADR 0077](adr/0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md)),
+and then calls the same publisher.
 
 The publisher builds the hook record, then chooses its store: a child-scoped
 event goes to the store holding the parent's freshest record, whose

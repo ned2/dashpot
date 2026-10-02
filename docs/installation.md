@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Install and maintain Dashpot
@@ -425,6 +425,23 @@ integration installs lifecycle hooks and the managed `dashpot-issue-work`
 skill. It preserves unrelated settings; repeated installation refreshes its
 own entries. An Agent Session declares Issue work with `dashpot work start`
 from inside that session, as described in [Agent sessions](agent-sessions.md).
+
+OpenCode stays unsupported until the OpenCode acceptance run passes
+([ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
+`dashpot integrate opencode` installs a managed plugin,
+`plugins/dashpot.js`, and the Issue work skill in OpenCode's global
+configuration directory (`$XDG_CONFIG_HOME/opencode`, by default
+`~/.config/opencode`). A plugin of that name that Dashpot did not write is
+refused and left in place. `dashpot integrate opencode --status` reports
+whether the plugin is current and bound to an executable helper, the
+`opencode` release against the one measured, a differing Issue work skill in
+Claude Code's or the `.agents` directory that OpenCode would also discover,
+a second copy of the plugin, under any name, in a `plugin/` or `plugins/`
+directory OpenCode also reads (its global configuration directory,
+`~/.opencode`, `$OPENCODE_CONFIG_DIR`, or a project `.opencode` directory),
+which would conflict with the first in one backend,
+and an `OPENCODE_PURE` setting that keeps every plugin out. It repeats that
+OpenCode is not yet supported.
 
 A Codex integration installed before Dashpot subscribed Codex's
 `SubagentStart` and `SubagentStop` still works, but its sub-agents neither

@@ -4,11 +4,12 @@ from typing import cast
 
 import pytest
 
-from dashpot.core.model import Harness
+from dashpot.core.model import Harness, harness_alternatives
 from dashpot.sessions.harnesses import (
     ADAPTERS,
     CLAUDE_CODE,
     CODEX,
+    OPENCODE,
     SESSION_OVERRIDE_VARIABLE,
     HarnessError,
     SessionIdentityClaim,
@@ -24,9 +25,11 @@ STARTED = "Tue Aug 25 01:00:00 2026"
 
 
 def test_each_supported_harness_has_one_adapter() -> None:
-    assert set(ADAPTERS) == {"codex", "claude-code"}
+    assert set(ADAPTERS) == {"codex", "claude-code", "opencode"}
     assert adapter("codex") is CODEX
     assert adapter("claude-code") is CLAUDE_CODE
+    assert adapter("opencode") is OPENCODE
+    assert harness_alternatives() == "Codex, Claude Code, or OpenCode"
     with pytest.raises(HarnessError, match="unsupported harness"):
         adapter(cast("Harness", "cursor"))
 
@@ -160,6 +163,35 @@ def test_claude_code_adapter_claims_session_identity_with_its_host_pid() -> None
     )
     assert without_pid is not None
     assert without_pid.pid is None
+
+
+def test_opencode_adapter_hosts_only_the_opencode_backend() -> None:
+    backend = ProcessIdentity(
+        4100, 1, "opencode", STARTED, "/home/person/.opencode/bin/opencode serve"
+    )
+    command = ProcessIdentity(4200, 4100, "MainThread", STARTED, "node build.mjs")
+
+    assert OPENCODE.is_host_process(backend) is True
+    assert OPENCODE.is_host_process(command) is False
+    assert OPENCODE.exclusive_session_process is False
+
+
+def test_opencode_adapter_claims_only_a_complete_corroborated_identity() -> None:
+    complete = {
+        "DASHPOT_OPENCODE_SESSION_ID": "ses_01root",
+        "DASHPOT_OPENCODE_GENERATION": "gen-1",
+        "DASHPOT_OPENCODE_PID": "4100",
+    }
+
+    assert OPENCODE.claim_session_identity(complete) == SessionIdentityClaim(
+        "opencode", "ses_01root", "OpenCode plugin", 4100, "gen-1"
+    )
+    for variable, value in (
+        ("DASHPOT_OPENCODE_SESSION_ID", ""),
+        ("DASHPOT_OPENCODE_GENERATION", "not a generation!"),
+        ("DASHPOT_OPENCODE_PID", "n/a"),
+    ):
+        assert OPENCODE.claim_session_identity({**complete, variable: value}) is None
 
 
 def test_native_claims_report_every_harness_present_in_adapter_order() -> None:

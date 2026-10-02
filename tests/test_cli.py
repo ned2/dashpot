@@ -1822,7 +1822,7 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
 
     integrate = help_text(["integrate", "--help"])
     assert "Usage: dashpot integrate [OPTIONS] HARNESS" in integrate
-    assert "[choices: codex, claude-code]" in integrate
+    assert "[choices: codex, claude-code, opencode]" in integrate
     assert "--status" in integrate
     assert "--remove" in integrate
     assert "Issue-work integration" in integrate

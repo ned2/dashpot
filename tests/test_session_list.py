@@ -505,6 +505,10 @@ def test_only_an_orphaned_session_with_an_identity_has_a_resume_command() -> Non
         resume_command(run("claude-code"))
         == "cd '/w/it'\"'\"'s here' && claude --resume thread-1"
     )
+    assert (
+        resume_command(run("opencode"))
+        == "opencode '/w/it'\"'\"'s here' --session thread-1"
+    )
     assert resume_command(run("codex", orphaned=False)) is None
     assert resume_command(run("codex", session_id=None)) is None
 
