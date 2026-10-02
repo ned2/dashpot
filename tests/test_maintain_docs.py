@@ -351,10 +351,24 @@ def test_frontmatter_defines_no_anchor(
     ]
 
 
+def test_an_html_anchor_in_frontmatter_defines_no_anchor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """GitHub renders frontmatter as a table, so an id written there anchors nothing."""
+    target = write_document(
+        tmp_path, "target.md", '---\nnote: <a id="spot"></a>\n---\n\n# Title\n'
+    )
+    document = write_document(tmp_path, "guide.md", "[go](target.md#spot)\n")
+
+    messages = check(monkeypatch, tmp_path, document, target)
+
+    assert messages == ["guide.md:1: target.md has no heading anchoring #spot"]
+
+
 def test_a_link_after_frontmatter_reports_its_own_line(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Excluding frontmatter keeps every offset, so it cannot shift a reported line."""
+    """A link past the frontmatter is still reported on the line it is written on."""
     document = write_document(
         tmp_path,
         "docs/guide.md",
@@ -617,6 +631,20 @@ def test_a_setext_heading_titles_an_adr(
         "docs/adr/0001-first.md",
         "---\nstatus: accepted\ndate: 2026-08-26\n---\n\n"
         "Do the first thing\n==================\n",
+    )
+
+    assert "[Do the first thing](0001-first.md)" in index_of(monkeypatch, tmp_path, adr)
+
+
+def test_a_setext_level_two_heading_does_not_title_an_adr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A dash underline makes a level-two heading, which the title skips."""
+    adr = write_document(
+        tmp_path,
+        "docs/adr/0001-first.md",
+        "---\nstatus: accepted\ndate: 2026-08-26\n---\n\n"
+        "Context first\n-------------\n\n# Do the first thing\n",
     )
 
     assert "[Do the first thing](0001-first.md)" in index_of(monkeypatch, tmp_path, adr)

@@ -211,7 +211,7 @@ def mask_frontmatter(text: str) -> str:
 
 
 def heading_source(text: str) -> str:
-    """The document as its headings and anchors are read: frontmatter and code blanked."""
+    """Blank a document's frontmatter and code blocks, leaving what its headings are read from."""
     return mask_code(mask_frontmatter(text), spans=False)
 
 
