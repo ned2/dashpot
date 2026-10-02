@@ -3,20 +3,20 @@ status: accepted
 date: 2026-10-02
 ---
 
-# Move a Claude Code session between Issue Worktrees through its launch directory
+# Return a Claude Code session before entering another Issue Worktree
 
 The Issue-work skill moves a Claude Code session into an Issue Worktree with
 `EnterWorktree`, which carries a bound run along
 ([ADR 0074](0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
 [Issue #327](https://github.com/ned2/dashpot/issues/327) saw that call refused
 on 2.1.283 because the target was not under `<repo>/.claude/worktrees/`.
-Measured on Linux against 2.1.286, and again on 2.1.283 and 2.1.287, through
-Dashpot's real publisher
+Measured on Linux against 2.1.286, and repeated on 2.1.283 and 2.1.287, with
+each trace retained, through Dashpot's real publisher
 ([measurement](../agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286)):
 
-- From the directory a session was launched in, whether the main checkout or
-  a linked Worktree, `EnterWorktree` with `path` enters any linked Worktree
-  of the Repository.
+- A session that is not inside a worktree it entered, whether launched in
+  the main checkout or in a linked Worktree, enters any linked Worktree of
+  the Repository with `EnterWorktree` and `path`.
 - A session already in a worktree it entered may switch directly only to a
   worktree under `.claude/worktrees/`. This includes a session resumed in
   that worktree, whose transcript restores the worktree session. Claude
@@ -41,11 +41,14 @@ finishes the current engagement if the move is to another Issue, then calls
 Worktree's path, then `work show` and, only when no carried run is shown,
 `work start`. The skill never uses `action: "remove"` for Issue work.
 
-When `EnterWorktree` still refuses, or `ExitWorktree` finds no worktree
-session to leave, the skill hands the work to a fresh Claude Code session
-with one shell-quoted `cd <worktree> && claude '<prompt>'` command, the
-Claude Code counterpart of the Codex and OpenCode fresh-session routes. It
-runs no `work start` where the session is and does not try a shell `cd`.
+When `EnterWorktree` still refuses, `ExitWorktree` finds no worktree session
+to leave, or the person declines the move, the skill hands the work to a
+fresh Claude Code session with one shell-quoted
+`cd <worktree> && claude '<prompt>'` command, the Claude Code counterpart of
+the Codex and OpenCode fresh-session routes. It runs no `work start` where
+the session is and does not try a shell `cd`. A fresh session cannot carry
+the old Agent Run, so the old session ends it with `work stop` once its
+delegated work is done, and the new session starts its own.
 The handoff does not promise working `gh` credentials in a linked Worktree
 ([#274](https://github.com/ned2/dashpot/issues/274)). The skill suggests
 launching Claude Code sessions from the main checkout, from which the return

@@ -91,4 +91,4 @@ of date.
 | 0079 | [Install OpenCode as one managed plugin, and keep it unsupported until acceptance](0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md) | amended | [0081](0081-support-opencode-1-18-30-on-linux.md) |
 | 0080 | [Keep a retired OpenCode generation's backend on its sessions](0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md) | accepted | — |
 | 0081 | [Support OpenCode 1.18.30 on Linux](0081-support-opencode-1-18-30-on-linux.md) | accepted | — |
-| 0085 | [Move a Claude Code session between Issue Worktrees through its launch directory](0085-move-a-claude-code-session-between-issue-worktrees-through-its-launch-directory.md) | accepted | — |
+| 0085 | [Return a Claude Code session before entering another Issue Worktree](0085-return-a-claude-code-session-before-entering-another-issue-worktree.md) | accepted | — |

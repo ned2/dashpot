@@ -17,20 +17,21 @@ in the intended Worktree.
 
 ## Move a Claude Code session
 
-`EnterWorktree` with `path` enters a Dashpot Worktree only from the directory
-the session was launched in, the main checkout or a linked Worktree. A
-session already inside a Worktree it entered, including one resumed there,
-cannot switch directly to another Dashpot Worktree: Claude Code limits that
-switch to its own `.claude/worktrees/`. It returns first. `EnterWorktree`
-never enters the main checkout.
+`EnterWorktree` with `path` enters an Issue Worktree only when the session is
+not inside a Worktree it entered. A session launched in the main checkout or
+in a linked Worktree can enter one. A session inside a Worktree it entered,
+including one resumed there, cannot switch directly to another Issue
+Worktree, because Claude Code limits that switch to its own
+`.claude/worktrees/`. Such a session first returns to the directory it
+entered from. `EnterWorktree` never enters the main checkout.
 
 1. If this session entered a Worktree with `EnterWorktree` and has not left
-   it, return first. When the move is to another Issue, finish the current
-   engagement as the main workflow requires: green CI, then `work stop` and
-   `work show`. Then call `ExitWorktree` with `action: "keep"`. The session
-   goes back to the directory it entered from, and the Worktree and Branch
-   stay in place. Use `keep`, never `remove`: `remove` never removes a
-   Dashpot Worktree and is not supported for Issue work.
+   it, return first. When the move is to another Issue, first finish the
+   current engagement as [Finish the engagement](../SKILL.md#finish-the-engagement)
+   requires. Then call `ExitWorktree` with `action: "keep"`. The session goes
+   back to the directory it entered from, and the Worktree and Branch stay in
+   place. Use `keep`, never `remove`: Claude Code refuses `remove` on a
+   Worktree entered by path, and `remove` is not supported for Issue work.
 2. Call `EnterWorktree` with the exact path reported above. Its completion
    moves the Agent Session, and an Agent Run the session already holds moves
    with it.
@@ -45,11 +46,13 @@ session's later hooks elsewhere but never takes its run along.
 
 ## Hand off when `EnterWorktree` is refused
 
-If `EnterWorktree` is still refused after the return above, or
-`ExitWorktree` reports that no worktree session is active, this session
-cannot reach the Worktree. Do not retry, change directory with the shell, or
-run `work start` here. If the session holds an active Agent Run, leave it
-until its engagement is finished, then end it with `work stop`.
+This session cannot reach the Worktree when `EnterWorktree` is still
+refused after the return above, when `ExitWorktree` reports that no worktree
+session is active, or when the user declines the move. Do not retry, change
+directory with the shell, or run `work start` here. The handoff cannot carry
+an Agent Run: if `<dashpot> work show` reports an active one for this
+session, run `<dashpot> work stop` once this session's delegated work is
+done, before handing over.
 
 Give the user one safely shell-quoted command of this shape, which starts a
 fresh Claude Code session in the Worktree:

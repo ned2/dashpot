@@ -273,11 +273,11 @@ In the dashboard, a Claude Code session's state means:
   there, and the run left behind is reported as `work-session-elsewhere`
   until `work start` there switches it or the shell returns
   ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
-  `EnterWorktree` enters a Dashpot Worktree only from the directory the
-  session was launched in. A session inside a Worktree it entered, resumed
-  there or not, is refused a direct switch to another one, so it returns
-  with `ExitWorktree(keep)` and enters the next
-  ([ADR 0085](adr/0085-move-a-claude-code-session-between-issue-worktrees-through-its-launch-directory.md)).
+  `EnterWorktree` enters an Issue Worktree only when the session is not
+  inside a Worktree it entered. Such a session, resumed there or not, is
+  refused a direct switch to another one, so it returns with
+  `ExitWorktree(keep)` to the directory it entered from and enters the next
+  ([ADR 0085](adr/0085-return-a-claude-code-session-before-entering-another-issue-worktree.md)).
 - **Gone.** The Host Process was killed or crashed: no hook says so, and a
   bound run is listed as an [Orphaned Agent Run](domain-language.md) (`◌`).
   A worker killed under a live supervisor is replaced within seconds by a

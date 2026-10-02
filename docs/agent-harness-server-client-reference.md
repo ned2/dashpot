@@ -24,7 +24,7 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction; a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, checked again on `2.1.283` and `2.1.287`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction; a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
@@ -1097,18 +1097,22 @@ arrangement: headless `claude -p` clients under
 Messages API, and hooks handed to Dashpot's real publisher, with the
 sessions' shells running the real `dashpot work` commands. The Issue
 Worktrees were linked Worktrees in a pool beside the main checkout, where
-Dashpot's default Worktree Root puts them. The
-[verifier](../scripts/experiments/claude-327/verify.mjs) checks the claims
+Dashpot's default Worktree Root puts them. Like that runner, it refuses to
+start inside a Claude Code session, so launch it from a plain shell or with
+`setsid -f`. The [verifier](../scripts/experiments/claude-327/verify.mjs) checks the claims
 below against the retained
-[trace](spikes/measurements/issue-327-claude-trace.jsonl). The same run on
-2.1.287 ([trace](spikes/measurements/issue-327-claude-2.1.287-trace.jsonl))
-and, unretained, on 2.1.283 behaved identically:
+[trace](spikes/measurements/issue-327-claude-2.1.286-trace.jsonl). The same run
+behaved identically on 2.1.283, the release the Issue observed
+([trace](spikes/measurements/issue-327-claude-2.1.283-trace.jsonl)), and on
+2.1.287 ([trace](spikes/measurements/issue-327-claude-2.1.287-trace.jsonl)),
+each verified with its version as the second argument:
 
 ```bash
 node scripts/experiments/claude-327/run.mjs ~/.local/share/claude/versions/2.1.286
-node scripts/experiments/claude-327/verify.mjs docs/spikes/measurements/issue-327-claude-trace.jsonl
 node scripts/experiments/claude-327/verify.mjs \
-  docs/spikes/measurements/issue-327-claude-2.1.287-trace.jsonl 2.1.287
+  docs/spikes/measurements/issue-327-claude-2.1.286-trace.jsonl
+node scripts/experiments/claude-327/verify.mjs \
+  docs/spikes/measurements/issue-327-claude-2.1.283-trace.jsonl 2.1.283
 ```
 
 - **From the main checkout.** `EnterWorktree` with `path` entered an Issue
@@ -1157,7 +1161,7 @@ is accepted, so that session was most likely already in a restored worktree
 session. That cause is inferred, not reproduced from the Issue's session.
 Dashpot's Worktrees sit outside `.claude/worktrees/`, so a session moves
 between them only through `ExitWorktree(keep)` and a new `EnterWorktree`
-([ADR 0085](adr/0085-move-a-claude-code-session-between-issue-worktrees-through-its-launch-directory.md)).
+([ADR 0085](adr/0085-return-a-claude-code-session-before-entering-another-issue-worktree.md)).
 By the executable's source, `EnterWorktree` outside `.claude/worktrees/`
 asks the person for permission in a mode that does not bypass permissions.
 That prompt, interactive terminals, and supervised workers were not
