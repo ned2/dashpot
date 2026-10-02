@@ -168,8 +168,9 @@ would block Cleanup across other Repositories or the whole machine for one
 sub-agent, and
 Cleanup already refuses a dirty Worktree, so the exposure is mainly an
 interrupted task in a clean one. A Cleanup preview that would remove a
-Worktree, in the dashboard and in `dashpot worktree remove --dry-run`, says
-so: "Sub-agents of Agent Sessions outside this Repository are not checked."
+Worktree, in the dashboard and in `dashpot worktree remove --dry-run`, and
+`dashpot worktree check` when it reports a Worktree removable, say so:
+"Sub-agents of Agent Sessions outside this Repository are not checked."
 
 ### Codex hosting modes
 

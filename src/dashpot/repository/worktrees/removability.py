@@ -16,6 +16,7 @@ from ..cleanup.obstacles import (
     assess_worktree_safety,
     locate_worktree,
 )
+from ..cleanup.preview import SUB_AGENT_SCOPE
 from ..cleanup.targets import CleanupBlocker
 from ..repository import LockHolderProbe
 
@@ -95,13 +96,17 @@ def describe_removability(report: WorktreeRemovability) -> list[str]:
 
     Field/value lines name the Worktree, its Branch, and the verdict; the
     obstacles and the commands to run are indented beneath them so a block
-    scans as one Worktree and the commands stand apart from the facts.
+    scans as one Worktree and the commands stand apart from the facts. A
+    removable verdict carries the occupancy gap the Cleanup preview states
+    (#357), aligned beneath it; a blocked one claims no absence of occupants.
     """
     lines = [
         f"Worktree   {report.path}",
         f"Branch     {report.branch or '(detached)'}",
         f"Removable  {'yes' if report.removable else 'no'}",
     ]
+    if report.removable:
+        lines.append(f"           {SUB_AGENT_SCOPE}")
     if report.obstacles:
         lines.append("Obstacles")
         for obstacle in report.obstacles:
