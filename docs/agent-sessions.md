@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Agent sessions
@@ -72,6 +72,41 @@ worktree's ignored `.dashpot/state/sessions/`. Sessions outside any
 Dashpot-configured checkout fall back to the platform's normal
 application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
 
+### Agent Sessions and Worktree Cleanup
+
+Cleanup refuses to remove a Worktree where an Agent Session's freshest hook
+record places it, while that session is live or its liveness is unknown
+([ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
+This check is separate from the Agent Run, so it holds after `work stop`, and
+an idle (`waiting`) session blocks as a running one does. The `agent-session`
+blocker in `dashpot worktree check`, the Cleanup preview, and the refusal of
+`dashpot worktree remove` names the session, says it is live here or that
+its liveness is unknown, and gives its harness's way out of the Worktree:
+
+| Harness | Move the session out | Or end it |
+| --- | --- | --- |
+| Claude Code | A session `EnterWorktree` brought here runs `ExitWorktree` with `action: keep`. One whose shell came by `cd` changes back to the checkout it started in; its next hook then places it there, leaving any Agent Run behind ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)). A session started in this Worktree has neither: `ExitWorktree` is a no-op there and a `cd` out of its project is reset, so it is ended, or moved by `EnterWorktree` to a sibling linked Worktree ([measured at 2.1.278](agent-harness-server-client-reference.md#channels-and-worktree-tools-at-21278)) | End the session |
+| Codex | Once its client exits, `codex resume <id> -C <worktree>` resumes it elsewhere; a session holding an Agent Run first declares the move with `dashpot work relocate <worktree>` ([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)) | End its client. A daemon-hosted thread stays loaded, and keeps the Worktree, until the daemon unloads it about 60 s after its last client leaves ([Codex hosting modes](#codex-hosting-modes)) |
+
+When the liveness is unknown, the blocker says how to verify the Host
+Process and names `ps -p <pid> -o lstart=,args=` as the command that does.
+Inside a sandbox's process namespace (`isolated-namespace`) Dashpot cannot
+see host processes, so checking again from a shell outside any sandbox
+settles it, and a gone process then no longer blocks. When the probe itself
+failed, the blocker gives its reason with the pid and the recorded start
+time, which tells the session's process from a later one at the same pid. A
+record that names no Host Process cannot be verified, and blocks until its
+session publishes its end; a session that already ended without one is
+resumed and ended again. The
+[`sub-agent` blocker](#sub-agents-and-worktree-cleanup) ends with the same
+harness wording for ending its session.
+
+Cleanup never moves or ends a session itself; moving it as part of a confirmed
+removal is [#148](https://github.com/ned2/dashpot/issues/148). Each harness's
+way out is one entry in `SESSION_EXITS` in
+`src/dashpot/repository/cleanup/obstacles.py`. A harness without an entry is
+told to move the session out with its harness's own tool or end it.
+
 ### Sub-agents and Worktree Cleanup
 
 Cleanup refuses to remove a Worktree when an Agent Session is there, when
@@ -95,10 +130,11 @@ Worktrees; a session that moved between Worktrees has a record in each, and
 its sub-agents are those any of them holds. The `sub-agent` blocker appears
 in `dashpot worktree check`, the Cleanup preview, and
 `dashpot worktree remove`, and again on confirmation. It names the session,
-its location, and the agent IDs, and says that Dashpot cannot tell where a
-sub-agent works. It clears when the last sub-agent's `SubagentStop` arrives,
-when the session ends or starts again, or when the session's process is
-gone. A sub-agent dispatched before its session entered another Worktree
+its location, and the agent IDs, says that Dashpot cannot tell where a
+sub-agent works, and says to wait for it to finish or to end that session,
+in the [harness's words](#agent-sessions-and-worktree-cleanup). It clears
+when the last sub-agent's `SubagentStop` arrives, when the session ends or
+starts again, or when the session's process is gone. A sub-agent dispatched before its session entered another Worktree
 stays in the record left behind, so it holds the block until that Worktree
 records the session's end or the session's process exits, even after the
 session has left the Repository. A session at the Worktree itself is

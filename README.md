@@ -818,7 +818,9 @@ Worktree of the Repository, one after another (`--json` gives a list). It
 reports the Worktree removable, or
 each reason it is not with the command that acts on it: dirty state, a lock
 with its reason and whether the holding process is alive (`initializing`
-names the forced removal), Agent Sessions whose hooks place them there,
+names the forced removal), Agent Sessions whose hooks place them there
+(each named as live there or of unknown liveness, with how to free the
+Worktree from it: [Agent Sessions and Worktree Cleanup](docs/agent-sessions.md#agent-sessions-and-worktree-cleanup)),
 Agent Runs recorded there (an Orphaned Agent Run, whose session is gone,
 names its `dashpot work stop --session` command), and commits not on the upstream or
 the Integration Branch. `check` removes nothing.

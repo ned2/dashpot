@@ -67,7 +67,16 @@ from dashpot.ui.cleanup_view import (
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.list_pane import ListPane
 from helpers import table_lookup, wait_until
-from test_cleanup import PARENT, PARENT_SESSION, publish_subagent, sub_agent_worktrees
+from test_cleanup import (
+    CLAUDE,
+    CLAUDE_CODE_STEPS,
+    PARENT,
+    PARENT_SESSION,
+    SESSION,
+    occupied_worktree,
+    publish_subagent,
+    sub_agent_worktrees,
+)
 
 ANCHOR = "/repo"
 WORKTREE = "/repo.worktrees/feat"
@@ -695,11 +704,50 @@ async def test_a_live_sub_agent_blocks_the_worktree_and_says_why(
         screen = cleanup_screen(app)
         shown = details(app)
         assert "A sub-agent may be working here" in shown
-        assert "Dashpot cannot tell where one works. Wait for it to finish." in shown
+        assert (
+            "Dashpot cannot tell where one works. Wait for it to finish, or end "
+            "its session." in shown
+        )
         assert f"Claude Code session {PARENT_SESSION}" in shown
         assert "a686b12" in shown
         unavailable = screen.query_one("#cleanup-unavailable", Static)
         assert str(unavailable.render()) == "Nothing here can be deleted."
+        assert not screen.query("#cleanup-confirm")
+        await pilot.press("enter")
+        await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
+    assert target_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_a_live_session_here_is_named_with_its_way_out(tmp_path: Path) -> None:
+    target_path, (root, _target) = occupied_worktree(
+        tmp_path, "claude-code", SESSION, CLAUDE
+    )
+    cleaner = InspectingCleaner(table_lookup({CLAUDE.pid: CLAUDE}))
+    snapshot = observed(
+        local("main"), local("feat"), anchor=str(root), worktree=str(target_path)
+    )
+    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
+
+    async with app.run_test(size=(80, 24)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await focus_row(
+            app, pilot, "worktrees-pane", row_key("worktree", PROJECT, str(target_path))
+        )
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await settle_screen(app, pilot, "the Cleanup preview")
+
+        screen = cleanup_screen(app)
+        # Beside the Worktree, not only in its collapsed Details: the session,
+        # that it is live here, and the step that frees the Worktree.
+        reason = (
+            screen.query_one(CleanupTargetView).query(".cleanup-blocker").first(Static)
+        )
+        shown = str(reason.render())
+        assert shown.startswith(f"Claude Code session {SESSION} is live here")
+        assert shown.endswith(f"To free this Worktree, {CLAUDE_CODE_STEPS}.")
+        assert "still recorded" not in details(app)
         assert not screen.query("#cleanup-confirm")
         await pilot.press("enter")
         await wait_until(lambda: not isinstance(app.screen, CleanupScreen))

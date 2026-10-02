@@ -4,6 +4,7 @@ import io
 import json
 import runpy
 import subprocess
+from functools import partial
 from pathlib import Path
 from typing import Literal, get_args
 from unittest import mock
@@ -41,6 +42,8 @@ from dashpot.repository.cleanup import (
     CleanupTarget,
     TargetResult,
     WorktreeCleanupRequest,
+    inspect_cleanup,
+    perform_cleanup,
 )
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
@@ -48,7 +51,8 @@ from dashpot.sessions.integrate import INTEGRATIONS, IntegrationError
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.sessions.work import IssueWorkError
 from factories import git, write_config_marker
-from helpers import issue_payload
+from helpers import issue_payload, table_lookup
+from test_cleanup import CLAUDE, CLAUDE_CODE_STEPS, SESSION, occupied_worktree
 
 
 def project(root: Path) -> ResolvedProject:
@@ -1417,6 +1421,39 @@ def test_worktree_remove_with_delete_remote_branch_needs_one(
         assert cli.main(["worktree", "remove", "/w/x", "--delete-remote-branch"]) == 2
     perform.assert_not_called()
     assert capsys.readouterr().err == f"dashpot: {reason}\n"
+
+
+def test_worktree_remove_refusal_says_how_to_free_it_of_a_live_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    worktree, (root, _worktree) = occupied_worktree(
+        tmp_path, "claude-code", SESSION, CLAUDE
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(root)
+    lookup = table_lookup({CLAUDE.pid: CLAUDE})
+
+    with (
+        mock.patch.object(
+            composition, "inspect_cleanup", partial(inspect_cleanup, lookup=lookup)
+        ),
+        mock.patch.object(
+            composition, "perform_cleanup", partial(perform_cleanup, lookup=lookup)
+        ),
+    ):
+        assert cli.main(["worktree", "remove", str(worktree)]) == 2
+
+    refusal = (
+        f"Worktree is unavailable: Claude Code session {SESSION} is live here "
+        f"(last activity 2026-09-30T03:40:00.000000Z). To free this Worktree, "
+        f"{CLAUDE_CODE_STEPS}."
+    )
+    captured = capsys.readouterr()
+    assert f"Refused         {refusal}" in captured.out.splitlines()
+    assert captured.err == f"dashpot: refused: {refusal}\n"
+    assert worktree.exists()
 
 
 def test_cleanup_protects_this_checkout_and_every_configured_anchor(

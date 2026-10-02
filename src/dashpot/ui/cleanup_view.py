@@ -86,13 +86,14 @@ def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
             f"{counted(fact.unintegrated_commits or 0, 'commit')} not reachable from "
             f"{short_ref(fact.integration_ref)}."
         )
+    # An agent-session blocker is shown whole, as its detail: it names the
+    # session, whether it is live here, and its harness's way out.
     summaries = {
         "dirty": "Uncommitted changes or untracked files; inspect before removal.",
         "locked": "The Worktree is locked; inspect the lock before removal.",
-        "agent-session": "An Agent Session is still recorded; exit it or verify its liveness.",
         # Claude Code and Codex publish sub-agent boundaries (ADR 0066, ADR 0067).
         "sub-agent": "A sub-agent may be working here: Dashpot cannot tell "
-        "where one works. Wait for it to finish.",
+        "where one works. Wait for it to finish, or end its session.",
         "agent-run": "Active Issue work remains; finish it before removal.",
         "work-store": "The Work Store cannot be verified; inspect it before removal.",
         "protected": "This Worktree is in use by Dashpot or configured as a Repository Anchor.",
