@@ -1,13 +1,16 @@
 """Pin observation documents and argument failures at the CLI seam."""
 
 import json
+import os
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
 from dashpot import cli
-from dashpot.queries import query_source
 from test_github_issues import REPOSITORY_ID
 from test_github_pull_requests import pull_request_node
+from test_runtime_spans import executable
 from test_source_queries import (
     batch,
     context,
@@ -21,12 +24,49 @@ from test_source_queries import (
 )
 
 
+@pytest.fixture(autouse=True)
+def gh_record(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Path]:
+    """Fail any test here that starts a ``gh`` process, real or not.
+
+    The CLI reads ``configured_query_source`` through its own name, so a test
+    that patches any other name gets the configured Query Source instead, and
+    a GitHub Query Source would reach the real ``gh`` (#331). A ``gh`` first on
+    ``PATH`` appends each call to the record this yields and fails. A test
+    that means to start it reads the record and removes it.
+    """
+    directory = tmp_path_factory.mktemp("gh-guard")
+    record = directory / "calls"
+    executable(
+        directory,
+        "gh",
+        "import sys\n"
+        f"with open({str(record)!r}, 'a') as calls:\n"
+        "    calls.write(' '.join(sys.argv[1:]) + '\\n')\n"
+        "sys.exit(1)",
+    )
+    monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ['PATH']}")
+    yield record
+    assert not record.exists(), f"a test started gh: {record.read_text()}"
+
+
+def test_a_github_source_the_cli_builds_itself_reaches_the_gh_guard(
+    tmp_path, monkeypatch, capsys, gh_record
+):
+    github(tmp_path)  # Only for the GitHub configuration it writes.
+    monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
+    assert cli.main(["issue", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["page"]["status"] == "unavailable"
+    # Unpatched, the CLI's own Query Source starts gh, which the guard records.
+    assert gh_record.read_text().startswith("api graphql")
+    gh_record.unlink()
+
+
 def test_list_json_keys_and_cross_invocation_cursor(tmp_path, monkeypatch, capsys):
     source = markdown(tmp_path)
     monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    monkeypatch.setattr(
-        query_source, "configured_query_source", lambda *args, **kwargs: source
-    )
+    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
     assert cli.main(["issue", "list", "--page-size", "1", "--compact-json"]) == 0
     output = capsys.readouterr()
     assert output.err == "" and output.out.count("\n") == 1
@@ -86,9 +126,7 @@ def test_invalid_list_arguments_stderr_and_exit_two(
 ):
     source = markdown(tmp_path)
     monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    monkeypatch.setattr(
-        query_source, "configured_query_source", lambda *args, **kwargs: source
-    )
+    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
     assert cli.main(["issue", "list", *args, "--json"]) == 2
     output = capsys.readouterr()
     assert output.out == "" and output.err
@@ -104,9 +142,7 @@ def test_ready_lists_the_open_issues_no_open_blocker_holds(
     markdown_issue(directory, 1)
     markdown_issue(directory, 2, blocked_by=["I_1"])
     monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    monkeypatch.setattr(
-        query_source, "configured_query_source", lambda *args, **kwargs: source
-    )
+    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
     assert cli.main(["issue", "list", "--state", "ready", "--json"]) == 0
     document = json.loads(capsys.readouterr().out)
     assert document["page"]["request"]["state"] == "ready"
