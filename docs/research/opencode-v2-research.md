@@ -18,10 +18,14 @@ the integration depends on:
 It is the evidence behind [Issue #393](https://github.com/ned2/dashpot/issues/393),
 which moves Dashpot to OpenCode v2 only.
 
-All of this comes from reading source code and documentation; none of it is
-measured. A claim marked _inference_ is our reading of code that no document
-states, and #393's measurement step must confirm it before a design relies on
-it.
+All of this comes from reading source code and documentation. A claim marked
+_inference_ is our reading of code that no document states, and #393's
+measurement step had to confirm it before a design relied on it. That step is
+the [OpenCode v2 experiment](../spikes/opencode-v2-spike.md), on 2.0.22,
+which answered the [measurement questions](#measurement-questions) below. A
+claim it confirmed is marked _measured_ with a link to the experiment; where
+it overturned an inference, this note says so. A claim still marked
+_inference_ was not measured.
 
 The sources are the release tags [`v2.0.21`][v2] (`8a8bd622`) and
 [`v1.18.30`][v1] of `anomalyco/opencode`, and the v2 documentation at
@@ -139,9 +143,12 @@ So:
   cannot scope what it injects to one session.
 - The shell itself receives OpenCode's own `OPENCODE_SESSION_ID`, which is set
   after every plugin hook. A plugin can therefore clear a leaked value without
-  removing the real one (_inference_).
+  removing the real one ([_measured_](../spikes/opencode-v2-spike.md#shell-identity)).
 - `create.before` runs for every `Shell.create`, not only the model's tool, so
-  it also runs for shells that carry no session (_inference_).
+  it also runs for a user shell ([_measured_](../spikes/opencode-v2-spike.md#shell-identity)). A PTY
+  opened through `/api/pty` runs no plugin hook at all
+  ([_measured_](../spikes/opencode-v2-spike.md#shell-identity); this note first inferred that every
+  shell does).
   `OPENCODE_TERMINAL=1` is set on all of them, so it does not mark an agent's
   shell.
 - 1.18.30 set `OPENCODE_PID` ([`index.ts`][v1-opencode-pid]); nothing in
@@ -153,13 +160,14 @@ it opens, and the server holds it in memory.
 `Shell.create` uses that environment only for a session outside a workspace
 that has one. Otherwise it uses the server's own `process.env`
 ([`shell.ts`][v2-shell-env-fallback]). That covers every session in a
-workspace, and, by _inference_:
-- a Sub-agent's child session;
-- a session opened from the web or desktop client;
-- any session after a server restart.
+workspace, and:
+- a Sub-agent's child session ([_measured_](../spikes/opencode-v2-spike.md#shell-identity));
+- a session created through the HTTP API ([_measured_](../spikes/opencode-v2-spike.md#shell-identity));
+- by _inference_, a session opened from the web or desktop client;
+- by _inference_, any session after a server restart.
 
 The server's own environment is the one the client that started it had
-(_inference_).
+([_measured_](../spikes/opencode-v2-spike.md#shell-identity)).
 
 ## Activity and events
 
@@ -184,30 +192,46 @@ The server's own environment is the one the client that started it had
   - `session.deleted` carries `sessionID`. Deleting a session interrupts it
     and deletes its children first ([`session.ts`][v2-session-remove]).
   - A fork publishes `session.forked`.
-- **Each plugin instance sees its own location's events** (_inference_).
+- **Each plugin instance receives every location's events**
+  ([_measured_](../spikes/opencode-v2-spike.md#the-shared-service-and-its-plugin-instances); this note
+  first inferred the opposite). The
+  [#393 experiment](../spikes/opencode-v2-spike.md#the-shared-service-and-its-plugin-instances)
+  found, on 2.0.22 and under a 2.0.21 service, that every instance's
+  `ctx.event.subscribe()` delivers
+  every event of its server process, whichever location it belongs to. The
+  source reading that measurement overturned was:
   - `ctx.event.subscribe()` reads the server-wide event bus
     ([`bus.ts`][v2-bus-node], [`host.ts`][v2-host-subscribe]) through a filter
-    ([`bus.ts`][v2-bus-local]).
-  - When the subscriber's context names a location, the filter keeps only:
-    - events the bus routed to that location;
-    - events that carry no location.
+    ([`bus.ts`][v2-bus-local]), which, when the subscriber's context names a
+    location, keeps only that location's events and those with none.
   - The bus routes a session's events to the location that session belongs
     to, and `session.moved` to both the old and the new location
-    ([`bus.ts`][v2-bus-routes]).
-  - The plugin supervisor is per location ([`supervisor.ts`][v2-supervisor]).
-    The Promise adapter runs a plugin's subscription in the supervisor's
-    context ([`adapter.ts`][v2-plugin-adapter]).
-  - Routing per location has its own test ([`bus-session-routing.test.ts`][v2-routing-test]).
-  - This resembles 1.18.30's shape: one Publisher Generation per backend and
-    location, publishing only that location's sessions. A v2 location is a
-    directory plus an optional `workspaceID`.
+    ([`bus.ts`][v2-bus-routes]), with its own test
+    ([`bus-session-routing.test.ts`][v2-routing-test]).
+  - The plugin supervisor is per location ([`supervisor.ts`][v2-supervisor]),
+    and the Promise adapter runs a plugin's subscription in the supervisor's
+    context ([`adapter.ts`][v2-plugin-adapter]). The measurement shows that
+    context does not narrow the subscription.
+
+  So 1.18.30's shape, one Publisher Generation per backend and location
+  publishing only that location's sessions, does not come for free: a v2
+  plugin has to filter, and the activity events carry no location to filter
+  on. A v2 location is a directory plus an optional `workspaceID`.
 - **Idle eviction.**
   - A location with no session events for 60 minutes is evicted, and its
     running executions are interrupted with reason `inactivity`
-    ([`location-activity.ts`][v2-location-activity]).
+    ([`location-activity.ts`][v2-location-activity]). Only a session event
+    that carries a location renews the 60 minutes. The execution events
+    carry none, and a shell's output goes to a file rather than to events,
+    so a shell running for an hour is interrupted whether or not it prints;
+    the [#393 experiment](../spikes/opencode-v2-spike.md#idle-eviction)
+    measured this.
   - Eviction invalidates the location's services. Code still holding the old
     services keeps them until it releases them.
-  - _Inference_: that location's plugin instance is cleaned up.
+  - The 60-minute eviction cleans that location's plugin instance up, busy
+    or idle ([_measured_](../spikes/opencode-v2-spike.md#idle-eviction)). The debug eviction route
+    differs: it never cleans up an instance evicted while busy
+    ([_measured_](../spikes/opencode-v2-spike.md#plugin-instance-lifecycle)).
 
 ## Hosting and process ancestry
 
@@ -233,8 +257,8 @@ in `service-<channel>.json` outside the latest, dev, beta and next channels
 **Where shells and plugins run.** A shell is a child of the server, in a
 process group of its own ([`shell.ts`][v2-shell-spawn]). Plugins run inside
 the server process, so the helper a plugin spawns is the server's child too
-(_inference_). The following also follow from the source and are marked
-_inference_:
+(_inference_). The experiment measured the rest
+([_measured_](../spikes/opencode-v2-spike.md#the-shared-service-and-its-plugin-instances)):
 - The TUI is an ancestor of a model's shell only under `--standalone`.
 - Under the default server, the nearest `opencode` ancestor of a shell is
   `opencode serve --service`.
@@ -326,7 +350,9 @@ measurements. The questions this note raises for that design are:
 
 ## Measurement questions
 
-#393's step 1 asks these, because the answers above are inferences:
+#393's step 1 asked these, because the answers above were inferences. The
+[OpenCode v2 experiment](../spikes/opencode-v2-spike.md) answered each of
+them, except where it lists a case as not measured:
 
 - Does each location's plugin instance see every server event, or only its
   own location's?

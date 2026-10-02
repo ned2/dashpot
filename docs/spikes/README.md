@@ -16,6 +16,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [OpenCode v2 hosting, plugin and identity experiment](opencode-v2-spike.md) | research | 2026-10-02 |
 | [Claude Code supervised worker process experiment](claude-code-supervised-worker-process-spike.md) | research | 2026-10-01 |
 | [Claude Code 2.1.285 changes experiment](claude-code-2-1-285-changes-spike.md) | research | 2026-09-30 |
 | [Codex declared relocation on a daemon-hosted thread](codex-declared-relocation-daemon-spike.md) | research | 2026-09-20 |
