@@ -1,18 +1,19 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Research
 
-Investigations of upstream capabilities — GitHub, Textual, Cyclopts, TOML —
-and of Dashpot's own data access, made to inform a decision or an
+Investigations of upstream capabilities — GitHub, Textual, Cyclopts, TOML,
+OpenCode — and of Dashpot's own data access, made to inform a decision or an
 implementation. Each is true as of its date. A `superseded` note names the
 document or ADR that replaced it in its frontmatter; read it as the evidence
 behind that decision, not as a description of the code.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [OpenCode v2 and Dashpot's OpenCode integration](opencode-v2-research.md) | research | 2026-10-02 |
 | [Machine-local settings migration to config.toml](toml-settings-migration-research.md) | superseded | 2026-09-12 |
 | [GitHub Pull Request search and state colours](github-pull-request-search-research.md) | research | 2026-09-06 |
 | [Sequencing GitHub observation data and state work](github-observation-state-sequencing-research.md) | research | 2026-09-05 |
