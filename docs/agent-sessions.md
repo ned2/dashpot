@@ -157,13 +157,15 @@ that predates the `SubagentStart` and `SubagentStop` subscription reports
 no sub-agents until `dashpot integrate codex` runs again.
 
 The Repository's Worktrees are every Worktree Git registers for it, wherever
-it lives on disk, sibling pools such as `dashpot.worktrees/` included; their
+it lives on disk, Worktrees under a Worktree Root such as the sibling
+`dashpot.worktrees/` included; their
 hook stores and the machine-global store are read. A session placed outside
-them is not counted, so a sub-agent of a session in another Repository of
-the Project, or of one launched outside every configured checkout, can be
+them is not counted, so a sub-agent of a session at a checkout of another
+Repository, or of one launched outside every configured checkout, can be
 working in a Worktree that Cleanup offers to remove. That gap is accepted
 ([#357](https://github.com/ned2/dashpot/issues/357)): widening the scope
-would block Cleanup across a whole Project or machine for one sub-agent, and
+would block Cleanup across other Repositories or the whole machine for one
+sub-agent, and
 Cleanup already refuses a dirty Worktree, so the exposure is mainly an
 interrupted task in a clean one. A Cleanup preview that would remove a
 Worktree, in the dashboard and in `dashpot worktree remove --dry-run`, says

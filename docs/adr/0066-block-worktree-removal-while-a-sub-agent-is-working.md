@@ -1,6 +1,6 @@
 ---
 status: amended
-date: 2026-10-02
+date: 2026-10-01
 amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
 ---
 
@@ -60,7 +60,7 @@ might be working in it.
   and the re-inspection on confirmation all report it. Observation stays
   passive, and no Agent Run, Issue Binding, or Work Store record is created
   for a sub-agent.
-- **Only Claude Code sub-agents are covered.** Dashpot's Codex integration
+- **Claude Code sub-agents are covered, then Codex ones.** Dashpot's Codex integration
   does not subscribe to `SubagentStart` or `SubagentStop`, so a Codex
   session's sub-agents are not observed, and the refusal names Claude Code.
   [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) subscribes them, so a Codex session's live sub-agents
@@ -72,11 +72,12 @@ might be working in it.
   `SessionEnd` ([#374](https://github.com/ned2/dashpot/issues/374)).
 - **The scope is the Repository, and the preview says so.** The Repository's
   Worktrees are every Worktree Git registers for it, wherever it lives on
-  disk, sibling pools such as `dashpot.worktrees/` included. Cleanup reads
+  disk, Worktrees under a Worktree Root such as the sibling
+  `dashpot.worktrees/` included. Cleanup reads
   each one's hook store and the machine-global store, and counts a session
   that a record places at any of them. A session placed outside them is not
-  counted, though its sub-agent may work here: one in another Repository of
-  the Project, or one launched outside every configured checkout. The
+  counted, though its sub-agent may work here: one at a checkout of another
+  Repository, or one launched outside every configured checkout. The
   maintainer accepted that gap on 2026-10-02
   ([#357](https://github.com/ned2/dashpot/issues/357)) rather than widen the
   scope. A Cleanup preview that would remove a Worktree, in the dashboard
@@ -96,12 +97,11 @@ might be working in it.
   file edits. It would also add the per-tool-call cost that
   [ADR 0006](0006-observe-agent-activity-at-turn-boundaries.md) and ADR 0016
   declined.
-- **Count the sessions of every Repository of the Project, or every session
-  on the machine:** rejected in #357. Within the Repository, one live
-  sub-agent already blocks the Cleanup of every Worktree. Project scope
-  would extend that to every Repository of a multi-Repository Project, and
-  machine scope to every session on the machine, unrelated projects and
-  orchestrating leads included. Either way the cost lands on exactly the
+- **Count the sessions of other Repositories, or every session on the
+  machine:** rejected in #357. Within the Repository, one live sub-agent
+  already blocks the Cleanup of every Worktree. Counting other Repositories
+  would extend that block to each of them, and counting the machine to every
+  session on it, unrelated Projects and orchestrating leads included. Either way the cost lands on exactly the
   setups the widening would protect. Losing uncommitted work is already
   guarded: Cleanup refuses a dirty Worktree, `git worktree remove` runs
   without `--force`, and a person confirms the preview. What stays exposed
