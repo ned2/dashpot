@@ -1,9 +1,22 @@
 ---
-status: proposal
-date: 2026-09-13
+status: superseded
+date: 2026-10-02
+superseded-by: ../adr/0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md, ../adr/0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md, ../adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md, ../adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md, ../adr/0081-support-opencode-1-18-30-on-linux.md
 ---
 
 # OpenCode integration design
+
+> **Superseded.** [#163](https://github.com/ned2/dashpot/issues/163)
+> implemented this design. Its decisions, and where they departed from it, are
+> recorded in
+> [ADR 0077](../adr/0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md),
+> [ADR 0078](../adr/0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md)
+> and
+> [ADR 0079](../adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md);
+> the acceptance run that made OpenCode 1.18.30 supported, in
+> [ADR 0080](../adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)
+> and [ADR 0081](../adr/0081-support-opencode-1-18-30-on-linux.md). What follows
+> is the proposal as reviewed.
 
 Starting proposal based on the
 [identity and lifecycle spike](../spikes/opencode-identity-lifecycle-spike.md), committed

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Proposals
@@ -13,8 +13,8 @@ wins.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [OpenCode integration design](opencode-integration-design.md) | superseded | 2026-10-02 |
 | [Agent runtime lifecycle design](agent-runtime-lifecycle-design.md) | proposal | 2026-10-01 |
-| [OpenCode integration design](opencode-integration-design.md) | proposal | 2026-09-13 |
 | [Codex relocation and handoff design](codex-relocation-handoff-design.md) | proposal | 2026-09-13 |
 | [Cleanup session handoff proposal](cleanup-session-handoff-proposal.md) | superseded | 2026-09-12 |
 | [Issue worktree protocol for agent handoff](agent-worktree-protocol.md) | superseded | 2026-09-05 |

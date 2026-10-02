@@ -19,6 +19,8 @@ or a prompt that merely names a path does not move the Agent Session. Use
 Claude Code's `EnterWorktree` or the sequential Codex resume flow in
 [dispatch](dispatch.md), then retry `work show` only after fresh hook evidence
 places the session there. Run `work start` only when no preserved run is shown.
+An OpenCode session never moves: hand the work to a new OpenCode session in
+the Worktree, as in [dispatch](dispatch.md), which runs these checks itself.
 
 ## Issue work recorded elsewhere
 
@@ -64,7 +66,10 @@ or recovery action.
 A run whose session process is gone without a graceful end, as after a
 crash. Resuming that Claude Code session at the same Worktree continues it,
 and the hook says so; confirm with `work show` rather than running
-`work start` again. Otherwise use `work show` to identify it. End an orphan
+`work start` again. An OpenCode run never continues by itself: resume the
+session with `opencode <worktree-path> --session <session-id>`, then run
+`work start` with the same Issue there, which reports that it restarted the
+run. Otherwise use `work show` to identify it. End an orphan
 only with the explicit `work stop --session <session-key>` management command
 and only when the user asked to end that exact run. Never edit the Work Store
 directly.

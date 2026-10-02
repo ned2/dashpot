@@ -16,7 +16,7 @@ from .hook_scan import (
     locate_agent_session,
     reachable_hook_stores,
 )
-from .opencode_publishers import corroboration_refusal
+from .opencode_publishers import RETIRED_PUBLISHER, corroboration_refusal
 from .processes import (
     ProcessIdentity,
     ProcessLookup,
@@ -123,9 +123,10 @@ def _corroborate_opencode_generation(
             f"identified only by the claim Dashpot's OpenCode plugin gives a "
             f"command it corroborated"
         )
-    if process is None:
-        # A retired generation leaves its sessions without a Host Process
-        # until a successor publishes them.
+    if process is None or location.record.reason == RETIRED_PUBLISHER:
+        # A retired generation leaves its sessions observed by no plugin
+        # instance until a successor publishes them; a record naming no
+        # process at all corroborates nothing either.
         raise SessionClaimError(
             f"{name} is not corroborated: no plugin instance publishes it now; "
             f"run the command again from the session, or check 'dashpot "

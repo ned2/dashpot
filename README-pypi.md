@@ -3,8 +3,8 @@
 _Useful damping for agent-driven projects._
 
 Dashpot is a terminal view of GitHub or Local Markdown Issues, Pull Requests,
-Git Branches and Worktrees, and active Codex and Claude Code sessions. It makes
-declared Issue work and repository state visible together.
+Git Branches and Worktrees, and active Codex, Claude Code and OpenCode
+sessions. It makes declared Issue work and repository state visible together.
 
 Observation does not change Issues or Git refs. Fetch and Cleanup are explicit
 actions; Cleanup previews concrete targets and requires confirmation.

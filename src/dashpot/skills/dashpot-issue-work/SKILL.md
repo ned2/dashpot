@@ -20,7 +20,8 @@ This skill is written for Dashpot 0.1.0.
 3. Run `<dashpot> issue show <reference> --json`. Continue only when exactly one
    fresh Issue resolves from the configured Issue Source and Profile.
 4. Run `<dashpot> integrate <harness> --status` from the intended Worktree,
-   using `codex` for Codex or `claude-code` for Claude Code, and require its
+   using `codex` for Codex, `claude-code` for Claude Code, or `opencode` for
+   OpenCode, and require its
    `Agent Session identity claimed here` line to be confirmed. If a Worktree
    must be selected, prepared, or entered, read
    [dispatch](references/dispatch.md) and complete that branch first.

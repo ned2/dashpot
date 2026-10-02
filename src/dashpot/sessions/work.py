@@ -156,8 +156,7 @@ def _no_session_message(
 ) -> str:
     message = (
         "no supported agent session encloses this command; Issue work opt-in "
-        f"must run from inside a running {harness_alternatives()} session "
-        "(OpenCode stays unsupported until its acceptance run passes)"
+        f"must run from inside a running {harness_alternatives()} session"
     )
     uncorroborated = environment.get(OPENCODE_UNCORROBORATED_VARIABLE)
     if uncorroborated:

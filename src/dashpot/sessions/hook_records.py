@@ -95,7 +95,9 @@ class HookRecord(PersistedRecord):
     last_activity_at: OptionalText = None
     session_process: SessionProcessRecord | None = None
     # Why the host process is unknown, when it is: distinguishes a hook that
-    # ran where the harness is unobservable from one with no harness.
+    # ran where the harness is unobservable from one with no harness. Beside a
+    # named process, it says nothing observes the session in that process (a
+    # retired OpenCode generation, ADR 0080), which reads unknown while it lives.
     session_process_unobservable: OptionalText = None
     turn_started_at: OptionalText = None
     # The session's sub-agents observed started and not yet stopped; a

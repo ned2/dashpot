@@ -1187,8 +1187,9 @@ The HTTP API has an OpenAPI schema at `/doc`, session operations, and SSE at
 `opencode web` and an attached TUI can simultaneously use the same sessions
 and state. This establishes multiple interfaces, not unrestricted concurrent
 prompt mutation. Browser closure, attached-TUI exit, and closing the TUI that
-started a backend are distinct ownership cases; interactive shutdown was not
-measured. [Web and terminal attachment](https://opencode.ai/docs/web/)
+started a backend are distinct ownership cases; the TUI's shutdown, and an
+attached TUI's exit, are [measured at 1.18.30](#the-local-tui-and-shutdown-through-dashpot-at-11830).
+[Web and terminal attachment](https://opencode.ai/docs/web/)
 
 For attached `run`, `--dir` names a path on the server. Its files, tools, and
 provider credentials belong to the execution machine. A remote client is not
@@ -1305,6 +1306,34 @@ was established. The retained runner isolates home/XDG/configuration, uses a
 loopback model fixture, and records metadata only; its reproduction steps and
 exact flags remain in the
 [experiment](spikes/opencode-identity-lifecycle-spike.md#reproduce).
+
+### The local TUI and shutdown through Dashpot at 1.18.30
+
+The OpenCode acceptance run of
+[#163](https://github.com/ned2/dashpot/issues/163) drove OpenCode 1.18.30 on
+Linux through Dashpot's installed plugin and helper, in isolated
+configuration with a loopback model; its
+[trace](spikes/measurements/issue-163-opencode-trace.jsonl) is metadata only.
+What it adds to the experiment above:
+
+| Boundary | Measured outcome in OpenCode 1.18.30 |
+| --- | --- |
+| `opencode [directory]` | One `opencode` process, the TUI and its backend together, with no `opencode` child. It starts its instance, and the plugin, about 2 s after launch; the first status of a typed prompt reaches the helper about 0.3 s later |
+| `!` in the TUI | The typed command runs in the TUI's process under the session's `shell.env`, like a model-driven command |
+| Quit the TUI with Ctrl+C, or hang up its terminal | Every instance's `dispose` hook runs before the process exits, within about 0.5 s; no session is deleted |
+| SIGTERM or SIGKILL to `opencode serve` | The process exits without running `dispose` |
+| `opencode run --attach` exits during a turn | The turn and its command finish in the backend |
+| An attached TUI exits | The session stays in the backend, unchanged |
+| `opencode <directory> --session <id>` from another directory | The session resumes in the directory it was created in; its commands run there |
+| A provider's HTTP 400 | `session.error` with `APIError`, then `idle` |
+| An interrupt | `session.error` with `MessageAbortedError`, then `idle` |
+| `task` with `background: true` | Runs only with `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true`; the child stays `busy` after its parent's `idle` |
+| `opencode session delete <id>` | Loads the configured plugins in its own process, for the instance of its working directory, and delivers `session.deleted` there. From another directory, the session is outside that instance |
+
+A missing helper fails at once and costs a turn nothing measurable; a
+stalled one is cut off at the plugin's deadline, so a command waits about
+3.3 s. Dashpot's reading of each outcome is in
+[OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes).
 
 ## Identity and lifecycle verification checklist
 

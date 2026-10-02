@@ -36,7 +36,8 @@ pruning the hook record of a session that has ended.
 - Projects with either GitHub Issues or Dashpot's Local Issue Markdown
 - GitHub Pull Requests across their lifecycle, including review, checks, and mergeability
 - git Branches, Remote-Tracking Branches, worktrees, HEAD, and dirty state
-- Codex and Claude Code lifecycle records published through opt-in hooks
+- Codex and Claude Code lifecycle records published through opt-in hooks, and
+  OpenCode's through an opt-in plugin
 - source freshness, failures, and last-good state
 - durable Agent Run bindings through opaque Issue Identity
 
@@ -510,6 +511,11 @@ Each supported harness release is pinned by an acceptance run: a runner that dri
   [trace](docs/spikes/measurements/issue-162-claude-trace.jsonl) and
   [idle-eviction trace](docs/spikes/measurements/issue-162-claude-idle-trace.jsonl)
   ([supported modes](docs/agent-sessions.md#claude-code-hosting-modes)).
+- **OpenCode 1.18.30**: [runner](scripts/experiments/opencode-163/run.mjs) and
+  [verifier](scripts/experiments/opencode-163/verify.mjs),
+  [trace](docs/spikes/measurements/issue-163-opencode-trace.jsonl), including
+  the local TUI, attached clients, plugin reloads and the installer
+  ([supported modes](docs/agent-sessions.md#opencode-hosting-modes)).
 
 #### Local review gate
 
@@ -717,8 +723,9 @@ defaults its Work list to open Issues. Both adapters are currently read-only.
 
 ## Agent session observation
 
-Dashpot observes Codex and Claude Code sessions through opt-in lifecycle hooks
-installed once per user with `dashpot integrate`. The same command installs the
+Dashpot observes Codex and Claude Code sessions through opt-in lifecycle hooks,
+and OpenCode sessions through an opt-in plugin, installed once per user with
+`dashpot integrate`. The same command installs the
 model-invoked `dashpot-issue-work` skill in the harness's user skill directory;
 the skill resolves and declares Issue work, dispatches Worktree handoffs, and
 holds the Issue Binding through the repository's delivery workflow. A declared

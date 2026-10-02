@@ -414,6 +414,8 @@ dashpot integrate codex
 dashpot integrate codex --status
 dashpot integrate claude-code
 dashpot integrate claude-code --status
+dashpot integrate opencode
+dashpot integrate opencode --status
 ```
 
 Register only the harnesses you use, from the environment you mean to keep:
@@ -426,22 +428,28 @@ skill. It preserves unrelated settings; repeated installation refreshes its
 own entries. An Agent Session declares Issue work with `dashpot work start`
 from inside that session, as described in [Agent sessions](agent-sessions.md).
 
-OpenCode stays unsupported until the OpenCode acceptance run passes
-([ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
+OpenCode is supported at release 1.18.30, the release its acceptance run
+passed on
+([ADR 0081](adr/0081-support-opencode-1-18-30-on-linux.md)).
 `dashpot integrate opencode` installs a managed plugin,
 `plugins/dashpot.js`, and the Issue work skill in OpenCode's global
 configuration directory (`$XDG_CONFIG_HOME/opencode`, by default
 `~/.config/opencode`). A plugin of that name that Dashpot did not write is
 refused and left in place. `dashpot integrate opencode --status` reports
 whether the plugin is current and bound to an executable helper, the
-`opencode` release against the one measured, a differing Issue work skill in
+`opencode` release against the accepted 1.18.30, with a warning that any
+other release is unsupported, a differing Issue work skill in
 Claude Code's or the `.agents` directory that OpenCode would also discover,
 a second copy of the plugin, under any name, in a `plugin/` or `plugins/`
 directory OpenCode also reads (its global configuration directory,
 `~/.opencode`, `$OPENCODE_CONFIG_DIR`, or a project `.opencode` directory),
 which would conflict with the first in one backend,
-and an `OPENCODE_PURE` setting that keeps every plugin out. It repeats that
-OpenCode is not yet supported.
+and an `OPENCODE_PURE` setting that keeps every plugin out. OpenCode loads
+the plugin when it starts an instance, so restart the OpenCode TUI or backend
+after installing, updating or removing it; one already running keeps the
+plugin it loaded. The supported ways to run OpenCode, and what each one's
+state means, are in
+[OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes).
 
 A Codex integration installed before Dashpot subscribed Codex's
 `SubagentStart` and `SubagentStop` still works, but its sub-agents neither
@@ -469,6 +477,9 @@ for the new hooks when it asks.
 | The dashboard shows an `event-log-large` Diagnostic | Its checkout's Event Log holds more than 200 MB. Preview with `dashpot events remove --before DATE --dry-run` in the directory the Diagnostic names, then remove, or schedule removal; see [Remove old Event Log files](#remove-old-event-log-files). |
 | A `work-session-elsewhere` Diagnostic names two Worktrees | The session's freshest hook record places it at one Worktree while its Issue work is recorded at another, and no Live Relocation carried it. From inside that session at the Worktree where it now runs, run `dashpot work start` with the same Issue to switch the work there, or `dashpot work stop` to end it; see [Agent sessions](agent-sessions.md#issue-work-opt-in). |
 | Session liveness is unknown | Read the Diagnostic: an isolated process namespace can hide a live process. Unknown does not mean the Agent Session ended. |
+| OpenCode sessions are missing | Run `dashpot integrate opencode --status`. Its plugin must be installed, current and bound to an executable helper, with no second copy of it and no `OPENCODE_PURE`; then restart the OpenCode TUI or backend so that it loads the plugin. |
+| An OpenCode `dashpot work start` is refused as having no corroborated identity | The refusal names the reason from `DASHPOT_OPENCODE_UNCORROBORATED`. Only a command the agent runs from a root session's shell tool, after the helper acknowledged it, carries a claim: a child session's command (`delegated-session`), a terminal the user opened, or a command whose helper was missing or slow (`no-acknowledgment`) does not. Check `dashpot integrate opencode --status`, then run the command again from the agent; after a plugin reload, the next command carries the new instance's claim. |
+| An OpenCode session reads unknown after a plugin reload | Its plugin instance retired and none has published the session since; the next turn or command restores it, with its Issue work unchanged. See [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes). |
 
 ## Upgrade and uninstall
 
@@ -481,6 +492,7 @@ uv tool upgrade dashpot
 dashpot --version
 dashpot integrate codex
 dashpot integrate claude-code
+dashpot integrate opencode
 ```
 
 Rerun only installed integrations, then check their `--status` and restart the
@@ -498,6 +510,7 @@ integrations while Dashpot is still available:
 ```bash
 dashpot integrate codex --remove
 dashpot integrate claude-code --remove
+dashpot integrate opencode --remove
 uv tool uninstall dashpot
 ```
 

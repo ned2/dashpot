@@ -26,7 +26,11 @@ subscription. Its acceptance run then measured the Codex rows left open at
 [#162](https://github.com/ned2/dashpot/issues/162) designated Claude Code's
 worktree tools and measured its rows at `2.1.286`, and
 [#278](https://github.com/ned2/dashpot/issues/278) accepted the Live
-Relocation route for both harnesses through public seams. The unmeasured rows
+Relocation route for both harnesses through public seams.
+[#163](https://github.com/ned2/dashpot/issues/163) implemented the OpenCode
+adapter and publisher generations, and its acceptance run pinned OpenCode
+support to `1.18.30`
+([OpenCode hosting modes](../agent-sessions.md#opencode-hosting-modes)). The unmeasured rows
 below stay unsupported. The contract is concrete enough that
 its consumers implement it rather than choose it:
 [#161](https://github.com/ned2/dashpot/issues/161) (the Codex slice and the
@@ -572,11 +576,11 @@ the stated release), **source** (pinned source or current documentation),
 | Hook id equals shell claim | Measured for roots and forks; a sub-agent's shell claims its own id | Measured headless and background; interactive inferred from the `2.1.278` channel environment | Measured for legacy Bash; a PTY can lack it |
 | Client detach | Measured: no hook, execution continues | Measured: killed `attach` terminal, no hook | Measured: attached CLI exit does not stop work |
 | Idle unload or eviction | Measured: `SessionEnd` 60 s after the last unsubscribe; source documents 30 min | Measured at `2.1.286`: retired about 61 minutes after the last `Stop` with no hook; `claude attach` respawns it with `SessionStart` `resume` | Not applicable |
-| Graceful exit | Measured: `exec`, SIGTERM, daemon stop, standalone `/exit`; daemon-hosted `/exit` none until unload | Measured: `/exit`, `claude stop`, headless exit, `daemon stop --any` | Measured: only `session.deleted` ends; backend exit does not |
+| Graceful exit | Measured: `exec`, SIGTERM, daemon stop, standalone `/exit`; daemon-hosted `/exit` none until unload | Measured: `/exit`, `claude stop`, headless exit, `daemon stop --any` | Measured: only `session.deleted` ends; backend exit does not; a TUI's quit or hangup disposes its instances, SIGTERM on `serve` does not (`1.18.30`) |
 | Crash | Measured: SIGKILL publishes nothing | Measured: SIGKILL publishes nothing; supervisor respawns with `resume` | Measured: backend exit publishes nothing |
 | Same identity in a new Host Process | Measured: `resume` from a replacement server or `exec resume` | Measured: `resume` and `respawn`; at `2.1.286` a supervisor's `--resume` replacement reports the dispatch directory on `SessionStart`, and a `respawn` after an unsupervised crash runs a claimed spare | Measured: resumed in a replacement backend |
 | Supervisor replacement | Not applicable | Measured: workers keep pids, no hooks | Not applicable |
-| Conversation switch in one process | Source: `/cd` forks a new thread | Source: `SessionEnd` reasons `clear` and `resume` | Unresolved |
+| Conversation switch in one process | Source: `/cd` forks a new thread | Source: `SessionEnd` reasons `clear` and `resume` | Unresolved; a resumed session keeps its creation directory (measured at `1.18.30`) |
 | Fork | Measured: new id, `source` = `fork`, no parent field | Measured: new id, `source` = `fork`, no parent field | Measured: new id, no `parentID` |
 | Delegated child | Measured: root `session_id` plus `agent_id`; at `0.159.3` a child outliving its root's `Stop` holds the root running until its `SubagentStop`, and an interrupted child publishes no hook | Measured: parent's id and pid plus `agent_id`; parent's cwd except isolated worktree ([measured under #279](../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)) | Measured: own id with `parentID` |
 | Live location change, idle | Measured: `turn/start` `cwd` override sticky, same id, no `SessionStart` | Measured: `EnterWorktree` and `ExitWorktree` (`keep`) `PostToolUse` at the new cwd, same id and pid, carrying a bound run at `2.1.286`; `remove` refused on a Worktree entered by path and deleting a managed one with its run ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) | Unresolved; Bash `workdir` measured not to move the session |
@@ -608,9 +612,9 @@ under its implementing Issue, never by assumption.
 | Claude Code `EnterWorktree`/`ExitWorktree` (`keep`) Live Relocation | Supported (#162, `2.1.286`), accepted by #278 | A persistent shell `cd` places the session without carrying; `ExitWorktree(remove)` of a Worktree that `EnterWorktree` created by `name` unsupported, as it deletes the run with the Worktree ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) |
 | Claude Code idle eviction | Supported (#162, Linux, `2.1.286`) | The retired worker's run is orphaned and continues when `claude attach` respawns the worker at the run's Worktree |
 | Claude Code Remote Control (attachment and server), SDK, agent teams, cloud, desktop | Unsupported | Unmeasured; server mode needs a claude.ai login |
-| OpenCode legacy local TUI | Later slice, #163 | TUI startup and exit unmeasured |
-| OpenCode attached or shared local backend | Later slice, #163 | Measured on the legacy plugin path |
-| OpenCode V2, ACP, SDK-owned server, remote backends, live cross-Worktree move | Unsupported | Unmeasured |
+| OpenCode local TUI | Supported (#163, Linux, `1.18.30`) | One process, its own backend; quitting it or closing its terminal retires its plugin and its sessions read gone once it exits ([ADR 0080](../adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)) |
+| OpenCode attached or shared local backend (`serve` with `run --attach` and `attach` clients) | Supported (#163, Linux, `1.18.30`) | Accepted by #163's acceptance run ([ADR 0081](../adr/0081-support-opencode-1-18-30-on-linux.md)); a resumed session continues its run only through `work start`; `opencode session delete` of a bound session leaves its run until the backend exits |
+| OpenCode V2, ACP, `opencode web`, SDK-owned server, remote backends, live cross-Worktree move | Unsupported | Unmeasured |
 
 ## Worked examples
 

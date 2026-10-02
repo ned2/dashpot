@@ -44,6 +44,7 @@ from .hook_records import (
     state_directory,
 )
 from .opencode_publishers import (
+    RETIRED_PUBLISHER,
     NativeStatus,
     PublisherGeneration,
     PublisherRecord,
@@ -67,8 +68,6 @@ PublicationKind = Literal["register", "retire", "status", "deleted", "bootstrap"
 AcknowledgmentResult = Literal[
     "accepted", "duplicate", "stale", "conflict", "retired", "rejected"
 ]
-# Why a retired generation's sessions read unknown: nothing observes them.
-RETIRED_PUBLISHER = "opencode-publisher-retired"
 
 
 class PluginSession(PublishedModel):
@@ -298,11 +297,13 @@ def _retire(
 def _mark_unobserved(
     hook_store: Path, session_id: str, backend: ProcessIdentity
 ) -> None:
-    """Leave a retired generation's session record without its Host Process.
+    """Mark a retired generation's session record as observed by no plugin instance.
 
-    Nothing observes the session any more while its backend lives on, so its
+    Nothing observes the session any more, so while its backend lives on its
     activity reads unknown rather than the last status the generation saw.
-    This is the one hook record write that does not pass through
+    The record keeps naming the backend: OpenCode retires a generation when
+    its TUI quits too, and the backend's exit must still read as gone
+    (ADR 0080). This is the one hook record write that does not pass through
     ``publish_hook_event``: retirement is no hook event of the session's, and
     must change only who observes it. The record is found under either name
     the store may have given it, and every other field is kept as written.
@@ -326,7 +327,6 @@ def _mark_unobserved(
             return
         process = record.session_process
         if process is not None and process.identity.key == backend.key:
-            raw["sessionProcess"] = None
             raw["sessionProcessUnobservable"] = RETIRED_PUBLISHER
             store.replace(key, raw)
 

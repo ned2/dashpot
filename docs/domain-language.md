@@ -420,8 +420,8 @@ identity, which is evidence of Session Liveness
 
 **Harness**:
 The coding-agent product hosting an Agent Session: Codex, Claude Code, or
-OpenCode (OpenCode support pending its acceptance run,
-[ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
+OpenCode, each supported at the release its acceptance run last passed on
+([ADR 0081](adr/0081-support-opencode-1-18-30-on-linux.md)).
 The closed `Harness` union in `core/model.py` names each one by its identifier
 (`codex`, `claude-code`, `opencode`) and `HARNESS_DISPLAY` holds the name a person reads,
 so every model, record, and label spells a harness the same way. _Avoid_:
@@ -439,9 +439,10 @@ harness's internals.
 
 **Publisher Generation**, **Publisher Record**:
 A Publisher Generation is one instance of Dashpot's OpenCode plugin, named by
-a random value it draws before its first publication. OpenCode replaces the
-instance, and so the generation, when it reloads or disposes of it, while the
-backend and its sessions live on. The Publisher Record of one backend Host
+a random value it draws before its first publication. A generation retires
+when OpenCode reloads or disposes of its instance, while the backend and its
+sessions live on, and also when a TUI quits
+([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)). The Publisher Record of one backend Host
 Process and instance directory says which generation is active there, which
 have retired, and how far each session's publications have reached. Only the
 active generation publishes, and only its acknowledgment corroborates a
@@ -457,8 +458,8 @@ plugin session or plugin identity
 **Host Process**:
 The nearest harness process that executes an Agent Session's turns, keyed by
 pid and start time: a Claude Code interactive, headless or supervised worker
-process, a Codex TUI, `exec`, app-server or daemon process, or, once
-OpenCode is supported, its backend. It is the session's liveness and runtime
+process, a Codex TUI, `exec`, app-server or daemon process, or an OpenCode
+backend, which is the TUI's own process or `opencode serve`. It is the session's liveness and runtime
 evidence. Each span of one Host Process holding a session, begun by
 `SessionStart`, is an incarnation; every `SessionStart` begins another,
 whether a resume in a new process, a cold resume inside the same daemon, or
@@ -473,8 +474,8 @@ process is meant; the supervisor as a session's process
 
 **Sub-agent**:
 Delegated work a harness runs inside an Agent Session: a Codex sub-agent
-thread, a Claude Code sub-agent in its parent's process, or, once OpenCode is
-supported, a child session with a `parentID`. A hook event carrying
+thread, a Claude Code sub-agent in its parent's process, or an OpenCode child
+session with a `parentID`. A hook event carrying
 `agent_id` is child-scoped: Dashpot subscribes to Codex's and Claude Code's
 sub-agent boundaries, which add to the parent's live sub-agents and hold the
 parent running
@@ -488,8 +489,11 @@ parent's Observation Location
 
 **Session Liveness**:
 An observation of whether an Agent Session's recorded Host Process is live,
-gone, or unknown. Unknown means the process could not be observed and is never
-evidence that the session ended.
+gone, or unknown. Unknown means the process could not be observed, or that it
+is live while nothing observes the session in it, as for a retired OpenCode
+Publisher Generation's sessions
+([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)),
+and is never evidence that the session ended.
 
 **Orphaned Agent Run**:
 An active Work Store record whose Agent Session's recorded Host Process is

@@ -79,13 +79,15 @@ of date.
 | 0064 | [Publish Runtime Events under their Event Log field names](0064-publish-runtime-events-under-their-event-log-field-names.md) | accepted | — |
 | 0065 | [Pause GitHub queries after a rate limit refusal](0065-pause-github-queries-after-a-rate-limit-refusal.md) | accepted | — |
 | 0066 | [Block Worktree removal while a sub-agent is working](0066-block-worktree-removal-while-a-sub-agent-is-working.md) | amended | [0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) |
-| 0067 | [Observe conversations apart from the runtimes that serve them](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) | proposed | — |
+| 0067 | [Observe conversations apart from the runtimes that serve them](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) | accepted | — |
 | 0068 | [Pause GitHub queries while the dashboard is unattended](0068-pause-github-queries-while-the-dashboard-is-unattended.md) | accepted | — |
 | 0069 | [Remove an ended session's records from every store of its Repository](0069-remove-an-ended-sessions-records-from-every-store-of-its-repository.md) | accepted | — |
 | 0070 | [Refuse a Live Relocation on evidence it cannot read](0070-refuse-a-live-relocation-on-evidence-it-cannot-read.md) | accepted | — |
 | 0072 | [Keep every Codex Host Process non-exclusive](0072-keep-every-codex-host-process-non-exclusive.md) | accepted | — |
 | 0074 | [Carry a Claude Code run only on its worktree tools](0074-carry-a-claude-code-run-only-on-its-worktree-tools.md) | accepted | — |
 | 0075 | [End an orphaned run at its replacement's SessionEnd](0075-end-an-orphaned-run-at-its-replacements-session-end.md) | accepted | — |
-| 0077 | [Observe OpenCode through one publisher generation per plugin instance](0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md) | accepted | — |
+| 0077 | [Observe OpenCode through one publisher generation per plugin instance](0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md) | amended | [0080](0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md) |
 | 0078 | [Give an OpenCode command a claim only for its own bootstrap](0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md) | accepted | — |
-| 0079 | [Install OpenCode as one managed plugin, and keep it unsupported until acceptance](0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md) | accepted | — |
+| 0079 | [Install OpenCode as one managed plugin, and keep it unsupported until acceptance](0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md) | amended | [0081](0081-support-opencode-1-18-30-on-linux.md) |
+| 0080 | [Keep a retired OpenCode generation's backend on its sessions](0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md) | accepted | — |
+| 0081 | [Support OpenCode 1.18.30 on Linux](0081-support-opencode-1-18-30-on-linux.md) | accepted | — |
