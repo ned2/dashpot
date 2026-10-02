@@ -8,8 +8,7 @@ from pathlib import Path
 import pytest
 
 from dashpot import cli
-from factories import write_project_config
-from test_github_issues import PROJECT_ID, REPOSITORY_ID
+from test_github_issues import REPOSITORY_ID
 from test_github_pull_requests import pull_request_node
 from test_runtime_spans import executable
 from test_source_queries import (
@@ -26,46 +25,42 @@ from test_source_queries import (
 
 
 @pytest.fixture(autouse=True)
-def gh_calls(
+def gh_record(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[Path]:
     """Fail any test here that starts a ``gh`` process, real or not.
 
     The CLI reads ``configured_query_source`` through its own name, so a test
-    that patches any other name gets the configured source instead, and a
-    GitHub-backed configuration would reach the real ``gh`` (#331). A ``gh``
-    first on ``PATH`` records each call and answers nothing.
+    that patches any other name gets the configured Query Source instead, and
+    a GitHub Query Source would reach the real ``gh`` (#331). A ``gh`` first on
+    ``PATH`` appends each call to the record this yields and fails. A test
+    that means to start it reads the record and removes it.
     """
     directory = tmp_path_factory.mktemp("gh-guard")
-    calls = directory / "calls"
+    record = directory / "calls"
     executable(
         directory,
         "gh",
         "import sys\n"
-        f"with open({str(calls)!r}, 'a') as calls:\n"
+        f"with open({str(record)!r}, 'a') as calls:\n"
         "    calls.write(' '.join(sys.argv[1:]) + '\\n')\n"
         "sys.exit(1)",
     )
     monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ['PATH']}")
-    yield calls
-    assert not calls.exists(), f"a test started gh: {calls.read_text()}"
+    yield record
+    assert not record.exists(), f"a test started gh: {record.read_text()}"
 
 
 def test_a_github_source_the_cli_builds_itself_reaches_the_gh_guard(
-    tmp_path, monkeypatch, capsys, gh_calls
+    tmp_path, monkeypatch, capsys, gh_record
 ):
-    write_project_config(
-        tmp_path,
-        project_id=PROJECT_ID,
-        repository_id=REPOSITORY_ID,
-        issue_source={"kind": "github"},
-    )
+    github(tmp_path)  # Only for the GitHub configuration it writes.
     monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    cli.main(["issue", "list", "--json"])
-    capsys.readouterr()
-    # Unpatched, the CLI's own source starts gh, which the guard records.
-    assert gh_calls.read_text().startswith("api graphql")
-    gh_calls.unlink()
+    assert cli.main(["issue", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["page"]["status"] == "unavailable"
+    # Unpatched, the CLI's own Query Source starts gh, which the guard records.
+    assert gh_record.read_text().startswith("api graphql")
+    gh_record.unlink()
 
 
 def test_list_json_keys_and_cross_invocation_cursor(tmp_path, monkeypatch, capsys):
