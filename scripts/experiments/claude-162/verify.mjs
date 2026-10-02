@@ -14,6 +14,9 @@ const main = "$ROOT/repository";
 const sibling = "$ROOT/repository.worktrees/sibling";
 const nested = "$ROOT/repository/nested";
 const managed = "$ROOT/repository/.claude/worktrees/managed";
+// The pinned release, which the trace's environment and its replacement
+// worker's command line both name.
+const pinned = "2.1.287";
 
 const evidence = (records) => {
   const hooks = records.filter((record) => record.kind === "hook");
@@ -30,7 +33,7 @@ const evidence = (records) => {
 
 const verifyEnvironment = (records, label) => {
   const environment = records.find((record) => record.kind === "environment");
-  check(`${label}: pinned Claude Code release`, () => assert.equal(environment.version, "2.1.286 (Claude Code)"));
+  check(`${label}: pinned Claude Code release`, () => assert.equal(environment.version, `${pinned} (Claude Code)`));
   check(`${label}: subscribed as \`dashpot integrate claude-code\` subscribes`, () => assert.deepEqual(environment.subscriptions, {
     events: ["SessionStart", "UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "SessionEnd"],
     matched: [["PostToolUse", "EnterWorktree"], ["PostToolUse", "ExitWorktree"]],
@@ -152,7 +155,7 @@ const verifyAcceptance = (records) => {
     assert.equal(replacementStart.payload.cwd, main);
     const probe = records.find((record) => record.kind === "replacement" && record.label === "started");
     assert.equal(probe.cwd, sibling);
-    assert.match(probe.cmdline, /\/claude\/versions\/2\.1\.286 --resume /);
+    assert(probe.cmdline.includes(`/claude/versions/${pinned} --resume `), probe.cmdline);
   });
   check("until its next turn the run is orphaned and the other worker's is untouched", () => {
     assert.deepEqual(runs("w1-replaced").filter(([issue]) => issue !== "I_fixture_2"), [["I_fixture_1", sibling, true], ["I_fixture_4", main, false]]);

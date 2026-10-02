@@ -286,7 +286,7 @@ Linux.
 
 ### Claude Code hosting modes
 
-Claude Code support is pinned to **2.1.286** on Linux, the release the
+Claude Code support is pinned to **2.1.287** on Linux, the release the
 [Claude Code acceptance run](../README.md#harness-acceptance-runs) last passed
 on; its trace is
 [`issue-162-claude-trace.jsonl`](spikes/measurements/issue-162-claude-trace.jsonl).
