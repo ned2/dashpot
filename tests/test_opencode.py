@@ -1,7 +1,7 @@
-"""OpenCode sessions through the shared runtime model (ADRs 0077 and 0078).
+"""OpenCode sessions through the shared runtime model (ADRs 0077, 0078 and 0080).
 
-Each scenario follows what the #163 probe measured at OpenCode 1.18.30
-(``scripts/experiments/opencode-163``): one ``opencode`` backend runs the
+Each scenario follows what the #163 acceptance run measured at OpenCode
+1.18.30 (``scripts/experiments/opencode-163``): one ``opencode`` backend runs the
 plugin's helper and every shell command as its direct children, a session's
 status repeats at every step of a turn, a child session names its
 ``parentID`` and a fork names none, and a replaced plugin instance registers
@@ -553,11 +553,50 @@ def test_a_retired_generations_sessions_read_unknown_until_a_successor_publishes
     observed = record(project)
     assert observed is not None
     assert observed["sessionProcess"]["pid"] == BACKEND.pid
+    assert observed["sessionProcessUnobservable"] is None
     # A successor's first word starts the record afresh: the Sub-agent its
     # predecessor saw is not one it can vouch for.
     assert (observed["state"], observed["liveSubagents"]) == ("waiting", [])
     states = {run.session_id: run.state for run in runs(project, plugin.lookup)}
     assert states == {ROOT: "waiting", FORK: "unknown"}
+
+
+def test_a_retired_generations_sessions_read_gone_once_their_backend_exits(
+    project: Path, plugin: Plugin
+) -> None:
+    # OpenCode retires a generation when its TUI quits, as the backend in the
+    # same process exits (ADR 0080): the record still names that backend.
+    start_issue_work(
+        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
+    )
+    plugin.retire()
+
+    retired = record(project)
+    assert retired is not None
+    assert retired["sessionProcess"]["pid"] == BACKEND.pid
+    assert retired["sessionProcessUnobservable"] == "opencode-publisher-retired"
+    (live,) = runs(project, plugin.lookup)
+    assert (live.issue_id, live.state, live.orphaned) == (
+        "I_observer",
+        "unknown",
+        False,
+    )
+
+    (exited,) = runs(project, table_lookup({}))
+    # Only the Work Store's run is left, orphaned under the gone backend; the
+    # session itself is gone, not unknown.
+    assert (exited.issue_id, exited.orphaned) == ("I_observer", True)
+
+
+def test_a_retired_generations_session_stays_unknown_while_its_backend_is_unobservable(
+    project: Path, plugin: Plugin
+) -> None:
+    plugin.status("busy")
+    plugin.retire()
+
+    (observed,) = runs(project, unobservable("ps-timeout"))
+
+    assert (observed.session_id, observed.state) == (ROOT, "unknown")
 
 
 def test_a_successor_ends_a_session_its_predecessor_last_published(
@@ -760,7 +799,7 @@ def test_an_uncorroborated_command_is_told_why(project: Path, plugin: Plugin) ->
 
     message = str(refused.value)
     assert "running Codex, Claude Code, or OpenCode session" in message
-    assert "OpenCode stays unsupported until its acceptance run passes" in message
+    assert "unsupported" not in message
     assert "no corroborated identity: delegated-session" in message
 
 

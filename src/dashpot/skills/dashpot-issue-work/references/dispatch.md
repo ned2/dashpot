@@ -28,6 +28,23 @@ To return, call `ExitWorktree` with `action: "keep"`, which moves the run back
 too. A shell `cd` places the session's later hooks elsewhere but never takes
 its run along.
 
+## Start an OpenCode session in the Worktree
+
+An OpenCode session never leaves the directory it was created in: resumed from
+another directory, it still runs, and keeps its Agent Run, where it began. Work
+in another Worktree is a new Agent Session there.
+
+1. If `<dashpot> work show` reports an active Agent Run for this session on the
+   same Issue, run `<dashpot> work stop` first once its delegated work is done.
+2. Give the user one safely shell-quoted command of this shape to run in a
+   terminal:
+
+   ```text
+   opencode <worktree-path> --prompt 'Continue Issue <reference>. First run <dashpot> work start <reference> and verify it with <dashpot> work show, then follow the repository workflow through green CI.'
+   ```
+
+3. Do not continue the Issue's work in this session after handing it over.
+
 ## Resume a Codex session
 
 Codex can resume the same Agent Session in another working directory. Exit

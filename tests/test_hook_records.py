@@ -23,9 +23,12 @@ from dashpot.sessions.hook_records import (
     state_directory,
     write_hook_record,
 )
+from dashpot.sessions.hook_scan import classify_hook_record
+from dashpot.sessions.liveness import LivenessProbe
 from dashpot.sessions.processes import (
     AgentAncestry,
     ProcessIdentity,
+    ProcessLookup,
     SessionProcessRecord,
 )
 from dashpot.sessions.work import start_issue_work
@@ -37,7 +40,7 @@ from factories import (
     observation_target,
     write_config_marker,
 )
-from helpers import present
+from helpers import absent, present
 from test_work import (
     CLAUDE_ENVIRON,
     CLAUDE_SESSION,
@@ -976,3 +979,64 @@ def test_a_sub_agent_event_stamped_before_a_move_never_rewinds_its_parent(
     assert stale == "unchanged"
     assert WorkStore(a).active()[0] == []
     assert [item.issue_id for item in WorkStore(b).active()[0]] == ["I_observer"]
+
+
+# A record that names its Host Process and also says nothing observes the
+# session there: what a retired OpenCode generation leaves (ADR 0080).
+UNOBSERVED_OPENCODE = ProcessIdentity(4100, 1, "opencode", "Tue Aug 25 03:00:00 2026")
+
+
+def classified(
+    harness: str,
+    process: ProcessIdentity | None,
+    unobservable: str | None,
+    lookup: ProcessLookup,
+    state: str = "waiting",
+) -> tuple[str, str | None]:
+    raw = hook_record_document("/repo", "classified", harness, process, state=state)
+    raw["sessionProcessUnobservable"] = unobservable
+    record = classify_hook_record(raw, LivenessProbe(lookup))
+    return record.outcome, record.reason
+
+
+def test_an_unobserved_record_reads_unknown_while_its_process_lives() -> None:
+    assert classified(
+        "opencode",
+        UNOBSERVED_OPENCODE,
+        "opencode-publisher-retired",
+        present(UNOBSERVED_OPENCODE),
+    ) == ("unknown", "opencode-publisher-retired")
+
+
+def test_an_unobserved_record_reads_gone_once_its_process_is_gone() -> None:
+    assert classified(
+        "opencode", UNOBSERVED_OPENCODE, "opencode-publisher-retired", absent()
+    ) == ("gone", None)
+
+
+@pytest.mark.parametrize(
+    ("harness", "process"), [("codex", CODEX), ("claude-code", CLAUDE)]
+)
+def test_a_record_with_one_of_process_and_unobservable_classifies_as_before(
+    harness: str, process: ProcessIdentity
+) -> None:
+    assert classified(harness, process, None, present(process)) == ("live", None)
+    assert classified(harness, process, None, absent()) == ("gone", None)
+    assert classified(harness, None, "isolated-namespace", present(process)) == (
+        "unknown",
+        "no recorded process identity",
+    )
+    assert classified(harness, None, "isolated-namespace", absent()) == (
+        "unknown",
+        "no recorded process identity",
+    )
+
+
+def test_an_ended_unobserved_record_stays_ended() -> None:
+    assert classified(
+        "opencode",
+        UNOBSERVED_OPENCODE,
+        "opencode-publisher-retired",
+        present(UNOBSERVED_OPENCODE),
+        state="ended",
+    ) == ("ended", None)

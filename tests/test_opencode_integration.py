@@ -14,7 +14,6 @@ from dashpot.sessions.integrate import (
     ISSUE_WORK_SKILL_MARKER,
     ISSUE_WORK_SKILL_VERSION,
     OPENCODE,
-    OPENCODE_UNSUPPORTED,
     IntegrationError,
     install_integration,
     integration_status,
@@ -98,11 +97,14 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
     assert "__DASHPOT_OPENCODE_HELPER__" not in installed
     skill = home / "skills" / "dashpot-issue-work"
     assert ISSUE_WORK_SKILL_MARKER in (skill / "SKILL.md").read_text()
+    # An OpenCode session cannot leave its directory, so the skill hands Issue
+    # work in another Worktree to a new session there.
+    dispatch = (skill / "references" / "dispatch.md").read_text()
+    assert "opencode <worktree-path> --prompt" in dispatch
     assert messages == [
         f"installed the OpenCode plugin in {plugin_file(home)}",
         f"hook publisher: {command}",
         f"installed Dashpot Issue work skill in {skill}",
-        OPENCODE_UNSUPPORTED,
     ]
 
     again = install_integration("opencode", home, command_path=command)
@@ -217,8 +219,8 @@ def test_status_of_a_current_installation(tmp_path: Path) -> None:
         f"Issue work skill installed in {home / 'skills' / 'dashpot-issue-work'} "
         f"for Dashpot {ISSUE_WORK_SKILL_VERSION}",
     ]
-    assert "OpenCode release: 1.18.30, the measured release" in messages
-    assert OPENCODE_UNSUPPORTED in messages
+    assert "OpenCode release: 1.18.30, the accepted release" in messages
+    assert not any("unsupported" in message for message in messages)
     assert messages[-1] == (
         "Agent Session identity claimed here: none for OpenCode (only a command "
         "its plugin corroborated carries one)"
@@ -287,19 +289,27 @@ def test_status_warns_about_a_linked_worktree_helper(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("version", "expected"),
     [
-        (None, "OpenCode release: not found on PATH"),
+        (None, ["OpenCode release: not found on PATH"]),
         (
             "1.19.0",
-            "OpenCode release: 1.19.0; the plugin was measured against 1.18.30",
+            [
+                "OpenCode release: 1.19.0",
+                "warning: OpenCode 1.19.0 is unsupported: Dashpot's acceptance "
+                "run passed on 1.18.30 only, and another release may change what "
+                "the plugin observes",
+            ],
         ),
     ],
 )
-def test_status_names_an_unmeasured_release(
-    tmp_path: Path, version: str | None, expected: str
+def test_status_names_a_release_other_than_the_accepted_one(
+    tmp_path: Path, version: str | None, expected: list[str]
 ) -> None:
     home = opencode_home(tmp_path)
 
-    assert expected in status(home, tmp_path, version_probe=lambda: version)
+    messages = status(home, tmp_path, version_probe=lambda: version)
+
+    start = messages.index(expected[0])
+    assert messages[start : start + len(expected)] == expected
 
 
 def test_status_asks_the_opencode_on_path(
@@ -316,7 +326,7 @@ def test_status_asks_the_opencode_on_path(
         "opencode", home, state_dir=tmp_path / "state", current=tmp_path, environ={}
     )
 
-    assert "OpenCode release: 1.18.30, the measured release" in messages
+    assert "OpenCode release: 1.18.30, the accepted release" in messages
     for broken in ("#!/bin/sh\nexit 3\n", "#!/nonexistent/interpreter\n"):
         binary.write_text(broken)
         messages = integration_status(

@@ -260,7 +260,13 @@ records and never writes beyond pruning: the freshest live or unknown record
 of a session places it, a run left at another Worktree is reported as
 `work-session-elsewhere`, and a pending Relocation Intent is diagnosed from the
 freshest record first. Liveness that cannot be observed stays unknown and never
-becomes gone.
+becomes gone. Classification
+([`hook_scan.py`](../src/dashpot/sessions/hook_scan.py)) reads a record by its
+Host Process, with one shared rule beside it: a record whose process is live
+but which also says nothing observes the session there
+(`sessionProcessUnobservable`, as a retired OpenCode Publisher Generation
+leaves its sessions) reads unknown, while a gone process still reads gone
+([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)).
 
 ## Accepted multi-screen target
 

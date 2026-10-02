@@ -59,6 +59,7 @@ from dashpot.sessions.processes import (
     ProcessLookup,
     host_process_lookup,
 )
+from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import git
 from helpers import absent, table_lookup, unobservable
 
@@ -471,6 +472,8 @@ SESSION = "01c7192b-2990-4f83-ad33-290ac22eb4d1"
 THREAD = "01a05099-1563-79a3-8504-e30d50949ca6"
 CLAUDE = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
 CODEX = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
+OPENCODE_SESSION = "ses_f059abdb5ffe6qbE35RQLOXLvj"
+OPENCODE = ProcessIdentity(5151, 1, "opencode", "Tue Aug 25 03:00:00 2026")
 
 
 # The way out of a Worktree each harness's session is given, verbatim.
@@ -490,11 +493,21 @@ def codex_steps(thread: str = THREAD) -> str:
     )
 
 
+# An OpenCode session cannot move, so both ways out end what serves it.
+OPENCODE_STEPS = (
+    "quit the OpenCode TUI serving that session, or stop the OpenCode backend "
+    "it runs in (an OpenCode session cannot leave the directory it was created "
+    "in, and closing an attached client leaves it running), or delete that "
+    "session in the OpenCode backend serving it"
+)
+
+
 def occupied_worktree(
     tmp_path: Path,
     harness: str,
     session: str,
     process: ProcessIdentity | None,
+    unobservable_reason: str | None = None,
 ) -> tuple[Path, tuple[Path, ...]]:
     """A linked Worktree whose hooks last placed one Agent Session there."""
     root = repo(tmp_path)
@@ -514,6 +527,8 @@ def occupied_worktree(
     }
     if process is not None:
         record["sessionProcess"] = process.as_record()
+    if unobservable_reason is not None:
+        record["sessionProcessUnobservable"] = unobservable_reason
     write_hook_record(record, session_directory(worktree))
     return worktree.resolve(), (root.resolve(), worktree.resolve())
 
@@ -566,6 +581,151 @@ def test_a_live_codex_session_here_names_its_resume_and_its_client(
         kind="agent-session",
         detail=f"Codex session {THREAD} is live here (last activity "
         f"2026-09-30T03:40:00.000000Z). To free this Worktree, {codex_steps()}.",
+    )
+
+
+def test_a_live_opencode_session_here_names_what_serves_it(tmp_path: Path) -> None:
+    worktree, worktrees = occupied_worktree(
+        tmp_path, "opencode", OPENCODE_SESSION, OPENCODE
+    )
+
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, table_lookup({OPENCODE.pid: OPENCODE})
+    )
+
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"OpenCode session {OPENCODE_SESSION} is live here (last activity "
+        f"2026-09-30T03:40:00.000000Z). To free this Worktree, {OPENCODE_STEPS}.",
+    )
+
+
+def test_a_session_of_a_retired_opencode_plugin_names_its_running_backend(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(
+        tmp_path,
+        "opencode",
+        OPENCODE_SESSION,
+        OPENCODE,
+        "opencode-publisher-retired",
+    )
+
+    # The backend is observed and runs: nothing for a person to check with ps.
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, table_lookup({OPENCODE.pid: OPENCODE})
+    )
+
+    assert blocker == CleanupBlocker(
+        kind="agent-session",
+        detail=f"OpenCode session {OPENCODE_SESSION} may be live here: its "
+        "liveness is unknown (last activity 2026-09-30T03:40:00.000000Z). Its "
+        f"OpenCode backend, pid {OPENCODE.pid}, still runs, but the plugin "
+        "instance that observed the session has retired and none has published "
+        f"it since. To free this Worktree, {OPENCODE_STEPS}.",
+    )
+
+
+def test_a_session_of_a_retired_opencode_plugin_frees_its_worktree_once_its_backend_exits(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(
+        tmp_path,
+        "opencode",
+        OPENCODE_SESSION,
+        OPENCODE,
+        "opencode-publisher-retired",
+    )
+
+    assert assess_worktree_occupancy(worktree, worktrees, absent()) == []
+
+
+OPENCODE_KEY = "opencode-session-6d1f0c2a"
+
+
+def bind_opencode_run(worktree: Path) -> None:
+    """Record an OpenCode session's Agent Run on issue-10, served by OPENCODE."""
+    WorkStore(worktree).start(
+        ActiveWork(
+            session_key=OPENCODE_KEY,
+            harness="opencode",
+            session_label=f"OpenCode session {OPENCODE_SESSION}",
+            session_process=SessionProcess(
+                pid=OPENCODE.pid, started_at=OPENCODE.started_at
+            ),
+            issue_id="I_10",
+            issue_reference="issue-10",
+            binding_provenance="explicit-reference",
+            started_at="2026-09-30T03:35:00.000000Z",
+            working_directory=str(worktree),
+            branch="feat",
+            session_id=OPENCODE_SESSION,
+        )
+    )
+
+
+def test_a_live_opencode_run_is_stopped_inside_its_session(tmp_path: Path) -> None:
+    worktree, worktrees = occupied_worktree(
+        tmp_path, "opencode", OPENCODE_SESSION, OPENCODE
+    )
+    bind_opencode_run(worktree)
+
+    blockers = assess_worktree_occupancy(
+        worktree, worktrees, table_lookup({OPENCODE.pid: OPENCODE})
+    )
+
+    assert [blocker.kind for blocker in blockers] == ["agent-session", "agent-run"]
+    assert blockers[1] == CleanupBlocker(
+        kind="agent-run",
+        detail=f"OpenCode session {OPENCODE_SESSION} is working on issue-10 "
+        "(session live)",
+        command="dashpot work stop (inside that session)",
+    )
+
+
+def test_a_run_of_a_deleted_opencode_session_names_its_backend_then_the_stop(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(
+        tmp_path, "opencode", OPENCODE_SESSION, OPENCODE
+    )
+    bind_opencode_run(worktree)
+    # As `opencode session delete` from another process leaves it: the hook
+    # record is removed while the run and the backend serving it remain.
+    for record in session_directory(worktree).glob("*.json"):
+        record.unlink()
+
+    (blocker,) = assess_worktree_occupancy(
+        worktree, worktrees, table_lookup({OPENCODE.pid: OPENCODE})
+    )
+
+    assert blocker == CleanupBlocker(
+        kind="agent-run",
+        detail=f"OpenCode session {OPENCODE_SESSION} is working on issue-10, "
+        "but no hook record of that session is left, as after 'opencode session "
+        "delete', while the OpenCode backend that served it still runs: quit "
+        "that OpenCode TUI or stop that backend, then end the run",
+        command=f"cd {worktree} && dashpot work stop --session {OPENCODE_KEY}",
+    )
+
+
+def test_a_run_of_a_deleted_opencode_session_is_orphaned_once_its_backend_exits(
+    tmp_path: Path,
+) -> None:
+    worktree, worktrees = occupied_worktree(
+        tmp_path, "opencode", OPENCODE_SESSION, OPENCODE
+    )
+    bind_opencode_run(worktree)
+    for record in session_directory(worktree).glob("*.json"):
+        record.unlink()
+
+    (blocker,) = assess_worktree_occupancy(worktree, worktrees, absent())
+
+    assert blocker.detail == (
+        f"Orphaned Agent Run on issue-10 for OpenCode session {OPENCODE_SESSION}"
+    )
+    assert blocker.command == (
+        f"cd {worktree} && dashpot work stop --session {OPENCODE_KEY}"
     )
 
 

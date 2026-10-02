@@ -15,10 +15,12 @@ from ...sessions.hook_scan import (
     reachable_hook_stores,
     sessions_at_worktree,
     sessions_with_live_subagents,
+    stored_session_records,
 )
 from ...sessions.liveness import session_liveness
+from ...sessions.opencode_publishers import RETIRED_PUBLISHER
 from ...sessions.processes import ProcessLookup, host_process_lookup
-from ...sessions.work_store import WorkStore
+from ...sessions.work_store import ActiveWork, WorkStore
 from ..repository import (
     LockHolderProbe,
     RefIndex,
@@ -175,6 +177,16 @@ SESSION_EXITS: Mapping[Harness, SessionExit] = {
         end="end that session's client (a daemon-hosted thread ends about "
         "60 s after its last client leaves)",
     ),
+    # An OpenCode session never leaves the directory it was created in, even
+    # resumed from elsewhere, so the only way out is to end what serves it: a
+    # TUI's quit or a backend's exit reads gone, while closing an attached
+    # client leaves the session running in its backend (ADR 0080).
+    "opencode": SessionExit(
+        move="quit the OpenCode TUI serving that session, or stop the OpenCode "
+        "backend it runs in (an OpenCode session cannot leave the directory it "
+        "was created in, and closing an attached client leaves it running)",
+        end="delete that session in the OpenCode backend serving it",
+    ),
 }
 
 
@@ -216,6 +228,17 @@ def session_blocker(record: HookRecordClassification) -> CleanupBlocker:
             f"ended, resume it and end it again so that it publishes its end.",
         )
     process = record.process
+    if record.reason == RETIRED_PUBLISHER:
+        # The backend is observed and runs; what is missing is a plugin
+        # instance observing the session in it (ADR 0080).
+        return CleanupBlocker(
+            kind="agent-session",
+            detail=f"{session} may be live here: its liveness is unknown "
+            f"({activity}). Its OpenCode backend, pid {process.pid}, still "
+            f"runs, but the plugin instance that observed the session has "
+            f"retired and none has published it since. To free this "
+            f"Worktree, {steps}.",
+        )
     if record.reason == "isolated-namespace":
         verify = (
             f"Dashpot cannot see its Host Process, pid {process.pid}, from "
@@ -292,6 +315,19 @@ def assess_worktree_occupancy(
                 f"Orphaned Agent Run on {work.issue_reference} for {work.session_label}"
             )
             command = f"cd {path} && dashpot work stop --session {work.session_key}"
+        elif liveness == "live" and _unrecorded_opencode_session(work, stores):
+            # Deleting the session from another process (the `opencode session
+            # delete` command) removes its hook record but cannot end the run,
+            # and no command runs inside a deleted session (ADR 0080). Only the
+            # missing record is observed, so the deletion is named as an example.
+            detail = (
+                f"{work.session_label} is working on {work.issue_reference}, "
+                "but no hook record of that session is left, as after "
+                "'opencode session delete', while the OpenCode backend that "
+                "served it still runs: quit that OpenCode TUI or stop that "
+                "backend, then end the run"
+            )
+            command = f"cd {path} && dashpot work stop --session {work.session_key}"
         else:
             detail = (
                 f"{work.session_label} is working on {work.issue_reference} "
@@ -302,6 +338,14 @@ def assess_worktree_occupancy(
             CleanupBlocker(kind="agent-run", detail=detail, command=command)
         )
     return obstacles
+
+
+def _unrecorded_opencode_session(work: ActiveWork, stores: Sequence[Path]) -> bool:
+    """Whether an OpenCode run's session has no hook record left in any store."""
+    if work.harness != "opencode" or work.session_id is None:
+        return False
+    records, unreadable = stored_session_records(stores, "opencode", work.session_id)
+    return not records and not unreadable
 
 
 NO_INTEGRATION_BRANCH = (

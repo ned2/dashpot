@@ -280,7 +280,6 @@ def install_integration(
             f"hook publisher: {command}",
             _install_issue_work_skill(skill),
             *_opencode_skill_copies(skill),
-            OPENCODE_UNSUPPORTED,
         ]
     path = home / spec.hooks_file
     document = _load_hooks_document(spec, path)
@@ -808,14 +807,9 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
     )
 
 
-# The OpenCode release whose plugin API, events, and process shape the plugin
-# and its helper were measured against.
-OPENCODE_MEASURED_VERSION = "1.18.30"
-OPENCODE_UNSUPPORTED = (
-    "note: OpenCode stays unsupported until the OpenCode acceptance run "
-    "passes; the plugin observes sessions, but no OpenCode release is yet "
-    "accepted for Issue work"
-)
+# The OpenCode release the acceptance run passed on, its plugin API, events,
+# and process shape measured (ADR 0081); another release is unsupported.
+OPENCODE_ACCEPTED_VERSION = "1.18.30"
 PLUGIN_MARKER = "// dashpot-managed-plugin: opencode"
 PLUGIN_HELPER_PLACEHOLDER = '"__DASHPOT_OPENCODE_HELPER__"'
 PLUGIN_HELPER = re.compile(r'^const HELPER = (".*");$', re.MULTILINE)
@@ -1039,17 +1033,18 @@ def _opencode_runtime_status(
     version = (version_probe or _opencode_version)()
     if version is None:
         messages = ["OpenCode release: not found on PATH"]
-    elif version == OPENCODE_MEASURED_VERSION:
-        messages = [f"OpenCode release: {version}, the measured release"]
+    elif version == OPENCODE_ACCEPTED_VERSION:
+        messages = [f"OpenCode release: {version}, the accepted release"]
     else:
         messages = [
-            f"OpenCode release: {version}; the plugin was measured against "
-            f"{OPENCODE_MEASURED_VERSION}"
+            f"OpenCode release: {version}",
+            f"warning: OpenCode {version} is unsupported: Dashpot's acceptance "
+            f"run passed on {OPENCODE_ACCEPTED_VERSION} only, and another release "
+            "may change what the plugin observes",
         ]
     if _enabled(environment.get("OPENCODE_PURE")):
         messages.append(
             "warning: OPENCODE_PURE is set here; OpenCode started with it, or "
             "with --pure, loads no plugin and publishes nothing"
         )
-    messages.append(OPENCODE_UNSUPPORTED)
     return messages

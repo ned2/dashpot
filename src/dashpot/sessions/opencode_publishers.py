@@ -41,6 +41,9 @@ PublisherGeneration = Annotated[str, Field(pattern=PUBLISHER_GENERATION.pattern)
 # A native session status the plugin publishes; OpenCode 1.18.30 has no error
 # status, a failed turn ending ``idle`` like any other.
 NativeStatus = Literal["busy", "retry", "idle"]
+# Why a retired generation's sessions read unknown while their backend runs:
+# no plugin instance observes them (ADR 0077, ADR 0080).
+RETIRED_PUBLISHER = "opencode-publisher-retired"
 
 
 class SessionWatermark(PersistedRecord):

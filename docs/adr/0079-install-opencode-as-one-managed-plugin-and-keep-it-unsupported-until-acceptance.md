@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-02
+amended-by: 0081-support-opencode-1-18-30-on-linux.md
 ---
 
 # Install OpenCode as one managed plugin, and keep it unsupported until acceptance
