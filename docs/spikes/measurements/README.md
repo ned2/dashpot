@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Measurements
@@ -37,7 +37,7 @@ cites each file.
 | [`issue-151-trace.jsonl`](issue-151-trace.jsonl) | JSONL trace, OpenCode 1.18.30 | [#151](https://github.com/ned2/dashpot/issues/151) | [`opencode-151`](../../../scripts/experiments/opencode-151/) | [OpenCode identity and lifecycle experiment](../opencode-identity-lifecycle-spike.md) |
 | [`issue-160-claude-trace.jsonl`](issue-160-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.276 | [#160](https://github.com/ned2/dashpot/issues/160) | [`claude-160`](../../../scripts/experiments/claude-160/) | [Claude Code identity and lifecycle experiment](../claude-code-identity-lifecycle-spike.md) |
 | [`issue-160-codex-trace.jsonl`](issue-160-codex-trace.jsonl) | JSONL trace, Codex CLI 0.155.1 | [#160](https://github.com/ned2/dashpot/issues/160) | [`codex-160`](../../../scripts/experiments/codex-160/) | [Codex identity and lifecycle experiment](../codex-identity-lifecycle-spike.md) |
-| [`issue-161-codex-trace.jsonl`](issue-161-codex-trace.jsonl) | JSONL trace, Codex CLI 0.159.3 | [#161](https://github.com/ned2/dashpot/issues/161) | [`codex-161`](../../../scripts/experiments/codex-161/), the Codex acceptance run | [Agent sessions: Codex hosting modes](../../agent-sessions.md#codex-hosting-modes) |
+| [`issue-161-codex-trace.jsonl`](issue-161-codex-trace.jsonl) | JSONL trace, Codex CLI 0.159.3 | [#161](https://github.com/ned2/dashpot/issues/161), with the sub-agent scenarios of [#355](https://github.com/ned2/dashpot/issues/355) | [`codex-161`](../../../scripts/experiments/codex-161/), the Codex acceptance run | [Agent sessions: Codex hosting modes](../../agent-sessions.md#codex-hosting-modes) |
 | [`issue-162-claude-trace.jsonl`](issue-162-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.286 | [#162](https://github.com/ned2/dashpot/issues/162) | [`claude-162`](../../../scripts/experiments/claude-162/), the Claude Code acceptance run | [Agent sessions: Claude Code hosting modes](../../agent-sessions.md#claude-code-hosting-modes) |
 | [`issue-162-claude-idle-trace.jsonl`](issue-162-claude-idle-trace.jsonl) | JSONL trace, Claude Code 2.1.286 | [#162](https://github.com/ned2/dashpot/issues/162) | [`claude-162`](../../../scripts/experiments/claude-162/) with `SPIKE_IDLE_MINUTES`, the idle-eviction run | [Harness reference: clients and supervised workers](../../agent-harness-server-client-reference.md#clients-and-supervised-workers-through-dashpot-at-21286) |
 | [`issue-269-codex-trace.jsonl`](issue-269-codex-trace.jsonl) | JSONL trace, Codex CLI 0.155.1 | [#269](https://github.com/ned2/dashpot/issues/269) | [`codex-269`](../../../scripts/experiments/codex-269/) | [Codex declared relocation on a daemon-hosted thread](../codex-declared-relocation-daemon-spike.md) |

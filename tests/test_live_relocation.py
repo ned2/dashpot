@@ -936,17 +936,32 @@ def test_an_unbound_session_is_reported_unbound_at_its_new_worktree(
     assert diagnostics == []
 
 
-# Late evidence at the origin: the designated event of a return there, and the
-# end of a turn there. A sub-agent's late event is left out: a sub-agent live
-# during a move is unmeasured, and so unsupported, on every harness.
+def return_after_a_sub_agent_stops(mover: Mover, at: Path) -> HookPublication:
+    """Publish a Sub-agent's stop at ``at``, then the designated return there.
+
+    The stop reaches the parent's record at B; were it to make that record
+    as old as itself, the return stamped alongside it would read as fresh as
+    B and carry the run back (#355).
+    """
+    mover.publish(at, "SubagentStop", agent_id="child-thread")
+    return mover.move_back(at)
+
+
+# Late evidence at the origin: the designated event of a return there, the
+# end of a turn there, and that return after a Sub-agent's stop there. A
+# Sub-agent live during a move is unmeasured, and so unsupported, on every
+# harness; its late stop here holds only that it never makes B's record older.
 LATE_AT_ORIGIN: list[Callable[[Mover, Path], HookPublication]] = [
     Mover.move_back,
     lambda mover, at: mover.publish(at, "Stop"),
+    return_after_a_sub_agent_stops,
 ]
 
 
 @movers
-@pytest.mark.parametrize("late", LATE_AT_ORIGIN, ids=["designated", "Stop"])
+@pytest.mark.parametrize(
+    "late", LATE_AT_ORIGIN, ids=["designated", "Stop", "SubagentStop"]
+)
 def test_late_evidence_from_the_origin_never_moves_the_run_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

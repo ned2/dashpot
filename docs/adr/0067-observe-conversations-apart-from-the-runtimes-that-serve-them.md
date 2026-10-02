@@ -70,7 +70,13 @@ Code) or a native `parentID` (OpenCode) updates only its parent's live
 sub-agent set, extending [ADR 0016](0016-hold-a-session-running-while-its-sub-agents-work.md)
 to Codex. It never sets the parent's Observation Location, turn clock, store
 routing, Issue Binding or ending, and a child's claim never authorizes Issue
-work.
+work. Nor does it make the parent's record older: a child event stamped
+before its parent moved, but written after, keeps the record's later stamp,
+so the record left behind never reads as the freshest again. Where the parent
+has no record, only a sub-agent's start writes one, at the Sub-agent's own
+location, the one case a child places its parent; a late `SubagentStop`
+after the parent's `SessionEnd` writes nothing
+([#355](https://github.com/ned2/dashpot/issues/355)).
 
 A session's authoritative Observation Location comes only from the Harness
 Adapter's designated, session-scoped location evidence: a Codex

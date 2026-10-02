@@ -291,6 +291,11 @@ record lacks, and Cleanup reads only the Repository's own stores.
 Codex's `SubagentStart` and `SubagentStop` are emitted at `0.155.1`. #161
 subscribes them so that a Codex parent's delegates hold it running,
 extending ADR 0016's live set to Codex.
+[#355](https://github.com/ned2/dashpot/issues/355) measured the rule at
+`0.159.3` with children that outlive their root's `Stop`, and found that
+interrupting a child's own turn publishes no hook, so such a child stays
+live until its session's next `SessionStart` or `SessionEnd`
+([reference](../agent-harness-server-client-reference.md#hosting-modes-and-daemon-autostart-at-01593)).
 
 Two defects in the publisher before #161 followed from this rule and were
 #161's and #162's to fix: a child-scoped event overwrote the parent record's
@@ -573,7 +578,7 @@ the stated release), **source** (pinned source or current documentation),
 | Supervisor replacement | Not applicable | Measured: workers keep pids, no hooks | Not applicable |
 | Conversation switch in one process | Source: `/cd` forks a new thread | Source: `SessionEnd` reasons `clear` and `resume` | Unresolved |
 | Fork | Measured: new id, `source` = `fork`, no parent field | Measured: new id, `source` = `fork`, no parent field | Measured: new id, no `parentID` |
-| Delegated child | Measured: root `session_id` plus `agent_id` | Measured: parent's id and pid plus `agent_id`; parent's cwd except isolated worktree ([measured under #279](../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)) | Measured: own id with `parentID` |
+| Delegated child | Measured: root `session_id` plus `agent_id`; at `0.159.3` a child outliving its root's `Stop` holds the root running until its `SubagentStop`, and an interrupted child publishes no hook | Measured: parent's id and pid plus `agent_id`; parent's cwd except isolated worktree ([measured under #279](../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)) | Measured: own id with `parentID` |
 | Live location change, idle | Measured: `turn/start` `cwd` override sticky, same id, no `SessionStart` | Measured: `EnterWorktree` and `ExitWorktree` (`keep`) `PostToolUse` at the new cwd, same id and pid, carrying a bound run at `2.1.286`; `remove` refused on a Worktree entered by path and deleting a managed one with its run ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) | Unresolved; Bash `workdir` measured not to move the session |
 | Live location change, mid-turn | Measured: joins the running turn in the old cwd; the joined input's `UserPromptSubmit` names that turn at the old cwd, and the next turn's is the first at the new one | Unresolved | Unsupported |
 | Declared sequential relocation | Measured on no-daemon, loaded and unloaded daemon routes | Not used | Unsupported |

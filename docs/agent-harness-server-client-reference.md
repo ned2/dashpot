@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Agent harness server and client reference
@@ -23,7 +23,7 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
+| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
@@ -561,6 +561,29 @@ and the runner's verifier checks each one, timings within a tolerance.
   root's in `CODEX_SESSION_ID`, and its hooks carry the root's `session_id`
   plus `agent_id`. No `codex-code-mode-host` process appeared in any hook or
   shell ancestry.
+- **Sub-agents outliving their parent's turn.** Measured for
+  [#355](https://github.com/ned2/dashpot/issues/355): a turn that spawned two
+  sub-agents with `spawn_agent` and did not wait for them published the
+  root's `UserPromptSubmit`, then the children's `SubagentStart` and the
+  root's `Stop` within about 0.1 s, the `Stop` before or after a child's
+  start in different runs, then each child's `UserPromptSubmit`, and each
+  child's `SubagentStop` as it finished, about 7 s and 13 s after the root's
+  `Stop` with holds of 6 s and 12 s. Every child event carried the root's
+  `session_id`, the child's `agent_id` and the child's own `turn_id`; no
+  child had a `SessionStart` or `SessionEnd`. Through Dashpot the bound run
+  stayed running with no turn clock after the root's `Stop` and after the
+  first child stopped, returned to waiting when the second did, and kept its
+  id and Worktree; the other root threads on the daemon were unchanged.
+- **Interrupting a sub-agent.** A controller's `turn/interrupt` naming a
+  child's thread and turn, sent after its root's `Stop`, returned success and
+  aborted the child's turn: the child's running command ran out its hold and
+  the child made no further model request. Codex published no hook for it,
+  neither `Interrupt` nor `SubagentStop`, then or later. Dashpot therefore
+  kept the child live: the bound run stayed running and the child's
+  `sub-agent` Cleanup blocker stayed on an empty Worktree until the daemon
+  was killed, the undelivered-`SubagentStop` risk
+  [ADR 0016](adr/0016-hold-a-session-running-while-its-sub-agents-work.md)
+  names.
 
 Interactive conversation switches inside one terminal (`/new`, `/resume`),
 Remote Control pairing with an account, and other operating systems were not

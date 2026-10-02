@@ -5,7 +5,8 @@
 // leaves to #161 (a standalone terminal, daemon autostart, `codex exec`,
 // `codex remote-control start`, input joined to a running turn), then
 // exercises the shared runtime core through the real Codex adapter on the
-// managed daemon, and records each step's hooks, shells, protocol results,
+// managed daemon, including sub-agents that outlive their parent's turn
+// (#355), and records each step's hooks, shells, protocol results,
 // and Dashpot's own published view as a metadata-only trace.
 //
 //   node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
@@ -20,7 +21,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe } from "./ancestry.mjs";
+import { ancestry, describe } from "./ancestry.mjs";
 import { connectUnixWebSocket } from "./uds-websocket.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,11 @@ const checkout = path.resolve(here, "..", "..", "..");
 const binary = process.argv[2];
 assert(binary && path.isAbsolute(binary), "Pass the absolute path to the Codex binary");
 const expectedVersion = process.argv[3] ?? "0.159.3";
+// Dashpot attributes a fixture process it does not recognise to the first
+// harness process above it, so the runner refuses to start below one.
+const harnessAbove = ancestry(process.ppid, 64, 1).find((entry) => entry.comm.startsWith("codex") || entry.comm === "claude"
+  || /^\S*\/claude\/versions\/[^\s/]+(\s|$)/.test(entry.cmdline));
+assert(!harnessAbove, `Run this outside every Codex and Claude Code session (for example with \`setsid -f\`): pid ${harnessAbove?.pid} is ${harnessAbove?.comm}`);
 const dashpotBin = path.resolve(process.argv[4] ?? path.join(checkout, ".venv", "bin"));
 const dashpotCommand = path.join(dashpotBin, "dashpot");
 const publisher = path.join(dashpotBin, "dashpot-codex-hook");
@@ -125,8 +131,10 @@ env.SPIKE_SINK = sink.url;
 // The fixture model: `SPIKE:<label> hold=<ms> work=<start-N|show|stop>` in
 // the latest user message selects one exec_command call reporting identity
 // and running that `dashpot work` command; `delegate` spawns a sub-agent whose
-// own prompt carries the same hold and work, and waits for it; a request
-// already holding the tool outputs ends the turn.
+// own prompt carries the same hold and work, and waits for it; `spawn<N>`
+// spawns N sub-agents, the k-th prompted `spawn<N>-<k> hold=<k × hold>`, and
+// ends the turn without waiting for any; a request already holding the tool
+// outputs ends the turn.
 const commandScript = path.join(here, "command.mjs");
 const modelRequests = new Map();
 const sse = (res, event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
@@ -154,7 +162,9 @@ const model = await listen(async (req, res) => {
   const count = (modelRequests.get(label?.name ?? "none") ?? 0) + 1;
   modelRequests.set(label?.name ?? "none", count);
   const delegate = label?.name === "delegate" && tools.includes("multi_agent_v1/spawn_agent");
-  const needed = delegate ? 2 : 1;
+  const spawning = /^spawn(\d)$/.exec(label?.name ?? "");
+  const children = spawning && tools.includes("multi_agent_v1/spawn_agent") ? Number(spawning[1]) : 0;
+  const needed = delegate ? 2 : children || 1;
   const useTool = label && outputs.length < needed && tools.includes("exec_command");
   trace("model.request", { label: label?.name ?? null, count, outputs: outputs.length, toolCount: tools.length, delegateAvailable: tools.includes("multi_agent_v1/spawn_agent") });
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
@@ -163,7 +173,10 @@ const model = await listen(async (req, res) => {
   if (useTool) {
     const callId = `call_${label.name}_${count}`;
     let item;
-    if (delegate && outputs.length === 0) {
+    if (children) {
+      const index = outputs.length + 1;
+      item = { type: "function_call", call_id: callId, namespace: "multi_agent_v1", name: "spawn_agent", arguments: JSON.stringify({ message: `SPIKE:${label.name}-${index} hold=${Number(label.hold) * index}` }) };
+    } else if (delegate && outputs.length === 0) {
       item = { type: "function_call", call_id: callId, namespace: "multi_agent_v1", name: "spawn_agent", arguments: JSON.stringify({ message: `SPIKE:child hold=${label.hold} work=${label.work}` }) };
     } else if (delegate) {
       let agentId = null;
@@ -604,6 +617,27 @@ try {
     childRead: threadSummary((await c2.call("thread/read", { threadId: childThread })).result?.thread) });
   view("after-delegate");
 
+  // Sub-agents that outlive their parent's turn (#355): R1's turn spawns two,
+  // held for about 6 s and 12 s, and stops without waiting. Each view notes
+  // how many of the children had stopped before and after it was taken.
+  trace("scenario", { name: "delegate-outlives-parent" });
+  const childStops = (since) => hooks().slice(since).filter((record) => record.event === "SubagentStop" && record.payload.session_id === r1.id);
+  const outliveView = (label, since) => {
+    const stopsBefore = childStops(since).length;
+    view(label);
+    trace("outlive.view", { label, stopsBefore, stopsAfter: childStops(since).length });
+  };
+  view("outlive-before");
+  const outlive = await runTurn(c2, r1.id, "SPIKE:spawn2 hold=6000");
+  outliveView("outlive-parent-stopped", outlive.hooksBefore);
+  await waitFor(() => childStops(outlive.hooksBefore).length >= 1, "first child stops", 60000);
+  outliveView("outlive-one-child-stopped", outlive.hooksBefore);
+  await waitFor(() => childStops(outlive.hooksBefore).length >= 2, "second child stops", 60000);
+  await delay(1500);
+  outliveView("outlive-children-stopped", outlive.hooksBefore);
+  trace("outlive.outcome", { root: r1.id, children: [shellSummary("spawn2-1"), shellSummary("spawn2-2")],
+    hooks: hooks().slice(outlive.hooksBefore).map((record) => [record.event, record.payload.session_id, record.payload.agent_id ?? null, record.payload.turn_id ?? null, record.payload.cwd, record.receiptTime]) });
+
   // A fork of R1: a new conversation that inherits no Agent Run.
   trace("scenario", { name: "fork" });
   const forked = await c3.call("thread/fork", { threadId: r1.id, cwd: fixture });
@@ -679,6 +713,28 @@ try {
   const resumedTurn = await runTurn(c3, r2.id, "SPIKE:r2-resumed work=show");
   trace("resume.outcome", { thread: threadSummary(resumed.result?.thread), error: resumed.error ?? null, shell: shellSummary("r2-resumed"), newHooks: hooksSince(hooksBefore) });
   view("after-resume");
+
+  // A sub-agent interrupted after its parent's turn stopped: a controller's
+  // `turn/interrupt` names the child's own thread and turn. It runs last on
+  // this daemon, since a child no hook ends holds R1 running, and blocks
+  // Cleanup across the Repository, until the daemon is gone.
+  trace("scenario", { name: "sub-agent-interrupt" });
+  const orphan = await runTurn(c2, r1.id, "SPIKE:spawn1 hold=30000");
+  await waitFor(() => command("spawn1-1"), "interrupted child command", 60000);
+  const childPrompt = hooks().slice(orphan.hooksBefore).find((record) => record.event === "UserPromptSubmit" && record.payload.agent_id);
+  view("child-interrupt-running");
+  const childInterrupted = await c2.call("turn/interrupt", { threadId: childPrompt?.payload.agent_id, turnId: childPrompt?.payload.turn_id });
+  const interruptedAt = Date.now();
+  const childEnded = () => hooks().slice(orphan.hooksBefore).some((record) => record.event === "SubagentStop" && record.payload.agent_id === childPrompt?.payload.agent_id);
+  await quietly(waitFor(childEnded, "interrupted child stops", 15000));
+  await delay(1500);
+  trace("child-interrupt.outcome", { root: r1.id, child: childPrompt?.payload.agent_id ?? null, response: childInterrupted.error ?? "ok", interruptedAt,
+    commandEnded: Boolean(command("spawn1-1", "end")),
+    hooks: hooks().slice(orphan.hooksBefore).map((record) => [record.event, record.payload.session_id, record.payload.agent_id ?? null, record.payload.turn_id ?? null, record.payload.cwd, record.receiptTime]) });
+  view("after-child-interrupt");
+  worktreeCheck("after-child-interrupt-fourth", fourth);
+  // A child the interrupt did not stop finishes its hold before the next scenario.
+  await quietly(waitFor(childEnded, "child finishes", 45000));
 
   // The daemon is killed: no hook runs, so the bound run is orphaned.
   trace("scenario", { name: "daemon-gone" });

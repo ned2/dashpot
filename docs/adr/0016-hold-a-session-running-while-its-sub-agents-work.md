@@ -79,6 +79,12 @@ hold the session running while any sub-agent it started is alive:
 - A `SubagentStop` the harness never delivers leaves a sub-agent in the live
   set until the next `SessionStart` or `SessionEnd`, holding the session
   running. This is the same class of risk as an undelivered `Stop`, and is
-  bounded the same way, by the session's own lifecycle.
+  bounded the same way, by the session's own lifecycle. Codex 0.159.3 is a
+  measured case: interrupting a sub-agent's own turn publishes no hook
+  ([harness reference](../agent-harness-server-client-reference.md#hosting-modes-and-daemon-autostart-at-01593)).
 - Existing installations report the two events as missing from
   `dashpot integrate claude-code --status` until re-run.
+- Amended by [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+  ([#355](https://github.com/ned2/dashpot/issues/355)): a `SubagentStop` that
+  finds no record of its session writes nothing, so one arriving after the
+  session's `SessionEnd` never lists the ended session as waiting.

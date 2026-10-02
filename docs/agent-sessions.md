@@ -179,7 +179,13 @@ In the dashboard, a Codex session's state means:
 - **Running or waiting.** Its Host Process is live, and the state is that of
   its current turn. Input typed during a turn joins that turn and its
   `UserPromptSubmit` arrives when Codex takes it, so the session stays
-  running until the joined input's turn stops.
+  running until the joined input's turn stops. A sub-agent the turn spawned
+  holds the session running after the turn's `Stop` until its own
+  `SubagentStop`, and its prompt does not restart the turn clock. Codex
+  publishes no hook when a sub-agent's own turn is interrupted, so a
+  sub-agent interrupted that way holds the session running, and blocks
+  Cleanup across the Repository, until the thread unloads, resumes, or its
+  Host Process is gone.
 - **Unloaded.** A daemon-hosted thread whose last terminal or client has
   left stays listed as waiting, at its Worktree and with its run, until the
   daemon unloads it about 60 s later. Its `SessionEnd` then ends its run and
