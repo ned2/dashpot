@@ -85,7 +85,7 @@ its liveness is unknown, and gives its harness's way out of the Worktree:
 
 | Harness | Move the session out | Or end it |
 | --- | --- | --- |
-| Claude Code | A session `EnterWorktree` brought here runs `ExitWorktree` with `action: keep`. One whose shell came by `cd` changes back to the checkout it started in; its next hook then places it there, leaving any Agent Run behind ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)). A session started in this Worktree has neither: `ExitWorktree` is a no-op there and a `cd` out of its project is reset, so it is ended, or moved by `EnterWorktree` to a sibling linked Worktree ([measured at 2.1.278](agent-harness-server-client-reference.md#channels-and-worktree-tools-at-21278)) | End the session |
+| Claude Code | A session `EnterWorktree` brought here runs `ExitWorktree` with `action: keep`, which still works after the session is resumed here. One whose shell came by `cd` changes back to the checkout it started in; its next hook then places it there, leaving any Agent Run behind ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)). A session started in this Worktree has neither: `ExitWorktree` is a no-op there and a `cd` out of its project is reset, so it is ended, or moved by `EnterWorktree` to a sibling linked Worktree ([measured at 2.1.286](agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286)) | End the session |
 | Codex | Once its client exits, `codex resume <id> -C <worktree>` resumes it elsewhere; a session holding an Agent Run first declares the move with `dashpot work relocate <worktree>` ([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)) | End its client. A daemon-hosted thread stays loaded, and keeps the Worktree, until the daemon unloads it about 60 s after its last client leaves ([Codex hosting modes](#codex-hosting-modes)) |
 | OpenCode | None: a session never leaves the directory it was created in, even resumed from another one | Quit the OpenCode TUI serving it, or stop the `opencode` backend it runs in; closing an attached client leaves it running. Or delete it in the backend serving it ([OpenCode hosting modes](#opencode-hosting-modes)) |
 
@@ -273,6 +273,11 @@ In the dashboard, a Claude Code session's state means:
   there, and the run left behind is reported as `work-session-elsewhere`
   until `work start` there switches it or the shell returns
   ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
+  `EnterWorktree` enters a Dashpot Worktree only from the directory the
+  session was launched in. A session inside a Worktree it entered, resumed
+  there or not, is refused a direct switch to another one, so it returns
+  with `ExitWorktree(keep)` and enters the next
+  ([ADR 0085](adr/0085-move-a-claude-code-session-between-issue-worktrees-through-its-launch-directory.md)).
 - **Gone.** The Host Process was killed or crashed: no hook says so, and a
   bound run is listed as an [Orphaned Agent Run](domain-language.md) (`◌`).
   A worker killed under a live supervisor is replaced within seconds by a
@@ -434,7 +439,13 @@ an ordinary in-place opt-in does not load Worktree and harness detail.
 
 When work needs another Worktree, the skill delegates path, Branch, base,
 collision, and rollback policy to `issue show` and `worktree create`. Claude
-Code relocates the running session with `EnterWorktree`. An OpenCode session
+Code relocates the running session with `EnterWorktree`. A session already
+inside an entered Worktree first returns with `ExitWorktree(keep)`, after
+finishing the current Issue when the move is to another one. When
+`EnterWorktree` still refuses, the skill hands the work to a fresh Claude Code
+session started in the Worktree with one quoted `cd <worktree> && claude`
+command, which does not promise working `gh` credentials there
+([#274](https://github.com/ned2/dashpot/issues/274)). An OpenCode session
 cannot leave the directory it was created in, so the skill hands Issue work in
 another Worktree to a new OpenCode session started there with
 `opencode <worktree> --prompt`, which the acceptance run does not drive. Codex prefers a

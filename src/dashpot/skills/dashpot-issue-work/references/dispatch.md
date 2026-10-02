@@ -17,16 +17,54 @@ in the intended Worktree.
 
 ## Move a Claude Code session
 
-Call `EnterWorktree` with the exact path reported above. Its completion moves
-the Agent Session, and an Agent Run the session already holds moves with it.
-After it succeeds, run `<dashpot> work show` from the entered Worktree. If it
-reports this Agent Session working on the intended Issue at that Worktree,
-retain that Agent Run. Otherwise run `<dashpot> work start <reference>` and
-verify it with `<dashpot> work show`.
+`EnterWorktree` with `path` enters a Dashpot Worktree only from the directory
+the session was launched in, the main checkout or a linked Worktree. A
+session already inside a Worktree it entered, including one resumed there,
+cannot switch directly to another Dashpot Worktree: Claude Code limits that
+switch to its own `.claude/worktrees/`. It returns first. `EnterWorktree`
+never enters the main checkout.
 
-To return, call `ExitWorktree` with `action: "keep"`, which moves the run back
-too. A shell `cd` places the session's later hooks elsewhere but never takes
-its run along.
+1. If this session entered a Worktree with `EnterWorktree` and has not left
+   it, return first. When the move is to another Issue, finish the current
+   engagement as the main workflow requires: green CI, then `work stop` and
+   `work show`. Then call `ExitWorktree` with `action: "keep"`. The session
+   goes back to the directory it entered from, and the Worktree and Branch
+   stay in place. Use `keep`, never `remove`: `remove` never removes a
+   Dashpot Worktree and is not supported for Issue work.
+2. Call `EnterWorktree` with the exact path reported above. Its completion
+   moves the Agent Session, and an Agent Run the session already holds moves
+   with it.
+3. Run `<dashpot> work show` from the entered Worktree. If it reports this
+   Agent Session working on the intended Issue at that Worktree, retain that
+   Agent Run. Otherwise run `<dashpot> work start <reference>` and verify it
+   with `<dashpot> work show`.
+
+`ExitWorktree` with `action: "keep"` carries a run back too, and a later
+`EnterWorktree` can enter the same Worktree again. A shell `cd` places the
+session's later hooks elsewhere but never takes its run along.
+
+## Hand off when `EnterWorktree` is refused
+
+If `EnterWorktree` is still refused after the return above, or
+`ExitWorktree` reports that no worktree session is active, this session
+cannot reach the Worktree. Do not retry, change directory with the shell, or
+run `work start` here. If the session holds an active Agent Run, leave it
+until its engagement is finished, then end it with `work stop`.
+
+Give the user one safely shell-quoted command of this shape, which starts a
+fresh Claude Code session in the Worktree:
+
+```text
+cd <worktree-path> && claude 'Continue Issue <reference>. First run <dashpot> work start <reference> and verify it with <dashpot> work show, then follow the repository workflow through green CI.'
+```
+
+That session is a new Agent Session and establishes its own run with
+`work start`. A session started in a linked Worktree may lack credentials
+the main checkout's environment supplies, so do not promise that `gh` works
+there ([#274](https://github.com/ned2/dashpot/issues/274)). Suggest starting
+Claude Code sessions from the main checkout, from which a session can always
+return and enter the next Worktree. Do not continue the Issue's work in this
+session after handing it over.
 
 ## Start an OpenCode session in the Worktree
 
