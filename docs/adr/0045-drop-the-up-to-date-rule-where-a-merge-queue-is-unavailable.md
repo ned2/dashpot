@@ -1,14 +1,16 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-17
+amended-by: 0089-leave-the-pr-merge-to-the-operator.md
 ---
 
 # Drop the up-to-date rule where a merge queue is unavailable
 
-Amended by commit `0193a6d`, which withdrew the decision's instruction below
-to enable the squash merge with `gh pr merge --squash --auto`; the
-implementing agent does not enable it. The
-[agent instructions](../../AGENTS.md#independent-review-before-integration)
+Amended by [ADR 0089](0089-leave-the-pr-merge-to-the-operator.md), which
+records the withdrawal, by commit `0193a6d`, of the decision's instruction
+below to enable the squash merge with `gh pr merge --squash --auto`; the
+implementing agent does not enable it.
+The [agent instructions](../../AGENTS.md#independent-review-before-integration)
 end the agent's work with the PR open, its validation section recorded, and
 CI green, and the operator reviews and squash-merges the PR. The rest of the
 decision stands: a PR integrates by squash merge on its own green

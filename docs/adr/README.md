@@ -59,8 +59,8 @@ of date.
 | 0041 | [Distinguish GitHub wire models from configuration](0041-distinguish-github-wire-models-from-configuration.md) | accepted | — |
 | 0042 | [Group leaf and domain modules into subpackages](0042-group-leaf-and-domain-modules-into-subpackages.md) | accepted | — |
 | 0043 | [Retain distinct query and collection adapters](0043-retain-distinct-query-and-collection-adapters.md) | accepted | — |
-| 0044 | [Integrate pull requests through a merge queue](0044-integrate-pull-requests-through-a-merge-queue.md) | amended | [0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) |
-| 0045 | [Drop the up-to-date rule where a merge queue is unavailable](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) | accepted | — |
+| 0044 | [Integrate pull requests through a merge queue](0044-integrate-pull-requests-through-a-merge-queue.md) | amended | [0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md), [0089](0089-leave-the-pr-merge-to-the-operator.md) |
+| 0045 | [Drop the up-to-date rule where a merge queue is unavailable](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) | amended | [0089](0089-leave-the-pr-merge-to-the-operator.md) |
 | 0046 | [Raise every refusal as a DashpotError subclass](0046-raise-every-refusal-as-a-dashpoterror-subclass.md) | accepted | — |
 | 0047 | [Keep the dashboard screen as one Textual adapter](0047-keep-the-dashboard-screen-as-one-textual-adapter.md) | accepted | — |
 | 0048 | [Adopt Python 3.13 typing backports on the 3.12 baseline](0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md) | accepted | — |
@@ -92,3 +92,4 @@ of date.
 | 0080 | [Keep a retired OpenCode generation's backend on its sessions](0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md) | accepted | — |
 | 0081 | [Support OpenCode 1.18.30 on Linux](0081-support-opencode-1-18-30-on-linux.md) | accepted | — |
 | 0085 | [Return a Claude Code session before entering another Issue Worktree](0085-return-a-claude-code-session-before-entering-another-issue-worktree.md) | accepted | — |
+| 0089 | [Leave the PR merge to the operator](0089-leave-the-pr-merge-to-the-operator.md) | accepted | — |

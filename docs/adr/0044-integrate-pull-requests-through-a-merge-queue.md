@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-17
-amended-by: 0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md
+amended-by: 0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md, 0089-leave-the-pr-merge-to-the-operator.md
 ---
 
 # Integrate pull requests through a merge queue
@@ -14,9 +14,11 @@ enabled. The `merge_group` workflow path has been removed and the ruleset
 drops its up-to-date requirement instead. The analysis of what the up-to-date
 rule protected, and the retirement of the routine rebase, stand.
 
-Commit `0193a6d` withdrew the closing statement below, that the implementing
-agent's authority ends at queueing the PR with `gh pr merge --squash --auto`.
-The [agent instructions](../../AGENTS.md#independent-review-before-integration)
+Amended by [ADR 0089](0089-leave-the-pr-merge-to-the-operator.md), which
+records the withdrawal, by commit `0193a6d`, of the closing statement below:
+that the implementing agent's authority ends at queueing the PR with
+`gh pr merge --squash --auto`. The
+[agent instructions](../../AGENTS.md#independent-review-before-integration)
 end the agent's work with the PR open, its validation section recorded, and
 CI green, and the operator reviews and merges. An agent neither merges nor
 enables auto-merge. The merge-queue analysis is unaffected.
