@@ -1,7 +1,7 @@
 """Pure height arithmetic for fitting list panes within a Peer Screen.
 
 The owning Peer Screen gathers the widget facts — the body's height, any
-flexible table's stylesheet minimum, each pane's record count — and this module
+flexible table's minimum, each pane's record count — and this module
 decides how many records each pane may show. Nothing here touches a widget,
 so the arithmetic is unit-testable without an App.
 """
@@ -61,6 +61,16 @@ def pane_wish(
         + controls_height
         + content_height_wish(record_count, visible_row_limit)
     )
+
+
+def keeps_minimum(body_height: int, minimum: int, pane_count: int) -> bool:
+    """Whether the flexible table keeps ``minimum`` beside panes collapsed to frames.
+
+    ``fit_panes`` grants the panes only what remains above ``minimum`` and
+    their collapsed frames, so below this height the flexible table's pane is
+    the one that shrinks.
+    """
+    return body_height >= minimum + COLLAPSED_PANE_HEIGHT * pane_count
 
 
 def fit_panes(

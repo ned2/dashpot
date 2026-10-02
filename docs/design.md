@@ -490,7 +490,9 @@ body height fairly and scroll when their combined content cannot fit. Terminal
 resize and record-count changes rerun the same content-aware allocation, without
 a fixed terminal-height assumption. Pull Requests alone has a record ceiling of
 eight; its content-height cap shrinks before the Issue table would drop below
-its minimum height. A horizontal scrollbar occupies one of those bounded
+its minimum height. A body too short even for that collapses the Issue pane to
+its frame and count, so `Tab` and the arrow keys skip its filter controls and
+table rather than focus them out of sight. A horizontal scrollbar occupies one of those bounded
 content lines when the table is narrow. An ordinary empty list pane costs three
 lines. The Sessions list starts with focus on Dashboard and Pull Requests starts
 with focus on the query peer. `Tab`, `Shift+Tab`, `Down` at the last row and `Up`

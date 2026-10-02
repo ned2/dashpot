@@ -7,6 +7,7 @@ from dashpot.ui.pane_layout import (
     PANE_CHROME,
     content_height_wish,
     fit_panes,
+    keeps_minimum,
     pane_wish,
 )
 
@@ -85,6 +86,14 @@ def test_the_issue_table_minimum_squeezes_panes_to_bare_frames() -> None:
     wishes = (pane_wish(50), pane_wish(50), pane_wish(50))
 
     assert fit_panes(14, 6, wishes) == (0, 0, 0)
+
+
+def test_the_flexible_table_keeps_its_minimum_down_to_collapsed_frames() -> None:
+    # One collapsed pane is its gutter and frame, three rows; a body of
+    # exactly the minimum plus those frames is the last that keeps it.
+    assert keeps_minimum(10, 7, 1)
+    assert not keeps_minimum(9, 7, 1)
+    assert fit_panes(10, 7, (pane_wish(50),)) == (0,)
 
 
 def test_equal_wishes_split_a_constrained_height_first_pane_last() -> None:

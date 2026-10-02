@@ -93,7 +93,7 @@ from .observation_runner import (
     ObservationRunner,
 )
 from .page_runner import PageRunner
-from .pane_layout import fit_panes
+from .pane_layout import PANE_FRAME, fit_panes, keeps_minimum
 from .panes import (
     DASHBOARD_PANE_SPECS,
     QUERY_PANE_SPECS,
@@ -113,6 +113,13 @@ FOCUS_CYCLE_BINDINGS: tuple[BindingType, ...] = (
     ("tab", "focus_next", "Next list"),
     ("shift+tab", "focus_previous", "Previous list"),
 )
+
+# The Issue pane's frame, filter bar and one table line. The fitting
+# arithmetic holds this minimum against the Pull Requests pane rather than the
+# stylesheet holding it against the body: a body too short for the whole stack
+# then shrinks the Issue pane instead of overflowing it, so the pane's bottom
+# border stays the body's last row, the one row the floating alert overlays.
+ISSUE_PANE_MINIMUM = PANE_FRAME + ItemFilterBar.HEIGHT + 1
 
 
 class PeerBody(Container):
@@ -576,8 +583,16 @@ class IssuesPullRequestsScreen(Screen[None]):
         return tuple(self.list_pane(spec.pane_id) for spec in QUERY_PANE_SPECS)
 
     def focus_tables(self) -> tuple[FocusCursorTable[Any], ...]:
-        """Return the query peer's tables in their composed reading order."""
-        return tuple(self.query_one("#query-body").query(FocusCursorTable))
+        """Return the query peer's shown tables in their composed reading order.
+
+        A collapsed Issue pane hides its table, and Textual's `focus()` checks
+        visibility rather than display, so the cycle must leave it out itself.
+        """
+        return tuple(
+            table
+            for table in self.query_one("#query-body").query(FocusCursorTable)
+            if table.display
+        )
 
     def surfaces_mounted(self) -> bool:
         """Report whether dashboard updates can still reach every surface.
@@ -735,17 +750,16 @@ class IssuesPullRequestsScreen(Screen[None]):
     def fit_list_panes(self, body: Size) -> None:
         """Cap each list pane to the height left after the fixed minimums.
 
-        The Issue pane keeps its stylesheet minimum and top gutter; Textual
-        cannot resolve an over-constrained column (every `fr` row at its
-        minimum), so the cap shrinks first, to a frame with a count when
-        nothing else fits. The arithmetic itself is `pane_layout.fit_panes`;
-        this method only gathers the widget facts and applies the caps.
+        The Issue pane keeps `ISSUE_PANE_MINIMUM` and its top gutter, so the
+        Pull Requests cap shrinks first, to a frame with a count when nothing
+        else fits. Only a body too short even for that shrinks the Issue pane
+        itself, and then it collapses to a frame with its count, as a list pane
+        does at a cap of zero: a filter control or table its frame clipped would
+        otherwise stay focusable out of sight. The arithmetic is `pane_layout`'s;
+        this method only gathers the widget facts and applies the result.
         """
         queue_pane = self.query_one("#queue-pane")
-        minimum = queue_pane.styles.min_height
-        fixed_height = (
-            int(minimum.value) if minimum is not None else 0
-        ) + queue_pane.styles.margin.top
+        fixed_height = ISSUE_PANE_MINIMUM + queue_pane.styles.margin.top
         panes = self.list_panes()
         caps = fit_panes(
             body.height,
@@ -755,6 +769,9 @@ class IssuesPullRequestsScreen(Screen[None]):
         )
         for pane, content_height_cap in zip(panes, caps, strict=True):
             pane.fit_rows(content_height_cap)
+        issue_pane_fits = keeps_minimum(body.height, fixed_height, len(panes))
+        self.issue_filter_bar.display = issue_pane_fits
+        self.queue_table().display = issue_pane_fits
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed record from the store."""

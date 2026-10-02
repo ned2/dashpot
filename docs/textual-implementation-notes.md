@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-25
+date: 2026-10-01
 ---
 
 # Textual implementation notes for Dashpot
@@ -347,7 +347,7 @@ therefore sits inside the body, docked bottom on a `readout` layer: Textual
 computes dock spacing per layer, so a docked widget on a layer of its own
 overlays the last row instead of shrinking the layer the panes are laid out in.
 This is the shape Textual's own `ToastRack` uses (`layer:`, `dock: bottom`,
-`width: 1fr`), one container down. Two rules make it work:
+`width: 1fr`), one container down. Three rules make it work:
 
 - `layers` is inherited by every descendant of the widget that declares it, and
   a widget that sets no `layer` of its own reports `default`. Name `default` as
@@ -361,6 +361,21 @@ This is the shape Textual's own `ToastRack` uses (`layer:`, `dock: bottom`,
   its `_loading`, `_toastrack` and `_tooltips` come from a property, not CSS.
 - A docked widget resolves its own width rather than filling implicitly, so it
   needs an explicit `width: 1fr`.
+- The overlaid row must be a frame, never a control or a record. A pane stack
+  that overflows its body is clipped, not shrunk, so the body's last visible
+  row is whatever the overflow left there: with `#queue-pane { min-height: 6 }`
+  that was the Issue filter controls at terminal height 9 and the Issue table
+  at 11, still focusable under the alert. Hold a pane's minimum in the
+  `fit_panes` arithmetic instead (`ISSUE_PANE_MINIMUM`), where it shrinks the
+  other panes first, and leave the `1fr` pane free to shrink when even that is
+  not enough. Its bottom border then stays the body's last row at every height
+  that holds the panes' frames, and below its minimum it collapses to that
+  frame and its count (`pane_layout.keeps_minimum`), hiding the contents its
+  frame would clip. Hiding takes them out of Textual's `focus_chain`, but
+  `Widget.focus()` checks visibility rather than `display`, so the peer's own
+  table cycle (`focus_tables`) must skip a hidden table itself. A body
+  shorter than the frames themselves still overflows, onto gutters and frames
+  only.
 
 Durable detail stays in the flow: `#diagnostics` sits below the body, because up
 to five rows of it overlaying the panes would hide more than it told.
