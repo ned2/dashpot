@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-17
+date: 2026-10-02
 ---
 
 # Dashpot development integration
@@ -66,9 +66,14 @@ or mandatory human approval is introduced by this workflow.
 
 ## Integrate a verified PR
 
-Keep the Issue Binding active and work from the Issue Worktree. These steps
-require task authorization for merging the PR; they do not grant lifecycle
-authority to arbitrary agent sessions.
+The implementing agent and the operator share this procedure, and the
+handover falls between steps 2 and 3. The agent performs steps 1 and 2 from
+the Issue Worktree while it holds the Issue Binding. Its work ends there, with
+the PR open, its validation section recorded, and CI green, as the
+[agent instructions](../AGENTS.md#independent-review-before-integration)
+set out: it finishes Issue work and leaves the merge to the operator. An agent
+never merges the PR or enables auto-merge. The operator reviews the PR, checks
+the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
 
 1. Confirm the PR is open in `ned2/dashpot`, targets `main`, and has the
    reviewed branch as its head. Verify the local coverage evidence and ensure
@@ -78,19 +83,22 @@ authority to arbitrary agent sessions.
    successful run and a successful `CI required` job. Check the run's
    `ci-revision-<attempt>` artifact records the reviewed head as
    `PR_HEAD_SHA`. Record the run URL and commit identities in the PR.
-3. Enable auto-merge: `gh pr merge --squash --auto <number>`. GitHub
-   squash-merges the PR once every required check on the head is green. A
-   new head after that point needs its own validation, review, and CI before
-   it merges. The branch need not contain the current `main`: CI verified the
-   branch head, and no run exercises `main` itself. A semantic conflict
-   between two PRs that each passed on their own therefore surfaces on the
-   first later run that contains both, which is the next PR branched from
-   the new `main` or a manual dispatch; the
-   [agent instructions](../AGENTS.md#independent-review-before-integration)
+3. The operator squash-merges the PR. The squash commit GitHub creates
+   carries the PR title and body, not the branch's own commits. If the PR
+   needs a new head after the handover, such as the rebase a textual conflict
+   requires, the operator makes it or returns the PR to an agent that takes
+   up the Issue work again; either way the new head needs its own
+   validation, review, and CI before it merges. The branch need not contain
+   the current `main`: CI verified the branch head, and no run exercises
+   `main` itself. A semantic conflict between two PRs that each passed on
+   their own therefore surfaces on the first later run that contains both,
+   which is the next PR branched from the new `main` or a manual dispatch;
+   the [agent instructions](../AGENTS.md#independent-review-before-integration)
    say who diagnoses it.
-4. Verify the PR is merged and remote `main` carries its squash commit. There
-   is no ordinary main-push CI run to wait for. Update the local main checkout
-   with an authorized fast-forward when applicable, then finish Issue work.
+4. The operator verifies the PR is merged and remote `main` carries its
+   squash commit. There is no ordinary main-push CI run to wait for. Update
+   the local main checkout with an authorized fast-forward when applicable,
+   and leave Worktree cleanup separate.
 
 A textual conflict with `main` blocks merging. Resolve it by the rebase the
 [agent instructions](../AGENTS.md#independent-review-before-integration)

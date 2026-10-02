@@ -928,12 +928,17 @@ it:
    integration. If the branch changes, validate and review the changes and
    wait for its new CI run. `main` advancing beyond the branch's base is not
    a reason to update the branch; only a textual conflict is.
-5. Enable auto-merge with `gh pr merge --squash --auto <number>` following
-   the [integration procedure](docs/development-integration.md#integrate-a-verified-pr).
-   GitHub squash-merges the PR once every required check on its head is
-   green; the merged result is not verified before it lands. Verify the PR is
-   merged, synchronize the local main checkout only through an authorized
-   fast-forward, and leave Worktree cleanup separate.
+5. The operator reviews the PR and squash-merges it following the
+   [integration procedure](docs/development-integration.md#integrate-a-verified-pr).
+   An agent's work ends before this step, with the PR open, its validation
+   section recorded, and CI green
+   ([AGENTS.md](AGENTS.md#independent-review-before-integration)); it neither
+   merges the PR nor enables auto-merge. The PR title and body, not the
+   branch's own commits, are what land on `main`, and nothing runs CI on
+   `main` itself, so the merged result is not verified before it lands. After
+   the merge, the operator verifies that remote `main` carries the squash
+   commit, synchronizes the local main checkout only through an authorized
+   fast-forward, and leaves Worktree cleanup separate.
 
 Agent sessions use the `dashpot-issue-work` skill to declare and verify the
 Issue they are working on (see
