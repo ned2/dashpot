@@ -46,7 +46,10 @@ from dashpot.repository.cleanup import (
     perform_cleanup,
 )
 from dashpot.repository.worktrees.create import WorktreePlan
-from dashpot.repository.worktrees.removability import WorktreeRemovability
+from dashpot.repository.worktrees.removability import (
+    WorktreeRemovability,
+    check_worktree,
+)
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.integrate import INTEGRATIONS, IntegrationError
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
@@ -62,6 +65,7 @@ from test_cleanup import (
     publish_subagent,
     sub_agent_worktrees,
 )
+from test_serialization import REMOVABILITY_KEYS
 
 
 def project(root: Path) -> ResolvedProject:
@@ -1023,8 +1027,13 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
         assert cli.main(["worktree", "check"]) == 0
     listed.assert_called_once_with(Path.cwd().resolve(), timeout=10.0)
     out = capsys.readouterr().out
-    assert "Worktree   /w/a\nBranch     b\nRemovable  yes\n" in out
-    assert "\n\nWorktree   /w/b\nBranch     b\nRemovable  no\n" in out
+    assert (
+        "Worktree   /w/a\nBranch     b\nRemovable  yes\n"
+        "           Sub-agents of Agent Sessions outside this Repository are not "
+        "checked.\nRemove with\n" in out
+    )
+    assert "\n\nWorktree   /w/b\nBranch     b\nRemovable  no\nObstacles\n" in out
+    assert out.count("Sub-agents") == 1
 
     with (
         mock.patch.object(cli, "linked_worktrees", return_value=list(reports)),
@@ -1033,8 +1042,10 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
         ),
     ):
         assert cli.main(["worktree", "check", "--json"]) == 0
-    payload = json.loads(capsys.readouterr().out)
+    listed_json = capsys.readouterr().out
+    payload = json.loads(listed_json)
     assert [item["removable"] for item in payload] == [True, False]
+    assert "Sub-agents" not in listed_json
 
     with mock.patch.object(cli, "linked_worktrees", return_value=[]):
         assert cli.main(["worktree", "check"]) == 0
@@ -1515,6 +1526,47 @@ def test_worktree_remove_dry_run_says_which_sub_agents_go_unchecked(
             scope,
         ]
     assert target.exists()
+
+
+@pytest.mark.parametrize("parent_in_repository", [False, True])
+def test_worktree_check_says_which_sub_agents_go_unchecked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    parent_in_repository: bool,
+) -> None:
+    """``worktree check`` states the gap #357 accepted where it says ``yes``.
+
+    The line the Cleanup preview gives a Worktree it would remove qualifies a
+    removable verdict here too. A blocked verdict claims no absence of
+    occupants, and the JSON document carries no prose for a person.
+    """
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    if parent_in_repository:
+        publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+    else:
+        publish_subagent(state_directory(), elsewhere, "SubagentStart", "a686b12")
+    monkeypatch.chdir(root)
+    lookup = table_lookup({PARENT.pid: PARENT})
+    check = partial(check_worktree, lookup=lookup)
+
+    with mock.patch.object(cli, "check_worktree", check):
+        assert cli.main(["worktree", "check", str(target)]) == 0
+        lines = capsys.readouterr().out.splitlines()
+        assert cli.main(["worktree", "check", str(target), "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+
+    scope = "           Sub-agents of Agent Sessions outside this Repository are not checked."
+    if parent_in_repository:
+        assert lines[2:4] == ["Removable  no", "Obstacles"]
+        assert scope not in lines
+    else:
+        assert lines[2:5] == ["Removable  yes", scope, "Remove with"]
+    assert payload["removable"] is not parent_in_repository
+    assert set(payload) == REMOVABILITY_KEYS
+    assert "Sub-agents" not in json.dumps(payload)
 
 
 def test_cleanup_protects_this_checkout_and_every_configured_anchor(

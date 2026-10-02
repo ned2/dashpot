@@ -18,7 +18,7 @@ from dashpot.core.commands import CommandResult, run_command
 from dashpot.core.git import Git
 from dashpot.core.model import Diagnostic
 from dashpot.project.settings import Settings, SettingsError
-from dashpot.repository.cleanup import CleanupError
+from dashpot.repository.cleanup import SUB_AGENT_SCOPE, CleanupError
 from dashpot.repository.worktrees import create as worktrees
 from dashpot.repository.worktrees.create import (
     WorktreeCreateError,
@@ -744,6 +744,7 @@ def test_clean_idle_worktree_is_removable(tmp_path: Path) -> None:
         "Removable  yes",
     ]
     assert lines[3:] == [
+        f"           {SUB_AGENT_SCOPE}",
         "Remove with",
         f"  $ git worktree remove {plan.path}",
         "  $ git branch -d worktree-protocol",
@@ -751,6 +752,7 @@ def test_clean_idle_worktree_is_removable(tmp_path: Path) -> None:
     payload = removability_document(report)
     assert payload["removable"] is True
     assert payload["obstacles"] == []
+    assert SUB_AGENT_SCOPE not in json.dumps(payload)
 
 
 def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:

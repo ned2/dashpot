@@ -82,7 +82,8 @@ might be working in it.
   maintainer accepted that gap on 2026-10-02
   ([#357](https://github.com/ned2/dashpot/issues/357)) rather than widen the
   scope. A Cleanup preview that would remove a Worktree, in the dashboard
-  and in `dashpot worktree remove --dry-run`, says that sub-agents of Agent
+  and in `dashpot worktree remove --dry-run`, and `dashpot worktree check`
+  when it reports a Worktree removable, say that sub-agents of Agent
   Sessions outside this Repository are not checked. A preview whose
   Worktree is blocked does not say it, because it offers no removal.
 
