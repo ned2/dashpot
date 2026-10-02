@@ -5,8 +5,8 @@ date: 2026-09-17
 
 # Drop the up-to-date rule where a merge queue is unavailable
 
-Amended by commit `0193a6d`: the squash merge is no longer enabled with
-`gh pr merge --squash --auto`, as the decision below says, and the
+Amended by commit `0193a6d`, which withdrew the decision's instruction below
+to enable the squash merge with `gh pr merge --squash --auto`; the
 implementing agent does not enable it. The
 [agent instructions](../../AGENTS.md#independent-review-before-integration)
 end the agent's work with the PR open, its validation section recorded, and

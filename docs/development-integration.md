@@ -93,8 +93,7 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
    `main` itself. A semantic conflict between two PRs that each passed on
    their own therefore surfaces on the first later run that contains both,
    which is the next PR branched from the new `main` or a manual dispatch;
-   the
-   [agent instructions](../AGENTS.md#independent-review-before-integration)
+   the [agent instructions](../AGENTS.md#independent-review-before-integration)
    say who diagnoses it.
 4. The operator verifies the PR is merged and remote `main` carries its
    squash commit. There is no ordinary main-push CI run to wait for. Update
