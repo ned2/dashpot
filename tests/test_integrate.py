@@ -13,6 +13,7 @@ from typing import Any, cast
 import pytest
 
 from dashpot.core.model import Harness
+from dashpot.repository.cleanup.obstacles import session_exit
 from dashpot.sessions.harnesses import HarnessError
 from dashpot.sessions.hook_records import write_hook_record
 from dashpot.sessions.integrate import (
@@ -618,6 +619,16 @@ def test_claude_code_install_merges_into_settings(tmp_path: Path) -> None:
     assert (skill / "SKILL.md").is_file()
 
 
+def skill_section(document: Path, heading: str) -> str:
+    """The body of one ``## `` section of an installed skill document."""
+    return document.read_text().split(f"## {heading}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def flowed(text: str) -> str:
+    """``text`` with its line wrapping collapsed to single spaces."""
+    return " ".join(text.split())
+
+
 def test_claude_code_skill_returns_before_entering_and_hands_off_a_refusal(
     tmp_path: Path,
 ) -> None:
@@ -625,17 +636,14 @@ def test_claude_code_skill_returns_before_entering_and_hands_off_a_refusal(
     install_integration("claude-code", home, command_path=claude_publisher(tmp_path))
 
     skill = installed_skill(home, "claude-code")
-    dispatch = (skill / "references" / "dispatch.md").read_text()
-    move = dispatch.split("## Move a Claude Code session", 1)[1].split("\n## ", 1)[0]
-    assert "limits that switch to its own `.claude/worktrees/`" in " ".join(
-        move.split()
-    )
+    dispatch = skill / "references" / "dispatch.md"
+    move = skill_section(dispatch, "Move a Claude Code session")
+    assert "limits that switch to its own `.claude/worktrees/`" in flowed(move)
     assert move.index('`ExitWorktree` with `action: "keep"`') < move.index(
         "2. Call `EnterWorktree` with the exact path"
     )
     assert "never `remove`" in move
-    handoff = dispatch.split("## Hand off when `EnterWorktree` is refused", 1)[1]
-    handoff = handoff.split("\n## ", 1)[0]
+    handoff = skill_section(dispatch, "Hand off when `EnterWorktree` is refused")
     command = next(
         line for line in handoff.splitlines() if line.startswith("cd <worktree-path>")
     )
@@ -648,15 +656,79 @@ def test_claude_code_skill_returns_before_entering_and_hands_off_a_refusal(
         "and verify it with <dashpot> work show, then follow the repository "
         "workflow through green CI.",
     ]
-    handoff_text = " ".join(handoff.split())
+    handoff_text = flowed(handoff)
     assert "or when the user declines the move" in handoff_text
     assert "on the same Issue, run `<dashpot> work stop`" in handoff_text
     assert "do not promise that `gh` works" in handoff_text
     assert "https://github.com/ned2/dashpot/issues/274" in handoff
-    recovery = (skill / "references" / "recovery.md").read_text()
-    refusal = recovery.split("## Claude Code refuses `EnterWorktree`", 1)[1]
+    refusal = skill_section(
+        skill / "references" / "recovery.md", "Claude Code refuses `EnterWorktree`"
+    )
     assert "is not under <repository>/.claude/worktrees" in refusal
-    assert "Hand the work to a fresh session" in " ".join(refusal.split())
+    assert "Hand the work to a fresh session" in flowed(refusal)
+
+
+def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
+    tmp_path: Path,
+) -> None:
+    home = claude_home(tmp_path)
+    install_integration("claude-code", home, command_path=claude_publisher(tmp_path))
+
+    skill = installed_skill(home, "claude-code")
+    text = flowed(skill_section(skill / "SKILL.md", "Finish the engagement"))
+    entered = text.index("**Claude Code, entered with `EnterWorktree`.**")
+    started = text.index("**Claude Code, started in the Worktree.**")
+    by_cd = text.index("**Claude Code, reached by a shell `cd`.**")
+    codex = text.index("**Codex.**")
+    opencode = text.index("**OpenCode.**")
+    follow_up = text.index("If the user asks for follow-up changes")
+    assert (
+        text.index("work stop")
+        < entered
+        < started
+        < by_cd
+        < codex
+        < opencode
+        < follow_up
+    )
+    assert "do not wait for the user to ask" in text[:entered]
+    entered_case = text[entered:started]
+    assert 'Call `ExitWorktree` with `action: "keep"`' in entered_case
+    assert "only after `show` reports no active Issue work" in entered_case
+    assert "Never use `remove`" in entered_case
+    started_case = text[started:by_cd]
+    assert "There is nothing to exit" in started_case
+    assert "reports that no worktree session is active" in started_case
+    assert "not a refusal to recover from or a reason to hand off" in started_case
+    assert "keeps the Worktree from Cleanup until it ends" in started_case
+    assert (
+        "Change the shell back to the directory the session started in"
+        in (text[by_cd:codex])
+    )
+    # Each way out the skill names is the one the Cleanup blocker names.
+    codex_case = text[codex:opencode]
+    assert "until its client exits" in codex_case
+    assert "`codex resume <session-id> -C <directory>`" in codex_case
+    assert "60 s after its last client leaves" in codex_case
+    assert "60 s after its last client leaves" in session_exit("codex").end
+    opencode_case = text[opencode:follow_up]
+    assert "never leaves the directory it was created in" in opencode_case
+    assert "closing an attached client leaves it running" in opencode_case
+    assert "closing an attached client leaves it running" in flowed(
+        session_exit("opencode").move
+    )
+    follow_up_text = text[follow_up:]
+    assert "enters the same Worktree again with `EnterWorktree`" in follow_up_text
+    assert "checks `<dashpot> work show` before any `work start`" in follow_up_text
+    assert "continues from step 5" in follow_up_text
+    assert (
+        "Keep the Issue Worktree and its Branch in place unless the user "
+        "explicitly requests Cleanup." in follow_up_text
+    )
+    move = skill_section(
+        skill / "references" / "dispatch.md", "Move a Claude Code session"
+    )
+    assert "requires, which already returns the session" in flowed(move)
 
 
 def test_claude_code_remove_keeps_unrelated_settings(tmp_path: Path) -> None:

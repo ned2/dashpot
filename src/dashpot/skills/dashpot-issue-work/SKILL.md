@@ -45,8 +45,43 @@ the final push has landed, and required CI is green. Then run `<dashpot> work
 stop` and `<dashpot> work show`. Completion means `show` reports no active Issue
 work for this Agent Session.
 
-Leave the Issue Worktree in place unless the user explicitly requests cleanup.
-Cleanup remains a separate preview-and-confirm workflow.
+Then, if this session is in an Issue Worktree, take it out of that Worktree.
+A session there, even an idle one, keeps the Worktree from Cleanup. This step
+is the instruction to do so; do not wait for the user to ask:
+
+- **Claude Code, entered with `EnterWorktree`.** Call `ExitWorktree` with
+  `action: "keep"`, and only after `show` reports no active Issue work: an
+  Agent Run still bound would move back with the session. Check that the
+  result names the directory the session is back in; if that is another
+  Issue Worktree, the session was started there, as in the next case. Never
+  use `remove`.
+- **Claude Code, started in the Worktree.** There is nothing to exit. If you
+  cannot tell which case applies, call `ExitWorktree` with `action: "keep"`
+  anyway: in a session that did not enter its Worktree, it reports that no
+  worktree session is active and changes nothing. Here that answer is
+  expected, not a refusal to recover from or a reason to hand off. Tell the
+  user this session keeps the Worktree from Cleanup until it ends or enters
+  another Worktree.
+- **Claude Code, reached by a shell `cd`.** Change the shell back to the
+  directory the session started in.
+- **Codex.** The model cannot move its own session. Tell the user this
+  session keeps the Worktree from Cleanup until its client exits, and that
+  `codex resume <session-id> -C <directory>` continues it elsewhere after
+  that. A daemon-hosted thread ends about 60 s after its last client leaves.
+- **OpenCode.** A session never leaves the directory it was created in. Tell
+  the user it keeps the Worktree from Cleanup until the OpenCode TUI serving
+  it quits, the backend it runs in stops, or the session is deleted in that
+  backend; closing an attached client leaves it running.
+
+If the user asks for follow-up changes afterwards, a Claude Code session that
+left enters the same Worktree again with `EnterWorktree` and checks
+`<dashpot> work show` before any `work start`, as steps 2 and 3 of the
+Claude Code move in [dispatch](references/dispatch.md) describe. A session
+still in the Worktree, or resumed there, continues from step 5 of
+[Establish the workflow](#establish-the-workflow).
+
+Keep the Issue Worktree and its Branch in place unless the user explicitly
+requests Cleanup. Cleanup remains a separate preview-and-confirm workflow.
 
 ## Recover a refusal
 
