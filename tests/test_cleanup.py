@@ -586,7 +586,7 @@ def test_a_session_unobservable_from_a_sandbox_says_to_check_outside_it(
         f"see its Host Process, pid {CLAUDE.pid}, from inside this sandbox: "
         "check again from a shell outside it. If it is live, free this "
         f"Worktree: {CLAUDE_CODE_STEPS}.",
-        command=f"ps -p {CLAUDE.pid} -o lstart=,args=",
+        command=f"env LC_ALL=C TZ=UTC ps -p {CLAUDE.pid} -o lstart=,args=",
     )
 
 
@@ -605,9 +605,9 @@ def test_a_session_whose_probe_failed_names_the_process_to_check(
         detail=f"Codex session {THREAD} may be live here: its liveness is "
         "unknown (last activity 2026-09-30T03:40:00.000000Z). Dashpot could not "
         "observe its Host Process (ps-unavailable): check whether pid "
-        f"{CODEX.pid}, started {CODEX.started_at}, still runs. If it is live, "
+        f"{CODEX.pid}, started {CODEX.started_at} UTC, still runs. If it is live, "
         f"free this Worktree: {codex_steps()}.",
-        command=f"ps -p {CODEX.pid} -o lstart=,args=",
+        command=f"env LC_ALL=C TZ=UTC ps -p {CODEX.pid} -o lstart=,args=",
     )
 
 

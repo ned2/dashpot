@@ -224,14 +224,15 @@ def session_blocker(record: HookRecordClassification) -> CleanupBlocker:
     else:
         verify = (
             f"Dashpot could not observe its Host Process ({record.reason}): "
-            f"check whether pid {process.pid}, started {process.started_at}, "
-            f"still runs."
+            f"check whether pid {process.pid}, started {process.started_at} "
+            f"UTC, still runs."
         )
     return CleanupBlocker(
         kind="agent-session",
         detail=f"{session} may be live here: its liveness is unknown "
         f"({activity}). {verify} If it is live, free this Worktree: {steps}.",
-        command=f"ps -p {process.pid} -o lstart=,args=",
+        # The start time is recorded as ps renders it in the C locale and UTC.
+        command=f"env LC_ALL=C TZ=UTC ps -p {process.pid} -o lstart=,args=",
     )
 
 

@@ -89,12 +89,15 @@ its liveness is unknown, and gives its harness's way out of the Worktree:
 | Codex | Once its client exits, `codex resume <id> -C <worktree>` resumes it elsewhere; a session holding an Agent Run first declares the move with `dashpot work relocate <worktree>` ([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)) | End its client. A daemon-hosted thread stays loaded, and keeps the Worktree, until the daemon unloads it about 60 s after its last client leaves ([Codex hosting modes](#codex-hosting-modes)) |
 
 When the liveness is unknown, the blocker says how to verify the Host
-Process and names `ps -p <pid> -o lstart=,args=` as the command that does.
+Process and names `env LC_ALL=C TZ=UTC ps -p <pid> -o lstart=,args=` as the
+command that does: Dashpot records a start time as `ps` renders it in the C
+locale and UTC, so the command prints it the same way.
 Inside a sandbox's process namespace (`isolated-namespace`) Dashpot cannot
 see host processes, so checking again from a shell outside any sandbox
 settles it, and a gone process then no longer blocks. When the probe itself
 failed, the blocker gives its reason with the pid and the recorded start
-time, which tells the session's process from a later one at the same pid. A
+time in UTC, which tells the session's process from a later one at the
+same pid. A
 record that names no Host Process cannot be verified, and blocks until its
 session publishes its end; a session that already ended without one is
 resumed and ended again. The
@@ -134,8 +137,9 @@ its location, and the agent IDs, says that Dashpot cannot tell where a
 sub-agent works, and says to wait for it to finish or to end that session,
 in the [harness's words](#agent-sessions-and-worktree-cleanup). It clears
 when the last sub-agent's `SubagentStop` arrives, when the session ends or
-starts again, or when the session's process is gone. A sub-agent dispatched before its session entered another Worktree
-stays in the record left behind, so it holds the block until that Worktree
+starts again, or when the session's process is gone. A sub-agent
+dispatched before its session entered another Worktree stays in the record
+left behind, so it holds the block until that Worktree
 records the session's end or the session's process exits, even after the
 session has left the Repository. A session at the Worktree itself is
 reported as that Worktree's `agent-session` occupant instead.
