@@ -502,7 +502,8 @@ Each supported harness release is pinned by an acceptance run: a runner that dri
 
 - **Codex 0.159.3**: [runner](scripts/experiments/codex-161/run.mjs) and
   [verifier](scripts/experiments/codex-161/verify.mjs),
-  [trace](docs/spikes/measurements/issue-161-codex-trace.jsonl)
+  [trace](docs/spikes/measurements/issue-161-codex-trace.jsonl), including
+  sub-agents that outlive their parent's turn
   ([supported modes](docs/agent-sessions.md#codex-hosting-modes)).
 - **Claude Code 2.1.286**: [runner](scripts/experiments/claude-162/run.mjs) and
   [verifier](scripts/experiments/claude-162/verify.mjs),

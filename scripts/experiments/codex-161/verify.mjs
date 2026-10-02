@@ -52,8 +52,8 @@ assert(!(strict && drifted.length), `Dashpot modules differ from the run's: ${dr
 const { main, other, third, fourth } = environment.worktrees;
 assert.deepEqual([...environment.hookEvents].sort(), ["Interrupt", "SessionEnd", "SessionStart", "Stop", "SubagentStart", "SubagentStop", "UserPromptSubmit"]);
 assert.deepEqual(of("scenario").map((record) => record.name), ["hook-trust", "exec-no-daemon", "remote-control", "standalone-terminal", "terminal-joined-input",
-  "standalone-gone", "autostart-terminal", "autostart-disabled-beside-daemon", "standalone-exit", "daemon-roots", "attach-detach", "interrupt", "delegate", "fork",
-  "live-relocation", "joined-input", "unload-while-running", "resume-after-unload", "daemon-gone", "daemon-recovery", "daemon-stop"]);
+  "standalone-gone", "autostart-terminal", "autostart-disabled-beside-daemon", "standalone-exit", "daemon-roots", "attach-detach", "interrupt", "delegate", "delegate-outlives-parent", "fork",
+  "live-relocation", "joined-input", "unload-while-running", "resume-after-unload", "sub-agent-interrupt", "daemon-gone", "daemon-recovery", "daemon-stop"]);
 assert(of("hooks.list")[0].after.every(([, trust]) => trust === "trusted"), "fixture hooks trusted");
 assert.deepEqual(labelled("processes", "after-trust").daemons, []);
 // Dashpot's real publisher accepted every hook, and every hook names its thread.
@@ -223,6 +223,43 @@ assert.deepEqual(fourthWhileDelegating.obstacles.map((obstacle) => obstacle.kind
 assert(fourthWhileDelegating.obstacles[0].detail.includes(delegate.childThread), "the blocker names the sub-agent");
 assert.equal(onlyRun(view("after-delegate"), 2).id, runIds[2]);
 
+// Sub-agents that outlive their parent's turn (#355): R1's turn spawns two
+// children and its Stop arrives while both work, before or after a child's
+// SubagentStart (both orders were measured). The children's own hooks
+// name R1 and their agent, a child prompt follows the root's Stop, and no
+// child has a SessionStart or SessionEnd. The bound run stays running, with
+// no turn clock, until the last child stops, keeps its identity and place,
+// and the other roots on the same daemon are untouched.
+const outlive = one("outlive.outcome");
+assert.equal(outlive.root, r1);
+const [childA, childB] = outlive.children;
+assert.notEqual(childA.thread, childB.thread);
+for (const child of outlive.children) assert.deepEqual([child.session, child.host, child.cwd], [r1, daemonPid, main]);
+const outliveHooks = outlive.hooks.filter(([, session]) => session === r1);
+const outliveAt = (event, agent) => outliveHooks.findIndex(([name, , id]) => name === event && id === agent);
+const outliveStop = outliveAt("Stop", null);
+assert(outliveStop > outliveAt("UserPromptSubmit", null), "the root's own prompt and Stop");
+for (const child of [childA.thread, childB.thread]) {
+  assert(outliveAt("SubagentStart", child) >= 0, `${child} starts`);
+  assert(outliveAt("UserPromptSubmit", child) > outliveStop, `${child}'s prompt follows the root's Stop`);
+  assert(outliveAt("SubagentStop", child) > outliveStop, `${child} stops after the root's Stop`);
+}
+assert(!outliveHooks.some(([event, , agent]) => agent !== null && ["SessionStart", "SessionEnd"].includes(event)), "a child has no session boundaries of its own");
+const outliveStopAt = outliveHooks[outliveStop][5];
+const childStopsAt = outliveHooks.filter(([event]) => event === "SubagentStop").map((record) => record[5] - outliveStopAt);
+assert(childStopsAt.length === 2 && Math.min(...childStopsAt) > 4000 && Math.max(...childStopsAt) > 10000, "both children outlive the root's turn by their holds");
+assert.deepEqual(Object.fromEntries(of("outlive.view").map((record) => [record.label, [record.stopsBefore, record.stopsAfter]])),
+  { "outlive-parent-stopped": [0, 0], "outlive-one-child-stopped": [1, 1], "outlive-children-stopped": [2, 2] }, "each view saw a settled number of stopped children");
+const outliveBefore = view("outlive-before");
+const settled = (run) => [run.id, run.startedAt, run.state, run.turnStartedAt, run.workingDirectory, run.lastActivityAt];
+for (const [label, state] of [["outlive-parent-stopped", "running"], ["outlive-one-child-stopped", "running"], ["outlive-children-stopped", "waiting"]]) {
+  const snapshot = view(label);
+  const run = onlyRun(snapshot, 2);
+  assert.deepEqual([run.id, run.issueId, run.state, run.turnStartedAt, run.workingDirectory], [runIds[2], "I_fixture_2", state, null, main], `${label}: Issue 2's run`);
+  for (const number of [1, 4]) assert.deepEqual(settled(onlyRun(snapshot, number)), settled(onlyRun(outliveBefore, number)), `${label}: Issue ${number}'s run untouched`);
+  assert(!snapshot.agentRuns.some((entry) => outlive.children.some((child) => entry.processOrSession.includes(child.thread))), `${label}: no run of a child`);
+}
+
 // A fork is a new conversation: its own SessionStart, no inherited run.
 const fork = one("fork.outcome");
 assert.notEqual(fork.fork.id, r1);
@@ -296,6 +333,29 @@ assert.equal(resumed.thread.id, r2);
 assert.deepEqual(resumed.newHooks[0].slice(0, 3), ["SessionStart", r2, "resume"]);
 assert.deepEqual(runFor(view("after-resume"), 4), []);
 assert.deepEqual(unbound(view("after-resume")).map((run) => run.processOrSession), [`${r2} hook`]);
+
+// A controller's `turn/interrupt` on a child's own thread and turn, after
+// its root's Stop, aborts the child's turn and publishes no hook: no
+// Interrupt, no SubagentStop, then or ever after. The child's command runs
+// out its hold, the child asks the model nothing more, and Dashpot holds the
+// bound run running, and every Worktree of the Repository blocked for
+// Cleanup by the child (ADR 0066), until the daemon is gone (ADR 0016's
+// undelivered-SubagentStop risk).
+const childInterrupt = one("child-interrupt.outcome");
+assert.equal(childInterrupt.response, "ok");
+const interruptOrder = childInterrupt.hooks.filter(([, session]) => session === r1).map(([event, , agent]) => `${event} ${agent === null ? "root" : agent}`);
+assert.deepEqual([interruptOrder[0], [...interruptOrder.slice(1, 3)].sort(), interruptOrder[3], interruptOrder.length],
+  ["UserPromptSubmit root", [`Stop root`, `SubagentStart ${childInterrupt.child}`].sort(), `UserPromptSubmit ${childInterrupt.child}`, 4]);
+assert.deepEqual(hooks.filter((record) => record.payload.agent_id === childInterrupt.child).map((record) => record.event), ["SubagentStart", "UserPromptSubmit"], "no hook ends the interrupted child");
+assert.deepEqual(hooks.filter((record) => record.payload.session_id === r1 && record.receiptTime > childInterrupt.interruptedAt && record.receipt < scenario("daemon-gone").receipt), [], "the interrupt publishes nothing");
+assert.equal(shell("spawn1-1").env.CODEX_THREAD_ID, childInterrupt.child);
+assert(shell("spawn1-1", "end").receiptTime > childInterrupt.interruptedAt, "the child's command ran out its hold");
+assert.deepEqual(of("model.request").filter((record) => record.label === "spawn1-1").map((record) => record.outputs), [0], "the aborted child turn asks nothing more");
+for (const label of ["child-interrupt-running", "after-child-interrupt"]) assert.equal(onlyRun(view(label), 2).state, "running", `${label}: held running`);
+const blockedByChild = labelled("dashpot.worktree-check", "after-child-interrupt-fourth").result;
+assert.equal(blockedByChild.removable, false);
+assert.deepEqual(blockedByChild.obstacles.map((obstacle) => obstacle.kind), ["sub-agent"]);
+assert(blockedByChild.obstacles[0].detail.includes(childInterrupt.child), "the interrupted child blocks an empty Worktree");
 
 // SIGKILL of the daemon: no hook; the bound run is orphaned and unbound
 // sessions leave the view.
