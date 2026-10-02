@@ -50,7 +50,7 @@ const trace = (kind, fields = {}) => {
 };
 const binary = process.argv[2];
 assert(binary && path.isAbsolute(binary), "Pass the absolute path to the Claude Code binary");
-const expectedVersion = process.argv[3] ?? "2.1.286";
+const expectedVersion = process.argv[3] ?? "2.1.287";
 const idleMinutes = Number(process.env.SPIKE_IDLE_MINUTES ?? 0);
 const dashpot = path.join(checkout, ".venv", "bin", "dashpot");
 const publisher = path.join(checkout, ".venv", "bin", "dashpot-claude-code-hook");

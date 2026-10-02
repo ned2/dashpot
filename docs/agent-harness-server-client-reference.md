@@ -24,13 +24,13 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off, for [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted while its sibling works and the parent's own turn interrupted, and for [#356](https://github.com/ned2/dashpot/issues/356) with the managed daemon's `SessionEnd` deferred to a settler and the daemon's hooks inheriting a terminal's `COLUMNS`; the [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached process outliving the hook and the daemon, and threads reloaded into the replacement; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction; a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction, repeated on `2.1.287` (2026-10-02); a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
 2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19,
-2026-09-30 and 2026-10-01, and Codex measurements on 2026-09-19, 2026-09-20,
-2026-10-01 and 2026-10-02. Current documentation
+2026-09-30, 2026-10-01 and 2026-10-02, and Codex measurements on 2026-09-19,
+2026-09-20, 2026-10-01 and 2026-10-02. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -891,8 +891,8 @@ measured with the `--resume` shape, therefore continues its Agent Run under
 [ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md),
 while `claude stop` ends it before any `claude respawn`. It continues at the
 first hook the replacement publishes from the run's Worktree, which
-[at 2.1.286](#clients-and-supervised-workers-through-dashpot-at-21286) is not
-always its `SessionStart`.
+[at 2.1.286 and 2.1.287](#clients-and-supervised-workers-through-dashpot-at-21286)
+is not always its `SessionStart`.
 
 | Lifecycle event | Measured effect on the worker | Hooks delivered |
 | --- | --- | --- |
@@ -908,7 +908,7 @@ always its `SessionStart`.
 `SessionEnd` therefore distinguishes an explicit or supervisor-driven stop from
 a crash, a respawn, or a supervisor replacement, none of which end the
 conversation. Idle eviction of an unattached worker, documented at about an
-hour, publishes no hook either: it was measured at `2.1.286`
+hour, publishes no hook either: it was measured at `2.1.286` and `2.1.287`
 ([idle eviction](#clients-and-supervised-workers-through-dashpot-at-21286)).
 
 ### Channels and worktree tools at 2.1.278
@@ -1115,26 +1115,31 @@ Dashpot acts on this in
 
 The [Claude Code acceptance runner](../scripts/experiments/claude-162/run.mjs)
 for [Issue #162](https://github.com/ned2/dashpot/issues/162) ran on Linux on
-2026-10-01 against 2.1.286. It drove headless `claude -p` clients, one
-stream-json turn per user message, and `claude --bg` supervised workers,
-whose later turns it typed through `claude attach` on a pseudo-terminal. All
-of them ran under `--dangerously-skip-permissions` with an isolated
-`CLAUDE_CONFIG_DIR` and a loopback Messages API. The hooks were subscribed
-exactly as `dashpot integrate claude-code` subscribes them, through a
-wrapper that hands each payload to Dashpot's real publisher, and the model's
-Bash calls ran the real `dashpot work` commands. The fixture is a Local Issue
-Markdown Project with a sibling linked Worktree and a nested one inside the
-main checkout. The [verifier](../scripts/experiments/claude-162/verify.mjs)
-checks the claims below against the retained
-[trace](spikes/measurements/issue-162-claude-trace.jsonl), which records the
-SHA-256 of the runner and of the Dashpot session modules it exercised. The
-runner refuses to start inside a Claude Code session, so launch it from a
-plain shell or with `setsid -f`; it creates its own `claude` launcher symlink
-from the executable it is given:
+2026-10-01 against 2.1.286, and
+[#388](https://github.com/ned2/dashpot/issues/388) reran it on 2.1.287
+(2026-10-02). Every claim below held unchanged on 2.1.287, and every hook's
+payload key set matched 2.1.286's; the 2.1.286 traces are retained at commit
+`77075e6`. It drove headless `claude -p` clients, one stream-json turn per
+user message, and `claude --bg` supervised workers, whose later turns it typed
+through `claude attach` on a pseudo-terminal. All of them ran under
+`--dangerously-skip-permissions` with an isolated `CLAUDE_CONFIG_DIR`, the
+autoupdater off (`DISABLE_AUTOUPDATER=1`, which the trace's environment
+records), and a loopback Messages API. The hooks were subscribed exactly as
+`dashpot integrate claude-code` subscribes them, through a wrapper that hands
+each payload to Dashpot's real publisher, and the model's Bash calls ran the
+real `dashpot work` commands. The fixture is a Local Issue Markdown Project
+with a sibling linked Worktree and a nested one inside the main checkout. The
+[verifier](../scripts/experiments/claude-162/verify.mjs) checks the claims
+below against the retained
+[trace](spikes/measurements/issue-162-claude-trace.jsonl), now from 2.1.287,
+which records the SHA-256 of the runner and of the Dashpot session modules it
+exercised. The runner refuses to start inside a Claude Code session, so launch
+it from a plain shell or with `setsid -f`; it creates its own `claude`
+launcher symlink from the executable it is given:
 
 ```bash
-node scripts/experiments/claude-162/run.mjs ~/.local/share/claude/versions/2.1.286
-SPIKE_IDLE_MINUTES=80 node scripts/experiments/claude-162/run.mjs ~/.local/share/claude/versions/2.1.286
+node scripts/experiments/claude-162/run.mjs ~/.local/share/claude/versions/2.1.287
+SPIKE_IDLE_MINUTES=80 node scripts/experiments/claude-162/run.mjs ~/.local/share/claude/versions/2.1.287
 node scripts/experiments/claude-162/verify.mjs <acceptance trace> [<idle trace>]
 node scripts/experiments/claude-162/verify.mjs docs/spikes/measurements/issue-162-claude-trace.jsonl \
   docs/spikes/measurements/issue-162-claude-idle-trace.jsonl
@@ -1195,12 +1200,13 @@ node scripts/experiments/claude-162/verify.mjs docs/spikes/measurements/issue-16
   ended the worker's run; `claude respawn` published `SessionStart`
   (`resume`) and found no run.
 - **Idle eviction.** A separate run left a bound worker idle with no client
-  attached; its supervisor retired it about 61 minutes after its last `Stop`,
-  as in two earlier exploratory runs. Retirement published no hook, not even
-  `SessionEnd`: the job was listed with `state` = `done` and no pid, and the
-  run was orphaned. `claude attach` respawned the worker as a new process
-  whose `SessionStart` (`resume`) at the Worktree holding the run continued it
-  with its `startedAt`. The retained
+  attached; its supervisor retired it about 61 minutes after its last `Stop`
+  (between the polls at 60 and 61 minutes, on 2.1.286 and again on 2.1.287),
+  as in two earlier exploratory runs on 2.1.286. Retirement published no hook,
+  not even `SessionEnd`: the job was listed with `state` = `done` and no pid,
+  and the run was orphaned. `claude attach` respawned the worker as a new
+  process whose `SessionStart` (`resume`) at the Worktree holding the run
+  continued it with its `startedAt`. The retained
   [idle trace](spikes/measurements/issue-162-claude-idle-trace.jsonl) is
   verified with the acceptance trace.
 
