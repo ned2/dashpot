@@ -635,6 +635,7 @@ def test_claude_code_skill_returns_before_entering_and_hands_off_a_refusal(
     )
     assert "never `remove`" in move
     handoff = dispatch.split("## Hand off when `EnterWorktree` is refused", 1)[1]
+    handoff = handoff.split("\n## ", 1)[0]
     command = next(
         line for line in handoff.splitlines() if line.startswith("cd <worktree-path>")
     )
