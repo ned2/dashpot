@@ -11,6 +11,8 @@ owns local validation and review; [ADR 0037](adr/0037-review-locally-and-verify-
 records the decision to verify before integration and
 [ADR 0045](adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)
 the decision to integrate on green PR CI without an up-to-date requirement.
+[ADR 0089](adr/0089-leave-the-pr-merge-to-the-operator.md) records that the
+operator, not the implementing agent, merges.
 
 ## Configure required CI
 
