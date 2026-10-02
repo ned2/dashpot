@@ -26,12 +26,13 @@ Worktree, because Claude Code limits that switch to its own
 entered from. `EnterWorktree` never enters the main checkout.
 
 1. If this session entered a Worktree with `EnterWorktree` and has not left
-   it, return first. When the move is to another Issue, first finish the
-   current engagement as [Finish the engagement](../SKILL.md#finish-the-engagement)
-   requires. Then call `ExitWorktree` with `action: "keep"`. The session goes
-   back to the directory it entered from, and the Worktree and Branch stay in
-   place. Use `keep`, never `remove`: Claude Code refuses `remove` on a
-   Worktree entered by path, and `remove` is not supported for Issue work.
+   it, return first. When the move is to another Issue, finish the current
+   engagement as [Finish the engagement](../SKILL.md#finish-the-engagement)
+   requires, which already returns the session. Otherwise call
+   `ExitWorktree` with `action: "keep"`. The session goes back to the
+   directory it entered from, and the Worktree and Branch stay in place. Use
+   `keep`, never `remove`: Claude Code refuses `remove` on a Worktree entered
+   by path, and `remove` is not supported for Issue work.
 2. Call `EnterWorktree` with the exact path reported above. Its completion
    moves the Agent Session, and an Agent Run the session already holds moves
    with it.

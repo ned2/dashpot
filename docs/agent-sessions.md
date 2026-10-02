@@ -437,6 +437,17 @@ follows the repository workflow, and stops the Agent Run only after delivery
 and CI are complete. Dispatch and refusal recovery are separate references so
 an ordinary in-place opt-in does not load Worktree and harness detail.
 
+Once the run has stopped, the skill takes the session out of its Issue
+Worktree, which a live or idle session keeps from
+[Cleanup](#agent-sessions-and-worktree-cleanup). A Claude Code session that
+entered with `EnterWorktree` returns with `ExitWorktree(keep)`, and enters
+the same Worktree again for follow-up changes
+([ADR 0085](adr/0085-return-a-claude-code-session-before-entering-another-issue-worktree.md)).
+A Claude Code session started in the Worktree can leave it only for another
+Worktree, and a Codex or OpenCode session cannot leave it itself, so the
+skill tells the person what still holds the Worktree and how it is released,
+as the Cleanup blocker's way out does.
+
 When work needs another Worktree, the skill delegates path, Branch, base,
 collision, and rollback policy to `issue show` and `worktree create`. Claude
 Code relocates the running session with `EnterWorktree`. A session already
