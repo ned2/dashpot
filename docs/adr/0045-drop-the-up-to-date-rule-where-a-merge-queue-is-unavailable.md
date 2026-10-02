@@ -5,14 +5,14 @@ date: 2026-09-17
 
 # Drop the up-to-date rule where a merge queue is unavailable
 
-Amended by commit `0193a6d`: the PR is no longer queued with
-`gh pr merge --squash --auto` by the implementing agent, as the decision below
-says. The
+Amended by commit `0193a6d`: the squash merge is no longer enabled with
+`gh pr merge --squash --auto`, as the decision below says, and the
+implementing agent does not enable it. The
 [agent instructions](../../AGENTS.md#independent-review-before-integration)
 end the agent's work with the PR open, its validation section recorded, and
-CI green, and the operator reviews and squash-merges it. The decision itself
-stands: a PR integrates by squash merge on its own green `pull_request` run,
-with no up-to-date requirement and no merge queue.
+CI green, and the operator reviews and squash-merges the PR. The rest of the
+decision stands: a PR integrates by squash merge on its own green
+`pull_request` run, with no up-to-date requirement and no merge queue.
 
 [ADR 0044](0044-integrate-pull-requests-through-a-merge-queue.md) replaced
 the `Protect main` ruleset's strict up-to-date requirement with a GitHub

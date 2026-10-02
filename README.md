@@ -937,8 +937,8 @@ it:
    branch's own commits, are what land on `main`, and nothing runs CI on
    `main` itself, so the merged result is not verified before it lands. After
    the merge, the operator verifies that remote `main` carries the squash
-   commit, synchronizes the local main checkout only through a fast-forward,
-   and leaves Worktree cleanup separate.
+   commit, synchronizes the local main checkout only through an authorized
+   fast-forward, and leaves Worktree cleanup separate.
 
 Agent sessions use the `dashpot-issue-work` skill to declare and verify the
 Issue they are working on (see

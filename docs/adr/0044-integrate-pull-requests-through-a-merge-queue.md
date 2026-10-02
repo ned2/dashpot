@@ -14,10 +14,9 @@ enabled. The `merge_group` workflow path has been removed and the ruleset
 drops its up-to-date requirement instead. The analysis of what the up-to-date
 rule protected, and the retirement of the routine rebase, stand.
 
-The closing statement below, that the implementing agent's authority ends at
-queueing the PR with `gh pr merge --squash --auto`, was withdrawn by commit
-`0193a6d`: the
-[agent instructions](../../AGENTS.md#independent-review-before-integration)
+Commit `0193a6d` withdrew the closing statement below, that the implementing
+agent's authority ends at queueing the PR with `gh pr merge --squash --auto`.
+The [agent instructions](../../AGENTS.md#independent-review-before-integration)
 end the agent's work with the PR open, its validation section recorded, and
 CI green, and the operator reviews and merges. An agent neither merges nor
 enables auto-merge. The merge-queue analysis is unaffected.

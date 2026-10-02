@@ -84,19 +84,22 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
    `ci-revision-<attempt>` artifact records the reviewed head as
    `PR_HEAD_SHA`. Record the run URL and commit identities in the PR.
 3. The operator squash-merges the PR. The squash commit GitHub creates
-   carries the PR title and body, not the branch's own commits. A new head
-   pushed after the agent's handover needs its own validation, review, and
-   CI before it merges. The branch need not contain the current `main`: CI
-   verified the branch head, and no run exercises `main` itself. A semantic
-   conflict between two PRs that each passed on their own therefore surfaces
-   on the first later run that contains both, which is the next PR branched
-   from the new `main` or a manual dispatch; the
+   carries the PR title and body, not the branch's own commits. If the PR
+   needs a new head after the handover, such as the rebase a textual conflict
+   requires, the operator makes it or returns the PR to an agent that takes
+   up the Issue work again; either way the new head needs its own
+   validation, review, and CI before it merges. The branch need not contain
+   the current `main`: CI verified the branch head, and no run exercises
+   `main` itself. A semantic conflict between two PRs that each passed on
+   their own therefore surfaces on the first later run that contains both,
+   which is the next PR branched from the new `main` or a manual dispatch;
+   the
    [agent instructions](../AGENTS.md#independent-review-before-integration)
    say who diagnoses it.
 4. The operator verifies the PR is merged and remote `main` carries its
    squash commit. There is no ordinary main-push CI run to wait for. Update
-   the local main checkout with a fast-forward when applicable, and leave
-   Worktree cleanup separate.
+   the local main checkout with an authorized fast-forward when applicable,
+   and leave Worktree cleanup separate.
 
 A textual conflict with `main` blocks merging. Resolve it by the rebase the
 [agent instructions](../AGENTS.md#independent-review-before-integration)
