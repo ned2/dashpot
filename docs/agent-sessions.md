@@ -110,7 +110,7 @@ harness wording for ending its session.
 Cleanup never moves or ends a session itself; moving it as part of a confirmed
 removal is [#148](https://github.com/ned2/dashpot/issues/148). Each harness's
 way out is one entry in `SESSION_EXITS` in
-`src/dashpot/repository/cleanup/obstacles.py`. A harness without an entry is
+`src/dashpot/sessions/session_exits.py`. A harness without an entry is
 told to move the session out with its harness's own tool or end it.
 
 ### Sub-agents and Worktree Cleanup
@@ -136,9 +136,12 @@ Worktrees; a session that moved between Worktrees has a record in each, and
 its sub-agents are those any of them holds. The `sub-agent` blocker appears
 in `dashpot worktree check`, the Cleanup preview, and
 `dashpot worktree remove`, and again on confirmation. It names the session,
-its location, and the agent IDs, says that Dashpot cannot tell where a
-sub-agent works, and says to wait for it to finish or to end that session,
-in the [harness's words](#agent-sessions-and-worktree-cleanup). It clears
+its location, and the agent IDs it lists as working, says that Dashpot
+cannot tell where a sub-agent works, and says to wait for it to finish. It
+also says that a sub-agent stays listed until its harness reports that it
+stopped, which an interrupted one may never do, so if none is still working,
+the way out is to end that session, in the
+[harness's words](#agent-sessions-and-worktree-cleanup). It clears
 when the last sub-agent's `SubagentStop` arrives, when the session ends or
 starts again, or when the session's process is gone. A sub-agent
 dispatched before its session entered another Worktree stays in the record
@@ -149,12 +152,27 @@ reported as that Worktree's `agent-session` occupant instead.
 
 A Codex session's sub-agents block the same way: the 0.159.3 trace of
 [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) and its 0.160.0
-rerun show the blocker naming live Codex children. A Codex child interrupted through its
-own thread publishes no hook, so it keeps the block up until the session's
-next `SessionStart` or `SessionEnd`
-([#374](https://github.com/ned2/dashpot/issues/374)). A Codex installation
-that predates the `SubagentStart` and `SubagentStop` subscription reports
-no sub-agents until `dashpot integrate codex` runs again.
+rerun show the blocker naming live Codex children. A Codex child whose own
+turn is interrupted publishes no hook, so it keeps the block up until the
+session's next `SessionStart` or `SessionEnd`. That was measured for a
+controller's interrupt of the child's turn; upstream reports the same for
+the parent model's `interrupt_agent` tool
+([openai/codex#38142](https://github.com/openai/codex/issues/38142)), which
+was not measured here. Nothing Dashpot receives tells that child from one
+still working: measured on 0.160.0
+([#374](https://github.com/ned2/dashpot/issues/374)), the parent's next
+prompt and `Stop` arrived while a sibling still worked, so neither ends a
+child, and Dashpot does not time one out. Interrupting the parent strands
+no child: Esc in a daemon-attached terminal, or a controller's interrupt of
+the parent's own turn, publishes the parent's `Interrupt` while each child
+works on to its own `SubagentStop`, and Esc after the parent's turn has
+stopped publishes nothing and leaves its children working. Interrupting a
+child selected in the terminal's agent picker was not measured, nor was Esc
+in a standalone terminal. `dashpot work show` lists under each Agent Run the
+sub-agents its session still lists as working, with the same way out. A
+Codex installation that predates the `SubagentStart` and `SubagentStop`
+subscription reports no sub-agents until `dashpot integrate codex` runs
+again.
 
 The Repository's Worktrees are every Worktree Git registers for it, wherever
 it lives on disk, Worktrees under a Worktree Root such as the sibling
@@ -205,10 +223,13 @@ In the dashboard, a Codex session's state means:
   running until the joined input's turn stops. A sub-agent the turn spawned
   holds the session running after the turn's `Stop` until its own
   `SubagentStop`, and its prompt does not restart the turn clock. Codex
-  publishes no hook when a sub-agent's own turn is interrupted, so a
-  sub-agent interrupted that way holds the session running, and blocks
+  publishes no hook when a controller interrupts a sub-agent's own turn, so
+  a sub-agent interrupted that way holds the session running, and blocks
   Cleanup across the Repository, until the thread unloads, resumes, or its
-  Host Process is gone.
+  Host Process is gone; `dashpot work show` and the `sub-agent` blocker say
+  so ([#374](https://github.com/ned2/dashpot/issues/374)). Interrupting the
+  parent's turn, by Esc in a daemon-attached terminal or through a
+  controller, leaves its children working to their own `SubagentStop`.
 - **Unloaded.** A daemon-hosted thread whose last terminal or client has
   left stays listed as waiting, at its Worktree and with its run, until the
   daemon unloads it about 60 s later. Its `SessionEnd` then ends its run and
@@ -566,6 +587,14 @@ day at a time and only as far back as needed. A session with no such
 events, or a command no supported session encloses, adds nothing, and the
 Issue work lines above them are unchanged. `dashpot events --session ID`
 reads the rest.
+
+Under an Agent Run whose session has sub-agents listed as working, in any
+Worktree of the Repository, `dashpot work show` adds an indented line naming
+them. They hold the run running until the harness reports each one stopped,
+which an interrupted one may never do
+([#374](https://github.com/ned2/dashpot/issues/374)), so the line names the
+harness's way to end the session if none is still working, as the
+[`sub-agent` blocker](#sub-agents-and-worktree-cleanup) does.
 
 `dashpot work relocate PATH` is the explicit first phase of preserving an
 active Codex Agent Run through a sequential resume. It accepts only the live

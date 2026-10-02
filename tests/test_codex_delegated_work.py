@@ -18,7 +18,7 @@ from dashpot.core.model import AgentRun
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
-from dashpot.sessions.work import IssueWorkError, start_issue_work
+from dashpot.sessions.work import IssueWorkError, show_issue_work, start_issue_work
 from dashpot.sessions.work_store import WorkStore
 from factories import CODEX
 from test_work import CODEX_SESSION, codex_lookup, target, two_worktrees
@@ -236,38 +236,114 @@ def test_a_childs_own_end_neither_ends_nor_stops_its_parent(
     assert run_of(a).state == "waiting"
 
 
-def test_a_silently_interrupted_child_holds_the_run_until_the_session_restarts(
+# What ``work show`` adds under a run whose session lists a sub-agent: the
+# harness's way to end a daemon-hosted Codex session (#374).
+CODEX_WAY_OUT = (
+    "Dashpot lists a sub-agent until Codex reports that it stopped, which an "
+    "interrupted one may never do, so if none is still working, end that "
+    "session's client (a daemon-hosted thread ends about 60 s after its last "
+    "client leaves)"
+)
+
+
+def test_an_interrupted_child_looks_like_a_working_one_until_the_session_ends(
     tmp_path: Path,
 ) -> None:
-    # Measured on 0.159.3: a controller's ``turn/interrupt`` on the child's
-    # own thread aborts its turn and publishes no hook at all, so nothing
-    # takes the child out of the live set (ADR 0016's bounded risk).
+    # Measured on 0.160.0 (#374): a controller's ``turn/interrupt`` on one
+    # child's own turn publishes no hook at all, and the root's next prompt
+    # and Stop arrive while its sibling still works, so neither tells the
+    # interrupted child from the working one (ADR 0016's bounded risk).
+    a, _b = two_worktrees(tmp_path)
+    bound_session(a)
+    for event, child in [
+        ("SubagentStart", SECOND_CHILD),
+        ("SubagentStart", CHILD),
+        ("Stop", None),
+        ("UserPromptSubmit", SECOND_CHILD),
+        ("UserPromptSubmit", CHILD),
+        # CHILD is interrupted here; then the root's next turn.
+        ("UserPromptSubmit", None),
+        ("Stop", None),
+    ]:
+        publish(a, event, child)
+
+    assert recorded(a)["liveSubagents"] == [CHILD, SECOND_CHILD]
+    assert (run_of(a).state, run_of(a).turn_started_at) == ("running", None)
+    shown = show_issue_work(a, lookup=codex_lookup)
+    assert shown[0].startswith("codex pid 4242: build-observer (I_observer) since ")
+    assert shown[1:] == [
+        f"  codex pid 4242 has 2 sub-agents listed as working ({CHILD}, "
+        f"{SECOND_CHILD}). {CODEX_WAY_OUT}"
+    ]
+
+    publish(a, "SubagentStop", SECOND_CHILD)
+
+    assert run_of(a).state == "running"
+    assert show_issue_work(a, lookup=codex_lookup)[1:] == [
+        f"  codex pid 4242 has 1 sub-agent listed as working ({CHILD}). {CODEX_WAY_OUT}"
+    ]
+    # The way out: the thread's end clears it with its run, and a new
+    # incarnation starts with no live children.
+    assert publish(a, "SessionEnd").work == "ended"
+    assert show_issue_work(a, lookup=codex_lookup) == [
+        "no active Issue work at this worktree"
+    ]
+    assert runs(a) == []
+
+
+def test_a_new_incarnation_clears_a_silently_interrupted_child(
+    tmp_path: Path,
+) -> None:
     a, _b = two_worktrees(tmp_path)
     bound_session(a)
     publish(a, "SubagentStart", CHILD)
     publish(a, "Stop")
     publish(a, "UserPromptSubmit", CHILD)
 
-    publish(a, "UserPromptSubmit")
-    publish(a, "Stop")
-    assert (run_of(a).state, run_of(a).turn_started_at) == ("running", None)
-
-    # A new incarnation of the thread starts with no live children.
     publish(a, "SessionStart")
     publish(a, "Stop")
+
     assert run_of(a).state == "waiting"
+    assert len(show_issue_work(a, lookup=codex_lookup)) == 1
+
+
+def test_work_show_names_only_the_sub_agents_of_each_runs_own_session(
+    tmp_path: Path,
+) -> None:
+    a, _b = two_worktrees(tmp_path)
+    bound_session(a)
+    bound_session(a, SIBLING, issue="fix-crash")
+    publish(a, "SubagentStart", CHILD, session=SIBLING)
+
+    shown = show_issue_work(a, lookup=codex_lookup)
+
+    assert len(shown) == 3
+    (line,) = [index for index, text in enumerate(shown) if text.startswith("  ")]
+    # The line follows the sibling's run, the session that lists the child.
+    assert "fix-crash" in shown[line - 1]
+    assert shown[line] == (
+        f"  codex pid 4242 has 1 sub-agent listed as working ({CHILD}). {CODEX_WAY_OUT}"
+    )
 
 
 def test_an_interrupted_root_turn_still_waits_for_its_child(tmp_path: Path) -> None:
+    # Measured on 0.160.0 (#374): a controller's ``turn/interrupt`` of the
+    # root's turn, or Esc in a daemon-attached terminal, while the root waits
+    # on a child publishes the root's ``Interrupt`` and no ``Stop``; the
+    # child works on and publishes its ``SubagentStop`` as usual, so nothing
+    # is stranded.
     a, _b = two_worktrees(tmp_path)
     bound_session(a)
     publish(a, "SubagentStart", CHILD)
+    publish(a, "UserPromptSubmit", CHILD)
 
     publish(a, "Interrupt")
 
     assert (run_of(a).state, run_of(a).turn_started_at) == ("running", None)
+    assert len(show_issue_work(a, lookup=codex_lookup)) == 2
     publish(a, "SubagentStop", CHILD)
     assert run_of(a).state == "waiting"
+    assert len(show_issue_work(a, lookup=codex_lookup)) == 1
 
 
 def test_the_roots_end_ends_the_run_with_a_child_still_live(tmp_path: Path) -> None:

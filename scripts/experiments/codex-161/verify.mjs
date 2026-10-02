@@ -53,7 +53,8 @@ const { main, other, third, fourth } = environment.worktrees;
 assert.deepEqual([...environment.hookEvents].sort(), ["Interrupt", "SessionEnd", "SessionStart", "Stop", "SubagentStart", "SubagentStop", "UserPromptSubmit"]);
 assert.deepEqual(of("scenario").map((record) => record.name), ["hook-trust", "exec-no-daemon", "remote-control", "standalone-terminal", "terminal-joined-input",
   "standalone-gone", "autostart-terminal", "autostart-disabled-beside-daemon", "standalone-exit", "daemon-roots", "attach-detach", "interrupt", "delegate", "delegate-outlives-parent", "fork",
-  "live-relocation", "joined-input", "unload-while-running", "resume-after-unload", "sub-agent-interrupt", "daemon-gone", "daemon-recovery", "daemon-stop"]);
+  "live-relocation", "joined-input", "unload-while-running", "resume-after-unload", "sub-agent-interrupt", "parent-interrupt", "terminal-interrupt", "daemon-gone",
+  "daemon-recovery", "daemon-stop"]);
 assert(of("hooks.list")[0].after.every(([, trust]) => trust === "trusted"), "fixture hooks trusted");
 assert.deepEqual(labelled("processes", "after-trust").daemons, []);
 // The daemon's updater stayed off for the whole run, so no updater process
@@ -343,25 +344,105 @@ assert.deepEqual(unbound(view("after-resume")).map((run) => run.processOrSession
 // A controller's `turn/interrupt` on a child's own thread and turn, after
 // its root's Stop, aborts the child's turn and publishes no hook: no
 // Interrupt, no SubagentStop, then or ever after. The child's command runs
-// out its hold, the child asks the model nothing more, and Dashpot holds the
-// bound run running, and every Worktree of the Repository blocked for
-// Cleanup by the child (ADR 0066), until the daemon is gone (ADR 0016's
-// undelivered-SubagentStop risk).
+// out its hold, and the child asks the model nothing more. Only a controller
+// sees the difference: the child's thread reads idle and its turn completes
+// `interrupted`, while its working sibling's reads active (#374).
 const childInterrupt = one("child-interrupt.outcome");
+const { child: cut, sibling } = childInterrupt;
 assert.equal(childInterrupt.response, "ok");
-const interruptOrder = childInterrupt.hooks.filter(([, session]) => session === r1).map(([event, , agent]) => `${event} ${agent === null ? "root" : agent}`);
-assert.deepEqual([interruptOrder[0], [...interruptOrder.slice(1, 3)].sort(), interruptOrder[3], interruptOrder.length],
-  ["UserPromptSubmit root", [`Stop root`, `SubagentStart ${childInterrupt.child}`].sort(), `UserPromptSubmit ${childInterrupt.child}`, 4]);
-assert.deepEqual(hooks.filter((record) => record.payload.agent_id === childInterrupt.child).map((record) => record.event), ["SubagentStart", "UserPromptSubmit"], "no hook ends the interrupted child");
-assert.deepEqual(hooks.filter((record) => record.payload.session_id === r1 && record.receiptTime > childInterrupt.interruptedAt && record.receipt < scenario("daemon-gone").receipt), [], "the interrupt publishes nothing");
-assert.equal(shell("spawn1-1").env.CODEX_THREAD_ID, childInterrupt.child);
-assert(shell("spawn1-1", "end").receiptTime > childInterrupt.interruptedAt, "the child's command ran out its hold");
-assert.deepEqual(of("model.request").filter((record) => record.label === "spawn1-1").map((record) => record.outputs), [0], "the aborted child turn asks nothing more");
-for (const label of ["child-interrupt-running", "after-child-interrupt"]) assert.equal(onlyRun(view(label), 2).state, "running", `${label}: held running`);
-const blockedByChild = labelled("dashpot.worktree-check", "after-child-interrupt-fourth").result;
-assert.equal(blockedByChild.removable, false);
-assert.deepEqual(blockedByChild.obstacles.map((obstacle) => obstacle.kind), ["sub-agent"]);
-assert(blockedByChild.obstacles[0].detail.includes(childInterrupt.child), "the interrupted child blocks an empty Worktree");
+const label = (agent) => agent === null ? "root" : agent === cut ? "cut" : agent === sibling ? "sibling" : agent;
+const interruptOrder = childInterrupt.hooks.filter(([, session]) => session === r1).map(([event, , agent]) => `${event} ${label(agent)}`);
+assert.deepEqual([interruptOrder[0], [...interruptOrder.slice(1, 4)].sort(), [...interruptOrder.slice(4)].sort()],
+  ["UserPromptSubmit root", ["Stop root", "SubagentStart cut", "SubagentStart sibling"], ["UserPromptSubmit cut", "UserPromptSubmit sibling"]]);
+assert.deepEqual(hooks.filter((record) => record.payload.agent_id === cut).map((record) => record.event), ["SubagentStart", "UserPromptSubmit"], "no hook ends the interrupted child");
+assert.equal(shell("spawn2-cut-1").env.CODEX_THREAD_ID, cut);
+assert.equal(shell("spawn2-cut-2").env.CODEX_THREAD_ID, sibling);
+assert(shell("spawn2-cut-1", "end").receiptTime > childInterrupt.interruptedAt, "the child's command ran out its hold");
+assert.deepEqual(of("model.request").filter((record) => record.label === "spawn2-cut-1").map((record) => record.outputs), [0], "the aborted child turn asks nothing more");
+assert.deepEqual([childInterrupt.childRead.status.type, childInterrupt.siblingRead.status.type, childInterrupt.siblingRunning], ["idle", "active", true]);
+// The root's next turn runs while the sibling still works: its prompt and
+// Stop are the only hooks after the interrupt until the sibling's own
+// SubagentStop, which follows them. Nothing Dashpot receives tells the
+// interrupted child from the working one.
+const next = one("child-interrupt.next");
+assert.equal(next.siblingRunning, true);
+assert.deepEqual([next.childRead.status.type, next.siblingRead.status.type], ["idle", "active"]);
+const afterInterrupt = hooksIn("sub-agent-interrupt").filter((record) => record.receiptTime > childInterrupt.interruptedAt);
+assert.deepEqual(afterInterrupt.map((record) => `${record.event} ${label(record.payload.agent_id ?? null)}`),
+  ["UserPromptSubmit root", "Stop root", "SubagentStop sibling"], "the root's next turn, then only the sibling's stop");
+assert.equal(afterInterrupt[1].payload.turn_id, next.turnId);
+assert(afterInterrupt[2].receiptTime - afterInterrupt[1].receiptTime > 5000, "the sibling outlives the root's next Stop");
+const settledChildren = one("child-interrupt.sibling");
+assert.deepEqual([settledChildren.childRead.status.type, settledChildren.siblingRead.status.type], ["idle", "idle"]);
+const completed = (agent) => settledChildren.notifications.filter(([method, thread]) => method === "turn/completed" && thread === agent).map(([, , status]) => status);
+assert.deepEqual([completed(cut), completed(sibling)], [["interrupted"], ["completed"]]);
+// Dashpot keeps both children live, then the interrupted one alone: the
+// bound run stays running and every Worktree blocked, and the blocker says
+// a listed sub-agent may have been interrupted and names the way out.
+for (const label of ["child-interrupt-running", "after-child-interrupt", "after-parent-next-turn", "after-sibling-stopped"]) {
+  assert.equal(onlyRun(view(label), 2).state, "running", `${label}: held running`);
+}
+for (const [label, listed, absent] of [["after-child-interrupt-fourth", [cut, sibling], []], ["after-parent-next-turn-fourth", [cut, sibling], []],
+  ["after-sibling-stopped-fourth", [cut], [sibling]]]) {
+  const check = labelled("dashpot.worktree-check", label).result;
+  assert.equal(check.removable, false);
+  assert.deepEqual(check.obstacles.map((obstacle) => obstacle.kind), ["sub-agent"]);
+  const [{ detail }] = check.obstacles;
+  assert(listed.every((agent) => detail.includes(agent)) && !absent.some((agent) => detail.includes(agent)), `${label}: the blocker lists ${listed.length} child(ren)`);
+  assert.match(detail, /listed as working .*which an interrupted one may never do, so if none is still working, end that session's client/, `${label}: the way out`);
+}
+
+// `dashpot work show` at the bound run's Worktree lists the run, then the
+// interrupted child its session still lists, with the same way out.
+const shown = one("child-interrupt.work-show");
+assert.equal(shown.status, 0);
+const shownLines = shown.stdout.trim().split("\n");
+assert.match(shownLines[0], /^codex pid \d+: fixture-2 \(I_fixture_2\) since /);
+assert.equal(shownLines[1], `  ${shownLines[0].split(":")[0]} has 1 sub-agent listed as working (${cut}). Dashpot lists a sub-agent until Codex reports that it stopped, `
+  + "which an interrupted one may never do, so if none is still working, end that session's client (a daemon-hosted thread ends about 60 s after its last client leaves)");
+
+// A controller's `turn/interrupt` on the root's own turn while it waits on a
+// child it delegated to: the root publishes Interrupt and no Stop, and the
+// child works on, runs out its hold, and publishes SubagentStop (#374).
+const parentInterrupt = one("parent-interrupt.outcome");
+assert.deepEqual([parentInterrupt.response, parentInterrupt.status], ["ok", "interrupted"]);
+const parentOrder = parentInterrupt.hooks.filter(([, session]) => session === r1);
+const parentAt = (event, agent) => parentOrder.findIndex(([name, , id]) => name === event && id === agent);
+assert.deepEqual(parentOrder.filter(([, , agent]) => agent === null).map(([event]) => event), ["UserPromptSubmit", "Interrupt"]);
+assert.deepEqual(parentOrder.filter(([, , agent]) => agent === parentInterrupt.child).map(([event]) => event), ["SubagentStart", "UserPromptSubmit", "SubagentStop"]);
+assert(parentAt("SubagentStop", parentInterrupt.child) > parentAt("Interrupt", null));
+assert(parentOrder[parentAt("SubagentStop", parentInterrupt.child)][5] - parentInterrupt.interruptedAt > 15000, "the child stops at its hold, not at the interrupt");
+assert(parentInterrupt.commandEnded - parentInterrupt.interruptedAt > 15000, "the child's command ran out its hold");
+assert.equal(shell("ctl-child").env.CODEX_SESSION_ID, r1);
+for (const label of ["parent-interrupt-running", "after-parent-interrupt"]) assert.equal(onlyRun(view(label), 2).state, "running", `${label}: held running`);
+
+// Esc in a terminal, the way a person stops work: pressed while the root's
+// turn waits on a child, it publishes the root's Interrupt and the child
+// works on to its own SubagentStop; pressed after the root's turn stopped,
+// it publishes nothing and the child stops at its hold. Neither strands a
+// child (#374).
+const sessionOf = (record) => record.hooks.filter(([, session]) => session === record.thread);
+const inFlight = one("terminal-interrupt.in-flight");
+const teThread = inFlight.thread;
+assert.equal(shell("esc-child").env.CODEX_SESSION_ID, teThread);
+const escOrder = sessionOf(inFlight);
+assert.deepEqual(escOrder.filter(([, , agent]) => agent === null).map(([event]) => event), ["SessionStart", "UserPromptSubmit", "Interrupt"]);
+assert.deepEqual(escOrder.filter(([, , agent]) => agent === inFlight.child).map(([event]) => event), ["SubagentStart", "UserPromptSubmit", "SubagentStop"]);
+const escInterrupt = escOrder.find(([event]) => event === "Interrupt");
+const escStop = escOrder.find(([event]) => event === "SubagentStop");
+assert(escInterrupt[5] > inFlight.escAt && escInterrupt[5] - inFlight.escAt < 5000, "Esc interrupts the root's turn at once");
+assert(escStop[5] - inFlight.escAt > 15000 && inFlight.commandEnded - inFlight.escAt > 15000, "the child stops at its hold, not at Esc");
+const teRun = (label) => { const runs = unbound(view(label)).filter((run) => run.processOrSession === `${teThread} hook`); assert.equal(runs.length, 1, `${label}: the terminal's session`); return runs[0]; };
+assert.deepEqual([teRun("terminal-delegate-running").state, teRun("after-terminal-interrupt").state], ["running", "waiting"]);
+const idle = one("terminal-interrupt.idle");
+assert.equal(idle.thread, teThread);
+const idleOrder = sessionOf(idle);
+assert.deepEqual(idleOrder.filter(([, , agent]) => agent === null).map(([event]) => event), ["UserPromptSubmit", "Stop"]);
+assert.deepEqual(idleOrder.filter(([, , agent]) => agent === idle.child).map(([event]) => event), ["SubagentStart", "UserPromptSubmit", "SubagentStop"]);
+assert.deepEqual(idleOrder.filter((record) => record[5] > idle.escAt).map(([event, , agent]) => [event, agent]), [["SubagentStop", idle.child]], "Esc after the turn publishes nothing");
+const idlePrompt = idleOrder.find(([event, , agent]) => event === "UserPromptSubmit" && agent === idle.child);
+assert(idleOrder.at(-1)[5] - idlePrompt[5] > 14000 && idle.commandEnded > idle.escAt, "the child runs out its hold");
+assert.deepEqual([teRun("terminal-idle-child-running").state, teRun("after-terminal-idle-esc").state], ["running", "waiting"]);
 
 // SIGKILL of the daemon: no hook; the bound run is orphaned and unbound
 // sessions leave the view.

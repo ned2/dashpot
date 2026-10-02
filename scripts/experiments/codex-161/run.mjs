@@ -6,8 +6,9 @@
 // daemon autostart, `codex exec`, `codex remote-control start`, input joined
 // to a running turn), then exercises the shared runtime core through the
 // real Codex adapter on the managed daemon, including sub-agents that outlive
-// their parent's turn (#355), and records each step's hooks, shells, protocol
-// results, and Dashpot's own published view as a metadata-only trace.
+// their parent's turn (#355) and the ways a person interrupts one (#374), and
+// records each step's hooks, shells, protocol results, and Dashpot's own
+// published view as a metadata-only trace.
 //
 //   node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
 //   node verify.mjs <trace.jsonl> [expected version]
@@ -130,9 +131,10 @@ env.SPIKE_SINK = sink.url;
 
 // The fixture model: `SPIKE:<label> hold=<ms> work=<start-N|show|stop>` in
 // the latest user message selects one exec_command call reporting identity
-// and running that `dashpot work` command; `delegate` spawns a sub-agent whose
-// own prompt carries the same hold and work, and waits for it; `spawn<N>`
-// spawns N sub-agents, the k-th prompted `spawn<N>-<k> hold=<k × hold>`, and
+// and running that `dashpot work` command; `delegate[-<tag>]` spawns a
+// sub-agent, labelled `child` or `<tag>-child`, whose own prompt carries the
+// same hold and work, and waits for it; `spawn<N>[-<tag>]` spawns N
+// sub-agents, the k-th prompted `spawn<N>[-<tag>]-<k> hold=<k × hold>`, and
 // ends the turn without waiting for any; a request already holding the tool
 // outputs ends the turn.
 const commandScript = path.join(here, "command.mjs");
@@ -161,8 +163,9 @@ const model = await listen(async (req, res) => {
   const tools = (payload.tools ?? []).flatMap((tool) => tool.type === "namespace" ? tool.tools.map((nested) => `${tool.name}/${nested.name}`) : [tool.name ?? tool.type]);
   const count = (modelRequests.get(label?.name ?? "none") ?? 0) + 1;
   modelRequests.set(label?.name ?? "none", count);
-  const delegate = label?.name === "delegate" && tools.includes("multi_agent_v1/spawn_agent");
-  const spawning = /^spawn(\d)$/.exec(label?.name ?? "");
+  const delegating = /^delegate(?:-([a-z]+))?$/.exec(label?.name ?? "");
+  const delegate = Boolean(delegating) && tools.includes("multi_agent_v1/spawn_agent");
+  const spawning = /^spawn(\d)(?:-[a-z]+)?$/.exec(label?.name ?? "");
   const children = spawning && tools.includes("multi_agent_v1/spawn_agent") ? Number(spawning[1]) : 0;
   const needed = delegate ? 2 : children || 1;
   const useTool = label && outputs.length < needed && tools.includes("exec_command");
@@ -177,7 +180,7 @@ const model = await listen(async (req, res) => {
       const index = outputs.length + 1;
       item = { type: "function_call", call_id: callId, namespace: "multi_agent_v1", name: "spawn_agent", arguments: JSON.stringify({ message: `SPIKE:${label.name}-${index} hold=${Number(label.hold) * index}` }) };
     } else if (delegate && outputs.length === 0) {
-      item = { type: "function_call", call_id: callId, namespace: "multi_agent_v1", name: "spawn_agent", arguments: JSON.stringify({ message: `SPIKE:child hold=${label.hold} work=${label.work}` }) };
+      item = { type: "function_call", call_id: callId, namespace: "multi_agent_v1", name: "spawn_agent", arguments: JSON.stringify({ message: `SPIKE:${delegating[1] ? `${delegating[1]}-child` : "child"} hold=${label.hold} work=${label.work}` }) };
     } else if (delegate) {
       let agentId = null;
       try { agentId = JSON.parse(outputs[0].output).agent_id; } catch { agentId = String(outputs[0].output).match(/[0-9a-f-]{36}/)?.[0] ?? null; }
@@ -725,26 +728,101 @@ try {
   view("after-resume");
 
   // A sub-agent interrupted after its parent's turn stopped: a controller's
-  // `turn/interrupt` names the child's own thread and turn. It runs last on
-  // this daemon, since a child no hook ends holds R1 running, and blocks
-  // Cleanup across the Repository, until the daemon is gone.
+  // `turn/interrupt` names the child's own thread and turn, while its sibling,
+  // held twice as long, keeps working through the parent's next turn (#374).
+  // It runs last on this daemon, since a child no hook ends holds R1 running,
+  // and blocks Cleanup across the Repository, until the daemon is gone.
   trace("scenario", { name: "sub-agent-interrupt" });
-  const orphan = await runTurn(c2, r1.id, "SPIKE:spawn1 hold=30000");
-  await waitFor(() => command("spawn1-1"), "interrupted child command", 60000);
-  const childPrompt = hooks().slice(orphan.hooksBefore).find((record) => record.event === "UserPromptSubmit" && record.payload.agent_id);
+  const since = (count, event, agent) => hooks().slice(count).some((record) => record.event === event && record.payload.agent_id === agent);
+  const childRead = async (client, agent) => threadSummary((await client.call("thread/read", { threadId: agent })).result?.thread) ?? null;
+  const notified = (client, threads) => client.notifications.filter((entry) => threads.includes(entry.threadId)).map((entry) => [entry.method, entry.threadId, entry.status ?? null, entry.receivedAt]);
+  const timeline = (count) => hooks().slice(count).map((record) => [record.event, record.payload.session_id, record.payload.agent_id ?? null, record.payload.turn_id ?? null, record.payload.cwd, record.receiptTime]);
+  const orphan = await runTurn(c2, r1.id, "SPIKE:spawn2-cut hold=15000");
+  await waitFor(() => command("spawn2-cut-1") && command("spawn2-cut-2"), "both children's commands", 60000);
+  const cutChild = command("spawn2-cut-1").env.CODEX_THREAD_ID;
+  const sibling = command("spawn2-cut-2").env.CODEX_THREAD_ID;
+  await waitFor(() => since(orphan.hooksBefore, "UserPromptSubmit", cutChild), "interrupted child's prompt", 15000);
+  const childPrompt = hooks().slice(orphan.hooksBefore).find((record) => record.event === "UserPromptSubmit" && record.payload.agent_id === cutChild);
   view("child-interrupt-running");
-  const childInterrupted = await c2.call("turn/interrupt", { threadId: childPrompt?.payload.agent_id, turnId: childPrompt?.payload.turn_id });
+  const childInterrupted = await c2.call("turn/interrupt", { threadId: cutChild, turnId: childPrompt.payload.turn_id });
   const interruptedAt = Date.now();
-  const childEnded = () => hooks().slice(orphan.hooksBefore).some((record) => record.event === "SubagentStop" && record.payload.agent_id === childPrompt?.payload.agent_id);
-  await quietly(waitFor(childEnded, "interrupted child stops", 15000));
+  await quietly(waitFor(() => since(orphan.hooksBefore, "SubagentStop", cutChild), "interrupted child stops", 15000));
   await delay(1500);
-  trace("child-interrupt.outcome", { root: r1.id, child: childPrompt?.payload.agent_id ?? null, response: childInterrupted.error ?? "ok", interruptedAt,
-    commandEnded: Boolean(command("spawn1-1", "end")),
-    hooks: hooks().slice(orphan.hooksBefore).map((record) => [record.event, record.payload.session_id, record.payload.agent_id ?? null, record.payload.turn_id ?? null, record.payload.cwd, record.receiptTime]) });
+  trace("child-interrupt.outcome", { root: r1.id, child: cutChild, sibling, response: childInterrupted.error ?? "ok", interruptedAt,
+    commandEnded: Boolean(command("spawn2-cut-1", "end")), siblingRunning: !command("spawn2-cut-2", "end"),
+    childRead: await childRead(c2, cutChild), siblingRead: await childRead(c2, sibling), hooks: timeline(orphan.hooksBefore) });
   view("after-child-interrupt");
   worktreeCheck("after-child-interrupt-fourth", fourth);
-  // A child the interrupt did not stop finishes its hold before the next scenario.
-  await quietly(waitFor(childEnded, "child finishes", 45000));
+  // The parent's next turn while the sibling still works: its prompt and its
+  // Stop find the interrupted child and the working one alike.
+  const next = await runTurn(c2, r1.id, "SPIKE:r1-next");
+  trace("child-interrupt.next", { turnId: next.turnId, siblingRunning: !command("spawn2-cut-2", "end"), commandEnded: Boolean(command("spawn2-cut-1", "end")),
+    childRead: await childRead(c2, cutChild), siblingRead: await childRead(c2, sibling), hooks: timeline(next.hooksBefore) });
+  view("after-parent-next-turn");
+  worktreeCheck("after-parent-next-turn-fourth", fourth);
+  await waitFor(() => since(orphan.hooksBefore, "SubagentStop", sibling), "sibling stops", 60000);
+  await delay(1500);
+  trace("child-interrupt.sibling", { childRead: await childRead(c2, cutChild), siblingRead: await childRead(c2, sibling),
+    notifications: notified(c2, [cutChild, sibling]), hooks: timeline(orphan.hooksBefore) });
+  view("after-sibling-stopped");
+  worktreeCheck("after-sibling-stopped-fourth", fourth);
+  // `dashpot work show` where the bound run is: Dashpot's own lines only.
+  const shown = dashpot(["work", "show"], third);
+  trace("child-interrupt.work-show", { status: shown.status, stdout: shown.stdout.replaceAll(root, "<root>").slice(0, 1500), stderr: shown.stderr.slice(0, 300) });
+
+  // A controller interrupts the parent's own turn while it waits on a child
+  // it delegated to: the way a person stops work through a client (#374).
+  trace("scenario", { name: "parent-interrupt" });
+  const waiting = await runTurn(c2, r1.id, "SPIKE:delegate-ctl hold=20000", { detached: true });
+  await waitFor(() => command("ctl-child"), "ctl child command", 60000);
+  const ctlChild = command("ctl-child").env.CODEX_THREAD_ID;
+  view("parent-interrupt-running");
+  const parentInterrupted = await c2.call("turn/interrupt", { threadId: r1.id, turnId: waiting.turnId });
+  const parentInterruptedAt = Date.now();
+  await waitFor(() => c2.notifications.some((entry) => entry.method === "turn/completed" && entry.turnId === waiting.turnId), "interrupted parent turn settles", 30000);
+  await quietly(waitFor(() => since(waiting.hooksBefore, "SubagentStop", ctlChild), "ctl child stops", 40000));
+  await delay(1500);
+  trace("parent-interrupt.outcome", { root: r1.id, child: ctlChild, response: parentInterrupted.error ?? "ok", interruptedAt: parentInterruptedAt,
+    status: c2.notifications.find((entry) => entry.method === "turn/completed" && entry.turnId === waiting.turnId)?.status ?? null,
+    commandEnded: command("ctl-child", "end")?.receiptTime ?? null, childRead: await childRead(c2, ctlChild),
+    hooks: timeline(waiting.hooksBefore) });
+  view("after-parent-interrupt");
+
+  // A person presses Esc in a terminal: first while its turn waits on a
+  // delegated child, then after its turn has stopped while a child it
+  // spawned still works.
+  trace("scenario", { name: "terminal-interrupt" });
+  const te = await terminal("interrupting", other, ["-C", other]);
+  await delay(4000);
+  hooksBefore = hooks().length;
+  await te.type("SPIKE:delegate-esc hold=20000");
+  await waitFor(() => command("esc-child") || te.exited, "esc child command", 60000);
+  assert(!te.exited, "the interrupting terminal runs");
+  const teThread = command("esc-child").env.CODEX_SESSION_ID;
+  const escChild = command("esc-child").env.CODEX_THREAD_ID;
+  view("terminal-delegate-running");
+  te.child.stdin.write("\u001b");
+  const escAt = Date.now();
+  await quietly(waitFor(() => hooks().slice(hooksBefore).some((record) => record.event === "Interrupt" && record.payload.session_id === teThread), "Esc publishes Interrupt", 10000));
+  await quietly(waitFor(() => since(hooksBefore, "SubagentStop", escChild), "esc child stops", 40000));
+  await delay(1500);
+  trace("terminal-interrupt.in-flight", { thread: teThread, child: escChild, escAt, commandEnded: command("esc-child", "end")?.receiptTime ?? null,
+    childRead: await childRead(c2, escChild), hooks: timeline(hooksBefore) });
+  view("after-terminal-interrupt");
+  hooksBefore = hooks().length;
+  await te.type("SPIKE:spawn1-idle hold=15000");
+  await waitFor(() => command("spawn1-idle-1") || te.exited, "idle child command", 60000);
+  await waitFor(() => hooks().slice(hooksBefore).some((record) => record.event === "Stop" && record.payload.session_id === teThread && !record.payload.agent_id), "terminal turn stops", 30000);
+  const idleChild = command("spawn1-idle-1").env.CODEX_THREAD_ID;
+  view("terminal-idle-child-running");
+  te.child.stdin.write("\u001b");
+  const idleEscAt = Date.now();
+  await quietly(waitFor(() => since(hooksBefore, "SubagentStop", idleChild), "idle child stops", 40000));
+  await delay(1500);
+  trace("terminal-interrupt.idle", { thread: teThread, child: idleChild, escAt: idleEscAt, commandEnded: command("spawn1-idle-1", "end")?.receiptTime ?? null,
+    childRead: await childRead(c2, idleChild), hooks: timeline(hooksBefore) });
+  view("after-terminal-idle-esc");
+  await exitTerminal(te);
 
   // The daemon is killed: no hook runs, so the bound run is orphaned.
   trace("scenario", { name: "daemon-gone" });

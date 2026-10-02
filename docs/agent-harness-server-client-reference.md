@@ -588,12 +588,42 @@ that run's trace is retained at commit `d0a0a52`.
   aborted the child's turn: the child's running command ran out its hold and
   the child made no further model request. Codex published no hook for it,
   neither `Interrupt` nor `SubagentStop`, then or later, in the 0.159.3 run
-  (trace at `d0a0a52`) or the 0.160.0 one. Dashpot therefore
-  kept the child live: the bound run stayed running and the child's
-  `sub-agent` Cleanup blocker stayed on an empty Worktree until the daemon
-  was killed, the undelivered-`SubagentStop` risk
+  (trace at `d0a0a52`) or the 0.160.0 one. The 0.160.0 run for
+  [#374](https://github.com/ned2/dashpot/issues/374) spawned two children
+  held 15 s and 30 s and interrupted the first. The root's next turn then
+  published only its `UserPromptSubmit` and `Stop`, about 11 s before the
+  working sibling's `SubagentStop`, so in the hooks the interrupted child
+  and the working one looked alike: `SubagentStart`, then
+  `UserPromptSubmit`, then nothing. Only a controller saw the difference:
+  `thread/read` reported the interrupted child `idle` and the sibling
+  `active`, and the controller that sent the interrupt received the
+  child's `turn/completed` with status `interrupted`. Dashpot, which observes
+  through hooks alone, therefore kept the child live: the bound run stayed
+  running and the `sub-agent` Cleanup blocker stayed on an empty Worktree,
+  naming the interrupted child after the sibling stopped, until the daemon
+  was killed. This is the undelivered-`SubagentStop` risk
   [ADR 0016](adr/0016-hold-a-session-running-while-its-sub-agents-work.md)
-  names.
+  names, and the blocker and `dashpot work show` now say a listed sub-agent
+  may have been interrupted and name the way to end the session. Upstream
+  tracks the missing `SubagentStop` as
+  [openai/codex#38142](https://github.com/openai/codex/issues/38142),
+  reported on 0.147.0 for a third path not measured here: the parent model
+  calling the `interrupt_agent` tool on a child. A commenter there traced
+  the mechanism on Codex `main`: `SubagentStop`, like `Stop`, is dispatched
+  only when a turn completes naturally, and a turn ended by interruption
+  leaves through `TurnAborted` without reaching it, so any interrupt that
+  aborts a child's own turn strands that child.
+- **Interrupting the parent.** Interrupting the root's own turn does not
+  end its children. A controller's `turn/interrupt` of a root turn waiting
+  on a child (`wait_agent`), and Esc in a daemon-attached terminal at the
+  same point, each published the root's `Interrupt` and no `Stop`; the
+  child's command ran out its 20 s hold and the child published
+  `SubagentStop` about 19 s after the interrupt. Esc in the terminal after
+  the root's turn had stopped, while a child it spawned still worked,
+  published nothing, and that child stopped at its hold with its own
+  `SubagentStop`. Selecting a child in the terminal's agent picker and
+  interrupting it there was not measured, nor was Esc in a standalone
+  terminal.
 
 Interactive conversation switches inside one terminal (`/new`, `/resume`),
 Remote Control pairing with an account, and other operating systems were not

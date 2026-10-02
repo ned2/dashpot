@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git, GitError
-from ...core.model import HARNESS_DISPLAY, Harness
+from ...core.model import HARNESS_DISPLAY
 from ...core.worktree_paths import worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
@@ -20,6 +20,11 @@ from ...sessions.hook_scan import (
 from ...sessions.liveness import session_liveness
 from ...sessions.opencode_publishers import RETIRED_PUBLISHER
 from ...sessions.processes import ProcessLookup, host_process_lookup
+from ...sessions.session_exits import (
+    listed_subagents,
+    session_exit,
+    unreported_subagent_stop,
+)
 from ...sessions.work_store import ActiveWork, WorkStore
 from ..repository import (
     LockHolderProbe,
@@ -141,66 +146,6 @@ def assess_worktree_safety(
     return obstacles
 
 
-@dataclass(frozen=True, slots=True)
-class SessionExit:
-    """How a person frees a Worktree from one harness's Agent Session.
-
-    ``move`` takes the session, conversation and all, out of the Worktree;
-    ``end`` ends it. Each is a clause that names the session as "that
-    session"; ``{session_id}`` in ``move`` is replaced by its identity.
-    """
-
-    move: str
-    end: str
-
-
-# Each harness's way out, which every session-derived Cleanup blocker reads:
-# a harness adds its entry here, and one without an entry is given
-# ``ANY_SESSION_EXIT``.
-SESSION_EXITS: Mapping[Harness, SessionExit] = {
-    # ExitWorktree(keep) returns only a session EnterWorktree brought here; a
-    # shell cd back into the checkout the session started in places it there
-    # without its run (ADR 0074); a session started here can only be ended.
-    "claude-code": SessionExit(
-        move="run ExitWorktree with action: keep in that session if "
-        "EnterWorktree brought it here, or cd its shell back to the checkout "
-        "it started in if it came by cd (leaving any Agent Run here)",
-        end="end that session",
-    ),
-    # The declared resume of ADR 0029 carries an Agent Run; a session without
-    # one just resumes elsewhere. A daemon-hosted thread outlives its
-    # terminal until the daemon unloads it (ADR 0072).
-    "codex": SessionExit(
-        move="resume that session elsewhere with codex resume {session_id} "
-        "-C <worktree> once its client exits, running dashpot work relocate "
-        "<worktree> in it first if it holds an Agent Run",
-        end="end that session's client (a daemon-hosted thread ends about "
-        "60 s after its last client leaves)",
-    ),
-    # An OpenCode session never leaves the directory it was created in, even
-    # resumed from elsewhere, so the only way out is to end what serves it: a
-    # TUI's quit or a backend's exit reads gone, while closing an attached
-    # client leaves the session running in its backend (ADR 0080).
-    "opencode": SessionExit(
-        move="quit the OpenCode TUI serving that session, or stop the OpenCode "
-        "backend it runs in (an OpenCode session cannot leave the directory it "
-        "was created in, and closing an attached client leaves it running)",
-        end="delete that session in the OpenCode backend serving it",
-    ),
-}
-
-
-ANY_SESSION_EXIT = SessionExit(
-    move="move that session out of this Worktree with its harness's own tool",
-    end="end that session",
-)
-
-
-def session_exit(harness: Harness) -> SessionExit:
-    """The way out of a Worktree for a session of ``harness``."""
-    return SESSION_EXITS.get(harness, ANY_SESSION_EXIT)
-
-
 def session_blocker(record: HookRecordClassification) -> CleanupBlocker:
     """The ``agent-session`` blocker of a live or unknown session placed here.
 
@@ -290,11 +235,11 @@ def assess_worktree_occupancy(
                 kind="sub-agent",
                 detail=f"{harness} session {record.session_id} at "
                 f"{record.worktree} has "
-                f"{counted(len(record.live_subagents), 'sub-agent')} working "
-                f"({agents}; session {record.outcome}). Dashpot cannot tell "
-                f"which Worktree a {harness} sub-agent works in, so one may be "
-                f"working here; wait for it to finish, or "
-                f"{session_exit(record.harness).end}.",
+                f"{listed_subagents(len(record.live_subagents))} "
+                f"({agents}; session {record.outcome}). Dashpot cannot "
+                f"tell which Worktree a {harness} sub-agent works in, so one "
+                f"may be working here: wait for it to finish. "
+                f"{unreported_subagent_stop(record.harness)}.",
             )
         )
     active, work_diagnostics = WorkStore(path).active()
