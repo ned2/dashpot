@@ -337,7 +337,7 @@ class HookRecordStore(LockedRecordStore):
         sub-agents and turn clock from it rather than from an older record of
         this store, so a move never forgets a live Sub-agent (ADR 0067). A
         child-scoped event instead keeps this store's previous record's
-        location, never ends it, and writes nothing but a sub-agent boundary
+        location, never ends it, and writes nothing but a sub-agent's start
         where there is no record.
         """
         session_id = require_string(record.get("sessionId"), "sessionId")
@@ -378,21 +378,28 @@ class HookRecordStore(LockedRecordStore):
                     return destination
                 destination.unlink(missing_ok=True)
                 return destination
-            if (
-                child
-                and previous is None
-                and record.get("event") not in SUBAGENT_EVENTS
-            ):
-                # With no parent record here, only a boundary has anything to
-                # say: the live set. Any other Sub-agent event would invent a
-                # parent at the Sub-agent's location (ADR 0067).
+            if child and previous is None and record.get("event") != "SubagentStart":
+                # With no parent record here, only a starting Sub-agent has
+                # anything to say: it is live. Any other Sub-agent event would
+                # invent a parent at the Sub-agent's location (ADR 0067), and
+                # a stop has no live set to leave: one arriving after its
+                # parent's SessionEnd would list the ended session as waiting
+                # for as long as a shared Host Process lives.
                 return destination
             current = dict(record)
             origin = previous
             if child and previous is not None:
-                # A Sub-agent's event never places or routes its parent.
+                # A Sub-agent's event never places or routes its parent, nor
+                # makes its record older: one stamped before its parent moved
+                # here but written after would let the record left behind
+                # read as the freshest again.
                 for field in LOCATION_FIELDS:
                     current[field] = previous.get(field)
+                recorded_at = optional_string(previous.get("lastActivityAt"))
+                if observed_instant(recorded_at) > observed_instant(
+                    optional_string(current.get("lastActivityAt"))
+                ):
+                    current["lastActivityAt"] = recorded_at
             elif (
                 seed is not None
                 and current.get("event") != "SessionStart"

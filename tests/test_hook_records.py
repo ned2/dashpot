@@ -4,17 +4,22 @@ import json
 import subprocess
 import tempfile
 import unittest
+from contextlib import nullcontext
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast, override
 from unittest import mock
 
+import pytest
+
 from dashpot.core.model import ObservationTarget
-from dashpot.core.timestamps import utc_now
+from dashpot.core.timestamps import utc_now, utc_stamp
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecordStore,
     session_directory,
+    state_directory,
     write_hook_record,
 )
 from dashpot.sessions.processes import (
@@ -22,8 +27,23 @@ from dashpot.sessions.processes import (
     ProcessIdentity,
     SessionProcessRecord,
 )
-from factories import hook_record_document, observation_target, write_config_marker
+from dashpot.sessions.work import start_issue_work
+from dashpot.sessions.work_store import WorkStore
+from factories import (
+    CLAUDE,
+    CODEX,
+    hook_record_document,
+    observation_target,
+    write_config_marker,
+)
 from helpers import present
+from test_work import (
+    CLAUDE_ENVIRON,
+    CLAUDE_SESSION,
+    CODEX_SESSION,
+    target,
+    two_worktrees,
+)
 
 
 class HookRecordDegradationTests(unittest.TestCase):
@@ -723,6 +743,43 @@ class SubagentBoundaryTests(unittest.TestCase):
         self.assertIsNone(record["turnStartedAt"])
         self.assertEqual([], record["liveSubagents"])
 
+    def test_a_late_stop_after_the_session_ended_invents_no_session(self) -> None:
+        # Measured on Codex: a child's boundary can follow its root's
+        # SessionEnd, and a record written then would list the ended session
+        # as waiting while a shared Host Process lives. The rule is shared,
+        # so Claude Code takes it too.
+        codex = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
+        for harness, process in (("codex", codex), ("claude-code", self.process)):
+            with self.subTest(harness=harness):
+                for event_name, agent_id in (
+                    ("UserPromptSubmit", None),
+                    ("SubagentStart", "agent-1"),
+                    ("Stop", None),
+                    ("SessionEnd", None),
+                    ("SubagentStop", "agent-1"),
+                ):
+                    event: dict[str, Any] = {
+                        "session_id": f"ended-{harness}",
+                        "cwd": "/repo",
+                        "hook_event_name": event_name,
+                    }
+                    if agent_id is not None:
+                        event["agent_id"] = agent_id
+                    publish_hook_event(
+                        event,
+                        self.state_dir,
+                        process=process,
+                        harness=cast("Any", harness),
+                    )
+
+                self.assertEqual([], list(self.state_dir.glob("*.json")))
+                runs, _diagnostics = observe_agent_runs(
+                    {"project:example": [observation_target()]},
+                    self.state_dir,
+                    lookup=present(process),
+                )
+                self.assertEqual([], runs)
+
 
 class SessionStartStampTests(unittest.TestCase):
     """A store remembers when it last saw its session begin an incarnation."""
@@ -787,3 +844,121 @@ class SessionStartStampTests(unittest.TestCase):
         self.assertEqual([], diagnostics)
         self.assertEqual(["running"], [run.state for run in runs])
         self.assertNotIn("lastSessionStartAt", self.publish("Stop"))
+
+
+def test_a_late_stop_reaches_its_parents_record_in_another_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A child's stop with no record at its own cwd still finds its parent's."""
+    monkeypatch.setenv("DASHPOT_STATE_DIR", str(tmp_path / "global-state"))
+    a, b = two_worktrees(tmp_path)
+
+    def publish(at: Path, event_name: str, agent_id: str | None = None) -> Path:
+        event: dict[str, Any] = {
+            "session_id": CODEX_SESSION,
+            "cwd": str(at),
+            "hook_event_name": event_name,
+        }
+        if agent_id is not None:
+            event["agent_id"] = agent_id
+        return publish_hook_event(
+            event, process=CODEX, harness="codex", lookup=present(CODEX)
+        ).path
+
+    publish(b, "UserPromptSubmit")
+    publish(b, "SubagentStart", "agent-1")
+    publish(b, "Stop")
+
+    written = publish(a, "SubagentStop", "agent-1")
+
+    assert written.parent == session_directory(b)
+    assert not session_directory(a).exists() or not list(
+        session_directory(a).glob("*.json")
+    )
+    parent = json.loads(written.read_text())
+    assert (parent["state"], parent["liveSubagents"], parent["cwd"]) == (
+        "waiting",
+        [],
+        str(b),
+    )
+
+
+# How each harness binds a session at a Worktree, and its designated
+# location evidence arriving at one (ADR 0067, ADR 0074).
+SUB_AGENT_HARNESSES: dict[
+    str, tuple[str, ProcessIdentity, dict[str, str], dict[str, Any]]
+] = {
+    "codex": (
+        CODEX_SESSION,
+        CODEX,
+        {"CODEX_THREAD_ID": CODEX_SESSION},
+        {"hook_event_name": "UserPromptSubmit"},
+    ),
+    "claude-code": (
+        CLAUDE_SESSION,
+        CLAUDE,
+        CLAUDE_ENVIRON,
+        {"hook_event_name": "PostToolUse", "tool_name": "EnterWorktree"},
+    ),
+}
+
+
+@pytest.mark.parametrize("harness", SUB_AGENT_HARNESSES)
+def test_a_sub_agent_event_stamped_before_a_move_never_rewinds_its_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, harness: str
+) -> None:
+    """A child's event written after its parent moved keeps the parent's stamp."""
+    monkeypatch.setenv("DASHPOT_STATE_DIR", str(tmp_path / "global-state"))
+    session, process, environ, moving = SUB_AGENT_HARNESSES[harness]
+    a, b = two_worktrees(tmp_path)
+
+    def publish(at: Path, fields: dict[str, Any], stamp: str | None = None) -> str:
+        """Publish one event, its hook's clock reading ``stamp`` when given."""
+        clock = (
+            nullcontext()
+            if stamp is None
+            else mock.patch("dashpot.sessions.hook_records.utc_now", return_value=stamp)
+        )
+        with clock:
+            publication = publish_hook_event(
+                {"session_id": session, "cwd": str(at), **fields},
+                process=process,
+                harness=cast("Any", harness),
+                lookup=present(process),
+            )
+        return publication.work
+
+    def stamp_of(at: Path) -> str:
+        document = json.loads((session_directory(at) / f"{session}.json").read_text())
+        return cast("str", document["lastActivityAt"])
+
+    publish(a, {"hook_event_name": "UserPromptSubmit"})
+    start_issue_work(a, "build-observer", lookup=present(process), environ=environ)
+    left_at = datetime.fromisoformat(stamp_of(a).replace("Z", "+00:00"))
+    assert publish(b, moving) == "relocated"
+    moved_at = stamp_of(b)
+
+    # Stamped after the record at A but before the move, written after it.
+    publish(
+        b,
+        {"hook_event_name": "PostToolUse", "tool_name": "Bash", "agent_id": "late"},
+        stamp=utc_stamp(left_at + timedelta(microseconds=1)),
+    )
+
+    assert stamp_of(b) == moved_at
+    runs, diagnostics = observe_agent_runs(
+        {"project:test": [target(a), target(b)]},
+        state_directory(),
+        lookup=present(process),
+    )
+    assert [(run.observation_target, run.issue_id) for run in runs] == [
+        (str(b), "I_observer")
+    ]
+    assert diagnostics == []
+
+    # A designated event at A, stamped before the move too, carries nothing.
+    stale = publish(a, moving, stamp=utc_stamp(left_at + timedelta(microseconds=2)))
+
+    assert stale == "unchanged"
+    assert WorkStore(a).active()[0] == []
+    assert [item.issue_id for item in WorkStore(b).active()[0]] == ["I_observer"]
