@@ -87,12 +87,19 @@ class PageNavigation:
         )
 
     def next(self) -> PageTicket | None:
-        """Navigate using the accepted page's continuation only."""
+        """Navigate using the accepted page's continuation only.
+
+        With no accepted page there is nothing to page from yet, which is not
+        the same as no next page: the refusal leaves the loading state, or the
+        failure that left no page, as it stands.
+        """
         page = self.page
-        if page is None or page.next_cursor is None:
+        if page is None:
+            return None
+        if page.next_cursor is None:
             self.error = (
                 "Narrow the query to see more results"
-                if page and page.continuation == "provider-limit"
+                if page.continuation == "provider-limit"
                 else "No next page"
             )
             return None
@@ -106,9 +113,17 @@ class PageNavigation:
         return PageTicket(self.generation, self.request, navigation=True)
 
     def previous(self) -> None:
-        """Return to a retained observation with its original timestamp."""
+        """Return to a retained observation with its original timestamp.
+
+        With no accepted page there is nothing to go back from, so, as in
+        ``next``, the refusal is silent and leaves the query still to land
+        alone. On page one the refusal still supersedes a pending next page:
+        the person asked not to move on.
+        """
+        if self.page is None:
+            return
         self.generation += 1
-        if self.index <= 0:
+        if self.index == 0:
             self.error = (
                 "Earlier page evicted; restart from page one"
                 if self.evicted
