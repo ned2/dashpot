@@ -15,7 +15,8 @@ agent that finished its PR to enable auto-merge, so that GitHub would merge
 the PR as soon as its CI went green.
 
 Commit `0193a6d` (2026-09-18) restored the practice from before ADR 0044.
-It changed the [agent instructions](../../AGENTS.md#independent-review-before-integration)
+It changed the
+[agent instructions](../../AGENTS.md#independent-review-before-integration)
 alone and recorded no decision, so ADRs 0044 and 0045 went on naming
 auto-merge as the agent's last step until
 [#276](https://github.com/ned2/dashpot/issues/276) (PR
@@ -67,9 +68,10 @@ operator, who sees every open PR, chooses the order in which they land.
 - **Let the agent merge once CI is green.** Rejected for the same reason,
   and because the merge is a mutation of the shared `main` that the operator
   reserves.
-- **Require an approving review in the ruleset.** Not adopted: it would
-  enforce what the operator already does by merging, and changes no outcome
-  while one operator both reviews and merges.
+- **Require an approving review in the ruleset.** Not adopted: every PR is
+  opened under the operator's own account, which cannot approve its own PR,
+  so a required approval would block every merge. The operator's review is
+  part of merging.
 
 ## Consequences
 
