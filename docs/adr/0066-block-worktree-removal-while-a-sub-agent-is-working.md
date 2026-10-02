@@ -60,9 +60,10 @@ might be working in it.
   and the re-inspection on confirmation all report it. Observation stays
   passive, and no Agent Run, Issue Binding, or Work Store record is created
   for a sub-agent.
-- **Claude Code sub-agents are covered, then Codex ones.** Dashpot's Codex integration
-  does not subscribe to `SubagentStart` or `SubagentStop`, so a Codex
-  session's sub-agents are not observed, and the refusal names Claude Code.
+- **Claude Code sub-agents first; ADR 0067 adds Codex ones.** Dashpot's
+  Codex integration does not subscribe to `SubagentStart` or
+  `SubagentStop`, so a Codex session's sub-agents are not observed, and the
+  refusal names Claude Code.
   [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) subscribes them, so a Codex session's live sub-agents
   block removal the same way, and the refusal names no harness.
   [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) showed the
@@ -101,10 +102,11 @@ might be working in it.
   machine:** rejected in #357. Within the Repository, one live sub-agent
   already blocks the Cleanup of every Worktree. Counting other Repositories
   would extend that block to each of them, and counting the machine to every
-  session on it, unrelated Projects and orchestrating leads included. Either way the cost lands on exactly the
-  setups the widening would protect. Losing uncommitted work is already
-  guarded: Cleanup refuses a dirty Worktree, `git worktree remove` runs
-  without `--force`, and a person confirms the preview. What stays exposed
+  session on it, unrelated work and orchestrating leads included. Either
+  way the cost lands on exactly the setups the widening would protect.
+  Losing uncommitted work is already guarded: Cleanup refuses a dirty
+  Worktree, `git worktree remove` runs without `--force`, and a person
+  confirms the preview. What stays exposed
   is a sub-agent working in a clean Worktree, whose task is interrupted.
   Work is lost only in a narrow race between the dirty check and the
   removal.
