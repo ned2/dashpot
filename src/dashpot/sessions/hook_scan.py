@@ -192,6 +192,16 @@ def classify_hook_record(
         outcome: HookRecordOutcome = "ended"
     else:
         liveness = probe.observe(process.key if process else None)
+        if (
+            liveness.liveness == "live"
+            and record.session_process_unobservable is not None
+        ):
+            # The record names its Host Process yet says nothing observes the
+            # session there (a retired OpenCode generation, ADR 0080): a live
+            # process vouches for nothing, while a gone one still ends it.
+            liveness = LivenessObservation(
+                "unknown", record.session_process_unobservable
+            )
         outcome = liveness.liveness
     return HookRecordClassification(
         session_id=record.session_id,
