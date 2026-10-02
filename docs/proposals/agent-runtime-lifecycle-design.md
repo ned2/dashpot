@@ -458,7 +458,9 @@ harness-specific location logic. It reads, through functions on `main`:
   `WorkStore.active()` holds one for S.
 
 [`test_a_handoff_is_verified_from_the_seam_alone`](../../tests/test_live_relocation.py)
-reads exactly these, for Codex and Claude Code, bound and unbound.
+reads these for Codex and Claude Code, bound and unbound, beside another
+session's run at A; it takes the Work Store change from `HookPublication.work`,
+which the hook entry point records unchanged as that Runtime Event field.
 
 The opt-in question of #148 step 1 (what counts as an opted-in Codex thread:
 a terminal Dashpot launched, an Issue Binding at the Worktree, or an explicit
@@ -732,7 +734,8 @@ until the design or an ADR accounts for it.
   fake Host Process and hook boundary: carry with `run_id`, `startedAt` and
   binding unchanged; unbound stays unbound; late evidence from A does not move
   the run back; ADR 0029 unchanged. Delivered as tests through
-  `publish_hook_event`, `observe_agent_runs`, `work show` and the Work Store in
+  `publish_hook_event`, `observe_agent_runs`, `show_issue_work` (what
+  `dashpot work show` prints) and the Work Store in
   [`test_live_relocation.py`](../../tests/test_live_relocation.py), for both
   harnesses, with the Codex mid-turn move and ADR 0029's daemon-hosted
   sequential resume; no code changed.

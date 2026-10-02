@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NoReturn
@@ -801,17 +802,19 @@ class Mover:
     session: str
     process: ProcessIdentity
     environ: dict[str, str]
-    # The designated event's name and fields for a move to another Worktree,
-    # then for a move back to the Worktree it came from.
+    # The designated event's name, its fields for a move onward to another
+    # Worktree, and its fields for a return to the Worktree the session left.
     event: str
-    there: dict[str, Any]
-    back: dict[str, Any]
+    onward_fields: dict[str, Any]
+    return_fields: dict[str, Any]
 
     @property
     def lookup(self) -> ProcessLookup:
+        """A lookup that finds the session's Host Process at every PID."""
         return present(self.process)
 
     def publish(self, at: Path, event: str, **fields: Any) -> HookPublication:
+        """Publish ``event`` of the session from its Host Process at ``at``."""
         return publish(
             at,
             event,
@@ -832,10 +835,12 @@ class Mover:
         hook_record(at, self.session, self.harness, self.process)
 
     def move(self, at: Path) -> HookPublication:
-        return self.publish(at, self.event, **self.there)
+        """Publish the designated event of a move onward to ``at``."""
+        return self.publish(at, self.event, **self.onward_fields)
 
     def move_back(self, at: Path) -> HookPublication:
-        return self.publish(at, self.event, **self.back)
+        """Publish the designated event of a return to ``at``."""
+        return self.publish(at, self.event, **self.return_fields)
 
 
 MOVERS = [
@@ -847,8 +852,8 @@ MOVERS = [
         CODEX,
         CODEX_ENVIRON,
         "UserPromptSubmit",
-        there={},
-        back={},
+        onward_fields={},
+        return_fields={},
     ),
     # The worktree tools' PostToolUse arrives at the Worktree they moved to.
     Mover(
@@ -857,8 +862,8 @@ MOVERS = [
         CLAUDE,
         CLAUDE_ENVIRON,
         "PostToolUse",
-        there={"tool_name": "EnterWorktree"},
-        back={"tool_name": "ExitWorktree", "tool_input": {"action": "keep"}},
+        onward_fields={"tool_name": "EnterWorktree"},
+        return_fields={"tool_name": "ExitWorktree", "tool_input": {"action": "keep"}},
     ),
 ]
 movers = pytest.mark.parametrize(
@@ -866,13 +871,33 @@ movers = pytest.mark.parametrize(
 )
 
 
+# Both Host Processes, each found only at its own PID, for a Worktree that a
+# Codex thread shares with the session that moves.
+BOTH_HOSTS = table_lookup({CODEX.pid: CODEX, CLAUDE.pid: CLAUDE})
+
+
+def bystander_at(at: Path) -> list[Any]:
+    """Bind another Codex thread at ``at``, and return the Work Store's runs there.
+
+    Its run gives the Repository a Work Store outside the moving session's
+    Worktree, so a carry looks for that session's run rather than stopping
+    at an empty Repository.
+    """
+    codex_run(at, session=SECOND_THREAD, issue="fix-crash")
+    return WorkStore(at).active()[0]
+
+
 def stamp_hooks_at(monkeypatch: pytest.MonkeyPatch, at: str) -> None:
-    """Stamp every hook record published from now on at ``at``."""
+    """Stamp every hook record published from now on at ``at``.
+
+    The publisher takes no clock, so this stands in for one: it orders two
+    events' stamps apart from the order they are published in.
+    """
     monkeypatch.setattr(hook_records, "utc_now", lambda: at)
 
 
 @movers
-def test_work_show_and_the_dashboard_report_the_carried_run_unchanged(
+def test_work_show_and_observation_report_the_carried_run_unchanged(
     tmp_path: Path, mover: Mover
 ) -> None:
     a, b = two_worktrees(tmp_path)
@@ -897,21 +922,36 @@ def test_an_unbound_session_is_reported_unbound_at_its_new_worktree(
     tmp_path: Path, mover: Mover
 ) -> None:
     a, b = two_worktrees(tmp_path)
+    others = bystander_at(a)
     mover.place(a)
 
     assert mover.move(b).work == "unchanged"
 
-    assert show_issue_work(a) == NO_WORK_HERE
+    assert WorkStore(a).active()[0] == others
     assert show_issue_work(b) == NO_WORK_HERE
-    runs, diagnostics = observe(a, b, lookup=mover.lookup)
-    assert [(run.observation_target, run.issue_id) for run in runs] == [(str(b), None)]
+    runs, diagnostics = observe(a, b, lookup=BOTH_HOSTS)
+    assert sorted(
+        (run.session_id, run.observation_target, run.issue_id) for run in runs
+    ) == sorted([(mover.session, str(b), None), (SECOND_THREAD, str(a), "I_crash")])
     assert diagnostics == []
 
 
+# Late evidence at the origin: the designated event of a return there, and the
+# end of a turn there. A sub-agent's late event is left out: a sub-agent live
+# during a move is unmeasured, and so unsupported, on every harness.
+LATE_AT_ORIGIN: list[Callable[[Mover, Path], HookPublication]] = [
+    Mover.move_back,
+    lambda mover, at: mover.publish(at, "Stop"),
+]
+
+
 @movers
-@pytest.mark.parametrize("late", ["designated", "Stop", "sub-agent"])
+@pytest.mark.parametrize("late", LATE_AT_ORIGIN, ids=["designated", "Stop"])
 def test_late_evidence_from_the_origin_never_moves_the_run_back(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mover: Mover, late: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mover: Mover,
+    late: Callable[[Mover, Path], HookPublication],
 ) -> None:
     a, b = two_worktrees(tmp_path)
     mover.bind(a)
@@ -919,20 +959,15 @@ def test_late_evidence_from_the_origin_never_moves_the_run_back(
     stamp_hooks_at(monkeypatch, AT_THE_MOVE)
     assert mover.move(b).work == "relocated"
 
-    # Each event was stamped at A before the carry and published after it.
+    # The event was stamped at A before the carry and published after it.
     stamp_hooks_at(monkeypatch, BEFORE_THE_MOVE)
-    if late == "designated":
-        publication = mover.move_back(a)
-    elif late == "Stop":
-        publication = mover.publish(a, "Stop")
-    else:
-        publication = mover.publish(a, "PostToolUse", agent_id="child", **mover.back)
+    publication = late(mover, a)
 
     assert publication.work == "unchanged"
     assert WorkStore(a).active()[0] == []
     (carried,) = WorkStore(b).active()[0]
     assert (carried.run_id, carried.started_at) == (before.run_id, before.started_at)
-    # None of them is fresher than the session's record at B, so B still
+    # It is not fresher than the session's record at B, so B still
     # places the session and nothing reports it elsewhere.
     runs, diagnostics = observe(a, b, lookup=mover.lookup)
     assert [run.observation_target for run in runs] == [str(b)]
@@ -1002,11 +1037,12 @@ def test_a_handoff_is_verified_from_the_seam_alone(
     # location logic: the session's freshest record, each Worktree's
     # occupants, and each Worktree's Work Store.
     a, b = two_worktrees(tmp_path)
+    others = bystander_at(a)
     if bound:
         mover.bind(a)
     else:
         mover.place(a)
-    before = WorkStore(a).active()[0]
+    own = [work for work in WorkStore(a).active()[0] if work not in others]
 
     publication = mover.move(b)
 
@@ -1017,19 +1053,16 @@ def test_a_handoff_is_verified_from_the_seam_alone(
     assert location is not None
     assert location.worktree == b
     assert location.record.process_key == mover.process.key
-    assert sessions_at_worktree(a, stores, mover.lookup) == []
+    assert mover.session not in {
+        item.record.session_id for item in sessions_at_worktree(a, stores, BOTH_HOSTS)
+    }
     assert [
-        item.record.session_id for item in sessions_at_worktree(b, stores, mover.lookup)
+        item.record.session_id for item in sessions_at_worktree(b, stores, BOTH_HOSTS)
     ] == [mover.session]
-    assert WorkStore(a).active() == ([], [])
-    if bound:
-        assert publication.work == "relocated"
-        (carried,) = WorkStore(b).active()[0]
-        assert (carried.run_id, carried.started_at, carried.issue_id) == (
-            before[0].run_id,
-            before[0].started_at,
-            before[0].issue_id,
-        )
-    else:
-        assert publication.work == "unchanged"
-        assert not WorkStore(b).directory.exists()
+    assert WorkStore(a).active() == (others, [])
+    carried = WorkStore(b).active()[0]
+    assert [(work.run_id, work.started_at, work.issue_id) for work in carried] == [
+        (work.run_id, work.started_at, work.issue_id) for work in own
+    ]
+    assert publication.work == ("relocated" if bound else "unchanged")
+    assert len(own) == (1 if bound else 0)
