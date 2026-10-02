@@ -147,10 +147,27 @@ records the session's end or the session's process exits, even after the
 session has left the Repository. A session at the Worktree itself is
 reported as that Worktree's `agent-session` occupant instead.
 
-This covers only sessions whose hooks place them in the Repository. A
-sub-agent of a session launched outside every Worktree of the Repository is
-not seen, nor is one of a Codex session whose installation predates the
-`SubagentStart` and `SubagentStop` subscription.
+A Codex session's sub-agents block the same way: the pinned 0.159.3 trace
+of [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) shows the
+blocker naming live Codex children. A Codex child interrupted through its
+own thread publishes no hook, so it keeps the block up until the session's
+next `SessionStart` or `SessionEnd`
+([#374](https://github.com/ned2/dashpot/issues/374)). A Codex installation
+that predates the `SubagentStart` and `SubagentStop` subscription reports
+no sub-agents until `dashpot integrate codex` runs again.
+
+The Repository's Worktrees are every Worktree Git registers for it, wherever
+it lives on disk, sibling pools such as `dashpot.worktrees/` included; their
+hook stores and the machine-global store are read. A session placed outside
+them is not counted, so a sub-agent of a session in another Repository of
+the Project, or of one launched outside every configured checkout, can be
+working in a Worktree that Cleanup offers to remove. That gap is accepted
+([#357](https://github.com/ned2/dashpot/issues/357)): widening the scope
+would block Cleanup across a whole Project or machine for one sub-agent, and
+Cleanup already refuses a dirty Worktree, so the exposure is mainly an
+interrupted task in a clean one. A Cleanup preview that would remove a
+Worktree, in the dashboard and in `dashpot worktree remove --dry-run`, says
+so: "Sub-agents of Agent Sessions outside this Repository are not checked."
 
 ### Codex hosting modes
 

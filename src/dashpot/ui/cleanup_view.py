@@ -31,6 +31,7 @@ from ..repository.cleanup import (
     describe_cleanup_report,
     primary_target,
     retained_choices,
+    sub_agent_scope,
 )
 from ..repository.repository import short_ref as ref_name
 from .branch_cells import fetch_age_text
@@ -444,6 +445,9 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                             "(not per-remote verification)"
                         )
                     yield freshness
+                scope = sub_agent_scope(preview)
+                if scope is not None:
+                    yield Static(scope, markup=False, id="cleanup-scope")
                 if preview.kind == "branch" and self.primary_identity is None:
                     yield Static(
                         "Select each concrete Branch to delete below; unselected targets are retained.",

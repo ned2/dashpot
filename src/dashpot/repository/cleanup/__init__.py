@@ -17,10 +17,12 @@ from .perform import (
     describe_cleanup_report as describe_cleanup_report,
 )
 from .perform import perform_cleanup as perform_cleanup
+from .preview import SUB_AGENT_SCOPE as SUB_AGENT_SCOPE
 from .preview import (
     describe_cleanup_preview as describe_cleanup_preview,
 )
 from .preview import inspect_cleanup as inspect_cleanup
+from .preview import sub_agent_scope as sub_agent_scope
 from .selection import default_choices as default_choices
 from .selection import primary_target as primary_target
 from .selection import retained_choices as retained_choices

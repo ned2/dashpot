@@ -47,12 +47,21 @@ from dashpot.repository.cleanup import (
 )
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
+from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.integrate import INTEGRATIONS, IntegrationError
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.sessions.work import IssueWorkError
 from factories import git, write_config_marker
 from helpers import issue_payload, table_lookup
-from test_cleanup import CLAUDE, CLAUDE_CODE_STEPS, SESSION, occupied_worktree
+from test_cleanup import (
+    CLAUDE,
+    CLAUDE_CODE_STEPS,
+    PARENT,
+    SESSION,
+    occupied_worktree,
+    publish_subagent,
+    sub_agent_worktrees,
+)
 
 
 def project(root: Path) -> ResolvedProject:
@@ -1454,6 +1463,58 @@ def test_worktree_remove_refusal_says_how_to_free_it_of_a_live_session(
     assert f"Refused         {refusal}" in captured.out.splitlines()
     assert captured.err == f"dashpot: refused: {refusal}\n"
     assert worktree.exists()
+
+
+@pytest.mark.parametrize("parent_in_repository", [False, True])
+def test_worktree_remove_dry_run_says_which_sub_agents_go_unchecked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    parent_in_repository: bool,
+) -> None:
+    """The gap #357 accepted is stated where the preview would remove the Worktree.
+
+    A sub-agent of a session placed outside the Repository is not counted, so
+    the Worktree is removable and the dry run says what went unchecked; one
+    placed in the Repository blocks, and the refusal needs no such line.
+    """
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    if parent_in_repository:
+        publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+    else:
+        publish_subagent(state_directory(), elsewhere, "SubagentStart", "a686b12")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.chdir(root)
+    lookup = table_lookup({PARENT.pid: PARENT})
+
+    with (
+        mock.patch.object(
+            composition, "inspect_cleanup", partial(inspect_cleanup, lookup=lookup)
+        ),
+        mock.patch.object(
+            composition, "perform_cleanup", partial(perform_cleanup, lookup=lookup)
+        ),
+    ):
+        code = cli.main(
+            ["worktree", "remove", str(target), "--delete-ignored", "--dry-run"]
+        )
+
+    lines = capsys.readouterr().out.splitlines()
+    scope = "     Sub-agents of Agent Sessions outside this Repository are not checked."
+    if parent_in_repository:
+        assert code == 2
+        assert any(line.startswith("Refused ") for line in lines)
+        assert scope not in lines
+    else:
+        assert code == 0
+        assert lines[2:] == [
+            "Dry run         would attempt, in order",
+            f"  1. Worktree {target.resolve()}",
+            scope,
+        ]
+    assert target.exists()
 
 
 def test_cleanup_protects_this_checkout_and_every_configured_anchor(

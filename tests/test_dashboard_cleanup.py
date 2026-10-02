@@ -37,6 +37,7 @@ from app_harness import (
 from dashpot.core.model import Branch, WorkspaceSnapshot
 from dashpot.observation.issue_list import row_key
 from dashpot.repository.cleanup import (
+    SUB_AGENT_SCOPE,
     BranchCleanupRequest,
     CleanupBlocker,
     CleanupConfirmation,
@@ -50,9 +51,10 @@ from dashpot.repository.cleanup import (
     WorktreeCleanupRequest,
     inspect_cleanup,
     perform_cleanup,
+    sub_agent_scope,
 )
 from dashpot.repository.fetch import FetchReport
-from dashpot.sessions.hook_records import session_directory
+from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessLookup
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.cleanup_view import (
@@ -385,6 +387,8 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_notifies() -> Non
         assert problem_text(app) == ""
         assert not screen.query("#cleanup-target-0")
         assert marks({REMOTE.identity: targets[REMOTE.identity]}) == ["▐ ▌"]
+        # Deleting a Branch removes no Worktree a sub-agent could be in.
+        assert not screen.query("#cleanup-scope")
 
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: app.store.revision == 2)
@@ -555,6 +559,9 @@ async def test_a_worktree_starts_with_its_branch_and_discloses_ignored_content()
         # No tick stands between a person and the ignored content: the
         # dialog discloses it instead.
         assert not screen.query("#cleanup-ignored")
+        assert str(screen.query_one("#cleanup-scope", Static).render()) == (
+            "Sub-agents of Agent Sessions outside this Repository are not checked."
+        )
 
         # The Branch is additional to the fixed Worktree subject, and a
         # Worktree and its Branch are normally finished together.
@@ -654,6 +661,8 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         assert unavailable.region.y < screen.query_one("#cleanup-targets").region.y
         assert problem_text(app) == ""
         assert not screen.query("#cleanup-confirm")
+        # A blocked Worktree claims no absence of occupants to qualify.
+        assert not screen.query("#cleanup-scope")
         assert app.focused is not None
         assert app.focused.id == "cleanup-cancel"
         assert marks({HELD.identity: targets[HELD.identity]}) == ["▐ ▌"]
@@ -713,7 +722,51 @@ async def test_a_live_sub_agent_blocks_the_worktree_and_says_why(
         unavailable = screen.query_one("#cleanup-unavailable", Static)
         assert str(unavailable.render()) == "Nothing here can be deleted."
         assert not screen.query("#cleanup-confirm")
+        assert not screen.query("#cleanup-scope")
         await pilot.press("enter")
+        await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
+    assert target_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_a_removable_worktree_says_which_sub_agents_go_unchecked(
+    tmp_path: Path,
+) -> None:
+    """The gap #357 accepted, stated beside the removal it qualifies.
+
+    A sub-agent of a session placed outside the Repository is not counted,
+    so the Worktree is offered for removal with the scope said plainly
+    beneath the fetch freshness, above the targets.
+    """
+    root, target_path, _sibling = sub_agent_worktrees(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    publish_subagent(state_directory(), elsewhere, "SubagentStart", "a686b12")
+    cleaner = InspectingCleaner(table_lookup({PARENT.pid: PARENT}))
+    snapshot = observed(
+        local("main"), local("feat"), anchor=str(root), worktree=str(target_path)
+    )
+    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
+
+    async with app.run_test(size=(100, 40)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await focus_row(
+            app, pilot, "worktrees-pane", row_key("worktree", PROJECT, str(target_path))
+        )
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await settle_screen(app, pilot, "the Cleanup preview")
+
+        screen = cleanup_screen(app)
+        assert screen.query_one("#cleanup-confirm", Button)
+        scope = screen.query_one("#cleanup-scope", Static)
+        assert str(scope.render()) == SUB_AGENT_SCOPE
+        freshness = screen.query_one("#cleanup-freshness", Static)
+        assert freshness.region.y < scope.region.y
+        assert scope.region.y < screen.query_one("#cleanup-targets").region.y
+        # No blocker: the session is placed outside the Repository.
+        assert not screen.query(".cleanup-blocker")
+        await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
     assert target_path.exists()
 
@@ -1313,3 +1366,20 @@ def test_a_single_commit_reads_in_the_singular():
     assert target_summary(preview("branch", "feat", one(True)), one(True)).startswith(
         "Content integrated into main; 1 original commit is not retained there."
     )
+
+
+@pytest.mark.parametrize(
+    ("shown", "scope"),
+    [
+        (WORKTREE_PREVIEW, SUB_AGENT_SCOPE),
+        (BLOCKED_WORKTREE_PREVIEW, None),
+        (BRANCH_PREVIEW, None),
+        (WORKTREE_PREVIEW.model_copy(update={"refusals": ("refused",)}), None),
+        (preview("worktree", WORKTREE, ATTACHED), None),
+    ],
+    ids=["removable", "blocked", "branch", "refused", "no-worktree"],
+)
+def test_only_a_preview_that_would_remove_a_worktree_states_the_sub_agent_scope(
+    shown: CleanupPreview, scope: str | None
+) -> None:
+    assert sub_agent_scope(shown) == scope
