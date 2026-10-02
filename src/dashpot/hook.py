@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import signal
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -21,6 +22,12 @@ from .core.model import Harness
 from .core.runtime_events import HookOutcome, OutcomeResult, fitting
 from .event_logs import open_event_log
 from .sessions.hook_publish import HookPublication, publish_hook_event
+from .sessions.opencode_publish import (
+    OpenCodeOutcome,
+    PluginPublication,
+    parse_publication,
+    publish_opencode,
+)
 from .sessions.work_store import ActiveWork
 
 # A failed publish is reported but never blocks the session: Claude Code reads
@@ -170,6 +177,75 @@ def record_hook_outcome(
     )
 
 
+# A helper whose plugin stopped waiting must not linger, holding a publisher
+# record lock: it gives up at the deadline the plugin passed, plus this.
+OPENCODE_DEADLINE_GRACE_SECONDS = 0.5
+
+
+def _expire(_signal: int, _frame: object) -> None:
+    raise TimeoutError("the OpenCode plugin's publication deadline passed")
+
+
+def _run_opencode(*, event_log: EventLogDestination | None = None) -> int:
+    """Apply one OpenCode plugin publication and print its acknowledgment.
+
+    The acknowledgment is the one line on standard output the plugin reads;
+    a failure prints none, which the plugin reads as no acknowledgment.
+    """
+    publication: PluginPublication | None
+    failure: Exception | None
+    try:
+        publication, failure = parse_publication(sys.stdin.read()), None
+    except (OSError, ValueError) as exc:
+        publication, failure = None, exc
+    kind = (
+        "hook:opencode" if publication is None else f"hook:opencode:{publication.kind}"
+    )
+    directory = (
+        working_directory() if publication is None else Path(publication.directory)
+    )
+    log = open_event_log(
+        kind,
+        working_directory=directory,
+        destination=event_log,
+        harness="opencode",
+        session_id=None if publication is None else publication.root,
+    )
+    log.start()
+    code = 0
+    outcome: OpenCodeOutcome | None = None
+    error: Exception | None = None
+    previous = signal.signal(signal.SIGALRM, _expire)
+    try:
+        if publication is None:
+            raise failure or ValueError("no OpenCode plugin request")
+        signal.setitimer(
+            signal.ITIMER_REAL,
+            publication.deadline_ms / 1000 + OPENCODE_DEADLINE_GRACE_SECONDS,
+        )
+        with use_event_log(log):
+            outcome = publish_opencode(publication)
+        print(outcome.acknowledgment.wire())
+    except (OSError, ValueError, RuntimeError, DashpotError) as exc:
+        print(f"dashpot OpenCode hook: {exc}", file=sys.stderr)
+        code = NON_BLOCKING_FAILURE_EXIT_CODE
+        error = exc
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    last = (
+        None
+        if outcome is None or not outcome.publications
+        else outcome.publications[-1]
+    )
+    # The publication's kind stands in for a native hook event name.
+    event = {} if publication is None else {"hook_event_name": publication.kind}
+    record_hook_outcome(log, event, last, error)
+    log.end(code)
+    log.close()
+    return code
+
+
 def main(*, event_log: EventLogDestination | None = None) -> int:
     """Publish one Codex hook event from standard input."""
     return _run("codex", "Codex", event_log=event_log)
@@ -178,6 +254,11 @@ def main(*, event_log: EventLogDestination | None = None) -> int:
 def claude_code_main(*, event_log: EventLogDestination | None = None) -> int:
     """Publish one Claude Code hook event from standard input."""
     return _run("claude-code", "Claude Code", event_log=event_log)
+
+
+def opencode_main(*, event_log: EventLogDestination | None = None) -> int:
+    """Apply one OpenCode plugin publication from standard input."""
+    return _run_opencode(event_log=event_log)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = (
     "dashpot.tcss",
+    "plugins/opencode.js",
     "py.typed",
     "skills/dashpot-issue-work/SKILL.md",
     "skills/dashpot-issue-work/references/dispatch.md",

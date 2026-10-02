@@ -419,9 +419,11 @@ _Avoid_: session key, which is the Work Store's record name, and process
 identity, which is evidence of Session Liveness
 
 **Harness**:
-The coding-agent product hosting an Agent Session: Codex or Claude Code. The
-closed `Harness` union in `core/model.py` names each one by its identifier
-(`codex`, `claude-code`) and `HARNESS_DISPLAY` holds the name a person reads,
+The coding-agent product hosting an Agent Session: Codex, Claude Code, or
+OpenCode (OpenCode support pending its acceptance run,
+[ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
+The closed `Harness` union in `core/model.py` names each one by its identifier
+(`codex`, `claude-code`, `opencode`) and `HARNESS_DISPLAY` holds the name a person reads,
 so every model, record, and label spells a harness the same way. _Avoid_:
 "agent" or "tool" for the harness, and a bare string where the union fits.
 
@@ -434,6 +436,23 @@ are its designated location evidence (`locates`,
 [ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
 Work Store and observation code speak to the adapters and never to one
 harness's internals.
+
+**Publisher Generation**, **Publisher Record**:
+A Publisher Generation is one instance of Dashpot's OpenCode plugin, named by
+a random value it draws before its first publication. OpenCode replaces the
+instance, and so the generation, when it reloads or disposes of it, while the
+backend and its sessions live on. The Publisher Record of one backend Host
+Process and instance directory says which generation is active there, which
+have retired, and how far each session's publications have reached. Only the
+active generation publishes, and only its acknowledgment corroborates a
+command's Agent Session Identity claim
+([ADR 0077](adr/0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md),
+[ADR 0078](adr/0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md)).
+A generation is neither an Agent Session Identity nor an Agent Run, and its
+record is not a hook record: it holds no session's lifecycle, only who may
+publish it.
+_Avoid_: incarnation, which is a span of one Host Process holding a session;
+plugin session or plugin identity
 
 **Host Process**:
 The nearest harness process that executes an Agent Session's turns, keyed by

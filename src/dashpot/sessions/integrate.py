@@ -7,8 +7,9 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sysconfig
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,12 @@ from ..core.errors import DashpotError
 from ..core.git import GitError
 from ..core.model import HARNESS_DISPLAY, Harness
 from ..core.record_store import replace_atomically
-from ..core.worktree_paths import main_worktree, worktree_records, worktree_root
+from ..core.worktree_paths import (
+    main_worktree,
+    same_path,
+    worktree_records,
+    worktree_root,
+)
 from .harnesses import (
     SESSION_OVERRIDE_VARIABLE,
     HarnessError,
@@ -67,13 +73,24 @@ class HarnessIntegration:
     # Events subscribed for one tool alone, as ``(event, matcher)``: the
     # publisher runs once per matching tool call rather than per event.
     matched_events: tuple[tuple[str, str], ...] = ()
+    # A harness configured under ``$XDG_CONFIG_HOME`` rather than the home
+    # directory, whose skills live inside its configuration directory, and
+    # which loads a managed plugin at ``hooks_file`` instead of reading hook
+    # definitions from it: OpenCode (ADR 0079).
+    plugin: bool = False
 
     @property
     def default_home(self) -> Path:
+        if self.plugin:
+            configured = os.environ.get("XDG_CONFIG_HOME")
+            base = Path(configured) if configured else Path.home() / ".config"
+            return base / self.home_name
         return Path.home() / self.home_name
 
     @property
     def default_skills_home(self) -> Path:
+        if self.plugin:
+            return self.default_home / self.skills_home
         return Path.home() / self.skills_home
 
     @property
@@ -138,8 +155,23 @@ CLAUDE_CODE = HarnessIntegration(
     ),
 )
 
+# OpenCode loads every ``plugins/*.js`` in its global configuration directory,
+# so its integration is one managed plugin, which runs the publisher as a
+# bounded helper; its events are the plugin's to choose (ADR 0079).
+OPENCODE = HarnessIntegration(
+    harness="opencode",
+    display=HARNESS_DISPLAY["opencode"],
+    home_name="opencode",
+    hooks_file="plugins/dashpot.js",
+    command_name="dashpot-opencode-hook",
+    skills_home=Path("skills"),
+    events=(),
+    checks_config_toml=False,
+    plugin=True,
+)
+
 INTEGRATIONS: dict[Harness, HarnessIntegration] = {
-    spec.harness: spec for spec in (CODEX, CLAUDE_CODE)
+    spec.harness: spec for spec in (CODEX, CLAUDE_CODE, OPENCODE)
 }
 
 HOOK_COMMAND_NAMES = frozenset(spec.command_name for spec in INTEGRATIONS.values())
@@ -242,6 +274,14 @@ def install_integration(
             f"cannot bind the {spec.display} hooks to {command}: "
             f"{_linked_worktree_consequence(spec, binding)}"
         )
+    if spec.plugin:
+        return [
+            *install_plugin(spec, home, command),
+            f"hook publisher: {command}",
+            _install_issue_work_skill(skill),
+            *_opencode_skill_copies(skill),
+            OPENCODE_UNSUPPORTED,
+        ]
     path = home / spec.hooks_file
     document = _load_hooks_document(spec, path)
     original = json.dumps(document, sort_keys=True)
@@ -292,7 +332,9 @@ def remove_integration(harness: Harness, home: Path | None = None) -> list[str]:
     home = home or spec.default_home
     path = home / spec.hooks_file
     messages: list[str] = []
-    if not path.is_file():
+    if spec.plugin:
+        messages.append(remove_plugin(spec, home))
+    elif not path.is_file():
         messages.append(f"{spec.display} integration is not installed: no {path}")
     else:
         document = _load_hooks_document(spec, path)
@@ -339,6 +381,7 @@ def integration_status(
     current: Path | None = None,
     lookup: ProcessLookup = host_process_lookup,
     environ: Mapping[str, str] | None = None,
+    version_probe: Callable[[], str | None] | None = None,
 ) -> list[str]:
     """Report the observable state of one harness's integration."""
     spec = integration(harness)
@@ -347,6 +390,8 @@ def integration_status(
     messages: list[str] = []
     if not home.is_dir():
         messages.append(f"{spec.display} configuration directory not found: {home}")
+    elif spec.plugin:
+        messages.extend(plugin_status(spec, home))
     elif not path.is_file():
         messages.append(f"not installed: no {path}")
     else:
@@ -390,6 +435,10 @@ def integration_status(
         )
     )
     messages.extend(_config_toml_coexistence_warning(spec, home))
+    if spec.plugin:
+        messages.extend(_opencode_skill_copies(issue_work_skill_directory(spec, home)))
+        messages.extend(_opencode_plugin_copies(path, current, environ))
+        messages.extend(_opencode_runtime_status(version_probe, environ))
     messages.extend(_record_store_status(state_dir, current, lookup))
     messages.extend(_claimed_identity_status(spec, current, lookup, environ))
     return messages
@@ -427,6 +476,8 @@ def codex_integration_status(
 
 def issue_work_skill_directory(spec: HarnessIntegration, home: Path) -> Path:
     """Locate this harness's user-wide Dashpot Issue-work skill."""
+    if spec.plugin:
+        return home / spec.skills_home / ISSUE_WORK_SKILL_NAME
     if home == spec.default_home:
         return spec.default_skills_home / ISSUE_WORK_SKILL_NAME
     return home.parent / spec.skills_home / ISSUE_WORK_SKILL_NAME
@@ -585,6 +636,11 @@ def _claimed_identity_status(
         return [f"Agent Session identity claimed here: {exc}"]
     if claim is None or claim.harness != spec.harness:
         claim = adapter(spec.harness).claim_session_identity(environment)
+    if claim is None and spec.plugin:
+        return [
+            f"Agent Session identity claimed here: none for {spec.display} "
+            f"(only a command its plugin corroborated carries one)"
+        ]
     if claim is None:
         return [
             f"Agent Session identity claimed here: none for {spec.display} "
@@ -750,3 +806,250 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
     replace_atomically(
         path, json.dumps(document, indent=2) + "\n", temporary_prefix=f".{path.name}."
     )
+
+
+# The OpenCode release whose plugin API, events, and process shape the plugin
+# and its helper were measured against.
+OPENCODE_MEASURED_VERSION = "1.18.30"
+OPENCODE_UNSUPPORTED = (
+    "note: OpenCode stays unsupported until the OpenCode acceptance run "
+    "passes; the plugin observes sessions, but no OpenCode release is yet "
+    "accepted for Issue work"
+)
+PLUGIN_MARKER = "// dashpot-managed-plugin: opencode"
+PLUGIN_HELPER_PLACEHOLDER = '"__DASHPOT_OPENCODE_HELPER__"'
+PLUGIN_HELPER = re.compile(r'^const HELPER = (".*");$', re.MULTILINE)
+VERSION_TIMEOUT_SECONDS = 5
+
+
+def _bundled_plugin() -> Path:
+    return Path(__file__).parents[1] / "plugins" / "opencode.js"
+
+
+def render_plugin(command: Path) -> str:
+    """The managed plugin, bound to the helper at ``command``."""
+    source = _bundled_plugin().read_text(encoding="utf-8")
+    return source.replace(PLUGIN_HELPER_PLACEHOLDER, json.dumps(str(command)), 1)
+
+
+def _managed_plugin(path: Path) -> str | None:
+    """The managed plugin's text at ``path``; ``None`` when there is no file.
+
+    A file that is not Dashpot's is refused rather than overwritten or
+    removed: it is the user's plugin of the same name.
+    """
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise IntegrationError(
+            f"cannot read the plugin at {path}: {exc}; move it and retry"
+        ) from exc
+    if not text.startswith(PLUGIN_MARKER):
+        raise IntegrationError(
+            f"{path} is not a plugin Dashpot manages; move it and retry"
+        )
+    return text
+
+
+def install_plugin(spec: HarnessIntegration, home: Path, command: Path) -> list[str]:
+    """Write the managed plugin bound to ``command``, unless it already is."""
+    path = home / spec.hooks_file
+    current = _managed_plugin(path)
+    rendered = render_plugin(command)
+    if current == rendered:
+        return [f"{spec.display} plugin already installed in {path}"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    replace_atomically(path, rendered, temporary_prefix=f".{path.name}.")
+    verb = "installed" if current is None else "updated"
+    return [f"{verb} the {spec.display} plugin in {path}"]
+
+
+def remove_plugin(spec: HarnessIntegration, home: Path) -> str:
+    """Remove the managed plugin, leaving any other file at its path alone."""
+    path = home / spec.hooks_file
+    try:
+        current = _managed_plugin(path)
+    except IntegrationError as exc:
+        return f"left {path} unchanged: {exc}"
+    if current is None:
+        return f"{spec.display} integration is not installed: no {path}"
+    path.unlink()
+    return f"removed the {spec.display} plugin {path}"
+
+
+def plugin_status(spec: HarnessIntegration, home: Path) -> list[str]:
+    """Report whether the managed plugin is installed, current, and bound to a helper."""
+    path = home / spec.hooks_file
+    try:
+        current = _managed_plugin(path)
+    except IntegrationError as exc:
+        return [f"plugin conflict: {exc}"]
+    if current is None:
+        return [f"not installed: no {path}"]
+    bound = PLUGIN_HELPER.search(current)
+    try:
+        helper = Path(json.loads(bound.group(1))) if bound else None
+    except ValueError:
+        helper = None
+    if helper is None:
+        return [
+            f"plugin at {path} names no hook publisher; run 'dashpot integrate "
+            f"{spec.harness}' to repair"
+        ]
+    messages = [f"plugin installed in {path}"]
+    if current != render_plugin(helper):
+        messages.append(
+            f"plugin update available at {path}; run 'dashpot integrate "
+            f"{spec.harness}' to repair"
+        )
+    if not helper.is_file():
+        messages.append(
+            f"hook publisher missing at {helper}; run 'dashpot integrate "
+            f"{spec.harness}' to repair"
+        )
+    elif not os.access(helper, os.X_OK):
+        messages.append(f"hook publisher at {helper} is not executable")
+    else:
+        messages.append(f"hook publisher: {helper}")
+        binding = linked_worktree_binding(helper)
+        if binding is not None:
+            messages.append(f"warning: {_linked_worktree_consequence(spec, binding)}")
+    return messages
+
+
+def _opencode_skill_copies(own: Path) -> list[str]:
+    """Report the other Dashpot Issue work skills OpenCode also discovers.
+
+    OpenCode reads skills from Claude Code's and the shared ``.agents``
+    directories too, and when two share a name it uses either. Each harness's
+    integration owns only its own copy, so a copy that differs from the one
+    this Dashpot ships is reported for its own harness to repair.
+    """
+    source = _bundled_issue_work_skill()
+    messages: list[str] = []
+    for owner, directory in (
+        ("claude-code", CLAUDE_CODE.default_skills_home / ISSUE_WORK_SKILL_NAME),
+        ("codex", CODEX.default_skills_home / ISSUE_WORK_SKILL_NAME),
+    ):
+        if same_path(directory, own) or not (directory / "SKILL.md").is_file():
+            continue
+        try:
+            managed = ISSUE_WORK_SKILL_MARKER in (directory / "SKILL.md").read_text(
+                encoding="utf-8"
+            )
+        except (OSError, UnicodeDecodeError):
+            managed = False
+        current = managed and all(
+            (directory / relative).is_file()
+            and (directory / relative).read_bytes() == (source / relative).read_bytes()
+            for relative in ISSUE_WORK_SKILL_FILES
+        )
+        if not current:
+            messages.append(
+                f"warning: OpenCode also discovers the Issue work skill at "
+                f"{directory}, which differs from this Dashpot's, and may use "
+                f"either; run 'dashpot integrate {owner}' or move it"
+            )
+    return messages
+
+
+def _opencode_plugin_copies(
+    own: Path, current: Path | None, environ: Mapping[str, str] | None
+) -> list[str]:
+    """Report other copies of the managed plugin that OpenCode would also load.
+
+    OpenCode loads every ``{plugin,plugins}/*.{js,ts}`` of each configuration
+    directory it reads: the global one, every project ``.opencode`` from the
+    working directory up to its Worktree, ``~/.opencode``, and
+    ``$OPENCODE_CONFIG_DIR``. A second copy, under any name, is a second
+    plugin instance in the same backend, whose registration conflicts with the
+    first's for as long as both run (ADR 0077).
+    """
+    environment = environ if environ is not None else os.environ
+    directories = [own.parent.parent]
+    if not _enabled(environment.get("OPENCODE_DISABLE_PROJECT_CONFIG")):
+        start = (current or Path.cwd()).resolve()
+        for directory in (start, *start.parents):
+            directories.append(directory / ".opencode")
+            if (directory / ".git").exists():
+                break
+    directories.append(Path.home() / ".opencode")
+    configured = environment.get("OPENCODE_CONFIG_DIR")
+    if configured:
+        directories.append(Path(configured))
+    seen: set[Path] = set()
+    messages: list[str] = []
+    for directory in directories:
+        if directory.resolve() in seen:
+            continue
+        seen.add(directory.resolve())
+        for candidate in sorted(
+            path
+            for folder in ("plugin", "plugins")
+            for pattern in ("*.js", "*.ts")
+            for path in (directory / folder).glob(pattern)
+        ):
+            try:
+                managed = candidate.read_text(encoding="utf-8").startswith(
+                    PLUGIN_MARKER
+                )
+            except (OSError, UnicodeDecodeError):
+                managed = False
+            if managed and not same_path(candidate, own):
+                messages.append(
+                    f"warning: OpenCode also loads a copy of the Dashpot plugin "
+                    f"at {candidate}; two copies conflict in one backend, so "
+                    f"remove it"
+                )
+    return messages
+
+
+def _enabled(value: str | None) -> bool:
+    """Whether an OpenCode flag variable is set to true."""
+    return (value or "").lower() in {"1", "true"}
+
+
+def _opencode_version() -> str | None:
+    """The version the ``opencode`` on PATH reports, or ``None`` when it cannot say."""
+    found = shutil.which("opencode")
+    if found is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [found, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=VERSION_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    version = completed.stdout.strip()
+    return version if completed.returncode == 0 and version else None
+
+
+def _opencode_runtime_status(
+    version_probe: Callable[[], str | None] | None,
+    environ: Mapping[str, str] | None,
+) -> list[str]:
+    """Report the OpenCode release and the settings that keep the plugin out."""
+    environment = environ if environ is not None else os.environ
+    version = (version_probe or _opencode_version)()
+    if version is None:
+        messages = ["OpenCode release: not found on PATH"]
+    elif version == OPENCODE_MEASURED_VERSION:
+        messages = [f"OpenCode release: {version}, the measured release"]
+    else:
+        messages = [
+            f"OpenCode release: {version}; the plugin was measured against "
+            f"{OPENCODE_MEASURED_VERSION}"
+        ]
+    if _enabled(environment.get("OPENCODE_PURE")):
+        messages.append(
+            "warning: OPENCODE_PURE is set here; OpenCode started with it, or "
+            "with --pure, loads no plugin and publishes nothing"
+        )
+    messages.append(OPENCODE_UNSUPPORTED)
+    return messages

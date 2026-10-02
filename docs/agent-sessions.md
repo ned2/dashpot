@@ -293,6 +293,43 @@ session now is; and a run whose session is not coming back is ended with
 `dashpot work stop --session <key>`. A new release becomes supported by
 passing the acceptance run.
 
+### OpenCode plugin
+
+OpenCode is unsupported until the OpenCode acceptance run passes; no release
+is pinned yet, and nothing below is a claim of support
+([ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
+OpenCode has no command hooks. `dashpot integrate opencode` instead writes a
+managed plugin, `plugins/dashpot.js`, to OpenCode's global configuration
+directory, bound to this environment's `dashpot-opencode-hook` helper, and
+the Issue work skill to that directory's `skills/`. The plugin is thin: it
+runs the helper once per publication, under a deadline, with native metadata
+only, and every decision is the helper's.
+
+One OpenCode backend, the process named `opencode`, is the Host Process of
+every session it serves, and is never exclusive to one. Each plugin instance
+is a Publisher Generation, and only the generation that owns the backend's
+directory publishes
+([ADR 0077](adr/0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md)).
+A root session's `busy` or `retry` is a running turn, its `idle` a waiting
+one, and its `session.deleted` its end. A child session, one with a
+`parentID`, is a Sub-agent of its root and holds it running; a fork is a
+session of its own. When OpenCode disposes of or reloads an instance, that
+generation retires and its sessions read unknown until the next generation
+publishes them; the session and its Issue work are unchanged. A backend that
+exits leaves its bound runs orphaned, and a resumed session takes its Issue
+work back only by `dashpot work start`. Live Relocation is unsupported.
+
+A shell command gets an Agent Session Identity only when the plugin gives it
+one: it blanks every inherited claim, publishes the command's own bootstrap,
+and sets `DASHPOT_OPENCODE_SESSION_ID`, `DASHPOT_OPENCODE_GENERATION` and
+`DASHPOT_OPENCODE_PID` only once the helper acknowledged that bootstrap, for a
+root session
+([ADR 0078](adr/0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md)).
+A child session's command, a terminal the user opened, and a command whose
+bootstrap failed or came late carry no claim, and a refused `work` command
+says why from `DASHPOT_OPENCODE_UNCORROBORATED`. The claim is refused once
+its generation retires or OpenCode deletes the session.
+
 ### Agent-facing Issue-work skill
 
 Codex and Claude Code consume the same bundled Agent Skills payload. The

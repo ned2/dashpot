@@ -109,6 +109,44 @@ def check_integrations(root: Path) -> None:
         remove_integration(harness, config_home)
         assert json.loads(settings.read_text()) == original
         assert not (skill / "SKILL.md").exists()
+    check_opencode_integration(root)
+
+
+def check_opencode_integration(root: Path) -> None:
+    """Bind the managed OpenCode plugin to the installed helper and run it."""
+    from dashpot.sessions.integrate import (
+        OPENCODE,
+        PLUGIN_HELPER,
+        install_integration,
+        integration_status,
+        remove_integration,
+    )
+
+    config_home = root / "harnesses" / "opencode" / OPENCODE.home_name
+    config_home.mkdir(parents=True)
+    install_integration("opencode", config_home)
+    plugin = config_home / OPENCODE.hooks_file
+    first = plugin.read_bytes()
+    install_integration("opencode", config_home)
+    assert plugin.read_bytes() == first
+    bound = PLUGIN_HELPER.search(plugin.read_text())
+    assert bound is not None
+    helper = json.loads(bound.group(1))
+    request = {
+        "protocol": 1,
+        "kind": "register",
+        "generation": "smoke-generation",
+        "directory": str(root),
+        "pid": os.getpid(),
+        "deadlineMs": 3000,
+    }
+    # Run outside any OpenCode backend, the helper refuses to corroborate one.
+    answer = run(helper, cwd=root, input_text=json.dumps(request))
+    assert json.loads(answer)["result"] == "rejected"
+    messages = integration_status("opencode", config_home, current=root, environ={})
+    assert not any("publisher missing" in message for message in messages)
+    remove_integration("opencode", config_home)
+    assert not plugin.exists()
 
 
 def check_installed(root: Path, expected: str) -> None:

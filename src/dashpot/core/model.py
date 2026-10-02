@@ -25,13 +25,23 @@ SessionActivity = Literal["running", "waiting", "unknown", "orphaned"]
 # The supported harnesses and how each is named to a person; every harness
 # value in the code, the persisted records, and the published model is one of
 # these, and observation reads the labels here without importing ``sessions``.
-Harness = Literal["codex", "claude-code"]
-HARNESS_DISPLAY: dict[Harness, str] = {"codex": "Codex", "claude-code": "Claude Code"}
+Harness = Literal["codex", "claude-code", "opencode"]
+HARNESS_DISPLAY: dict[Harness, str] = {
+    "codex": "Codex",
+    "claude-code": "Claude Code",
+    "opencode": "OpenCode",
+}
 
 
 def is_harness(value: object) -> TypeIs[Harness]:
     """Tell whether a value names a supported harness."""
     return value in HARNESS_DISPLAY
+
+
+def harness_alternatives() -> str:
+    """Every harness's name as one choice in prose: ``Codex, Claude Code, or OpenCode``."""
+    *names, last = HARNESS_DISPLAY.values()
+    return f"{', '.join(names)}, or {last}"
 
 
 TargetAvailability = Literal["available", "unavailable"]

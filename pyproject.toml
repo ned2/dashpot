@@ -39,6 +39,7 @@ Issues = "https://github.com/ned2/dashpot/issues"
 dashpot = "dashpot.cli:main"
 dashpot-codex-hook = "dashpot.hook:main"
 dashpot-claude-code-hook = "dashpot.hook:claude_code_main"
+dashpot-opencode-hook = "dashpot.hook:opencode_main"
 
 [dependency-groups]
 dev = [

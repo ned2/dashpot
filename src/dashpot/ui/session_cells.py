@@ -14,7 +14,12 @@ from pathlib import Path
 from rich.text import Text
 
 from ..core.ages import relative_age
-from ..core.model import HARNESS_DISPLAY, AgentRun, SessionActivity
+from ..core.model import (
+    HARNESS_DISPLAY,
+    AgentRun,
+    SessionActivity,
+    harness_alternatives,
+)
 from ..observation.list_result import ListResult
 from ..observation.session_list import (
     OUTSIDE_PROJECT_TEXT,
@@ -63,8 +68,7 @@ STATE_DESCRIPTION = (
     "activity"
 )
 HARNESS_DESCRIPTION = (
-    "the harness whose conversation this Agent Session is: "
-    f"{' or '.join(HARNESS_DISPLAY.values())}"
+    f"the harness whose conversation this Agent Session is: {harness_alternatives()}"
 )
 TARGET_DESCRIPTION = (
     "the Observation Target the session is located at, ~-abbreviated and "

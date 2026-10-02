@@ -16,6 +16,7 @@ from .hook_scan import (
     locate_agent_session,
     reachable_hook_stores,
 )
+from .opencode_publishers import corroboration_refusal
 from .processes import (
     ProcessIdentity,
     ProcessLookup,
@@ -101,4 +102,44 @@ def validate_session_claim(
             f"record was published for pid {process.pid}; the identities do "
             f"not describe one session"
         )
+    if claim.harness == "opencode":
+        _corroborate_opencode_generation(claim, name, location)
     return ValidatedSessionIdentity(claim, record, process, location)
+
+
+def _corroborate_opencode_generation(
+    claim: SessionIdentityClaim, name: str, location: SessionLocation
+) -> None:
+    """Refuse an OpenCode claim its publisher generation no longer stands behind.
+
+    One OpenCode backend hosts every session, so its process corroborates no
+    session by itself: only the plugin's command-scoped claim, whose
+    generation still owns the backend's directory, does (ADR 0078).
+    """
+    process = location.process
+    if claim.generation is None:
+        raise SessionClaimError(
+            f"{name} carries no publisher generation; an OpenCode session is "
+            f"identified only by the claim Dashpot's OpenCode plugin gives a "
+            f"command it corroborated"
+        )
+    if process is None:
+        # A retired generation leaves its sessions without a Host Process
+        # until a successor publishes them.
+        raise SessionClaimError(
+            f"{name} is not corroborated: no plugin instance publishes it now; "
+            f"run the command again from the session, or check 'dashpot "
+            f"integrate opencode --status'"
+        )
+    refusal = corroboration_refusal(
+        location.store,
+        process,
+        Path(location.record.cwd),
+        claim.generation,
+        claim.session_id,
+    )
+    if refusal is not None:
+        raise SessionClaimError(
+            f"{name} is not corroborated: {refusal}; run the command again "
+            f"from the session, or check 'dashpot integrate opencode --status'"
+        )
