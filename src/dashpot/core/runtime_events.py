@@ -231,8 +231,9 @@ DiagnosticCode = Annotated[str, _identifier(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", 12
 # Dashpot stated to a person (a ``DashpotError``, or a plan's refusals);
 # ``failed`` is anything else that stopped the work.
 OutcomeResult = Literal["succeeded", "refused", "failed"]
-# What a hook did to its session's Agent Run in the Work Store.
-WorkStoreChange = Literal["unchanged", "ended", "continued", "relocated"]
+# What a hook did to its session's Agent Run in the Work Store. ``deferred``
+# handed the run's end to a settler that waits on its Host Process (ADR 0086).
+WorkStoreChange = Literal["unchanged", "ended", "continued", "relocated", "deferred"]
 # The state a hook wrote to its session's hook record.
 HookRecordState = Literal["running", "waiting", "ended"]
 # The commands that mutate on explicit invocation (ADR 0008), whose outcome

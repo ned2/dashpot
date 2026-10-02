@@ -40,6 +40,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   the managed daemon a plain terminal starts, an App Server with attached
   clients, a standalone terminal, and `codex exec`. A real-harness acceptance
   run checks this support on a release bump.
+- Keep a Codex Agent Run orphaned, recoverable with `dashpot work start`,
+  when its managed daemon is stopped or restarted; an idle unload, a `codex
+  exec` exit and a standalone `/exit` still end it.
+- Read a Host Process's whole command line when its hooks inherit a narrow
+  `COLUMNS`, which had cut a managed Codex daemon's `--managed-daemon` flag
+  and could misclassify any Host Process whose adapter reads its arguments.
 
 This release establishes the first compatibility baseline. Documented commands,
 JSON key sets and semantics, Local Issue Markdown, and `.dashpot/config.json`

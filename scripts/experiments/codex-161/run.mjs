@@ -258,6 +258,13 @@ const brief = (entry) => [entry.pid, entry.ppid, entry.comm, entry.cmdline.repla
 // `app-server daemon pid-update-loop` companion or a loopback `--listen` server.
 const isDaemon = (entry) => entry.comm.startsWith("codex") && / app-server /.test(entry.cmdline) && / --managed-daemon/.test(entry.cmdline);
 const daemons = () => codexProcesses().filter(isDaemon);
+// Dashpot's settler for a managed daemon's SessionEnd, which decides within
+// 10 s whether the daemon outlived it (ADR 0086).
+const isSettler = (entry) => / -m dashpot\.hook settle /.test(entry.cmdline);
+const settlersDone = async (label) => {
+  await delay(500);
+  await quietly(waitFor(() => !codexProcesses().some(isSettler), `${label}: settlers exit`, 15000));
+};
 const socketPath = path.join(env.CODEX_HOME, "app-server-control", "app-server-control.sock");
 const processes = (label) => trace("processes", { label, processes: codexProcesses().map(brief), daemons: daemons().map((entry) => entry.pid), socketExists: existsSync(socketPath),
   daemonSettings: daemonSettings() });
@@ -432,7 +439,7 @@ const shellSummary = (label) => {
 };
 
 const scripts = ["run.mjs", "verify.mjs", "hook.mjs", "command.mjs", "ancestry.mjs", "uds-websocket.mjs"];
-const modules = ["harnesses.py", "hook_publish.py", "work_reconciliation.py", "hook_records.py", "work.py", "hook_scan.py", "processes.py"].map((file) => `src/dashpot/sessions/${file}`);
+const modules = ["harnesses.py", "hook_publish.py", "deferred_end.py", "work_reconciliation.py", "hook_records.py", "work.py", "hook_scan.py", "processes.py"].map((file) => `src/dashpot/sessions/${file}`);
 let controllers = [];
 try {
   const head = execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -715,6 +722,7 @@ try {
   await delay(1500);
   trace("unload.outcome", { leftAt, newHooks: hooksSince(hooksBefore), endedAfterMs: hooks().slice(hooksBefore).filter((record) => record.event === "SessionEnd").map((record) => [record.payload.session_id, record.receiptTime - leftAt]),
     spanRunning: !command("r1-span", "end"), loaded: (await c2.call("thread/loaded/list", {})).result?.data ?? [] });
+  await settlersDone("unload");
   view("after-unload");
   await waitFor(() => c2.notifications.some((entry) => entry.method === "turn/completed" && entry.turnId === span.turnId), "span turn completes", 60000);
   await delay(1000);
@@ -866,6 +874,7 @@ try {
   await codex(["app-server", "daemon", "stop"], "daemon-stop", { timeout: 60000 });
   await quietly(waitFor(() => hooks().slice(hooksBefore).some((record) => record.event === "SessionEnd"), "SessionEnd on daemon stop", 15000));
   await delay(1500);
+  await settlersDone("daemon stop");
   trace("daemon-stop.outcome", { newHooks: hooksSince(hooksBefore) });
   processes("after-daemon-stop");
   view("after-daemon-stop");

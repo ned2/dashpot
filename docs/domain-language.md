@@ -497,7 +497,9 @@ and is never evidence that the session ended.
 
 **Orphaned Agent Run**:
 An active Work Store record whose Agent Session's recorded Host Process is
-gone although no graceful `SessionEnd` was observed, as after a crash. It
+gone although no graceful `SessionEnd` ended its run, as after a crash, or
+after a managed Codex daemon is stopped or restarted, whose `SessionEnd`
+leaves the run in place ([ADR 0086](adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)). It
 stays listed, marked orphaned, until its Claude Code session resumes at the
 same Worktree and continues it ([ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)) or a person ends it with `dashpot work
 stop --session`; a gone session without one is only stale observation state.
