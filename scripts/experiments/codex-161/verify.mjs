@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const strict = process.argv.includes("--strict");
-const [tracePath, expectedVersion = "0.159.3"] = process.argv.slice(2).filter((argument) => argument !== "--strict");
+const [tracePath, expectedVersion = "0.160.0"] = process.argv.slice(2).filter((argument) => argument !== "--strict");
 assert(tracePath, "Pass the trace.jsonl path");
 const records = readFileSync(tracePath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 const of = (kind) => records.filter((record) => record.kind === kind);
@@ -56,6 +56,12 @@ assert.deepEqual(of("scenario").map((record) => record.name), ["hook-trust", "ex
   "live-relocation", "joined-input", "unload-while-running", "resume-after-unload", "sub-agent-interrupt", "daemon-gone", "daemon-recovery", "daemon-stop"]);
 assert(of("hooks.list")[0].after.every(([, trust]) => trust === "trusted"), "fixture hooks trusted");
 assert.deepEqual(labelled("processes", "after-trust").daemons, []);
+// The daemon's updater stayed off for the whole run, so no updater process
+// ever ran and nothing could replace or restart the pinned daemon.
+for (const record of of("processes")) {
+  assert.equal(record.daemonSettings?.updater?.autoUpdateEnabled, false, `updater off at ${record.label}`);
+  assert(!record.processes.some(([, , , cmdline]) => / pid-update-loop/.test(cmdline)), `no updater process at ${record.label}`);
+}
 // Dashpot's real publisher accepted every hook, and every hook names its thread.
 for (const hook of hooks) {
   assert.equal(hook.publisher.status, 0, `publisher accepted ${hook.event}: ${hook.publisher.stderr}`);
@@ -89,14 +95,14 @@ assert.deepEqual(hooksIn("exec-no-daemon").map((record) => [record.event, record
 assert.deepEqual(labelled("processes", "after-exec").daemons, []);
 
 // `codex remote-control start` installs and starts the managed daemon even
-// with no account; its stop leaves only the pid-update-loop companion.
+// with no account; its stop leaves no fixture process behind.
 const remote = labelled("codex.command", "remote-control-start");
 assert.match(remote.stderr, /Installing daemon from CLI version .* into <root>\/codex-home\/packages\/app-server-daemon/);
 assert.notEqual(remote.status, 0);
 assert.equal(labelled("processes", "after-remote-control-start").daemons.length, 1);
 const afterRemoteStop = labelled("processes", "after-remote-control-stop");
 assert.deepEqual(afterRemoteStop.daemons, []);
-assert(afterRemoteStop.processes.every(([, , , cmdline]) => / app-server daemon pid-/.test(cmdline)));
+assert.deepEqual(afterRemoteStop.processes, []);
 
 // With autostart disabled and no daemon running, the terminal hosts its own
 // thread; `work start` binds Issue 3 to that process.
@@ -386,12 +392,11 @@ for (const label of ["daemon-start", "daemon-stop"]) {
   assert.equal(JSON.parse(labelled("codex.command", label).stdout).managedCodexPath, "<root>/codex-home/packages/app-server-daemon/current/bin/codex");
 }
 // `daemon stop` publishes SessionEnd for the loaded thread, which ends its
-// run, and leaves only the pid-update-loop companion.
+// run, and leaves no fixture process behind.
 assert.deepEqual(one("daemon-stop.outcome").newHooks.map(([event, session, reason]) => [event, session, reason]), [["SessionEnd", r1, "other"]]);
 assert.deepEqual(view("after-daemon-stop").agentRuns, []);
 assert.deepEqual(labelled("processes", "after-daemon-stop").daemons, []);
-const leftover = labelled("processes", "after-daemon-stop").processes;
-assert(leftover.length === 1 && / app-server daemon pid-update-loop$/.test(leftover[0][3]), "only the pid-update-loop outlives daemon stop");
+assert.deepEqual(labelled("processes", "after-daemon-stop").processes, [], "nothing outlives daemon stop");
 
 // Dashpot's Event Log reports each carry as `relocated`, each ending once,
 // and no continuation.
