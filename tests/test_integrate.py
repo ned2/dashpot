@@ -647,7 +647,10 @@ def test_claude_code_skill_returns_before_entering_and_hands_off_a_refusal(
         "and verify it with <dashpot> work show, then follow the repository "
         "workflow through green CI.",
     ]
-    assert "do not promise that `gh` works" in " ".join(handoff.split())
+    handoff_text = " ".join(handoff.split())
+    assert "or when the user declines the move" in handoff_text
+    assert "on the same Issue, run `<dashpot> work stop`" in handoff_text
+    assert "do not promise that `gh` works" in handoff_text
     assert "https://github.com/ned2/dashpot/issues/274" in handoff
     recovery = (skill / "references" / "recovery.md").read_text()
     refusal = recovery.split("## Claude Code refuses `EnterWorktree`", 1)[1]

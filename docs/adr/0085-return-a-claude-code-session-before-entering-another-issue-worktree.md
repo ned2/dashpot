@@ -47,8 +47,9 @@ fresh Claude Code session with one shell-quoted
 `cd <worktree> && claude '<prompt>'` command, the Claude Code counterpart of
 the Codex and OpenCode fresh-session routes. It runs no `work start` where
 the session is and does not try a shell `cd`. A fresh session cannot carry
-the old Agent Run, so the old session ends it with `work stop` once its
-delegated work is done, and the new session starts its own.
+the old Agent Run, so the old session ends a run on the same Issue with
+`work stop` once its delegated work is done, and the new session starts its
+own; a run on another Issue ends only when its engagement finishes.
 The handoff does not promise working `gh` credentials in a linked Worktree
 ([#274](https://github.com/ned2/dashpot/issues/274)). The skill suggests
 launching Claude Code sessions from the main checkout, from which the return

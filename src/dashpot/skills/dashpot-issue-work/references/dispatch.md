@@ -51,8 +51,9 @@ refused after the return above, when `ExitWorktree` reports that no worktree
 session is active, or when the user declines the move. Do not retry, change
 directory with the shell, or run `work start` here. The handoff cannot carry
 an Agent Run: if `<dashpot> work show` reports an active one for this
-session, run `<dashpot> work stop` once this session's delegated work is
-done, before handing over.
+session on the same Issue, run `<dashpot> work stop` once this session's
+delegated work is done, before handing over. A run on another Issue ends
+only as [Finish the engagement](../SKILL.md#finish-the-engagement) requires.
 
 Give the user one safely shell-quoted command of this shape, which starts a
 fresh Claude Code session in the Worktree:
