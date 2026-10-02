@@ -19,6 +19,8 @@ or a prompt that merely names a path does not move the Agent Session. Use
 Claude Code's `EnterWorktree` or the sequential Codex resume flow in
 [dispatch](dispatch.md), then retry `work show` only after fresh hook evidence
 places the session there. Run `work start` only when no preserved run is shown.
+If `EnterWorktree` is refused, follow "Claude Code refuses `EnterWorktree`"
+below.
 An OpenCode session never moves: hand the work to a new OpenCode session in
 the Worktree, as in [dispatch](dispatch.md), which runs these checks itself.
 
@@ -32,6 +34,27 @@ the directory the shell is already in. Return with `cd` to the Worktree that
 holds the run. Only when the work belongs in the new Worktree, run
 `<dashpot> work start <reference>` there, which switches the run, and confirm
 it with `work show`.
+
+## Claude Code refuses `EnterWorktree`
+
+Match the refusal's text:
+
+- **`… is not under <repository>/.claude/worktrees`**, or **`… does not exist,
+  so … cannot be a worktree managed by Claude Code`**: the session is still
+  inside a Worktree it entered, perhaps before it was resumed. Return first,
+  as the first step of the Claude Code move in [dispatch](dispatch.md)
+  describes, and check that `ExitWorktree`'s result names the directory the
+  session is back in. Then call `EnterWorktree` once more.
+- **`… is the current working directory`**: a shell `cd` reached the
+  Worktree first. Follow "Issue work recorded elsewhere" above.
+- **`… is the main working tree`**: `EnterWorktree` never enters the main
+  checkout. Only `ExitWorktree` with `action: "keep"` returns there, and only
+  for a session that entered its Worktree from there.
+
+When `ExitWorktree` reports that no worktree session is active, the retry is
+refused again, or the user declines the move, stop retrying. Do not change
+directory with the shell or run `work start` where the session is. Hand the
+work to a fresh session with the quoted command in [dispatch](dispatch.md).
 
 ## Installed hooks have not published this session
 

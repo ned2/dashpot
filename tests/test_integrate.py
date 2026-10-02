@@ -618,6 +618,47 @@ def test_claude_code_install_merges_into_settings(tmp_path: Path) -> None:
     assert (skill / "SKILL.md").is_file()
 
 
+def test_claude_code_skill_returns_before_entering_and_hands_off_a_refusal(
+    tmp_path: Path,
+) -> None:
+    home = claude_home(tmp_path)
+    install_integration("claude-code", home, command_path=claude_publisher(tmp_path))
+
+    skill = installed_skill(home, "claude-code")
+    dispatch = (skill / "references" / "dispatch.md").read_text()
+    move = dispatch.split("## Move a Claude Code session", 1)[1].split("\n## ", 1)[0]
+    assert "limits that switch to its own `.claude/worktrees/`" in " ".join(
+        move.split()
+    )
+    assert move.index('`ExitWorktree` with `action: "keep"`') < move.index(
+        "2. Call `EnterWorktree` with the exact path"
+    )
+    assert "never `remove`" in move
+    handoff = dispatch.split("## Hand off when `EnterWorktree` is refused", 1)[1]
+    handoff = handoff.split("\n## ", 1)[0]
+    command = next(
+        line for line in handoff.splitlines() if line.startswith("cd <worktree-path>")
+    )
+    assert shlex.split(command) == [
+        "cd",
+        "<worktree-path>",
+        "&&",
+        "claude",
+        "Continue Issue <reference>. First run <dashpot> work start <reference> "
+        "and verify it with <dashpot> work show, then follow the repository "
+        "workflow through green CI.",
+    ]
+    handoff_text = " ".join(handoff.split())
+    assert "or when the user declines the move" in handoff_text
+    assert "on the same Issue, run `<dashpot> work stop`" in handoff_text
+    assert "do not promise that `gh` works" in handoff_text
+    assert "https://github.com/ned2/dashpot/issues/274" in handoff
+    recovery = (skill / "references" / "recovery.md").read_text()
+    refusal = recovery.split("## Claude Code refuses `EnterWorktree`", 1)[1]
+    assert "is not under <repository>/.claude/worktrees" in refusal
+    assert "Hand the work to a fresh session" in " ".join(refusal.split())
+
+
 def test_claude_code_remove_keeps_unrelated_settings(tmp_path: Path) -> None:
     home = claude_home(tmp_path)
     (home / "settings.json").write_text(json.dumps({"model": "opus"}))
