@@ -50,10 +50,7 @@ hold the session running while any sub-agent it started is alive:
   freshest record with that record's location and state, and only the two
   boundaries change the live set. A write that moves the session's freshest
   record to another store seeds the set and the turn clock from the record
-  it moved from. A `SubagentStop` that finds no record of its session
-  writes nothing: one arriving after the session's `SessionEnd` must not
-  list the ended session as waiting
-  ([#355](https://github.com/ned2/dashpot/issues/355)).
+  it moved from.
 - The field degrades like every non-fatal record field: a malformed
   `liveSubagents` reads as none, with a diagnostic, and the record stays
   version 2. A sub-agent event that names no agent changes nothing rather
@@ -87,3 +84,7 @@ hold the session running while any sub-agent it started is alive:
   ([harness reference](../agent-harness-server-client-reference.md#hosting-modes-and-daemon-autostart-at-01593)).
 - Existing installations report the two events as missing from
   `dashpot integrate claude-code --status` until re-run.
+- Amended by [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)
+  ([#355](https://github.com/ned2/dashpot/issues/355)): a `SubagentStop` that
+  finds no record of its session writes nothing, so one arriving after the
+  session's `SessionEnd` never lists the ended session as waiting.

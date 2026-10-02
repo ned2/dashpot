@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Domain language
@@ -340,9 +340,9 @@ only the harness's designated location evidence (the session-scoped events
 its Harness Adapter names; for Codex, a session-scoped `UserPromptSubmit`;
 for Claude Code, the `PostToolUse` of `EnterWorktree` or of `ExitWorktree`
 with `action: keep`) can carry an Agent Run to a new location, and a
-Sub-agent's event never places its parent. The session's freshest hook
-record still says where it is; a run left at another Worktree is reported as
-`work-session-elsewhere`.
+Sub-agent's event never places its parent nor makes its record older. The
+session's freshest hook record still says where it is; a run left at another
+Worktree is reported as `work-session-elsewhere`.
 _Avoid_: treating tool cwd as the session's location
 
 **Agent Session**:

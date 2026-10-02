@@ -67,6 +67,7 @@ def bound_session(
 
 
 def runs(*worktrees: Path) -> list[AgentRun]:
+    """Every Agent Run observed at ``worktrees``, asserting no diagnostics."""
     observed, diagnostics = observe_agent_runs(
         {"project:test": [target(worktree) for worktree in worktrees]},
         state_directory(),
@@ -77,16 +78,19 @@ def runs(*worktrees: Path) -> list[AgentRun]:
 
 
 def run_of(at: Path, session: str = CODEX_SESSION) -> AgentRun:
+    """The one Agent Run of ``session`` observed at ``at``."""
     (found,) = [run for run in runs(at) if run.session_id == session]
     return found
 
 
 def stored(at: Path, session: str = CODEX_SESSION) -> dict[str, Any] | None:
+    """The hook record of ``session`` in ``at``'s store, if there is one."""
     path = session_directory(at) / f"{session}.json"
     return json.loads(path.read_text()) if path.exists() else None
 
 
 def recorded(at: Path, session: str = CODEX_SESSION) -> dict[str, Any]:
+    """The hook record of ``session`` in ``at``'s store, which must exist."""
     record = stored(at, session)
     assert record is not None, f"no record of {session} at {at}"
     return record

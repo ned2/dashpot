@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import nullcontext
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast, override
@@ -748,8 +749,7 @@ class SubagentBoundaryTests(unittest.TestCase):
         # SessionEnd, and a record written then would list the ended session
         # as waiting while a shared Host Process lives. The rule is shared,
         # so Claude Code takes it too.
-        codex = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
-        for harness, process in (("codex", codex), ("claude-code", self.process)):
+        for harness, process in (("codex", CODEX), ("claude-code", self.process)):
             with self.subTest(harness=harness):
                 for event_name, agent_id in (
                     ("UserPromptSubmit", None),
@@ -883,18 +883,26 @@ def test_a_late_stop_reaches_its_parents_record_in_another_store(
     )
 
 
-# How each harness binds a session at a Worktree, and its designated
-# location evidence arriving at one (ADR 0067, ADR 0074).
-SUB_AGENT_HARNESSES: dict[
-    str, tuple[str, ProcessIdentity, dict[str, str], dict[str, Any]]
-] = {
-    "codex": (
+@dataclass(frozen=True, slots=True)
+class SubAgentParent:
+    """How a harness binds a session at a Worktree and moves it live."""
+
+    session: str
+    process: ProcessIdentity
+    environ: dict[str, str]
+    # The designated location evidence arriving at a Worktree (ADR 0067,
+    # ADR 0074).
+    moving: dict[str, Any]
+
+
+SUB_AGENT_HARNESSES = {
+    "codex": SubAgentParent(
         CODEX_SESSION,
         CODEX,
         {"CODEX_THREAD_ID": CODEX_SESSION},
         {"hook_event_name": "UserPromptSubmit"},
     ),
-    "claude-code": (
+    "claude-code": SubAgentParent(
         CLAUDE_SESSION,
         CLAUDE,
         CLAUDE_ENVIRON,
@@ -909,7 +917,7 @@ def test_a_sub_agent_event_stamped_before_a_move_never_rewinds_its_parent(
 ) -> None:
     """A child's event written after its parent moved keeps the parent's stamp."""
     monkeypatch.setenv("DASHPOT_STATE_DIR", str(tmp_path / "global-state"))
-    session, process, environ, moving = SUB_AGENT_HARNESSES[harness]
+    parent = SUB_AGENT_HARNESSES[harness]
     a, b = two_worktrees(tmp_path)
 
     def publish(at: Path, fields: dict[str, Any], stamp: str | None = None) -> str:
@@ -921,21 +929,25 @@ def test_a_sub_agent_event_stamped_before_a_move_never_rewinds_its_parent(
         )
         with clock:
             publication = publish_hook_event(
-                {"session_id": session, "cwd": str(at), **fields},
-                process=process,
+                {"session_id": parent.session, "cwd": str(at), **fields},
+                process=parent.process,
                 harness=cast("Any", harness),
-                lookup=present(process),
+                lookup=present(parent.process),
             )
         return publication.work
 
     def stamp_of(at: Path) -> str:
-        document = json.loads((session_directory(at) / f"{session}.json").read_text())
+        document = json.loads(
+            (session_directory(at) / f"{parent.session}.json").read_text()
+        )
         return cast("str", document["lastActivityAt"])
 
     publish(a, {"hook_event_name": "UserPromptSubmit"})
-    start_issue_work(a, "build-observer", lookup=present(process), environ=environ)
+    start_issue_work(
+        a, "build-observer", lookup=present(parent.process), environ=parent.environ
+    )
     left_at = datetime.fromisoformat(stamp_of(a).replace("Z", "+00:00"))
-    assert publish(b, moving) == "relocated"
+    assert publish(b, parent.moving) == "relocated"
     moved_at = stamp_of(b)
 
     # Stamped after the record at A but before the move, written after it.
@@ -949,7 +961,7 @@ def test_a_sub_agent_event_stamped_before_a_move_never_rewinds_its_parent(
     runs, diagnostics = observe_agent_runs(
         {"project:test": [target(a), target(b)]},
         state_directory(),
-        lookup=present(process),
+        lookup=present(parent.process),
     )
     assert [(run.observation_target, run.issue_id) for run in runs] == [
         (str(b), "I_observer")
@@ -957,7 +969,9 @@ def test_a_sub_agent_event_stamped_before_a_move_never_rewinds_its_parent(
     assert diagnostics == []
 
     # A designated event at A, stamped before the move too, carries nothing.
-    stale = publish(a, moving, stamp=utc_stamp(left_at + timedelta(microseconds=2)))
+    stale = publish(
+        a, parent.moving, stamp=utc_stamp(left_at + timedelta(microseconds=2))
+    )
 
     assert stale == "unchanged"
     assert WorkStore(a).active()[0] == []
