@@ -197,30 +197,51 @@ def slugify_heading(text: str) -> str:
     return kept.replace(" ", "-")
 
 
-def iter_headings(masked: str) -> Iterable[str]:
-    """Yield the text of every ATX and setext heading, in document order."""
+def mask_frontmatter(text: str) -> str:
+    """Blank a document's leading frontmatter, character for character.
+
+    GitHub renders frontmatter as a table rather than as Markdown, and its
+    closing `---` would otherwise underline the last field as a setext heading.
+    Every newline is kept, so offsets and reported line numbers stay true.
+    """
+    match = FRONTMATTER_PATTERN.match(text)
+    if match is None:
+        return text
+    return re.sub(r"[^\n]", " ", match.group(0)) + text[match.end() :]
+
+
+def heading_source(text: str) -> str:
+    """The document as its headings and anchors are read: frontmatter and code blanked."""
+    return mask_code(mask_frontmatter(text), spans=False)
+
+
+def iter_headings(masked: str) -> Iterable[tuple[int, str]]:
+    """Yield the level and text of every ATX and setext heading, in document order."""
     lines = masked.split("\n")
     for index, line in enumerate(lines):
         atx = ATX_HEADING_PATTERN.match(line)
         if atx is not None:
-            yield atx.group("text")
+            yield len(atx.group("hashes")), str(atx.group("text"))
             continue
-        if index == 0 or SETEXT_UNDERLINE_PATTERN.match(line) is None:
+        if index == 0:
+            continue
+        underline = SETEXT_UNDERLINE_PATTERN.match(line)
+        if underline is None:
             continue
         above = lines[index - 1]
         if (
             BLANK_PATTERN.match(above) is None
             and ATX_HEADING_PATTERN.match(above) is None
         ):
-            yield above.strip()
+            yield (1 if "=" in underline.group(0) else 2), above.strip()
 
 
 def document_anchors(text: str) -> set[str]:
     """Collect the anchors a document's headings and explicit ids define."""
-    masked = mask_code(text, spans=False)
+    masked = heading_source(text)
     anchors: set[str] = set()
     seen: dict[str, int] = {}
-    for heading in iter_headings(masked):
+    for _, heading in iter_headings(masked):
         slug = slugify_heading(heading)
         if not slug:
             continue
@@ -456,15 +477,10 @@ class AdrEntry:
 
 
 def adr_title(text: str) -> str:
-    """Read an ADR's title from its first level-one heading.
-
-    Only an ATX heading counts. A document's frontmatter ends in the `---` that
-    also underlines a setext heading, which would otherwise make the last
-    frontmatter field the title.
-    """
-    for match in ATX_HEADING_PATTERN.finditer(mask_code(text, spans=False)):
-        if len(match.group("hashes")) == 1:
-            return str(match.group("text")).strip()
+    """Read an ADR's title from its first level-one heading."""
+    for level, heading in iter_headings(heading_source(text)):
+        if level == 1:
+            return heading.strip()
     return ""
 
 
