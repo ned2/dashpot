@@ -21,7 +21,7 @@ from ..repository import (
 )
 from ..worktrees.records import registered_at
 from .obstacles import counted
-from .preview import describe_cleanup_preview, inspect_cleanup
+from .preview import describe_cleanup_preview, inspect_cleanup, sub_agent_scope
 from .targets import (
     CleanupPreview,
     CleanupRequest,
@@ -451,6 +451,12 @@ def describe_cleanup_report(report: CleanupReport) -> list[str]:
             target = report.preview.target(identity)
             label = target.label if target is not None else identity
             lines.append(f"  {index}. {label} {_where(target)}".rstrip())
+            if (
+                target is not None
+                and target.kind == "worktree"
+                and (scope := sub_agent_scope(report.preview))
+            ):
+                lines.append(f"     {scope}")
         return lines
     lines.append("Results")
     for result in report.results:

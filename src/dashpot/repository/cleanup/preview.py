@@ -45,6 +45,10 @@ from .targets import (
 
 CANONICAL_FETCH_REFSPEC = "+refs/heads/*:refs/remotes/{remote}/*"
 
+SUB_AGENT_SCOPE = (
+    "Sub-agents of Agent Sessions outside this Repository are not checked."
+)
+
 
 def inspect_cleanup(
     request: CleanupRequest,
@@ -483,6 +487,25 @@ INTEGRATION_WORDS: Mapping[IntegrationState, str] = {
 }
 
 
+def sub_agent_scope(preview: CleanupPreview) -> str | None:
+    """The occupancy gap a preview that would remove a Worktree states, or None.
+
+    The ``sub-agent`` blocker counts only Agent Sessions a hook record places
+    at a Worktree of the target's Repository, and no hook says where a
+    sub-agent works, so a sub-agent of a session elsewhere can be working in
+    a Worktree the preview offers for removal. #357 accepted that gap rather
+    than block Cleanup across a Project or the machine (ADR 0066). A blocked
+    Worktree claims no absence of occupants, so it is said only of one the
+    preview would remove.
+    """
+    if preview.kind != "worktree" or preview.refusals:
+        return None
+    worktree = next(
+        (target for target in preview.targets if target.kind == "worktree"), None
+    )
+    return SUB_AGENT_SCOPE if worktree is not None and worktree.available else None
+
+
 def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
     """Render a preview as lines for a person: each target, its gate, and what follows."""
     verb = "Delete Branch" if preview.kind == "branch" else "Remove Worktree"
@@ -508,6 +531,8 @@ def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
             if blocker.command:
                 lines.append(f"          run: {blocker.command}")
         lines.extend(f"      → {consequence}" for consequence in target.consequences)
+        if target.kind == "worktree" and (scope := sub_agent_scope(preview)):
+            lines.append(f"      {scope}")
     if preview.ignored:
         lines.append(
             "Ignored content (deleted with the Worktree, acknowledge to proceed)"

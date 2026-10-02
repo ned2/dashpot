@@ -60,11 +60,31 @@ might be working in it.
   and the re-inspection on confirmation all report it. Observation stays
   passive, and no Agent Run, Issue Binding, or Work Store record is created
   for a sub-agent.
-- **Only Claude Code sub-agents are covered.** Dashpot's Codex integration
-  does not subscribe to `SubagentStart` or `SubagentStop`, so a Codex
-  session's sub-agents are not observed, and the refusal names Claude Code.
+- **Claude Code sub-agents first; ADR 0067 adds Codex ones.** Dashpot's
+  Codex integration does not subscribe to `SubagentStart` or
+  `SubagentStop`, so a Codex session's sub-agents are not observed, and the
+  refusal names Claude Code.
   [ADR 0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) subscribes them, so a Codex session's live sub-agents
   block removal the same way, and the refusal names no harness.
+  [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) showed the
+  `sub-agent` blocker naming live Codex children in the pinned 0.159.3
+  trace. A Codex child interrupted through its own thread publishes no
+  hook, so it keeps the block up until the session's next `SessionStart` or
+  `SessionEnd` ([#374](https://github.com/ned2/dashpot/issues/374)).
+- **The scope is the Repository, and the preview says so.** The Repository's
+  Worktrees are every Worktree Git registers for it, wherever it lives on
+  disk, Worktrees under a Worktree Root such as the sibling
+  `dashpot.worktrees/` included. Cleanup reads
+  each one's hook store and the machine-global store, and counts a session
+  that a record places at any of them. A session placed outside them is not
+  counted, though its sub-agent may work here: one at a checkout of another
+  Repository, or one launched outside every configured checkout. The
+  maintainer accepted that gap on 2026-10-02
+  ([#357](https://github.com/ned2/dashpot/issues/357)) rather than widen the
+  scope. A Cleanup preview that would remove a Worktree, in the dashboard
+  and in `dashpot worktree remove --dry-run`, says that sub-agents of Agent
+  Sessions outside this Repository are not checked. A preview whose
+  Worktree is blocked does not say it, because it offers no removal.
 
 ## Considered options
 
@@ -78,10 +98,18 @@ might be working in it.
   file edits. It would also add the per-tool-call cost that
   [ADR 0006](0006-observe-agent-activity-at-turn-boundaries.md) and ADR 0016
   declined.
-- **Consider every session on the machine:** rejected. A sub-agent of a
-  session placed in another Repository blocks nothing here. One launched
-  outside any Worktree of this Repository that works inside it is a known
-  gap, recorded in the agent-session documentation.
+- **Count the sessions of other Repositories, or every session on the
+  machine:** rejected in #357. Within the Repository, one live sub-agent
+  already blocks the Cleanup of every Worktree. Counting other Repositories
+  would extend that block to each of them, and counting the machine to every
+  session on it, unrelated work and orchestrating leads included. Either
+  way the cost lands on exactly the setups the widening would protect.
+  Losing uncommitted work is already guarded: Cleanup refuses a dirty
+  Worktree, `git worktree remove` runs without `--force`, and a person
+  confirms the preview. What stays exposed
+  is a sub-agent working in a clean Worktree, whose task is interrupted.
+  Work is lost only in a narrow race between the dirty check and the
+  removal.
 - **Remove under a session that is only waiting:** rejected on 2026-09-30 for
   every occupant. A `waiting` observation does not prove that background work
   or sub-agents have drained.
@@ -89,9 +117,9 @@ might be working in it.
 ## Consequences
 
 - Removing a Worktree is refused, in both the preview and the command line,
-  while any Claude Code session in the Repository has a sub-agent working,
-  including in Worktrees no sub-agent is in. The person waits for the
-  sub-agents to finish or ends the session.
+  while any Claude Code or Codex session in the Repository has a sub-agent
+  working, including in Worktrees no sub-agent is in. The person waits for
+  the sub-agents to finish or ends the session.
 - A `SubagentStop` that the harness never delivers keeps the block until the
   session ends or starts again. This is the same bound ADR 0016 accepted for
   holding the session running.
@@ -104,6 +132,10 @@ might be working in it.
   it still blocks the Repository's Worktrees while a record it left there
   holds a live sub-agent, and the blocker names its location outside. Both
   err toward refusing a removal rather than allowing one.
+- A sub-agent of an Agent Session placed outside the Repository can be
+  working in a Worktree Cleanup removes. The preview states that gap
+  rather than hide it, and the dirty check, `git worktree remove` without
+  `--force`, and the person's confirmation guard its uncommitted work.
 - Relocating occupants during Cleanup
   ([#148](https://github.com/ned2/dashpot/issues/148)) must account for
   sub-agents under this rule. It cannot place one either, unless a new source

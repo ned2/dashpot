@@ -24,6 +24,7 @@ from dashpot.core.git import Git, GitError
 from dashpot.core.project_state import ensure_state_directory
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
+    SUB_AGENT_SCOPE,
     BranchCleanupRequest,
     CleanupBlocker,
     CleanupConfirmation,
@@ -881,7 +882,8 @@ def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
     lookup = table_lookup({PARENT.pid: PARENT})
 
     for path in (target, sibling):
-        tree, _local = preview_worktree(root, path, lookup=lookup).targets
+        preview = preview_worktree(root, path, lookup=lookup)
+        tree, _local = preview.targets
         assert tree.available is False
         (blocker,) = tree.blockers
         assert blocker.kind == "sub-agent"
@@ -891,6 +893,8 @@ def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
             "Worktree a Claude Code sub-agent works in, so one may be working "
             "here; wait for it to finish, or end that session."
         )
+        # A blocked Worktree claims no absence of occupants to qualify.
+        assert SUB_AGENT_SCOPE not in "\n".join(describe_cleanup_preview(preview))
 
 
 def test_a_live_codex_sub_agent_blocks_like_a_claude_code_one(
@@ -1023,6 +1027,10 @@ def test_a_session_outside_the_repository_does_not_block(tmp_path: Path) -> None
     preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))
 
     assert preview.targets[0].available is True
+    # The gap #357 accepted is stated with the Worktree the preview offers.
+    lines = describe_cleanup_preview(preview)
+    branch_line = next(line for line in lines if line.startswith("  [ ] Local Branch"))
+    assert lines.index(f"      {SUB_AGENT_SCOPE}") == lines.index(branch_line) - 1
 
 
 def test_a_session_here_with_sub_agents_is_one_occupant(tmp_path: Path) -> None:
@@ -1998,7 +2006,8 @@ def test_a_dry_run_plans_in_order_and_changes_nothing(tmp_path: Path) -> None:
     assert lines[0] == f"Remove Worktree {worktree.resolve()}"
     assert lines[2] == "Dry run         would attempt, in order"
     assert lines[3] == f"  1. Worktree {worktree.resolve()}"
-    assert lines[4] == "  2. Local Branch refs/heads/feat"
+    assert lines[4] == f"     {SUB_AGENT_SCOPE}"
+    assert lines[5] == "  2. Local Branch refs/heads/feat"
 
 
 def test_report_json_key_sets_and_description_are_stable(tmp_path: Path) -> None:

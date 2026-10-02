@@ -592,7 +592,7 @@ CleanupScreen, CleanupReportScreen {
     text-style: bold;
 }
 
-#cleanup-freshness {
+#cleanup-freshness, #cleanup-scope {
     height: auto;
     color: $text-muted;
     text-style: italic;
