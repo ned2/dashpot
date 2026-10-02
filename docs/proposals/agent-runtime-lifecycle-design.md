@@ -1,6 +1,6 @@
 ---
 status: proposal
-date: 2026-10-01
+date: 2026-10-02
 ---
 
 # Agent runtime lifecycle design
@@ -22,9 +22,12 @@ rule and seeding, `lastSessionStartAt`, the Live Relocation step, the guarded
 `SessionEnd` removal, `work-session-elsewhere`, and the Codex sub-agent
 subscription. Its acceptance run then measured the Codex rows left open at
 `0.159.3` and pinned Codex support to that release
-([Codex hosting modes](../agent-sessions.md#codex-hosting-modes)). Claude Code
-still designates no location evidence, and the unmeasured rows below stay
-unsupported. The contract is concrete enough that
+([Codex hosting modes](../agent-sessions.md#codex-hosting-modes)).
+[#162](https://github.com/ned2/dashpot/issues/162) designated Claude Code's
+worktree tools and measured its rows at `2.1.286`, and
+[#278](https://github.com/ned2/dashpot/issues/278) accepted the Live
+Relocation route for both harnesses through public seams. The unmeasured rows
+below stay unsupported. The contract is concrete enough that
 its consumers implement it rather than choose it:
 [#161](https://github.com/ned2/dashpot/issues/161) (the Codex slice and the
 shared core), [#162](https://github.com/ned2/dashpot/issues/162) (Claude Code),
@@ -435,14 +438,27 @@ controller turn is itself the designated evidence.
 ### What #148 verifies from this seam alone
 
 After a controller move of session S from A to B, #148 needs no
-harness-specific location logic. It reads:
+harness-specific location logic. It reads, through functions on `main`:
 
 - S's freshest session-scoped record is at B, from the same identity and Host
-  Process;
+  Process: `locate_agent_session` over the Repository's
+  `reachable_hook_stores`, by S's harness and native session ID, returns a
+  `SessionLocation` whose `worktree` is B and whose `record.process_key` is
+  the Host Process's;
 - if S had a run, that run is at B with unchanged `run_id`, `startedAt` and
-  Issue Binding, and no record of it remains at A;
-- S's freshest record is not at A, so A's occupancy no longer names S;
-- if S had no run, no Work Store record was created.
+  Issue Binding, and no record of it remains at A: `WorkStore(B).active()`
+  holds it and `WorkStore(A).active()` does not, and the hook that carried it
+  reported the `relocated` Work Store change (`HookPublication.work`, and the
+  `hook.outcome` Runtime Event's `dashpot.work_store.change` in the Event
+  Log);
+- S's freshest record is not at A, so A's occupancy no longer names S:
+  `sessions_at_worktree(A, …)`, which Cleanup's preflight reads, omits S, and
+  `sessions_at_worktree(B, …)` names it;
+- if S had no run, no Work Store record was created: neither Worktree's
+  `WorkStore.active()` holds one for S.
+
+[`test_a_handoff_is_verified_from_the_seam_alone`](../../tests/test_live_relocation.py)
+reads exactly these, for Codex and Claude Code, bound and unbound.
 
 The opt-in question of #148 step 1 (what counts as an opted-in Codex thread:
 a terminal Dashpot launched, an Issue Binding at the Worktree, or an explicit
@@ -576,13 +592,13 @@ under its implementing Issue, never by assumption.
 | Codex `exec` | Supported today | Measured |
 | Codex shared local App Server (`app-server --listen` with `--remote` clients) | Supported, #161 | Measured at `0.155.1` |
 | Codex managed daemon with plain or `--remote` terminals | Supported, #161 | Accepted at `0.159.3` by #161's acceptance run |
-| Codex Live Relocation by a controller | #161 core, #278 acceptance, triggered only by #148 | Accepted idle at `0.159.3`; a mid-turn override carries the run at the following turn |
+| Codex Live Relocation by a controller | Supported (#161), accepted by #278; triggered only by #148 | Accepted idle at `0.159.3`; a mid-turn override carries the run at the following turn |
 | Codex terminal launched before the daemon; daemon autostart | Supported, measured at `0.159.3` | Autostart is the default; the daemon hosts the terminal's thread |
 | Codex `/cd`, managed `/worktree` | `/cd` is a new Agent Session (source); `/worktree` unsupported | Neither preserves a run |
 | Codex Remote Control pairing, Code Mode remote host, stdio transport, other operating systems | Unsupported | Unmeasured |
 | Claude Code interactive and headless | Supported today; lifecycle through #162 | Measured |
 | Claude Code supervised workers (`--bg`), including claimed spares | Supported (#162, Linux, `2.1.286`) | A worker replaced after an abrupt exit continues its run under ADR 0053 at its first hook at the run's Worktree, measured with the `--resume` shape and with a spare claimed by `claude respawn`; a replacement stopped before that ends it ([ADR 0075](../adr/0075-end-an-orphaned-run-at-its-replacements-session-end.md)); `claude stop` ends the run, so a later `claude respawn` has no run to continue; macOS unmeasured |
-| Claude Code `EnterWorktree`/`ExitWorktree` (`keep`) Live Relocation | Supported (#162, `2.1.286`); #278 acceptance | A persistent shell `cd` places the session without carrying; `ExitWorktree(remove)` of a Worktree that `EnterWorktree` created by `name` unsupported, as it deletes the run with the Worktree ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) |
+| Claude Code `EnterWorktree`/`ExitWorktree` (`keep`) Live Relocation | Supported (#162, `2.1.286`), accepted by #278 | A persistent shell `cd` places the session without carrying; `ExitWorktree(remove)` of a Worktree that `EnterWorktree` created by `name` unsupported, as it deletes the run with the Worktree ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) |
 | Claude Code idle eviction | Supported (#162, Linux, `2.1.286`) | The retired worker's run is orphaned and continues when `claude attach` respawns the worker at the run's Worktree |
 | Claude Code Remote Control (attachment and server), SDK, agent teams, cloud, desktop | Unsupported | Unmeasured; server mode needs a claude.ai login |
 | OpenCode legacy local TUI | Later slice, #163 | TUI startup and exit unmeasured |
@@ -715,7 +731,11 @@ until the design or an ADR accounts for it.
 - **#278.** Accept the Live Relocation route through public seams with a
   fake Host Process and hook boundary: carry with `run_id`, `startedAt` and
   binding unchanged; unbound stays unbound; late evidence from A does not move
-  the run back; ADR 0029 unchanged.
+  the run back; ADR 0029 unchanged. Delivered as tests through
+  `publish_hook_event`, `observe_agent_runs`, `work show` and the Work Store in
+  [`test_live_relocation.py`](../../tests/test_live_relocation.py), for both
+  harnesses, with the Codex mid-turn move and ADR 0029's daemon-hosted
+  sequential resume; no code changed.
 - **#148.** Decide the opt-in (step 1), build the controller and Cleanup flow,
   and verify each handoff through the seam in Q5 only.
 
