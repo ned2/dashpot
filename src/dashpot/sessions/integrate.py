@@ -32,6 +32,7 @@ from .harnesses import (
     SESSION_OVERRIDE_VARIABLE,
     HarnessError,
     adapter,
+    is_opencode_host_process,
     opencode_shell_refusal,
     override_claim,
 )
@@ -45,6 +46,7 @@ from .hook_scan import (
 from .processes import (
     ProcessAbsent,
     ProcessLookup,
+    ProcessPresent,
     ProcessUnobservable,
     host_process_lookup,
 )
@@ -836,7 +838,9 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
 
 # ``opencode --version`` prints ``opencode v2.0.22`` from v2 and a bare
 # ``1.18.30`` from v1; the service's registration names a bare release.
-OPENCODE_RELEASE = re.compile(r"(?:opencode )?v?(?P<release>\d+\.\d+\.\d+\S*)")
+OPENCODE_RELEASE = re.compile(
+    r"(?:opencode )?v?(?P<release>\d+\.\d+\.\d+\S*)", re.IGNORECASE
+)
 PLUGIN_MARKER = "// dashpot-managed-plugin: opencode"
 PLUGIN_HELPER_PLACEHOLDER = '"__DASHPOT_OPENCODE_HELPER__"'
 PLUGIN_HELPER = re.compile(r'^const HELPER = (".*");$', re.MULTILINE)
@@ -1103,13 +1107,18 @@ class OpenCodeServiceRegistration(PublishedModel):
     pid: int = Field(gt=0)
 
 
-def _opencode_service_file(environ: Mapping[str, str]) -> Path:
+def _opencode_service_file(environ: Mapping[str, str]) -> Path | None:
+    """Where OpenCode registers its service; ``None`` when that cannot be known.
+
+    OpenCode takes ``XDG_STATE_HOME`` as it finds it, so a relative value
+    names a directory relative to whichever process wrote the registration.
+    """
     configured = environ.get("XDG_STATE_HOME")
-    if configured and Path(configured).is_absolute():
-        state = Path(configured)
-    else:
-        state = Path.home() / ".local" / "state"
-    return state / "opencode" / "service.json"
+    if not configured:
+        return Path.home() / ".local" / "state" / "opencode" / "service.json"
+    if not Path(configured).is_absolute():
+        return None
+    return Path(configured) / "opencode" / "service.json"
 
 
 def _opencode_service_status(
@@ -1119,9 +1128,15 @@ def _opencode_service_status(
 
     A client of another release replaces the service when it connects, so
     the service can run another release than the one on PATH (ADR 0090). A
-    killed service leaves its registration behind, so its pid is checked.
+    killed service leaves its registration behind, so its pid must still
+    be an OpenCode server's.
     """
     path = _opencode_service_file(environ)
+    if path is None:
+        return [
+            "OpenCode service: unknown; XDG_STATE_HOME is relative, so where "
+            "OpenCode registers its service depends on the process that wrote it"
+        ]
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -1139,6 +1154,13 @@ def _opencode_service_status(
         return [
             f"OpenCode service: none running; {path} names pid "
             f"{registration.pid}, which has exited"
+        ]
+    if isinstance(observed, ProcessPresent) and not is_opencode_host_process(
+        observed.identity
+    ):
+        return [
+            f"OpenCode service: none running; {path} names pid "
+            f"{registration.pid}, which is now another process"
         ]
     if isinstance(observed, ProcessUnobservable):
         running = (

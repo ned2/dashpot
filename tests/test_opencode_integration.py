@@ -381,6 +381,10 @@ def test_status_warns_about_a_linked_worktree_helper(tmp_path: Path) -> None:
             [f"OpenCode release on PATH: {PINNED}, the pinned release"],
         ),
         (
+            f"OpenCode V{PINNED}\n",
+            [f"OpenCode release on PATH: {PINNED}, the pinned release"],
+        ),
+        (
             "opencode v2.0.23",
             [
                 "OpenCode release on PATH: 2.0.23",
@@ -531,15 +535,54 @@ def test_status_names_a_registration_it_cannot_read(
     assert why in unread[0]
 
 
+def test_status_reads_a_reused_pid_as_no_service(tmp_path: Path) -> None:
+    home = opencode_home(tmp_path)
+    state = tmp_path / "xdg-state"
+    path = registered(state, json.dumps({"version": PINNED, "pid": SERVICE.pid}))
+    # After a reboot, another process can hold a killed service's pid.
+    other = ProcessIdentity(SERVICE.pid, 1, "/usr/bin/sleep", SERVICE.started_at)
+
+    messages = status(
+        home,
+        tmp_path,
+        environ={"XDG_STATE_HOME": str(state)},
+        lookup=lambda pid: (
+            ProcessPresent(other) if pid == SERVICE.pid else ProcessAbsent(pid)
+        ),
+    )
+
+    assert (
+        f"OpenCode service: none running; {path} names pid {SERVICE.pid}, which "
+        "is now another process"
+    ) in messages
+    assert not any(
+        message.startswith("OpenCode service release") for message in messages
+    )
+
+
+def test_status_cannot_place_the_registration_under_a_relative_state_directory(
+    tmp_path: Path, _home: Path
+) -> None:
+    home = opencode_home(tmp_path)
+    registered(_home / ".local" / "state", json.dumps({"version": PINNED, "pid": 1}))
+
+    messages = status(home, tmp_path, environ={"XDG_STATE_HOME": "relative"})
+
+    assert (
+        "OpenCode service: unknown; XDG_STATE_HOME is relative, so where OpenCode "
+        "registers its service depends on the process that wrote it"
+    ) in messages
+
+
 def test_status_finds_the_registration_under_the_default_state_directory(
     tmp_path: Path, _home: Path
 ) -> None:
     home = opencode_home(tmp_path)
-    # A relative XDG_STATE_HOME is invalid, and ignored as OpenCode ignores it.
+    # An empty XDG_STATE_HOME is unset, to OpenCode as to Dashpot.
     path = _home / ".local" / "state" / "opencode" / "service.json"
     path.mkdir(parents=True)
 
-    messages = status(home, tmp_path, environ={"XDG_STATE_HOME": "relative"})
+    messages = status(home, tmp_path, environ={"XDG_STATE_HOME": ""})
 
     assert any(
         m.startswith(f"OpenCode service: cannot read {path}: ") for m in messages

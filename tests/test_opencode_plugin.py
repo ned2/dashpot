@@ -20,6 +20,11 @@ from typing import Any
 
 import pytest
 
+from dashpot.sessions.harnesses import (
+    OPENCODE_REFUSAL_VARIABLE,
+    OPENCODE_V1_REFUSAL,
+    opencode_shell_refusal,
+)
 from dashpot.sessions.integrate import render_plugin
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
@@ -139,7 +144,17 @@ if (scenario === "guard") {
   for (const cleanup of cleanups) await cleanup();
   // OpenCode 1.x loads the `server` entry, and prepares every shell with it.
   const v1 = await plugin.server({ directory: "/repo" });
-  const prepared = { env: { PATH: "/bin", DASHPOT_AGENT_SESSION: "codex:outer", CLAUDE_PID: "7" } };
+  // Inherited from an enclosing OpenCode v2 model's shell, whose claim this is not.
+  const prepared = {
+    env: {
+      PATH: "/bin",
+      DASHPOT_AGENT_SESSION: "codex:outer",
+      CLAUDE_PID: "7",
+      OPENCODE_SESSION_ID: "ses_outer",
+      OPENCODE: "1",
+      DASHPOT_OPENCODE_PID: "4100",
+    },
+  };
   await v1["shell.env"]({ cwd: "/repo" }, prepared);
   await v1["shell.env"]({ cwd: "/repo" }, {});
   result.v1 = { hooks: Object.keys(v1), env: prepared.env };
@@ -157,6 +172,8 @@ if (scenario === "guard") {
     CODEX_THREAD_ID: "t",
     CLAUDE_CODE_SESSION_ID: "c",
     CLAUDE_PID: "7",
+    // Inherited from an enclosing OpenCode v1 shell.
+    DASHPOT_OPENCODE_REFUSAL: "opencode-v1",
   });
   result.user = await shell({ PATH: "/bin" });
   result.pid = process.pid;
@@ -319,7 +336,10 @@ def test_the_plugin_observes_opencode_v2_only(tmp_path: Path) -> None:
                 "CODEX_THREAD_ID": "",
                 "CLAUDE_CODE_SESSION_ID": "",
                 "CLAUDE_PID": "",
-                "DASHPOT_OPENCODE_REFUSAL": "opencode-v1",
+                "OPENCODE_SESSION_ID": "ses_outer",
+                "OPENCODE": "1",
+                "DASHPOT_OPENCODE_PID": "",
+                OPENCODE_REFUSAL_VARIABLE: OPENCODE_V1_REFUSAL,
             },
         },
         "id": "dashpot.observation",
@@ -328,6 +348,10 @@ def test_the_plugin_observes_opencode_v2_only(tmp_path: Path) -> None:
         "subscribers": 0,
     }
     assert requests == []
+    # What the v1 entry leaves is no claim, and reads as the v1 refusal.
+    refusal = opencode_shell_refusal(result["v1"]["env"], in_opencode=True)
+    assert refusal is not None
+    assert "runs in OpenCode v1" in refusal
 
 
 def test_every_request_names_the_protocol_server_and_instance(tmp_path: Path) -> None:

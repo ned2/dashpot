@@ -464,8 +464,8 @@ Each OpenCode release `--status` reports reads as one of:
   remove the warning.
 - **refused**, for a 1.x release: OpenCode v1 loads the plugin's v1 entry,
   which publishes nothing and sets `DASHPOT_OPENCODE_REFUSAL=opencode-v1` on
-  every shell, so `dashpot work start` there says that OpenCode v1 is
-  refused. Install OpenCode 2.0.22, run `dashpot integrate opencode`, and
+  each shell its `shell.env` hook prepares, an agent's command among them, so
+  `dashpot work start` there says that OpenCode v1 is refused. Install OpenCode 2.0.22, run `dashpot integrate opencode`, and
   start OpenCode again. A session a v1 server ran reads gone once that server
   exits, and any Issue work it held is an Orphaned Agent Run, ended with
   `dashpot work stop --session <session-key>`.

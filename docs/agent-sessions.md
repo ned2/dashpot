@@ -369,7 +369,7 @@ the acceptance run of [#407](https://github.com/ned2/dashpot/issues/407)
 passes on the pinned 2.0.22. Another 2.x release is observed, with a warning
 from `dashpot integrate opencode` and its `--status`. OpenCode 1.x is
 refused: `integrate` will not install while it is on PATH, and a 1.x server
-loads the plugin's v1 entry, which publishes nothing and makes
+loads the plugin's v1 entry, which publishes nothing and makes an agent's
 `dashpot work start` say that OpenCode v1 is refused
 ([what each release reads as](installation.md#observe-agent-sessions)). The measured detail is in the
 [OpenCode v2 experiment](spikes/opencode-v2-spike.md) and the
