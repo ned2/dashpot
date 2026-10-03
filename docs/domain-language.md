@@ -339,7 +339,8 @@ Under
 only the harness's designated location evidence (the session-scoped events
 its Harness Adapter names; for Codex, a session-scoped `UserPromptSubmit`;
 for Claude Code, the `PostToolUse` of `EnterWorktree` or of `ExitWorktree`
-with `action: keep`) can carry an Agent Run to a new location, and a
+with `action: keep`; for OpenCode v2, a root session's `session.moved`,
+decided in [ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)) can carry an Agent Run to a new location, and a
 Sub-agent's event never places its parent nor makes its record older. The
 session's freshest hook record still says where it is; a run left at another
 Worktree is reported as `work-session-elsewhere`.
@@ -404,6 +405,8 @@ trigger the move. Decided in
 Claude Code designates only its worktree tools, so a persistent shell `cd`
 places its session without carrying the run
 ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
+OpenCode v2 designates a root session's `session.moved`
+([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)).
 _Avoid_: calling a resume in a new process, or a shell `cd`, a Live
 Relocation
 
@@ -451,7 +454,13 @@ command's Agent Session Identity claim
 [ADR 0078](adr/0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md)).
 A generation is neither an Agent Session Identity nor an Agent Run, and its
 record is not a hook record: it holds no session's lifecycle, only who may
-publish it.
+publish it. For OpenCode v2,
+[ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) decides that a
+generation no longer owns publication: every live instance on a Host
+Process may publish any of its sessions, and OpenCode's own per-session
+sequence orders the publications. The Publisher Record is then one per hook
+store, and still holds no session's lifecycle: only how far each session's
+publications have reached, and which sessions OpenCode deleted.
 _Avoid_: incarnation, which is a span of one Host Process holding a session;
 plugin session or plugin identity
 
@@ -459,7 +468,10 @@ plugin session or plugin identity
 The nearest harness process that executes an Agent Session's turns, keyed by
 pid and start time: a Claude Code interactive, headless or supervised worker
 process, a Codex TUI, `exec`, app-server or daemon process, or an OpenCode
-backend, which is the TUI's own process or `opencode serve`. It is the session's liveness and runtime
+backend, which is the TUI's own process or `opencode serve` at 1.18.30, and
+for OpenCode v2 the server that runs the session's shells: the shared
+`opencode serve --service`, or a `--standalone` client's private server
+([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)). It is the session's liveness and runtime
 evidence. Each span of one Host Process holding a session, begun by
 `SessionStart`, is an incarnation; every `SessionStart` begins another,
 whether a resume in a new process, a cold resume inside the same daemon, or
@@ -493,6 +505,9 @@ gone, or unknown. Unknown means the process could not be observed, or that it
 is live while nothing observes the session in it, as for a retired OpenCode
 Publisher Generation's sessions
 ([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)),
+or, for OpenCode v2, for the running sessions of a Host Process whose last
+plugin instance was cleaned up
+([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)),
 and is never evidence that the session ended.
 
 **Orphaned Agent Run**:
