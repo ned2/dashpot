@@ -162,13 +162,17 @@ const pairs = (items) => items.slice(1).map((item, index) => [items[index], item
 check(`An open dashboard wrote to its tmux client ${chunks.length} times in ${Math.round(elapsed)} s, never more than ${Math.ceil(longestGap * 10) / 10} s apart, redrawing ${Math.round(Math.min(...ordinary.map((redraw) => redraw.bytes)) / 1_000)} to ${Math.round(Math.max(...ordinary.map((redraw) => redraw.bytes)) / 1_000)} KB every Refresh Period and about twice that once a minute`, () => {
   assert(elapsed >= 170, String(elapsed));
   for (const [, bytes] of chunks) assert(bytes > 0);
-  assert(longestGap < redrawMs / 1_000, String(longestGap));
+  assert(longestGap <= 14.6, String(longestGap));
   assert(redraws.length >= 10, String(redraws.length));
   for (const [previous, next] of pairs(redraws)) {
     assert(next.start - previous.start <= redrawMs / 1_000 + 0.5, JSON.stringify([previous, next]));
   }
-  for (const redraw of ordinary) assert(redraw.writes >= 20 && redraw.writes <= 40, JSON.stringify(redraw));
+  for (const redraw of ordinary) {
+    assert(redraw.bytes >= 21_500 && redraw.bytes < 24_500, JSON.stringify(redraw));
+    assert(redraw.writes >= 20 && redraw.writes <= 40, JSON.stringify(redraw));
+  }
   assert(doubled.length >= 2, String(doubled.length));
+  for (const redraw of doubled) assert(redraw.bytes >= 1.8 * 21_500 && redraw.bytes <= 2.2 * 24_500, JSON.stringify(redraw));
   for (const [previous, next] of pairs(doubled)) assert(Math.abs(next.start - previous.start - 60) <= 1, JSON.stringify([previous, next]));
 });
 
