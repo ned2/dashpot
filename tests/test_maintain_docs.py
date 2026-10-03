@@ -335,6 +335,52 @@ def test_a_setext_heading_defines_an_anchor(
     assert check(monkeypatch, tmp_path, document, target) == []
 
 
+def test_frontmatter_defines_no_anchor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The `---` closing frontmatter is not a setext underline of its last field."""
+    target = write_document(
+        tmp_path, "target.md", "---\nstatus: living\ndate: 2026-09-12\n---\n\n# Title\n"
+    )
+    document = write_document(tmp_path, "guide.md", "[go](target.md#date-2026-09-12)\n")
+
+    messages = check(monkeypatch, tmp_path, document, target)
+
+    assert messages == [
+        "guide.md:1: target.md has no heading anchoring #date-2026-09-12"
+    ]
+
+
+def test_an_html_anchor_in_frontmatter_defines_no_anchor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """GitHub renders frontmatter as a table, so an id written there anchors nothing."""
+    target = write_document(
+        tmp_path, "target.md", '---\nnote: <a id="spot"></a>\n---\n\n# Title\n'
+    )
+    document = write_document(tmp_path, "guide.md", "[go](target.md#spot)\n")
+
+    messages = check(monkeypatch, tmp_path, document, target)
+
+    assert messages == ["guide.md:1: target.md has no heading anchoring #spot"]
+
+
+def test_a_link_after_frontmatter_reports_its_own_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A link past the frontmatter is still reported on the line it is written on."""
+    document = write_document(
+        tmp_path,
+        "docs/guide.md",
+        "---\nstatus: living\ndate: 2026-09-12\n---\n\n# Title\n\n"
+        "See [it](#date-2026-09-12) and [title](#title).\n",
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == ["docs/guide.md:8: no heading anchors #date-2026-09-12"]
+
+
 def test_an_explicit_html_anchor_is_found(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -574,6 +620,34 @@ def test_a_frontmatter_field_is_not_mistaken_for_the_title(
     assert "[Do the first thing](0001-first.md)" in index_of(
         monkeypatch, tmp_path, adr, second
     )
+
+
+def test_a_setext_heading_titles_an_adr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An ADR may underline its title as well as hash it."""
+    adr = write_document(
+        tmp_path,
+        "docs/adr/0001-first.md",
+        "---\nstatus: accepted\ndate: 2026-08-26\n---\n\n"
+        "Do the first thing\n==================\n",
+    )
+
+    assert "[Do the first thing](0001-first.md)" in index_of(monkeypatch, tmp_path, adr)
+
+
+def test_a_setext_level_two_heading_does_not_title_an_adr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A dash underline makes a level-two heading, which the title skips."""
+    adr = write_document(
+        tmp_path,
+        "docs/adr/0001-first.md",
+        "---\nstatus: accepted\ndate: 2026-08-26\n---\n\n"
+        "Context first\n-------------\n\n# Do the first thing\n",
+    )
+
+    assert "[Do the first thing](0001-first.md)" in index_of(monkeypatch, tmp_path, adr)
 
 
 def test_an_out_of_date_index_fails(
