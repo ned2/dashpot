@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-02
+date: 2026-10-03
 ---
 
 # Agent harness server and client reference
@@ -25,10 +25,10 @@ below where their meanings differ.
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off, for [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted while its sibling works and the parent's own turn interrupted, and for [#356](https://github.com/ned2/dashpot/issues/356) with the managed daemon's `SessionEnd` deferred to a settler and the daemon's hooks inheriting a terminal's `COLUMNS`; the [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached process outliving the hook and the daemon, and threads reloaded into the replacement; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction, repeated on `2.1.287` (2026-10-02); a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
-| OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path; pinned release source and current official docs | Local HTTP/SSE and attached CLI tested; interactive clients, V2 and remote execution untested |
+| OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path (2026-09-12), with that release's source and the official docs; the [#393 experiments](spikes/opencode-v2-spike.md) on `2.0.22` (2026-10-02 and 2026-10-03): the shared service and its plugin instances, shell identity, Sub-agents, moves, `--standalone`, idle eviction, and the plugin API Dashpot's plugin uses; the [#407 acceptance run](#the-shared-service-through-dashpot-at-2022) on `2.0.22` (2026-10-03), through Dashpot's real plugin and helper: the TUI, `opencode run` and the API against the shared service, `--standalone` clients, the npm layout, foreground and background Sub-agents, forks, moves, plugin edits, repairs, reloads and removal, deletion, and the service replaced by 2.0.21 and back, stopped and killed | `opencode web`, ACP, the SDK's own server, `--server <url>`, remote servers, the desktop app, editor extensions and other operating systems unmeasured; OpenCode 1.x is refused, so its measurements describe no supported mode |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
-2026-09-12, Claude Code measurements on 2026-09-18, 2026-09-19,
+2026-09-12, 2026-10-02 and 2026-10-03, Claude Code measurements on 2026-09-18, 2026-09-19,
 2026-09-30, 2026-10-01 and 2026-10-02, and Codex measurements on 2026-09-19,
 2026-09-20, 2026-10-01 and 2026-10-02. Current documentation
 and source branches can change independently
@@ -1379,33 +1379,37 @@ the resulting local-to-cloud native-ID relationship.
 
 ### Backend and clients
 
+OpenCode v2 serves every session from a server process and connects clients
+to it. As `opencode --help` lists them at 2.0.22:
+
 | Entry point | Startup and ownership |
 | --- | --- |
-| `opencode [project]` | Ordinary TUI with a server behind it |
-| `opencode serve` | Headless HTTP backend |
-| `opencode web` | Backend plus browser UI |
-| `opencode attach <url> --session <id>` | TUI using an existing backend conversation |
-| `opencode run --attach <url> --session <id> <prompt>` | Non-interactive request against that backend |
+| `opencode [<directory>]` | TUI. It connects to the shared service, starting one if none runs, and works in `<directory>` |
+| `opencode run [<message>]` | One non-interactive turn against the shared service |
+| `--session <id>`, `--continue` | Continue a session, in either client; `--session` creates the session if it does not exist |
+| `--standalone` | Either client with a private `opencode serve --stdio --port 0` of its own instead of the service |
+| `--server <url>` | Either client against another server; unmeasured ([#379](https://github.com/ned2/dashpot/issues/379)) |
+| `opencode service start` / `stop` | The shared service, `opencode serve --service`, one per user, registered in `$XDG_STATE_HOME/opencode/service.json` with its loopback port and a Basic-auth password |
+| `opencode session delete <id>`, `opencode reload` | Requests to the shared service |
+| `opencode serve`, `opencode acp`, `opencode pair` | The API and web server, the Agent Client Protocol server, and browser or app pairing; unmeasured |
 
-The ordinary TUI/server split is documented independently of the experiment.
-The HTTP API has an OpenAPI schema at `/doc`, session operations, and SSE at
-`/event` and `/global/event`.
+OpenCode 1.x's `opencode attach <url>` and `opencode run --attach <url>` are
+gone. The v2 API serves `POST /api/session`, `/api/session/:id/prompt`,
+`/api/session/:id/move`, `/api/experimental/session/:id/wait`, and SSE at
+`/api/event`; a request names its location with `x-opencode-directory`.
 [Server architecture](https://opencode.ai/docs/server/)
 [CLI entry points](https://opencode.ai/docs/cli/)
 
-`opencode web` and an attached TUI can simultaneously use the same sessions
-and state. This establishes multiple interfaces, not unrestricted concurrent
-prompt mutation. Browser closure, attached-TUI exit, and closing the TUI that
-started a backend are distinct ownership cases; the TUI's shutdown, and an
-attached TUI's exit, are [measured at 1.18.30](#the-local-tui-and-shutdown-through-dashpot-at-11830).
-[Web and terminal attachment](https://opencode.ai/docs/web/)
+The [#393 experiments](spikes/opencode-v2-spike.md) measured the shared
+service's process shape, plugin instances, shell identity, Sub-agents, moves,
+`--standalone` and idle eviction at 2.0.22, and the
+[plugin protocol experiment](spikes/opencode-v2-plugin-protocol-spike.md) the
+plugin API Dashpot's plugin uses; what the acceptance run adds is
+[below](#the-shared-service-through-dashpot-at-2022). The rest of this
+section, down to that subsection, is the earlier experiment on 1.18.30, the
+v1 release Dashpot now refuses.
 
-For attached `run`, `--dir` names a path on the server. Its files, tools, and
-provider credentials belong to the execution machine. A remote client is not
-a mechanism for copying its local checkout to that machine.
-[Remote directory option](https://opencode.ai/docs/cli/#run)
-
-The retained experiment ran `opencode serve --hostname 127.0.0.1 --port 0`
+The 1.18.30 experiment ran `opencode serve --hostname 127.0.0.1 --port 0`
 with independent local HTTP/SSE clients and attached CLI requests. Two native
 conversations ran real shell tools concurrently under the same backend PID.
 [Measured configuration](spikes/opencode-identity-lifecycle-spike.md#tested-configuration-and-evidence-boundary)
@@ -1418,13 +1422,13 @@ The owning result exposes `server.close()`. Inline `config` augments normal
 configuration rather than making the process isolated by itself.
 [SDK startup and client-only mode](https://opencode.ai/docs/sdk/)
 
-Pinned `1.18.30` SDK source launches `opencode serve`, inherits the launching
+The `1.18.30` SDK source launches `opencode serve`, inherits the launching
 process environment, and injects inline configuration through
 `OPENCODE_CONFIG_CONTENT`. Its close/abort path stops that spawned process.
 A client-only connection has no corresponding ownership of an existing server.
 [Released SDK server launcher](https://github.com/anomalyco/opencode/blob/v1.18.30/packages/sdk/js/src/server.ts)
 
-The pinned client's `directory` option is request-routing context, encoded in
+That client's `directory` option is request-routing context, encoded in
 `x-opencode-directory` and rewritten as a query parameter on GET/HEAD requests.
 It is not conversation identity or proof that any local process changed cwd.
 [Released SDK client](https://github.com/anomalyco/opencode/blob/v1.18.30/packages/sdk/js/src/client.ts)
@@ -1462,6 +1466,8 @@ account for these shared discovery paths.
 [Skill discovery](https://opencode.ai/docs/skills/)
 
 ### Identity, location and delegated work
+
+This and the next subsection record the 1.18.30 experiment.
 
 In the tested legacy plugin path, `shell.env` supplies `sessionID` and a tool
 `callID` for the model-driven Bash command. That native ID selects the executing
@@ -1516,32 +1522,36 @@ loopback model fixture, and records metadata only; its reproduction steps and
 exact flags remain in the
 [experiment](spikes/opencode-identity-lifecycle-spike.md#reproduce).
 
-### The local TUI and shutdown through Dashpot at 1.18.30
+### The shared service through Dashpot at 2.0.22
 
-The OpenCode acceptance run of
-[#163](https://github.com/ned2/dashpot/issues/163) drove OpenCode 1.18.30 on
+The OpenCode acceptance run, first written for 1.18.30 by
+[#163](https://github.com/ned2/dashpot/issues/163) and re-pinned by
+[#407](https://github.com/ned2/dashpot/issues/407), drove OpenCode 2.0.22 on
 Linux through Dashpot's installed plugin and helper, in isolated
-configuration with a loopback model; its
-[trace](spikes/measurements/issue-163-opencode-trace.jsonl) is metadata only.
-What it adds to the experiment above:
+configuration with a loopback model, beside a 2.0.21 and a 1.18.30 binary;
+its [trace](spikes/measurements/issue-163-opencode-trace.jsonl) is metadata
+only. What it adds to the #393 experiments:
 
-| Boundary | Measured outcome in OpenCode 1.18.30 |
+| Boundary | Measured outcome in OpenCode 2.0.22 |
 | --- | --- |
-| `opencode [directory]` | One `opencode` process, the TUI and its backend together, with no `opencode` child. It starts its instance, and the plugin, about 2 s after launch; the first status of a typed prompt reaches the helper about 0.3 s later |
-| `!` in the TUI | The typed command runs in the TUI's process under the session's `shell.env`, like a model-driven command |
-| Quit the TUI with Ctrl+C, or hang up its terminal | Every instance's `dispose` hook runs before the process exits, within about 0.5 s; no session is deleted |
-| SIGTERM or SIGKILL to `opencode serve` | The process exits without running `dispose` |
-| `opencode run --attach` exits during a turn | The turn and its command finish in the backend |
-| An attached TUI exits | The session stays in the backend, unchanged |
-| `opencode <directory> --session <id>` from another directory | The session resumes in the directory it was created in; its commands run there |
-| A provider's HTTP 400 | `session.error` with `APIError`, then `idle` |
-| An interrupt | `session.error` with `MessageAbortedError`, then `idle` |
-| `task` with `background: true` | Runs only with `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true`; the child stays `busy` after its parent's `idle` |
-| `opencode session delete <id>` | Loads the configured plugins in its own process, for the instance of its working directory, and delivers `session.deleted` there. From another directory, the session is outside that instance |
+| `opencode <directory> --prompt <text>` from another directory | The TUI starts the shared service as its child, which listens on the registered loopback port only, and creates the session in `<directory>`; the model's commands run there |
+| A model's shell | `OPENCODE_SESSION_ID` and `OPENCODE=1`, set after every plugin hook, so the plugin's `create.before` hook can clear an inherited pair and OpenCode sets its own |
+| A user's shell, as the TUI's `!` runs one through the API | The plugin's hook runs, but OpenCode sets neither variable |
+| A terminal the server opens | No plugin hook runs: it inherits the server's environment, and with it whatever the client that started the service inherited |
+| Quit the TUI, or `opencode run` exits | The service and every session in it keep running |
+| `opencode <directory> --session <id>` from another directory | The session resumes where it was; its commands run there |
+| `subagent` with `background: true` | Runs without a flag; the parent's execution ends before the child's first command starts, and the child's end starts the parent again |
+| A move requested while the session works | Answered at once, and applied when the execution ends |
+| A plugin file edit, or `opencode reload` | Every instance is set up again; a reload cleans every one up first, and sets them up before the last cleanup's one-second wait ends, so it marks no session |
+| `opencode session delete <id>` from another location | Deletes the session in the service, which publishes `session.deleted` |
+| A TUI of another release, older or newer | It stops the running service and starts its own, which serves the same sessions |
+| `opencode service stop`, or SIGKILL to the service | The service exits without a session event; a stop removes its registration, a kill leaves it |
+| `--standalone` TUI or `run` | A private `opencode serve --stdio --port 0`, the client's child, which exits with it |
+| The npm package | The service is `opencode.exe`, from the package's own directory |
 
-A missing helper fails at once and costs a turn nothing measurable; a
-stalled one is cut off at the plugin's deadline, so a command waits about
-3.3 s. Dashpot's reading of each outcome is in
+A missing helper costs a turn nothing measurable. A stalled one is cut off at
+the plugin's 3 s deadline, and a shell waits no longer than that for it.
+Dashpot's reading of each outcome is in
 [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes).
 
 ## Identity and lifecycle verification checklist
@@ -1552,11 +1562,11 @@ available, preserving release and mode boundaries.
 
 | Question | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- |
-| Does one selected host PID distinguish conversations? | No for app-server, measured at `0.155.1`: one `codex` process hosted two root threads, a fork, and a sub-agent thread, with every shell and hook below it; yes for `codex exec`, which is one process per thread; at `0.159.3` and `0.160.0` a plain terminal's thread is hosted by the managed daemon, and a terminal launched with `--disable daemon_auto_start` while no daemon runs is one process per thread | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No in the tested backend |
-| Does client disconnect stop execution? | Measured at `0.155.1`: a departing client's command ran to completion with its ordinary tool hooks and `Stop` and no `Interrupt` or `SessionEnd`, and the last unsubscription unloaded the thread with `SessionEnd` after 60,067 ms (sixty seconds by code default at `0.154.0`); the embedded TUI's shutdown on exit is source reading | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | Attached CLI exit did not stop its command |
-| Does process restart erase history? | Measured at `0.155.1`: after SIGKILL of the server a replacement server resumed the stored thread at another cwd under the same id, with `SessionStart` `resume` at the first turn and no `SessionEnd` for the kill; the stale lock file did not block it | Measured: a killed or respawned worker and a replaced supervisor keep the session ID; `SessionStart` reports `resume` for the new worker pid | Same native ID resumed after backend replacement |
-| Are hook/command IDs fully mapped? | Measured at `0.155.1` for app-server and `exec`: root and fork hook `session_id` = `thread.id` = `thread.sessionId` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; a sub-agent's shell claims its own id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID`, and its hooks carry the root `session_id` plus `agent_id`; hook processes carry no thread variable; Code Mode remote host unmeasured | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Native shell ID measured for legacy Bash; PTY can lack ID |
-| Is native parentage equivalent to fork origin? | No, measured at `0.155.1`: `thread/read` reports `forkedFromId` and `SessionStart` reports `source` = `fork`, but the payload has no parent field (`startup` for a fork at `0.154.0` by source reading); a sub-agent's `parentThreadId` is delegation, not fork origin | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No: measured fork lacked child `parentID` |
+| Does one selected host PID distinguish conversations? | No for app-server, measured at `0.155.1`: one `codex` process hosted two root threads, a fork, and a sub-agent thread, with every shell and hook below it; yes for `codex exec`, which is one process per thread; at `0.159.3` and `0.160.0` a plain terminal's thread is hosted by the managed daemon, and a terminal launched with `--disable daemon_auto_start` while no daemon runs is one process per thread | Yes for the measured modes at `2.1.276`: one process per headless conversation and per background worker, with a subagent inside its parent's process; Remote Control server mode unmeasured | No, measured at `2.0.22`: the shared service hosts every session of every location; a `--standalone` client's private server hosts that client's |
+| Does client disconnect stop execution? | Measured at `0.155.1`: a departing client's command ran to completion with its ordinary tool hooks and `Stop` and no `Interrupt` or `SessionEnd`, and the last unsubscription unloaded the thread with `SessionEnd` after 60,067 ms (sixty seconds by code default at `0.154.0`); the embedded TUI's shutdown on exit is source reading | Measured: a killed `attach` terminal leaves the worker running with no hook; Remote attachment and SDK transport exit unmeasured | No for the shared service, measured at `2.0.22`: a TUI's quit and `opencode run`'s exit leave its sessions running; a `--standalone` client's exit stops its private server |
+| Does process restart erase history? | Measured at `0.155.1`: after SIGKILL of the server a replacement server resumed the stored thread at another cwd under the same id, with `SessionStart` `resume` at the first turn and no `SessionEnd` for the kill; the stale lock file did not block it | Measured: a killed or respawned worker and a replaced supervisor keep the session ID; `SessionStart` reports `resume` for the new worker pid | No, measured at `2.0.22`: a service of another release, or one restarted after a stop or a kill, serves the same session ids |
+| Are hook/command IDs fully mapped? | Measured at `0.155.1` for app-server and `exec`: root and fork hook `session_id` = `thread.id` = `thread.sessionId` = shell `CODEX_THREAD_ID` = shell `CODEX_SESSION_ID`; a sub-agent's shell claims its own id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID`, and its hooks carry the root `session_id` plus `agent_id`; hook processes carry no thread variable; Code Mode remote host unmeasured | Measured for headless and background: hook `session_id` = shell `CLAUDE_CODE_SESSION_ID` = listing `sessionId`; job `id` is its first eight characters; `CLAUDE_PID` = worker pid; a subagent reuses both and adds `agent_id`; remote URL ID unmeasured | Measured at `2.0.22`: a model's shell carries its own session's `OPENCODE_SESSION_ID` with `OPENCODE=1`, a child's included; a user's shell and a terminal carry neither of their own; event ids are per event, and `durable.seq` orders each session's |
+| Is native parentage equivalent to fork origin? | No, measured at `0.155.1`: `thread/read` reports `forkedFromId` and `SessionStart` reports `source` = `fork`, but the payload has no parent field (`startup` for a fork at `0.154.0` by source reading); a sub-agent's `parentThreadId` is delegation, not fork origin | No at `2.1.276`: `SessionStart` reports `source` = `fork` without a parent field; the explicit `--resume` argument is the recorded origin | No, measured at `2.0.22`: a fork publishes `session.forked`, whose `parentID` names its source, and the forked session itself has no `parentID`; a Sub-agent's `parentID` is delegation |
 
 Remaining reference gaps include worker process ancestry and remote URL
 identity in
@@ -1569,8 +1579,8 @@ sessions spawned from a restricted one; the source of a `SubagentStop` with no
 Codex
 `/cd`, managed `/worktree`, Remote Control pairing, a terminal started before
 the daemon, and
-remote-execution hook identity mapping; OpenCode
-interactive/ACP shutdown and V2 behavior; and the precise configuration/hook
+remote-execution hook identity mapping; OpenCode ACP, `opencode web`, the
+desktop app and `--server <url>` clients; and the precise configuration/hook
 mapping across remote execution hosts. Do not turn a documented ability to
 subscribe into a guarantee of concurrent mutation safety for one conversation.
 

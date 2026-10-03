@@ -364,16 +364,23 @@ passing the acceptance run.
 ### OpenCode hosting modes
 
 Dashpot observes OpenCode v2 only, as
-[ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) decides, and supports no OpenCode release until
-the acceptance run of [#407](https://github.com/ned2/dashpot/issues/407)
-passes on the pinned 2.0.22. Another 2.x release is observed, with a warning
-from `dashpot integrate opencode` and its `--status`. OpenCode 1.x is
-refused: `integrate` will not install while it is on PATH, and a 1.x server
-loads the plugin's v1 entry, which publishes nothing and makes an agent's
-`dashpot work start` say that OpenCode v1 is refused
-([what each release reads as](installation.md#observe-agent-sessions)). The measured detail is in the
-[OpenCode v2 experiment](spikes/opencode-v2-spike.md) and the
-[plugin protocol experiment](spikes/opencode-v2-plugin-protocol-spike.md).
+[ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)
+decides. OpenCode support is pinned to **2.0.22** on Linux, the release the
+[OpenCode acceptance run](../README.md#harness-acceptance-runs) last passed
+on; its trace is
+[`issue-163-opencode-trace.jsonl`](spikes/measurements/issue-163-opencode-trace.jsonl).
+Another 2.x release is observed, with a warning from `dashpot integrate
+opencode` and its `--status`, and is unsupported until that run passes on
+it. OpenCode 1.x is refused: `integrate` will not install while it is on
+PATH, and a 1.x server loads the plugin's v1 entry, which publishes nothing
+and makes an agent's `dashpot work start` say that OpenCode v1 is refused
+([what each release reads as](installation.md#observe-agent-sessions)). The
+acceptance run drives the shared service with the TUI, `opencode run` and
+the API, `--standalone` clients, the npm package's layout, Sub-agents in the
+foreground and the background, forks, moves, plugin edits, repairs and
+reloads, deletion, and the service replaced, stopped and killed. The measured
+detail is in the [OpenCode v2 experiment](spikes/opencode-v2-spike.md) and
+the [plugin protocol experiment](spikes/opencode-v2-plugin-protocol-spike.md).
 
 OpenCode has no command hooks. `dashpot integrate opencode` instead writes a
 managed plugin, `plugins/dashpot.js`, to OpenCode's global configuration
@@ -392,7 +399,7 @@ instances share one registry that publishes each event once:
 
 | How the session runs | Host Process | How it ends |
 | --- | --- | --- |
-| The TUI or `opencode run`, against the shared service | `opencode serve --service`, one per user, which the first client starts; a client is never a Host Process | A client's exit ends nothing. `opencode service stop` stops the service, which publishes nothing about its sessions; they read gone. An older TUI replaces a newer service, and the new service resumes its sessions |
+| The TUI or `opencode run`, against the shared service | `opencode serve --service`, one per user, which the first client starts; a client is never a Host Process | A client's exit ends nothing. `opencode service stop` stops the service, which publishes nothing about its sessions; they read gone. A TUI of another release, older or newer, replaces the service, and the new service serves the same sessions |
 | A `--standalone` TUI or `run` | The client's private `opencode serve --stdio` | Quitting the client stops its server; its sessions read gone |
 
 In the dashboard, an OpenCode session's state means:
@@ -403,12 +410,14 @@ In the dashboard, an OpenCode session's state means:
   Sub-agent of its root and holds it running, a background child past its
   root's execution included; a fork is a root of its own, and inherits no
   run.
-- **Unknown.** When the server's last plugin instance is cleaned up, as
-  `opencode reload` does before setting any up again, its running sessions,
-  and those holding Sub-agents, read unknown while the server runs, until
-  their next event; the session and its Issue work are unchanged. Cleanup
-  names that server. As for every harness, unknown also means Dashpot cannot
-  observe the server at all.
+- **Unknown.** When the server's last plugin instance is cleaned up and none
+  is set up again within a second, as when the plugin is removed, its running
+  sessions, and those holding Sub-agents, read unknown while the server runs,
+  until their next event; the session and its Issue work are unchanged.
+  Cleanup names that server. `opencode reload` cleans every instance up
+  before setting any up again, but at 2.0.22 sets them up within that
+  second, so a reload changes no session's state. As for every harness,
+  unknown also means Dashpot cannot observe the server at all.
 - **Gone.** The server exited. A bound run is listed as an
   [Orphaned Agent Run](domain-language.md) (`◌`) under the gone server
   ([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)).
@@ -418,9 +427,12 @@ In the dashboard, an OpenCode session's state means:
 
 A session moves when OpenCode moves it: by the model's move tool, the API,
 or, by the source, the TUI changing directory. Within the Repository its
-hook record and a bound run move with it, as a Live Relocation. A move to
-another Repository, or outside every Project, leaves the run where it was,
-reported as `work-session-elsewhere`.
+hook record and a bound run move with it, as a Live Relocation. A move
+requested while the session works takes effect when its execution ends. A
+move to another Repository, or outside every Project, leaves the run where
+it was, reported as `work-session-elsewhere`. Resuming a session from
+another directory, with `opencode <directory> --session <id>`, does not move
+it: it still runs, and keeps its run, where it was.
 
 To recover an orphaned run, resume the session in a running server, with
 `opencode <worktree> --session <id>`, and run `dashpot work start <issue>`
@@ -436,8 +448,12 @@ every inherited claim, and sets `DASHPOT_OPENCODE_PID` to its server's pid.
 A child session's command is refused as `delegated-session`, and a deleted
 session's claim is refused. A command run with the TUI's `!` and a terminal
 opened in OpenCode carry no claim, and a refused `work` command says which
-one it is. Each shell waits at most 3 s for the server's publications already
-admitted, so a session's first command finds its record.
+one it is. A model's command on a server that has not loaded the plugin
+carries OpenCode's variables without the pid, as a terminal that inherited
+them does, and its refusal names both causes. Each shell waits at most 3 s
+for the server's publications already admitted, so a session's first command
+finds its record; a missing or stalled helper delays a command by no more
+than that.
 
 **The hour's limit.** OpenCode interrupts a session, and kills its running
 command, after about an hour with no session event at its location, and a
@@ -447,7 +463,9 @@ gate longer than that is lost; split it, or run it outside OpenCode.
 
 Not supported, because they were not measured: `opencode web`, ACP
 (`opencode acp`), the SDK's own server, the desktop app and editor
-extensions; a remote server; and every operating system other than Linux.
+extensions; a client pointed at a server with `--server <url>`, and a
+remote server ([#379](https://github.com/ned2/dashpot/issues/379)); and
+every operating system other than Linux.
 An OpenCode started with `--pure` or `OPENCODE_PURE` loads no plugin and
 publishes nothing.
 

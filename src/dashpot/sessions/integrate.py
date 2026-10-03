@@ -28,7 +28,7 @@ from ..core.worktree_paths import (
     worktree_root,
 )
 from .harnesses import (
-    OPENCODE_PINNED_VERSION,
+    OPENCODE_ACCEPTED_VERSION,
     SESSION_OVERRIDE_VARIABLE,
     HarnessError,
     adapter,
@@ -297,7 +297,7 @@ def install_integration(
         if release is not None and _major(release) == 1:
             raise IntegrationError(
                 f"the opencode on PATH is OpenCode {release}, and Dashpot observes "
-                f"OpenCode v2 only; install OpenCode {OPENCODE_PINNED_VERSION} "
+                f"OpenCode v2 only; install OpenCode {OPENCODE_ACCEPTED_VERSION} "
                 "and retry"
             )
         return [
@@ -1067,7 +1067,7 @@ def _major(release: str) -> int:
 
 
 def _opencode_release_status(label: str, reported: str | None) -> list[str]:
-    """Report one OpenCode release: pinned, another v2, refused v1, or unknown."""
+    """Report one OpenCode release: accepted, another v2, refused v1, or unknown."""
     if reported is None:
         return [f"{label}: none found"]
     release = opencode_release(reported)
@@ -1077,26 +1077,26 @@ def _opencode_release_status(label: str, reported: str | None) -> list[str]:
             f"warning: Dashpot cannot read an OpenCode release in {reported!r}, "
             "so cannot tell whether the plugin observes it",
         ]
-    if release == OPENCODE_PINNED_VERSION:
-        return [f"{label}: {release}, the pinned release"]
+    if release == OPENCODE_ACCEPTED_VERSION:
+        return [f"{label}: {release}, the accepted release"]
     if _major(release) == 1:
         return [
             f"{label}: {release}, refused",
             f"warning: Dashpot observes OpenCode v2 only: under {release} the "
             "plugin publishes nothing and no command can opt in; install "
-            f"OpenCode {OPENCODE_PINNED_VERSION} and run 'dashpot integrate opencode'",
+            f"OpenCode {OPENCODE_ACCEPTED_VERSION} and run 'dashpot integrate opencode'",
         ]
     if _major(release) == 2:
         return [
             f"{label}: {release}",
-            f"warning: OpenCode {release} is not the pinned release "
-            f"{OPENCODE_PINNED_VERSION}; the plugin observes it, but another "
+            f"warning: OpenCode {release} is not the accepted release "
+            f"{OPENCODE_ACCEPTED_VERSION}; the plugin observes it, but another "
             "release may change what it observes",
         ]
     return [
         f"{label}: {release}",
         f"warning: OpenCode {release} is not v2, so the plugin observes nothing "
-        f"under it; install OpenCode {OPENCODE_PINNED_VERSION}",
+        f"under it; install OpenCode {OPENCODE_ACCEPTED_VERSION}",
     ]
 
 

@@ -279,10 +279,10 @@ OPENCODE_SESSION_VARIABLE = "OPENCODE_SESSION_ID"
 OPENCODE_MARKER_VARIABLE = "OPENCODE"
 # The Host Process pid Dashpot's plugin gives every shell it prepares.
 OPENCODE_PID_VARIABLE = "DASHPOT_OPENCODE_PID"
-# The OpenCode release Dashpot is pinned to, whose plugin API, events and
-# process shape were measured (ADR 0090). Another 2.x release is observed
-# with a warning; v1 is refused.
-OPENCODE_PINNED_VERSION = "2.0.22"
+# The OpenCode release Dashpot's acceptance run passed on, whose plugin API,
+# events and process shape were measured (ADR 0090). Another 2.x release is
+# observed with a warning; v1 is refused.
+OPENCODE_ACCEPTED_VERSION = "2.0.22"
 # The plugin's v1 entry sets this on each shell OpenCode v1's ``shell.env``
 # hook prepares, to the reason it cannot opt in: Dashpot observes OpenCode v2
 # only (ADR 0090).
@@ -314,20 +314,34 @@ def opencode_shell_refusal(environ: Mapping[str, str], in_opencode: bool) -> str
     shell, run through OpenCode's shell route (the TUI's ``!``),
     keeps the plugin's pid but loses the variables OpenCode sets only for a
     model's shell. A terminal runs no plugin hook, so it carries no pid;
-    ``in_opencode`` says whether an OpenCode server is its ancestor.
+    ``in_opencode`` says whether an OpenCode server is its ancestor. A
+    model's shell on a server that has not loaded the plugin carries
+    OpenCode's own variables without the pid, as a terminal that inherited
+    them does, so that shell is told both.
     """
     if _opencode_claim(environ) is not None:
         return None
     if environ.get(OPENCODE_REFUSAL_VARIABLE) == OPENCODE_V1_REFUSAL:
         return (
             "this command runs in OpenCode v1, and Dashpot observes OpenCode v2 "
-            f"only; install OpenCode {OPENCODE_PINNED_VERSION} and run "
+            f"only; install OpenCode {OPENCODE_ACCEPTED_VERSION} and run "
             "'dashpot integrate opencode'"
         )
     if environ.get(OPENCODE_PID_VARIABLE, "").isdigit():
         return (
             "this command runs in a shell the user started in OpenCode, not "
             "one its agent ran; only an agent's command can opt in"
+        )
+    if in_opencode and (
+        _identity(environ.get(OPENCODE_SESSION_VARIABLE)) is not None
+        and environ.get(OPENCODE_MARKER_VARIABLE) == "1"
+    ):
+        return (
+            "this command carries OpenCode's session variables but not the mark "
+            "Dashpot's plugin gives an agent's command: either the OpenCode "
+            "server running it has not loaded the plugin (check 'dashpot "
+            "integrate opencode --status', then run 'opencode reload'), or it "
+            "runs in an OpenCode terminal, which is no agent's command"
         )
     if in_opencode:
         return (

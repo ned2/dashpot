@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-02
+status: accepted
+date: 2026-10-03
 ---
 
 # Observe OpenCode v2 through its own session identity and event order
@@ -91,11 +91,31 @@ source:
 
 ### OpenCode v2 only
 
-Dashpot supports OpenCode 2.0.22 on Linux once the acceptance run of
-[#407](https://github.com/ned2/dashpot/issues/407) passes on it. Until then
-OpenCode is unsupported, as
-[ADR 0079](0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)
-kept it before 1.18.30's acceptance. v1 is refused, not observed:
+Dashpot supports OpenCode 2.0.22 on Linux, the release its acceptance run
+passed on ([README](../../README.md#harness-acceptance-runs)). That run,
+re-pinned by [#407](https://github.com/ned2/dashpot/issues/407), drives
+OpenCode's own clients and server with Dashpot's installed plugin and helper,
+and passed in these modes:
+
+- the shared service, started by a TUI and by `opencode run`, with the TUI
+  quit and a session resumed from another directory;
+- `--standalone`, as a TUI and as `opencode run`;
+- the npm package, whose service is `opencode.exe`;
+- Sub-agents, a background one among them, and a fork;
+- moves within the Repository, out of it and back, while idle and while the
+  session works;
+- plugin instance churn: an edited plugin, its repair, `opencode reload`, and
+  the plugin's removal;
+- a missing, a stalled and a restored helper;
+- deletion through the API and through `opencode session delete`, and a
+  deletion no instance received;
+- a TUI of 2.0.21 replacing the service, a 2.0.22 TUI replacing it again,
+  `opencode service stop`, and a killed service;
+- the refusals of a user shell, a terminal, an unplugged server's shell, a
+  `cd` into another Worktree and an explicit `DASHPOT_AGENT_SESSION`, and of
+  `integrate` against 1.18.30.
+
+v1 is refused, not observed:
 
 - `dashpot integrate opencode` refuses to install while the `opencode` on
   PATH reports a 1.x release, and `--status` reports such a release as
@@ -373,19 +393,10 @@ it.
   - ADR 0080: only the Host Process's last live instance sets the marker,
     any publication clears it, and it no longer refuses a claim; the way out
     of a Worktree changes; and the deletion limitation is answered.
-- **Delivery.** Proposed here means decided but not yet delivered.
-  - #405 marks ADR 0078 superseded, adds this ADR to ADR 0077's
-    `amended-by`, and marks ADRs 0079 and 0080 amended.
-  - [#406](https://github.com/ned2/dashpot/issues/406) marks ADR 0081
-    superseded.
-  - #407 marks this ADR accepted, and lists the modes its acceptance run
-    passes.
-  - Until #407, no document claims OpenCode support.
-  - #405's and #406's bodies predate this ADR. Where they differ, this ADR
-    rules: the claim carries no generation, and `integrate` warns, rather
-    than refuses, on a 2.0.x release other than the pinned one.
-  - The domain language describes 1.18.30 and v2 side by side until then.
-    #405 and #406 remove the 1.18.30 rules from each entry.
+- **Delivery.** #405 delivered the plugin, the helper and the claim, and
+  [#406](https://github.com/ned2/dashpot/issues/406) the refusal of v1.
+  [#407](https://github.com/ned2/dashpot/issues/407) re-pinned the
+  acceptance run on 2.0.22 and accepted this ADR.
 - **Lost from 1.18.30.**
   - A command run with the TUI's `!` can no longer opt in.
   - Quitting the TUI no longer frees a Worktree.

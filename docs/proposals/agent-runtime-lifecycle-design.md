@@ -29,7 +29,10 @@ worktree tools and measured its rows at `2.1.286`, and
 Relocation route for both harnesses through public seams.
 [#163](https://github.com/ned2/dashpot/issues/163) implemented the OpenCode
 adapter and publisher generations, and its acceptance run pinned OpenCode
-support to `1.18.30`
+support to `1.18.30`;
+[#393](https://github.com/ned2/dashpot/issues/393) replaced that with OpenCode
+v2 only, and [#407](https://github.com/ned2/dashpot/issues/407) re-pinned the
+run to `2.0.22`
 ([OpenCode hosting modes](../agent-sessions.md#opencode-hosting-modes)). The unmeasured rows
 below stay unsupported. The contract is concrete enough that
 its consumers implement it rather than choose it:
@@ -47,7 +50,7 @@ document does not state records its own ADR rather than inventing one.
 | --- | --- | --- |
 | Codex | `0.155.1`: two root threads, fork, sub-agent, second client, interrupt, unload, SIGKILL/SIGTERM and stored-thread resume on `app-server --listen` and `exec`; the managed daemon with plain and `--remote` terminals, controller `turn/start` and `thread/resume` `cwd` overrides, a turn joined mid-turn, `/exit` and unload; the sequential `codex resume -C` route with no daemon, a loaded daemon thread and an unloaded one; pinned `rust-v0.154.0` source | [Codex experiment](../spikes/codex-identity-lifecycle-spike.md), [handoff experiment](../spikes/cleanup-session-handoff-feasibility-spike.md#scenario-results-codex), [declared-relocation experiment](../spikes/codex-declared-relocation-daemon-spike.md#scenario-results), [reference](../agent-harness-server-client-reference.md#measured-lifecycle-at-01551) |
 | Claude Code | `2.1.276`: headless, resume, fork, sub-agent, supervisor and workers; `2.1.278`: interactive sessions with a development channel, `EnterWorktree`/`ExitWorktree`; `2.1.285`: sub-agents, resume of a running background session; `2.1.285` under [#326](https://github.com/ned2/dashpot/issues/326): supervised worker, spare and PTY host process shapes, abrupt exit, stop and respawn; `2.1.285` under [#279](https://github.com/ned2/dashpot/issues/279): where `SubagentStart`, `SubagentStop` and a sub-agent's tool hooks place it | [Claude experiment](../spikes/claude-code-identity-lifecycle-spike.md), [handoff experiment](../spikes/cleanup-session-handoff-feasibility-spike.md#scenario-results-claude-code), [2.1.285 experiment](../spikes/claude-code-2-1-285-changes-spike.md), [supervised worker experiment](../spikes/claude-code-supervised-worker-process-spike.md), [sub-agent experiment](../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285), [reference](../agent-harness-server-client-reference.md#measured-supervisor-and-worker-lifecycle-at-21276) |
-| OpenCode | `1.18.30` legacy plugin path: sessions sharing one backend, attached client exit, plugin disposal, deletion, backend replacement, child sessions and forks | [OpenCode experiment](../spikes/opencode-identity-lifecycle-spike.md), [OpenCode design](opencode-integration-design.md) |
+| OpenCode | `1.18.30` legacy plugin path: sessions sharing one backend, attached client exit, plugin disposal, deletion, backend replacement, child sessions and forks; `2.0.22`: the shared service and its plugin instances, shell identity, Sub-agents, moves, idle eviction and deletion (#393, #405), and the acceptance run's modes (#407) | [OpenCode experiment](../spikes/opencode-identity-lifecycle-spike.md), [OpenCode design](opencode-integration-design.md), [v2 experiment](../spikes/opencode-v2-spike.md), [ADR 0090](../adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
 
 Two statements in #261's evidence section are superseded. The #269 question
 (does the daemon break ADR 0029's sequential resume) was answered by #272: the
@@ -249,7 +252,7 @@ parent without gaining any authority of their own.
 | --- | --- | --- |
 | Codex sub-agent thread | Hook `session_id` is the root; `agent_id` names the child thread | Measured at `0.155.1`: the child's own shell claims the child id in `CODEX_THREAD_ID` and the root in `CODEX_SESSION_ID` |
 | Claude Code sub-agent | Hook `session_id` and `CLAUDE_PID` are the parent's; `agent_id` present | Measured at `2.1.276` and `2.1.285`; its hook `cwd` is the parent's current cwd, except with `isolation: "worktree"`, where it is the sub-agent's own `.claude/worktrees/agent-<id>`; a sub-agent's `cd` is visible to no hook |
-| OpenCode child session | Its own native id with `parentID` naming the parent | Measured at `1.18.30`; a fork carries no `parentID` and is a separate session |
+| OpenCode child session | Its own native id with `parentID` naming the parent | Measured at `1.18.30` and `2.0.22`; a fork is a separate root session: at `1.18.30` it carries no `parentID`, and at `2.0.22` its `session.forked` names only its source there |
 
 The rule for every child-scoped event:
 
@@ -613,7 +616,7 @@ under its implementing Issue, never by assumption.
 | Claude Code idle eviction | Supported (#162, Linux, `2.1.286`) | The retired worker's run is orphaned and continues when `claude attach` respawns the worker at the run's Worktree |
 | Claude Code Remote Control (attachment and server), SDK, agent teams, cloud, desktop | Unsupported | Unmeasured; server mode needs a claude.ai login |
 | OpenCode v1, including `1.18.30` | Refused ([ADR 0090](../adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)) | `integrate` refuses a v1 `opencode` on PATH; the plugin's v1 entry publishes nothing and makes `work start` say that v1 is refused; #163's acceptance of `1.18.30` ([ADR 0081](../adr/0081-support-opencode-1-18-30-on-linux.md)) is superseded |
-| OpenCode v2 shared service and `--standalone` | Observed at the pinned `2.0.22`, unsupported until #407's acceptance run passes | Another 2.x is observed with a warning; see [OpenCode hosting modes](../agent-sessions.md#opencode-hosting-modes) |
+| OpenCode v2 shared service and `--standalone` | Supported at `2.0.22` (#407's acceptance run) | Another 2.x is observed with a warning; see [OpenCode hosting modes](../agent-sessions.md#opencode-hosting-modes) |
 | OpenCode ACP, `opencode web`, SDK-owned server, remote backends | Unsupported | Unmeasured |
 
 ## Worked examples
