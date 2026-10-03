@@ -945,13 +945,36 @@ def test_a_terminal_is_told_it_is_no_agents_command(
     project: Path, server: Server
 ) -> None:
     server.turn(project)
-    # A terminal runs no plugin hook, so an inherited session is all it has.
+
+    # A terminal runs no plugin hook, so it carries no claim at all.
+    with pytest.raises(IssueWorkError) as refused:
+        start_issue_work(project, "build-observer", lookup=server.lookup, environ={})
+
+    message = str(refused.value)
+    assert "this command runs in an OpenCode terminal, which is no agent's" in message
+    assert "has not loaded the plugin" not in message
+
+
+def test_opencodes_variables_without_the_plugins_mark_name_both_causes(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
+    # A model's shell on a server without the plugin carries OpenCode's own
+    # variables, as a terminal that inherited them does.
     environ = {"OPENCODE_SESSION_ID": ROOT, "OPENCODE": "1"}
 
-    with pytest.raises(IssueWorkError, match="an OpenCode terminal"):
+    with pytest.raises(IssueWorkError) as refused:
         start_issue_work(
             project, "build-observer", lookup=server.lookup, environ=environ
         )
+
+    message = str(refused.value)
+    assert "carries OpenCode's session variables but not the mark" in message
+    assert "has not loaded the plugin" in message
+    assert (
+        "'dashpot integrate opencode --status', then run 'opencode reload'" in message
+    )
+    assert "or it runs in an OpenCode terminal" in message
 
 
 @pytest.mark.parametrize(

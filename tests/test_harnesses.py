@@ -203,6 +203,16 @@ def test_opencode_shell_refusal_says_which_shell_it_is() -> None:
     terminal = opencode_shell_refusal({}, in_opencode=True)
     assert terminal is not None
     assert "OpenCode terminal" in terminal
+    inherited = {"OPENCODE_SESSION_ID": "ses_inherited", "OPENCODE": "1"}
+    unplugged = opencode_shell_refusal(inherited, in_opencode=True)
+    assert unplugged is not None
+    assert "has not loaded the plugin" in unplugged
+    assert "OpenCode terminal" in unplugged
+    # Either variable alone is no sign of a model's shell.
+    for name in inherited:
+        alone = opencode_shell_refusal({name: inherited[name]}, in_opencode=True)
+        assert alone == terminal
+    assert opencode_shell_refusal(inherited, in_opencode=False) is None
     refused = {"DASHPOT_OPENCODE_REFUSAL": "opencode-v1"}
     for in_opencode in (True, False):
         v1 = opencode_shell_refusal(refused, in_opencode=in_opencode)

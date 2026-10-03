@@ -429,9 +429,9 @@ own entries. An Agent Session declares Issue work with `dashpot work start`
 from inside that session, as described in [Agent sessions](agent-sessions.md).
 
 Dashpot observes OpenCode v2 only
-([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)), and supports no OpenCode release until its acceptance
-run passes on one ([#407](https://github.com/ned2/dashpot/issues/407)).
-Dashpot is pinned to OpenCode 2.0.22, the release its plugin was measured on.
+([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)),
+and its OpenCode support is pinned to 2.0.22, the release its
+[acceptance run](../README.md#harness-acceptance-runs) passed on.
 `dashpot integrate opencode` refuses to install while the `opencode` on PATH
 is a 1.x release, and installs for any other release with a warning. It
 installs a managed plugin,
@@ -450,15 +450,16 @@ directory OpenCode also reads (its global configuration directory,
 `~/.opencode`, `$OPENCODE_CONFIG_DIR`, or a project `.opencode` directory),
 each of which may publish through its own helper,
 and an `OPENCODE_PURE` setting that keeps every plugin out. OpenCode loads
-the plugin when it starts an instance, so restart the OpenCode TUI or backend
-after installing, updating or removing it; one already running keeps the
-plugin it loaded. The supported ways to run OpenCode, and what each one's
+the plugin when it sets up a plugin instance. A running 2.0.22 server sets
+its instances up again when installing or updating changes the plugin file;
+after removing the plugin, run `opencode reload`, or restart the OpenCode
+service, so that no instance keeps it. The supported ways to run OpenCode, and what each one's
 state means, are in
 [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes).
 
 Each OpenCode release `--status` reports reads as one of:
 
-- **the pinned release**: 2.0.22.
+- **the accepted release**: 2.0.22.
 - **another 2.x release**, with a warning: the plugin observes it, but its
   plugin API or events may differ from what was measured. Install 2.0.22 to
   remove the warning.
@@ -515,10 +516,10 @@ for the new hooks when it asks.
 | Session liveness is unknown | Read the Diagnostic: an isolated process namespace can hide a live process. Unknown does not mean the Agent Session ended. |
 | OpenCode sessions are missing | Run `dashpot integrate opencode --status`. Its plugin must be installed, current and bound to an executable helper, with no second copy of it and no `OPENCODE_PURE`; then run `opencode reload`, or restart the OpenCode service, so that it loads the plugin. |
 | `dashpot integrate opencode` is refused because the `opencode` on PATH is OpenCode 1.x | Dashpot observes OpenCode v2 only. Install OpenCode 2.0.22, check that `opencode --version` prints `opencode v2.0.22`, and run `dashpot integrate opencode` again. |
-| `--status` warns that an OpenCode release is not the pinned release | The plugin observes it, but it was measured on 2.0.22 only. When the warning names the service release, a client of that release replaced the service; run a 2.0.22 client, or restart the service with `opencode service stop` and a 2.0.22 client. |
+| `--status` warns that an OpenCode release is not the accepted release | The plugin observes it, but it was measured on 2.0.22 only. When the warning names the service release, a client of that release replaced the service; run a 2.0.22 client, or restart the service with `opencode service stop` and a 2.0.22 client. |
 | An OpenCode `dashpot work start` says the command runs in OpenCode v1 | The plugin's v1 entry marked the shell: OpenCode v1 is refused. Install OpenCode 2.0.22, run `dashpot integrate opencode`, and start a new session there. |
-| An OpenCode `dashpot work start` is refused as having no supported agent session | Only a command OpenCode runs for a root session's model carries a claim; the refusal says when it ran in a shell the user started with the TUI's `!`, or in an OpenCode terminal. A child session's command is refused as `delegated-session`. Check `dashpot integrate opencode --status`, then ask the agent to run the command. |
-| An OpenCode session reads unknown after a plugin reload | Its server's last plugin instance was cleaned up, and the session was running or held Sub-agents; its next event restores it, with its Issue work unchanged. See [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes). |
+| An OpenCode `dashpot work start` is refused as having no supported agent session | Only a command OpenCode runs for a root session's model carries a claim; the refusal says when it ran in a shell the user started with the TUI's `!`, or in an OpenCode terminal, and when it carries OpenCode's variables without the plugin's mark, as on a server that has not loaded the plugin. A child session's command is refused as `delegated-session`. Check `dashpot integrate opencode --status`, run `opencode reload` if the server has not loaded the plugin, then ask the agent to run the command. |
+| An OpenCode session reads unknown while its server runs | Its server's last plugin instance was cleaned up and none was set up again, as when the plugin is removed, while the session was running or held Sub-agents; its next event restores it, with its Issue work unchanged. See [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes). |
 
 ## Upgrade and uninstall
 
