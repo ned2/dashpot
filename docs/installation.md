@@ -465,8 +465,9 @@ Each OpenCode release `--status` reports reads as one of:
 - **refused**, for a 1.x release: OpenCode v1 loads the plugin's v1 entry,
   which publishes nothing and sets `DASHPOT_OPENCODE_REFUSAL=opencode-v1` on
   each shell its `shell.env` hook prepares, an agent's command among them, so
-  `dashpot work start` there says that OpenCode v1 is refused. Install OpenCode 2.0.22, run `dashpot integrate opencode`, and
-  start OpenCode again. A session a v1 server ran reads gone once that server
+  `dashpot work start` there says that OpenCode v1 is refused. Install
+  OpenCode 2.0.22, run `dashpot integrate opencode`, and start OpenCode
+  again. A session a v1 server ran reads gone once that server
   exits, and any Issue work it held is an Orphaned Agent Run, ended with
   `dashpot work stop --session <session-key>`.
 - **another major release**, with a warning: the plugin observes nothing
@@ -474,9 +475,17 @@ Each OpenCode release `--status` reports reads as one of:
 - **unreadable**, with a warning, when `opencode --version` names no
   release Dashpot can read.
 
-The service is reported as none registered, as registered by a process that
-has exited (a killed service leaves its registration behind), or by its pid
-and release.
+The service is reported as one of:
+
+- **none registered**: no shared service runs, or none has run.
+- **none running**, when the registration names a pid that has exited or
+  that another process now holds: a killed service leaves its registration
+  behind. The next client starts a service again.
+- **its pid and release**, read as above.
+- **cannot read**, naming the file and what is wrong with it.
+- **unknown**, while `XDG_STATE_HOME` is a relative path, which OpenCode
+  resolves from whichever process writes the registration. Set it to an
+  absolute path, or unset it.
 
 A Codex integration installed before Dashpot subscribed Codex's
 `SubagentStart` and `SubagentStop` still works, but its sub-agents neither
