@@ -494,12 +494,12 @@ def codex_steps(thread: str = THREAD) -> str:
     )
 
 
-# An OpenCode session cannot move, so both ways out end what serves it.
+# An OpenCode v2 session can move, or be deleted, or lose its server.
 OPENCODE_STEPS = (
-    "quit the OpenCode TUI serving that session, or stop the OpenCode backend "
-    "it runs in (an OpenCode session cannot leave the directory it was created "
-    "in, and closing an attached client leaves it running), or delete that "
-    "session in the OpenCode backend serving it"
+    "move that session to another location in OpenCode, or delete that "
+    f"session with opencode session delete {OPENCODE_SESSION}, or stop the "
+    "OpenCode server it runs in, with opencode service stop or by quitting its "
+    "--standalone client, which leaves every Agent Run on that server orphaned"
 )
 
 
@@ -601,7 +601,7 @@ def test_a_live_opencode_session_here_names_what_serves_it(tmp_path: Path) -> No
     )
 
 
-def test_a_session_of_a_retired_opencode_plugin_names_its_running_backend(
+def test_a_session_no_plugin_instance_observes_names_its_running_server(
     tmp_path: Path,
 ) -> None:
     worktree, worktrees = occupied_worktree(
@@ -609,10 +609,10 @@ def test_a_session_of_a_retired_opencode_plugin_names_its_running_backend(
         "opencode",
         OPENCODE_SESSION,
         OPENCODE,
-        "opencode-publisher-retired",
+        "opencode-no-live-instance",
     )
 
-    # The backend is observed and runs: nothing for a person to check with ps.
+    # The server is observed and runs: nothing for a person to check with ps.
     (blocker,) = assess_worktree_occupancy(
         worktree, worktrees, table_lookup({OPENCODE.pid: OPENCODE})
     )
@@ -621,13 +621,13 @@ def test_a_session_of_a_retired_opencode_plugin_names_its_running_backend(
         kind="agent-session",
         detail=f"OpenCode session {OPENCODE_SESSION} may be live here: its "
         "liveness is unknown (last activity 2026-09-30T03:40:00.000000Z). Its "
-        f"OpenCode backend, pid {OPENCODE.pid}, still runs, but the plugin "
-        "instance that observed the session has retired and none has published "
-        f"it since. To free this Worktree, {OPENCODE_STEPS}.",
+        f"OpenCode server, pid {OPENCODE.pid}, still runs, but no Dashpot "
+        "plugin instance has run in it since the session was last published. "
+        f"To free this Worktree, {OPENCODE_STEPS}.",
     )
 
 
-def test_a_session_of_a_retired_opencode_plugin_frees_its_worktree_once_its_backend_exits(
+def test_a_session_no_plugin_instance_observes_frees_its_worktree_once_its_server_exits(
     tmp_path: Path,
 ) -> None:
     worktree, worktrees = occupied_worktree(
@@ -635,7 +635,7 @@ def test_a_session_of_a_retired_opencode_plugin_frees_its_worktree_once_its_back
         "opencode",
         OPENCODE_SESSION,
         OPENCODE,
-        "opencode-publisher-retired",
+        "opencode-no-live-instance",
     )
 
     assert assess_worktree_occupancy(worktree, worktrees, absent()) == []
@@ -684,15 +684,15 @@ def test_a_live_opencode_run_is_stopped_inside_its_session(tmp_path: Path) -> No
     )
 
 
-def test_a_run_of_a_deleted_opencode_session_names_its_backend_then_the_stop(
+def test_a_run_of_a_session_with_no_record_left_is_stopped_from_outside(
     tmp_path: Path,
 ) -> None:
     worktree, worktrees = occupied_worktree(
         tmp_path, "opencode", OPENCODE_SESSION, OPENCODE
     )
     bind_opencode_run(worktree)
-    # As `opencode session delete` from another process leaves it: the hook
-    # record is removed while the run and the backend serving it remain.
+    # As a deletion whose run was not ended leaves it: the hook record is
+    # removed while the run and the server that served it remain.
     for record in session_directory(worktree).glob("*.json"):
         record.unlink()
 
@@ -703,9 +703,8 @@ def test_a_run_of_a_deleted_opencode_session_names_its_backend_then_the_stop(
     assert blocker == CleanupBlocker(
         kind="agent-run",
         detail=f"OpenCode session {OPENCODE_SESSION} is working on issue-10, "
-        "but no hook record of that session is left, as after 'opencode session "
-        "delete', while the OpenCode backend that served it still runs: quit "
-        "that OpenCode TUI or stop that backend, then end the run",
+        "but no hook record of that session is left while the OpenCode server "
+        "that served it still runs: end the run",
         command=f"cd {worktree} && dashpot work stop --session {OPENCODE_KEY}",
     )
 

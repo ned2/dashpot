@@ -27,8 +27,8 @@ from .sessions.deferred_end import SETTLE_COMMAND, DeferredEnd, settle_session_e
 from .sessions.hook_publish import HookPublication, publish_hook_event
 from .sessions.opencode_publish import (
     OpenCodeOutcome,
-    PluginPublication,
-    parse_publication,
+    PluginRequest,
+    parse_request,
     publish_opencode,
 )
 from .sessions.processes import ProcessLookup, host_process_lookup
@@ -157,10 +157,12 @@ def record_hook_outcome(
     event: object,
     publication: HookPublication | None,
     error: Exception | None,
+    reason: str | None = None,
 ) -> None:
     """Record what one hook run did to its record and the Work Store, or its error class.
 
     The Issue of an Agent Run it changed names the process from here on.
+    ``reason`` is a reason word the run kept, such as the harness's own.
     """
     payload: dict[str, Any] = event if isinstance(event, dict) else {}
     # A hook asks for nothing a person could be refused: any error failed it.
@@ -175,13 +177,14 @@ def record_hook_outcome(
                 "hook_event": payload.get("hook_event_name"),
                 "record_state": None if publication is None else publication.state,
                 "work": None if publication is None else publication.work,
+                "hook_reason": reason,
                 "error_type": None if error is None else outcome_error(error),
             },
         )
     )
 
 
-# A helper whose plugin stopped waiting must not linger, holding a publisher
+# A helper whose plugin stopped waiting must not linger, holding a Publisher
 # record lock: it gives up at the deadline the plugin passed, plus this.
 OPENCODE_DEADLINE_GRACE_SECONDS = 0.5
 
@@ -196,24 +199,27 @@ def _run_opencode(*, event_log: EventLogDestination | None = None) -> int:
     The acknowledgment is the one line on standard output the plugin reads;
     a failure prints none, which the plugin reads as no acknowledgment.
     """
-    publication: PluginPublication | None
+    request: PluginRequest | None
     failure: Exception | None
     try:
-        publication, failure = parse_publication(sys.stdin.read()), None
+        request, failure = parse_request(sys.stdin.read()), None
     except (OSError, ValueError) as exc:
-        publication, failure = None, exc
-    kind = (
-        "hook:opencode" if publication is None else f"hook:opencode:{publication.kind}"
-    )
-    directory = (
-        working_directory() if publication is None else Path(publication.directory)
+        request, failure = None, exc
+    kind = "hook:opencode" if request is None else f"hook:opencode:{request.kind}"
+    session = None if request is None else request.session
+    location = (
+        None
+        if request is None
+        else session.location
+        if session is not None
+        else request.location
     )
     log = open_event_log(
         kind,
-        working_directory=directory,
+        working_directory=working_directory() if location is None else Path(location),
         destination=event_log,
         harness="opencode",
-        session_id=None if publication is None else publication.root,
+        session_id=None if session is None else session.root,
     )
     log.start()
     code = 0
@@ -221,14 +227,14 @@ def _run_opencode(*, event_log: EventLogDestination | None = None) -> int:
     error: Exception | None = None
     previous = signal.signal(signal.SIGALRM, _expire)
     try:
-        if publication is None:
+        if request is None:
             raise failure or ValueError("no OpenCode plugin request")
         signal.setitimer(
             signal.ITIMER_REAL,
-            publication.deadline_ms / 1000 + OPENCODE_DEADLINE_GRACE_SECONDS,
+            request.deadline_ms / 1000 + OPENCODE_DEADLINE_GRACE_SECONDS,
         )
         with use_event_log(log):
-            outcome = publish_opencode(publication)
+            outcome = publish_opencode(request)
         print(outcome.acknowledgment.wire())
     except (OSError, ValueError, RuntimeError, DashpotError) as exc:
         print(f"dashpot OpenCode hook: {exc}", file=sys.stderr)
@@ -242,9 +248,18 @@ def _run_opencode(*, event_log: EventLogDestination | None = None) -> int:
         if outcome is None or not outcome.publications
         else outcome.publications[-1]
     )
-    # The publication's kind stands in for a native hook event name.
-    event = {} if publication is None else {"hook_event_name": publication.kind}
-    record_hook_outcome(log, event, last, error)
+    # The last shared event written stands in for a native hook event name;
+    # a request that wrote none is named by its kind.
+    name = (
+        outcome.written[-1]
+        if outcome is not None and outcome.written
+        else None
+        if request is None
+        else request.kind
+    )
+    event = {} if name is None else {"hook_event_name": name}
+    reason = None if outcome is None else outcome.acknowledgment.reason
+    record_hook_outcome(log, event, last, error, reason)
     log.end(code)
     log.close()
     return code

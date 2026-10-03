@@ -68,10 +68,11 @@ is the instruction to do so; do not wait for the user to ask:
   session keeps the Worktree from Cleanup until its client exits, and that
   `codex resume <session-id> -C <directory>` continues it elsewhere after
   that. A daemon-hosted thread ends about 60 s after its last client leaves.
-- **OpenCode.** A session never leaves the directory it was created in. Tell
-  the user it keeps the Worktree from Cleanup until the OpenCode TUI serving
-  it quits, the backend it runs in stops, or the session is deleted in that
-  backend; closing an attached client leaves it running.
+- **OpenCode.** Do not move the session yourself. Tell the user it keeps
+  the Worktree from Cleanup until it is moved to another location in
+  OpenCode, it is deleted with `opencode session delete <session-id>`, or
+  the OpenCode server it runs in stops; quitting a client leaves it
+  running.
 
 If the user asks for follow-up changes afterwards, a Claude Code session that
 left enters the same Worktree again with `EnterWorktree` and checks

@@ -222,8 +222,8 @@ def test_status_of_a_current_installation(tmp_path: Path) -> None:
     assert "OpenCode release: 1.18.30, the accepted release" in messages
     assert not any("unsupported" in message for message in messages)
     assert messages[-1] == (
-        "Agent Session identity claimed here: none for OpenCode (only a command "
-        "its plugin corroborated carries one)"
+        "Agent Session identity claimed here: none for OpenCode (only a shell "
+        "OpenCode ran for its agent, prepared by the plugin, carries one)"
     )
 
 

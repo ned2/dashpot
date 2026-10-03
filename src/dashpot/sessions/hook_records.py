@@ -31,6 +31,9 @@ EVENT_STATES: dict[str, ActiveState] = {
     "UserPromptSubmit": "running",
     "PreToolUse": "running",
     "PostToolUse": "running",
+    # OpenCode's move of a session, which the OpenCode helper writes from
+    # ``session.moved``; a move always falls inside an execution (ADR 0090).
+    "SessionMoved": "running",
     "Stop": "waiting",
     "Interrupt": "waiting",
     "SessionEnd": "ended",
@@ -96,8 +99,9 @@ class HookRecord(PersistedRecord):
     session_process: SessionProcessRecord | None = None
     # Why the host process is unknown, when it is: distinguishes a hook that
     # ran where the harness is unobservable from one with no harness. Beside a
-    # named process, it says nothing observes the session in that process (a
-    # retired OpenCode generation, ADR 0080), which reads unknown while it lives.
+    # named process, it says nothing observes the session in that process (an
+    # OpenCode Host Process with no live plugin instance, ADR 0080), which
+    # reads unknown while it lives.
     session_process_unobservable: OptionalText = None
     turn_started_at: OptionalText = None
     # The session's sub-agents observed started and not yet stopped; a

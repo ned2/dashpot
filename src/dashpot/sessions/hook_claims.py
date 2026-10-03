@@ -16,7 +16,7 @@ from .hook_scan import (
     locate_agent_session,
     reachable_hook_stores,
 )
-from .opencode_publishers import RETIRED_PUBLISHER, corroboration_refusal
+from .opencode_publishers import deleted_session, recorded_root
 from .processes import (
     ProcessIdentity,
     ProcessLookup,
@@ -67,6 +67,8 @@ def validate_session_claim(
     name = f"{display} session {claim.session_id} (from {claim.source})"
     if stores is None:
         stores = reachable_hook_stores(repository_worktrees(worktree))
+    if claim.harness == "opencode":
+        _refuse_opencode_claim(claim, name, stores)
     try:
         location = locate_agent_session(
             stores, lookup, harness=claim.harness, session_id=claim.session_id
@@ -102,45 +104,42 @@ def validate_session_claim(
             f"record was published for pid {process.pid}; the identities do "
             f"not describe one session"
         )
-    if claim.harness == "opencode":
-        _corroborate_opencode_generation(claim, name, location)
+    if claim.harness == "opencode" and process is None:
+        # One OpenCode server hosts every session, so only a record naming
+        # it can corroborate the pid the claim carries.
+        raise SessionClaimError(
+            f"the lifecycle hook record for {name} names no Host Process; it "
+            f"cannot corroborate the OpenCode server the command runs in"
+        )
     return ValidatedSessionIdentity(claim, record, process, location)
 
 
-def _corroborate_opencode_generation(
-    claim: SessionIdentityClaim, name: str, location: SessionLocation
+def _refuse_opencode_claim(
+    claim: SessionIdentityClaim, name: str, stores: Sequence[Path]
 ) -> None:
-    """Refuse an OpenCode claim its publisher generation no longer stands behind.
+    """Refuse an OpenCode claim that is not a root session's own.
 
-    One OpenCode backend hosts every session, so its process corroborates no
-    session by itself: only the plugin's command-scoped claim, whose
-    generation still owns the backend's directory, does (ADR 0078).
+    The claim must be OpenCode's own variable on a model's shell, which
+    carries the plugin's pid; an explicit ``DASHPOT_AGENT_SESSION`` never
+    does. A child session is recorded with its root, so it is no Agent
+    Session of its own, and a session OpenCode deleted is no session at all
+    (ADR 0090).
     """
-    process = location.process
-    if claim.generation is None:
+    if claim.pid is None:
         raise SessionClaimError(
-            f"{name} carries no publisher generation; an OpenCode session is "
-            f"identified only by the claim Dashpot's OpenCode plugin gives a "
-            f"command it corroborated"
+            f"{name} is not OpenCode's own claim; an OpenCode session is "
+            f"identified only by the session variable OpenCode sets on a shell "
+            f"its agent runs, beside Dashpot's plugin's pid"
         )
-    if process is None or location.record.reason == RETIRED_PUBLISHER:
-        # A retired generation leaves its sessions observed by no plugin
-        # instance until a successor publishes them; a record naming no
-        # process at all corroborates nothing either.
-        raise SessionClaimError(
-            f"{name} is not corroborated: no plugin instance publishes it now; "
-            f"run the command again from the session, or check 'dashpot "
-            f"integrate opencode --status'"
-        )
-    refusal = corroboration_refusal(
-        location.store,
-        process,
-        Path(location.record.cwd),
-        claim.generation,
-        claim.session_id,
-    )
-    if refusal is not None:
-        raise SessionClaimError(
-            f"{name} is not corroborated: {refusal}; run the command again "
-            f"from the session, or check 'dashpot integrate opencode --status'"
-        )
+    for store in stores:
+        root = recorded_root(store, claim.session_id)
+        if root is not None:
+            raise SessionClaimError(
+                f"{name} is refused (delegated-session): it is a child session "
+                f"of {root}, whose Agent Run its work belongs to; run 'dashpot "
+                f"work start' from session {root}"
+            )
+        if deleted_session(store, claim.session_id):
+            raise SessionClaimError(
+                f"{name} is refused: OpenCode has deleted the session"
+            )

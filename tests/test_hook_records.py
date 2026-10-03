@@ -1003,14 +1003,14 @@ def test_an_unobserved_record_reads_unknown_while_its_process_lives() -> None:
     assert classified(
         "opencode",
         UNOBSERVED_OPENCODE,
-        "opencode-publisher-retired",
+        "opencode-no-live-instance",
         present(UNOBSERVED_OPENCODE),
-    ) == ("unknown", "opencode-publisher-retired")
+    ) == ("unknown", "opencode-no-live-instance")
 
 
 def test_an_unobserved_record_reads_gone_once_its_process_is_gone() -> None:
     assert classified(
-        "opencode", UNOBSERVED_OPENCODE, "opencode-publisher-retired", absent()
+        "opencode", UNOBSERVED_OPENCODE, "opencode-no-live-instance", absent()
     ) == ("gone", None)
 
 
@@ -1036,7 +1036,7 @@ def test_an_ended_unobserved_record_stays_ended() -> None:
     assert classified(
         "opencode",
         UNOBSERVED_OPENCODE,
-        "opencode-publisher-retired",
+        "opencode-no-live-instance",
         present(UNOBSERVED_OPENCODE),
         state="ended",
     ) == ("ended", None)

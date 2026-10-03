@@ -712,11 +712,14 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
     assert "60 s after its last client leaves" in codex_case
     assert "60 s after its last client leaves" in session_exit("codex").end
     opencode_case = text[opencode:follow_up]
-    assert "never leaves the directory it was created in" in opencode_case
-    assert "closing an attached client leaves it running" in opencode_case
-    assert "closing an attached client leaves it running" in flowed(
+    assert "Do not move the session yourself" in opencode_case
+    assert "moved to another location in OpenCode" in opencode_case
+    assert "move that session to another location in OpenCode" in flowed(
         session_exit("opencode").move
     )
+    assert "`opencode session delete <session-id>`" in opencode_case
+    assert "opencode session delete {session_id}" in session_exit("opencode").end
+    assert "quitting a client leaves it running" in opencode_case
     follow_up_text = text[follow_up:]
     assert "enters the same Worktree again with `EnterWorktree`" in follow_up_text
     assert "checks `<dashpot> work show` before any `work start`" in follow_up_text

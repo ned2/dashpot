@@ -18,7 +18,7 @@ from ...sessions.hook_scan import (
     stored_session_records,
 )
 from ...sessions.liveness import session_liveness
-from ...sessions.opencode_publishers import RETIRED_PUBLISHER
+from ...sessions.opencode_publishers import NO_LIVE_INSTANCE
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.session_exits import (
     listed_subagents,
@@ -156,7 +156,8 @@ def session_blocker(record: HookRecordClassification) -> CleanupBlocker:
     session = f"{HARNESS_DISPLAY[record.harness]} session {record.session_id}"
     way = session_exit(record.harness)
     move = way.move.replace("{session_id}", record.session_id)
-    steps = f"{move}, or {way.end}"
+    end = way.end.replace("{session_id}", record.session_id)
+    steps = f"{move}, or {end}"
     activity = f"last activity {record.last_activity_at}"
     if record.outcome == "live":
         return CleanupBlocker(
@@ -173,16 +174,15 @@ def session_blocker(record: HookRecordClassification) -> CleanupBlocker:
             f"ended, resume it and end it again so that it publishes its end.",
         )
     process = record.process
-    if record.reason == RETIRED_PUBLISHER:
-        # The backend is observed and runs; what is missing is a plugin
-        # instance observing the session in it (ADR 0080).
+    if record.reason == NO_LIVE_INSTANCE:
+        # The server is observed and runs; what is missing is a plugin
+        # instance observing the session in it (ADR 0080, ADR 0090).
         return CleanupBlocker(
             kind="agent-session",
             detail=f"{session} may be live here: its liveness is unknown "
-            f"({activity}). Its OpenCode backend, pid {process.pid}, still "
-            f"runs, but the plugin instance that observed the session has "
-            f"retired and none has published it since. To free this "
-            f"Worktree, {steps}.",
+            f"({activity}). Its OpenCode server, pid {process.pid}, still "
+            f"runs, but no Dashpot plugin instance has run in it since the "
+            f"session was last published. To free this Worktree, {steps}.",
         )
     if record.reason == "isolated-namespace":
         verify = (
@@ -261,16 +261,13 @@ def assess_worktree_occupancy(
             )
             command = f"cd {path} && dashpot work stop --session {work.session_key}"
         elif liveness == "live" and _unrecorded_opencode_session(work, stores):
-            # Deleting the session from another process (the `opencode session
-            # delete` command) removes its hook record but cannot end the run,
-            # and no command runs inside a deleted session (ADR 0080). Only the
-            # missing record is observed, so the deletion is named as an example.
+            # A session's record is gone while its run stays only when its end
+            # was not reconciled with it, and no command runs inside a session
+            # that has none, so the run is ended from outside (ADR 0090).
             detail = (
                 f"{work.session_label} is working on {work.issue_reference}, "
-                "but no hook record of that session is left, as after "
-                "'opencode session delete', while the OpenCode backend that "
-                "served it still runs: quit that OpenCode TUI or stop that "
-                "backend, then end the run"
+                "but no hook record of that session is left while the OpenCode "
+                "server that served it still runs: end the run"
             )
             command = f"cd {path} && dashpot work stop --session {work.session_key}"
         else:

@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded
 date: 2026-10-02
+superseded-by: 0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md
 ---
 
 # Give an OpenCode command a claim only for its own bootstrap

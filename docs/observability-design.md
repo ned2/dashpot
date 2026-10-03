@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-03
 ---
 
 # Observability design
@@ -144,7 +144,8 @@ Dashpot's camelCase aliases with these names explicitly.
 | `dashpot.event_level.previous`, `dashpot.event_level.current` | `level.changed` | The change of level in force |
 | `error.type` | `event_log.write_failed`, a failed `span`, `hook.outcome`, `command.outcome` | The error's code when a Dashpot error carries one (a Diagnostic code such as `github-authentication`, or `command-not-found`, `command-timed-out`, `command-interrupted`), else its errno name or class |
 | `dashpot.outcome.result` | `hook.outcome`, `command.outcome` | `succeeded`; `refused`, a `DashpotError` or a plan's refusals; `failed` |
-| `dashpot.hook.event`, `dashpot.agent_session.state` | `hook.outcome` | The harness's hook event name, and the state it wrote to the session's hook record |
+| `dashpot.hook.event`, `dashpot.agent_session.state` | `hook.outcome` | The harness's hook event name (for OpenCode, the last hook event its helper wrote, else its request kind, such as `register`), and the state it wrote to the session's hook record |
+| `dashpot.hook.reason` | `hook.outcome` | A reason word the hook kept: for OpenCode, its acknowledgment's reason, such as an interruption's `user` or a refusal's `session-deleted` |
 | `dashpot.work_store.change` | `hook.outcome` | What the hook did to its session's Agent Run: `unchanged`, `continued`, `relocated`, `ended`, or `deferred` — a managed Codex daemon's `SessionEnd` handed to a settler, whose own `hook.outcome` then reports `ended` or `unchanged` ([ADR 0086](adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)) |
 | `dashpot.outcome.action` | `command.outcome` | What the command did, such as `started`, `switched`, `relocation-prepared`, `stopped`, `no-work`, `created`, `planned`, `previewed`, `removed`, `deleted`, `installed`, `reported` |
 | `dashpot.outcome.refusal_count`, `dashpot.outcome.dry_run` | `command.outcome` | How many refusals a plan or Cleanup stated, never their text; whether it was a dry run |

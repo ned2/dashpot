@@ -133,16 +133,19 @@ def check_opencode_integration(root: Path) -> None:
     assert bound is not None
     helper = json.loads(bound.group(1))
     request = {
-        "protocol": 1,
+        "protocol": 2,
         "kind": "register",
         "generation": "smoke-generation",
-        "directory": str(root),
+        "location": str(root),
         "pid": os.getpid(),
         "deadlineMs": 3000,
     }
     # Run outside any OpenCode backend, the helper refuses to corroborate one.
     answer = run(helper, cwd=root, input_text=json.dumps(request))
-    assert json.loads(answer)["result"] == "rejected"
+    assert json.loads(answer) == {
+        "result": "rejected",
+        "reason": "host-process-not-found",
+    }
     messages = integration_status("opencode", config_home, current=root, environ={})
     assert not any("publisher missing" in message for message in messages)
     remove_integration("opencode", config_home)

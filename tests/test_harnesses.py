@@ -17,6 +17,7 @@ from dashpot.sessions.harnesses import (
     is_child_scoped,
     locates_session,
     native_claims,
+    opencode_shell_refusal,
     override_claim,
 )
 from dashpot.sessions.processes import ProcessIdentity
@@ -176,22 +177,32 @@ def test_opencode_adapter_hosts_only_the_opencode_backend() -> None:
     assert OPENCODE.exclusive_session_process is False
 
 
-def test_opencode_adapter_claims_only_a_complete_corroborated_identity() -> None:
+def test_opencode_adapter_claims_only_a_models_shell_the_plugin_prepared() -> None:
     complete = {
-        "DASHPOT_OPENCODE_SESSION_ID": "ses_01root",
-        "DASHPOT_OPENCODE_GENERATION": "gen-1",
+        "OPENCODE_SESSION_ID": "ses_01root",
+        "OPENCODE": "1",
         "DASHPOT_OPENCODE_PID": "4100",
     }
 
     assert OPENCODE.claim_session_identity(complete) == SessionIdentityClaim(
-        "opencode", "ses_01root", "OpenCode plugin", 4100, "gen-1"
+        "opencode", "ses_01root", "OpenCode environment", 4100
     )
     for variable, value in (
-        ("DASHPOT_OPENCODE_SESSION_ID", ""),
-        ("DASHPOT_OPENCODE_GENERATION", "not a generation!"),
+        ("OPENCODE_SESSION_ID", ""),
+        ("OPENCODE", ""),
         ("DASHPOT_OPENCODE_PID", "n/a"),
     ):
         assert OPENCODE.claim_session_identity({**complete, variable: value}) is None
+
+
+def test_opencode_shell_refusal_says_which_shell_it_is() -> None:
+    assert opencode_shell_refusal({}, in_opencode=False) is None
+    user = opencode_shell_refusal({"DASHPOT_OPENCODE_PID": "4100"}, in_opencode=True)
+    assert user is not None
+    assert "a shell the user started in OpenCode" in user
+    terminal = opencode_shell_refusal({}, in_opencode=True)
+    assert terminal is not None
+    assert "OpenCode terminal" in terminal
 
 
 def test_native_claims_report_every_harness_present_in_adapter_order() -> None:

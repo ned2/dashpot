@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-02
-amended-by: 0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md
+amended-by: 0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md, 0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md
 ---
 
 # Observe OpenCode through one publisher generation per plugin instance

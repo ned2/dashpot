@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-02
+date: 2026-10-03
 ---
 
 # Agent sessions
@@ -87,14 +87,15 @@ its liveness is unknown, and gives its harness's way out of the Worktree:
 | --- | --- | --- |
 | Claude Code | A session `EnterWorktree` brought here runs `ExitWorktree` with `action: keep`, which still works after the session is resumed here. One whose shell came by `cd` changes back to the checkout it started in; its next hook then places it there, leaving any Agent Run behind ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)). A session started in this Worktree has neither: `ExitWorktree` is a no-op there and a `cd` out of its project is reset, so it is ended, or moved by `EnterWorktree` to a sibling linked Worktree ([measured at 2.1.286](agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286)) | End the session |
 | Codex | Once its client exits, `codex resume <id> -C <worktree>` resumes it elsewhere; a session holding an Agent Run first declares the move with `dashpot work relocate <worktree>` ([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)) | End its client. A daemon-hosted thread stays loaded, and keeps the Worktree, until the daemon unloads it about 60 s after its last client leaves ([Codex hosting modes](#codex-hosting-modes)) |
-| OpenCode | None: a session never leaves the directory it was created in, even resumed from another one | Quit the OpenCode TUI serving it, or stop the `opencode` backend it runs in; closing an attached client leaves it running. Or delete it in the backend serving it ([OpenCode hosting modes](#opencode-hosting-modes)) |
+| OpenCode | Move it to another location in OpenCode; within the Repository a bound Agent Run moves with it ([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md#moves)) | Delete it with `opencode session delete <id>`, or stop the OpenCode server it runs in, with `opencode service stop` or by quitting its `--standalone` client, which orphans every Agent Run on that server; quitting a client of the shared service leaves it running ([OpenCode hosting modes](#opencode-hosting-modes)) |
 
 When the liveness is unknown because the Host Process could not be observed,
 the blocker says how to verify it and names
 `env LC_ALL=C TZ=UTC ps -p <pid> -o lstart=,args=` as the command that does:
 Dashpot records a start time as `ps` renders it in the C locale and UTC, so
-the command prints it the same way. A retired OpenCode plugin's session,
-whose backend is observed and runs, is told so instead, with no command.
+the command prints it the same way. An OpenCode session whose server is
+observed and runs, but has no live Dashpot plugin instance, is told so
+instead, with no command.
 Inside a sandbox's process namespace (`isolated-namespace`) Dashpot cannot
 see host processes, so checking again from a shell outside any sandbox
 settles it, and a gone process then no longer blocks. When the probe itself
@@ -362,110 +363,90 @@ passing the acceptance run.
 
 ### OpenCode hosting modes
 
-OpenCode support is pinned to **1.18.30** on Linux, the release the
-[OpenCode acceptance run](../README.md#harness-acceptance-runs) last passed
-on; its trace is
-[`issue-163-opencode-trace.jsonl`](spikes/measurements/issue-163-opencode-trace.jsonl)
-([ADR 0081](adr/0081-support-opencode-1-18-30-on-linux.md)). Another release
-is unsupported until that run passes on it, and
-`dashpot integrate opencode --status` warns about one. The
-[harness reference](agent-harness-server-client-reference.md#the-local-tui-and-shutdown-through-dashpot-at-11830)
-holds the measured detail.
+Dashpot observes OpenCode v2 only, as
+[ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) decides, and supports no OpenCode release yet: refusing
+OpenCode 1.x is [#406](https://github.com/ned2/dashpot/issues/406), and
+accepting 2.0.22 through the acceptance run is
+[#407](https://github.com/ned2/dashpot/issues/407). An OpenCode 1.x server
+loads the managed plugin but publishes nothing. The measured detail is in the
+[OpenCode v2 experiment](spikes/opencode-v2-spike.md) and the
+[plugin protocol experiment](spikes/opencode-v2-plugin-protocol-spike.md).
 
 OpenCode has no command hooks. `dashpot integrate opencode` instead writes a
 managed plugin, `plugins/dashpot.js`, to OpenCode's global configuration
 directory, bound to this environment's `dashpot-opencode-hook` helper, and
 the Issue work skill to that directory's `skills/`
 ([ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
-The plugin is thin: it runs the helper once per publication, under a
-deadline, with native metadata only, and every decision is the helper's.
+The plugin is thin: it reports OpenCode's own session events, in each
+session's own order, to the helper, once per event under a 3 s deadline, and
+every decision is the helper's.
 
-An OpenCode backend, the process named `opencode`, is the Host Process of
-every session it serves, and is never exclusive to one. Each plugin instance
-is a Publisher Generation, and only the generation that owns the backend's
-directory publishes
-([ADR 0077](adr/0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md)):
+An OpenCode server, the process named `opencode` (`opencode.exe` from the
+npm package), is the Host Process of every session it serves, and is never
+exclusive to one. It sets up one plugin instance, a Publisher Generation, per
+location it serves; every instance sees every event of the server, and the
+instances share one registry that publishes each event once:
 
 | How the session runs | Host Process | How it ends |
 | --- | --- | --- |
-| Local TUI, `opencode [directory]` | The TUI itself: one `opencode` process that is its own backend | Quitting the TUI, or closing its terminal, retires its plugin instances; its sessions read gone once it exits |
-| `opencode serve`, with `opencode run --attach` or `opencode attach` clients | The `serve` process; a client is never a Host Process | A client's exit ends nothing: its session, and a turn it started, carry on in the backend. Stopping the backend, by SIGTERM or a kill, publishes nothing; its sessions read gone |
+| The TUI or `opencode run`, against the shared service | `opencode serve --service`, one per user, which the first client starts; a client is never a Host Process | A client's exit ends nothing. `opencode service stop` stops the service, which publishes nothing about its sessions; they read gone. An older TUI replaces a newer service, and the new service resumes its sessions |
+| A `--standalone` TUI or `run` | The client's private `opencode serve --stdio` | Quitting the client stops its server; its sessions read gone |
 
-OpenCode publishes no end for a session when its backend exits; only a
-deletion ends one. In the dashboard, an OpenCode session's state means:
+In the dashboard, an OpenCode session's state means:
 
-- **Running or waiting.** Its backend is live, and the state is that of its
-  current turn: `busy` and `retry` read running, `idle` waiting. An
-  interrupted turn, and one the provider refused, end waiting. A child
-  session, one with a `parentID`, is a Sub-agent of its root and holds it
-  running, a background child past its parent's turn included; a fork is a
-  session of its own, and inherits no run.
-- **Unknown.** When OpenCode reloads or disposes of an instance, its
-  generation retires, and its sessions read unknown while their backend runs,
-  until the next generation publishes them at their next turn or command;
-  the session and its Issue work are unchanged. Cleanup names that backend.
-  As for every harness, unknown also means Dashpot cannot observe the
-  backend at all.
-- **Gone.** The backend exited: a quit TUI, a closed terminal, a stopped or
-  killed `serve`. A bound run is listed as an
-  [Orphaned Agent Run](domain-language.md) (`◌`) under the gone backend
+- **Running or waiting.** Its server is live, and the state is that of its
+  current execution: started reads running, and succeeded, failed or
+  interrupted reads waiting. A child session, one with a `parentID`, is a
+  Sub-agent of its root and holds it running, a background child past its
+  root's execution included; a fork is a root of its own, and inherits no
+  run.
+- **Unknown.** When the server's last plugin instance is cleaned up, as
+  `opencode reload` does before setting any up again, its running sessions,
+  and those holding Sub-agents, read unknown while the server runs, until
+  their next event; the session and its Issue work are unchanged. Cleanup
+  names that server. As for every harness, unknown also means Dashpot cannot
+  observe the server at all.
+- **Gone.** The server exited. A bound run is listed as an
+  [Orphaned Agent Run](domain-language.md) (`◌`) under the gone server
   ([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)).
-- **Deleted.** Deleting a session through the backend serving it, by its
-  HTTP API's `DELETE /session/<id>`, ends the session and its run; its other
-  sessions carry on. Deleting from the TUI was not measured.
+- **Deleted.** `opencode session delete <id>`, or the server's API, ends the
+  session and its run. A deletion that reached no live instance is
+  recovered when an instance is next set up at the session's location.
 
-There is no automatic continuation for OpenCode. To recover an orphaned run,
-resume the session, with `opencode <worktree> --session <id>` or a client of
-a new backend, and run `dashpot work start <issue>` from it: it reports that
-it restarted the run, and binds a new run to the new backend. A session
-resumed from another directory still runs in the one it was created in, and
-its run stays there. To abandon the run instead, run
+A session moves when OpenCode moves it: by the model's move tool, the API,
+or, by the source, the TUI changing directory. Within the Repository its
+hook record and a bound run move with it, as a Live Relocation. A move to
+another Repository, or outside every Project, leaves the run where it was,
+reported as `work-session-elsewhere`.
+
+To recover an orphaned run, resume the session in a running server, with
+`opencode <worktree> --session <id>`, and run `dashpot work start <issue>`
+from it: it reports that it restarted the run, and binds a new run to the
+new server. To abandon the run instead, run
 `dashpot work stop --session <key>` in the run's Worktree, as Cleanup's
-`agent-run` blocker names it. Live Relocation is unsupported.
+`agent-run` blocker names it.
 
-A shell command gets an Agent Session Identity only when the plugin gives it
-one: it blanks every inherited claim, publishes the command's own bootstrap,
-and sets `DASHPOT_OPENCODE_SESSION_ID`, `DASHPOT_OPENCODE_GENERATION` and
-`DASHPOT_OPENCODE_PID` only once the helper acknowledged that bootstrap, for a
-root session
-([ADR 0078](adr/0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md)).
-A command typed after `!` in the TUI is the session's own and carries its
-claim. A child session's command, a terminal the user opened through the
-backend, and a command whose helper was missing or slow carry no claim, and a refused
-`work` command says why from `DASHPOT_OPENCODE_UNCORROBORATED`. A missing
-helper costs a turn nothing; a stalled one delays each command until the
-plugin's deadline, about 3.3 s at the pinned release. The claim is refused once its
-generation retires or OpenCode deletes the session.
+A shell command has an Agent Session Identity only when OpenCode ran it for
+a model: OpenCode then sets `OPENCODE_SESSION_ID` and `OPENCODE=1` after the
+plugin's `create.before` hook, which deletes both from every shell, blanks
+every inherited claim, and sets `DASHPOT_OPENCODE_PID` to its server's pid.
+A child session's command is refused as `delegated-session`, and a deleted
+session's claim is refused. A command run with the TUI's `!` and a terminal
+opened in OpenCode carry no claim, and a refused `work` command says which
+one it is. Each shell waits at most 3 s for the server's publications already
+admitted, so a session's first command finds its record.
 
-**`opencode session delete` and Issue work.** Before deleting a bound
-session with the `opencode session delete` command, stop its Issue work with
-`dashpot work stop` from inside it, or delete it through the backend serving
-it instead. The command loads the plugin in a process of its own,
-for the directory it runs in:
+**The hour's limit.** OpenCode interrupts a session, and kills its running
+command, after about an hour with no session event at its location, and a
+running command publishes one only when it starts
+([idle eviction](spikes/opencode-v2-spike.md#idle-eviction)). A validation
+gate longer than that is lost; split it, or run it outside OpenCode.
 
-- Run in the session's own directory, it removes the session's hook record
-  but not its run. The run still names the backend that served the session,
-  which still runs, so it is not orphaned; Cleanup refuses the Worktree with
-  an `agent-run` blocker saying no hook record of the session is left while
-  that backend still runs, and
-  `dashpot work stop --session <key>` is refused as still running. Quit or
-  stop that backend, then run `dashpot work stop --session <key>` in the
-  run's Worktree, the command the blocker names.
-- Run in any other directory, it still deletes the session in OpenCode, but
-  the helper refuses the deletion as outside the instance that published it,
-  and Dashpot changes nothing: the session stays listed as last published,
-  and a bound run stays with it, with Cleanup saying to stop it inside a
-  session that no longer exists. Quit or stop the backend that served it;
-  the run then reads orphaned, and `dashpot work stop --session <key>` in
-  the run's Worktree ends it.
-
-Not supported, because they were not measured at the pinned release:
-`opencode web`, ACP (`opencode acp`), the SDK's own server, the desktop app
-and editor extensions; a remote backend; two backends serving one session at
-once; and every operating system other than Linux. A background child runs
-only under OpenCode's experimental
-`OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS` flag. An OpenCode started with
-`--pure` or `OPENCODE_PURE` loads no plugin and publishes nothing.
+Not supported, because they were not measured: `opencode web`, ACP
+(`opencode acp`), the SDK's own server, the desktop app and editor
+extensions; a remote server; and every operating system other than Linux.
+An OpenCode started with `--pure` or `OPENCODE_PURE` loads no plugin and
+publishes nothing.
 
 ### Agent-facing Issue-work skill
 
@@ -484,9 +465,9 @@ entered with `EnterWorktree` returns with `ExitWorktree(keep)`, and enters
 the same Worktree again for follow-up changes
 ([ADR 0085](adr/0085-return-a-claude-code-session-before-entering-another-issue-worktree.md)).
 A Claude Code session started in the Worktree can leave it only for another
-Worktree, and a Codex or OpenCode session cannot leave it itself, so the
-skill tells the person what still holds the Worktree and how it is released,
-as the Cleanup blocker's way out does.
+Worktree, a Codex session cannot leave it itself, and the skill does not move
+an OpenCode session, so it tells the person what still holds the Worktree and
+how it is released, as the Cleanup blocker's way out does.
 
 When work needs another Worktree, the skill delegates path, Branch, base,
 collision, and rollback policy to `issue show` and `worktree create`. Claude
@@ -496,9 +477,10 @@ finishing the current Issue when the move is to another one. When
 `EnterWorktree` still refuses, the skill hands the work to a fresh Claude Code
 session started in the Worktree with one quoted `cd <worktree> && claude`
 command, which does not promise working `gh` credentials there
-([#274](https://github.com/ned2/dashpot/issues/274)). An OpenCode session
-cannot leave the directory it was created in, so the skill hands Issue work in
-another Worktree to a new OpenCode session started there with
+([#274](https://github.com/ned2/dashpot/issues/274)). Whether an agent may
+move its own OpenCode session is not settled
+([#148](https://github.com/ned2/dashpot/issues/148)), so the skill hands Issue
+work in another Worktree to a new OpenCode session started there with
 `opencode <worktree> --prompt`, which the acceptance run does not drive. Codex prefers a
 sequential resume of the same Agent Session with `codex resume <session-id> -C
 <path>`: the old client releases the thread by exiting, and the resumed turn
