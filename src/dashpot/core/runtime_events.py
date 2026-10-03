@@ -211,6 +211,10 @@ class EventLogWriteFailed(EventBody):
 
 # A lifecycle hook event's name, as its harness sends it: ``SessionStart``.
 HookEventName = Annotated[str, _identifier(r"^[A-Za-z]{1,64}$", 64)]
+# A reason word a hook run kept: a harness's own, such as an OpenCode
+# interruption's ``inactivity``, or why the run wrote nothing, such as
+# ``session-deleted``.
+HookReason = Annotated[str, _identifier(r"^[a-z][a-z0-9_-]{0,63}$", 64)]
 # A Branch name as Git allows it: no space, control or ref-syntax character.
 BranchName = Annotated[str, _identifier(r"^[^\s~^:?*\[\\\x00-\x1f\x7f]+$", 255)]
 # A Diagnostic's source: its family or an Agent Run's opaque ID, then the
@@ -302,6 +306,7 @@ class HookOutcome(EventBody):
     work: WorkStoreChange | None = Field(
         default=None, alias="dashpot.work_store.change"
     )
+    hook_reason: HookReason | None = Field(default=None, alias="dashpot.hook.reason")
     error_type: ErrorType | None = Field(default=None, alias="error.type")
 
 

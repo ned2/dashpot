@@ -197,8 +197,9 @@ def classify_hook_record(
             and record.session_process_unobservable is not None
         ):
             # The record names its Host Process yet says nothing observes the
-            # session there (a retired OpenCode generation, ADR 0080): a live
-            # process vouches for nothing, while a gone one still ends it.
+            # session there (an OpenCode server with no live plugin instance,
+            # ADR 0090): a live process vouches for nothing, while a gone one
+            # still ends it.
             liveness = LivenessObservation(
                 "unknown", record.session_process_unobservable
             )

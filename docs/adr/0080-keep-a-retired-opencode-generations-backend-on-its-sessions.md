@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-02
+amended-by: 0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md
 ---
 
 # Keep a retired OpenCode generation's backend on its sessions

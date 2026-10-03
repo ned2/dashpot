@@ -638,7 +638,8 @@ def _claimed_identity_status(
     if claim is None and spec.plugin:
         return [
             f"Agent Session identity claimed here: none for {spec.display} "
-            f"(only a command its plugin corroborated carries one)"
+            f"(only a shell OpenCode ran for its agent, prepared by the "
+            f"plugin, carries one)"
         ]
     if claim is None:
         return [
@@ -957,9 +958,10 @@ def _opencode_plugin_copies(
     OpenCode loads every ``{plugin,plugins}/*.{js,ts}`` of each configuration
     directory it reads: the global one, every project ``.opencode`` from the
     working directory up to its Worktree, ``~/.opencode``, and
-    ``$OPENCODE_CONFIG_DIR``. A second copy, under any name, is a second
-    plugin instance in the same backend, whose registration conflicts with the
-    first's for as long as both run (ADR 0077).
+    ``$OPENCODE_CONFIG_DIR``. A second copy, under any name, is another
+    plugin in the same server: it shares the first's registry, but may be
+    bound to another helper, which then writes whichever events its instances
+    admit first (ADR 0090).
     """
     environment = environ if environ is not None else os.environ
     directories = [own.parent.parent]
@@ -994,8 +996,8 @@ def _opencode_plugin_copies(
             if managed and not same_path(candidate, own):
                 messages.append(
                     f"warning: OpenCode also loads a copy of the Dashpot plugin "
-                    f"at {candidate}; two copies conflict in one backend, so "
-                    f"remove it"
+                    f"at {candidate}; each copy may publish through its own "
+                    f"helper, so remove it"
                 )
     return messages
 

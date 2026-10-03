@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-03
 ---
 
 # Spikes
@@ -16,6 +16,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [OpenCode v2 plugin registry, envelope and recovery experiment](opencode-v2-plugin-protocol-spike.md) | research | 2026-10-03 |
 | [OpenCode v2 hosting, plugin and identity experiment](opencode-v2-spike.md) | research | 2026-10-02 |
 | [Claude Code supervised worker process experiment](claude-code-supervised-worker-process-spike.md) | research | 2026-10-01 |
 | [Claude Code 2.1.285 changes experiment](claude-code-2-1-285-changes-spike.md) | research | 2026-09-30 |

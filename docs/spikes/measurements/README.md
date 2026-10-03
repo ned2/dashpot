@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-02
+date: 2026-10-03
 ---
 
 # Measurements
@@ -52,6 +52,7 @@ cites each file.
 | [`issue-356-codex-trace.jsonl`](issue-356-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#356](https://github.com/ned2/dashpot/issues/356) | [`codex-356`](../../../scripts/experiments/codex-356/), the managed daemon restart acceptance run | [Harness reference: managed daemon restart and stop](../../agent-harness-server-client-reference.md#managed-daemon-restart-and-stop-at-01600) |
 | [`issue-393-opencode-trace.jsonl`](issue-393-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 with 2.0.21 | [#393](https://github.com/ned2/dashpot/issues/393) | [`opencode-393`](../../../scripts/experiments/opencode-393/) | [OpenCode v2 hosting, plugin and identity experiment](../opencode-v2-spike.md) |
 | [`issue-393-opencode-idle-trace.jsonl`](issue-393-opencode-idle-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#393](https://github.com/ned2/dashpot/issues/393) | [`opencode-393`](../../../scripts/experiments/opencode-393/) with `SPIKE_IDLE_MINUTES`, the idle-eviction run | [OpenCode v2 hosting, plugin and identity experiment: idle eviction](../opencode-v2-spike.md#idle-eviction) |
+| [`issue-405-opencode-trace.jsonl`](issue-405-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 with 1.18.30 | [#405](https://github.com/ned2/dashpot/issues/405) | [`opencode-405`](../../../scripts/experiments/opencode-405/) | [OpenCode v2 plugin registry, envelope and recovery experiment](../opencode-v2-plugin-protocol-spike.md) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the

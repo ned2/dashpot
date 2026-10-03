@@ -1,18 +1,17 @@
-"""Keep the record of which OpenCode publisher generation owns a backend's directory.
+"""Keep the Publisher Record of one hook store's OpenCode sessions.
 
-One OpenCode backend runs one instance of Dashpot's plugin per directory it
-serves, and replaces an instance — reloading its configuration, or disposing
-of it — without ending the backend. Each plugin instance is one publisher
-generation. Its **publisher record**, beside the hook records it publishes to,
-holds which generation owns the pairing of backend and directory, the
-generations retired from it, the last publication of each session, and the
-sessions OpenCode deleted (ADR 0077). Only the active generation publishes,
-and only its acknowledgment can corroborate a command's identity claim.
+OpenCode v2 orders each session's events by the session's own durable
+sequence, whichever server, plugin instance or generation saw them. The
+**Publisher Record** beside a hook store keeps, for every OpenCode session
+published there, the highest sequence it accepted and, for a child session,
+the root it is recorded with, and the sessions OpenCode deleted (ADR 0090).
+A publication at or below a session's sequence is stale, and one for a
+deleted session is refused. A Publisher Generation names one plugin
+instance, but owns nothing here.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -22,138 +21,100 @@ from pydantic import Field, ValidationError
 
 from ..core.pydantic import PersistedRecord
 from ..core.record_store import LockedRecordStore
-from .harnesses import PUBLISHER_GENERATION
-from .processes import ProcessIdentity, ProcessKey, SessionProcessRecord
+from .harnesses import HookSessionIdentity
 
-PUBLISHER_RECORD_VERSION = 1
-# The subdirectory of a hook store holding its publisher records; a store's
-# scans read only its top-level ``*.json``, so they never meet these.
+PUBLISHER_RECORD_VERSION = 2
+# The subdirectory of a hook store holding its Publisher Record; a store's
+# scans read only its top-level ``*.json``, so they never meet it.
 PUBLISHERS_DIRECTORY = "opencode"
-PUBLISHER_KEY = re.compile(r"^[0-9a-f]{64}$")
-# Retired generations and deleted sessions are kept as tombstones, boundedly:
-# a generation retires once per plugin instance, and a late publication comes
-# within seconds of its retirement, never hundreds of retirements later.
-RETIRED_LIMIT = 64
+PUBLISHER_KEY = "publisher"
+# Sessions and deletions are kept boundedly, oldest first out: a late
+# publication comes within seconds of the one that superseded it, never
+# hundreds of sessions later.
+SESSION_LIMIT = 1024
 DELETED_LIMIT = 512
-WATERMARK_LIMIT = 512
-# One plugin instance's opaque identity, drawn before its first publication.
+# One plugin instance's opaque identity, drawn when the instance is set up.
+PUBLISHER_GENERATION = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 PublisherGeneration = Annotated[str, Field(pattern=PUBLISHER_GENERATION.pattern)]
-# A native session status the plugin publishes; OpenCode 1.18.30 has no error
-# status, a failed turn ending ``idle`` like any other.
-NativeStatus = Literal["busy", "retry", "idle"]
-# Why a retired generation's sessions read unknown while their backend runs:
-# no plugin instance observes them (ADR 0077, ADR 0080).
-RETIRED_PUBLISHER = "opencode-publisher-retired"
+# Why a root session reads unknown while its Host Process runs: the Host
+# Process's last live plugin instance was cleaned up, so nothing observes the
+# session and the end of its execution may have reached no instance (ADR 0080,
+# ADR 0090).
+NO_LIVE_INSTANCE = "opencode-no-live-instance"
 
 
-class SessionWatermark(PersistedRecord):
-    """The last publication a generation made for one OpenCode session.
+class SessionEntry(PersistedRecord):
+    """What one hook store last accepted for one OpenCode session.
 
-    ``status`` is the native status it last accepted, so a repeat is a
-    duplicate; ``root`` says whether the session is a root, whose Agent
-    Session record the generation has started.
+    ``root`` names the root session a child is recorded with, and is absent
+    for a root session.
     """
 
-    generation: PublisherGeneration
-    sequence: int
-    status: NativeStatus | None = None
-    root: bool = False
+    sequence: int = Field(ge=0)
+    root: HookSessionIdentity | None = None
 
 
 class PublisherRecord(PersistedRecord):
-    """Which publisher generation owns one OpenCode backend's directory."""
+    """The OpenCode sessions one hook store has accepted publications for."""
 
-    version: Literal[1]
-    backend: SessionProcessRecord
-    directory: str
-    active: PublisherGeneration | None = None
-    retired: list[PublisherGeneration] = Field(default_factory=list)
-    sessions: dict[str, SessionWatermark] = Field(default_factory=dict)
+    version: Literal[2]
+    sessions: dict[str, SessionEntry] = Field(default_factory=dict)
     deleted: list[str] = Field(default_factory=list)
 
-    @property
-    def backend_key(self) -> ProcessKey:
-        return self.backend.identity.key
+    def refuses(self, session_id: str, root: str) -> bool:
+        """Whether OpenCode deleted the session, or the root it is recorded with."""
+        return session_id in self.deleted or root in self.deleted
 
 
-def new_publisher_record(backend: ProcessIdentity, directory: Path) -> PublisherRecord:
-    """The record of a pairing no generation has registered for yet."""
-    return PublisherRecord(
-        version=PUBLISHER_RECORD_VERSION,
-        backend=SessionProcessRecord.of(backend),
-        directory=str(directory),
-    )
-
-
-def publisher_key(backend: ProcessKey, directory: Path) -> str:
-    """Name the record of one backend's directory, by the Host Process and the path."""
-    pid, started_at = backend
-    return hashlib.sha256(f"{pid}\0{started_at}\0{directory}".encode()).hexdigest()
+def new_publisher_record() -> PublisherRecord:
+    """The record of a hook store no OpenCode publication has reached yet."""
+    return PublisherRecord(version=PUBLISHER_RECORD_VERSION)
 
 
 class PublisherStore(LockedRecordStore):
-    """The publisher records beside one hook store."""
+    """The Publisher Record beside one hook store, under its own lock.
+
+    Its lock is taken before any hook record lock, never after, so a
+    publication's check, hook record writes and update are one ordered step.
+    """
 
     def __init__(self, hook_store: Path, *, checkout: Path | None = None) -> None:
         super().__init__(
             hook_store / PUBLISHERS_DIRECTORY,
-            PUBLISHER_KEY,
-            "OpenCode publisher key is not a digest",
+            re.compile(rf"^{PUBLISHER_KEY}$"),
+            "OpenCode Publisher Record key is fixed",
             checkout=checkout,
         )
 
-    def read(self, key: str) -> PublisherRecord | None:
-        """The record under ``key``; ``None`` when there is none, or it cannot be read.
+    def read(self) -> PublisherRecord:
+        """The store's record; a fresh one when there is none, or it cannot be read.
 
-        An unreadable record is no ownership at all: nothing it names may
-        publish or corroborate a claim until a registration rewrites it.
+        An unreadable record loses only its sequences and deletions: the
+        next publication of each session is accepted and corrects its state.
         """
         try:
-            raw = json.loads(self.record_path(key).read_text())
+            raw = json.loads(self.record_path(PUBLISHER_KEY).read_text())
             return PublisherRecord.model_validate(raw)
         except (OSError, ValueError, ValidationError):
-            return None
+            return new_publisher_record()
 
-    def write(self, key: str, record: PublisherRecord) -> None:
-        """Replace the record under ``key``, keeping its tombstones bounded."""
+    def write(self, record: PublisherRecord) -> None:
+        """Replace the store's record, keeping its sessions and deletions bounded."""
         bounded = record.model_copy(
             update={
-                "retired": record.retired[-RETIRED_LIMIT:],
                 "deleted": record.deleted[-DELETED_LIMIT:],
-                "sessions": dict(list(record.sessions.items())[-WATERMARK_LIMIT:]),
+                "sessions": dict(list(record.sessions.items())[-SESSION_LIMIT:]),
             }
         )
-        self.replace(key, bounded.model_dump(by_alias=True, mode="json"))
-
-    def record_keys(self) -> list[str]:
-        """Every record key in the store."""
-        return sorted(
-            path.stem
-            for path in self.directory.glob("*.json")
-            if PUBLISHER_KEY.fullmatch(path.stem)
-        )
+        self.replace(PUBLISHER_KEY, bounded.model_dump(by_alias=True, mode="json"))
 
 
-def corroboration_refusal(
-    hook_store: Path,
-    backend: ProcessIdentity,
-    directory: Path,
-    generation: str,
-    session_id: str,
-) -> str | None:
-    """Why ``generation`` cannot corroborate ``session_id`` there, or ``None`` when it can.
+def recorded_root(hook_store: Path, session_id: str) -> str | None:
+    """The root session a child OpenCode session is recorded with in a hook store."""
+    entry = PublisherStore(hook_store).read().sessions.get(session_id)
+    return None if entry is None else entry.root
 
-    It can while it is the active generation of the backend's directory and
-    OpenCode has not deleted the session.
-    """
-    store = PublisherStore(hook_store)
-    record = store.read(publisher_key(backend.key, directory))
-    if record is None or record.backend_key != backend.key:
-        return "no publisher generation is registered for its OpenCode backend"
-    if generation in record.retired:
-        return "the plugin instance that corroborated it has been retired"
-    if record.active != generation:
-        return "the plugin instance that corroborated it no longer publishes"
-    if session_id in record.deleted:
-        return "OpenCode has deleted the session"
-    return None
+
+def deleted_session(hook_store: Path, session_id: str) -> bool:
+    """Whether a hook store's Publisher Record holds OpenCode's deletion of a session."""
+    return session_id in PublisherStore(hook_store).read().deleted

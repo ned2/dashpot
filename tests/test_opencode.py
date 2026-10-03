@@ -1,11 +1,11 @@
-"""OpenCode sessions through the shared runtime model (ADRs 0077, 0078 and 0080).
+"""OpenCode v2 sessions through the shared runtime model (ADR 0090).
 
-Each scenario follows what the #163 acceptance run measured at OpenCode
-1.18.30 (``scripts/experiments/opencode-163``): one ``opencode`` backend runs the
-plugin's helper and every shell command as its direct children, a session's
-status repeats at every step of a turn, a child session names its
-``parentID`` and a fork names none, and a replaced plugin instance registers
-before its predecessor retires. The plugin's publications are driven through
+Each scenario follows what the #393 and #405 experiments measured at
+OpenCode 2.0.22 (``scripts/experiments/opencode-393`` and ``-405``): one
+server runs the plugin's helper and every shell as its direct children,
+every session event carries the session's durable sequence, a child
+session names its ``parentID`` and a fork names none, and a move keeps a
+session's identity and server. The plugin's requests are driven through
 ``publish_opencode`` with a fake process lookup.
 """
 
@@ -16,7 +16,6 @@ import io
 import json
 import time
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +23,7 @@ import pytest
 
 from dashpot import hook
 from dashpot.core.event_log import EventLogDestination
+from dashpot.core.model import Diagnostic
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import (
@@ -33,15 +33,10 @@ from dashpot.sessions.hook_records import (
 )
 from dashpot.sessions.opencode_publish import (
     OpenCodeOutcome,
-    parse_publication,
+    parse_request,
     publish_opencode,
 )
-from dashpot.sessions.opencode_publishers import (
-    PublisherStore,
-    corroboration_refusal,
-    new_publisher_record,
-    publisher_key,
-)
+from dashpot.sessions.opencode_publishers import PublisherStore
 from dashpot.sessions.processes import (
     ProcessIdentity,
     ProcessLookup,
@@ -62,22 +57,21 @@ from test_work import (
 )
 
 SHELL_PID = 10
-BACKEND = ProcessIdentity(
+SERVER = ProcessIdentity(
     4100,
-    4000,
+    1,
     "opencode",
     "Thu Oct 01 09:00:00 2026",
-    "/home/person/.opencode/bin/opencode serve --hostname 127.0.0.1 --port 0",
+    "/home/person/.opencode/bin/opencode serve --service",
 )
-# The same session's backend after an operator restarted it.
-RESTARTED = ProcessIdentity(
-    4300, 4000, "opencode", "Thu Oct 01 10:00:00 2026", BACKEND.arguments
+# The same sessions' server after a TUI of another release replaced it.
+REPLACEMENT = ProcessIdentity(
+    4300, 1, "opencode", "Thu Oct 01 10:00:00 2026", SERVER.arguments
 )
 ROOT = "ses_f05e57dcaffegJ87K4r5rjvjSs"
 CHILD = "ses_f05e56ef6ffevvmI30laCCAoGe"
 FORK = "ses_f05e56a73ffeklp3IYeT79oPjQ"
-FIRST = "d7e54b7b-45ab-41b5-9501-898464014ae4"
-SECOND = "cf85c0d2-471d-4f93-8f78-c908d1a0e1c1"
+GENERATION = "d7e54b7b-45ab-41b5-9501-898464014ae4"
 
 
 @pytest.fixture(autouse=True)
@@ -90,8 +84,8 @@ def _global_hook_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def below(monkeypatch: pytest.MonkeyPatch) -> Callable[..., ProcessLookup]:
     """Build a lookup whose ancestry walk meets ``hosts`` above a shell, nearest first.
 
-    The helper and every shell command are direct children of the backend;
-    every PID not named is gone.
+    The helper and every shell are direct children of the server; every PID
+    not named is gone.
     """
     monkeypatch.setattr("dashpot.sessions.processes.os.getppid", lambda: SHELL_PID)
 
@@ -113,79 +107,86 @@ def below(monkeypatch: pytest.MonkeyPatch) -> Callable[..., ProcessLookup]:
     return lookup
 
 
-class Plugin:
-    """One plugin instance: its generation's publications, sequenced per session."""
+class Server:
+    """One OpenCode server's plugin registry, as its helper receives requests.
 
-    def __init__(
-        self,
-        directory: Path,
-        lookup: ProcessLookup,
-        generation: str = FIRST,
-        backend: ProcessIdentity = BACKEND,
-    ) -> None:
-        self.directory = directory
+    Each session's events carry the next durable sequence unless a test names
+    one, as OpenCode's own envelope does.
+    """
+
+    def __init__(self, lookup: ProcessLookup, host: ProcessIdentity = SERVER) -> None:
         self.lookup = lookup
-        self.generation = generation
-        self.backend = backend
+        self.host = host
         self.sequences: dict[str, int] = {}
+        self.events = 0
 
     def send(self, kind: str, **fields: Any) -> OpenCodeOutcome:
         wire = {
-            "protocol": 1,
+            "protocol": 2,
             "kind": kind,
-            "generation": self.generation,
-            "directory": str(self.directory),
-            "pid": self.backend.pid,
+            "generation": GENERATION,
+            "pid": self.host.pid,
             "deadlineMs": 3000,
             **fields,
         }
-        return publish_opencode(parse_publication(json.dumps(wire)), self.lookup)
+        return publish_opencode(parse_request(json.dumps(wire)), self.lookup)
 
-    def register(self) -> str:
-        return self.send("register").result
+    def register(self, location: Path) -> dict[str, Any]:
+        return answer(self.send("register", location=str(location)))
 
-    def retire(self) -> str:
-        return self.send("retire").result
-
-    def session(
+    def event(
         self,
         kind: str,
+        at: Path,
         session: str = ROOT,
         *,
-        parent: str | None = None,
         root: str | None = None,
         sequence: int | None = None,
-        **fields: Any,
+        reason: str | None = None,
+        to: Path | None = None,
     ) -> OpenCodeOutcome:
         if sequence is None:
-            sequence = self.sequences.get(session, 0) + 1
-        self.sequences[session] = max(sequence, self.sequences.get(session, 0))
+            sequence = self.sequences.get(session, -1) + 1
+        self.sequences[session] = max(sequence, self.sequences.get(session, -1))
+        self.events += 1
+        event: dict[str, Any] = {
+            "id": f"evt_{self.events:04d}",
+            "type": f"session.{kind}",
+            "sequence": sequence,
+        }
+        if reason is not None:
+            event["reason"] = reason
+        if to is not None:
+            event["to"] = str(to)
         return self.send(
-            kind,
-            sequence=sequence,
-            session={
-                "id": session,
-                "directory": str(self.directory),
-                "parentID": parent,
-            },
-            root=root or (session if parent is None else parent),
-            **fields,
+            "event",
+            session={"id": session, "root": root or session, "location": str(at)},
+            event=event,
         )
 
-    def status(self, status: str, session: str = ROOT, **options: Any) -> str:
-        return self.session("status", session, status=status, **options).result
+    def turn(self, at: Path, session: str = ROOT, **options: Any) -> str:
+        return self.event("execution.started", at, session, **options).result
 
-    def bootstrap(self, session: str = ROOT, **options: Any) -> dict[str, Any]:
-        command = options.pop("command", f"call_{session[-4:]}")
-        return answer(self.session("bootstrap", session, command=command, **options))
+    def finish(self, at: Path, session: str = ROOT, **options: Any) -> str:
+        return self.event("execution.succeeded", at, session, **options).result
 
-    def claimed(self, session: str = ROOT) -> dict[str, str]:
-        """The environment the plugin gives a command after its bootstrap."""
-        claim = self.bootstrap(session)["claim"]
+    def gone(self, at: Path, session: str = ROOT, root: str | None = None) -> str:
+        return self.send(
+            "gone",
+            session={"id": session, "root": root or session, "location": str(at)},
+        ).result
+
+    def unobserved(self, *locations: Path) -> str:
+        return self.send(
+            "unobserved", locations=[str(location) for location in locations]
+        ).result
+
+    def claim(self, session: str = ROOT) -> dict[str, str]:
+        """The environment OpenCode and the plugin give a model's shell."""
         return {
-            "DASHPOT_OPENCODE_SESSION_ID": claim["sessionID"],
-            "DASHPOT_OPENCODE_GENERATION": claim["generation"],
-            "DASHPOT_OPENCODE_PID": str(claim["pid"]),
+            "OPENCODE_SESSION_ID": session,
+            "OPENCODE": "1",
+            "DASHPOT_OPENCODE_PID": str(self.host.pid),
         }
 
 
@@ -200,11 +201,17 @@ def record(at: Path, session: str = ROOT) -> dict[str, Any] | None:
     return json.loads(path.read_text()) if path.is_file() else None
 
 
+def observed(
+    at: Path, lookup: ProcessLookup, *others: Path
+) -> tuple[list[Any], list[Diagnostic]]:
+    """Observe the Project at ``at``, beside a Project at each of ``others``."""
+    targets = {"project:test": [target(at)]}
+    targets.update({f"project:{path.name}": [target(path)] for path in others})
+    return observe_agent_runs(targets, state_directory(), lookup=lookup)
+
+
 def runs(at: Path, lookup: ProcessLookup) -> list[Any]:
-    observed, _diagnostics = observe_agent_runs(
-        {"project:test": [target(at)]}, state_directory(), lookup=lookup
-    )
-    return observed
+    return observed(at, lookup)[0]
 
 
 @pytest.fixture
@@ -213,435 +220,508 @@ def project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def plugin(project: Path, below: Callable[..., ProcessLookup]) -> Plugin:
-    instance = Plugin(project, below(BACKEND))
-    assert instance.register() == "accepted"
-    return instance
+def server(below: Callable[..., ProcessLookup]) -> Server:
+    return Server(below(SERVER))
 
 
-# --- Registration and generations -------------------------------------------
+# --- The Host Process and the request -----------------------------------------
 
 
-def test_one_generation_owns_a_backend_directory_until_it_retires(
-    project: Path, plugin: Plugin
-) -> None:
-    replacement = Plugin(project, plugin.lookup, SECOND)
-
-    assert plugin.register() == "duplicate"
-    # OpenCode starts the replacement instance before the old one retires.
-    assert replacement.register() == "conflict"
-    assert replacement.status("busy") == "rejected"
-    assert plugin.retire() == "accepted"
-    assert replacement.register() == "accepted"
-    assert plugin.register() == "retired"
-    assert plugin.status("idle") == "retired"
-
-
-def test_a_generation_that_never_registered_is_tombstoned_by_its_retirement(
+def test_a_helper_that_is_not_the_servers_child_publishes_nothing(
     project: Path, below: Callable[..., ProcessLookup]
 ) -> None:
-    early = Plugin(project, below(BACKEND))
+    elsewhere = Server(below(CODEX), host=SERVER)
+    impostor = Server(below(SERVER), host=REPLACEMENT)
 
-    assert early.retire() == "accepted"
-    assert early.register() == "retired"
-    owner = Plugin(project, early.lookup, SECOND)
-    assert owner.register() == "accepted"
-    assert owner.status("busy") == "accepted"
-
-    # A stranger's retirement neither clears the owner nor its sessions.
-    assert Plugin(project, early.lookup, FIRST.replace("d7", "e8")).retire() == (
-        "accepted"
-    )
-    assert owner.status("idle") == "accepted"
-    states = {run.session_id: run.state for run in runs(project, owner.lookup)}
-    assert states == {ROOT: "waiting"}
-
-
-def test_a_helper_that_is_not_the_backends_child_publishes_nothing(
-    project: Path, below: Callable[..., ProcessLookup]
-) -> None:
-    impostor = Plugin(project, below(BACKEND), backend=RESTARTED)
-    blind = Plugin(project, unobservable("ps-timeout"))
-    alone = Plugin(project, below(CLAUDE))
-
-    assert answer(impostor.send("register")) == {
+    assert answer(elsewhere.event("created", project)) == {
         "result": "rejected",
-        "reason": "backend-not-corroborated",
+        "reason": "host-process-not-found",
     }
-    assert answer(blind.send("register"))["reason"] == "ps-timeout"
-    assert answer(alone.send("register"))["reason"] == "backend-not-found"
-
-
-def test_registration_reclaims_records_of_backends_proven_gone(
-    project: Path, below: Callable[..., ProcessLookup]
-) -> None:
-    gone = Plugin(project, below(BACKEND))
-    assert gone.register() == "accepted"
-    store = PublisherStore(session_directory(project))
-    (stale,) = store.record_keys()
-
-    # The backend exits without disposing its plugin, and a new one starts.
-    restarted = Plugin(project, below(RESTARTED), SECOND, backend=RESTARTED)
-    assert restarted.register() == "accepted"
-
-    assert stale not in store.record_keys()
-    assert len(store.record_keys()) == 1
-
-
-def test_registration_keeps_records_of_live_or_unreadable_backends(
-    project: Path, below: Callable[..., ProcessLookup]
-) -> None:
-    store = PublisherStore(session_directory(project))
-    assert Plugin(project, below(BACKEND)).register() == "accepted"
-    # Both backends live; the second's helper meets its own backend first.
-    both = below(RESTARTED, BACKEND)
-    unreadable = "0" * 64
-    store.record_path(unreadable).write_text("{not json")
-
-    other = Plugin(project, both, SECOND, backend=RESTARTED)
-    assert other.register() == "accepted"
-
-    assert len(store.record_keys()) == 3
-
-
-def test_a_backend_that_cannot_be_observed_keeps_its_record(
-    project: Path, below: Callable[..., ProcessLookup]
-) -> None:
-    first = Plugin(project, below(BACKEND))
-    assert first.register() == "accepted"
-    restarted = below(RESTARTED)
-
-    def blind_to_the_first(pid: int) -> Any:
-        return unobservable("ps-timeout")(pid) if pid == BACKEND.pid else restarted(pid)
-
-    second = Plugin(project, blind_to_the_first, SECOND, backend=RESTARTED)
-    assert second.register() == "accepted"
-
-    assert len(PublisherStore(session_directory(project)).record_keys()) == 2
-
-
-def test_a_publication_outside_its_instance_directory_is_refused(
-    project: Path, plugin: Plugin, tmp_path: Path
-) -> None:
-    elsewhere = plugin.send(
-        "status",
-        sequence=1,
-        status="busy",
-        session={"id": ROOT, "directory": str(tmp_path), "parentID": None},
-        root=ROOT,
-    )
-
-    assert answer(elsewhere) == {
+    assert answer(impostor.event("created", project)) == {
         "result": "rejected",
-        "reason": "session-outside-instance",
+        "reason": "host-process-not-corroborated",
     }
     assert record(project) is None
 
 
+def test_a_server_the_npm_install_names_opencode_exe_is_the_host_process(
+    project: Path, below: Callable[..., ProcessLookup]
+) -> None:
+    npm = ProcessIdentity(
+        4400, 1, "/usr/lib/node_modules/opencode/bin/opencode.exe", "now", "serve"
+    )
+
+    assert Server(below(npm), host=npm).turn(project) == "accepted"
+
+
 @pytest.mark.parametrize(
-    "wire",
+    "fields",
     [
-        pytest.param({"kind": "status", "sequence": 1}, id="no-session"),
+        pytest.param({"protocol": 1}, id="protocol-1"),
+        pytest.param({"kind": "register"}, id="register-without-location"),
+        pytest.param({"kind": "gone"}, id="gone-without-session"),
         pytest.param(
-            {
-                "kind": "status",
-                "sequence": 1,
-                "root": CHILD,
-                "session": {"id": ROOT, "directory": "/r", "parentID": None},
-            },
-            id="root-named-as-another",
+            {"kind": "event", "session": {"id": ROOT, "root": ROOT, "location": "/"}},
+            id="event-without-event",
         ),
         pytest.param(
             {
-                "kind": "deleted",
-                "sequence": 1,
-                "root": ROOT,
-                "status": "idle",
-                "session": {"id": ROOT, "directory": "/r", "parentID": None},
+                "kind": "event",
+                "session": {"id": ROOT, "root": ROOT, "location": "/"},
+                "event": {"id": "evt_1", "type": "session.moved", "sequence": 1},
             },
-            id="status-on-deletion",
+            id="move-without-destination",
         ),
-        pytest.param({"kind": "register", "surprise": True}, id="unknown-field"),
-        pytest.param({"kind": "register", "generation": "../escape"}, id="generation"),
+        pytest.param(
+            {
+                "kind": "event",
+                "session": {"id": ROOT, "root": ROOT, "location": "/"},
+                "event": {
+                    "id": "evt_1",
+                    "type": "session.created",
+                    "sequence": 1,
+                    "to": "/",
+                },
+            },
+            id="destination-without-move",
+        ),
+        pytest.param(
+            {
+                "kind": "event",
+                "session": {"id": ROOT, "root": ROOT, "location": "/"},
+                "event": {"id": "evt_1", "type": "session.status", "sequence": 1},
+            },
+            id="v1-status",
+        ),
     ],
 )
-def test_a_malformed_plugin_request_is_refused(wire: dict[str, Any]) -> None:
-    request = {
-        "protocol": 1,
-        "generation": FIRST,
-        "directory": "/r",
-        "pid": 1,
-        "deadlineMs": 10,
-        **wire,
+def test_a_malformed_plugin_request_is_refused(fields: dict[str, Any]) -> None:
+    wire = {
+        "protocol": 2,
+        "kind": "unobserved",
+        "generation": GENERATION,
+        "pid": SERVER.pid,
+        "deadlineMs": 3000,
+        **fields,
     }
 
     with pytest.raises(ValueError, match="OpenCode plugin request"):
-        parse_publication(json.dumps(request))
+        parse_request(json.dumps(wire))
 
 
 # --- A root session's activity ----------------------------------------------
 
 
-def test_a_root_sessions_status_is_its_turn_state(
-    project: Path, plugin: Plugin
+def test_a_root_sessions_executions_are_its_turns(
+    project: Path, server: Server
 ) -> None:
-    assert plugin.status("busy") == "accepted"
-    started = record(project)
-    assert started is not None
-    assert (started["harness"], started["state"], started["event"]) == (
+    created = server.event("created", project)
+    assert created.written == ("SessionStart",)
+
+    assert server.turn(project) == "accepted"
+    running = record(project)
+    assert running is not None
+    assert (running["harness"], running["state"], running["event"]) == (
         "opencode",
         "running",
         "UserPromptSubmit",
     )
-    assert started["sessionProcess"]["pid"] == BACKEND.pid
-    assert started["lastSessionStartAt"] is not None
+    assert running["sessionProcess"]["pid"] == SERVER.pid
 
-    assert plugin.status("retry") == "accepted"
-    assert plugin.status("idle") == "accepted"
+    assert server.finish(project) == "accepted"
     waiting = record(project)
     assert waiting is not None
     assert (waiting["state"], waiting["event"]) == ("waiting", "Stop")
 
 
-def test_a_repeated_or_stale_status_writes_nothing(
-    project: Path, plugin: Plugin
+@pytest.mark.parametrize("ending", ["failed", "interrupted"])
+def test_an_execution_ending_any_way_reads_waiting(
+    project: Path, server: Server, ending: str
 ) -> None:
-    plugin.status("busy")
-    plugin.status("idle")
+    server.turn(project)
+
+    ended = server.event(f"execution.{ending}", project, reason="inactivity")
+
+    assert ended.written == ("Stop",)
+    # OpenCode's reason is kept for the Event Log, not read as an outcome.
+    assert answer(ended) == {"result": "accepted", "reason": "inactivity"}
+    waiting = record(project)
+    assert waiting is not None
+    assert waiting["state"] == "waiting"
+
+
+def test_a_publication_at_or_below_the_sessions_sequence_writes_nothing(
+    project: Path, server: Server
+) -> None:
+    server.turn(project, sequence=4)
+    server.finish(project, sequence=5)
     settled = record(project)
 
-    assert plugin.status("idle") == "duplicate"
-    assert plugin.status("busy", sequence=1) == "stale"
+    assert server.finish(project, sequence=5) == "stale"
+    assert server.turn(project, sequence=3) == "stale"
     assert record(project) == settled
-    assert plugin.status("busy") == "accepted"
+    assert server.turn(project, sequence=6) == "accepted"
 
 
-def test_a_root_bootstrap_is_acknowledged_with_the_commands_claim(
-    project: Path, plugin: Plugin
+def test_a_sessions_first_publication_in_a_store_begins_its_incarnation(
+    project: Path, server: Server
 ) -> None:
-    acknowledgment = plugin.bootstrap(command="call_root_1")
+    # Its creation reached no instance, as before a plugin was installed.
+    started = server.event("execution.started", project)
 
-    assert acknowledgment == {
-        "result": "accepted",
-        "command": "call_root_1",
-        "claim": {"sessionID": ROOT, "generation": FIRST, "pid": BACKEND.pid},
-    }
-    running = record(project)
-    assert running is not None
-    assert (running["state"], running["event"]) == ("running", "PreToolUse")
+    assert started.written == ("SessionStart", "UserPromptSubmit")
+    assert server.finish(project) == "accepted"
+    again = server.event("execution.started", project)
+    assert again.written == ("UserPromptSubmit",)
 
 
 def test_a_deleted_session_ends_its_record_and_its_run(
-    project: Path, plugin: Plugin
+    project: Path, server: Server
 ) -> None:
+    server.turn(project)
     start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
     )
-    assert WorkStore(project).active()[0] != []
 
-    deleted = plugin.session("deleted")
+    deleted = server.event("deleted", project)
 
-    assert deleted.result == "accepted"
+    assert deleted.written == ("SessionEnd",)
     assert deleted.publications[-1].work == "ended"
     assert record(project) is None
     assert WorkStore(project).active()[0] == []
-    assert plugin.status("busy") == "rejected"
-    assert answer(plugin.session("bootstrap", command="late")) == {
-        "result": "rejected",
+    # A stray start after the deletion of a running session revives nothing.
+    assert answer(server.event("execution.started", project)) == {
+        "result": "refused",
         "reason": "session-deleted",
     }
+    assert record(project) is None
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_a_location_outside_every_project_is_not_published(
+    tmp_path: Path, server: Server, configured: bool
+) -> None:
+    scratch = (tmp_path / "scratch").resolve()
+    scratch.mkdir()
+    if configured:
+        # A Git checkout, but not a configured Project.
+        scratch = repository(tmp_path / "plain-git").resolve()
+        (scratch / ".dashpot" / "config.json").unlink()
+
+    assert answer(server.event("execution.started", scratch)) == {
+        "result": "refused",
+        "reason": "outside-project",
+    }
+    assert not state_directory().exists() or not any(state_directory().iterdir())
+
+
+def test_a_location_that_no_longer_exists_is_not_published(
+    tmp_path: Path, server: Server
+) -> None:
+    assert answer(server.event("execution.started", tmp_path / "removed")) == {
+        "result": "refused",
+        "reason": "outside-project",
+    }
+
+
+def test_a_session_resumed_by_another_server_begins_an_incarnation_there(
+    project: Path, server: Server, below: Callable[..., ProcessLookup]
+) -> None:
+    server.turn(project)
+    start_issue_work(
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
+    )
+
+    # A TUI of another release replaced the service, which resumes its sessions.
+    replacement = Server(below(REPLACEMENT), host=REPLACEMENT)
+    replacement.sequences = dict(server.sequences)
+    resumed = replacement.event("execution.started", project)
+
+    assert resumed.written == ("SessionStart", "UserPromptSubmit")
+    assert all(item.work == "unchanged" for item in resumed.publications)
+    (orphaned,) = [run for run in runs(project, replacement.lookup) if run.issue_id]
+    assert orphaned.orphaned is True
+    start_issue_work(
+        project,
+        "build-observer",
+        lookup=replacement.lookup,
+        environ=replacement.claim(),
+    )
+    (held,) = WorkStore(project).active()[0]
+    assert held.session_process is not None
+    assert held.session_process.pid == REPLACEMENT.pid
 
 
 # --- Delegated work ---------------------------------------------------------
 
 
 def test_a_child_session_is_a_sub_agent_of_its_root(
-    project: Path, plugin: Plugin
+    project: Path, server: Server
 ) -> None:
-    plugin.status("busy")
-    plugin.status("busy", CHILD, parent=ROOT)
-    plugin.status("idle")
+    server.turn(project)
+    assert server.event("created", project, CHILD, root=ROOT).written == ()
+    server.turn(project, CHILD, root=ROOT)
+    # A background child keeps working after its root's execution succeeded.
+    server.finish(project)
 
     working = record(project)
     assert working is not None
     assert record(project, CHILD) is None
-    assert working["liveSubagents"] == [CHILD]
-    # The root's own turn stopped, but its Sub-agent is still at work.
-    assert working["state"] == "running"
+    assert (working["liveSubagents"], working["state"]) == ([CHILD], "running")
 
-    assert plugin.status("idle", CHILD, parent=ROOT) == "accepted"
+    assert server.finish(project, CHILD, root=ROOT) == "accepted"
     settled = record(project)
     assert settled is not None
     assert (settled["liveSubagents"], settled["state"]) == ([], "waiting")
 
 
-def test_a_child_bootstrap_gets_no_claim(project: Path, plugin: Plugin) -> None:
-    plugin.status("busy")
+def test_a_deleted_child_stops_on_its_root(project: Path, server: Server) -> None:
+    server.turn(project)
+    server.turn(project, CHILD, root=ROOT)
 
-    acknowledgment = plugin.bootstrap(CHILD, parent=ROOT, command="call_child_1")
+    assert server.event("deleted", project, CHILD, root=ROOT).written == (
+        "SubagentStop",
+    )
 
-    assert acknowledgment == {
-        "result": "accepted",
-        "reason": "delegated-session",
-        "command": "call_child_1",
+    settled = record(project)
+    assert settled is not None
+    assert settled["liveSubagents"] == []
+    assert answer(server.event("execution.started", project, CHILD, root=ROOT)) == {
+        "result": "refused",
+        "reason": "session-deleted",
     }
+
+
+def test_a_grandchild_is_a_sub_agent_of_the_root(project: Path, server: Server) -> None:
+    server.turn(project)
+
+    server.turn(project, FORK, root=ROOT)
+
+    working = record(project)
+    assert working is not None
+    assert working["liveSubagents"] == [FORK]
+
+
+def test_a_childs_first_word_starts_its_roots_record(
+    project: Path, server: Server
+) -> None:
+    started = server.event("execution.started", project, CHILD, root=ROOT)
+
+    assert started.written == ("SessionStart", "SubagentStart")
+    working = record(project)
+    assert working is not None
+    assert (working["state"], working["liveSubagents"]) == ("running", [CHILD])
+
+
+def test_a_child_stop_with_no_root_record_writes_nothing(
+    project: Path, server: Server
+) -> None:
+    server.finish(project, CHILD, root=ROOT)
+
+    assert record(project) is None
+
+
+def test_a_fork_is_a_root_of_its_own_and_inherits_no_run(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
+    start_issue_work(
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
+    )
+
+    assert server.event("forked", project, FORK).written == ("SessionStart",)
+    server.turn(project, FORK)
+
+    forked = record(project, FORK)
+    assert forked is not None
+    assert forked["liveSubagents"] == []
+    bound = {run.session_id: run.issue_id for run in runs(project, server.lookup)}
+    assert bound == {ROOT: "I_observer", FORK: None}
+
+
+# --- Moves ------------------------------------------------------------------
+
+
+def test_a_move_within_its_repository_carries_its_run(
+    tmp_path: Path, project: Path, server: Server
+) -> None:
+    linked = linked_worktree(project, tmp_path / "linked", "linked").resolve()
+    server.turn(project)
+    start_issue_work(
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
+    )
+
+    moved = server.event("moved", project, to=linked)
+
+    assert moved.written == ("SessionMoved",)
+    assert moved.publications[-1].work == "relocated"
+    arrived = record(linked)
+    assert arrived is not None
+    assert (arrived["cwd"], arrived["state"]) == (str(linked), "running")
+    assert WorkStore(project).active()[0] == []
+    (held,) = WorkStore(linked).active()[0]
+    assert held.issue_id == "I_observer"
+    # Its later events are written where it now is, beginning nothing.
+    assert server.finish(linked) == "accepted"
+    assert server.event("execution.started", linked).written == ("UserPromptSubmit",)
+
+
+def test_a_childs_move_writes_nothing(
+    tmp_path: Path, project: Path, server: Server
+) -> None:
+    linked = linked_worktree(project, tmp_path / "linked", "linked").resolve()
+    server.turn(project)
+
+    assert server.event("moved", project, CHILD, root=ROOT, to=linked).written == ()
+    assert record(linked) is None
+
+
+def test_a_move_to_another_repository_leaves_its_run_behind(
+    tmp_path: Path, project: Path, server: Server
+) -> None:
+    other = repository(tmp_path / "other").resolve()
+    server.turn(project)
+    start_issue_work(
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
+    )
+
+    moved = server.event("moved", project, to=other)
+
+    assert moved.written == ("SessionMoved",)
+    # Written where the session was, naming where it went.
+    left = record(project)
+    assert left is not None
+    assert left["cwd"] == str(other)
+    (held,) = WorkStore(project).active()[0]
+    assert held.issue_id == "I_observer"
+    _runs, diagnostics = observed(project, server.lookup, other)
+    assert [item.code for item in diagnostics] == ["work-session-elsewhere"]
+    # Its next event begins an incarnation in the other Repository.
+    assert server.finish(other) == "accepted"
+    arrived = record(other)
+    assert arrived is not None
+    assert arrived["lastSessionStartAt"] is not None
+
+
+def test_a_move_outside_every_project_is_written_where_it_left(
+    tmp_path: Path, project: Path, server: Server
+) -> None:
+    plain = (tmp_path / "plain").resolve()
+    plain.mkdir()
+    server.turn(project)
+
+    assert server.event("moved", project, to=plain).written == ("SessionMoved",)
+
+    left = record(project)
+    assert left is not None
+    assert left["cwd"] == str(plain)
+    assert answer(server.event("execution.succeeded", plain)) == {
+        "result": "refused",
+        "reason": "outside-project",
+    }
+    # Nor is a move from there into a Project written, until its next event.
+    assert server.event("moved", plain, to=project).result == "refused"
+
+
+# --- The Host Process's last instance ---------------------------------------
+
+
+def test_a_server_with_no_live_instance_marks_its_running_roots_unknown(
+    project: Path, server: Server, below: Callable[..., ProcessLookup]
+) -> None:
+    server.turn(project)
+    server.turn(project, FORK)
+    server.finish(project, FORK)
+    server.turn(project, "ses_holding")
+    server.turn(project, CHILD, root="ses_holding")
+    server.finish(project, "ses_holding")
+    other = Server(below(REPLACEMENT), host=REPLACEMENT)
+    other.turn(project, "ses_elsewhere")
+
+    assert server.unobserved(project, project) == "accepted"
+
+    # Another server's session is not this one's to mark.
+    elsewhere = record(project, "ses_elsewhere")
+    assert elsewhere is not None
+    assert elsewhere["sessionProcessUnobservable"] is None
+
+    states = {run.session_id: run.state for run in runs(project, server.lookup)}
+    assert states == {
+        ROOT: "unknown",
+        FORK: "waiting",
+        "ses_holding": "unknown",
+    }
+    marked = record(project)
+    assert marked is not None
+    assert marked["sessionProcess"]["pid"] == SERVER.pid
+    assert marked["sessionProcessUnobservable"] == "opencode-no-live-instance"
+
+
+def test_any_publication_clears_the_mark_and_forgets_its_sub_agents(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
+    server.turn(project, CHILD, root=ROOT)
+    server.unobserved(project)
+
+    # The child's end reached no instance; the root's next event arrives.
+    assert server.finish(project) == "accepted"
+
+    observed_again = record(project)
+    assert observed_again is not None
+    assert observed_again["sessionProcessUnobservable"] is None
+    assert (observed_again["state"], observed_again["liveSubagents"]) == (
+        "waiting",
+        [],
+    )
+    # A live child's next event adds it again.
+    server.turn(project, CHILD, root=ROOT)
     working = record(project)
     assert working is not None
     assert working["liveSubagents"] == [CHILD]
 
 
-def test_a_grandchild_is_a_sub_agent_of_the_root(project: Path, plugin: Plugin) -> None:
-    plugin.status("busy")
-
-    plugin.status("busy", FORK, parent=CHILD, root=ROOT)
-    plugin.session("deleted", FORK, parent=CHILD, root=ROOT)
-
-    settled = record(project)
-    assert settled is not None
-    assert settled["liveSubagents"] == []
-
-
-def test_a_childs_first_word_starts_its_roots_record(
-    project: Path, plugin: Plugin
+def test_a_marked_session_reads_gone_once_its_server_exits(
+    project: Path, server: Server
 ) -> None:
-    plugin.status("busy", CHILD, parent=ROOT)
-
-    started = record(project)
-    assert started is not None
-    assert (started["state"], started["liveSubagents"]) == ("running", [CHILD])
-
-
-def test_a_fork_is_a_session_of_its_own_and_inherits_no_run(
-    project: Path, plugin: Plugin
-) -> None:
+    server.turn(project)
     start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
     )
+    server.unobserved(project)
 
-    plugin.status("busy", FORK)
-
-    forked = record(project, FORK)
-    assert forked is not None
-    assert forked["liveSubagents"] == []
-    (held,) = WorkStore(project).active()[0]
-    assert held.session_id == ROOT
-    bound = {run.session_id: run.issue_id for run in runs(project, plugin.lookup)}
-    assert bound == {ROOT: "I_observer", FORK: None}
-
-
-# --- Plugin disposal and replacement ----------------------------------------
-
-
-def test_a_retired_generations_sessions_read_unknown_until_a_successor_publishes(
-    project: Path, plugin: Plugin
-) -> None:
-    plugin.status("busy")
-    plugin.status("busy", FORK)
-    plugin.status("busy", CHILD, parent=ROOT)
-
-    plugin.retire()
-
-    states = {run.session_id: run.state for run in runs(project, plugin.lookup)}
-    assert states == {ROOT: "unknown", FORK: "unknown"}
-    unobserved = record(project)
-    assert unobserved is not None
-    assert unobserved["sessionProcessUnobservable"] == "opencode-publisher-retired"
-
-    successor = Plugin(project, plugin.lookup, SECOND)
-    assert successor.register() == "accepted"
-    assert successor.status("idle") == "accepted"
-    observed = record(project)
-    assert observed is not None
-    assert observed["sessionProcess"]["pid"] == BACKEND.pid
-    assert observed["sessionProcessUnobservable"] is None
-    # A successor's first word starts the record afresh: the Sub-agent its
-    # predecessor saw is not one it can vouch for.
-    assert (observed["state"], observed["liveSubagents"]) == ("waiting", [])
-    states = {run.session_id: run.state for run in runs(project, plugin.lookup)}
-    assert states == {ROOT: "waiting", FORK: "unknown"}
-
-
-def test_a_retired_generations_sessions_read_gone_once_their_backend_exits(
-    project: Path, plugin: Plugin
-) -> None:
-    # OpenCode retires a generation when its TUI quits, as the backend in the
-    # same process exits (ADR 0080): the record still names that backend.
-    start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
-    )
-    plugin.retire()
-
-    retired = record(project)
-    assert retired is not None
-    assert retired["sessionProcess"]["pid"] == BACKEND.pid
-    assert retired["sessionProcessUnobservable"] == "opencode-publisher-retired"
-    (live,) = runs(project, plugin.lookup)
-    assert (live.issue_id, live.state, live.orphaned) == (
-        "I_observer",
-        "unknown",
-        False,
-    )
-
+    (live,) = runs(project, server.lookup)
+    assert (live.state, live.orphaned) == ("unknown", False)
     (exited,) = runs(project, table_lookup({}))
-    # Only the Work Store's run is left, orphaned under the gone backend; the
-    # session itself is gone, not unknown.
     assert (exited.issue_id, exited.orphaned) == ("I_observer", True)
 
 
-def test_a_retired_generations_session_stays_unknown_while_its_backend_is_unobservable(
-    project: Path, plugin: Plugin
+def test_a_marked_session_stays_unknown_while_its_server_is_unobservable(
+    project: Path, server: Server
 ) -> None:
-    plugin.status("busy")
-    plugin.retire()
+    server.turn(project)
+    server.unobserved(project)
 
-    (observed,) = runs(project, unobservable("ps-timeout"))
+    (seen,) = runs(project, unobservable("ps-timeout"))
 
-    assert (observed.session_id, observed.state) == (ROOT, "unknown")
-
-
-def test_a_successor_ends_a_session_its_predecessor_last_published(
-    project: Path, plugin: Plugin
-) -> None:
-    plugin.status("busy")
-    plugin.retire()
-    successor = Plugin(project, plugin.lookup, SECOND)
-    successor.register()
-
-    assert successor.session("deleted").result == "accepted"
-
-    assert record(project) is None
-
-
-def test_retirement_leaves_another_backends_record_alone(
-    project: Path, plugin: Plugin, below: Callable[..., ProcessLookup]
-) -> None:
-    plugin.status("busy")
-    other = Plugin(project, below(RESTARTED), SECOND, backend=RESTARTED)
-    other.register()
-    other.status("busy")
-
-    plugin.retire()
-
-    moved = record(project)
-    assert moved is not None
-    assert moved["sessionProcess"]["pid"] == RESTARTED.pid
+    assert (seen.session_id, seen.state) == (ROOT, "unknown")
 
 
 @pytest.mark.parametrize("claude_ended", [False, True])
-def test_retirement_finds_its_record_beside_another_harness_of_the_same_id(
-    project: Path, plugin: Plugin, claude_ended: bool
+def test_the_mark_finds_its_record_beside_another_harness_of_the_same_id(
+    project: Path, server: Server, claude_ended: bool
 ) -> None:
     # Claude Code took the session's plain name first, so OpenCode's record
     # is kept under its harness-scoped one, even once Claude Code's is gone.
     claude = hook_record(project, ROOT, "claude-code", CLAUDE)
-    plugin.status("busy")
+    server.turn(project)
     if claude_ended:
         write_hook_record(
             hook_record_document(project, ROOT, "claude-code", CLAUDE, state="ended"),
             session_directory(project),
         )
 
-    plugin.retire()
+    server.unobserved(project)
 
     if claude_ended:
         assert not claude.exists()
@@ -651,190 +731,245 @@ def test_retirement_finds_its_record_beside_another_harness_of_the_same_id(
             "claude-code",
             CLAUDE.pid,
         )
-    (unobserved,) = [
+    (marked,) = [
         json.loads(path.read_text())
         for path in session_directory(project).glob("opencode-session-*.json")
     ]
-    assert unobserved["sessionProcessUnobservable"] == "opencode-publisher-retired"
+    assert marked["sessionProcessUnobservable"] == "opencode-no-live-instance"
 
 
-def test_retirement_writes_no_record_its_session_no_longer_has(
-    project: Path, plugin: Plugin
+def test_the_mark_skips_locations_outside_every_project(
+    tmp_path: Path, server: Server
 ) -> None:
-    plugin.status("busy")
-    # Something other than this generation ended the record, e.g. a prune.
-    write_hook_record(
-        hook_record_document(
-            project,
-            ROOT,
-            "opencode",
-            BACKEND,
-            state="ended",
-            at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    assert server.unobserved(tmp_path) == "accepted"
+
+
+# --- Recovery on registration -----------------------------------------------
+
+
+def test_registration_returns_the_roots_its_store_records_on_its_server(
+    project: Path, server: Server, below: Callable[..., ProcessLookup]
+) -> None:
+    server.turn(project)
+    server.turn(project, CHILD, root=ROOT)
+    server.turn(project, FORK)
+    Server(below(REPLACEMENT), host=REPLACEMENT).turn(project, "ses_elsewhere")
+
+    recovered = server.register(project)
+
+    assert recovered == {
+        "result": "accepted",
+        "sessions": sorted(
+            [{"id": ROOT, "subagents": [CHILD]}, {"id": FORK, "subagents": []}],
+            key=lambda session: session["id"],
         ),
-        session_directory(project),
+    }
+
+
+def test_registration_skips_an_unreadable_record(project: Path, server: Server) -> None:
+    server.turn(project)
+    (session_directory(project) / "torn.json").write_text("{not json")
+
+    assert server.register(project) == {
+        "result": "accepted",
+        "sessions": [{"id": ROOT, "subagents": []}],
+    }
+
+
+def test_registration_outside_every_project_recovers_nothing(
+    tmp_path: Path, server: Server
+) -> None:
+    assert server.register(tmp_path) == {"result": "accepted", "sessions": []}
+
+
+def test_a_recovered_deletion_ends_the_session_and_its_run(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
+    start_issue_work(
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
     )
 
-    assert plugin.retire() == "accepted"
+    assert server.gone(project) == "accepted"
 
     assert record(project) is None
+    assert WorkStore(project).active()[0] == []
+    assert server.turn(project) == "refused"
+
+
+def test_a_recovered_childs_deletion_stops_it_on_its_root(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
+    server.turn(project, CHILD, root=ROOT)
+
+    assert server.gone(project, CHILD, root=ROOT) == "accepted"
+
+    settled = record(project)
+    assert settled is not None
+    assert settled["liveSubagents"] == []
+
+
+def test_an_unreadable_publisher_record_accepts_the_next_publication(
+    project: Path, server: Server
+) -> None:
+    server.turn(project, sequence=7)
+    store = PublisherStore(session_directory(project))
+    store.record_path("publisher").write_text("{not json")
+
+    assert server.finish(project, sequence=2) == "accepted"
 
 
 # --- Issue work ---------------------------------------------------------------
 
 
-def test_a_corroborated_command_opts_its_session_in(
-    project: Path, plugin: Plugin
+def test_a_model_shells_claim_opts_its_session_in(
+    project: Path, server: Server
 ) -> None:
+    server.turn(project)
+
     messages = start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
     )
 
     assert "started work on build-observer" in messages[0]
     (held,) = WorkStore(project).active()[0]
     assert held.issue_id == "I_observer"
     assert held.session_process is not None
-    assert held.session_process.pid == BACKEND.pid
+    assert held.session_process.pid == SERVER.pid
 
 
-def test_a_retired_generations_claim_corroborates_nothing(
-    project: Path, plugin: Plugin
+def test_a_marked_sessions_claim_still_opts_in(project: Path, server: Server) -> None:
+    server.turn(project)
+    server.unobserved(project)
+
+    start_issue_work(
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
+    )
+
+    (held,) = WorkStore(project).active()[0]
+    assert held.issue_id == "I_observer"
+
+
+def test_a_child_sessions_claim_is_refused_as_delegated(
+    project: Path, server: Server
 ) -> None:
-    environ = plugin.claimed()
-    plugin.retire()
-    Plugin(project, plugin.lookup, SECOND).register()
+    server.turn(project)
+    server.turn(project, CHILD, root=ROOT)
 
-    with pytest.raises(IssueWorkError, match="no plugin instance publishes it now"):
+    with pytest.raises(IssueWorkError, match=f"delegated-session.*{ROOT}"):
         start_issue_work(
-            project, "build-observer", lookup=plugin.lookup, environ=environ
+            project,
+            "build-observer",
+            lookup=server.lookup,
+            environ=server.claim(CHILD),
         )
 
     assert WorkStore(project).active()[0] == []
 
 
-def test_a_retired_generations_claim_stays_refused_once_a_successor_publishes(
-    project: Path, plugin: Plugin
-) -> None:
-    environ = plugin.claimed()
-    plugin.retire()
-    successor = Plugin(project, plugin.lookup, SECOND)
-    successor.register()
-    successor.status("busy")
+def test_a_deleted_sessions_claim_is_refused(project: Path, server: Server) -> None:
+    server.turn(project)
+    server.event("deleted", project)
 
-    with pytest.raises(IssueWorkError, match="has been retired"):
+    with pytest.raises(IssueWorkError, match="OpenCode has deleted the session"):
         start_issue_work(
-            project, "build-observer", lookup=plugin.lookup, environ=environ
+            project, "build-observer", lookup=server.lookup, environ=server.claim()
         )
-
-
-def test_a_claim_from_a_generation_that_does_not_publish_is_refused(
-    project: Path, plugin: Plugin
-) -> None:
-    environ = {**plugin.claimed(), "DASHPOT_OPENCODE_GENERATION": SECOND}
-
-    with pytest.raises(IssueWorkError, match="no longer publishes"):
-        start_issue_work(
-            project, "build-observer", lookup=plugin.lookup, environ=environ
-        )
-
-
-def test_a_deleted_sessions_claim_is_refused(project: Path, plugin: Plugin) -> None:
-    environ = plugin.claimed()
-    plugin.status("busy", FORK)
-    # Deleting the session leaves no record to validate the claim against.
-    plugin.session("deleted")
-
-    with pytest.raises(IssueWorkError, match="no lifecycle hook record"):
-        start_issue_work(
-            project, "build-observer", lookup=plugin.lookup, environ=environ
-        )
-
-
-def test_ownership_needs_a_record_and_a_session_opencode_kept(
-    project: Path,
-) -> None:
-    hook_store = session_directory(project)
-    store = PublisherStore(hook_store)
-    key = publisher_key(BACKEND.key, project)
-
-    assert corroboration_refusal(hook_store, BACKEND, project, FIRST, ROOT) == (
-        "no publisher generation is registered for its OpenCode backend"
-    )
-    owned = new_publisher_record(BACKEND, project).model_copy(
-        update={"active": FIRST, "deleted": [ROOT]}
-    )
-    with store.locked(key):
-        store.write(key, owned)
-
-    assert corroboration_refusal(hook_store, BACKEND, project, FIRST, ROOT) == (
-        "OpenCode has deleted the session"
-    )
-    assert corroboration_refusal(hook_store, BACKEND, project, FIRST, FORK) is None
 
 
 def test_an_explicit_override_cannot_name_an_opencode_session(
-    project: Path, plugin: Plugin
+    project: Path, server: Server
 ) -> None:
-    plugin.status("busy")
+    server.turn(project)
 
-    with pytest.raises(IssueWorkError, match="carries no publisher generation"):
+    with pytest.raises(IssueWorkError, match="is not OpenCode's own claim"):
         start_issue_work(
             project,
             "build-observer",
-            lookup=plugin.lookup,
+            lookup=server.lookup,
             environ={"DASHPOT_AGENT_SESSION": f"opencode:{ROOT}"},
         )
 
 
-def test_an_uncorroborated_command_is_told_why(project: Path, plugin: Plugin) -> None:
-    plugin.status("busy")
+def test_a_claim_naming_another_server_is_refused(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
+    # Variables a shell inherited from another server's shell.
+    environ = {**server.claim(), "DASHPOT_OPENCODE_PID": str(REPLACEMENT.pid)}
+
+    with pytest.raises(IssueWorkError, match="attributes the harness to pid 4300"):
+        start_issue_work(
+            project, "build-observer", lookup=server.lookup, environ=environ
+        )
+
+
+def test_a_user_shell_is_told_only_an_agents_command_opts_in(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
 
     with pytest.raises(IssueWorkError) as refused:
         start_issue_work(
             project,
             "build-observer",
-            lookup=plugin.lookup,
-            environ={"DASHPOT_OPENCODE_UNCORROBORATED": "delegated-session"},
+            lookup=server.lookup,
+            environ={"DASHPOT_OPENCODE_PID": str(SERVER.pid)},
         )
 
     message = str(refused.value)
     assert "running Codex, Claude Code, or OpenCode session" in message
-    assert "unsupported" not in message
-    assert "no corroborated identity: delegated-session" in message
+    assert "a shell the user started in OpenCode" in message
+
+
+def test_a_terminal_is_told_it_is_no_agents_command(
+    project: Path, server: Server
+) -> None:
+    server.turn(project)
+    # A terminal runs no plugin hook, so an inherited session is all it has.
+    environ = {"OPENCODE_SESSION_ID": ROOT, "OPENCODE": "1"}
+
+    with pytest.raises(IssueWorkError, match="an OpenCode terminal"):
+        start_issue_work(
+            project, "build-observer", lookup=server.lookup, environ=environ
+        )
 
 
 @pytest.mark.parametrize(
-    ("missing", "value"),
+    ("variable", "value"),
     [
-        ("DASHPOT_OPENCODE_SESSION_ID", ""),
-        ("DASHPOT_OPENCODE_GENERATION", ""),
+        ("OPENCODE_SESSION_ID", ""),
+        ("OPENCODE", ""),
+        ("OPENCODE", "true"),
         ("DASHPOT_OPENCODE_PID", "not-a-pid"),
     ],
 )
 def test_a_partial_claim_is_no_claim(
-    project: Path, plugin: Plugin, missing: str, value: str
+    project: Path, server: Server, variable: str, value: str
 ) -> None:
-    environ = {**plugin.claimed(), missing: value}
+    server.turn(project)
+    environ = {**server.claim(), variable: value}
 
     with pytest.raises(IssueWorkError, match="no supported agent session"):
         start_issue_work(
-            project, "build-observer", lookup=plugin.lookup, environ=environ
+            project, "build-observer", lookup=server.lookup, environ=environ
         )
 
 
-def test_an_opencode_backend_alone_never_corroborates_another_harness(
-    project: Path, plugin: Plugin
+def test_an_opencode_server_alone_never_corroborates_another_harness(
+    project: Path, server: Server
 ) -> None:
     """A command under OpenCode that inherited a Codex claim is refused.
 
     The plugin blanks every inherited claim; without the plugin, the nearest
-    host is the OpenCode backend, which the Codex claim cannot describe.
+    host is the OpenCode server, which the Codex claim cannot describe.
     """
-    plugin.status("busy")
+    server.turn(project)
     hook_record(project, "019dd9a2-codex", "codex", CODEX)
 
     def lookup(pid: int) -> ProcessObservation:
-        return ProcessPresent(CODEX) if pid == CODEX.pid else plugin.lookup(pid)
+        return ProcessPresent(CODEX) if pid == CODEX.pid else server.lookup(pid)
 
     with pytest.raises(IssueWorkError, match="does not corroborate"):
         start_issue_work(
@@ -861,7 +996,7 @@ def test_a_harness_launched_inside_opencode_identifies_its_own_session(
 ) -> None:
     session = next(value for key, value in environ.items() if "PID" not in key)
     hook_record(project, session, harness, host)
-    lookup = below(host, BACKEND)
+    lookup = below(host, SERVER)
 
     start_issue_work(project, "build-observer", lookup=lookup, environ=environ)
 
@@ -871,107 +1006,68 @@ def test_a_harness_launched_inside_opencode_identifies_its_own_session(
     assert held.session_process.pid == host.pid
 
 
-def test_a_restarted_backend_continues_a_run_only_by_explicit_start(
-    project: Path, plugin: Plugin, below: Callable[..., ProcessLookup]
+def test_a_record_naming_no_host_process_corroborates_no_claim(
+    project: Path, server: Server
 ) -> None:
-    start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
-    )
+    hook_record(project, ROOT, "opencode", None)
 
-    # The backend exits, taking its plugin with it; an operator starts another.
-    restarted = Plugin(project, below(RESTARTED), SECOND, backend=RESTARTED)
-    assert restarted.register() == "accepted"
-    resumed = restarted.session("status", status="busy")
-
-    assert all(item.work == "unchanged" for item in resumed.publications)
-    (orphaned,) = [run for run in runs(project, restarted.lookup) if run.issue_id]
-    assert orphaned.orphaned is True
-
-    start_issue_work(
-        project,
-        "build-observer",
-        lookup=restarted.lookup,
-        environ=restarted.claimed(),
-    )
-    (held,) = WorkStore(project).active()[0]
-    assert held.session_process is not None
-    assert held.session_process.pid == RESTARTED.pid
-    stop_issue_work(project, lookup=restarted.lookup, environ=restarted.claimed())
-    assert WorkStore(project).active()[0] == []
+    with pytest.raises(IssueWorkError, match="names no Host Process"):
+        start_issue_work(
+            project, "build-observer", lookup=server.lookup, environ=server.claim()
+        )
 
 
-def test_two_root_sessions_of_one_backend_hold_their_own_issue_work(
-    project: Path, plugin: Plugin
+def test_two_root_sessions_of_one_server_hold_their_own_issue_work(
+    project: Path, server: Server
 ) -> None:
+    server.turn(project)
+    server.turn(project, FORK)
     start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
     )
     start_issue_work(
-        project, "fix-crash", lookup=plugin.lookup, environ=plugin.claimed(FORK)
+        project, "fix-crash", lookup=server.lookup, environ=server.claim(FORK)
     )
 
     held = {run.session_key: run.issue_id for run in WorkStore(project).active()[0]}
     assert sorted(held.values()) == ["I_crash", "I_observer"]
-    assert len(held) == 2
 
-    stop_issue_work(project, lookup=plugin.lookup, environ=plugin.claimed(FORK))
+    stop_issue_work(project, lookup=server.lookup, environ=server.claim(FORK))
     (kept,) = WorkStore(project).active()[0]
     assert kept.issue_id == "I_observer"
 
 
 def test_a_claim_used_from_another_worktree_is_refused(
-    tmp_path: Path, project: Path, plugin: Plugin
+    tmp_path: Path, project: Path, server: Server
 ) -> None:
-    environ = plugin.claimed()
+    server.turn(project)
     linked = linked_worktree(project, tmp_path / "linked", "linked")
 
     with pytest.raises(IssueWorkError) as refused:
         start_issue_work(
-            linked, "build-observer", lookup=plugin.lookup, environ=environ
+            linked, "build-observer", lookup=server.lookup, environ=server.claim()
         )
 
     assert f"is at {project} according to its freshest OpenCode hook record" in str(
         refused.value
     )
     assert WorkStore(linked).active()[0] == []
-    assert WorkStore(project).active()[0] == []
 
 
-def test_issue_work_survives_its_plugin_being_replaced(
-    project: Path, plugin: Plugin
-) -> None:
+def test_issue_work_survives_a_reload(project: Path, server: Server) -> None:
+    server.turn(project)
     start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
     )
-    plugin.retire()
-    successor = Plugin(project, plugin.lookup, SECOND)
-    assert successor.register() == "accepted"
+    # A reload cleans every instance up before setting any up.
+    server.unobserved(project)
+    server.register(project)
 
-    resumed = successor.session("status", status="busy")
+    resumed = server.event("execution.started", project)
 
-    assert all(item.work == "unchanged" for item in resumed.publications)
-    (held,) = [run for run in runs(project, plugin.lookup) if run.issue_id]
+    assert resumed.written == ("UserPromptSubmit",)
+    (held,) = [run for run in runs(project, server.lookup) if run.issue_id]
     assert (held.state, held.orphaned) == ("running", False)
-    stop_issue_work(project, lookup=plugin.lookup, environ=successor.claimed())
-    assert WorkStore(project).active()[0] == []
-
-
-def test_deleting_a_root_with_a_live_child_ends_its_record_and_its_run(
-    project: Path, plugin: Plugin
-) -> None:
-    plugin.status("busy")
-    plugin.status("busy", CHILD, parent=ROOT)
-    start_issue_work(
-        project, "build-observer", lookup=plugin.lookup, environ=plugin.claimed()
-    )
-
-    assert plugin.session("deleted").result == "accepted"
-
-    assert record(project) is None
-    assert WorkStore(project).active()[0] == []
-    # The child's last word arrives after its root is gone and revives nothing.
-    assert plugin.status("idle", CHILD, parent=ROOT) == "rejected"
-    assert record(project) is None
 
 
 # --- The helper -------------------------------------------------------------
@@ -1000,30 +1096,39 @@ def test_the_helper_prints_one_acknowledgment_and_logs_its_outcome(
     monkeypatch.setattr(
         hook,
         "publish_opencode",
-        functools.partial(publish_opencode, lookup=below(BACKEND)),
+        functools.partial(publish_opencode, lookup=below(SERVER)),
     )
     destination = EventLogDestination(tmp_path / "events")
-    request = {
-        "protocol": 1,
-        "kind": "register",
-        "generation": FIRST,
-        "directory": str(project),
-        "pid": BACKEND.pid,
+    base = {
+        "protocol": 2,
+        "generation": GENERATION,
+        "pid": SERVER.pid,
         "deadlineMs": 3000,
     }
+    session = {"id": ROOT, "root": ROOT, "location": str(project)}
 
-    code, out, _err = run_helper(monkeypatch, capsys, destination, json.dumps(request))
-    status = {
-        **request,
-        "kind": "status",
-        "status": "busy",
-        "sequence": 1,
-        "root": ROOT,
-        "session": {"id": ROOT, "directory": str(project), "parentID": None},
-    }
-    run_helper(monkeypatch, capsys, destination, json.dumps(status))
+    code, out, _err = run_helper(
+        monkeypatch,
+        capsys,
+        destination,
+        json.dumps({**base, "kind": "register", "location": str(project)}),
+    )
+    for sequence, kind in enumerate(["started", "interrupted"]):
+        event = {
+            "id": f"evt_{sequence}",
+            "type": f"session.execution.{kind}",
+            "sequence": sequence,
+        }
+        if kind == "interrupted":
+            event["reason"] = "user"
+        run_helper(
+            monkeypatch,
+            capsys,
+            destination,
+            json.dumps({**base, "kind": "event", "session": session, "event": event}),
+        )
 
-    assert (code, json.loads(out)) == (0, {"result": "accepted"})
+    assert (code, json.loads(out)) == (0, {"result": "accepted", "sessions": []})
     outcomes = [
         event
         for event in written(destination.directory)
@@ -1034,11 +1139,13 @@ def test_the_helper_prints_one_acknowledgment_and_logs_its_outcome(
             event["dashpot.process.kind"],
             event["dashpot.hook.event"],
             event.get("dashpot.agent_session.state"),
+            event.get("dashpot.hook.reason"),
         )
         for event in outcomes
     ] == [
-        ("hook:opencode:register", "register", None),
-        ("hook:opencode:status", "status", "running"),
+        ("hook:opencode:register", "register", None, None),
+        ("hook:opencode:event", "UserPromptSubmit", "running", None),
+        ("hook:opencode:event", "Stop", "waiting", "user"),
     ]
 
 
@@ -1060,6 +1167,7 @@ def test_the_helper_answers_a_malformed_request_with_no_acknowledgment(
     ]
     assert outcome["dashpot.process.kind"] == "hook:opencode"
     assert outcome["dashpot.outcome.result"] == "failed"
+    assert "dashpot.hook.event" not in outcome
 
 
 def test_the_helper_gives_up_at_its_deadline(
@@ -1075,11 +1183,11 @@ def test_the_helper_gives_up_at_its_deadline(
     monkeypatch.setattr(hook, "publish_opencode", stalled)
     monkeypatch.setattr(hook, "OPENCODE_DEADLINE_GRACE_SECONDS", 0.05)
     request = {
-        "protocol": 1,
+        "protocol": 2,
         "kind": "register",
-        "generation": FIRST,
-        "directory": str(project),
-        "pid": BACKEND.pid,
+        "generation": GENERATION,
+        "location": str(project),
+        "pid": SERVER.pid,
         "deadlineMs": 50,
     }
 
@@ -1092,28 +1200,3 @@ def test_the_helper_gives_up_at_its_deadline(
 
     assert (code, out) == (hook.NON_BLOCKING_FAILURE_EXIT_CODE, "")
     assert "deadline passed" in err
-
-
-def test_a_directory_git_cannot_answer_for_registers_in_the_global_store(
-    tmp_path: Path, below: Callable[..., ProcessLookup]
-) -> None:
-    # OpenCode reloads an instance whose directory was just removed.
-    vanished = Plugin(tmp_path / "removed", below(BACKEND))
-
-    assert vanished.register() == "accepted"
-
-    assert PublisherStore(state_directory()).record_keys() != []
-
-
-def test_a_project_without_configuration_publishes_to_the_global_store(
-    tmp_path: Path, below: Callable[..., ProcessLookup]
-) -> None:
-    unconfigured = (tmp_path / "scratch").resolve()
-    unconfigured.mkdir()
-    instance = Plugin(unconfigured, below(BACKEND))
-
-    assert instance.register() == "accepted"
-    assert instance.status("busy") == "accepted"
-
-    assert (state_directory() / f"{ROOT}.json").is_file()
-    assert PublisherStore(state_directory()).record_keys() != []

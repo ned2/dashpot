@@ -108,8 +108,8 @@ def resume_command(session: AgentRun) -> str | None:
     at: Claude Code files a conversation under the Worktree it entered, and
     Codex takes the directory as ``-C``. A resumed Codex thread does not
     continue its run; it resumes the conversation alone, as does an OpenCode
-    session, whose run continues only by an explicit ``work start`` once its
-    backend runs again (ADR 0077).
+    session, whose run continues only by an explicit ``work start`` once a
+    server runs it again (ADR 0090).
     """
     directory = session.observation_target or session.working_directory
     if not session.orphaned or session.session_id is None or directory is None:

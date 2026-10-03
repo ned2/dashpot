@@ -21,8 +21,9 @@ Claude Code's `EnterWorktree` or the sequential Codex resume flow in
 places the session there. Run `work start` only when no preserved run is shown.
 If `EnterWorktree` is refused, follow "Claude Code refuses `EnterWorktree`"
 below.
-An OpenCode session never moves: hand the work to a new OpenCode session in
-the Worktree, as in [dispatch](dispatch.md), which runs these checks itself.
+Do not move an OpenCode session yourself: hand the work to a new OpenCode
+session in the Worktree, as in [dispatch](dispatch.md), which runs these checks
+itself.
 
 ## Issue work recorded elsewhere
 
@@ -33,7 +34,9 @@ that Worktree, but the run stays where it was bound, and `EnterWorktree` refuses
 the directory the shell is already in. Return with `cd` to the Worktree that
 holds the run. Only when the work belongs in the new Worktree, run
 `<dashpot> work start <reference>` there, which switches the run, and confirm
-it with `work show`.
+it with `work show`. For OpenCode it follows a move of the session to another
+Repository or outside every Project; tell the user, who can move it back to the
+Worktree that holds the run.
 
 ## Claude Code refuses `EnterWorktree`
 

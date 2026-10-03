@@ -22,10 +22,10 @@ from ..core.timestamps import utc_now
 from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
 from ..issues.issue_resolution import resolve_issue
 from .harnesses import (
-    OPENCODE_UNCORROBORATED_VARIABLE,
     SESSION_OVERRIDE_VARIABLE,
     SessionIdentityClaim,
     native_claims,
+    opencode_shell_refusal,
     override_claim,
 )
 from .hook_claims import (
@@ -41,6 +41,7 @@ from .hook_scan import (
 )
 from .liveness import session_liveness
 from .processes import (
+    AgentAncestry,
     ProcessIdentity,
     ProcessKey,
     ProcessLookup,
@@ -98,9 +99,7 @@ def identify_agent_session(
     ancestry = observe_agent_ancestry(lookup)
     claims = _session_claims(environment)
     if not claims:
-        raise IssueWorkError(
-            _no_session_message(ancestry.unobservable_reason, environment)
-        )
+        raise IssueWorkError(_no_session_message(ancestry, environment))
     if worktree is None:
         raise IssueWorkError(
             "an Agent Session Identity claimed by the environment can only be "
@@ -139,9 +138,7 @@ def identify_agent_session(
             f"session this command belongs to"
         )
     raise IssueWorkError(
-        _no_session_message(ancestry.unobservable_reason, environment)
-        + "; "
-        + "; ".join(failures)
+        _no_session_message(ancestry, environment) + "; " + "; ".join(failures)
     )
 
 
@@ -153,19 +150,16 @@ def _session_claims(environment: Mapping[str, str]) -> list[SessionIdentityClaim
     return native_claims(environment)
 
 
-def _no_session_message(
-    unobservable_reason: str | None, environment: Mapping[str, str]
-) -> str:
+def _no_session_message(ancestry: AgentAncestry, environment: Mapping[str, str]) -> str:
+    unobservable_reason = ancestry.unobservable_reason
     message = (
         "no supported agent session encloses this command; Issue work opt-in "
         f"must run from inside a running {harness_alternatives()} session"
     )
-    uncorroborated = environment.get(OPENCODE_UNCORROBORATED_VARIABLE)
-    if uncorroborated:
-        message += (
-            f" (OpenCode gave this command no corroborated identity: "
-            f"{uncorroborated}; check 'dashpot integrate opencode --status')"
-        )
+    in_opencode = ancestry.located is not None and ancestry.located[0] == "opencode"
+    refusal = opencode_shell_refusal(environment, in_opencode)
+    if refusal is not None:
+        message += f" ({refusal})"
     if unobservable_reason == "isolated-namespace":
         message += (
             " (this command runs in a sandbox's isolated process namespace, so "

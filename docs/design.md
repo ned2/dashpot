@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-02
+date: 2026-10-03
 ---
 
 # Design
@@ -227,10 +227,9 @@ child-scoped event, `SessionStart` or `SessionEnd` is never designated. An
 event carrying `agent_id` is child-scoped (`is_child_scoped`) whichever
 harness sent it. OpenCode has no hook events: its plugin's helper
 ([`opencode_publish.py`](../src/dashpot/sessions/opencode_publish.py))
-translates a session's native status, deletion and `parentID` into these
-events, under a Publisher Generation that owns the backend's directory
-([ADR 0077](adr/0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md)),
-and then calls the same publisher.
+translates a session's own events, ordered by OpenCode's per-session
+sequence, into these events, a child session's as its root's Sub-agent
+([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)), and then calls the same publisher.
 
 The publisher builds the hook record, then chooses its store: a child-scoped
 event goes to the store holding the parent's freshest record, whose
@@ -264,9 +263,10 @@ becomes gone. Classification
 ([`hook_scan.py`](../src/dashpot/sessions/hook_scan.py)) reads a record by its
 Host Process, with one shared rule beside it: a record whose process is live
 but which also says nothing observes the session there
-(`sessionProcessUnobservable`, as a retired OpenCode Publisher Generation
-leaves its sessions) reads unknown, while a gone process still reads gone
-([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)).
+(`sessionProcessUnobservable`, as an OpenCode server's last plugin instance
+leaves its running sessions) reads unknown, while a gone process still reads
+gone ([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md),
+[ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)).
 
 ## Accepted multi-screen target
 

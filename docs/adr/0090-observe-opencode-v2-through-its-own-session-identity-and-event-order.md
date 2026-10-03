@@ -182,16 +182,20 @@ The plugin publishes OpenCode's own events, in OpenCode's own order:
   parent. So any live instance publishes every session, and an instance's
   cleanup loses no event another instance receives.
 - **Location and parent.** A session's OpenCode location and parent come
-  from `session.created`, `session.moved` and the shell events. A
+  from `session.created`, `session.forked` and `session.moved`; a shell
+  event cannot say, since `create.before` names no session (measured by
+  [#405](../spikes/opencode-v2-plugin-protocol-spike.md#findings)). A
   `session.forked` names a fork with no parent: its `parentID` field is the
   fork's source, never read as a parent. Failing those, the plugin reads the
-  session with `ctx.session.get`, bounded at 500 ms. Unknown parentage is
-  never read as a root, as before.
-- **One session at a time.** The registry sends each session's publications
-  to the helper one at a time, in order, so no two of a session's writes
-  ever overlap, even in different stores. ADR 0078's bounds carry over: each
-  session's queue admits 16 publications, a helper runs under a 3 s
-  deadline, and at most 8 helpers run at once, for different sessions. An
+  session with `ctx.session.get`, bounded at 500 ms, when its publication's
+  turn comes. Unknown parentage is never read as a root, as before.
+- **One root at a time.** The registry sends a root's publications, and
+  those of the children it routes to that root, to the helper one at a time,
+  in order, so no two of a session's writes ever overlap, even in different
+  stores, and a child's event never overtakes its root's move. ADR 0078's
+  bounds carry over: each root's queue admits 16 publications, a helper runs
+  under a 3 s deadline, and at most 8 helpers run at once, for different
+  roots. An
   event that a full queue refuses is lost, and the session's next accepted
   publication corrects its state.
 - **Routing.** A publication goes to the hook store of the Worktree that
@@ -216,10 +220,12 @@ The plugin publishes OpenCode's own events, in OpenCode's own order:
 
 - **Forks.** A fork has no `parentID`, so it is a new root session and
   inherits no run, as under ADR 0077.
-- **Incarnations.** A root's publication writes `SessionStart` first when the
-  store it is written to holds no record of the session, or holds one that
-  names another Host Process: the session has begun there, or resumed in a
-  new server. `session.moved` never writes `SessionStart`. A move within one
+- **Incarnations.** A root's publication, or a child's on its root, writes
+  `SessionStart` first when the store it is written to holds no record of the
+  root, or holds one that names another Host Process: the session has begun
+  there, or resumed in a new server. `session.moved` never writes
+  `SessionStart`, and a child's `SubagentStop` writes nothing to a store
+  with no record of its root. A move within one
   Git Repository is written at the new location's store before any later
   event of the session, so a reload, an eviction and such a move each begin
   no incarnation. A move to another Repository does: the session's first

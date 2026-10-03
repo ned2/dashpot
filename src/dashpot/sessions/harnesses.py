@@ -79,9 +79,6 @@ class SessionIdentityClaim:
     session_id: str
     source: str
     pid: int | None = None
-    # The OpenCode publisher generation that acknowledged the command's own
-    # bootstrap; it must still own its backend and directory (ADR 0078).
-    generation: str | None = None
 
 
 # A native hook event, as the harness wrote it to the publisher's stdin.
@@ -263,42 +260,72 @@ def _claude_code_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | Non
 
 
 def is_opencode_host_process(process: ProcessIdentity) -> bool:
-    """Whether a process is the OpenCode backend: the ``opencode`` executable.
+    """Whether a process is an OpenCode server: the ``opencode`` executable.
 
-    Measured at 1.18.30, ``opencode serve`` is one process named
-    ``opencode`` that runs every shell command and plugin helper itself, as
-    its direct children.
+    Measured at 2.0.22, the shared service (``opencode serve --service``)
+    and a ``--standalone`` client's private server each run every shell
+    command and plugin helper of their sessions as direct children. The
+    curl install names the executable ``opencode`` and the npm one
+    ``opencode.exe``, on Linux too. A client, the TUI included, is never a
+    shell's ancestor, so the nearest match is always the server.
     """
-    return Path(process.command).name.lower() == "opencode"
+    return Path(process.command).name.lower() in {"opencode", "opencode.exe"}
 
 
-# The command-scoped identity Dashpot's OpenCode plugin gives a shell command
-# once the helper acknowledged that command's own bootstrap (ADR 0078); the
-# plugin blanks them, and every other harness's claim, on any other command.
-OPENCODE_SESSION_VARIABLE = "DASHPOT_OPENCODE_SESSION_ID"
-OPENCODE_GENERATION_VARIABLE = "DASHPOT_OPENCODE_GENERATION"
+# OpenCode sets these on a shell the model runs, after every plugin hook;
+# Dashpot's plugin deletes both on every shell first, so only OpenCode's own
+# step for a model's shell can have set them again (ADR 0090).
+OPENCODE_SESSION_VARIABLE = "OPENCODE_SESSION_ID"
+OPENCODE_MARKER_VARIABLE = "OPENCODE"
+# The Host Process pid Dashpot's plugin gives every shell it prepares.
 OPENCODE_PID_VARIABLE = "DASHPOT_OPENCODE_PID"
-# Why the plugin gave a command no claim, for a refusal to repeat.
-OPENCODE_UNCORROBORATED_VARIABLE = "DASHPOT_OPENCODE_UNCORROBORATED"
-PUBLISHER_GENERATION = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
 
 def _opencode_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
-    # A claim names its session, the generation that corroborated it, and the
-    # backend that generation runs in; with any of the three missing it is
-    # not a claim at all, and Issue opt-in is refused.
+    # A claim is OpenCode's own session variable, valid only beside its
+    # marker and the plugin's pid: an inherited ``OPENCODE_SESSION_ID`` alone
+    # can name any session, so it is never a claim.
     session_id = _identity(environ.get(OPENCODE_SESSION_VARIABLE))
-    generation = environ.get(OPENCODE_GENERATION_VARIABLE, "")
     raw_pid = environ.get(OPENCODE_PID_VARIABLE, "")
     if (
         session_id is None
-        or not PUBLISHER_GENERATION.fullmatch(generation)
+        or environ.get(OPENCODE_MARKER_VARIABLE) != "1"
         or not raw_pid.isdigit()
     ):
         return None
     return SessionIdentityClaim(
-        "opencode", session_id, "OpenCode plugin", int(raw_pid), generation
+        "opencode", session_id, "OpenCode environment", int(raw_pid)
     )
+
+
+def opencode_shell_refusal(environ: Mapping[str, str], in_opencode: bool) -> str | None:
+    """Why a command OpenCode ran without a claim cannot opt in; ``None`` for any other.
+
+    A user shell, run through OpenCode's shell route (the TUI's ``!``),
+    keeps the plugin's pid but loses the variables OpenCode sets only for a
+    model's shell. A terminal runs no plugin hook, so it carries no pid;
+    ``in_opencode`` says whether an OpenCode server is its ancestor.
+    """
+    if _opencode_claim(environ) is not None:
+        return None
+    if environ.get(OPENCODE_PID_VARIABLE, "").isdigit():
+        return (
+            "this command runs in a shell the user started in OpenCode, not "
+            "one its agent ran; only an agent's command can opt in"
+        )
+    if in_opencode:
+        return (
+            "this command runs in an OpenCode terminal, which is no agent's "
+            "command; only an agent's command can opt in"
+        )
+    return None
+
+
+def _opencode_locates(event: HookEvent) -> bool:
+    # OpenCode's ``session.moved`` keeps the session's identity and server
+    # and changes where its later shells run; the helper writes a root's
+    # move as this event alone (ADR 0090).
+    return event.get("hook_event_name") == "SessionMoved"
 
 
 # A daemon-hosted Codex terminal records the daemon, which serves many threads
@@ -327,15 +354,16 @@ CLAUDE_CODE = HarnessAdapter(
     locates=_claude_code_locates,
 )
 
-# One OpenCode backend serves every session of every directory it has an
+# One OpenCode server serves every session of every location it has an
 # instance for, and outlives each of them, so its exit never proves one
-# session ended and a run never continues on its own. Its sessions name no
-# designated location evidence: Live Relocation is unsupported (ADR 0077).
+# session ended and a run never continues on its own (ADR 0090). A root
+# session's move is its designated location evidence (ADR 0067).
 OPENCODE = HarnessAdapter(
     harness="opencode",
     display=HARNESS_DISPLAY["opencode"],
     is_host_process=is_opencode_host_process,
     claim_session_identity=_opencode_claim,
+    locates=_opencode_locates,
 )
 
 ADAPTERS: dict[Harness, HarnessAdapter] = {

@@ -1,9 +1,13 @@
-"""The managed OpenCode plugin's own bounds, driven in Node.js against a stub helper.
+"""The managed OpenCode plugin, driven in Node.js against a fake server and a stub helper.
 
 The helper's decisions are tested in ``test_opencode``; these tests hold the
-plugin to what ADR 0078 bounds: a command's claim only from its own
-acknowledged bootstrap, the shell budget, and the per-session queue and
-helper limits.
+plugin to what ADR 0090 makes its own: it observes OpenCode v2 only, admits
+each event once across every instance of one server, routes a child's
+activity to its root and a move by where its session was, prepares every
+shell, marks the server unobserved when its last instance goes, recovers a
+deletion no instance received, and bounds its queues and helpers. The fake
+server's events, sessions and errors take the shapes the #405 trace
+recorded at OpenCode 2.0.22.
 """
 
 from __future__ import annotations
@@ -20,71 +24,224 @@ from dashpot.sessions.integrate import render_plugin
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
 
-# Answers like the helper: registration is accepted, a bootstrap is acknowledged
-# with its command's claim, and a status is accepted after STUB_DELAY_MS. Each
-# invocation is logged so a test can count what the plugin admitted.
+# Answers like the helper: a registration with the roots in STUB_SESSIONS,
+# anything else accepted, after STUB_DELAY_MS (only for an event of
+# STUB_SLOW_TYPE, when that is set). Each invocation is logged with
+# when it started, so a test can read what the plugin sent and when.
 STUB = """#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
+const started = Date.now();
 let input = "";
 process.stdin.on("data", (chunk) => (input += chunk));
 process.stdin.on("end", () => {
   const request = JSON.parse(input);
-  appendFileSync(process.env.STUB_LOG, JSON.stringify(request) + "\\n");
-  if (request.kind === "bootstrap" && process.env.STUB_HANG === "bootstrap") {
-    setTimeout(() => {}, 60000);
-    return;
-  }
+  appendFileSync(process.env.STUB_LOG, JSON.stringify({ ...request, started }) + "\\n");
   const answer =
-    request.kind === "bootstrap"
-      ? {
-          result: "accepted",
-          command: request.command,
-          claim: { sessionID: request.session.id, generation: request.generation, pid: request.pid },
-        }
+    request.kind === "register"
+      ? { result: "accepted", sessions: JSON.parse(process.env.STUB_SESSIONS ?? "[]") }
       : { result: "accepted" };
-  // Answer as if for another command, session, generation or backend.
-  const mismatch = request.kind === "bootstrap" && process.env.STUB_MISMATCH;
-  if (mismatch === "command") answer.command = "call_other";
-  if (mismatch && mismatch !== "command") answer.claim[mismatch] = "other";
-  setTimeout(() => console.log(JSON.stringify(answer)), Number(process.env.STUB_DELAY_MS ?? 0));
+  const slow = process.env.STUB_SLOW_TYPE;
+  const delay = slow && request.event?.type !== slow ? 0 : Number(process.env.STUB_DELAY_MS ?? 0);
+  setTimeout(() => console.log(JSON.stringify(answer)), delay);
 });
 """
 
 DRIVER = """
-const { DashpotOpenCodeObservation } = await import(process.argv[2]);
-const client = {
-  session: {
-    get: async ({ path }) => ({ data: { id: path.id, directory: process.cwd(), parentID: null } }),
-  },
-};
-const hooks = await DashpotOpenCodeObservation({ directory: process.cwd(), client });
+import { existsSync, readFileSync } from "node:fs";
+const { default: plugin } = await import(process.argv[2]);
 const scenario = process.argv[3];
-const result = {};
-const shell = async (input, inherited = {}) => {
-  const output = { env: { ...inherited } };
-  const started = Date.now();
-  await hooks["shell.env"](input, output);
-  return { env: output.env, elapsed: Date.now() - started };
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const at = (directory) => ({ directory });
+
+// The server: its sessions, the sessions whose read fails, and every
+// instance's event subscription, each of which receives every event.
+const sessions = new Map([["ses_root", { location: "/repo" }]]);
+const broken = new Set();
+const slow = new Set();
+const subscribers = new Set();
+const shellHooks = [];
+const stream = (signal) => {
+  const buffer = [];
+  let wake = null;
+  const subscriber = (event) => {
+    buffer.push(event);
+    wake?.();
+  };
+  subscribers.add(subscriber);
+  return (async function* () {
+    try {
+      while (!signal.aborted) {
+        if (buffer.length) {
+          yield buffer.shift();
+          continue;
+        }
+        await new Promise((resolve) => {
+          wake = resolve;
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+        wake = null;
+      }
+    } finally {
+      subscribers.delete(subscriber);
+    }
+  })();
 };
-if (scenario === "claims") {
-  result.pty = await shell({}, { DASHPOT_OPENCODE_SESSION_ID: "ses_outer", CODEX_THREAD_ID: "t" });
-  result.tool = await shell({ sessionID: "ses_root", callID: "call_1" }, { CLAUDE_PID: "7" });
-} else if (scenario === "budget") {
-  result.tool = await shell({ sessionID: "ses_root", callID: "call_1" });
+const context = (directory, version = "2.0.22") => ({
+  app: version === null ? undefined : { name: "cli", version, channel: "latest" },
+  location: at(directory),
+  session: {
+    get: async ({ sessionID }) => {
+      if (broken.has(sessionID)) throw new Error("connection reset");
+      if (slow.has(sessionID)) await sleep(2000);
+      const known = sessions.get(sessionID);
+      if (!known) throw Object.assign(new Error(""), { _tag: "Session.NotFoundError", sessionID });
+      return { id: sessionID, location: at(known.location), ...(known.parentID ? { parentID: known.parentID } : {}) };
+    },
+  },
+  event: { subscribe: ({ signal }) => stream(signal) },
+  shell: { hook: async (name, run) => shellHooks.push({ name, run }) },
+});
+let events = 0;
+const sequences = new Map();
+const emit = (type, sessionID, { location, data = {} } = {}) => {
+  const seq = (sequences.get(sessionID) ?? -1) + 1;
+  sequences.set(sessionID, seq);
+  const event = {
+    id: `evt_${++events}`,
+    created: Date.now(),
+    type,
+    durable: { aggregateID: sessionID, seq, version: 1 },
+    ...(location ? { location: at(location) } : {}),
+    data: { sessionID, ...data },
+  };
+  for (const subscriber of subscribers) subscriber(event);
+};
+const logged = () =>
+  existsSync(process.env.STUB_LOG)
+    ? readFileSync(process.env.STUB_LOG, "utf8").trim().split("\\n").filter(Boolean).map(JSON.parse)
+    : [];
+const until = async (done, milliseconds = 8000) => {
+  const deadline = Date.now() + milliseconds;
+  while (!done(logged()) && Date.now() < deadline) await sleep(20);
+};
+const count = (kind) => (requests) => requests.filter((request) => request.kind === kind).length;
+const shell = async (env) => {
+  const started = Date.now();
+  for (const hook of shellHooks) if (hook.name === "create.before") await hook.run({ command: "true", cwd: "/repo", env });
+  return { env, elapsed: Date.now() - started };
+};
+
+const result = {};
+if (scenario === "guard") {
+  const cleanups = [await plugin.setup(context("/repo", "1.18.30")), await plugin.setup(context("/repo", null))];
+  emit("session.execution.started", "ses_root");
+  await sleep(300);
+  for (const cleanup of cleanups) await cleanup();
+  result.id = plugin.id;
+  result.cleanups = cleanups.map((cleanup) => typeof cleanup);
+  result.hooks = shellHooks.length;
+  result.subscribers = subscribers.size;
+} else if (scenario === "shell") {
+  const cleanup = await plugin.setup(context("/repo"));
+  result.model = await shell({
+    PATH: "/bin",
+    OPENCODE_SESSION_ID: "ses_root",
+    OPENCODE: "1",
+    DASHPOT_AGENT_SESSION: "codex:outer",
+    CODEX_THREAD_ID: "t",
+    CLAUDE_CODE_SESSION_ID: "c",
+    CLAUDE_PID: "7",
+  });
+  result.user = await shell({ PATH: "/bin" });
+  result.pid = process.pid;
+  result.hooks = shellHooks.map((hook) => hook.name);
+  await cleanup();
+} else if (scenario === "shell-wait") {
+  const cleanup = await plugin.setup(context("/repo"));
+  await until(count("register"));
+  emit("session.execution.started", "ses_root");
+  await sleep(50);
+  result.model = await shell({ OPENCODE_SESSION_ID: "ses_root", OPENCODE: "1" });
+  await cleanup();
+} else if (scenario === "route") {
+  // Two instances, at two locations of one server.
+  const cleanups = [await plugin.setup(context("/repo")), await plugin.setup(context("/repo/wt"))];
+  sessions.set("ses_child", { location: "/repo", parentID: "ses_root" });
+  sessions.set("ses_late", { location: "/repo", parentID: "ses_child" });
+  sessions.set("ses_fork", { location: "/repo" });
+  emit("session.created", "ses_root", { location: "/repo", data: { location: at("/repo") } });
+  emit("session.execution.started", "ses_root");
+  emit("session.created", "ses_child", { location: "/repo", data: { location: at("/repo"), parentID: "ses_root" } });
+  emit("session.execution.started", "ses_child");
+  // A fork names its source as `parentID`, and is a root.
+  emit("session.forked", "ses_fork", { location: "/repo", data: { parentID: "ses_root" } });
+  emit("session.execution.interrupted", "ses_root", { data: { reason: "user" } });
+  emit("session.moved", "ses_root", { location: "/repo", data: { location: at("/other") } });
+  emit("session.execution.started", "ses_root");
+  // A grandchild whose creation no instance received is read from OpenCode,
+  // and routed to where its root is.
+  emit("session.execution.started", "ses_late");
+  emit("session.deleted", "ses_child");
+  // Neither a session OpenCode does not have nor an event Dashpot does not
+  // publish is sent.
+  emit("session.execution.started", "ses_unknown");
+  emit("session.status", "ses_root", { data: { status: { type: "busy" } } });
+  await until((requests) => count("event")(requests) >= 10);
+  await sleep(200);
+  for (const cleanup of cleanups) await cleanup();
+} else if (scenario === "child-after-move") {
+  const cleanup = await plugin.setup(context("/repo"));
+  await until(count("register"));
+  emit("session.created", "ses_root", { location: "/repo", data: { location: at("/repo") } });
+  emit("session.created", "ses_child", { location: "/repo", data: { location: at("/repo"), parentID: "ses_root" } });
+  emit("session.moved", "ses_root", { location: "/repo", data: { location: at("/repo/wt") } });
+  emit("session.execution.started", "ses_child");
+  await until((requests) => count("event")(requests) >= 4);
+  await cleanup();
+} else if (scenario === "cleanup") {
+  const cleanups = [await plugin.setup(context("/repo")), await plugin.setup(context("/repo/wt"))];
+  emit("session.execution.started", "ses_root");
+  await until(count("event"));
+  await cleanups[0]();
+  result.afterFirst = logged().map((request) => request.kind);
+  await cleanups[1]();
+  result.afterLast = logged().map((request) => request.kind);
+  // A server's next instance publishes only after the marking.
+  const next = await plugin.setup(context("/repo"));
+  emit("session.execution.succeeded", "ses_root");
+  await until(count("event"));
+  await until((requests) => count("event")(requests) >= 2);
+  await next();
+} else if (scenario === "recover") {
+  sessions.set("ses_alive", { location: "/repo" });
+  broken.add("ses_broken");
+  // OpenCode no longer has it, but does not answer in time.
+  slow.add("ses_slow");
+  const cleanup = await plugin.setup(context("/repo"));
+  await until((requests) => count("gone")(requests) >= 2);
+  // Past the slow session's 500 ms read.
+  await sleep(1000);
+  await cleanup();
 } else if (scenario === "queue") {
-  const pending = [];
+  const cleanup = await plugin.setup(context("/repo"));
   for (let step = 0; step < 20; step++) {
-    const type = step % 2 ? "idle" : "busy";
-    pending.push(hooks.event({ event: { type: "session.status", properties: { sessionID: "ses_root", status: { type } } } }));
+    emit(step % 2 ? "session.execution.succeeded" : "session.execution.started", "ses_root");
   }
-  await Promise.all(pending);
+  await until((requests) => count("event")(requests) >= 16);
+  await sleep(300);
+  await cleanup();
 } else if (scenario === "helpers") {
+  const cleanup = await plugin.setup(context("/repo"));
+  await until(count("register"));
   for (let session = 0; session < 10; session++) {
-    hooks.event({ event: { type: "session.status", properties: { sessionID: `ses_${session}`, status: { type: "busy" } } } });
+    sessions.set(`ses_${session}`, { location: "/repo" });
+    emit("session.execution.started", `ses_${session}`);
   }
+  await until((requests) => count("event")(requests) >= 10);
+  await cleanup();
 }
-await hooks.dispose();
 console.log(JSON.stringify(result));
+process.exit(0);
 """
 
 
@@ -110,11 +267,15 @@ def drive(
         },
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    requests = [json.loads(line) for line in log.read_text().splitlines()]
+    requests = (
+        [json.loads(line) for line in log.read_text().splitlines()]
+        if log.exists()
+        else []
+    )
     return json.loads(completed.stdout.strip().splitlines()[-1]), requests
 
 
@@ -122,66 +283,200 @@ def kinds(requests: list[dict[str, Any]]) -> list[str]:
     return [request["kind"] for request in requests]
 
 
-def test_a_command_gets_a_claim_only_from_its_own_acknowledged_bootstrap(
+def published(requests: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    """Each event request as its session, root, location, type and destination."""
+    return [
+        (
+            request["session"]["id"],
+            request["session"]["root"],
+            request["session"]["location"],
+            request["event"]["type"],
+            request["event"].get("to"),
+        )
+        for request in requests
+        if request["kind"] == "event"
+    ]
+
+
+def test_the_plugin_observes_opencode_v2_only(tmp_path: Path) -> None:
+    result, requests = drive(tmp_path, "guard")
+
+    # OpenCode 1.x calls `setup` with no `app`; neither it nor another major
+    # release registers, subscribes, or prepares a shell.
+    assert result == {
+        "id": "dashpot.observation",
+        "cleanups": ["function", "function"],
+        "hooks": 0,
+        "subscribers": 0,
+    }
+    assert requests == []
+
+
+def test_every_request_names_the_protocol_server_and_instance(tmp_path: Path) -> None:
+    _result, requests = drive(tmp_path, "cleanup")
+
+    for request in requests:
+        assert request["protocol"] == 2
+        assert 0 < request["deadlineMs"] <= 3000
+    # One server: every request names the same pid; one generation per instance.
+    assert len({request["pid"] for request in requests}) == 1
+    registrations = [request for request in requests if request["kind"] == "register"]
+    assert len({request["generation"] for request in registrations}) == 3
+
+
+def test_a_shell_carries_only_the_claim_opencode_gives_a_models_shell(
     tmp_path: Path,
 ) -> None:
-    result, requests = drive(tmp_path, "claims")
+    result, _requests = drive(tmp_path, "shell")
 
-    # A PTY command names no session: it inherits no claim, its own or another
-    # harness's, and is told why.
-    assert result["pty"]["env"] == {
-        "DASHPOT_OPENCODE_SESSION_ID": "",
-        "DASHPOT_OPENCODE_GENERATION": "",
-        "DASHPOT_OPENCODE_PID": "",
+    assert result["hooks"] == ["create.before"]
+    # The plugin removes OpenCode's variables, which OpenCode sets again for
+    # a model's shell only, and blanks every inherited claim.
+    assert result["model"]["env"] == {
+        "PATH": "/bin",
         "DASHPOT_AGENT_SESSION": "",
         "CODEX_THREAD_ID": "",
         "CLAUDE_CODE_SESSION_ID": "",
         "CLAUDE_PID": "",
-        "DASHPOT_OPENCODE_UNCORROBORATED": "no-session-identity",
+        "DASHPOT_OPENCODE_PID": str(result["pid"]),
     }
-    (bootstrap,) = [request for request in requests if request["kind"] == "bootstrap"]
-    assert bootstrap["command"] == "call_1"
-    env = result["tool"]["env"]
-    assert env["DASHPOT_OPENCODE_SESSION_ID"] == "ses_root"
-    assert env["DASHPOT_OPENCODE_GENERATION"] == bootstrap["generation"]
-    assert env["DASHPOT_OPENCODE_PID"] == str(bootstrap["pid"])
-    assert env["CLAUDE_PID"] == ""
-    assert "DASHPOT_OPENCODE_UNCORROBORATED" not in env
-    assert kinds(requests) == ["register", "bootstrap", "retire"]
+    assert result["user"]["env"]["DASHPOT_OPENCODE_PID"] == str(result["pid"])
+    assert result["user"]["elapsed"] < 500
 
 
-@pytest.mark.parametrize("mismatch", ["command", "sessionID", "generation", "pid"])
-def test_an_acknowledgment_for_anything_else_gives_no_claim(
-    tmp_path: Path, mismatch: str
+def test_a_shell_waits_for_the_publications_already_admitted(tmp_path: Path) -> None:
+    result, requests = drive(tmp_path, "shell-wait", STUB_DELAY_MS="800")
+
+    assert 600 <= result["model"]["elapsed"] < 2500
+    assert kinds(requests)[:2] == ["register", "event"]
+
+
+def test_a_shell_waits_no_longer_than_three_seconds(tmp_path: Path) -> None:
+    result, _requests = drive(tmp_path, "shell-wait", STUB_DELAY_MS="10000")
+
+    assert 2500 <= result["model"]["elapsed"] < 3600
+
+
+def test_a_childs_event_never_overtakes_its_roots_move(tmp_path: Path) -> None:
+    _result, requests = drive(
+        tmp_path,
+        "child-after-move",
+        STUB_DELAY_MS="600",
+        STUB_SLOW_TYPE="session.moved",
+    )
+
+    events = [request for request in requests if request["kind"] == "event"]
+    assert [
+        (request["session"]["id"], request["event"]["type"]) for request in events
+    ] == [
+        ("ses_root", "session.created"),
+        ("ses_child", "session.created"),
+        ("ses_root", "session.moved"),
+        ("ses_child", "session.execution.started"),
+    ]
+    moved, started = events[2], events[3]
+    # Admitted after the move, the child's event waits for it to be written,
+    # and is written where its root now is.
+    assert started["started"] - moved["started"] >= 500
+    assert started["session"] == {
+        "id": "ses_child",
+        "root": "ses_root",
+        "location": "/repo/wt",
+    }
+
+
+def test_each_event_is_published_once_and_routed_to_its_root(tmp_path: Path) -> None:
+    _result, requests = drive(tmp_path, "route")
+
+    assert kinds(requests).count("register") == 2
+    assert sorted(published(requests)) == sorted(
+        [
+            ("ses_root", "ses_root", "/repo", "session.created", None),
+            ("ses_root", "ses_root", "/repo", "session.execution.started", None),
+            ("ses_child", "ses_root", "/repo", "session.created", None),
+            ("ses_child", "ses_root", "/repo", "session.execution.started", None),
+            ("ses_late", "ses_root", "/other", "session.execution.started", None),
+            ("ses_fork", "ses_fork", "/repo", "session.forked", None),
+            ("ses_root", "ses_root", "/repo", "session.execution.interrupted", None),
+            # A move is written by where its session was, naming where it went.
+            ("ses_root", "ses_root", "/repo", "session.moved", "/other"),
+            ("ses_root", "ses_root", "/other", "session.execution.started", None),
+            ("ses_child", "ses_root", "/other", "session.deleted", None),
+        ]
+    )
+    # One session's publications reach the helper in the order it emitted them.
+    root = [
+        request["event"]["sequence"]
+        for request in requests
+        if request["kind"] == "event" and request["session"]["id"] == "ses_root"
+    ]
+    assert root == sorted(root)
+    (interrupted,) = [
+        request
+        for request in requests
+        if request["kind"] == "event"
+        and request["event"]["type"] == "session.execution.interrupted"
+    ]
+    assert interrupted["event"]["reason"] == "user"
+
+
+def test_the_last_instance_marks_what_it_routed_unobserved(tmp_path: Path) -> None:
+    result, requests = drive(tmp_path, "cleanup")
+
+    assert "unobserved" not in result["afterFirst"]
+    assert result["afterLast"][-1] == "unobserved"
+    (marking, *_later) = [
+        request for request in requests if request["kind"] == "unobserved"
+    ]
+    assert marking["locations"] == ["/repo"]
+    # The next instance's publication follows the marking.
+    marked_at = requests.index(marking)
+    assert "event" in kinds(requests[marked_at + 1 :])
+
+
+def test_registration_recovers_only_what_opencode_says_it_deleted(
+    tmp_path: Path,
 ) -> None:
-    result, _requests = drive(tmp_path, "claims", STUB_MISMATCH=mismatch)
+    roots = [
+        {"id": "ses_gone", "subagents": ["ses_gone_child"]},
+        {"id": "ses_alive", "subagents": ["ses_broken"]},
+        {"id": "ses_slow", "subagents": []},
+    ]
 
-    env = result["tool"]["env"]
-    assert env["DASHPOT_OPENCODE_SESSION_ID"] == ""
-    assert env["DASHPOT_OPENCODE_GENERATION"] == ""
-    assert env["DASHPOT_OPENCODE_PID"] == ""
-    assert env["DASHPOT_OPENCODE_UNCORROBORATED"] == "no-acknowledgment"
+    _result, requests = drive(tmp_path, "recover", STUB_SESSIONS=json.dumps(roots))
 
-
-def test_a_command_waits_no_longer_than_its_shell_budget(tmp_path: Path) -> None:
-    result, requests = drive(tmp_path, "budget", STUB_HANG="bootstrap")
-
-    tool = result["tool"]
-    assert tool["env"]["DASHPOT_OPENCODE_UNCORROBORATED"] == "no-acknowledgment"
-    assert tool["env"]["DASHPOT_OPENCODE_SESSION_ID"] == ""
-    assert 2900 <= tool["elapsed"] < 4500
-    assert kinds(requests) == ["register", "bootstrap", "retire"]
+    gone = sorted(
+        (request["session"]["id"], request["session"]["root"])
+        for request in requests
+        if request["kind"] == "gone"
+    )
+    # A failed read, or one that does not answer in time, is never read as a
+    # deletion.
+    assert gone == [("ses_gone", "ses_gone"), ("ses_gone_child", "ses_gone")]
+    assert {
+        request["session"]["location"]
+        for request in requests
+        if request["kind"] == "gone"
+    } == {"/repo"}
 
 
 def test_a_sessions_queue_admits_at_most_sixteen_publications(tmp_path: Path) -> None:
     _result, requests = drive(tmp_path, "queue", STUB_DELAY_MS="20")
 
-    statuses = [request for request in requests if request["kind"] == "status"]
-    assert [request["sequence"] for request in statuses] == list(range(1, 17))
-    assert [request["status"] for request in statuses] == ["busy", "idle"] * 8
+    events = [request for request in requests if request["kind"] == "event"]
+    assert [request["event"]["sequence"] for request in events] == list(range(16))
+    assert [request["event"]["type"] for request in events] == [
+        "session.execution.started",
+        "session.execution.succeeded",
+    ] * 8
 
 
 def test_at_most_eight_helpers_run_at_once(tmp_path: Path) -> None:
-    _result, requests = drive(tmp_path, "helpers", STUB_DELAY_MS="500")
+    _result, requests = drive(tmp_path, "helpers", STUB_DELAY_MS="600")
 
-    assert kinds(requests).count("status") == 8
+    started = sorted(
+        request["started"] for request in requests if request["kind"] == "event"
+    )
+    assert len(started) == 10
+    # The ninth waits for a slot an earlier helper releases.
+    assert started[8] - started[0] >= 400

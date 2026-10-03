@@ -19,7 +19,8 @@ class SessionExit:
 
     ``move`` takes the session, conversation and all, out of the Worktree;
     ``end`` ends it. Each is a clause that names the session as "that
-    session"; ``{session_id}`` in ``move`` is replaced by its identity.
+    session"; ``{session_id}`` in either is replaced by its identity, or by
+    ``<session id>`` where no one session is meant.
     """
 
     move: str
@@ -49,15 +50,15 @@ SESSION_EXITS: Mapping[Harness, SessionExit] = {
         end="end that session's client (a daemon-hosted thread ends about "
         "60 s after its last client leaves)",
     ),
-    # An OpenCode session never leaves the directory it was created in, even
-    # resumed from elsewhere, so the only way out is to end what serves it: a
-    # TUI's quit or a backend's exit reads gone, while closing an attached
-    # client leaves the session running in its backend (ADR 0080).
+    # Quitting an OpenCode client ends and moves nothing: the session lives in
+    # its server. It leaves by a move, ends by its deletion, which its server
+    # publishes, or reads gone once its server stops (ADR 0090).
     "opencode": SessionExit(
-        move="quit the OpenCode TUI serving that session, or stop the OpenCode "
-        "backend it runs in (an OpenCode session cannot leave the directory it "
-        "was created in, and closing an attached client leaves it running)",
-        end="delete that session in the OpenCode backend serving it",
+        move="move that session to another location in OpenCode",
+        end="delete that session with opencode session delete {session_id}, "
+        "or stop the OpenCode server it runs in, with opencode service stop or "
+        "by quitting its --standalone client, which leaves every Agent Run on "
+        "that server orphaned",
     ),
 }
 
@@ -92,5 +93,6 @@ def unreported_subagent_stop(harness: Harness) -> str:
     return (
         f"Dashpot lists a sub-agent until {HARNESS_DISPLAY[harness]} reports "
         f"that it stopped, which an interrupted one may never do, so if none "
-        f"is still working, {session_exit(harness).end}"
+        f"is still working, "
+        f"{session_exit(harness).end.replace('{session_id}', '<session id>')}"
     )
