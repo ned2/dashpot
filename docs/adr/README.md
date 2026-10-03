@@ -90,7 +90,7 @@ of date.
 | 0078 | [Give an OpenCode command a claim only for its own bootstrap](0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md) | superseded | [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
 | 0079 | [Install OpenCode as one managed plugin, and keep it unsupported until acceptance](0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md) | amended | [0081](0081-support-opencode-1-18-30-on-linux.md), [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
 | 0080 | [Keep a retired OpenCode generation's backend on its sessions](0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md) | amended | [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
-| 0081 | [Support OpenCode 1.18.30 on Linux](0081-support-opencode-1-18-30-on-linux.md) | accepted | — |
+| 0081 | [Support OpenCode 1.18.30 on Linux](0081-support-opencode-1-18-30-on-linux.md) | superseded | [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
 | 0085 | [Return a Claude Code session before entering another Issue Worktree](0085-return-a-claude-code-session-before-entering-another-issue-worktree.md) | accepted | — |
 | 0086 | [Orphan the runs of a stopped or restarted managed Codex daemon](0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md) | accepted | — |
 | 0089 | [Leave the PR merge to the operator](0089-leave-the-pr-merge-to-the-operator.md) | accepted | — |

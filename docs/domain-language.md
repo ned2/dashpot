@@ -423,8 +423,10 @@ identity, which is evidence of Session Liveness
 
 **Harness**:
 The coding-agent product hosting an Agent Session: Codex, Claude Code, or
-OpenCode, each supported at the release its acceptance run last passed on
-([ADR 0081](adr/0081-support-opencode-1-18-30-on-linux.md)).
+OpenCode. Codex and Claude Code are each supported at the release their
+acceptance run last passed on. OpenCode v2 is observed, and supported once its
+acceptance run passes on the pinned 2.0.22; OpenCode v1 is refused
+([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)).
 The closed `Harness` union in `core/model.py` names each one by its identifier
 (`codex`, `claude-code`, `opencode`) and `HARNESS_DISPLAY` holds the name a person reads,
 so every model, record, and label spells a harness the same way. _Avoid_:

@@ -12,9 +12,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   open Issue waits on in the `WAITING ON` column, with waiting rows dimmed.
 - Inspect Worktrees, local and Remote-Tracking Branches, integration state,
   and GitHub Pull Requests. Fetch explicitly; preview and confirm Cleanup.
-- Observe Codex and Claude Code through opt-in hooks, and OpenCode 1.18.30
-  through an opt-in plugin, and declare Issue work through a Project-local
-  Work Store and the bundled Issue-work skill.
+- Observe Codex and Claude Code through opt-in hooks, and OpenCode v2
+  through an opt-in plugin, which warns on a release other than the pinned
+  2.0.22 and refuses OpenCode v1; OpenCode is supported once its acceptance
+  run passes. Declare Issue work through a Project-local Work Store and the
+  bundled Issue-work skill.
 - Read the Event Log with `dashpot events`, merged across a Repository's
   Worktrees and filtered by Agent Session, Issue, Project, time or level; see
   an Agent Session's recent outcomes in `dashpot work show`; and remove old

@@ -1,8 +1,13 @@
-"""``dashpot integrate opencode``: the managed plugin, its skill, and its status (ADR 0079)."""
+"""``dashpot integrate opencode``: the managed plugin, its skill, and its status.
+
+The plugin and its status follow ADR 0079; the releases it refuses, warns
+about and reports follow ADR 0090.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping
@@ -14,6 +19,7 @@ from dashpot.sessions.integrate import (
     ISSUE_WORK_SKILL_MARKER,
     ISSUE_WORK_SKILL_VERSION,
     OPENCODE,
+    OPENCODE_PINNED_VERSION,
     IntegrationError,
     install_integration,
     integration_status,
@@ -21,7 +27,16 @@ from dashpot.sessions.integrate import (
     remove_integration,
     render_plugin,
 )
+from dashpot.sessions.processes import (
+    ProcessAbsent,
+    ProcessIdentity,
+    ProcessObservation,
+    ProcessPresent,
+    ProcessUnobservable,
+)
 from test_integrate import environment_publisher, linked_worktree
+
+PINNED = "2.0.22"
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +47,21 @@ def _home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     return home
+
+
+@pytest.fixture(autouse=True)
+def opencode_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Put an ``opencode`` that reports the pinned release first on PATH."""
+    binary = tmp_path / "opencode-bin" / "opencode"
+    binary.parent.mkdir()
+    reports(binary, f"opencode v{PINNED}")
+    monkeypatch.setenv("PATH", f"{binary.parent}:{os.environ.get('PATH', '')}")
+    return binary
+
+
+def reports(binary: Path, version: str) -> None:
+    binary.write_text(f"#!/bin/sh\necho '{version}'\n")
+    binary.chmod(0o755)
 
 
 def opencode_home(root: Path) -> Path:
@@ -57,13 +87,15 @@ def status(
     tmp_path: Path,
     *,
     environ: Mapping[str, str] | None = None,
-    version_probe: Callable[[], str | None] = lambda: "1.18.30",
+    version_probe: Callable[[], str | None] = lambda: f"opencode v{PINNED}",
+    lookup: Callable[[int], ProcessObservation] = ProcessAbsent,
 ) -> list[str]:
     return integration_status(
         "opencode",
         home,
         state_dir=tmp_path / "state",
         current=tmp_path,
+        lookup=lookup,
         environ=environ or {},
         version_probe=version_probe,
     )
@@ -102,6 +134,7 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
     dispatch = (skill / "references" / "dispatch.md").read_text()
     assert "opencode <worktree-path> --prompt" in dispatch
     assert messages == [
+        f"OpenCode release on PATH: {PINNED}, the pinned release",
         f"installed the OpenCode plugin in {plugin_file(home)}",
         f"hook publisher: {command}",
         f"installed Dashpot Issue work skill in {skill}",
@@ -109,7 +142,7 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
 
     again = install_integration("opencode", home, command_path=command)
 
-    assert again[0] == f"OpenCode plugin already installed in {plugin_file(home)}"
+    assert again[1] == f"OpenCode plugin already installed in {plugin_file(home)}"
     assert plugin_file(home).read_text() == installed
 
 
@@ -134,7 +167,7 @@ def test_install_rebinds_a_plugin_to_a_moved_helper(tmp_path: Path) -> None:
 
     messages = install_integration("opencode", home, command_path=moved)
 
-    assert messages[0] == f"updated the OpenCode plugin in {plugin_file(home)}"
+    assert messages[1] == f"updated the OpenCode plugin in {plugin_file(home)}"
     assert plugin_file(home).read_text() == render_plugin(moved)
 
 
@@ -148,6 +181,57 @@ def test_install_refuses_a_plugin_dashpot_does_not_manage(tmp_path: Path) -> Non
 
     assert plugin_file(home).read_text() == "export const Mine = async () => ({})\n"
     assert not (home / "skills").exists()
+
+
+def test_install_refuses_while_the_opencode_on_path_is_v1(
+    tmp_path: Path, opencode_on_path: Path
+) -> None:
+    home = opencode_home(tmp_path)
+    # OpenCode v1 printed a bare release.
+    reports(opencode_on_path, "1.18.30")
+
+    with pytest.raises(IntegrationError) as refused:
+        install_integration("opencode", home, command_path=helper(tmp_path))
+
+    assert str(refused.value) == (
+        "the opencode on PATH is OpenCode 1.18.30, and Dashpot observes OpenCode "
+        f"v2 only; install OpenCode {PINNED} and retry"
+    )
+    assert not plugin_file(home).exists()
+    assert not (home / "skills").exists()
+
+
+@pytest.mark.parametrize(
+    ("reported", "first"),
+    [
+        ("opencode v2.0.23", "OpenCode release on PATH: 2.0.23"),
+        ("opencode v3.0.0", "OpenCode release on PATH: 3.0.0"),
+        ("nightly", "OpenCode release on PATH: unreadable"),
+    ],
+)
+def test_install_warns_about_any_other_release_it_installs_for(
+    tmp_path: Path, opencode_on_path: Path, reported: str, first: str
+) -> None:
+    home = opencode_home(tmp_path)
+    reports(opencode_on_path, reported)
+
+    messages = install_integration("opencode", home, command_path=helper(tmp_path))
+
+    assert messages[0] == first
+    assert messages[1].startswith("warning: ")
+    assert plugin_file(home).is_file()
+
+
+def test_install_cannot_ask_an_opencode_that_is_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = opencode_home(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+
+    messages = install_integration("opencode", home, command_path=helper(tmp_path))
+
+    assert messages[0] == "OpenCode release on PATH: none found"
+    assert plugin_file(home).is_file()
 
 
 def test_install_needs_opencodes_configuration_directory(tmp_path: Path) -> None:
@@ -219,8 +303,10 @@ def test_status_of_a_current_installation(tmp_path: Path) -> None:
         f"Issue work skill installed in {home / 'skills' / 'dashpot-issue-work'} "
         f"for Dashpot {ISSUE_WORK_SKILL_VERSION}",
     ]
-    assert "OpenCode release: 1.18.30, the accepted release" in messages
-    assert not any("unsupported" in message for message in messages)
+    assert f"OpenCode release on PATH: {PINNED}, the pinned release" in messages
+    service = tmp_path / "home" / ".local" / "state" / "opencode" / "service.json"
+    assert f"OpenCode service: none registered in {service}" in messages
+    assert not any(message.startswith("warning:") for message in messages)
     assert messages[-1] == (
         "Agent Session identity claimed here: none for OpenCode (only a shell "
         "OpenCode ran for its agent, prepared by the plugin, carries one)"
@@ -289,19 +375,52 @@ def test_status_warns_about_a_linked_worktree_helper(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("version", "expected"),
     [
-        (None, ["OpenCode release: not found on PATH"]),
+        (None, ["OpenCode release on PATH: none found"]),
         (
-            "1.19.0",
+            f"opencode v{PINNED}",
+            [f"OpenCode release on PATH: {PINNED}, the pinned release"],
+        ),
+        (
+            f"OpenCode V{PINNED}\n",
+            [f"OpenCode release on PATH: {PINNED}, the pinned release"],
+        ),
+        (
+            "opencode v2.0.23",
             [
-                "OpenCode release: 1.19.0",
-                "warning: OpenCode 1.19.0 is unsupported: Dashpot's acceptance "
-                "run passed on 1.18.30 only, and another release may change what "
-                "the plugin observes",
+                "OpenCode release on PATH: 2.0.23",
+                f"warning: OpenCode 2.0.23 is not the pinned release {PINNED}; "
+                "the plugin observes it, but another release may change what it "
+                "observes",
+            ],
+        ),
+        (
+            "1.18.30",
+            [
+                "OpenCode release on PATH: 1.18.30, refused",
+                "warning: Dashpot observes OpenCode v2 only: under 1.18.30 the "
+                "plugin publishes nothing and no command can opt in; install "
+                f"OpenCode {PINNED} and run 'dashpot integrate opencode'",
+            ],
+        ),
+        (
+            "opencode v3.0.0",
+            [
+                "OpenCode release on PATH: 3.0.0",
+                "warning: OpenCode 3.0.0 is not v2, so the plugin observes nothing "
+                f"under it; install OpenCode {PINNED}",
+            ],
+        ),
+        (
+            "opencode nightly",
+            [
+                "OpenCode release on PATH: unreadable",
+                "warning: Dashpot cannot read an OpenCode release in 'opencode "
+                "nightly', so cannot tell whether the plugin observes it",
             ],
         ),
     ],
 )
-def test_status_names_a_release_other_than_the_accepted_one(
+def test_status_names_the_release_on_path(
     tmp_path: Path, version: str | None, expected: list[str]
 ) -> None:
     home = opencode_home(tmp_path)
@@ -310,6 +429,177 @@ def test_status_names_a_release_other_than_the_accepted_one(
 
     start = messages.index(expected[0])
     assert messages[start : start + len(expected)] == expected
+    assert PINNED == OPENCODE_PINNED_VERSION
+
+
+SERVICE = ProcessIdentity(
+    4100, 1, "/opt/opencode/bin/opencode", "Sat Oct  3 02:00:00 2026"
+)
+
+
+def registered(state: Path, document: str) -> Path:
+    path = state / "opencode" / "service.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(document)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("observed", "running"),
+    [
+        (ProcessPresent(SERVICE), ""),
+        (
+            ProcessUnobservable(SERVICE.pid, "ps-timeout"),
+            ", could not be observed (ps-timeout)",
+        ),
+    ],
+)
+def test_status_names_the_running_services_release(
+    tmp_path: Path, observed: ProcessObservation, running: str
+) -> None:
+    home = opencode_home(tmp_path)
+    state = tmp_path / "xdg-state"
+    # The registration also carries the service's id, URL and password.
+    path = registered(
+        state,
+        json.dumps(
+            {
+                "id": "a",
+                "version": "2.0.21",
+                "url": "http://127.0.0.1:4096",
+                "pid": SERVICE.pid,
+                "password": "secret",
+            }
+        ),
+    )
+
+    messages = status(
+        home,
+        tmp_path,
+        environ={"XDG_STATE_HOME": str(state)},
+        lookup=lambda pid: observed if pid == SERVICE.pid else ProcessAbsent(pid),
+    )
+
+    start = messages.index(
+        f"OpenCode service: pid {SERVICE.pid}, registered in {path}{running}"
+    )
+    # A client of another release replaces the service, so the service can
+    # run a release the PATH does not.
+    assert messages[start + 1 : start + 3] == [
+        "OpenCode service release: 2.0.21",
+        f"warning: OpenCode 2.0.21 is not the pinned release {PINNED}; the plugin "
+        "observes it, but another release may change what it observes",
+    ]
+    assert not any("secret" in message for message in messages)
+
+
+def test_status_reads_a_killed_services_registration_as_no_service(
+    tmp_path: Path,
+) -> None:
+    home = opencode_home(tmp_path)
+    state = tmp_path / "xdg-state"
+    path = registered(state, json.dumps({"version": PINNED, "pid": SERVICE.pid}))
+
+    messages = status(home, tmp_path, environ={"XDG_STATE_HOME": str(state)})
+
+    assert (
+        f"OpenCode service: none running; {path} names pid {SERVICE.pid}, which "
+        "has exited"
+    ) in messages
+    assert not any(
+        message.startswith("OpenCode service release") for message in messages
+    )
+
+
+@pytest.mark.parametrize(
+    ("document", "why"),
+    [
+        ("{", "Invalid JSON"),
+        (json.dumps({"version": PINNED}), "pid"),
+        (json.dumps({"version": PINNED, "pid": 0}), "pid"),
+    ],
+)
+def test_status_names_a_registration_it_cannot_read(
+    tmp_path: Path, document: str, why: str
+) -> None:
+    home = opencode_home(tmp_path)
+    state = tmp_path / "xdg-state"
+    path = registered(state, document)
+
+    messages = status(home, tmp_path, environ={"XDG_STATE_HOME": str(state)})
+
+    unread = [
+        m for m in messages if m.startswith(f"OpenCode service: cannot read {path}: ")
+    ]
+    assert len(unread) == 1
+    assert why in unread[0]
+
+
+def test_status_reads_a_reused_pid_as_no_service(tmp_path: Path) -> None:
+    home = opencode_home(tmp_path)
+    state = tmp_path / "xdg-state"
+    path = registered(state, json.dumps({"version": PINNED, "pid": SERVICE.pid}))
+    # After a reboot, another process can hold a killed service's pid.
+    other = ProcessIdentity(SERVICE.pid, 1, "/usr/bin/sleep", SERVICE.started_at)
+
+    messages = status(
+        home,
+        tmp_path,
+        environ={"XDG_STATE_HOME": str(state)},
+        lookup=lambda pid: (
+            ProcessPresent(other) if pid == SERVICE.pid else ProcessAbsent(pid)
+        ),
+    )
+
+    assert (
+        f"OpenCode service: none running; {path} names pid {SERVICE.pid}, which "
+        "is now another process"
+    ) in messages
+    assert not any(
+        message.startswith("OpenCode service release") for message in messages
+    )
+
+
+def test_status_cannot_place_the_registration_under_a_relative_state_directory(
+    tmp_path: Path, _home: Path
+) -> None:
+    home = opencode_home(tmp_path)
+    registered(_home / ".local" / "state", json.dumps({"version": PINNED, "pid": 1}))
+
+    messages = status(home, tmp_path, environ={"XDG_STATE_HOME": "relative"})
+
+    assert (
+        "OpenCode service: unknown; XDG_STATE_HOME is relative, so where OpenCode "
+        "registers its service depends on the process that wrote it"
+    ) in messages
+
+
+def test_status_finds_the_registration_under_the_default_state_directory(
+    tmp_path: Path, _home: Path
+) -> None:
+    home = opencode_home(tmp_path)
+    # An empty XDG_STATE_HOME is unset, to OpenCode as to Dashpot.
+    path = _home / ".local" / "state" / "opencode" / "service.json"
+    path.mkdir(parents=True)
+
+    messages = status(home, tmp_path, environ={"XDG_STATE_HOME": ""})
+
+    assert any(
+        m.startswith(f"OpenCode service: cannot read {path}: ") for m in messages
+    )
+
+
+def test_status_names_the_refusal_a_v1_shell_carries(tmp_path: Path) -> None:
+    home = opencode_home(tmp_path)
+
+    messages = status(
+        home, tmp_path, environ={"DASHPOT_OPENCODE_REFUSAL": "opencode-v1"}
+    )
+
+    assert messages[-1].startswith(
+        "Agent Session identity claimed here: none for OpenCode (this command "
+        "runs in OpenCode v1, and Dashpot observes OpenCode v2 only"
+    )
 
 
 def test_status_asks_the_opencode_on_path(
@@ -318,26 +608,25 @@ def test_status_asks_the_opencode_on_path(
     home = opencode_home(tmp_path)
     binary = tmp_path / "path" / "opencode"
     binary.parent.mkdir()
-    binary.write_text("#!/bin/sh\necho 1.18.30\n")
-    binary.chmod(0o755)
+    reports(binary, "opencode v2.0.21")
     monkeypatch.setenv("PATH", str(binary.parent))
 
     messages = integration_status(
         "opencode", home, state_dir=tmp_path / "state", current=tmp_path, environ={}
     )
 
-    assert "OpenCode release: 1.18.30, the accepted release" in messages
+    assert "OpenCode release on PATH: 2.0.21" in messages
     for broken in ("#!/bin/sh\nexit 3\n", "#!/nonexistent/interpreter\n"):
         binary.write_text(broken)
         messages = integration_status(
             "opencode", home, state_dir=tmp_path / "state", current=tmp_path, environ={}
         )
-        assert "OpenCode release: not found on PATH" in messages
+        assert "OpenCode release on PATH: none found" in messages
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     messages = integration_status(
         "opencode", home, state_dir=tmp_path / "state", current=tmp_path, environ={}
     )
-    assert "OpenCode release: not found on PATH" in messages
+    assert "OpenCode release on PATH: none found" in messages
 
 
 def test_status_warns_when_opencode_runs_without_plugins(tmp_path: Path) -> None:
@@ -407,7 +696,7 @@ def test_status_warns_about_another_copy_of_the_plugin_opencode_also_loads(
             state_dir=tmp_path / "state",
             current=current,
             environ=environ,
-            version_probe=lambda: "1.18.30",
+            version_probe=lambda: f"opencode v{PINNED}",
         )
         prefix = "warning: OpenCode also loads a copy of the Dashpot plugin at "
         return [
