@@ -23,6 +23,9 @@ The dashboard timings come from the profiling command its
 by commit; the query and transport timings come from the experiment that
 cites each file.
 
+A `.txt` file is a `script --log-timing` record of a terminal's output: one
+line per write, the seconds since the previous write and the bytes written.
+
 | Trace | Format | Issue | Produced by | Recorded in |
 | --- | --- | --- | --- | --- |
 | [`issue-138-experiment1.json`](issue-138-experiment1.json) | JSON array of first-load timings, one entry per sample | [#138](https://github.com/ned2/dashpot/issues/138) | First-load latency experiment 1 | [First-load GitHub observation latency](../github-startup-latency-experiments.md#individual-changes) |
@@ -53,6 +56,8 @@ cites each file.
 | [`issue-393-opencode-trace.jsonl`](issue-393-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 with 2.0.21 | [#393](https://github.com/ned2/dashpot/issues/393) | [`opencode-393`](../../../scripts/experiments/opencode-393/) | [OpenCode v2 hosting, plugin and identity experiment](../opencode-v2-spike.md) |
 | [`issue-393-opencode-idle-trace.jsonl`](issue-393-opencode-idle-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#393](https://github.com/ned2/dashpot/issues/393) | [`opencode-393`](../../../scripts/experiments/opencode-393/) with `SPIKE_IDLE_MINUTES`, the idle-eviction run | [OpenCode v2 hosting, plugin and identity experiment: idle eviction](../opencode-v2-spike.md#idle-eviction) |
 | [`issue-405-opencode-trace.jsonl`](issue-405-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 with 1.18.30 | [#405](https://github.com/ned2/dashpot/issues/405) | [`opencode-405`](../../../scripts/experiments/opencode-405/) | [OpenCode v2 plugin registry, envelope and recovery experiment](../opencode-v2-plugin-protocol-spike.md) |
+| [`issue-410-tmux-trace.jsonl`](issue-410-tmux-trace.jsonl) | JSONL trace, tmux 3.6 with OpenSSH 10.2 | [#410](https://github.com/ned2/dashpot/issues/410) | [`tmux-410`](../../../scripts/experiments/tmux-410/) | [tmux dropped SSH client experiment](../tmux-dropped-ssh-client-spike.md) |
+| [`issue-410-dashboard-output-timing.txt`](issue-410-dashboard-output-timing.txt) | `script --log-timing` log of a tmux client's output | [#410](https://github.com/ned2/dashpot/issues/410) | A dashboard on this Repository at commit `69c7d72` and the default Refresh Periods, recorded as the spike's [Reproduce](../tmux-dropped-ssh-client-spike.md#reproduce) shows | [tmux dropped SSH client experiment](../tmux-dropped-ssh-client-spike.md#sshds-keepalive-needs-silence) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the

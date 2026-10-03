@@ -98,10 +98,21 @@ no allowance, so it is not the concern here; its process spend is
   refreshes again because the idle period restarted, and the probe that
   tick starts pauses it as detached. The Event Log shows the ended and
   started pair.
-- **An SSH drop may pause only after the idle period.** Whether tmux counts
-  a client whose connection dropped as attached depends on when tmux
-  notices the dead client, which is untested. The idle signal covers that
-  case either way.
+- **A dropped SSH connection pauses about 16 to 19 minutes later.** tmux
+  counts a client attached until the sshd session holding it ends, and the
+  next probe pauses once it has
+  ([measured for #410](../spikes/tmux-dropped-ssh-client-spike.md) on tmux
+  3.6 and OpenSSH 10.2 over loopback). Killing the client's `ssh` or ending
+  the process holding its terminal ends the session within a second. A
+  silent drop, a laptop sleeping or losing its network, ends it only when
+  TCP gives up retransmitting the dashboard's redraws: after 16 minutes in
+  the measurement, and within 18 on Linux's default `tcp_retries2`. A
+  `ClientAliveInterval` longer than the local Refresh Period, 15 seconds by
+  default, does not shorten that while a dashboard is on screen: sshd probes
+  only after a whole interval in which neither the session nor the client
+  sends anything, and the dashboard redraws every local Refresh Period.
+  `ssh`'s `ServerAliveInterval` ends only the client. Either way the pause
+  starts long before the idle period.
 - **The pause belongs to one dashboard.** Two dashboards in one tmux
   session pause together only because they see the same signals.
 

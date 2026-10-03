@@ -5,9 +5,10 @@ date: 2026-10-03
 
 # Spikes
 
-Dated experiments that measure a harness, GitHub, or the development suite
-in disposable fixtures. Each records its method, its evidence boundary, and
-how to reproduce it; the runners and verifiers live under
+Dated experiments that measure a harness, GitHub, the terminal and SSH
+setup a dashboard runs in, or the development suite in disposable fixtures.
+Each records its method, its evidence boundary, and how to reproduce it;
+the runners and verifiers live under
 [`scripts/experiments/`](../../scripts/experiments/), and the retained traces
 under [`measurements/`](measurements/README.md). Reusable facts are folded
 into the living documents, chiefly the
@@ -16,6 +17,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [tmux dropped SSH client experiment](tmux-dropped-ssh-client-spike.md) | research | 2026-10-03 |
 | [OpenCode v2 plugin registry, envelope and recovery experiment](opencode-v2-plugin-protocol-spike.md) | research | 2026-10-03 |
 | [OpenCode v2 hosting, plugin and identity experiment](opencode-v2-spike.md) | research | 2026-10-02 |
 | [Claude Code supervised worker process experiment](claude-code-supervised-worker-process-spike.md) | research | 2026-10-01 |
