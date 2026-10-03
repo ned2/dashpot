@@ -121,6 +121,7 @@ for (const [name, settings] of [["drop-client-alive", "under a 60 s ClientAliveI
     const end = one("end", name);
     const firstRetransmitting = of("socket", name).find((record) => / backoff:\d+/.test(record.state));
     assert(firstRetransmitting && firstRetransmitting.afterEnd <= redrawMs + 1_000, JSON.stringify(firstRetransmitting));
+    assert(Number(firstRetransmitting.state.match(/ backoff:(\d+)/)[1]) >= 2, firstRetransmitting.state);
     const abort = logged(name, "sshd", /^Read error from remote host 127\.0\.0\.1 port \d+: Connection timed out$/);
     assert(abort);
     const abortAfter = abort.t - end.t;
@@ -141,26 +142,34 @@ check("The client's ServerAliveInterval made ssh give up within a minute while t
   assert(after < detached("drop"));
 });
 
-// Writes less than a second apart belong to one redraw.
+// Writes less than a second apart belong to one burst. The first burst is
+// the first load's paint; each later one of over 20 KB is a redraw, and once
+// a minute one is about twice the size of the others.
 const chunks = readFileSync(timingFile, "utf8").trim().split("\n").map((line) => line.split(" ").map(Number));
 const bursts = [];
 let elapsed = 0;
 for (const [gap, bytes] of chunks) {
   elapsed += gap;
-  if (bursts.length === 0 || gap >= 1) bursts.push({ start: elapsed, bytes: 0 });
+  if (bursts.length === 0 || gap >= 1) bursts.push({ start: elapsed, bytes: 0, writes: 0 });
   bursts.at(-1).bytes += bytes;
+  bursts.at(-1).writes += 1;
 }
-const redraws = bursts.filter((burst) => burst.bytes >= 20_000);
-check(`An open dashboard wrote to its tmux client ${chunks.length} times in ${Math.round(elapsed)} s, never ${redrawMs / 1_000} s apart, redrawing over 20 KB every Refresh Period`, () => {
+const redraws = bursts.slice(1).filter((burst) => burst.bytes >= 20_000);
+const doubled = redraws.filter((redraw) => redraw.bytes >= 40_000);
+const ordinary = redraws.filter((redraw) => redraw.bytes < 40_000);
+const longestGap = Math.max(...chunks.map(([gap]) => gap));
+const pairs = (items) => items.slice(1).map((item, index) => [items[index], item]);
+check(`An open dashboard wrote to its tmux client ${chunks.length} times in ${Math.round(elapsed)} s, never more than ${Math.ceil(longestGap * 10) / 10} s apart, redrawing ${Math.round(Math.min(...ordinary.map((redraw) => redraw.bytes)) / 1_000)} to ${Math.round(Math.max(...ordinary.map((redraw) => redraw.bytes)) / 1_000)} KB every Refresh Period and about twice that once a minute`, () => {
   assert(elapsed >= 170, String(elapsed));
-  for (const [gap, bytes] of chunks) {
-    assert(bytes > 0);
-    assert(gap < redrawMs / 1_000, String(gap));
-  }
+  for (const [, bytes] of chunks) assert(bytes > 0);
+  assert(longestGap < redrawMs / 1_000, String(longestGap));
   assert(redraws.length >= 10, String(redraws.length));
-  for (const [previous, next] of redraws.slice(1).map((redraw, index) => [redraws[index], redraw])) {
+  for (const [previous, next] of pairs(redraws)) {
     assert(next.start - previous.start <= redrawMs / 1_000 + 0.5, JSON.stringify([previous, next]));
   }
+  for (const redraw of ordinary) assert(redraw.writes >= 20 && redraw.writes <= 40, JSON.stringify(redraw));
+  assert(doubled.length >= 2, String(doubled.length));
+  for (const [previous, next] of pairs(doubled)) assert(Math.abs(next.start - previous.start - 60) <= 1, JSON.stringify([previous, next]));
 });
 
 for (const claim of checks) console.log(`ok - ${claim}`);

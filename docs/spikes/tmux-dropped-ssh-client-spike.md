@@ -30,7 +30,7 @@ sshd's keepalive needs a whole interval in which nothing arrives from the
 session or the client, and a dashboard is never silent for 15 seconds; only
 a silent session's drop was timed out by it, after 230 seconds. The client's own
 `ServerAliveInterval` made `ssh` give up within 13 seconds, but the server
-never heard. A dropped connection therefore pauses a dashboard 17 to 19
+never heard. A dropped connection therefore pauses a dashboard 16 to 19
 minutes after the drop, well inside the two-hour idle period, and no change
 to Dashpot's probe would detect it sooner.
 
@@ -187,14 +187,14 @@ unanswered probes never starts. With a silent pane, the server socket
 showed sshd's last send 11 seconds before the drop; sshd checked 60 seconds
 after it and every 60 seconds after that, and ended the session on the
 fourth check, 240 seconds after that send; tmux reported the client detached
-230 seconds after the drop.
-With the redrawing pane and the same settings, sshd logged no client-alive
-timeout, and TCP ended the session as it did in `drop`.
+230 seconds after the drop. With the redrawing pane and the same settings,
+sshd logged no client-alive timeout, and TCP ended the session as it did in
+`drop`.
 
 A dashboard leaves no silence that long. The retained timing log holds 535
-writes over 180 seconds and no gap between them longer than 14.5 seconds.
+writes over 180 seconds and no gap between them longer than 14.6 seconds.
 Every 15 seconds the dashboard redrew 22 to 24 KB in a burst of about 30
-writes, and about twice that once a minute, when the GitHub refresh landed.
+writes, and about twice that once a minute.
 So a `ClientAliveInterval` of the usual minute or more never sends a probe
 while a dashboard is on screen.
 An interval below the 15-second redraw would let probes out between
@@ -212,7 +212,7 @@ terminal comes back, not the dashboard.
 
 ## Implications for Dashpot
 
-- A dashboard whose SSH connection drops silently pauses 17 to 19 minutes
+- A dashboard whose SSH connection drops silently pauses 16 to 19 minutes
   later: the TCP abort, after 16 minutes here and within 18 on Linux's
   defaults, then up to one GitHub Refresh Period for the next probe. At
   the measured 300 points an hour, that is under 100 points, where the idle

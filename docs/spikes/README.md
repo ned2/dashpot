@@ -7,7 +7,8 @@ date: 2026-10-03
 
 Dated experiments that measure a harness, GitHub, the terminal and SSH
 setup a dashboard runs in, or the development suite in disposable fixtures.
-Each records its method, its evidence boundary, and how to reproduce it; the runners and verifiers live under
+Each records its method, its evidence boundary, and how to reproduce it;
+the runners and verifiers live under
 [`scripts/experiments/`](../../scripts/experiments/), and the retained traces
 under [`measurements/`](measurements/README.md). Reusable facts are folded
 into the living documents, chiefly the
