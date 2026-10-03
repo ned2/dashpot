@@ -19,20 +19,20 @@ this document is the dated evidence record with its fixtures and trace.
 
 tmux counts a client attached exactly as long as the sshd session holding it
 runs, so the question is when sshd notices its client is gone. Killing the
-client's `ssh` or closing the terminal it runs in tells sshd at once, and
-tmux reported the client detached within 11 ms. A silent drop, where
-the client's packets simply stop as a laptop's do when it sleeps or loses
-its network, tells sshd nothing. While the pane keeps writing, as a dashboard
-does every local Refresh Period, sshd learns of it only when TCP gives up
-retransmitting that output: 16 minutes after the drop on Linux's default
-`tcp_retries2`, with or without a 60-second `ClientAliveInterval`. sshd's
-keepalive needs a whole interval in which nothing arrives from the session
-or the client, and a dashboard is never silent for 15 seconds; only a
-silent session's drop was timed out by it, after 230 seconds. The client's own
+client's `ssh` or the process holding the terminal it runs in tells sshd at
+once, and tmux reported the client detached within 11 ms. A silent drop,
+where the client's packets simply stop as a laptop's do when it sleeps or
+loses its network, tells sshd nothing. While the pane keeps writing, as a
+dashboard does every local Refresh Period, sshd learns of it only when TCP
+gives up retransmitting that output: 16 minutes after the drop on Linux's
+default `tcp_retries2`, with or without a 60-second `ClientAliveInterval`.
+sshd's keepalive needs a whole interval in which nothing arrives from the
+session or the client, and a dashboard is never silent for 15 seconds; only
+a silent session's drop was timed out by it, after 230 seconds. The client's own
 `ServerAliveInterval` made `ssh` give up within 13 seconds, but the server
-never heard. A dropped connection therefore pauses a dashboard about
-seventeen minutes after the drop, well inside the two-hour idle period, and
-no change to Dashpot's probe would detect it sooner.
+never heard. A dropped connection therefore pauses a dashboard 17 to 19
+minutes after the drop, well inside the two-hour idle period, and no change
+to Dashpot's probe would detect it sooner.
 
 ## Reproduce
 
@@ -78,13 +78,13 @@ comma-separated subset; without a drop scenario, the run needs no root.
   record includes the runner's SHA-256. The fixture root, the operator's home
   directory and username appear as `$ROOT`, `$HOME` and `$USER`.
 - [Dashboard output timing](measurements/issue-410-dashboard-output-timing.txt)
-  is `script --log-timing`'s record of every write tmux made to a client
-  attached to a real dashboard on this Repository, at the default Refresh
-  Periods, for 180 seconds after its first load: one line per write, the
-  seconds since the previous write and the bytes written. It was recorded
-  with:
+  is the [timing record](measurements/README.md) of every write tmux made to
+  a client attached to a real dashboard on this Repository, at the base
+  commit below and the default Refresh Periods, for 180 seconds after its
+  first load. It was recorded from that commit's checkout with:
 
   ```bash
+  SOCKET=$(mktemp -u /tmp/dashpot-410-XXXXXX.sock)
   tmux -S "$SOCKET" -f /dev/null new-session -d -s fixture -x 200 -y 50 .venv/bin/dashpot
   sleep 20
   sleep 185 | script -q -O output.log -T timing.log -c "tmux -S $SOCKET attach-session -t fixture"
@@ -105,16 +105,25 @@ comma-separated subset; without a drop scenario, the run needs no root.
 | Controller | Node `v24.18.0` |
 | Pane | `while :; do date +%T; sleep 15; done`, a write every local Refresh Period; the quiet control runs `sleep infinity` with the status line off |
 
-The connections run over loopback, so their round-trip time is a few
-milliseconds and the retransmission timeout starts near Linux's 200 ms
+The timed scenarios attach a stand-in pane, not a dashboard: it writes once
+every default local Refresh Period, which is what decides whether sshd's
+keepalive ever probes. That a dashboard writes at least that often comes from
+the separate timing log, recorded from a real dashboard querying GitHub live
+with the operator's configuration. `close-terminal` stands in for closing a
+terminal emulator by killing the `script` process that holds the master side
+of `ssh`'s terminal, which hangs it up as an emulator closing its window
+does.
+
+A drop is an nftables rule on the loopback interface that discards both
+directions. The connections run over loopback, so their round-trip time is a
+few milliseconds and the retransmission timeout starts near Linux's 200 ms
 minimum. Over a real network the timeout starts at least as high, so a
 silent drop takes at least as long to notice; the 924.6-second lower bound
 below holds either way, and the 120-second cap on a single retransmission
-timeout bounds how far past it the abort can land. A drop here discards
-both directions at the server; a network that instead answers with an ICMP
-error or a RST would end the connection sooner. Sessions run with
-`UsePAM no` as a non-root sshd, which does not change how a session ends.
-macOS and other tmux and OpenSSH releases are unmeasured.
+timeout bounds how far past it the abort can land. A network that instead
+answers with an ICMP error or a RST would end the connection sooner.
+Sessions run with `UsePAM no` as a non-root sshd, which does not change how
+a session ends. macOS and other tmux and OpenSSH releases are unmeasured.
 
 ## Scenario results
 
@@ -151,12 +160,12 @@ unacknowledged segment with exponential backoff. Linux's documentation for
 its default of 15 a hypothetical timeout of 924.6 seconds, a lower bound:
 TCP aborts at the first retransmission timeout past it, and a single timeout
 is capped at 120 seconds. The first unacknowledged segment follows the drop
-within one pane write: in the `drop` scenario the server socket had already
-retransmitted twice 15.2 seconds after the drop. Both redrawing drops were
-detached 966.7 and 966.8 seconds after the drop, about 952 seconds after
-their first unacknowledged segment, inside that window. sshd's next read
-failed with `Connection timed out`, it ended the session, and tmux reported
-0.
+within one pane write: in both redrawing drops the server socket had
+already retransmitted twice when sampled 15.2 and 15.3 seconds after the
+drop. sshd's read failed 966.6 and 966.7 seconds after the drop, so 951 to
+967 seconds after the first retransmission, inside that window. sshd
+logged the failure as `Connection timed out` and ended each session, and
+tmux reported the clients detached 966.7 and 966.8 seconds after the drop.
 
 TCP keepalive, on by sshd's default `TCPKeepAlive yes`, plays no part: its
 first probe waits for two hours of idleness, and a connection with
@@ -174,16 +183,20 @@ sends a client-alive probe only when its `ppoll` returns with nothing ready
 after a whole `ClientAliveInterval`. Output from the session wakes `ppoll`
 too, so a pane that writes more often than the interval never lets a probe
 go out, and the count that ends the session after `ClientAliveCountMax`
-unanswered probes never starts. With a silent pane, sshd checked every 60
-seconds from the last data the client sent, 16 seconds before the drop, and
-ended the session on the fourth check, 230 seconds after the drop. With the
-redrawing pane and the same settings, sshd logged no client-alive timeout,
-and TCP ended the session as it did without keepalives.
+unanswered probes never starts. With a silent pane, the server socket
+showed sshd's last send 11 seconds before the drop; sshd checked 60 seconds
+after it and every 60 seconds after that, and ended the session on the
+fourth check, 240 seconds after that send; tmux reported the client detached
+230 seconds after the drop.
+With the redrawing pane and the same settings, sshd logged no client-alive
+timeout, and TCP ended the session as it did in `drop`.
 
 A dashboard leaves no silence that long. The retained timing log holds 535
-writes over 180 seconds, roughly 1 to 2 KB redrawn every 15 seconds, and no
-gap between writes longer than 14.5 seconds. So a `ClientAliveInterval` of
-the usual minute or more never sends a probe while a dashboard is on screen.
+writes over 180 seconds and no gap between them longer than 14.5 seconds.
+Every 15 seconds the dashboard redrew 22 to 24 KB in a burst of about 30
+writes, and about twice that once a minute, when the GitHub refresh landed.
+So a `ClientAliveInterval` of the usual minute or more never sends a probe
+while a dashboard is on screen.
 An interval below the 15-second redraw would let probes out between
 redraws, but it applies to every SSH session on the host, and with the
 default `ClientAliveCountMax` of 3 it would cut any of them through a network
@@ -199,10 +212,11 @@ terminal comes back, not the dashboard.
 
 ## Implications for Dashpot
 
-- A dashboard whose SSH connection drops silently pauses about seventeen
-  minutes later: the TCP abort, then up to one GitHub Refresh Period for
-  the next probe. At the measured 300 points an hour, that is under 100
-  points, where the idle period alone would have allowed about 600.
+- A dashboard whose SSH connection drops silently pauses 17 to 19 minutes
+  later: the TCP abort, after 16 minutes here and within 18 on Linux's
+  defaults, then up to one GitHub Refresh Period for the next probe. At
+  the measured 300 points an hour, that is under 100 points, where the idle
+  period alone would have allowed about 600.
 - No tmux setting shortens that, and no sshd setting does without
   affecting every SSH session on the host: a `ClientAliveInterval` below
   the 15-second redraw, or a lower `tcp_retries2` for every TCP connection.

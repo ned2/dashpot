@@ -156,8 +156,9 @@ GitHub refresh while nobody is watching the dashboard
   and, inside tmux, while no client is attached to the dashboard's session.
   Ending `ssh` or closing its terminal detaches its client at once; a client
   whose connection dropped silently, as a sleeping laptop's does, counts as
-  attached until sshd gives up on it, about 16 minutes later on Linux's
-  defaults ([measured](spikes/tmux-dropped-ssh-client-spike.md)).
+  attached until TCP gives up retransmitting the dashboard's redraws and sshd
+  ends the session, about 16 minutes later on Linux's defaults
+  ([measured](spikes/tmux-dropped-ssh-client-spike.md)).
   The Diagnostics show one `github-unattended-paused` line, Runtime Stats
   leads its allowance section with it, and the Event Log records an
   `unattended_pause.changed` event when it starts and ends. Any key resumes

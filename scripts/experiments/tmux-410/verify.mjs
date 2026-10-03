@@ -28,6 +28,9 @@ const scenario = (name) => environment.scenarios.find((item) => item.name === na
 const detached = (name) => one("detached", name).afterEnd;
 const logged = (name, source, pattern) => of("log", name).find((record) => record.source === source && pattern.test(record.line));
 const minutes = (ms) => `${(ms / 60_000).toFixed(1)} min`;
+// The dashboard's default local Refresh Period, which the runner's pane
+// imitates with a write every 15 s.
+const redrawMs = 15_000;
 // Every probe before the client detached saw it attached, and the tmux
 // client process had exited by the probe that saw it detached.
 const attachedUntilDetached = (name) => {
@@ -88,26 +91,42 @@ check("Closing the terminal ssh ran in detached the tmux client within a second,
   assert(logged("close-terminal", "sshd", /^Received disconnect from 127\.0\.0\.1 port \d+:11: disconnected by user$/));
 });
 
-check("A silent drop of a silent session detached the tmux client once sshd's ClientAliveInterval timed the client out", () => {
-  const { interval, countMax } = scenario("drop-client-alive-quiet").clientAlive;
-  attachedUntilDetached("drop-client-alive-quiet");
-  assert(detached("drop-client-alive-quiet") >= countMax * interval * 1_000, String(detached("drop-client-alive-quiet")));
-  assert(detached("drop-client-alive-quiet") <= (countMax + 1) * interval * 1_000 + 2_000, String(detached("drop-client-alive-quiet")));
-  assert(logged("drop-client-alive-quiet", "sshd", /^Timeout, client not responding from user \$USER 127\.0\.0\.1 port \d+$/));
+check("A silent drop of a silent session detached the tmux client once sshd's ClientAliveInterval timed the client out, counting from sshd's last send before the drop", () => {
+  const name = "drop-client-alive-quiet";
+  const { interval, countMax } = scenario(name).clientAlive;
+  attachedUntilDetached(name);
+  const [first] = of("socket", name);
+  assert(first, `socket samples of ${name}`);
+  const lastSend = first.t - Number(first.state.match(/ lastsnd:(\d+)/)[1]);
+  assert(lastSend < one("end", name).t, String(lastSend));
+  const timeout = logged(name, "sshd", /^Timeout, client not responding from user \$USER 127\.0\.0\.1 port \d+$/);
+  assert(timeout);
+  // sshd checks once per silent interval and gives up on the check after
+  // ClientAliveCountMax unanswered ones.
+  const checksAfter = (countMax + 1) * interval * 1_000;
+  assert(Math.abs(timeout.t - lastSend - checksAfter) <= 1_000, String(timeout.t - lastSend));
+  assert(detached(name) >= timeout.t - one("end", name).t, String(detached(name)));
 });
 
-// The window Linux's tcp_retries2 of 15 gives: its hypothetical 924.6 s
-// timeout is a lower bound, and TCP aborts at the first retransmission
-// timeout past it, at most one 120 s maximum RTO later. Both count from the
-// first unacknowledged segment, which the pane writes within 15 s of the
-// drop; the probe adds up to a second.
-const retransmissionWindow = [924_600, 15_000 + 924_600 + 120_000 + 1_000];
-for (const name of ["drop-client-alive", "drop"]) {
-  check(`A silent drop of a redrawing session${name === "drop" ? " without keepalives" : " under ClientAliveInterval"} left the tmux client attached until TCP retransmission gave up after ${minutes(detached(name))}`, () => {
+// Linux's tcp_retries2 of 15 gives a hypothetical 924.6 s timeout, a lower
+// bound: TCP aborts at the first retransmission timeout past it, at most one
+// 120 s maximum timeout later. Both count from the first retransmitted
+// segment, which the pane's next write sends within one redraw of the drop.
+const retries2Ms = 924_600;
+const maxRtoMs = 120_000;
+for (const [name, settings] of [["drop-client-alive", "under a 60 s ClientAliveInterval"], ["drop", "with only the client's ServerAliveInterval and sshd's TCPKeepAlive"]]) {
+  check(`A silent drop of a redrawing session ${settings} left the tmux client attached until TCP gave up retransmitting, ${minutes(detached(name))} after the drop`, () => {
     attachedUntilDetached(name);
-    assert(detached(name) >= retransmissionWindow[0] && detached(name) <= retransmissionWindow[1], String(detached(name)));
     retransmitting(name);
-    assert(logged(name, "sshd", /Connection timed out/));
+    const end = one("end", name);
+    const firstRetransmitting = of("socket", name).find((record) => / backoff:\d+/.test(record.state));
+    assert(firstRetransmitting && firstRetransmitting.afterEnd <= redrawMs + 1_000, JSON.stringify(firstRetransmitting));
+    const abort = logged(name, "sshd", /^Read error from remote host 127\.0\.0\.1 port \d+: Connection timed out$/);
+    assert(abort);
+    const abortAfter = abort.t - end.t;
+    assert(abortAfter - firstRetransmitting.afterEnd >= retries2Ms, String(abortAfter));
+    assert(abortAfter <= retries2Ms + maxRtoMs + firstRetransmitting.afterEnd, String(abortAfter));
+    assert(detached(name) >= abortAfter && detached(name) - abortAfter <= 2_000, String(detached(name)));
     assert(!logged(name, "sshd", /^Timeout, client not responding/));
   });
 }
@@ -122,13 +141,25 @@ check("The client's ServerAliveInterval made ssh give up within a minute while t
   assert(after < detached("drop"));
 });
 
-check("An open dashboard sent its tmux client output at least every 15 seconds", () => {
-  const chunks = readFileSync(timingFile, "utf8").trim().split("\n").map((line) => line.split(" ").map(Number));
-  const total = chunks.reduce((sum, [gap]) => sum + gap, 0);
-  assert(total >= 170, String(total));
+// Writes less than a second apart belong to one redraw.
+const chunks = readFileSync(timingFile, "utf8").trim().split("\n").map((line) => line.split(" ").map(Number));
+const bursts = [];
+let elapsed = 0;
+for (const [gap, bytes] of chunks) {
+  elapsed += gap;
+  if (bursts.length === 0 || gap >= 1) bursts.push({ start: elapsed, bytes: 0 });
+  bursts.at(-1).bytes += bytes;
+}
+const redraws = bursts.filter((burst) => burst.bytes >= 20_000);
+check(`An open dashboard wrote to its tmux client ${chunks.length} times in ${Math.round(elapsed)} s, never ${redrawMs / 1_000} s apart, redrawing over 20 KB every Refresh Period`, () => {
+  assert(elapsed >= 170, String(elapsed));
   for (const [gap, bytes] of chunks) {
     assert(bytes > 0);
-    assert(gap <= 15, String(gap));
+    assert(gap < redrawMs / 1_000, String(gap));
+  }
+  assert(redraws.length >= 10, String(redraws.length));
+  for (const [previous, next] of redraws.slice(1).map((redraw, index) => [redraws[index], redraw])) {
+    assert(next.start - previous.start <= redrawMs / 1_000 + 0.5, JSON.stringify([previous, next]));
   }
 });
 
