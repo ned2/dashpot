@@ -101,9 +101,9 @@ kept it before 1.18.30's acceptance. v1 is refused, not observed:
   PATH reports a 1.x release, and `--status` reports such a release as
   refused. v1 prints a bare `1.18.30`; v2 prints `opencode v2.0.22`.
 - The managed plugin module also carries a v1 entry. It publishes nothing
-  and gives every shell the reason that OpenCode v1 is refused, so a v1
-  installed after `integrate` makes `work start` say so instead of failing
-  silently.
+  and gives every shell the reason that OpenCode v1 is refused,
+  `DASHPOT_OPENCODE_REFUSAL=opencode-v1`, so a v1 installed after
+  `integrate` makes `work start` say so instead of failing silently.
 - The v2 entry does nothing, neither publishing nor preparing shells, on a
   release whose major version, read from `ctx.app.version`, is not 2.
 - The helper accepts only the v2 protocol. A 1.18.30 backend's sessions read

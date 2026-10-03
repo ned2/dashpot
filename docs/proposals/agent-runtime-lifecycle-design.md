@@ -1,6 +1,6 @@
 ---
 status: proposal
-date: 2026-10-02
+date: 2026-10-03
 ---
 
 # Agent runtime lifecycle design
@@ -612,9 +612,9 @@ under its implementing Issue, never by assumption.
 | Claude Code `EnterWorktree`/`ExitWorktree` (`keep`) Live Relocation | Supported (#162, `2.1.286`), accepted by #278 | A persistent shell `cd` places the session without carrying; `ExitWorktree(remove)` of a Worktree that `EnterWorktree` created by `name` unsupported, as it deletes the run with the Worktree ([ADR 0074](../adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)) |
 | Claude Code idle eviction | Supported (#162, Linux, `2.1.286`) | The retired worker's run is orphaned and continues when `claude attach` respawns the worker at the run's Worktree |
 | Claude Code Remote Control (attachment and server), SDK, agent teams, cloud, desktop | Unsupported | Unmeasured; server mode needs a claude.ai login |
-| OpenCode local TUI | Supported (#163, Linux, `1.18.30`) | One process, its own backend; quitting it or closing its terminal retires its plugin and its sessions read gone once it exits ([ADR 0080](../adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md)) |
-| OpenCode attached or shared local backend (`serve` with `run --attach` and `attach` clients) | Supported (#163, Linux, `1.18.30`) | Accepted by #163's acceptance run ([ADR 0081](../adr/0081-support-opencode-1-18-30-on-linux.md)); a resumed session continues its run only through `work start`; `opencode session delete` of a bound session leaves its run until the backend exits |
-| OpenCode V2, ACP, `opencode web`, SDK-owned server, remote backends, live cross-Worktree move | Unsupported | Unmeasured |
+| OpenCode v1, including `1.18.30` | Refused ([ADR 0090](../adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)) | `integrate` refuses a v1 `opencode` on PATH; the plugin's v1 entry publishes nothing and makes `work start` say that v1 is refused; #163's acceptance of `1.18.30` ([ADR 0081](../adr/0081-support-opencode-1-18-30-on-linux.md)) is superseded |
+| OpenCode v2 shared service and `--standalone` | Observed at the pinned `2.0.22`, unsupported until #407's acceptance run passes | Another 2.x is observed with a warning; see [OpenCode hosting modes](../agent-sessions.md#opencode-hosting-modes) |
+| OpenCode ACP, `opencode web`, SDK-owned server, remote backends | Unsupported | Unmeasured |
 
 ## Worked examples
 

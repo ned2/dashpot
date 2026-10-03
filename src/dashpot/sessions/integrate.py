@@ -14,9 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import Field, ValidationError
+
 from ..core.errors import DashpotError
 from ..core.git import GitError
 from ..core.model import HARNESS_DISPLAY, Harness
+from ..core.pydantic import PublishedModel, describe_validation_error
 from ..core.record_store import replace_atomically
 from ..core.worktree_paths import (
     main_worktree,
@@ -25,9 +28,11 @@ from ..core.worktree_paths import (
     worktree_root,
 )
 from .harnesses import (
+    OPENCODE_PINNED_VERSION,
     SESSION_OVERRIDE_VARIABLE,
     HarnessError,
     adapter,
+    opencode_shell_refusal,
     override_claim,
 )
 from .hook_claims import SessionClaimError, validate_session_claim
@@ -37,7 +42,12 @@ from .hook_scan import (
     StaleSessionRecord,
     summarize_session_records,
 )
-from .processes import ProcessLookup, host_process_lookup
+from .processes import (
+    ProcessAbsent,
+    ProcessLookup,
+    ProcessUnobservable,
+    host_process_lookup,
+)
 
 HOOK_TIMEOUT = 3
 # Inline hook definitions live under ``[hooks]`` or ``[[hooks.<Event>]]``.
@@ -254,8 +264,13 @@ def install_integration(
     home: Path | None = None,
     *,
     command_path: Path | None = None,
+    version_probe: Callable[[], str | None] | None = None,
 ) -> list[str]:
-    """Idempotently register one harness's lifecycle hooks for this user."""
+    """Idempotently register one harness's lifecycle hooks for this user.
+
+    OpenCode's plugin is refused while the ``opencode`` on PATH, which
+    ``version_probe`` asks by default, is a v1 release (ADR 0090).
+    """
     spec = integration(harness)
     home = home or spec.default_home
     if not home.is_dir():
@@ -275,7 +290,16 @@ def install_integration(
             f"{_linked_worktree_consequence(spec, binding)}"
         )
     if spec.plugin:
+        reported = (version_probe or _opencode_version)()
+        release = None if reported is None else opencode_release(reported)
+        if release is not None and _major(release) == 1:
+            raise IntegrationError(
+                f"the opencode on PATH is OpenCode {release}, and Dashpot observes "
+                f"OpenCode v2 only; install OpenCode {OPENCODE_PINNED_VERSION} "
+                "and retry"
+            )
         return [
+            *_opencode_release_status("OpenCode release on PATH", reported),
             *install_plugin(spec, home, command),
             f"hook publisher: {command}",
             _install_issue_work_skill(skill),
@@ -437,7 +461,7 @@ def integration_status(
     if spec.plugin:
         messages.extend(_opencode_skill_copies(issue_work_skill_directory(spec, home)))
         messages.extend(_opencode_plugin_copies(path, current, environ))
-        messages.extend(_opencode_runtime_status(version_probe, environ))
+        messages.extend(_opencode_runtime_status(version_probe, environ, lookup))
     messages.extend(_record_store_status(state_dir, current, lookup))
     messages.extend(_claimed_identity_status(spec, current, lookup, environ))
     return messages
@@ -636,10 +660,12 @@ def _claimed_identity_status(
     if claim is None or claim.harness != spec.harness:
         claim = adapter(spec.harness).claim_session_identity(environment)
     if claim is None and spec.plugin:
+        refusal = opencode_shell_refusal(environment, in_opencode=False) or (
+            "only a shell OpenCode ran for its agent, prepared by the plugin, "
+            "carries one"
+        )
         return [
-            f"Agent Session identity claimed here: none for {spec.display} "
-            f"(only a shell OpenCode ran for its agent, prepared by the "
-            f"plugin, carries one)"
+            f"Agent Session identity claimed here: none for {spec.display} ({refusal})"
         ]
     if claim is None:
         return [
@@ -808,9 +834,9 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
     )
 
 
-# The OpenCode release the acceptance run passed on, its plugin API, events,
-# and process shape measured (ADR 0081); another release is unsupported.
-OPENCODE_ACCEPTED_VERSION = "1.18.30"
+# ``opencode --version`` prints ``opencode v2.0.22`` from v2 and a bare
+# ``1.18.30`` from v1; the service's registration names a bare release.
+OPENCODE_RELEASE = re.compile(r"(?:opencode )?v?(?P<release>\d+\.\d+\.\d+\S*)")
 PLUGIN_MARKER = "// dashpot-managed-plugin: opencode"
 PLUGIN_HELPER_PLACEHOLDER = '"__DASHPOT_OPENCODE_HELPER__"'
 PLUGIN_HELPER = re.compile(r'^const HELPER = (".*");$', re.MULTILINE)
@@ -1026,24 +1052,120 @@ def _opencode_version() -> str | None:
     return version if completed.returncode == 0 and version else None
 
 
+def opencode_release(reported: str) -> str | None:
+    """The OpenCode release that ``reported`` names; ``None`` when it names none."""
+    match = OPENCODE_RELEASE.fullmatch(reported.strip())
+    return None if match is None else str(match.group("release"))
+
+
+def _major(release: str) -> int:
+    return int(release.split(".", 1)[0])
+
+
+def _opencode_release_status(label: str, reported: str | None) -> list[str]:
+    """Report one OpenCode release: pinned, another v2, refused v1, or unknown."""
+    if reported is None:
+        return [f"{label}: none found"]
+    release = opencode_release(reported)
+    if release is None:
+        return [
+            f"{label}: unreadable",
+            f"warning: Dashpot cannot read an OpenCode release in {reported!r}, "
+            "so cannot tell whether the plugin observes it",
+        ]
+    if release == OPENCODE_PINNED_VERSION:
+        return [f"{label}: {release}, the pinned release"]
+    if _major(release) == 1:
+        return [
+            f"{label}: {release}, refused",
+            f"warning: Dashpot observes OpenCode v2 only: under {release} the "
+            "plugin publishes nothing and no command can opt in; install "
+            f"OpenCode {OPENCODE_PINNED_VERSION} and run 'dashpot integrate opencode'",
+        ]
+    if _major(release) == 2:
+        return [
+            f"{label}: {release}",
+            f"warning: OpenCode {release} is not the pinned release "
+            f"{OPENCODE_PINNED_VERSION}; the plugin observes it, but another "
+            "release may change what it observes",
+        ]
+    return [
+        f"{label}: {release}",
+        f"warning: OpenCode {release} is not v2, so the plugin observes nothing "
+        f"under it; install OpenCode {OPENCODE_PINNED_VERSION}",
+    ]
+
+
+class OpenCodeServiceRegistration(PublishedModel):
+    """The shared OpenCode service's registration, as far as Dashpot reads it."""
+
+    version: str
+    pid: int = Field(gt=0)
+
+
+def _opencode_service_file(environ: Mapping[str, str]) -> Path:
+    configured = environ.get("XDG_STATE_HOME")
+    if configured and Path(configured).is_absolute():
+        state = Path(configured)
+    else:
+        state = Path.home() / ".local" / "state"
+    return state / "opencode" / "service.json"
+
+
+def _opencode_service_status(
+    environ: Mapping[str, str], lookup: ProcessLookup
+) -> list[str]:
+    """Report the running shared service's release, which a client may replace.
+
+    A client of another release replaces the service when it connects, so
+    the service can run another release than the one on PATH (ADR 0090). A
+    killed service leaves its registration behind, so its pid is checked.
+    """
+    path = _opencode_service_file(environ)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return [f"OpenCode service: none registered in {path}"]
+    except (OSError, UnicodeDecodeError) as exc:
+        return [f"OpenCode service: cannot read {path}: {exc}"]
+    try:
+        registration = OpenCodeServiceRegistration.model_validate_json(raw)
+    except ValidationError as exc:
+        return [
+            f"OpenCode service: cannot read {path}: {describe_validation_error(exc)}"
+        ]
+    observed = lookup(registration.pid)
+    if isinstance(observed, ProcessAbsent):
+        return [
+            f"OpenCode service: none running; {path} names pid "
+            f"{registration.pid}, which has exited"
+        ]
+    if isinstance(observed, ProcessUnobservable):
+        running = (
+            f"OpenCode service: pid {registration.pid}, registered in {path}, "
+            f"could not be observed ({observed.reason})"
+        )
+    else:
+        running = f"OpenCode service: pid {registration.pid}, registered in {path}"
+    return [
+        running,
+        *_opencode_release_status("OpenCode service release", registration.version),
+    ]
+
+
 def _opencode_runtime_status(
     version_probe: Callable[[], str | None] | None,
     environ: Mapping[str, str] | None,
+    lookup: ProcessLookup,
 ) -> list[str]:
-    """Report the OpenCode release and the settings that keep the plugin out."""
+    """Report the OpenCode releases and the settings that keep the plugin out."""
     environment = environ if environ is not None else os.environ
-    version = (version_probe or _opencode_version)()
-    if version is None:
-        messages = ["OpenCode release: not found on PATH"]
-    elif version == OPENCODE_ACCEPTED_VERSION:
-        messages = [f"OpenCode release: {version}, the accepted release"]
-    else:
-        messages = [
-            f"OpenCode release: {version}",
-            f"warning: OpenCode {version} is unsupported: Dashpot's acceptance "
-            f"run passed on {OPENCODE_ACCEPTED_VERSION} only, and another release "
-            "may change what the plugin observes",
-        ]
+    messages = [
+        *_opencode_release_status(
+            "OpenCode release on PATH", (version_probe or _opencode_version)()
+        ),
+        *_opencode_service_status(environment, lookup),
+    ]
     if _enabled(environment.get("OPENCODE_PURE")):
         messages.append(
             "warning: OPENCODE_PURE is set here; OpenCode started with it, or "

@@ -312,8 +312,21 @@ const recover = async (shared, generation, location, sessions) => {
 
 const majorVersion = (version) => Number.parseInt(String(version ?? "").split(".")[0], 10);
 
+// Why a shell OpenCode v1 prepared cannot opt in: Dashpot observes v2 only.
+const V1_REFUSAL = "opencode-v1";
+
 export default {
   id: "dashpot.observation",
+  // OpenCode 1.x loads this entry: it publishes nothing, and tells every
+  // shell that Dashpot refuses OpenCode v1, so `work start` says so (ADR 0090).
+  server: async () => ({
+    "shell.env": async (_input, output) => {
+      const env = output?.env;
+      if (!env) return;
+      for (const name of CLAIM_VARIABLES) env[name] = "";
+      env.DASHPOT_OPENCODE_REFUSAL = V1_REFUSAL;
+    },
+  }),
   async setup(ctx) {
     // OpenCode 1.x calls `setup` too, with no `ctx.app`: this entry observes
     // OpenCode v2 only, and on any other release does nothing at all.

@@ -203,6 +203,14 @@ def test_opencode_shell_refusal_says_which_shell_it_is() -> None:
     terminal = opencode_shell_refusal({}, in_opencode=True)
     assert terminal is not None
     assert "OpenCode terminal" in terminal
+    refused = {"DASHPOT_OPENCODE_REFUSAL": "opencode-v1"}
+    for in_opencode in (True, False):
+        v1 = opencode_shell_refusal(refused, in_opencode=in_opencode)
+        assert v1 is not None
+        assert "runs in OpenCode v1, and Dashpot observes OpenCode v2 only" in v1
+        assert "install OpenCode 2.0.22" in v1
+    other = {"DASHPOT_OPENCODE_REFUSAL": "another"}
+    assert opencode_shell_refusal(other, in_opencode=False) is None
 
 
 def test_native_claims_report_every_harness_present_in_adapter_order() -> None:

@@ -923,6 +923,24 @@ def test_a_user_shell_is_told_only_an_agents_command_opts_in(
     assert "a shell the user started in OpenCode" in message
 
 
+def test_a_command_opencode_v1_ran_is_told_v1_is_refused(
+    project: Path, server: Server
+) -> None:
+    # The plugin's v1 entry publishes nothing and sets the refusal on every
+    # shell, which carries no claim: OpenCode v1 sets no session variable.
+    environ = {"DASHPOT_OPENCODE_REFUSAL": "opencode-v1", "OPENCODE": "1"}
+
+    with pytest.raises(IssueWorkError) as refused:
+        start_issue_work(
+            project, "build-observer", lookup=server.lookup, environ=environ
+        )
+
+    message = str(refused.value)
+    assert "running Codex, Claude Code, or OpenCode session" in message
+    assert "runs in OpenCode v1, and Dashpot observes OpenCode v2 only" in message
+    assert "OpenCode terminal" not in message
+
+
 def test_a_terminal_is_told_it_is_no_agents_command(
     project: Path, server: Server
 ) -> None:

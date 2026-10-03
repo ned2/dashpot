@@ -137,6 +137,12 @@ if (scenario === "guard") {
   emit("session.execution.started", "ses_root");
   await sleep(300);
   for (const cleanup of cleanups) await cleanup();
+  // OpenCode 1.x loads the `server` entry, and prepares every shell with it.
+  const v1 = await plugin.server({ directory: "/repo" });
+  const prepared = { env: { PATH: "/bin", DASHPOT_AGENT_SESSION: "codex:outer", CLAUDE_PID: "7" } };
+  await v1["shell.env"]({ cwd: "/repo" }, prepared);
+  await v1["shell.env"]({ cwd: "/repo" }, {});
+  result.v1 = { hooks: Object.keys(v1), env: prepared.env };
   result.id = plugin.id;
   result.cleanups = cleanups.map((cleanup) => typeof cleanup);
   result.hooks = shellHooks.length;
@@ -302,8 +308,20 @@ def test_the_plugin_observes_opencode_v2_only(tmp_path: Path) -> None:
     result, requests = drive(tmp_path, "guard")
 
     # OpenCode 1.x calls `setup` with no `app`; neither it nor another major
-    # release registers, subscribes, or prepares a shell.
+    # release registers, subscribes, or prepares a shell. Its `server` entry
+    # publishes nothing, and tells each shell why it cannot opt in.
     assert result == {
+        "v1": {
+            "hooks": ["shell.env"],
+            "env": {
+                "PATH": "/bin",
+                "DASHPOT_AGENT_SESSION": "",
+                "CODEX_THREAD_ID": "",
+                "CLAUDE_CODE_SESSION_ID": "",
+                "CLAUDE_PID": "",
+                "DASHPOT_OPENCODE_REFUSAL": "opencode-v1",
+            },
+        },
         "id": "dashpot.observation",
         "cleanups": ["function", "function"],
         "hooks": 0,
