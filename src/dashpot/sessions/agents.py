@@ -249,6 +249,9 @@ def observe_work_runs(
     for project_id, target in available_targets(targets_by_project):
         store = WorkStore(Path(target.path))
         active, store_diagnostics = store.active()
+        probe.prepare(
+            work.evidence.process_key for work in active if work.relocation is None
+        )
         diagnostics.extend(store_diagnostics)
         store.sweep()
         for work in active:

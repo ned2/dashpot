@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from .processes import (
     ProcessKey,
     ProcessLiveness,
     ProcessLookup,
+    ProcessObservation,
     ProcessPresent,
+    host_process_identities,
     host_process_lookup,
     process_liveness,
 )
@@ -58,12 +61,30 @@ class LivenessProbe:
     def __init__(self, lookup: ProcessLookup) -> None:
         self._lookup = lookup
         self._observed: dict[ProcessKey, LivenessObservation] = {}
+        self._identities: dict[int, ProcessObservation] = {}
+
+    def prepare(self, keys: Iterable[ProcessKey | None]) -> None:
+        """Batch previously unobserved host PIDs; injected lookups stay unchanged."""
+        if self._lookup is host_process_lookup:
+            self._identities.update(
+                host_process_identities(
+                    key[0]
+                    for key in keys
+                    if key is not None and key[0] not in self._identities
+                )
+            )
+
+    def _process(self, pid: int) -> ProcessObservation:
+        """The pass's batched identity, or a lookup for a PID not prepared."""
+        if pid in self._identities:
+            return self._identities[pid]
+        return self._lookup(pid)
 
     def observe(self, key: ProcessKey | None) -> LivenessObservation:
         if key is None:
             return session_liveness(key, self._lookup)
         observation = self._observed.get(key)
         if observation is None:
-            observation = session_liveness(key, self._lookup)
+            observation = session_liveness(key, self._process)
             self._observed[key] = observation
         return observation

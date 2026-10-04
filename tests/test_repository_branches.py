@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
+
+from dashpot.core.commands import CommandResult, run_command
 from dashpot.core.git import Git
-from dashpot.repository.repository import observe_branches
-from factories import SequenceRunner, completed, git, ref_stream
+from dashpot.observation.collect import create_project_collector
+from dashpot.project.workspace import ResolvedProject
+from dashpot.repository.repository import IntegrationCache, observe_branches
+from factories import SequenceRunner, completed, git, ref_stream, write_project_config
 
 
 def over(runner: SequenceRunner) -> Git:
@@ -46,11 +52,11 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
         completed(listing),
         completed(
             ref_stream(
-                ("refs/heads/main",),
-                ("refs/heads/local-only",),
-                ("refs/remotes/origin/main",),
-                ("refs/remotes/origin/feature",),
-                ("refs/remotes/upstream/main",),
+                ("aaa",),
+                ("ccc",),
+                ("aaa",),
+                ("eee",),
+                ("fff",),
             )
         ),
         # feature: two retained commits whose merge leaves main's tree as is.
@@ -94,12 +100,12 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
     ]
     assert runner.calls[0][0][-2:] == ["refs/heads", "refs/remotes"]
     assert runner.calls[1][0][-2:] == ["refs/heads", "refs/remotes"]
-    assert "--merged=refs/remotes/origin/main" in runner.calls[1][0]
-    assert "refs/remotes/origin/main..refs/heads/feature" in runner.calls[2][0]
-    assert runner.calls[4][0][-2:] == ["refs/remotes/origin/main", "refs/heads/feature"]
-    assert "refs/remotes/origin/main..refs/heads/orphan" in runner.calls[7][0]
+    assert "--merged=aaa" in runner.calls[1][0]
+    assert "aaa..bbb" in runner.calls[2][0]
+    assert runner.calls[4][0][-2:] == ["aaa", "bbb"]
+    assert "aaa..ddd" in runner.calls[7][0]
     assert runner.calls[12][0][1:3] == ["log", "--first-parent"]
-    assert "base..refs/remotes/origin/main" in runner.calls[12][0]
+    assert "base..aaa" in runner.calls[12][0]
     assert "--git-common-dir" in runner.calls[13][0]
     # Every git call that is made is a listing: nothing fetches.
     assert not any("fetch" in call[0] for call in runner.calls)
@@ -153,7 +159,7 @@ def test_first_answering_anchor_is_authoritative_and_failures_are_diagnosed(
     runner = SequenceRunner(
         completed("", stderr="fatal: not a git repository", returncode=128),
         completed(ref_stream(ref("refs/heads/main", "aaa"))),
-        completed(ref_stream(("refs/heads/main",))),
+        completed(ref_stream(("aaa",))),
         OSError("git missing"),
     )
 
@@ -239,7 +245,7 @@ def test_a_failing_commit_count_is_a_diagnostic_not_an_absence() -> None:
     )
     runner = SequenceRunner(
         completed(listing),
-        completed(ref_stream(("refs/heads/main",), ("refs/remotes/origin/main",))),
+        completed(ref_stream(("aaa",), ("aaa",))),
         completed("", stderr="fatal: bad revision", returncode=128),
         completed(".git\n"),
     )
@@ -382,3 +388,292 @@ def test_content_integration_never_fetches_or_mutates(tmp_path: Path) -> None:
 
     assert git(root, "for-each-ref") == before
     assert git(root, "status", "--porcelain") == status
+
+
+def test_cached_observation_tracks_squash_rebase_and_force_push(tmp_path: Path) -> None:
+    root = squash_repository(tmp_path)
+    cache = IntegrationCache()
+    calls: list[list[str]] = []
+
+    def recording(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        calls.append(list(args))
+        return run_command(args, cwd, timeout)
+
+    adapter = Git(root, runner=recording)
+
+    def observe_again() -> dict[str, tuple[int | None, bool | None]]:
+        calls.clear()
+        observed = observe_branches([root], git=adapter, cache=cache)
+        assert not observed.diagnostics
+        answers = {
+            branch.refname: (branch.unintegrated_commits, branch.content_integrated)
+            for branch in observed.branches
+        }
+        fresh = observe_branches([root])
+        assert answers == {
+            branch.refname: (branch.unintegrated_commits, branch.content_integrated)
+            for branch in fresh.branches
+        }
+        return answers
+
+    assert observe_again()["refs/heads/done"] == (2, True)
+    cold_count = len(calls)
+    observe_again()
+    assert [call[1] for call in calls] == ["for-each-ref", "for-each-ref", "rev-parse"]
+    assert cold_count > len(calls)
+
+    # Advancing main invalidates every pair, including an older squash whose
+    # content now conflicts at the tip but is still found in first-parent history.
+    _commit(root, "app.py", "changed after both squashes\n", "advance main")
+    assert observe_again()["refs/heads/pending"] == (1, True)
+    assert any(call[1] == "merge-tree" for call in calls)
+
+    # A rebase changes only kept's head. The other pairs stay warm.
+    git(root, "checkout", "-q", "kept")
+    git(root, "rebase", "main")
+    assert observe_again()["refs/heads/kept"] == (1, False)
+    assert sum(call[1] == "rev-list" for call in calls) == 1
+    git(root, "checkout", "-q", "main")
+    git(root, "update-ref", "refs/remotes/origin/kept", "kept")
+    observe_again()
+    assert not any(call[1] == "rev-list" for call in calls)
+
+    # A force-push to a different head must not inherit the previous answer.
+    git(root, "update-ref", "refs/remotes/origin/kept", "done")
+    assert observe_again()["refs/remotes/origin/kept"] == (2, True)
+    git(root, "branch", "-f", "kept", "main")
+    assert observe_again()["refs/heads/kept"] == (0, None)
+
+
+def test_cache_keeps_live_ref_metadata_and_captured_commit_operands() -> None:
+    listing = ref_stream(ref("refs/heads/main", "aaa"), ref("refs/heads/feat", "bbb"))
+    moved_metadata = ref_stream(
+        ref("refs/heads/main", "aaa"),
+        ref("refs/heads/feat", "bbb", "origin/feat", "[gone]", worktree="/linked"),
+    )
+    runner = SequenceRunner(
+        completed(listing),
+        completed(ref_stream(("aaa",))),
+        completed("1"),
+        completed("tree-a"),
+        completed("tree-b"),
+        completed(".git"),
+        completed(moved_metadata),
+        completed(ref_stream(("aaa",))),
+        completed(".git"),
+    )
+    cache = IntegrationCache()
+    first = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    second = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    assert first.branches[1].content_integrated is False
+    assert second.branches[1].content_integrated is False
+    assert second.branches[1].upstream_gone
+    assert second.branches[1].checked_out_at == "/linked"
+    assert runner.calls[2][0][-1] == "aaa..bbb"
+    assert runner.calls[4][0][-2:] == ["aaa", "bbb"]
+    assert len(runner.calls) == 9
+
+
+def test_configured_collector_owns_the_cache_across_local_refreshes(
+    tmp_path: Path,
+) -> None:
+    root = squash_repository(tmp_path)
+    write_project_config(root)
+    (root / "issues").mkdir()
+    project = ResolvedProject(
+        "project:test", "Test", "repository:test", ("test",), (str(root),), str(root)
+    )
+    calls: list[str] = []
+
+    def recording(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        calls.append(args[1])
+        return run_command(args, cwd, timeout)
+
+    collector = create_project_collector(project, git=Git(root, runner=recording))
+    first = collector.observe_targets()
+    assert not first.diagnostics
+    assert "merge-tree" in calls
+    calls.clear()
+    second = collector.observe_targets()
+    assert second.branches == first.branches
+    assert not second.diagnostics
+    assert calls == ["worktree", "status", "for-each-ref", "for-each-ref", "rev-parse"]
+    # A new collector (or process) starts cold; there is no persisted cache.
+    replacement = create_project_collector(project, git=Git(root, runner=recording))
+    calls.clear()
+    replacement.observe_targets()
+    assert "merge-tree" in calls
+
+
+@pytest.mark.parametrize("failure", ["count", "content", "silent-content", "merged"])
+def test_failures_are_retried_on_the_next_refresh(failure: str) -> None:
+    listing = completed(
+        ref_stream(ref("refs/heads/main", "aaa"), ref("refs/heads/feat", "bbb"))
+    )
+    merged = completed(ref_stream(("aaa",)))
+    error = completed("", "fatal: temporary failure", 128)
+    failing_analysis = {
+        "count": [merged, error],
+        "content": [merged, completed("1"), completed("tree"), error],
+        "silent-content": [merged, completed("1"), error],
+        "merged": [error],
+    }[failure]
+    runner = SequenceRunner(
+        listing,
+        *failing_analysis,
+        completed(".git"),
+        listing,
+        merged,
+        completed("1"),
+        completed("tree-a"),
+        completed("tree-b"),
+        completed(".git"),
+    )
+    cache = IntegrationCache()
+    first = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    second = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    assert [item.code for item in first.diagnostics] == ["branch-integration"]
+    assert not second.diagnostics
+    assert second.branches[1].unintegrated_commits == 1
+    assert second.branches[1].content_integrated is False
+
+
+def test_cache_is_bounded_and_scoped_to_the_answering_anchor() -> None:
+    cache = IntegrationCache(max_entries=2)
+    listing = completed(
+        ref_stream(ref("refs/heads/main", "aaa"), ref("refs/heads/feat", "bbb"))
+    )
+    merged = completed(ref_stream(("aaa",)))
+
+    def refresh(anchor: Path, warm: bool) -> None:
+        analysis = (
+            [] if warm else [completed("1"), completed("tree-a"), completed("tree-b")]
+        )
+        runner = SequenceRunner(listing, merged, *analysis, completed(".git"))
+        result = observe_branches([anchor], git=over(runner), cache=cache)
+        assert not result.diagnostics
+        assert result.branches[1].content_integrated is False
+        assert len(runner.calls) == (3 if warm else 6)
+
+    refresh(Path("/a"), False)
+    refresh(Path("/a"), True)
+    refresh(Path("/b"), False)
+    refresh(Path("/b"), True)
+    refresh(Path("/a"), False)
+    with pytest.raises(ValueError, match="at least one"):
+        IntegrationCache(max_entries=0)
+
+
+def test_ref_moving_between_listings_cannot_poison_the_captured_head() -> None:
+    before_move = completed(
+        ref_stream(
+            ref("refs/heads/main", "aaa"),
+            ref("refs/heads/feat", "bbb"),
+            ref("refs/remotes/origin/feat", "bbb"),
+        )
+    )
+    after_move = completed(
+        ref_stream(
+            ref("refs/heads/main", "aaa"),
+            ref("refs/heads/feat", "aaa"),
+            ref("refs/remotes/origin/feat", "bbb"),
+        )
+    )
+    # feat moved to aaa before --merged ran; no merged object is bbb.
+    merged = completed(ref_stream(("aaa",), ("aaa",)))
+    runner = SequenceRunner(
+        before_move,
+        merged,
+        completed("1"),
+        completed("tree-a"),
+        completed("tree-b"),
+        completed(".git"),
+        after_move,
+        merged,
+        completed(".git"),
+    )
+    cache = IntegrationCache()
+    first = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    second = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    assert not first.diagnostics and not second.diagnostics
+    assert [
+        (branch.unintegrated_commits, branch.content_integrated)
+        for branch in first.branches
+    ] == [(0, None), (1, False), (1, False)]
+    assert [
+        (branch.unintegrated_commits, branch.content_integrated)
+        for branch in second.branches
+    ] == [(0, None), (0, None), (1, False)]
+    assert runner.calls[2][0][-1] == "aaa..bbb"
+    assert len(runner.calls) == 9
+
+
+def test_failed_squash_candidate_tree_is_diagnosed_and_retried() -> None:
+    listing = completed(
+        ref_stream(ref("refs/heads/main", "aaa"), ref("refs/heads/feat", "bbb"))
+    )
+    merged = completed(ref_stream(("aaa",)))
+    candidate = "c" * 40
+    analysis = [
+        completed("1"),
+        completed("tree-main"),
+        completed("", returncode=1),
+        completed("base"),
+        completed("app\0"),
+        completed(f"{candidate}\n\napp\n"),
+        completed("tree-squash"),
+    ]
+    runner = SequenceRunner(
+        listing,
+        merged,
+        *analysis,
+        completed("", "fatal: temporary failure", 128),
+        completed(".git"),
+        listing,
+        merged,
+        *analysis,
+        completed("tree-squash"),
+        completed(".git"),
+        listing,
+        merged,
+        completed(".git"),
+    )
+    cache = IntegrationCache()
+    first = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    assert first.branches[1].content_integrated is None
+    assert [item.code for item in first.diagnostics] == ["branch-integration"]
+    second = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    assert not second.diagnostics
+    assert second.branches[1].content_integrated is True
+    before = len(runner.calls)
+    third = observe_branches([Path("/repo")], git=over(runner), cache=cache)
+    assert third.branches == second.branches
+    assert len(runner.calls) - before == 3
+
+
+def test_a_new_squash_replaces_a_cached_unintegrated_answer(tmp_path: Path) -> None:
+    root = squash_repository(tmp_path)
+    cache = IntegrationCache()
+    before = {
+        branch.name: branch for branch in observe_branches([root], cache=cache).branches
+    }
+    assert before["kept"].content_integrated is False
+    git(root, "merge", "--squash", "-q", "kept")
+    git(
+        root,
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "user.name=Test",
+        "commit",
+        "-qm",
+        "squash kept",
+    )
+    observation = observe_branches([root], cache=cache)
+    after = {branch.name: branch for branch in observation.branches}
+    assert not observation.diagnostics
+    assert after["kept"].head == before["kept"].head
+    assert (
+        after["kept"].unintegrated_commits == before["kept"].unintegrated_commits == 1
+    )
+    assert after["kept"].content_integrated is True

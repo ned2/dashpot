@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import stat
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -328,11 +329,53 @@ class BranchObservation:
     anchor: str | None = None
 
 
+class IntegrationCache:
+    """Bounded, in-memory integration answers for one collector's lifetime.
+
+    Anchor scope keeps independent clones apart. Only complete answers enter;
+    both commits are immutable, and ref metadata is always observed afresh.
+    """
+
+    def __init__(self, max_entries: int = 512) -> None:
+        if max_entries < 1:
+            raise ValueError("Integration cache must hold at least one answer")
+        self._max_entries = max_entries
+        self._answers: OrderedDict[tuple[Path, str, str], tuple[int, bool | None]] = (
+            OrderedDict()
+        )
+
+    def get(
+        self, anchor: Path, integration_head: str, head: str
+    ) -> tuple[int, bool | None] | None:
+        """The last complete answer for these commits, if still retained."""
+        key = (anchor, integration_head, head)
+        answer = self._answers.get(key)
+        if answer is not None:
+            self._answers.move_to_end(key)
+        return answer
+
+    def put(
+        self,
+        anchor: Path,
+        integration_head: str,
+        head: str,
+        count: int,
+        content: bool | None,
+    ) -> None:
+        """Retain a complete answer, evicting the least recently used if full."""
+        key = (anchor, integration_head, head)
+        self._answers[key] = (count, content)
+        self._answers.move_to_end(key)
+        if len(self._answers) > self._max_entries:
+            self._answers.popitem(last=False)
+
+
 def observe_branches(
     anchors: Sequence[Path],
     *,
     timeout: float = 5,
     git: Git | None = None,
+    cache: IntegrationCache | None = None,
 ) -> BranchObservation:
     """List every local and Remote-Tracking Branch without fetching.
 
@@ -362,7 +405,7 @@ def observe_branches(
         integration_ref = _integration_ref(listed, branches)
         if integration_ref is not None:
             branches = _observe_integration(
-                branches, integration_ref, anchor, scoped, diagnostics
+                branches, integration_ref, anchor, scoped, diagnostics, cache
             )
         # ``diagnostics`` keeps the earlier anchors' failures: the answering
         # anchor stays authoritative, but a broken one is worth a warning.
@@ -517,6 +560,7 @@ def _observe_integration(
     anchor: Path,
     git: Git,
     diagnostics: list[Diagnostic],
+    cache: IntegrationCache | None,
 ) -> list[Branch]:
     """Count each Branch ref's commits not reachable from the integration ref.
 
@@ -524,12 +568,15 @@ def _observe_integration(
     ``unintegrated_commits`` stays None because Git could not answer must be
     distinguishable from a repository with no Integration Branch at all.
     """
+    integration_head = next(
+        branch.head for branch in branches if branch.refname == integration_ref
+    )
     try:
         merged = git.records(
-            f"--merged={integration_ref}",
+            f"--merged={integration_head}",
             "refs/heads",
             "refs/remotes",
-            fields=("%(refname)",),
+            fields=("%(objectname)",),
         )
     except GitError as exc:
         diagnostics.append(
@@ -543,6 +590,10 @@ def _observe_integration(
     observed: list[Branch] = []
     facts_by_head: dict[str, tuple[int | None, bool | None]] = {}
     for branch in branches:
+        if cache is not None and branch.head not in facts_by_head:
+            cached = cache.get(anchor, integration_head, branch.head)
+            if cached is not None:
+                facts_by_head[branch.head] = cached
         if branch.head in facts_by_head:
             count, content = facts_by_head[branch.head]
             observed.append(
@@ -554,11 +605,18 @@ def _observe_integration(
                 )
             )
             continue
+        diagnostic_count = len(diagnostics)
         count = (
             0
-            if branch.refname in integrated
+            if branch.head in integrated
             else _unintegrated_commit_count(
-                anchor, integration_ref, branch.refname, git, diagnostics
+                anchor,
+                integration_head,
+                branch.head,
+                git,
+                diagnostics,
+                integration_ref,
+                branch.refname,
             )
         )
         # Reachability answers the common case exactly; only retained commits
@@ -567,8 +625,16 @@ def _observe_integration(
         if count:
             try:
                 content = assess_content_integration(
-                    git, integration_ref, branch.refname, branch.committed_at
+                    git, integration_head, branch.head, branch.committed_at
                 )
+                if content is None:
+                    diagnostics.append(
+                        _integration_diagnostic(
+                            anchor,
+                            f"Cannot compare the content of {branch.refname} with "
+                            f"{integration_ref}",
+                        )
+                    )
             except GitError as exc:
                 diagnostics.append(
                     _integration_diagnostic(
@@ -578,6 +644,12 @@ def _observe_integration(
                     )
                 )
         facts_by_head[branch.head] = (count, content)
+        if (
+            cache is not None
+            and count is not None
+            and len(diagnostics) == diagnostic_count
+        ):
+            cache.put(anchor, integration_head, branch.head, count, content)
         observed.append(
             branch.model_copy(
                 update={"unintegrated_commits": count, "content_integrated": content}
@@ -671,7 +743,10 @@ def _squash_commit_exists(
         squashed = _merge_tree(git, f"{commit}^", branch_ref)
         if squashed is None:
             continue
-        if squashed == git.maybe("rev-parse", f"{commit}^{{tree}}"):
+        candidate_tree = git.maybe("rev-parse", f"{commit}^{{tree}}")
+        if candidate_tree is None:
+            return None
+        if squashed == candidate_tree:
             return True
     return False
 
@@ -715,8 +790,10 @@ def _unintegrated_commit_count(
     branch_ref: str,
     git: Git,
     diagnostics: list[Diagnostic],
+    integration_label: str,
+    branch_label: str,
 ) -> int | None:
-    message = f"Cannot count commits of {branch_ref} not on {integration_ref}"
+    message = f"Cannot count commits of {branch_label} not on {integration_label}"
     try:
         count = git.count("rev-list", "--count", f"{integration_ref}..{branch_ref}")
     except GitError as exc:

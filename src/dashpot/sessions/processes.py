@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
@@ -134,6 +134,34 @@ def host_process_lookup(pid: int) -> ProcessObservation:
     Every failure to observe is reported as unobservable with its reason, so a
     broken probe is never mistaken for an exited process.
     """
+    presence = _host_process_presence(pid)
+    if presence is not None:
+        return presence
+    # ``comm`` and ``args`` are each free-form, so neither can delimit the
+    # other. Harness identification needs both; liveness needs only identity.
+    identity_output = _ps_column_output(pid, ("pid", "ppid", "lstart", "comm"))
+    if isinstance(identity_output, ProcessUnobservable):
+        return identity_output
+    observed = _ps_identity(pid, identity_output)
+    if not isinstance(observed, ProcessPresent):
+        return observed
+    arguments_output = _ps_column_output(pid, ("args",))
+    if isinstance(arguments_output, ProcessUnobservable):
+        return arguments_output
+    identity = observed.identity
+    return ProcessPresent(
+        ProcessIdentity(
+            identity.pid,
+            identity.parent_pid,
+            identity.command,
+            identity.started_at,
+            arguments_output.strip() or None,
+        )
+    )
+
+
+def _host_process_presence(pid: int) -> ProcessAbsent | ProcessUnobservable | None:
+    """Reject an isolated namespace, absent PID, or failed presence probe."""
     if process_namespace_is_isolated():
         return ProcessUnobservable(pid, "isolated-namespace")
     if pid <= 0:
@@ -146,36 +174,74 @@ def host_process_lookup(pid: int) -> ProcessObservation:
         pass  # The process exists; it belongs to another user.
     except OSError:
         return ProcessUnobservable(pid, "kill-failed")
-    # ``comm`` is free-form — on macOS it is the executable's full path, which
-    # may contain spaces — so it comes last in its probe and the fixed-width
-    # fields are parsed from the left. ``args`` is free-form too, so it gets a
-    # probe of its own rather than sharing a line with ``comm``. A process that
-    # exits between the two probes reads as unobservable, never as exited.
-    # ``arguments`` never enters the process key: a Harness Adapter reads it
-    # only to tell the harness from a helper or a supervisor beside it.
-    identity_output = _ps_column_output(pid, ("pid", "ppid", "lstart", "comm"))
-    if isinstance(identity_output, ProcessUnobservable):
-        return identity_output
-    fields = identity_output.strip().split(maxsplit=7)
+    return None
+
+
+def _ps_identity(pid: int, output: str) -> ProcessObservation:
+    """Read fixed identity columns before the free-form, possibly spaced comm."""
+    fields = output.strip().split(maxsplit=7)
     if len(fields) < 8:
         return ProcessUnobservable(pid, "ps-unparseable")
-    arguments_output = _ps_column_output(pid, ("args",))
-    if isinstance(arguments_output, ProcessUnobservable):
-        return arguments_output
     try:
+        if int(fields[0]) != pid:
+            return ProcessUnobservable(pid, "ps-unparseable")
         identity = ProcessIdentity(
             int(fields[0]),
             int(fields[1]),
             fields[7],
             " ".join(fields[2:7]),
-            arguments_output.strip() or None,
         )
     except ValueError:
         return ProcessUnobservable(pid, "ps-unparseable")
     return ProcessPresent(identity)
 
 
-def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobservable:
+def host_process_identities(pids: Iterable[int]) -> dict[int, ProcessObservation]:
+    """Observe liveness identities in one portable ps call, without arguments.
+
+    Start times have exactly the single-process probe's representation. Only
+    kill-0 can prove absence; missing or malformed ps rows are unobservable.
+    The caller owns this point-in-time batch, never a cross-refresh cache.
+    """
+    observations: dict[int, ProcessObservation] = {}
+    pending: list[int] = []
+    for pid in sorted(set(pids)):
+        presence = _host_process_presence(pid)
+        if presence is None:
+            pending.append(pid)
+        else:
+            observations[pid] = presence
+    if not pending:
+        return observations
+    output = _ps_column_output(
+        pending[0], ("pid", "ppid", "lstart", "comm"), pids=pending
+    )
+    reason = (
+        output.reason if isinstance(output, ProcessUnobservable) else "ps-unparseable"
+    )
+    observations.update((pid, ProcessUnobservable(pid, reason)) for pid in pending)
+    if isinstance(output, ProcessUnobservable):
+        return observations
+    seen: set[int] = set()
+    for line in output.splitlines():
+        fields = line.split(maxsplit=1)
+        if not fields or not fields[0].isdigit():
+            continue
+        pid = int(fields[0])
+        if pid not in observations or pid not in pending:
+            continue
+        observations[pid] = (
+            ProcessUnobservable(pid, "ps-unparseable")
+            if pid in seen
+            else _ps_identity(pid, line)
+        )
+        seen.add(pid)
+    return observations
+
+
+def _ps_column_output(
+    pid: int, columns: tuple[str, ...], *, pids: Sequence[int] | None = None
+) -> str | ProcessUnobservable:
     """Read the selected ``ps`` columns for one process, or why they cannot be."""
     selectors: list[str] = []
     for column in columns:
@@ -184,7 +250,8 @@ def _ps_column_output(pid: int, columns: tuple[str, ...]) -> str | ProcessUnobse
     # to an inherited ``COLUMNS``, as a Host Process started from a terminal
     # passes to its hooks, and a cut ``args`` loses the trailing flags an
     # adapter reads, such as a managed Codex daemon's ``--managed-daemon``.
-    args = ["ps", "-ww", "-p", str(pid), *selectors]
+    selection = str(pid) if pids is None else ",".join(str(value) for value in pids)
+    args = ["ps", "-ww", "-p", selection, *selectors]
     with recording_command(args) as record:
         try:
             result = subprocess.run(

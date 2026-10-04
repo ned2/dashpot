@@ -47,6 +47,7 @@ from ..queries.query_source import configured_query_source
 from ..queries.source_queries import QuerySource
 from ..repository.repository import (
     BranchObservation,
+    IntegrationCache,
     observe_branches,
     observe_observation_targets,
 )
@@ -214,13 +215,16 @@ def create_project_collector(
         raise ObservationError(
             f"Project configuration changed after resolving Repository Anchor {root}"
         )
+    integration_cache = IntegrationCache()
     collector = ProjectCollector(
         project,
         build_issue_source(root, config, timeout=timeout, git=adapter),
         target_observer=lambda anchors: observe_observation_targets(
             anchors, git=adapter, process_lookup=lock_holder_probe
         ),
-        branch_observer=lambda anchors: observe_branches(anchors, git=adapter),
+        branch_observer=lambda anchors: observe_branches(
+            anchors, git=adapter, cache=integration_cache
+        ),
         pull_request_source=build_pull_request_source(root, config, timeout=timeout),
     )
 
