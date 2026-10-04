@@ -64,12 +64,8 @@ terminal resumed the lead while the worker worked:
 
 So Codex 0.160.0 has no second Host Process on a daemon thread whose worker
 runs. The receipts above are the base publisher's; the same scenarios with
-this change's publisher, built at `fb2e727`, read the same (#118, #121, #143,
-#148 attached; #188, #193 with `--no-daemon`). The publisher changed after
-that run, in behaviour only where no Codex scenario reaches: a process the
-publisher did not probe now carries its sub-agents (below), where every
-scenario's sub-agents run in the daemon, the event's own process. The rest
-removed an unused helper and moved code without changing it.
+this change's publisher read the same (#118, #121, #143, #148 attached;
+#188, #193 with `--no-daemon`).
 
 ## Decision
 
