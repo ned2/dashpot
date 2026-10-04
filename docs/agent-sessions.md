@@ -171,7 +171,9 @@ the list the same way
 ([ADR 0097](adr/0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md)):
 Claude Code and Codex publish one when they compact a session, and its
 sub-agents keep working across it. One from another process, or one that
-names none, starts with no sub-agents.
+names none, starts with no sub-agents. A compaction's `SessionStart` also
+keeps the session's turn state rather than recording it running
+([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)).
 Here the blocker says the session *ended with* its sub-agents listed, and names the way out for one that ended with its session
 or was interrupted and will never report: once none is still working, run
 `dashpot work forget-subagents SESSION_ID` from a Worktree of the
@@ -340,7 +342,10 @@ In the dashboard, a Claude Code session's state means:
 
 - **Running or waiting.** Its Host Process is live, and the state is that of
   its current turn; a sub-agent still working holds it running after the
-  main turn stops.
+  main turn stops. A compaction keeps the state: `/compact` publishes no
+  prompt and no `Stop`, so a waiting session stays waiting, and automatic
+  compaction runs inside a turn, which reads running until its `Stop`
+  ([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)).
 - **Moved.** `EnterWorktree`, and `ExitWorktree` with `action: keep`, move
   the session and carry a bound run with it, keeping its id, `startedAt` and
   Issue Binding. A Bash `cd` into another Worktree only places the session

@@ -103,3 +103,4 @@ of date.
 | 0097 | [Carry a live session's sub-agents through its own SessionStart](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md) | accepted | — |
 | 0098 | [Show Runtime Events and Stats as tabs of one temporary screen](0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |
 | 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | accepted | — |
+| 0100 | [Keep a compacted session's turn state](0100-keep-a-compacted-sessions-turn-state.md) | accepted | — |
