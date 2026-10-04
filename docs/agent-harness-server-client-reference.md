@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Agent harness server and client reference
@@ -644,7 +644,8 @@ measured.
 
 The [restart acceptance run](../scripts/experiments/codex-356/run.mjs) for
 [#356](https://github.com/ned2/dashpot/issues/356) measured `codex-cli`
-0.160.0 on Linux (2026-10-02) with the fixture of the [#161
+0.160.0 on Linux (2026-10-02, rerun on 2026-10-04 for
+[#400](https://github.com/ned2/dashpot/issues/400)) with the fixture of the [#161
 run](#hosting-modes-and-daemon-autostart-at-01593): an isolated `CODEX_HOME`
 with the daemon's updater off, a loopback Responses API, and Dashpot's real
 Codex publisher as a trusted command hook. The hook wrapper could also hold a
@@ -662,31 +663,34 @@ it, timings within a tolerance. How Dashpot acts on it is [ADR
   payload keys and `reason` `other`. Nothing in the payload tells them apart.
 - **The 3 s clamp.** The daemon kills a `SessionEnd` hook about 3 s after it
   begins, although the hook configuration names 30 s, on an unload as on a
-  stop: a hook holding for 6 s posted its last beat at 2.75 to 2.79 s and
+  stop: a hook holding for 6 s posted its last beat at 2.73 to 2.74 s and
   never reached its end. `codex exec` warns of this clamp; the daemon applies
   it without a warning.
 - **Parallel hooks.** The four threads loaded at the restart began their
-  `SessionEnd` hooks within 8 ms of one another, 40 ms after `daemon restart`
+  `SessionEnd` hooks within 3 ms of one another, 74 ms after `daemon restart`
   began.
 - **The daemon waits for its hooks.** On the restart, whose hooks ran only the
-  publisher, the old daemon exited 0.39 s after the first hook began and
-  within 43 ms of the last hook's end; the replacement was already listening,
-  and `daemon restart` returned after 0.67 s. On the stop, whose hooks held
+  publisher, the old daemon exited 0.23 s after the first hook began and
+  within 16 ms of the last hook's end; the replacement was already listening,
+  and `daemon restart` returned after 0.57 s. On the stop, whose hooks held
   until the clamp killed them, the daemon exited 3.0 s after they began.
 - **A running turn drains first.** `daemon stop` sent while one thread's turn
   waited on the model and another thread sat idle let the turn finish before
   ending either: the model was released 20.0 s after the stop began, the turn
-  completed, and both threads' `SessionEnd` hooks began 0.32 s later; `daemon
-  stop` returned after 23.3 s. A restart with a turn running was not measured.
+  completed, and both threads' `SessionEnd` hooks began 0.30 s later; `daemon
+  stop` returned after 23.4 s. A restart with a turn running was not measured.
 - **A detached process outlives both.** The waiter outlived the killed hook
-  and the daemon. It saw the old daemon exit 0.36 to 0.38 s after its hook
+  and the daemon. It saw the old daemon exit 0.23 to 0.25 s after its hook
   began on the restart and 3.00 to 3.01 s after on the stop, and on an unload
   saw the daemon still running 15 s later.
 - **Reload with no hook.** The replacement daemon held every thread the old
   one had loaded: its `thread/loaded/list` named all four, and neither the
   reload nor a controller's `thread/resume` of one ran a hook. That thread's
   next turn ran on the replacement, its first hook `SessionStart` with
-  `source` `resume`, under the same thread id.
+  `source` `resume`, under the same thread id. That `SessionStart` is the
+  runner's resume's, not the reload's: without a resume, a reloaded thread's
+  next hook is `UserPromptSubmit` from the replacement
+  ([#380](https://github.com/ned2/dashpot/issues/380)).
 - **A reloaded thread unloads.** The three reloaded threads no client resumed
   ran `SessionEnd` from the replacement 60.2 to 60.3 s after the old daemon
   exited, the unload delay counted from the reload.
@@ -697,7 +701,7 @@ it, timings within a tolerance. How Dashpot acts on it is [ADR
   turn running, a `SIGTERM` of the daemon, or `remote-control stop`.
 
 Through Dashpot's publisher and settler, `exec` and a standalone terminal's
-`/exit` ended their runs at once. The unloaded thread's run ended 10.1 s after
+`/exit` ended their runs at once. The unloaded thread's run ended 10.3 s after
 its `SessionEnd`, once the settler had seen the daemon outlive it. The restart
 left the three bound runs orphaned under the old daemon, each settler deciding
 within 0.3 s; the reloaded thread's next turn was listed unbound beside its

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Measurements
@@ -52,7 +52,7 @@ line per write, the seconds since the previous write and the bytes written.
 | [`issue-327-claude-2.1.287-trace.jsonl`](issue-327-claude-2.1.287-trace.jsonl) | JSONL trace, Claude Code 2.1.287 | [#327](https://github.com/ned2/dashpot/issues/327) | [`claude-327`](../../../scripts/experiments/claude-327/) | [Harness reference: worktree tools between Issue Worktrees](../../agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286) |
 | [`issue-345-claude-2.1.280-trace.jsonl`](issue-345-claude-2.1.280-trace.jsonl) | JSONL trace, Claude Code 2.1.280 | [#345](https://github.com/ned2/dashpot/issues/345) | [`claude-345`](../../../scripts/experiments/claude-345/) | [Claude Code 2.1.285 changes experiment](../claude-code-2-1-285-changes-spike.md) |
 | [`issue-345-claude-2.1.285-trace.jsonl`](issue-345-claude-2.1.285-trace.jsonl) | JSONL trace, Claude Code 2.1.285 | [#345](https://github.com/ned2/dashpot/issues/345) | [`claude-345`](../../../scripts/experiments/claude-345/) | [Claude Code 2.1.285 changes experiment](../claude-code-2-1-285-changes-spike.md) |
-| [`issue-356-codex-trace.jsonl`](issue-356-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#356](https://github.com/ned2/dashpot/issues/356) | [`codex-356`](../../../scripts/experiments/codex-356/), the managed daemon restart acceptance run | [Harness reference: managed daemon restart and stop](../../agent-harness-server-client-reference.md#managed-daemon-restart-and-stop-at-01600) |
+| [`issue-356-codex-trace.jsonl`](issue-356-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#356](https://github.com/ned2/dashpot/issues/356), rerun for [#400](https://github.com/ned2/dashpot/issues/400) | [`codex-356`](../../../scripts/experiments/codex-356/), the managed daemon restart acceptance run | [Harness reference: managed daemon restart and stop](../../agent-harness-server-client-reference.md#managed-daemon-restart-and-stop-at-01600) |
 | [`issue-393-opencode-trace.jsonl`](issue-393-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 with 2.0.21 | [#393](https://github.com/ned2/dashpot/issues/393) | [`opencode-393`](../../../scripts/experiments/opencode-393/) | [OpenCode v2 hosting, plugin and identity experiment](../opencode-v2-spike.md) |
 | [`issue-393-opencode-idle-trace.jsonl`](issue-393-opencode-idle-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#393](https://github.com/ned2/dashpot/issues/393) | [`opencode-393`](../../../scripts/experiments/opencode-393/) with `SPIKE_IDLE_MINUTES`, the idle-eviction run | [OpenCode v2 hosting, plugin and identity experiment: idle eviction](../opencode-v2-spike.md#idle-eviction) |
 | [`issue-405-opencode-trace.jsonl`](issue-405-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 with 1.18.30 | [#405](https://github.com/ned2/dashpot/issues/405) | [`opencode-405`](../../../scripts/experiments/opencode-405/) | [OpenCode v2 plugin registry, envelope and recovery experiment](../opencode-v2-plugin-protocol-spike.md) |
