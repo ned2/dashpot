@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Design
@@ -71,6 +71,15 @@ off the event loop, once per Project at a time, and once any remote has been
 fetched it schedules the passive Git observation of that Project, so the
 Branches pane, the Integration Branch facts, and the fetch age reflect the
 result without anything being inferred from the fetch itself.
+
+Each configured collector retains up to 512 complete Branch integration
+answers in memory, least recently used first for eviction, scoped to the
+answering Repository Anchor and keyed by the Branch head and Integration
+Branch commit IDs ([#317](https://github.com/ned2/dashpot/issues/317)). Analysis
+uses those captured IDs, not moving refnames. Ref metadata and the merged-ref
+listing stay fresh on every observation; a failed or incomplete analysis is
+retried on the next. Nothing is persisted, and Cleanup still assesses its
+targets afresh rather than using the observation cache.
 
 `x` is the other mutating key, a Cleanup
 ([`cleanup.py`](../src/dashpot/repository/cleanup/),
@@ -267,6 +276,16 @@ but which also says nothing observes the session there
 leaves its running sessions) reads unknown, while a gone process still reads
 gone ([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md),
 [ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)).
+
+The default liveness probe batches the validated hook records' Host Process
+PIDs into one portable `ps` identity query, then batches previously unseen
+Work Store PIDs as needed. It shares those answers only within that observation
+pass. Start times keep the existing C-locale, UTC, whitespace-normalized `ps`
+representation, so old hook records remain comparable. Missing or malformed
+rows stay unknown; only the host's presence probe or a different start time
+proves a process gone. Liveness never needs arguments; harness identification
+continues to read both `comm` and `args` in separate probes because each is
+free-form and may contain spaces.
 
 ## Accepted multi-screen target
 

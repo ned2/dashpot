@@ -177,6 +177,14 @@ def classify_hook_record(
     records Dashpot cannot interpret: a fatal field is malformed, or the
     record is not the session its filename names.
     """
+    record, degraded = _validated_hook_record(raw, expected_session_id)
+    return _classify_validated_record(record, degraded, probe)
+
+
+def _validated_hook_record(
+    raw: Mapping[str, Any], expected_session_id: str | None
+) -> tuple[HookRecord, tuple[str, ...]]:
+    """Validate the record and its filename before any process is probed."""
     try:
         record, degraded = validate_degrading(HookRecord, raw, fatal=HOOK_RECORD_FATAL)
     except ValidationError as exc:
@@ -186,6 +194,13 @@ def classify_hook_record(
         SessionEvidence(record.harness, record.session_id).storage_key(),
     }:
         raise ValueError("record sessionId does not match its filename")
+    return record, degraded
+
+
+def _classify_validated_record(
+    record: HookRecord, degraded: tuple[str, ...], probe: LivenessProbe
+) -> HookRecordClassification:
+    """Derive one validated record's outcome from the pass's process evidence."""
     process = record.session_process.identity if record.session_process else None
     if record.state == "ended":
         liveness = LivenessObservation("unknown")
@@ -233,6 +248,17 @@ class ScannedRecord:
     record: HookRecordClassification
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingRecord:
+    """One validated record awaiting the scan's batched liveness evidence."""
+
+    store: Path
+    path: Path
+    raw: dict[str, Any]
+    record: HookRecord
+    degraded: tuple[str, ...]
+
+
 def scan_hook_stores(
     stores: Iterable[Path],
     probe: LivenessProbe,
@@ -250,6 +276,8 @@ def scan_hook_stores(
     session's locks, reads one identity's records with
     ``stored_session_records`` instead.
     """
+    readable: list[_PendingRecord] = []
+    keys: list[ProcessKey] = []
     for store in stores:
         if not store.is_dir():
             continue
@@ -258,12 +286,18 @@ def scan_hook_stores(
                 continue
             try:
                 raw = read_hook_record(path)
-                record = classify_hook_record(raw, probe, expected_session_id=path.stem)
+                validated, degraded = _validated_hook_record(raw, path.stem)
             except (OSError, ValueError) as exc:
                 if on_unreadable is not None:
                     on_unreadable(path, exc)
                 continue
-            yield ScannedRecord(store, path, raw, record)
+            readable.append(_PendingRecord(store, path, raw, validated, degraded))
+            if validated.state != "ended" and validated.session_process is not None:
+                keys.append(validated.session_process.identity.key)
+    probe.prepare(keys)
+    for pending in readable:
+        record = _classify_validated_record(pending.record, pending.degraded, probe)
+        yield ScannedRecord(pending.store, pending.path, pending.raw, record)
 
 
 def session_record_stems(

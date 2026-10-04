@@ -12,7 +12,11 @@ from unittest import mock
 from dashpot.core.model import Harness, ObservationTarget
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import write_hook_record
-from dashpot.sessions.processes import ProcessIdentity
+from dashpot.sessions.processes import (
+    ProcessIdentity,
+    ProcessPresent,
+    ProcessUnobservable,
+)
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import hook_record_document, observation_target
 from helpers import absent, present, table_lookup, unobservable
@@ -66,6 +70,34 @@ class HookObserverTests(unittest.TestCase):
         self.assertEqual("live hook", runs[0].process_or_session)
         self.assertIsNone(runs[0].issue_reference_hint)
         self.assertEqual([], diagnostics)
+
+    def test_observation_reuses_process_evidence_only_within_one_refresh(
+        self,
+    ) -> None:
+        other = ProcessIdentity(77, 1, "claude", "Tue Aug 25 02:00:00 2026")
+        self.write("one", "running", self.process)
+        self.write("same-host", "waiting", self.process)
+        self.write("other-host", "waiting", other)
+        lookup = mock.Mock(side_effect=table_lookup({42: self.process, 77: other}))
+        first, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]}, self.state_dir, lookup=lookup
+        )
+        self.assertEqual([], diagnostics)
+        self.assertEqual(3, len(first))
+        self.assertEqual({"running", "waiting"}, {item.state for item in first})
+        self.assertEqual(2, lookup.call_count)
+        newcomer = replace(self.process, started_at="Wed Aug 26 01:00:00 2026")
+        lookup.side_effect = [
+            ProcessPresent(newcomer),
+            ProcessUnobservable(77, "ps-unparseable"),
+        ]
+        second, diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]}, self.state_dir, lookup=lookup
+        )
+        self.assertEqual(4, lookup.call_count)
+        self.assertEqual(["other-host"], [item.session_id for item in second])
+        self.assertEqual("unknown", second[0].state)
+        self.assertEqual("agent-session-liveness-unknown", diagnostics[0].code)
 
     def test_linked_worktree_record_is_associated_with_its_target(self) -> None:
         linked = observation_target("/repo-linked", branch="feature")
