@@ -134,7 +134,8 @@ A sub-agent's stop releases it from the records its session left behind.
     seed already had it.
   - A session that moves between a stop's write and its release, and whose
     worker starts again on the record it moved to in that time, has the
-    worker released there too, and it is not listed until it starts again.
+    worker released there too. It is not listed again until a later
+    `SubagentStart`, if one comes.
     That errs toward allowing a removal, as an interim stop already does,
     and its window is also the length of one hook write.
   - An interim `SubagentStop` (#472) releases its worker from every record,

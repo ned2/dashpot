@@ -1218,16 +1218,14 @@ def test_a_stop_leaves_another_live_sessions_record_alone(
     mover.place(a)
     mover.publish(a, "SubagentStart", agent_id="worker-1")
     mover.move(b)
-    for event in ("UserPromptSubmit", "SubagentStart"):
-        publish(
-            a,
-            event,
-            session=SECOND_THREAD,
-            harness=mover.harness,
-            process=mover.process,
-            lookup=mover.lookup,
-            **({"agent_id": "worker-1"} if event == "SubagentStart" else {}),
-        )
+    other = {
+        "session": SECOND_THREAD,
+        "harness": mover.harness,
+        "process": mover.process,
+        "lookup": mover.lookup,
+    }
+    publish(a, "UserPromptSubmit", **other)
+    publish(a, "SubagentStart", agent_id="worker-1", **other)
 
     mover.publish(b, "SubagentStop", agent_id="worker-1")
     other = recorded(session_directory(a), SECOND_THREAD)

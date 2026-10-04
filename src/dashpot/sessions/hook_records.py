@@ -667,9 +667,8 @@ class HookRecordStore(LockedRecordStore):
             if kind == "ended":
                 eligible = _is_ended(previous)
             else:
-                eligible = not _is_ended(previous) and previous.get(
-                    "sessionId"
-                ) == by.get("sessionId")
+                same_session = previous.get("sessionId") == by.get("sessionId")
+                eligible = not _is_ended(previous) and same_session
             if (
                 not eligible
                 or previous.get("harness") != by.get("harness")
