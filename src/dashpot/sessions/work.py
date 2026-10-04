@@ -1,4 +1,8 @@
-"""Declare, relocate, end, and show Issue work for the enclosing Agent Session."""
+"""Declare, relocate, end, and show Issue work for the enclosing Agent Session.
+
+``work forget-subagents`` lives here too: it forgets the sub-agents an ended
+Agent Session still lists, which hold Worktree Cleanup as its Issue work did.
+"""
 
 from __future__ import annotations
 
@@ -53,7 +57,7 @@ from .processes import (
 )
 from .session_exits import (
     ended_session_subagent_stop,
-    listed_subagents,
+    named_subagents,
     unreported_subagent_stop,
 )
 from .session_labels import work_session_label
@@ -68,7 +72,7 @@ from .work_store import (
 
 
 class IssueWorkError(DashpotError):
-    """A refusal of a work management command for the enclosing Agent Session."""
+    """A refusal of a work management command, for the enclosing or a named Agent Session."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -652,8 +656,7 @@ def forget_session_subagents(
         agents = item.record.live_subagents
         if HookRecordStore(item.store).prune(item.path.stem, item.raw):
             messages.append(
-                f"forgot {listed_subagents(len(agents))} ({', '.join(agents)}) "
-                f"of ended session {session_id} at {item.worktree}"
+                f"forgot {named_subagents(agents)} of ended session {session_id} at {item.worktree}"
             )
         else:
             note.incomplete = True
@@ -703,13 +706,13 @@ def show_issue_work(
             if record.outcome == "ended":
                 messages.append(
                     f"  {work.session_label} ended with "
-                    f"{listed_subagents(len(agents))} ({', '.join(agents)}). "
+                    f"{named_subagents(agents)}. "
                     f"{ended_session_subagent_stop(work.harness, record.session_id)}"
                 )
                 continue
             messages.append(
-                f"  {work.session_label} has {listed_subagents(len(agents))} "
-                f"({', '.join(agents)}). {unreported_subagent_stop(work.harness)}"
+                f"  {work.session_label} has {named_subagents(agents)}. "
+                f"{unreported_subagent_stop(work.harness)}"
             )
     messages.extend(diagnostic.message for diagnostic in diagnostics)
     if not messages:

@@ -162,9 +162,11 @@ sub-agents, and that record holds the block while the session's process is
 live or its liveness unknown. Each `SubagentStop` from that process removes
 its agent, and the record goes with the last one; any other event of a
 sub-agent neither revives the session nor lists it as waiting. A
-`SessionStart` of the session on the same process carries the list into the
-new incarnation. Here the blocker says the session *ended with* its
-sub-agents listed, and names the way out for one that ended with its session
+`SessionStart` of the session on the same process, at the same Worktree,
+carries the list into the new incarnation; at another Worktree the kept
+record stays, and each `SubagentStop` still reaches it. An event of the
+session from another process replaces the kept record and drops its list.
+Here the blocker says the session *ended with* its sub-agents listed, and names the way out for one that ended with its session
 or was interrupted and will never report: once none is still working, run
 `dashpot work forget-subagents SESSION_ID` from a Worktree of the
 Repository. That management command removes only the named session's ended

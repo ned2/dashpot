@@ -218,7 +218,11 @@ def live_subagents(
     event that names no agent changes nothing rather than guessing.
     """
     event = current.get("event")
-    alive = [] if event == "SessionStart" or previous is None else _listed(previous)
+    alive = (
+        []
+        if event == "SessionStart" or previous is None
+        else _recorded_subagents(previous)
+    )
     agent = current.get("agentId")
     if not isinstance(agent, str) or not agent:
         return alive
@@ -229,7 +233,13 @@ def live_subagents(
     return alive
 
 
-def _listed(record: Mapping[str, Any]) -> list[str]:
+def _is_ended(record: Mapping[str, Any]) -> bool:
+    """Whether a record says its session ended, kept or about to be written."""
+    state: Any = record.get("state")
+    return isinstance(state, str) and state == "ended"
+
+
+def _recorded_subagents(record: Mapping[str, Any]) -> list[str]:
     """The sub-agents a stored record lists as live; a malformed list lists none."""
     recorded: Any = record.get("liveSubagents")
     if not isinstance(recorded, list):
@@ -255,7 +265,7 @@ def _retained_subagents(
     kept: set[str] = set()
     for record in (previous, seed):
         if record is not None and _same_host_process(record, ending):
-            kept.update(_listed(record))
+            kept.update(_recorded_subagents(record))
     return sorted(kept)
 
 
@@ -397,7 +407,7 @@ class HookRecordStore(LockedRecordStore):
                 )
             destination = self.record_path(key)
             child = is_child_record(record)
-            if record.get("state") == "ended" and not child:
+            if _is_ended(record) and not child:
                 if previous is not None and (
                     not _same_host_process(previous, record)
                     or observed_instant(previous.get("lastActivityAt"))
@@ -412,13 +422,13 @@ class HookRecordStore(LockedRecordStore):
                 return destination
             if (
                 previous is not None
-                and previous.get("state") == "ended"
+                and _is_ended(previous)
                 and not _same_host_process(previous, record)
             ):
                 # An ended record another Host Process kept for its sub-agents
                 # says nothing about this one's (ADR 0095).
                 previous = None
-            if child and previous is not None and previous.get("state") == "ended":
+            if child and previous is not None and _is_ended(previous):
                 # Only the sub-agent boundaries change a retained record: none
                 # of its sub-agents' events revives the ended session.
                 remaining = live_subagents(record, previous)
@@ -465,11 +475,11 @@ class HookRecordStore(LockedRecordStore):
                 origin = seed
             current["state"] = carried_state(current, previous)
             current["liveSubagents"] = live_subagents(current, origin)
-            if previous is not None and previous.get("state") == "ended":
+            if previous is not None and _is_ended(previous):
                 # The session starts again in the Host Process that kept its
                 # ended record's sub-agents, which may still be working.
                 current["liveSubagents"] = sorted(
-                    {*current["liveSubagents"], *_listed(previous)}
+                    {*current["liveSubagents"], *_recorded_subagents(previous)}
                 )
             current["turnStartedAt"] = turn_started_at(current, origin)
             started = last_session_start_at(current, previous)

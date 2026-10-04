@@ -425,7 +425,7 @@ def forget_subagents(
                 Path.cwd().resolve(), session_id, harness=harness, outcome=outcome
             )
         )
-    return 0
+    return USAGE_EXIT_CODE if outcome.incomplete else 0
 
 
 @work.command

@@ -65,7 +65,10 @@ A session's end does not end the listing of the sub-agents it delegated to.
   `SubagentStart` adds one. Any other event of a sub-agent changes nothing:
   it neither revives the ended session nor lists it as waiting, which keeps
   the case ADR 0067 guards against. A sub-agent's event is routed to the
-  store holding the kept record.
+  session's freshest record, a kept one included, and a `SubagentStop` also
+  reaches every kept record of the session in the Repository's other
+  stores, so a session that started again at another Worktree still clears
+  the record it left.
 - **The Host Process bounds it.** The record holds its sub-agents while
   their Host Process is live or its liveness is unknown. Once that process
   is gone it holds nothing, and observation prunes it like any ended
@@ -79,11 +82,14 @@ A session's end does not end the listing of the sub-agents it delegated to.
   them. A session's older records elsewhere that its `SessionEnd` removes
   never include a kept record.
 - **A start on the same Host Process carries them.** A `SessionStart` of the
-  session on the Host Process its ended record names starts the new
-  incarnation with those sub-agents still listed: a lead the daemon unloaded
-  and a client resumed may still have its worker running. An event from
-  another Host Process, such as a restart's replacement daemon, treats the
-  kept record as absent, as the session's record was before this decision.
+  session on the Host Process its ended record names, at the same
+  Worktree, starts the new incarnation with those sub-agents still listed:
+  a lead the daemon unloaded and a client resumed may still have its worker
+  running. One at another Worktree leaves the kept record where it is, and
+  each `SubagentStop` still clears it. An event from another Host Process,
+  such as a restart's replacement daemon, treats the kept record as absent,
+  as the session's record was before this decision, and its write replaces
+  it.
 - **`dashpot work forget-subagents <session-id>` forgets them.** It is a
   management command under
   [ADR 0008](0008-let-management-commands-mutate-on-explicit-invocation.md).
@@ -170,6 +176,15 @@ anything for long:
   unloaded the thread, runs the command the `sub-agent` blocker names.
 - A kept record shows in `dashpot integrate <harness> --status` as stale,
   naming the sub-agents that keep it and the process it waits for.
+- A session's event from another Host Process drops the listing of the
+  kept record it replaces without probing whether the first process lives
+  on. A store holds one record per session, and the only measured case of
+  a session's id on a second Host Process is a restart's replacement
+  daemon, whose predecessor is gone (ADR 0086). A standalone client resuming
+  a daemon-hosted thread while the daemon still runs that thread's worker
+  was not measured. Carrying the listing across Host Processes would need
+  the publisher to probe the first one and keep each sub-agent's own
+  process in the record, and is left until that case is measured.
 - A session that ended while it listed a sub-agent dispatched from a
   Worktree it moved on from keeps only what its records of the ending Host
   Process list. ADR 0066's union over every record of the session still

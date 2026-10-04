@@ -109,10 +109,12 @@ def delegated_and_ended(a: Path, settlers: Settlers) -> None:
 
 
 def forget_command(at: Path) -> str:
-    return f"cd {at} && dashpot work forget-subagents {CODEX_SESSION}"
+    """The command the ended lead's `sub-agent` blocker names at ``at``."""
+    return f"cd {at} && dashpot work forget-subagents {CODEX_SESSION} --harness codex"
 
 
 def ended_blocker_detail(a: Path, agents: str, count: str) -> str:
+    """The `sub-agent` blocker's detail for the lead that ended at ``a``."""
     return (
         f"Codex session {CODEX_SESSION} at {a} ended with {count} listed as "
         f"working ({agents}). Dashpot cannot tell which Worktree a sub-agent "
@@ -120,7 +122,7 @@ def ended_blocker_detail(a: Path, agents: str, count: str) -> str:
         f"lists a sub-agent of an ended session until Codex reports that it "
         f"stopped or the session's process exits, which one that ended with "
         f"its session or was interrupted may never do, so if none is still "
-        f"working, run dashpot work forget-subagents {CODEX_SESSION}."
+        f"working, run dashpot work forget-subagents {CODEX_SESSION} --harness codex."
     )
 
 
@@ -239,7 +241,7 @@ def test_work_show_names_the_ended_sessions_workers_before_the_settler_decides(
         f"Dashpot lists a sub-agent of an ended session until Codex reports that "
         f"it stopped or the session's process exits, which one that ended with "
         f"its session or was interrupted may never do, so if none is still "
-        f"working, run dashpot work forget-subagents {CODEX_SESSION}"
+        f"working, run dashpot work forget-subagents {CODEX_SESSION} --harness codex"
     ]
 
 
@@ -461,3 +463,37 @@ def test_a_later_end_elsewhere_leaves_the_kept_record_in_place(
     assert (record["state"], record["liveSubagents"]) == ("ended", [WORKER])
     (kept,) = blockers(b, live, a, b)
     assert kept.detail == ended_blocker_detail(a, WORKER, "1 sub-agent")
+
+
+def test_a_stop_reaches_the_kept_record_after_the_lead_resumed_elsewhere(
+    tmp_path: Path,
+) -> None:
+    # The lead resumes on the same daemon in another Worktree, whose live
+    # record routes the worker's stop; the record its end kept still clears.
+    a, b = two_worktrees(tmp_path)
+    live = present(DAEMON)
+    delegated_and_ended(a, Settlers())
+    publish(b, "SessionStart")
+    publish(b, "Stop")
+
+    publish(b, "SubagentStop", WORKER)
+
+    assert stored(a) is None
+    record = stored(b)
+    assert record is not None
+    assert (record["state"], record["liveSubagents"]) == ("waiting", [])
+    assert [one.kind for one in blockers(a, live, a, b)] == ["agent-run"]
+
+
+def test_a_stop_from_another_host_leaves_the_kept_record_elsewhere(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    delegated_and_ended(a, Settlers())
+    publish(b, "SessionStart", host=REPLACEMENT)
+
+    publish(b, "SubagentStop", WORKER, host=REPLACEMENT)
+
+    record = stored(a)
+    assert record is not None
+    assert (record["state"], record["liveSubagents"]) == ("ended", [WORKER])

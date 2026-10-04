@@ -13,6 +13,7 @@ import pytest
 from rich.console import Console
 
 from dashpot import cli, composition
+from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.errors import DashpotError
 from dashpot.core.git import GitError
 from dashpot.core.issue_profile import IssueProfileError, conform_issue
@@ -792,6 +793,23 @@ def test_work_forget_subagents_dispatches_with_the_session(
         ),
     ]
     assert "forgot 1 sub-agent" in capsys.readouterr().out
+
+
+def test_work_forget_subagents_fails_when_a_record_changed_meanwhile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def changed(*_args: object, outcome: OutcomeNote, **_kwargs: object) -> list[str]:
+        outcome.incomplete = True
+        return ["the record changed while it was read"]
+
+    with mock.patch.object(cli, "forget_session_subagents", side_effect=changed):
+        assert cli.main(["work", "forget-subagents", "0199-lead"]) == 2
+
+    assert "changed while it was read" in capsys.readouterr().out
 
 
 def test_work_stop_and_show_dispatch(

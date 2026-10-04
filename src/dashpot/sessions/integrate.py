@@ -51,7 +51,7 @@ from .processes import (
     ProcessUnobservable,
     host_process_lookup,
 )
-from .session_exits import listed_subagents
+from .session_exits import named_subagents
 
 HOOK_TIMEOUT = 3
 # Inline hook definitions live under ``[hooks]`` or ``[[hooks.<Event>]]``.
@@ -991,8 +991,7 @@ def _describe_stale(record: StaleSessionRecord) -> str:
     if record.retained_subagents:
         return text + (
             f"ended by SessionEnd, kept for its "
-            f"{listed_subagents(len(record.retained_subagents))} "
-            f"({', '.join(record.retained_subagents)}) until they stop or "
+            f"{named_subagents(record.retained_subagents)} until they stop or "
             f"pid {record.pid} exits"
         )
     if record.outcome == "ended":

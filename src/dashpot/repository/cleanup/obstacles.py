@@ -24,6 +24,7 @@ from ...sessions.session_exits import (
     ended_session_subagent_stop,
     forget_subagents_command,
     listed_subagents,
+    named_subagents,
     session_exit,
     unreported_subagent_stop,
 )
@@ -232,7 +233,7 @@ def assess_worktree_occupancy(
             continue
         harness = HARNESS_DISPLAY[record.harness]
         agents = ", ".join(record.live_subagents)
-        where = (
+        unplaced = (
             "Dashpot cannot tell which Worktree a sub-agent works in, so one "
             "may be working here: wait for it to finish."
         )
@@ -244,11 +245,10 @@ def assess_worktree_occupancy(
                     kind="sub-agent",
                     detail=f"{harness} session {record.session_id} at "
                     f"{record.worktree} ended with "
-                    f"{listed_subagents(len(record.live_subagents))} "
-                    f"({agents}). {where} "
+                    f"{named_subagents(record.live_subagents)}. {unplaced} "
                     f"{ended_session_subagent_stop(record.harness, record.session_id)}.",
                     command=f"cd {path} && "
-                    f"{forget_subagents_command(record.session_id)}",
+                    f"{forget_subagents_command(record.harness, record.session_id)}",
                 )
             )
             continue
@@ -258,7 +258,7 @@ def assess_worktree_occupancy(
                 detail=f"{harness} session {record.session_id} at "
                 f"{record.worktree} has "
                 f"{listed_subagents(len(record.live_subagents))} "
-                f"({agents}; session {record.outcome}). {where} "
+                f"({agents}; session {record.outcome}). {unplaced} "
                 f"{unreported_subagent_stop(record.harness)}.",
             )
         )

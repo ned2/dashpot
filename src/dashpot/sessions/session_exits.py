@@ -7,7 +7,7 @@ including when a sub-agent the session lists may only have been interrupted.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ..core.model import HARNESS_DISPLAY, Harness
@@ -80,6 +80,11 @@ def listed_subagents(count: int) -> str:
     return f"{count} {noun} listed as working"
 
 
+def named_subagents(agents: Sequence[str]) -> str:
+    """``1 sub-agent listed as working (G)``: the sub-agents a session lists, by id."""
+    return f"{listed_subagents(len(agents))} ({', '.join(agents)})"
+
+
 def unreported_subagent_stop(harness: Harness) -> str:
     """Why a sub-agent listed as working may not be, and the way out if none is.
 
@@ -98,9 +103,12 @@ def unreported_subagent_stop(harness: Harness) -> str:
     )
 
 
-def forget_subagents_command(session_id: str) -> str:
-    """The command that forgets the sub-agents an ended session still lists."""
-    return f"dashpot work forget-subagents {session_id}"
+def forget_subagents_command(harness: Harness, session_id: str) -> str:
+    """The command that forgets the sub-agents an ended session still lists.
+
+    It names the harness, so a session id two harnesses share is not refused.
+    """
+    return f"dashpot work forget-subagents {session_id} --harness {harness}"
 
 
 def ended_session_subagent_stop(harness: Harness, session_id: str) -> str:
@@ -117,5 +125,5 @@ def ended_session_subagent_stop(harness: Harness, session_id: str) -> str:
         f"{HARNESS_DISPLAY[harness]} reports that it stopped or the "
         f"session's process exits, which one that ended with its session or "
         f"was interrupted may never do, so if none is still working, run "
-        f"{forget_subagents_command(session_id)}"
+        f"{forget_subagents_command(harness, session_id)}"
     )
