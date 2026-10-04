@@ -72,12 +72,12 @@ fails it when the Dashpot sources the run exercised have changed since.
 
 - **Versions.** OpenCode 2.0.22 on Linux x64 (binary SHA-256
   `32cf5aa0…5ad122`), Node 24.18.0.
-- **Dashpot.** The run's checkout was `9a1edac`, this change's first commit
-  on `243343f`, which is after the `dashpot-worker` agent
-  ([#422](https://github.com/ned2/dashpot/issues/422)), with the fixes from
-  its review not yet committed. The trace
-  records the SHA-256 of every source the run exercised, the skill included,
-  and `verify.mjs --strict` fails unless the checkout's sources still match.
+- **Dashpot.** The run's checkout was `aaf2030`, this change on `165f572`,
+  which is after the `dashpot-worker` agent and the `dashpot-execute-issues`
+  skill ([#422](https://github.com/ned2/dashpot/issues/422)); `integrate`
+  installed both skills. The trace records the SHA-256 of every source the
+  run exercised, the Issue-work skill included, and `verify.mjs --strict`
+  fails unless the checkout's sources still match.
 - **Service and models.**
   - Only the shared service is measured. Every session is a root session
     created through the HTTP API; a TUI, `--standalone` and `--server <url>`
