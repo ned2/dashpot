@@ -511,13 +511,12 @@ Each supported harness release is pinned by an acceptance run: a runner that dri
   [trace](docs/spikes/measurements/issue-162-claude-trace.jsonl) and
   [idle-eviction trace](docs/spikes/measurements/issue-162-claude-idle-trace.jsonl)
   ([supported modes](docs/agent-sessions.md#claude-code-hosting-modes)).
-- **OpenCode**: none. The plugin observes OpenCode v2 only, and the run that
-  accepted 1.18.30 ([runner](scripts/experiments/opencode-163/run.mjs),
+- **OpenCode 2.0.22**: [runner](scripts/experiments/opencode-163/run.mjs) and
   [verifier](scripts/experiments/opencode-163/verify.mjs),
-  [trace](docs/spikes/measurements/issue-163-opencode-trace.jsonl)) is
-  re-pinned to a v2 release by
-  [#407](https://github.com/ned2/dashpot/issues/407)
-  ([hosting modes](docs/agent-sessions.md#opencode-hosting-modes)).
+  [trace](docs/spikes/measurements/issue-163-opencode-trace.jsonl), including
+  the shared service, `--standalone` clients, background Sub-agents, moves,
+  plugin instance churn, and a TUI of 2.0.21 replacing the service
+  ([supported modes](docs/agent-sessions.md#opencode-hosting-modes)).
 
 #### Local review gate
 

@@ -73,11 +73,12 @@ session after handing it over.
 
 ## Start an OpenCode session in the Worktree
 
-An OpenCode session moves only when OpenCode moves it, and whether an agent may
-move its own session is not settled
-([#148](https://github.com/ned2/dashpot/issues/148)): resumed from another
-directory, it still runs, and keeps its Agent Run, where it last was. Work in
-another Worktree is a new Agent Session there.
+A shell `cd` or a prompt naming a path does not move an OpenCode session, and
+one resumed from another directory still runs, and keeps its Agent Run, where
+it last was. Work in another Worktree is a new Agent Session there, started by
+a plain `opencode` in that Worktree, which runs it in the user's shared
+OpenCode service. Do not suggest `--server <url>`: Dashpot does not support a
+session on a server named that way.
 
 1. If `<dashpot> work show` reports an active Agent Run for this session on the
    same Issue, run `<dashpot> work stop` first once its delegated work is done.

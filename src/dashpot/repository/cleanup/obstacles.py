@@ -237,7 +237,7 @@ def assess_worktree_occupancy(
                 f"{record.worktree} has "
                 f"{listed_subagents(len(record.live_subagents))} "
                 f"({agents}; session {record.outcome}). Dashpot cannot "
-                f"tell which Worktree a {harness} sub-agent works in, so one "
+                f"tell which Worktree a sub-agent works in, so one "
                 f"may be working here: wait for it to finish. "
                 f"{unreported_subagent_stop(record.harness)}.",
             )
