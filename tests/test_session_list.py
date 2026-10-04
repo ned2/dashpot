@@ -45,7 +45,7 @@ CURRENT = datetime(2026, 8, 27, 3, 5, tzinfo=UTC)
 
 
 def session_rows(
-    result: ListResult[SessionListRow, None],
+    result: ListResult[SessionListRow],
     *,
     dark: bool,
     home: Path | None = None,

@@ -208,7 +208,7 @@ class PagedObservationStore(WorkspaceObservationStore):
         )
 
     @override
-    def query_sessions(self) -> ListResult[SessionListRow, None]:
+    def query_sessions(self) -> ListResult[SessionListRow]:
         issues = {
             (result.context.project_id, result.issue_id): result.issue
             for result in self.resolved.values()

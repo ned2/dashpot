@@ -125,7 +125,7 @@ SESSION_COLUMNS: tuple[ListColumn, ...] = (
 )
 
 
-def session_columns(result: ListResult[SessionListRow, None]) -> tuple[ListColumn, ...]:
+def session_columns(result: ListResult[SessionListRow]) -> tuple[ListColumn, ...]:
     """The pane's columns for this result, without the ones it cannot vary."""
     if shows_target(result):
         return SESSION_COLUMNS

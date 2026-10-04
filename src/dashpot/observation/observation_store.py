@@ -243,7 +243,7 @@ class WorkspaceObservationStore:
         )
         return result
 
-    def query_sessions(self) -> ListResult[SessionListRow, None]:
+    def query_sessions(self) -> ListResult[SessionListRow]:
         """Query every active Agent Session, with its Project and Issue joined."""
         state = self._state
         result = query_indexed_session_list(
@@ -255,7 +255,7 @@ class WorkspaceObservationStore:
         )
         return result
 
-    def query_worktrees(self) -> ListResult[WorktreeListRow, None]:
+    def query_worktrees(self) -> ListResult[WorktreeListRow]:
         """Query every observed Observation Target with its located sessions."""
         state = self._state
         result = query_indexed_worktree_list(

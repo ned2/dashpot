@@ -48,7 +48,7 @@ def query_indexed_worktree_list(
     observation_targets: Mapping[tuple[str, str], ObservationTarget],
     agent_runs: Mapping[str, AgentRun],
     revision: int,
-) -> ListResult[WorktreeListRow, None]:
+) -> ListResult[WorktreeListRow]:
     sessions_by_target: dict[tuple[str, str | None], list[AgentRun]] = {}
     for run in agent_runs.values():
         sessions_by_target.setdefault(

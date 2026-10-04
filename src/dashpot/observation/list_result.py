@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
-class ListResult[Row, Summary]:
+class ListResult[Row, Summary = None]:
     """Carry queried rows, their revision, and their typed summary."""
 
     rows: tuple[Row, ...]
