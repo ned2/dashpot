@@ -43,10 +43,12 @@ from ..core.runtime_events import (
     RuntimeEvent,
     SpanEnded,
     SpanName,
+    SubagentsAcknowledged,
     UnattendedPauseChanged,
     is_recorded,
 )
 from ..core.timestamps import observed_instant
+from ..repository.cleanup import counted
 from .detail_fields import DetailFields, DetailItem
 from .marked_widgets import MarkedCheckbox
 from .runtime_stats_view import duration_text
@@ -162,6 +164,15 @@ def event_summary(event: RuntimeEvent) -> str:
         session = event.process.session_id
         return _words(
             body.change, event.process.harness, None if session is None else session[:8]
+        )
+    if isinstance(body, SubagentsAcknowledged):
+        session = event.process.session_id
+        return _words(
+            body.outcome,
+            "despite",
+            f"{counted(len(body.agents), 'sub-agent')} of",
+            event.process.harness,
+            None if session is None else session[:8],
         )
     if isinstance(body, DiagnosticChanged):
         code = body.code if body.source is None else f"{body.source}:{body.code}"

@@ -13,6 +13,7 @@ from typing import Any, cast
 import pytest
 
 from dashpot.core.model import Harness
+from dashpot.repository.cleanup import DESPITE_SUBAGENTS_FLAG
 from dashpot.repository.cleanup.obstacles import session_exit
 from dashpot.sessions.harnesses import HarnessError
 from dashpot.sessions.hook_records import HookRecordStore
@@ -773,6 +774,23 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
         skill / "references" / "dispatch.md", "Move a Claude Code session"
     )
     assert "requires, which already returns the session" in flowed(move)
+
+
+def test_issue_work_skill_leaves_the_sub_agent_override_to_the_user(
+    tmp_path: Path,
+) -> None:
+    # The override is the person's assertion about where sub-agents work,
+    # so an agent shows the preview rather than passing it (ADR 0112).
+    home = claude_home(tmp_path)
+    install_integration("claude-code", home, command_path=claude_publisher(tmp_path))
+
+    skill = installed_skill(home, "claude-code")
+    text = flowed(skill_section(skill / "SKILL.md", "Finish the engagement"))
+    assert f"including the `{DESPITE_SUBAGENTS_FLAG}` value it offers" in text
+    assert "leave that flag and the Cleanup dialog's matching toggle to the user" in (
+        text
+    )
+    assert "never pass the flag or tick the toggle yourself" in text
 
 
 def test_claude_code_remove_keeps_unrelated_settings(tmp_path: Path) -> None:

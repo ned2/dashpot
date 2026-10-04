@@ -198,6 +198,19 @@ removal is blocked.
 _Avoid_: prune for a Cleanup, which is the Remote Fetch's removal of gone
 Remote-Tracking Branches; cleanup for anything observation does
 
+**Sub-agent Override**:
+A person's acknowledgement, given to one Cleanup, that none of the
+Sub-agents a Worktree preview lists as working works in that Worktree: the
+exact set, by session and agent ID, with `--despite-subagents` or the
+Cleanup dialog's toggle. It lifts only those `sub-agent` blockers, only while
+the processes inside the Worktree were all checked and none was found, and
+refuses when the listed set changes before any step. It is recorded in the
+Event Log, and no agent gives it
+([ADR 0112](adr/0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)).
+_Avoid_: force for it, which lifts every blocker; treating a Worker
+Assignment's Worktree as the evidence it stands in for; giving it on a
+person's behalf
+
 **Integration Branch**:
 The Branch against which Dashpot observes whether every commit of an observed
 Branch ref is reachable: `origin/HEAD`, else the unique local `main` or

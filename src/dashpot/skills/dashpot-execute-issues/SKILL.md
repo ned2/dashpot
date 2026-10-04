@@ -70,6 +70,11 @@ step 2.
   the way [harnesses.md](references/harnesses.md) says for your harness: a
   stop Dashpot never hears of keeps that refusal up until your session
   ends.
+- **Leave the sub-agent override to the user.** A refused
+  `dashpot worktree remove` offers `--despite-subagents` with your
+  workers' IDs. It asserts that none of them works in that Worktree, which
+  only the user can check: show the user the refusal and let them decide.
+  Never pass it yourself, and never brief a worker to.
 - **Merge only with authority.** See [Merge authority](#merge-authority).
 - **Keep the record on GitHub.** The arc's record goes in comments on the
   epic, or on a tracking Issue you open for a list, in the shape
@@ -396,9 +401,9 @@ every Issue has merged:
    harness, ID and location), wait for their sub-agents to finish, and
    retry the dry run. A blocker that says its session ended never clears by
    waiting: give the user the command it names, and leave running it to
-   them, since it changes another session's records. Bypass Dashpot only
-   when the user explicitly tells you to, and only for a Worktree that
-   passes every check:
+   them, since it changes another session's records. Offer the user the
+   override only when they explicitly ask for it, and only for a Worktree
+   that passes every check:
    - its working tree is clean: `git -C <path> status --porcelain` prints
      nothing;
    - its PR shows `MERGED`, and its local Branch and Remote-Tracking Branch
@@ -409,11 +414,12 @@ every Issue has merged:
      `/proc/<pid>/cwd`);
    - the dry run lists no blocker but those sessions' `sub-agent` ones.
 
-   The bypass is plain git: `git worktree remove <path>`, then for a Branch
-   `git branch -D <branch>` and, while it is still at the remote,
-   `git push origin --force-with-lease=refs/heads/<branch>:<tip> --delete <branch>`.
-   Record the bypass, the user's instruction and each check's result in the
-   close-out record.
+   The bypass is the user's own Dashpot override: give them each
+   `--despite-subagents` flag the refused dry run prints, for them to run
+   the Worktree's step-2 removal themselves with those flags added, which
+   Dashpot refuses if the listed sub-agents change or a process appears
+   inside the Worktree. Record that you handed the user the override, their
+   instruction and each check's result in the close-out record.
 4. Post each Issue's closing comment (workers draft them), including on
    Issues their PRs closed automatically.
 5. File follow-ups batched from the hand-backs, each claim verified, with

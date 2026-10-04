@@ -35,6 +35,7 @@ from .obstacles import (
     integration_fact,
     locate_worktree,
 )
+from .override import DESPITE_SUBAGENTS_FLAG, override_offer, worktree_target
 from .targets import (
     BranchCleanupRequest,
     CleanupBlocker,
@@ -524,14 +525,43 @@ def sub_agent_scope(preview: CleanupPreview) -> str | None:
     a Worktree the preview offers for removal. #357 accepted that gap rather
     than block Cleanup across a Project or the machine (ADR 0066). A blocked
     Worktree claims no absence of occupants, so it is said only of one the
-    preview would remove.
+    preview would remove, a person's acknowledgement of its listed
+    sub-agents included (ADR 0112).
     """
     if preview.kind != "worktree" or preview.refusals:
         return None
-    worktree = next(
-        (target for target in preview.targets if target.kind == "worktree"), None
+    worktree = worktree_target(preview)
+    removable = worktree is not None and (
+        worktree.available or bool(override_offer(preview))
     )
-    return SUB_AGENT_SCOPE if worktree is not None and worktree.available else None
+    return SUB_AGENT_SCOPE if removable else None
+
+
+def override_lines(preview: CleanupPreview, indent: str) -> list[str]:
+    """How a person may remove the Worktree despite its listed sub-agents, if they may.
+
+    The exact flag value is given, so a person acknowledges the set the
+    preview names rather than one typed from memory (ADR 0112).
+    """
+    offer = override_offer(preview)
+    if not offer:
+        return []
+    if not all(listed.spelled for listed in offer):
+        return [
+            f"{indent}only a person who has checked that none of these sub-agents "
+            "works in this Worktree may remove it despite them, from the "
+            f"dashboard's Cleanup dialog: {DESPITE_SUBAGENTS_FLAG} spells only "
+            "IDs that are identifiers without :"
+        ]
+    arguments = " ".join(
+        f"{DESPITE_SUBAGENTS_FLAG} {listed.argument}"
+        for listed in sorted(offer, key=lambda one: one.session_id)
+    )
+    return [
+        f"{indent}only a person who has checked that none of these sub-agents "
+        "works in this Worktree may remove it despite them, with:",
+        f"{indent}    {arguments}",
+    ]
 
 
 def unchecked_processes_note(preview: CleanupPreview) -> str | None:
@@ -569,6 +599,8 @@ def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
             lines.append(f"      blocked: {blocker.kind}: {blocker.detail}")
             if blocker.command:
                 lines.append(f"          run: {blocker.command}")
+        if target.kind == "worktree":
+            lines.extend(override_lines(preview, "      "))
         lines.extend(f"      → {consequence}" for consequence in target.consequences)
         if target.kind == "worktree" and (scope := sub_agent_scope(preview)):
             lines.append(f"      {scope}")

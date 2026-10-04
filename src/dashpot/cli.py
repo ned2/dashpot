@@ -54,6 +54,8 @@ from .project.workspace import RepositoryAnchor, Workspace
 from .queries.query_source import configured_query_source
 from .queries.source_queries import Lifecycle, PageObservation, QueryRequest
 from .repository.cleanup import (
+    NO_ACKNOWLEDGEMENT,
+    Acknowledgement,
     BranchCleanupRequest,
     CleanupError,
     CleanupPreview,
@@ -62,6 +64,7 @@ from .repository.cleanup import (
     TargetKind,
     WorktreeCleanupRequest,
     describe_cleanup_report,
+    parse_despite_subagents,
 )
 from .repository.fetch import remote_fetcher
 from .repository.worktree_launcher import configure_worktree_launcher
@@ -1002,6 +1005,7 @@ def _cleanup(
     *,
     select: Callable[[CleanupPreview], tuple[str, ...]],
     delete_ignored: bool = False,
+    despite_subagents: Acknowledgement = NO_ACKNOWLEDGEMENT,
     dry_run: bool,
     timeout: float,
     json_output: bool,
@@ -1012,6 +1016,7 @@ def _cleanup(
         request,
         select=select,
         delete_ignored=delete_ignored,
+        despite_subagents=despite_subagents,
         dry_run=dry_run,
         timeout=timeout,
     )
@@ -1132,6 +1137,21 @@ def worktree_remove(
             ),
         ),
     ] = False,
+    despite_subagents: Annotated[
+        list[str] | None,
+        Parameter(
+            show_default=False,
+            help=(
+                "SESSION:AGENT,AGENT: remove despite the sub-agents this session "
+                "lists as working, exactly as the preview names them (repeatable, "
+                "one per session). A person's own assertion that none of them "
+                "works in this Worktree: an agent never passes it. Refused if the "
+                "listed sub-agents change, a process runs inside the Worktree, or "
+                "the processes inside could not all be checked; no other blocker "
+                "is lifted"
+            ),
+        ),
+    ] = None,
     dry_run: _DryRun = False,
     timeout: _Timeout = 10.0,
     json_output: _JsonOutput = False,
@@ -1163,6 +1183,7 @@ def worktree_remove(
             WorktreeCleanupRequest(current, path),
             select=select,
             delete_ignored=delete_ignored,
+            despite_subagents=parse_despite_subagents(despite_subagents or ()),
             dry_run=dry_run,
             timeout=timeout,
             json_output=json_output,

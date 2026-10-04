@@ -89,5 +89,5 @@ Posted when the arc ends, or when a long arc pauses:
   this skill for the user, who decides whether to report them upstream.
 - the follow-ups filed, and the Issues outside the arc that inherited
   deferred scope;
-- each Worktree removed with plain git rather than Dashpot: the user's
+- each Worktree the user removed despite listed sub-agents: the user's
   instruction, and each check's result.

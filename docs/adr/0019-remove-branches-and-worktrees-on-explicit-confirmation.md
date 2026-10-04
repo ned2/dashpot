@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md, 0066-block-worktree-removal-while-a-sub-agent-is-working.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md
+amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md, 0066-block-worktree-removal-while-a-sub-agent-is-working.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md, 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md
 ---
 
 # Remove Branches and Worktrees on explicit confirmation
@@ -27,6 +27,13 @@ a process whose working directory is inside a linked Worktree blocks its
 removal. The preview, `dashpot worktree check`, and the re-inspection on
 confirmation each read the host's processes again. A scan that could not
 cover every visible process is stated beneath a removable Worktree.
+
+Amended by [ADR 0112](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md):
+a confirmation may carry a person's acknowledgement of the sub-agents the
+preview lists, which lifts their `sub-agent` blockers and nothing else. The
+re-inspection on confirmation refuses a different set, and each step up to
+the Worktree's removal is preceded by another inspection of its occupants
+and processes.
 
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),

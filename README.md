@@ -239,6 +239,12 @@ live sub-agent, even after that session ended, since Dashpot cannot tell which W
 ([sub-agents and Worktree Cleanup](docs/agent-sessions.md#sub-agents-and-worktree-cleanup)),
 and a Worktree with a process running inside it
 ([processes inside a Worktree](docs/agent-sessions.md#processes-inside-a-worktree)).
+When listed sub-agents are all that hold a Worktree, the dialog names each
+session and its count of sub-agents beside an unticked toggle, "I have
+checked that none of these sub-agents works in this Worktree"; ticking it is
+a person's Sub-agent Override, and frees the Worktree, and the Branch held
+only by it, to be confirmed
+([ADR 0112](docs/adr/0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)).
 A Branch blocked as unintegrated against a Remote-Tracking Branch says that
 `f` checks again if the work has since merged
 ([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md)).
@@ -932,7 +938,17 @@ remote, else `origin`), leased as `branch delete --remote` is, and is refused
 when that remote has no Remote-Tracking Branch for it; `--delete-ignored`
 acknowledges that the Worktree's ignored content (`.venv`, `.dashpot/state/`,
 hook records, and the Work Store there) goes with it, and the command is
-refused without it when such content exists. No flag is implied: the
+refused without it when such content exists.
+`--despite-subagents SESSION_ID:AGENT_ID,AGENT_ID` (one per session) is a
+person's Sub-agent Override: it removes the Worktree despite exactly the
+sub-agents the preview lists as working, when they are all that hold it and
+the processes inside it were all checked. A refused removal prints the
+exact value to pass. The listed set is compared again on confirmation, and
+the Worktree's occupants and processes are inspected again before each step,
+so a changed set or a process inside refuses; no other blocker is lifted,
+and each performed override is recorded in the Event Log as
+`cleanup.subagents_acknowledged`. An agent never passes it
+([ADR 0112](docs/adr/0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)). No flag is implied: the
 dashboard's default selections
 ([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md))
 never apply to the command line. `branch delete --local` deletes
@@ -960,7 +976,8 @@ with the command that recreates a deleted one, and after a refused or unknown
 outcome the remaining targets are not attempted. `--dry-run` validates the
 selection and lists what would be attempted, in order; `--json` prints the
 report (`kind`, `subject`, `anchor`, `dryRun`, `performed`, `changed`,
-`refusals`, `planned`, `results`, `succeeded`, and the `preview`). The exit
+`refusals`, `planned`, `results`, `succeeded`, and the `preview`, whose
+`sub-agent` blockers carry `sessionId`, `harness` and `agents`). The exit
 code is 0 only when every selected target was deleted or already absent.
 
 The created Worktree carries no harness. The installed Issue-work skill moves

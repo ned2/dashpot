@@ -131,11 +131,11 @@ any precision, so lines written before #337 still read.
 | `schema` | every event | File-format version, `1` (the model field is `schema_version`) |
 | `time` | every event | RFC 3339 UTC timestamp, microseconds |
 | `dashpot.level` | every event | `standard` or `full`: the level the event belongs to |
-| `event.name` | every event | `process.start`, `process.continued`, `process.end`, `level.changed`, `event_log.write_failed`, `hook.outcome`, `command.outcome`, `agent_session.changed`, `diagnostic.changed`, `rate_limit_pause.changed`, `unattended_pause.changed`, `span` |
+| `event.name` | every event | `process.start`, `process.continued`, `process.end`, `level.changed`, `event_log.write_failed`, `hook.outcome`, `command.outcome`, `cleanup.subagents_acknowledged`, `agent_session.changed`, `diagnostic.changed`, `rate_limit_pause.changed`, `unattended_pause.changed`, `span` |
 | `service.instance.id` | every event | The process's run ID, 32 hex digits |
 | `dashpot.process.kind` | every event | `dashboard`, `command:<words>`, `hook:<harness>[:<event>]` |
 | `dashpot.agent_session.harness`, `dashpot.agent_session.id` | when known | The Agent Session Identity |
-| `dashpot.project.id`, `dashpot.worktree.path`, `dashpot.issue.id` | when known | What the process works for, or the subject of a dashboard's `agent_session.changed` or `diagnostic.changed` |
+| `dashpot.project.id`, `dashpot.worktree.path`, `dashpot.issue.id` | when known | What the process works for, or the subject of a dashboard's `agent_session.changed` or `diagnostic.changed`, or of a `cleanup.subagents_acknowledged` |
 | `service.version` | `process.start`, `process.continued` | Dashpot's version |
 | `dashpot.install.kind` | `process.start`, `process.continued` | `wheel`, `editable`, `directory`, `archive`, `vcs`, `unknown` |
 | `vcs.ref.head.revision` | `process.start`, `process.continued` | Dashpot's own source commit, or `unknown` |
@@ -157,6 +157,7 @@ any precision, so lines written before #337 still read.
 | `dashpot.issue.previous_id`, `dashpot.worktree.previous_path` | `agent_session.changed` | The Issue a session was bound to before `switched` or `unbound`; the Worktree it left when `relocated` |
 | `dashpot.diagnostic.change`, `dashpot.diagnostic.severity` | `diagnostic.changed` | `appeared` or `cleared`, and the Diagnostic's severity |
 | `dashpot.diagnostic.source`, `dashpot.diagnostic.code` | `diagnostic.changed` | What identifies the Diagnostic, with its Project; `uncoded` for one without a code |
+| `dashpot.sub_agent.ids`, `dashpot.cleanup.outcome` | `cleanup.subagents_acknowledged` | The sub-agent IDs a person acknowledged for one Agent Session, which the envelope names with the Worktree, in a Sub-agent Override ([ADR 0112](adr/0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)); and what became of the Worktree: `deleted`, `already-absent`, `refused` or `unknown` |
 | `dashpot.rate_limit_pause.change`, `dashpot.rate_limit_pause.limit` | `rate_limit_pause.changed` | A Rate Limit Pause `started`, `lapsed` at its due time, or `lifted`: ended early by a manual refresh's attempt that succeeded; and the limit that refused: `primary` or `secondary` |
 | `dashpot.rate_limit_pause.until` | `rate_limit_pause.changed` | When the pause was due to end; a `lifted` pause ended before it |
 | `dashpot.unattended_pause.change`, `dashpot.unattended_pause.signal` | `unattended_pause.changed` | An Unattended Pause `started`, or `ended` when someone attended the dashboard; and the signal that started it, on its end as on its start: `detached` (no tmux client attached) or `idle` (no input for the idle period) |

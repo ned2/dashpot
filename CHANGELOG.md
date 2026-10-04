@@ -19,6 +19,17 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   could not all be read, as inside a sandbox, a removable Worktree's
   preview and `worktree check` report say so, and their JSON carries it as
   `uncheckedProcesses`.
+- Remove a Worktree despite the sub-agents its preview lists as working,
+  as a person's Sub-agent Override for exactly that set:
+  `dashpot worktree remove PATH --despite-subagents SESSION_ID:AGENT_ID,…`,
+  or the Cleanup dialog's toggle. It lifts no other blocker, refuses while
+  the processes inside could not all be checked, refuses again when the
+  listed set changes or a process appears before a step, and is recorded in
+  the Event Log as `cleanup.subagents_acknowledged`. The blockers in the
+  Cleanup and `worktree check` JSON gain `sessionId`, `harness` and
+  `agents`, set on a `sub-agent` blocker and `null`, `null` and `[]` on
+  every other. The bundled skills
+  forbid an agent from passing the override.
 - Observe Codex and Claude Code through opt-in hooks, and OpenCode v2
   through an opt-in plugin. OpenCode is supported at 2.0.22 on Linux, the
   release its acceptance run passed on; the plugin warns on another 2.x
@@ -94,8 +105,9 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   no review process. Concurrent leads find each other's arcs by the opening
   line of each record Issue, and share out files, reserved numbers and
   cores. A lead cuts each Worktree from a freshly fetched tip, merges only
-  what CI tested as it will land, and at close-out removes a Worktree
-  another session's sub-agents block only on the user's instruction.
+  what CI tested as it will land, and at close-out leaves a Worktree
+  another session's sub-agents block to the user, with the
+  `--despite-subagents` value they may pass.
 - A lead assigns each worker to the Issue it implements with `dashpot work
   assign <issue> --worker <id> --worktree <path>`, and the Issues pane shows
   that Issue running while the lead's hooks report the worker working,

@@ -42,6 +42,7 @@ from dashpot.core.runtime_events import (
     RateLimitPauseChanged,
     RuntimeEvent,
     SpanEnded,
+    SubagentsAcknowledged,
     UnattendedPauseChanged,
     read_runtime_event,
 )
@@ -763,6 +764,16 @@ async def test_the_legend_lists_the_runtime_keys(tmp_path: Path) -> None:
             + f"{datetime(2026, 9, 27, 13, tzinfo=UTC).astimezone():%H:%M:%S}",
         ),
         (UnattendedPauseChanged(change="ended", signal="idle"), {}, "ended idle"),
+        (
+            SubagentsAcknowledged(agents=("a3932", "a686b12"), outcome="deleted"),
+            {"harness": "claude-code", "session_id": "3df08317-ab55-442a"},
+            "deleted despite 2 sub-agents of claude-code 3df08317",
+        ),
+        (
+            SubagentsAcknowledged(agents=("a686b12",), outcome="refused"),
+            {"harness": "codex"},
+            "refused despite 1 sub-agent of codex",
+        ),
         (LevelChanged(previous="standard", current="full"), {}, "standard → full"),
         (ProcessEnd(exit_code=0, duration_seconds=3.5), {}, "exit 0"),
         (EventLogWriteFailed(error_type="ENOSPC"), {}, "ENOSPC"),

@@ -26,6 +26,8 @@ from .project.workspace import (
 from .queries.query_source import configured_query_source
 from .queries.source_queries import QUERY_SOURCE_KEYS, QuerySource
 from .repository.cleanup import (
+    NO_ACKNOWLEDGEMENT,
+    Acknowledgement,
     CleanupConfirmation,
     CleanupError,
     CleanupPreview,
@@ -33,6 +35,7 @@ from .repository.cleanup import (
     CleanupRequest,
     cleanup_git,
     inspect_cleanup,
+    listed_in,
     perform_cleanup,
 )
 
@@ -123,6 +126,7 @@ def run_cleanup(
     *,
     select: Callable[[CleanupPreview], tuple[str, ...]],
     delete_ignored: bool = False,
+    despite_subagents: Acknowledgement = NO_ACKNOWLEDGEMENT,
     dry_run: bool,
     timeout: float,
 ) -> CleanupReport:
@@ -137,6 +141,8 @@ def run_cleanup(
         preview.fingerprint,
         select(preview),
         delete_ignored=delete_ignored,
+        despite_subagents=despite_subagents,
+        listed=listed_in(preview) if despite_subagents else None,
     )
     return perform_cleanup(
         confirmation,

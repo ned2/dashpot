@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-01
-amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md, 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md
 ---
 
 # Block Worktree removal while a sub-agent is working
@@ -176,3 +176,11 @@ might be working in it.
   Worktree with a `process` blocker. The evidence is positive only, so it
   never clears the `sub-agent` blocker, and a sub-agent between commands
   still blocks every Worktree of the Repository.
+- Amended by [ADR 0112](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)
+  ([#476](https://github.com/ned2/dashpot/issues/476)): a person who has
+  checked that none of the sub-agents a preview lists works in the Worktree
+  may remove it despite them, for exactly that set, with
+  `--despite-subagents <session-id>:<id>,<id>` or the Cleanup dialog's
+  acknowledgement. The `sub-agent` blocker names the session and agent IDs
+  to acknowledge. Only those blockers are lifted, and only while the
+  processes inside the Worktree were all checked and none was found.

@@ -786,6 +786,32 @@ CleanupScreen, CleanupReportScreen {
     color: $text;
 }
 
+/* A person's acknowledgement of the sub-agents a Worktree's removal waits
+   on: the sessions it names, then its toggle, whose X alone shows its state. */
+#cleanup-despite {
+    height: auto;
+    margin-top: 1;
+}
+
+#cleanup-despite-sessions {
+    height: auto;
+    color: $warning;
+}
+
+#cleanup-despite-subagents {
+    width: 1fr;
+    height: auto;
+    border: none;
+    padding: 0;
+    text-wrap: wrap;
+    text-style: bold;
+}
+
+#cleanup-despite-subagents > .toggle--button,
+#cleanup-despite-subagents.-on > .toggle--button {
+    color: $text;
+}
+
 /* A gutter as wide as the longer marker, so every target's text wraps
    beside its marker at the same width and never beneath it. */
 .cleanup-availability {

@@ -928,8 +928,15 @@ def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
             "stopped or interrupted may never do, so if none is still working, "
             "end that session."
         )
-        # A blocked Worktree claims no absence of occupants to qualify.
-        assert SUB_AGENT_SCOPE not in "\n".join(describe_cleanup_preview(preview))
+        assert blocker.session_id == PARENT_SESSION
+        assert blocker.harness == "claude-code"
+        assert blocker.agents == ("a3932", "a686b12")
+        # Only the sub-agents hold it, so a person's acknowledgement could
+        # remove it, and the scope that removal would rest on is stated
+        # beside the exact flag value (ADR 0112).
+        text = describe_cleanup_preview(preview)
+        assert SUB_AGENT_SCOPE in "\n".join(text)
+        assert f"          --despite-subagents {PARENT_SESSION}:a3932,a686b12" in text
 
 
 def test_a_live_codex_sub_agent_blocks_like_a_claude_code_one(
