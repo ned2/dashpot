@@ -1,9 +1,15 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-11
+amended-by: 0105-raise-the-python-floor-to-3-13.md
 ---
 
 # Publish an alpha with patch-compatible interfaces
+
+Amended by [ADR 0105](0105-raise-the-python-floor-to-3-13.md): the Python
+target is CPython 3.13–3.14, raised from the 3.12 floor below before
+publication, and CI covers both endpoints on both platforms. The platform,
+Git and gh targets and the interface guarantees stand.
 
 Dashpot's first release is `0.1.0`, with the Alpha development-status classifier.
 It establishes the first compatibility baseline; there are no existing external

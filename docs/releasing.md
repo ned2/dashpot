@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Release Dashpot
@@ -67,9 +67,8 @@ development dependency. [README-pypi.md](../README-pypi.md) is the compact PyPI
 description; its links are absolute so they work on the package index. Preview
 that page after TestPyPI publication as well as checking metadata locally.
 
-CI runs the source suite on both endpoint Python versions for Ubuntu/macOS,
-the intermediate Python versions on Ubuntu, and Debian 12’s maintained Git
-2.39.x package. The build job creates
+CI runs the source suite on both endpoint Python versions, 3.13 and 3.14, for
+Ubuntu/macOS, and on Debian 12’s maintained Git 2.39.x package. The build job creates
 the source distribution and its wheel with `uv build --no-sources`, checks
 metadata, and uploads one `distributions` artifact containing:
 

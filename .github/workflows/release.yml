@@ -35,13 +35,13 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           version: "0.12.10"
-          python-version: "3.12"
+          python-version: "3.13"
       - name: Validate version and main ancestry
         id: version
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.candidate-tag }}
         run: |
-          python scripts/check_release.py "$RELEASE_TAG" --notes release-notes.md
+          uv run --no-project python scripts/check_release.py "$RELEASE_TAG" --notes release-notes.md
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
   verify:

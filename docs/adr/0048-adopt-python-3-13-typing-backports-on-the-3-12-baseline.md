@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded
 date: 2026-09-18
+superseded-by: 0105-raise-the-python-floor-to-3-13.md
 ---
 
 # Adopt Python 3.13 typing backports on the 3.12 baseline

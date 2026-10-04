@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-30
+date: 2026-10-05
 ---
 
 # CI and test performance
@@ -41,9 +41,9 @@ uv run pytest -q
 
 Each worker has its own Python process and runs its assigned tests sequentially.
 The default uses half the available CPU count, rounded down and bounded to one
-through eight workers. Linux respects CPU affinity; other platforms use
-`os.cpu_count()`. This leaves CPU headroom and selects eight on the measured
-32-thread machine. `-n N` overrides automatic selection; `-n 0` runs serially
+through eight workers. The count is `os.process_cpu_count()`, which respects
+CPU affinity where the platform reports it. This leaves CPU headroom and
+selects eight on the measured 32-thread machine. `-n N` overrides automatic selection; `-n 0` runs serially
 for debugging and reproduction. Explicit `-n logical` retains xdist's meaning.
 Four workers failed a layout-readiness assertion on measured hosted runners,
 so CI explicitly uses two. Automatic selection is a conservative starting

@@ -49,7 +49,7 @@ of date.
 | 0031 | [Observe complete Pull Request lifecycle history](0031-observe-complete-pull-request-lifecycle-history.md) | amended | [0032](0032-submit-pull-request-queries-to-github-advanced-search.md), [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0032 | [Submit Pull Request queries to GitHub advanced search](0032-submit-pull-request-queries-to-github-advanced-search.md) | amended | [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0033 | [Query pages and independent Issue resolution](0033-query-pages-and-independent-issue-resolution.md) | amended | [0055](0055-verify-the-query-context-in-the-response-that-carries-it.md), [0057](0057-observe-project-totals-in-the-query-page-request.md) |
-| 0034 | [Publish an alpha with patch-compatible interfaces](0034-publish-an-alpha-with-patch-compatible-interfaces.md) | accepted | — |
+| 0034 | [Publish an alpha with patch-compatible interfaces](0034-publish-an-alpha-with-patch-compatible-interfaces.md) | amended | [0105](0105-raise-the-python-floor-to-3-13.md) |
 | 0035 | [Open Worktrees on explicit key press](0035-open-worktrees-on-explicit-key-press.md) | accepted | — |
 | 0036 | [Keep Cleanup subjects fixed and fetch inside their previews](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) | amended | [0054](0054-finish-a-worktree-with-its-branch-by-default.md) |
 | 0037 | [Review locally and verify the PR head before integration](0037-review-locally-and-verify-pr-head-before-integration.md) | amended | [0044](0044-integrate-pull-requests-through-a-merge-queue.md), [0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) |
@@ -63,7 +63,7 @@ of date.
 | 0045 | [Drop the up-to-date rule where a merge queue is unavailable](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) | amended | [0089](0089-leave-the-pr-merge-to-the-operator.md) |
 | 0046 | [Raise every refusal as a DashpotError subclass](0046-raise-every-refusal-as-a-dashpoterror-subclass.md) | accepted | — |
 | 0047 | [Keep the dashboard screen as one Textual adapter](0047-keep-the-dashboard-screen-as-one-textual-adapter.md) | accepted | — |
-| 0048 | [Adopt Python 3.13 typing backports on the 3.12 baseline](0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md) | accepted | — |
+| 0048 | [Adopt Python 3.13 typing backports on the 3.12 baseline](0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md) | superseded | [0105](0105-raise-the-python-floor-to-3-13.md) |
 | 0049 | [Interrupt observation commands at dashboard exit](0049-interrupt-observation-commands-at-dashboard-exit.md) | accepted | — |
 | 0050 | [Describe every pane column once for the tooltip and the Legend](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md) | accepted | — |
 | 0051 | [Adopt long-lived peer dashboard screens](0051-adopt-long-lived-peer-dashboard-screens.md) | accepted | — |
@@ -108,4 +108,5 @@ of date.
 | 0102 | [Clear a stopped sub-agent from the records a moved session left behind](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md) | accepted | — |
 | 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | accepted | — |
 | 0104 | [Block Worktree removal while a process runs inside it](0104-block-worktree-removal-while-a-process-runs-inside-it.md) | accepted | — |
+| 0105 | [Raise the Python floor to 3.13](0105-raise-the-python-floor-to-3-13.md) | accepted | — |
 | 0108 | [Keep OpenCode self-move and leading Workers on the shared service](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md) | accepted | — |

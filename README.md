@@ -78,7 +78,7 @@ Once the first release is published, install Dashpot in an isolated tool environ
 uv tool install --python 3.14 dashpot
 ```
 
-The release targets CPython 3.12–3.14 on Linux x86-64 and Apple Silicon macOS,
+The release targets CPython 3.13–3.14 on Linux x86-64 and Apple Silicon macOS,
 Git 2.39+, and gh 2.100.0+ for GitHub-backed Projects. See
 [installation and support](docs/installation.md) for current host-validation
 status, candidate installation before publication, PATH setup, harness setup,
@@ -479,7 +479,7 @@ phrasings to avoid, are defined in [`docs/domain-language.md`](docs/domain-langu
 
 ## Development setup
 
-Dashpot requires Python 3.12 or newer and uses
+Dashpot requires Python 3.13 or newer and uses
 [uv](https://docs.astral.sh/uv/) for its locked development environment.
 
 ```bash
@@ -491,8 +491,8 @@ uv run pytest -q -n 0
 ```
 
 Tests run in parallel by default, reserving half the available CPUs and using
-at most eight workers (at least one). Linux uses the current CPU affinity;
-other platforms use the reported CPU count. Override with `-n N`, or `-n 0`
+at most eight workers (at least one). The count is `os.process_cpu_count()`,
+which respects CPU affinity where the platform reports it. Override with `-n N`, or `-n 0`
 for serial execution. CI explicitly uses two workers. Higher counts require
 measurement: sixteen failed locally despite eight passing repeatedly; see
 [CI and test performance](docs/ci-performance.md).
@@ -642,7 +642,7 @@ network access.
 targeting `main` and on manual dispatch.
 Integration into `main` does not trigger a duplicate run. It runs the all-files
 pre-commit quality gate once on Ubuntu, tests the locked environment on Ubuntu
-and macOS under Python 3.12 and 3.14, adds Python 3.13 on Ubuntu,
+and macOS under Python 3.13 and 3.14,
 exercises Debian 12’s maintained Git 2.39.x package in a container, and builds
 the package once per run. Installed-artifact jobs
 install the wheel and source distribution
@@ -756,7 +756,7 @@ authenticated `gh` CLI. `reconciliationSeconds` is deprecated and unused.
 Existing positive finite values remain readable; the setting no longer schedules
 whole-source sweeps or constrains `--refresh-seconds`, and the loaded model
 declares the field deprecated
-([ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)).
+([ADR 0105](docs/adr/0105-raise-the-python-floor-to-3-13.md)).
 A Local Issue Markdown Project selects a repository-relative file or directory:
 
 ```json
@@ -1099,10 +1099,12 @@ records the completed package layout and application composition seam.
 records why query and complete-collection adapters retain distinct contracts,
 and [ADR 0047](docs/adr/0047-keep-the-dashboard-screen-as-one-textual-adapter.md)
 why the dashboard screen stays one Textual adapter.
+[ADR 0105](docs/adr/0105-raise-the-python-floor-to-3-13.md)
+records why the Python floor is 3.13, superseding the typing backports
 [ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)
-records which Python 3.13 typing backports the 3.12 baseline adopts,
+adopted on the 3.12 baseline.
 [ADR 0049](docs/adr/0049-interrupt-observation-commands-at-dashboard-exit.md)
-why quitting interrupts the observation commands in flight, and
+records why quitting interrupts the observation commands in flight,
 [ADR 0050](docs/adr/0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md)
 why every pane column describes itself once for both its header tooltip and
 the Legend, and

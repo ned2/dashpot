@@ -6,7 +6,7 @@ readme = "README-pypi.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Ned Letcher" }]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 keywords = ["tui", "textual", "github", "issues", "git", "worktree", "coding-agent"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -15,7 +15,6 @@ classifiers = [
   "Operating System :: MacOS",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Topic :: Software Development",
@@ -27,7 +26,6 @@ dependencies = [
   "pydantic>=2.13.5,<3",
   # The application relies on tested DataTable/layout behavior; tool installs isolate it.
   "textual==8.2.8",
-  "typing-extensions>=4.15.0",
 ]
 
 [project.urls]
@@ -65,7 +63,7 @@ packages = ["src/dashpot"]
 exclude = ["/.codex", "/.dashpot"]
 
 [tool.ruff]
-# Everything Ruff sees is Python 3.12+ (from requires-python). `src` lets isort
+# Everything Ruff sees is Python 3.13+ (from requires-python). `src` lets isort
 # recognise the package and the tests' shared helper modules as first-party.
 src = ["src", "tests"]
 # The thematic-analysis scripts under docs/design-research/scripts/ are a
@@ -106,7 +104,7 @@ extend-immutable-calls = [
 ]
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.13"
 
 [tool.ty.analysis]
 # Dashpot validates untyped JSON by `isinstance` narrowing; strict generic

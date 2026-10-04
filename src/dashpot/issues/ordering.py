@@ -9,9 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
-
-from typing_extensions import TypeIs
+from typing import TYPE_CHECKING, Literal, TypeIs
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import IssueActivity, ProjectObservation

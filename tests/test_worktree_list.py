@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
+from typing import assert_type
 
 import pydantic
 import pytest
@@ -28,7 +29,7 @@ from helpers import required
 
 
 def worktree_rows(
-    result: ListResult[WorktreeListRow, None], *, dark: bool, home: Path | None = None
+    result: ListResult[WorktreeListRow], *, dark: bool, home: Path | None = None
 ) -> tuple[ListRow, ...]:
     """The pane rows for ``result``, as the Worktrees pane builds them."""
     return build_list_rows(result.rows, partial(worktree_cells, dark=dark, home=home))
@@ -82,6 +83,10 @@ def test_store_lists_every_target_across_projects_in_topology_order() -> None:
 
     result = store.query_worktrees()
 
+    # ``ListResult[WorktreeListRow]`` leaves the summary to its ``None``
+    # default; ty checks this ``assert_type`` as part of the gate.
+    assert_type(result.summary, None)
+    assert result.summary is None
     assert result.revision == 1
     assert result.count == 4
     assert [(row.project.display_label, row.target.path) for row in result.rows] == [

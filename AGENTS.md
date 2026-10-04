@@ -189,13 +189,13 @@ The conventions the tooling enforces or the code assumes:
 
 - Full type annotations on everything in `src/` (Ruff `ANN`), and ty clean
   with no blanket `type: ignore` — an ignore names its rule and says why.
-- Python 3.12 is the floor: a Python 3.13 typing feature (`TypeIs`,
-  `deprecated`, a `TypeVar` default) is imported from `typing_extensions`,
-  never from `typing` or `warnings`, and Python 3.13-only syntax is not
-  written. A predicate is a `TypeIs` only when both answers are exact — a
-  value that fails is never of the narrowed type — and stays a `TypeGuard`
-  otherwise
-  ([ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)).
+- Python 3.13 is the floor: a typing feature Python 3.13 provides
+  (`TypeIs`, `deprecated`, a type parameter default) is imported from
+  `typing` or `warnings`, never from `typing_extensions`, and Python
+  3.14-only syntax is not written. A predicate is a `TypeIs` only when both
+  answers are exact — a value that fails is never of the narrowed type — and
+  stays a `TypeGuard` otherwise
+  ([ADR 0105](docs/adr/0105-raise-the-python-floor-to-3-13.md)).
 - Values at validating seams — untrusted input, persisted state, published
   wire shapes — are Pydantic models on the shared base in
   `src/dashpot/core/pydantic.py`

@@ -53,7 +53,7 @@ def query_indexed_session_list(
     agent_runs: Mapping[str, AgentRun],
     issue_runs: Mapping[str, Sequence[str]],
     revision: int,
-) -> ListResult[SessionListRow, None]:
+) -> ListResult[SessionListRow]:
     # Accepted bindings win over the record's own hint so the pane agrees
     # with the Issue table about which Issue a session is working on.
     bound_issue_by_run = {
@@ -127,7 +127,7 @@ def _descending(value: str) -> str:
     return "".join(chr(0x10FFFF - ord(character)) for character in value)
 
 
-def shows_target(result: ListResult[SessionListRow, None]) -> bool:
+def shows_target(result: ListResult[SessionListRow]) -> bool:
     """Whether TARGET tells the rows apart, or repeats one checkout on each.
 
     A Project is usually one Worktree, and then the column is the same path
