@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -289,6 +290,10 @@ def squash_repository(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
+    # Rebase and non-fast-forward squash also need a committer identity;
+    # command-local commit flags alone accidentally depend on the host's config.
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "config", "user.name", "Test")
     _commit(root, "app.py", "one\n", "seed")
     git(root, "branch", "done")
     git(root, "branch", "kept")
@@ -390,7 +395,11 @@ def test_content_integration_never_fetches_or_mutates(tmp_path: Path) -> None:
     assert git(root, "status", "--porcelain") == status
 
 
-def test_cached_observation_tracks_squash_rebase_and_force_push(tmp_path: Path) -> None:
+def test_cached_observation_tracks_squash_rebase_and_force_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     root = squash_repository(tmp_path)
     cache = IntegrationCache()
     calls: list[list[str]] = []
@@ -651,7 +660,11 @@ def test_failed_squash_candidate_tree_is_diagnosed_and_retried() -> None:
     assert len(runner.calls) - before == 3
 
 
-def test_a_new_squash_replaces_a_cached_unintegrated_answer(tmp_path: Path) -> None:
+def test_a_new_squash_replaces_a_cached_unintegrated_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     root = squash_repository(tmp_path)
     cache = IntegrationCache()
     before = {
