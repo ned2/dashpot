@@ -662,8 +662,8 @@ session started in the Worktree with one quoted `cd <worktree> && claude`
 command, which does not promise working `gh` credentials there
 ([#274](https://github.com/ned2/dashpot/issues/274)). A root OpenCode
 session on the shared service moves itself with OpenCode's
-`opencode.session_move` tool, on the authority of the person's request to work on the Issue in that Worktree
-(ADR 0094). It moves only once every Sub-agent and background command it
+`opencode.session_move` tool, on the authority of the person's request
+to work on the Issue in that Worktree (ADR 0094). It moves only once every Sub-agent and background command it
 started has ended, calls the tool alone in its step, and runs no `work`
 command and none of the Issue's work in the Worktree until the next step's
 `pwd` and `integrate opencode --status` confirm it arrived: the move takes effect when the step ends, and the tool
