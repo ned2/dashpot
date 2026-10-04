@@ -243,31 +243,40 @@ def turn_started_at(
     return optional_string(current.get("lastActivityAt"))
 
 
-def carried_subagents(
+def _carried_subagents(
     current: Mapping[str, Any],
     previous: Mapping[str, Any] | None,
-    living_hosts: Collection[ProcessKey] = (),
+    gone_hosts: Collection[ProcessKey],
 ) -> dict[str, Any]:
     """Each sub-agent of the session alive after this event, with its Host Process.
 
     A sub-agent belongs to the Host Process that runs it, which a session's
     resumption in another process does not end (ADR 0107). One the event's
     own process runs carries as the record's own; one another named process
-    runs carries, tagged with that process, only while the publisher found
-    it among ``living_hosts``. One whose process no record names carries
+    runs carries, tagged with that process, unless the publisher found that
+    process among ``gone_hosts``. One whose process no record names carries
     unless the event is a ``SessionStart``: a session whose process cannot be
     named might have restarted unseen (ADR 0097). A starting sub-agent's
     process is the event's. The value is the raw ``sessionProcess`` of the
     sub-agent's Host Process, None where none is named.
-
-    ``SubagentStart`` adds the agent and ``SubagentStop`` removes it; an
-    event that names no agent changes nothing rather than guessing.
     """
     hosts = (
         {}
         if previous is None
-        else _carried(current, subagent_hosts(previous), living_hosts)
+        else _carried_by_host(current, subagent_hosts(previous), gone_hosts)
     )
+    return _crossing_boundary(current, hosts)
+
+
+def _crossing_boundary(
+    current: Mapping[str, Any], hosts: dict[str, Any]
+) -> dict[str, Any]:
+    """``hosts`` after ``current``'s sub-agent boundary, if it is one.
+
+    ``SubagentStart`` adds the agent, run by the event's Host Process, and
+    ``SubagentStop`` removes it; an event that names no agent changes
+    nothing rather than guessing.
+    """
     agent = current.get("agentId")
     if not isinstance(agent, str) or not agent:
         return hosts
@@ -293,10 +302,7 @@ def subagent_hosts(record: Mapping[str, Any]) -> dict[str, Any]:
 
 def hosts_subagent(record: Mapping[str, Any], agent: str, process: object) -> bool:
     """Whether ``record`` lists ``agent`` as run by the Host Process ``process`` names."""
-    hosts = subagent_hosts(record)
-    return (
-        agent in hosts and process is not None and _same_process(hosts[agent], process)
-    )
+    return agent in subagents_hosted_by(record, process)
 
 
 def subagents_hosted_by(record: Mapping[str, Any], process: object) -> list[str]:
@@ -316,12 +322,17 @@ def subagent_host_keys(record: Mapping[str, Any]) -> set[ProcessKey]:
     return {key for key in keys if key is not None}
 
 
-def _carried(
+def _carried_by_host(
     current: Mapping[str, Any],
     hosts: Mapping[str, Any],
-    living_hosts: Collection[ProcessKey],
+    gone_hosts: Collection[ProcessKey],
 ) -> dict[str, Any]:
-    """The sub-agents of ``hosts`` that ``current``'s event carries, by their Host Process."""
+    """The sub-agents of ``hosts`` that ``current``'s event carries, by their Host Process.
+
+    A tagged process the publisher did not probe, because a record named it
+    only after the publisher read them, carries: that errs toward blocking
+    Cleanup, and a scan stops listing it once the process is gone.
+    """
     own = current.get("sessionProcess")
     starting = current.get("event") == "SessionStart"
     carried: dict[str, Any] = {}
@@ -330,7 +341,7 @@ def _carried(
         if own is not None and host is not None and _same_process(host, own):
             carried[agent] = own
         elif key is not None:
-            if key in living_hosts:
+            if key not in gone_hosts:
                 carried[agent] = host
         elif not starting:
             # A process no record names, or names unreadably, is the
@@ -339,7 +350,9 @@ def _carried(
     return carried
 
 
-def _listing(record: Mapping[str, Any], hosts: Mapping[str, Any]) -> dict[str, Any]:
+def _with_listing(
+    record: Mapping[str, Any], hosts: Mapping[str, Any]
+) -> dict[str, Any]:
     """``record`` listing the sub-agents of ``hosts``, each tagged with a process not its own.
 
     The tags are omitted where every listed sub-agent is the record's own,
@@ -376,7 +389,7 @@ def _retained_subagents(
     ending: Mapping[str, Any],
     previous: Mapping[str, Any] | None,
     seed: Mapping[str, Any] | None,
-    living_hosts: Collection[ProcessKey] = (),
+    gone_hosts: Collection[ProcessKey],
 ) -> dict[str, Any]:
     """The sub-agents a ``SessionEnd`` keeps listed in its ended record (ADR 0095).
 
@@ -392,7 +405,7 @@ def _retained_subagents(
     kept: dict[str, Any] = {}
     for record in (previous, seed):
         if record is not None and _same_host_process(record, ending):
-            kept.update(_carried(ending, subagent_hosts(record), living_hosts))
+            kept.update(_carried_by_host(ending, subagent_hosts(record), gone_hosts))
     return kept
 
 
@@ -607,7 +620,7 @@ class HookRecordStore(LockedRecordStore):
         *,
         seed: Mapping[str, Any] | None = None,
         adopted: Iterable[str] = (),
-        living_hosts: Collection[ProcessKey] = (),
+        gone_hosts: Collection[ProcessKey] = (),
     ) -> HookRecordWrite:
         """Publish one native identity without overwriting another harness.
 
@@ -625,10 +638,10 @@ class HookRecordStore(LockedRecordStore):
         (ADR 0097). ``adopted`` names the sub-agents a Conversation Switch's
         ``SessionStart`` takes over from the session its Host Process switched
         from (ADR 0101); the record lists them beside its own.
-        ``living_hosts`` are the Host Processes, other than the event's, that
-        the publisher found not gone among those running the sub-agents the
-        session's records list: such a sub-agent stays listed, tagged with its
-        process, and one whose process is not among them goes (ADR 0107). The
+        ``gone_hosts`` are the Host Processes, other than the event's, that
+        the publisher found gone among those running the sub-agents the
+        session's records list: a sub-agent of one of them goes, and one of
+        any other process stays listed, tagged with its process (ADR 0107). The
         result names the state the record was stored with, which a caller
         reports rather than the state the event maps to.
         """
@@ -668,9 +681,9 @@ class HookRecordStore(LockedRecordStore):
                     > observed_instant(record.get("lastActivityAt"))
                 ):
                     return HookRecordWrite(destination, None)
-                retained = _retained_subagents(record, previous, seed, living_hosts)
+                retained = _retained_subagents(record, previous, seed, gone_hosts)
                 if retained:
-                    self.replace(key, _listing(record, retained))
+                    self.replace(key, _with_listing(record, retained))
                 else:
                     destination.unlink(missing_ok=True)
                 return HookRecordWrite(destination, "ended")
@@ -696,13 +709,8 @@ class HookRecordStore(LockedRecordStore):
             if child and previous is not None and _is_ended(previous):
                 # Only the sub-agent boundaries change a retained record: none
                 # of its sub-agents' events revives the ended session.
-                hosts = subagent_hosts(previous)
-                agent = record.get("agentId")
-                if record.get("event") == "SubagentStart" and isinstance(agent, str):
-                    hosts[agent] = record.get("sessionProcess")
-                elif record.get("event") == "SubagentStop":
-                    hosts.pop(str(agent), None)
-                remaining = _listing(previous, hosts)
+                hosts = _crossing_boundary(record, subagent_hosts(previous))
+                remaining = _with_listing(previous, hosts)
                 if not hosts:
                     destination.unlink(missing_ok=True)
                 elif remaining != previous:
@@ -750,7 +758,7 @@ class HookRecordStore(LockedRecordStore):
             # A child-scoped event's origin is this store's previous record;
             # a compaction's state follows the record it carries from.
             current["state"] = carried_state(current, origin)
-            hosts = carried_subagents(current, origin, living_hosts)
+            hosts = _carried_subagents(current, origin, gone_hosts)
             ended = (
                 previous
                 if previous is not None and _is_ended(previous)
@@ -763,7 +771,7 @@ class HookRecordStore(LockedRecordStore):
                 # of another process keeps those of a process still running
                 # (ADR 0107).
                 hosts = {
-                    **_carried(current, subagent_hosts(ended), living_hosts),
+                    **_carried_by_host(current, subagent_hosts(ended), gone_hosts),
                     **hosts,
                 }
             if not child:
@@ -781,7 +789,7 @@ class HookRecordStore(LockedRecordStore):
                     current.pop(field, None)
                     if field in previous:
                         current[field] = previous[field]
-            current = _listing(current, hosts)
+            current = _with_listing(current, hosts)
             current["turnStartedAt"] = turn_started_at(current, origin)
             started = last_session_start_at(current, previous)
             if started is not None:
@@ -867,7 +875,7 @@ class HookRecordStore(LockedRecordStore):
             if not remaining and kind == "ended":
                 destination.unlink(missing_ok=True)
             elif "subagentProcesses" in previous:
-                self.replace(key, _listing(previous, remaining))
+                self.replace(key, _with_listing(previous, remaining))
             else:
                 # A record of one Host Process changes only its list.
                 listed = _recorded_subagents(previous)
@@ -875,7 +883,9 @@ class HookRecordStore(LockedRecordStore):
                     key,
                     {
                         **previous,
-                        "liveSubagents": [a for a in listed if a in remaining],
+                        "liveSubagents": [
+                            agent for agent in listed if agent in remaining
+                        ],
                     },
                 )
             return True

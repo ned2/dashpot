@@ -64,8 +64,12 @@ terminal resumed the lead while the worker worked:
 
 So Codex 0.160.0 has no second Host Process on a daemon thread whose worker
 runs. The receipts above are the base publisher's; the same scenarios with
-this change's publisher read the same (#118, #121, #143, #148 attached; #188,
-#193 with `--no-daemon`).
+this change's publisher, built at `fb2e727`, read the same (#118, #121, #143,
+#148 attached; #188, #193 with `--no-daemon`). The publisher changed after
+that run only where no Codex scenario reaches: an unused helper went, and a
+process the publisher did not probe now carries its sub-agents (above),
+where every scenario's sub-agents run in the daemon, the event's own
+process.
 
 ## Decision
 
@@ -84,8 +88,8 @@ that process lives, whichever process the session's own events come from.
   or from an ended record), each sub-agent is handled by its own Host
   Process:
   - one the event's process runs carries as the record's own;
-  - one another named process runs carries, tagged, only while the
-    publisher finds that process not gone;
+  - one another named process runs carries, tagged, unless the publisher
+    found that process gone;
   - one whose process no record names carries, except at a `SessionStart`
     (ADR 0097's rule for a process that cannot be named).
 
@@ -96,11 +100,19 @@ that process lives, whichever process the session's own events come from.
 - **The publisher probes, not the store.** Before the store takes its locks,
   the publisher reads the session's records, collects the Host Processes
   they name for their sub-agents other than the event's own, and probes each
-  one. The store receives those it found not gone (`living_hosts`). A
-  session whose sub-agents all run in the event's process probes nothing.
+  one. The store receives those it found gone (`gone_hosts`), and drops only
+  their sub-agents. A session whose sub-agents all run in the event's
+  process probes nothing.
+- **A race errs toward blocking.** Another process's `SubagentStart` can tag
+  a sub-agent after the publisher read the records and before its write.
+  That sub-agent's process went unprobed, so the write carries it, rather
+  than treating every process it did not find living as gone, which would
+  drop a working sub-agent and its blocker until nothing re-adds it. The
+  next write reads the tag and probes the process.
 - **A sub-agent's event speaks for itself.** A child-scoped event from a
   process other than the one the parent's record names keeps the record's
-  Host Process. Only the sub-agent's own entry changes.
+  Host Process. Its own boundary changes only its own entry; the carry
+  above still applies to the record's other sub-agents.
 - **Its stop clears it where its process listed it.** A `SubagentStop`
   reaches the record it is routed to as before, including an ended record of
   another process that lists the agent under the stop's process. It also
@@ -161,6 +173,12 @@ that process lives, whichever process the session's own events come from.
 - `dashpot work forget-subagents` reads only ended records, so it does not
   reach a kept gone record. The record goes once the process running its
   sub-agents exits, which is also when that process's sub-agents end.
+- Nothing keeps a gone process's sub-agent counted. Once a record names its
+  process, every later write of the session probes it and drops the
+  sub-agent when it is gone. A record that receives no later write keeps the
+  tag in its stored listing and state, but every scan probes the tagged
+  process: the sub-agent is not listed, the session reads `waiting` unless
+  its own turn runs, `work show` does not name it, and the blocker goes.
 - The publisher probes a process only for a session whose records name a
   sub-agent's process other than the event's. A record of one Host Process,
   the only kind before this decision, costs nothing more.

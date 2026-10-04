@@ -237,12 +237,7 @@ def _classify_validated_record(
     living = tuple(
         agent
         for agent in record.live_subagents
-        if (
-            own_living
-            if agent not in record.subagent_processes
-            else probe.observe(record.subagent_processes[agent].identity.key).liveness
-            != "gone"
-        )
+        if _subagent_living(record, agent, probe, own_living=own_living)
     )
     state = record.state
     if (
@@ -274,6 +269,19 @@ def _classify_validated_record(
         retains_subagents=outcome == "ended" and bool(living),
         retains_other_host_subagents=outcome == "gone" and bool(living),
     )
+
+
+def _subagent_living(
+    record: HookRecord, agent: str, probe: LivenessProbe, *, own_living: bool
+) -> bool:
+    """Whether the Host Process running ``record``'s ``agent`` is not gone (ADR 0107).
+
+    That is the record's own process unless the agent is tagged with another.
+    """
+    host = record.subagent_processes.get(agent)
+    if host is None:
+        return own_living
+    return probe.observe(host.identity.key).liveness != "gone"
 
 
 @dataclass(frozen=True, slots=True)

@@ -176,7 +176,7 @@ def publish_hook_event(
         record,
         seed=seed,
         adopted=adopted,
-        living_hosts=_living_hosts(session_records, identity, lookup),
+        gone_hosts=_gone_hosts(session_records, identity, lookup),
     )
     destination, state = written.path, written.state
     # Released only once the new record lists them: a publisher that fails
@@ -256,23 +256,24 @@ def publish_hook_event(
     )
 
 
-def _living_hosts(
+def _gone_hosts(
     records: Iterable[StoredSessionRecord],
     identity: ProcessIdentity | None,
     lookup: ProcessLookup,
 ) -> frozenset[ProcessKey]:
-    """The Host Processes besides the event's that run a listed sub-agent and are not gone.
+    """The Host Processes besides the event's that run a listed sub-agent and are gone.
 
     A sub-agent stays listed while the process running it lives, even when
     another process takes its session on (ADR 0107). Probed here, before the
-    store takes its locks, and only for a session whose records name a
-    process other than the event's: a session of one Host Process probes
+    store takes its locks, so only a process proved gone is named: one a
+    record names after this read is not probed, and its sub-agents carry
+    until the next write probes it. A session of one Host Process probes
     nothing.
     """
     own = None if identity is None else identity.key
     keys = {key for item in records for key in subagent_host_keys(item.raw)}
     return frozenset(
-        key for key in keys - {own} if session_liveness(key, lookup).liveness != "gone"
+        key for key in keys - {own} if session_liveness(key, lookup).liveness == "gone"
     )
 
 
@@ -282,7 +283,7 @@ def _stop_kept_elsewhere(
     worktrees: list[Path],
     directory: Path | None,
     written_to: Path,
-    session_records: Iterable[StoredSessionRecord] = (),
+    session_records: Iterable[StoredSessionRecord],
 ) -> None:
     """Remove a stopped Sub-agent from the other records of its Host Process that keep it.
 

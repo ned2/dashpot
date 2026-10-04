@@ -21,6 +21,7 @@ import pytest
 import factories
 from dashpot.core.model import AgentRun
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
+from dashpot.sessions import hook_publish
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import (
@@ -30,7 +31,7 @@ from dashpot.sessions.hook_records import (
 )
 from dashpot.sessions.hook_scan import classify_hook_record
 from dashpot.sessions.liveness import LivenessProbe
-from dashpot.sessions.processes import ProcessIdentity, ProcessLookup
+from dashpot.sessions.processes import ProcessIdentity, ProcessKey, ProcessLookup
 from dashpot.sessions.work import show_issue_work, start_issue_work
 from helpers import table_lookup
 from test_opencode import CHILD, ROOT, SERVER, SHELL_PID, STANDALONE, Server
@@ -77,7 +78,12 @@ def alive(*processes: ProcessIdentity) -> ProcessLookup:
 
 def record(at: Path, session: str) -> dict[str, Any]:
     """The session's hook record in ``at``'s store."""
-    return json.loads((session_directory(at) / f"{session}.json").read_text())
+    return stored_in(session_directory(at), session)
+
+
+def stored_in(directory: Path, session: str = CLAUDE_SESSION) -> dict[str, Any]:
+    """The session's hook record in the store ``directory``."""
+    return json.loads((directory / f"{session}.json").read_text())
 
 
 def sub_agent_blockers(
@@ -217,12 +223,14 @@ def resumed_elsewhere(main: Path) -> ProcessLookup:
 
 
 def session_state(lookup: ProcessLookup, *worktrees: Path) -> str:
-    """The state the Sessions pane shows for the Lead's hook-observed session."""
-    (run,) = [
-        run
-        for run in observed(lookup, *worktrees)
-        if run.id == f"claude-code-session:{CLAUDE_SESSION}"
-    ]
+    """The state the Sessions pane shows for the Lead's session.
+
+    That is its hook-observed run, or the Issue work run that claims the
+    session's hook record when its Work Store run names the record's process.
+    """
+    runs = observed(lookup, *worktrees)
+    hooked = [run for run in runs if run.id == f"claude-code-session:{CLAUDE_SESSION}"]
+    (run,) = hooked or runs
     return run.state
 
 
@@ -275,9 +283,12 @@ def test_a_worker_whose_process_exits_unreported_stops_holding_the_session(
     assert session_state(left, *worktrees) == "waiting"
     assert show_lines(main, left) == []
     assert sub_agent_blockers(linked, worktrees, left) == []
-    # The next event of the session drops it from the record.
-    publish(main, "UserPromptSubmit", host=RESUMED, lookup=left)
-    assert record(main, CLAUDE_SESSION)["liveSubagents"] == []
+    # The next event of the session probes its process and drops it from
+    # the record, whose stored state no longer counts it.
+    publish(main, "Stop", host=RESUMED, lookup=left)
+    stored = record(main, CLAUDE_SESSION)
+    assert (stored["state"], stored["liveSubagents"]) == ("waiting", [])
+    assert "subagentProcesses" not in stored
 
 
 def test_the_workers_stop_clears_the_record_its_session_left_behind(
@@ -296,6 +307,81 @@ def test_the_workers_stop_clears_the_record_its_session_left_behind(
     assert left["liveSubagents"] == []
     assert left["sessionProcess"]["pid"] == RESUMED.pid
     assert sub_agent_blockers(linked, worktrees, both) == []
+
+
+SECOND = "a1b2c3d4e5f607183"
+
+
+def raced_by_a_start(
+    main: Path, monkeypatch: pytest.MonkeyPatch, lookup: ProcessLookup
+) -> None:
+    """``RESUMED``'s next turn, with the Lead's ``SECOND`` worker starting mid-write.
+
+    The worker's ``SubagentStart`` lands after ``RESUMED``'s publisher read
+    the session's records and probed their Host Processes, but before its
+    write: the Lead's process is named nowhere it read, so it goes unprobed.
+    """
+    probe = hook_publish._gone_hosts
+    raced: list[bool] = []
+
+    def probed_then_raced(*args: Any) -> frozenset[ProcessKey]:
+        gone = probe(*args)
+        if not raced:
+            raced.append(True)
+            publish(main, "SubagentStart", SECOND, lookup=lookup)
+        return gone
+
+    monkeypatch.setattr(hook_publish, "_gone_hosts", probed_then_raced)
+    publish(main, "UserPromptSubmit", host=RESUMED, lookup=lookup)
+    monkeypatch.setattr(hook_publish, "_gone_hosts", probe)
+    assert raced
+
+
+def test_a_worker_tagged_after_the_probe_stays_listed(
+    worktrees: list[Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    main, linked = worktrees
+    both = resumed_elsewhere(main)
+    publish(main, "SubagentStop", WORKER, lookup=both)
+    assert record(main, CLAUDE_SESSION)["liveSubagents"] == []
+
+    raced_by_a_start(main, monkeypatch, both)
+
+    # The write did not probe the Lead's process, and carried its worker.
+    raced = record(main, CLAUDE_SESSION)
+    assert raced["liveSubagents"] == [SECOND]
+    assert raced["subagentProcesses"][SECOND]["pid"] == LEAD.pid
+    (blocker,) = sub_agent_blockers(linked, worktrees, both)
+    assert f"({SECOND}; session live)" in blocker
+    publish(main, "Stop", host=RESUMED, lookup=both)
+    assert record(main, CLAUDE_SESSION)["state"] == "running"
+    assert session_state(both, *worktrees) == "running"
+    (shown,) = show_lines(main, both)
+    assert f"({SECOND})" in shown
+
+
+@pytest.mark.parametrize("stop_reported", [True, False])
+def test_a_raced_worker_goes_once_its_process_exits(
+    worktrees: list[Path], monkeypatch: pytest.MonkeyPatch, stop_reported: bool
+) -> None:
+    main, linked = worktrees
+    both = resumed_elsewhere(main)
+    publish(main, "SubagentStop", WORKER, lookup=both)
+    raced_by_a_start(main, monkeypatch, both)
+    if stop_reported:
+        publish(main, "SubagentStop", SECOND, lookup=both)
+
+    # The Lead's process exits; the next write probes it, as the records
+    # now name it, and finds it gone.
+    left = alive(RESUMED)
+    publish(main, "Stop", host=RESUMED, lookup=left)
+
+    settled = record(main, CLAUDE_SESSION)
+    assert (settled["state"], settled["liveSubagents"]) == ("waiting", [])
+    assert "subagentProcesses" not in settled
+    assert session_state(left, *worktrees) == "waiting"
+    assert show_lines(main, left) == []
+    assert sub_agent_blockers(linked, worktrees, left) == []
 
 
 def test_an_end_keeps_the_other_processs_worker_until_its_stop(
@@ -369,15 +455,9 @@ def test_a_tagged_worker_of_a_gone_process_is_not_listed(tmp_path: Path) -> None
     assert classified(alive(RESUMED)) == ("waiting", ())
 
 
-def record_at(directory: Path) -> dict[str, Any]:
-    """The one hook record in ``directory``."""
-    (path,) = directory.glob("*.json")
-    return json.loads(path.read_text())
-
-
 def test_releasing_an_untagged_record_changes_only_its_list(tmp_path: Path) -> None:
     # A record of one Host Process, as every record before ADR 0107 was.
-    second = "a1b2c3d4e5f607183"
+    second = SECOND
     store = HookRecordStore(tmp_path)
     before = factories.hook_record_document(
         tmp_path, CLAUDE_SESSION, "claude-code", LEAD, event="Stop"
@@ -386,12 +466,12 @@ def test_releasing_an_untagged_record_changes_only_its_list(tmp_path: Path) -> N
     stop = {**before, "event": "SubagentStop", "agentId": WORKER}
 
     assert store.release_left_behind(CLAUDE_SESSION, [WORKER], stop) is True
-    assert record_at(tmp_path) == {**before, "liveSubagents": [second]}
+    assert stored_in(tmp_path) == {**before, "liveSubagents": [second]}
 
     ended = {**before, "state": "ended", "event": "SessionEnd"}
     store.replace(CLAUDE_SESSION, ended)
     assert store.release_subagents(CLAUDE_SESSION, [WORKER], stop) is True
-    assert record_at(tmp_path) == {**ended, "liveSubagents": [second]}
+    assert stored_in(tmp_path) == {**ended, "liveSubagents": [second]}
     # Another process's stop changes nothing.
     other = {**stop, "sessionProcess": RESUMED.as_record()}
     assert store.release_subagents(CLAUDE_SESSION, [second], other) is False

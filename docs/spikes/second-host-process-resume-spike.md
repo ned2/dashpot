@@ -46,8 +46,12 @@ Runner [`codex-460`](../../scripts/experiments/codex-460/), trace
 `base` publisher's `sessions/hook_records.py` was at SHA-256
 `0c232451…91ff`, `sessions/hook_publish.py` at `dd1c5a3e…32f8` and
 `sessions/hook_scan.py` at `2a9490d6…3b72`; the `fix` publisher's were at
-`3f273b3b…fc63`, `75465b66…4b81` and `b6657ab2…beea`. Receipt numbers below
-are the trace's, from the `base` scenarios unless named.
+`3f273b3b…fc63`, `75465b66…4b81` and `b6657ab2…beea`. The #460 branch
+changed those sources after the run only where no scenario here reaches: it
+removed an unused helper, and a sub-agent of a process the publisher did not
+probe now carries, while every sub-agent here runs in the daemon, the
+event's own process. So `verify.mjs --strict` reports that drift. Receipt
+numbers below are the trace's, from the `base` scenarios unless named.
 
 - **Setup, each scenario.** A plain terminal started the managed daemon's
   lead (`SessionStart` `startup` from the daemon's process, #12). The lead

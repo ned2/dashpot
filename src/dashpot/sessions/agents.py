@@ -110,8 +110,9 @@ class LastSeenIndex:
         """Remove every gone record no Orphaned Agent Run still needs.
 
         A gone record that still lists a sub-agent another, live Host Process
-        runs is kept too (ADR 0107). A record at a Worktree this pass did not observe is kept only while
-        that Worktree's Work Store holds an active run of the same session,
+        runs is kept too (ADR 0107). A record at a Worktree this pass did not
+        observe is kept only while that Worktree's Work Store holds an active
+        run of the same session,
         which an observation of it would claim; the records of unconfigured
         checkouts and removed Worktrees have no such run and are pruned.
         """

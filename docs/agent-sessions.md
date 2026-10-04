@@ -195,7 +195,7 @@ service runs, and the client's private server then publishes the root's
 events. An event of the session from another process keeps each sub-agent
 the record lists: one the event's own process runs as the record's own, and
 one another process runs, tagged with that process in the record's
-`subagentProcesses`, only while the publisher finds that process not gone.
+`subagentProcesses`, unless the publisher found that process gone.
 So a `SessionStart` from another process starts with the sub-agents of a
 process still running, and with none of a process that is gone, such as the
 one a `claude --resume` replaced. The tagged sub-agent holds the session
