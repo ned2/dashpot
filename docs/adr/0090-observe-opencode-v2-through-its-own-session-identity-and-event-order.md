@@ -1,6 +1,6 @@
 ---
 status: amended
-date: 2026-10-03
+date: 2026-10-05
 amended-by: 0094-let-a-root-opencode-session-move-itself-for-issue-work.md
 ---
 
@@ -115,6 +115,14 @@ and passed in these modes:
 - the refusals of a user shell, a terminal, an unplugged server's shell, a
   `cd` into another Worktree and an explicit `DASHPOT_AGENT_SESSION`, and of
   `integrate` against 1.18.30.
+
+[#379](https://github.com/ned2/dashpot/issues/379) measured, on the same
+release, a model's background shell commands, `opencode run` under a
+person's default permission rules, and retried and failed executions
+([experiment](../spikes/opencode-v2-background-permissions-spike.md)). They
+need no change to this decision: a retrying execution stays started, a failed
+one ends as `failed`, and a background command is no session event, so
+Dashpot does not observe it.
 
 v1 is refused, not observed:
 
@@ -439,9 +447,14 @@ it.
   - A fork reads as a new root session.
   - The TUI's change of directory is a `session.moved`.
   - A session moved to another Git Repository, or outside every Project.
-- **Still unsupported,** as [#379](https://github.com/ned2/dashpot/issues/379)
-  records:
-  - the web, desktop and ACP clients;
-  - `--server <url>`, and workspaces;
+- **Still unsupported,** with the reasons
+  [OpenCode hosting modes](../agent-sessions.md#opencode-hosting-modes)
+  gives:
+  - `--server <url>`, ACP, and the web, desktop and editor clients, which
+    [#455](https://github.com/ned2/dashpot/issues/455) tracks;
+  - the SDK's embedded server, and workspaces;
   - two Host Processes serving one session at once;
   - every operating system other than Linux.
+- **Not observed.** A model's background shell command: the session reads
+  waiting while it runs, and Cleanup does not see it
+  ([#379](https://github.com/ned2/dashpot/issues/379)).
