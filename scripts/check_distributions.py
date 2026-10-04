@@ -14,7 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "src" / "dashpot"
 # Every file of every bundled skill ships, so a new skill's directory needs
-# no entry here.
+# no entry here. The walk is read from the checkout rather than from the
+# package's skill registry, so a skill directory left out of the registry
+# is still checked against both archives.
 ASSETS = (
     "dashpot.tcss",
     "plugins/opencode.js",

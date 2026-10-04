@@ -253,6 +253,54 @@ def test_an_install_refusal_names_every_skill_it_cannot_manage(
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
+@pytest.mark.parametrize("shape", ["directory without SKILL.md", "file"])
+def test_a_path_that_is_no_dashpot_skill_is_a_conflict_left_in_place(
+    harness: Harness, tmp_path: Path, second: BundledSkill, shape: str
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install(harness, tmp_path, (ISSUE_WORK_SKILL,))
+    theirs = copy_of(harness, second)
+    if shape == "file":
+        theirs.write_text("mine\n")
+        kept = theirs
+    else:
+        theirs.mkdir()
+        kept = theirs / "notes.md"
+        kept.write_text("mine\n")
+
+    with pytest.raises(IntegrationError):
+        install(harness, tmp_path, skills)
+
+    assert f"Second skill conflict at {theirs}: not managed by Dashpot" in status(
+        harness, tmp_path, skills
+    )
+    messages = remove_integration(harness, config_home(harness), skills=skills)
+    assert f"left unmanaged Second skill unchanged at {theirs}" in messages
+    assert kept.read_text() == "mine\n"
+
+
+@pytest.mark.parametrize("harness", HARNESSES)
+def test_an_empty_directory_is_free_to_install_into(
+    harness: Harness, tmp_path: Path, second: BundledSkill
+) -> None:
+    vacant = copy_of(harness, second)
+    vacant.mkdir(parents=True)
+    skills = (ISSUE_WORK_SKILL, second)
+
+    assert f"Second skill not installed: no {vacant / 'SKILL.md'}" in status(
+        harness, tmp_path, skills
+    )
+    assert (
+        f"Dashpot Second skill is not installed: no {vacant / 'SKILL.md'}"
+        in remove_integration(harness, config_home(harness), skills=skills)
+    )
+    install(harness, tmp_path, skills)
+    assert (vacant / "SKILL.md").read_bytes() == (
+        second.source / "SKILL.md"
+    ).read_bytes()
+
+
+@pytest.mark.parametrize("harness", HARNESSES)
 def test_an_unreadable_skill_is_refused_reported_and_left_alone(
     harness: Harness, tmp_path: Path, second: BundledSkill
 ) -> None:

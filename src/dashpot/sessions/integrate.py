@@ -322,7 +322,7 @@ def install_integration(
             f"no {spec.display} configuration directory at {home}; install "
             f"and run {spec.display} once before integrating"
         )
-    destinations = [(skill, skill_directory(spec, home, skill)) for skill in skills]
+    destinations = _skill_copies(spec, home, skills)
     _validate_skill_destinations(destinations)
     command = command_path or resolve_hook_command(spec)
     # Refuse before anything is loaded or written: the binding would outlive
@@ -442,7 +442,8 @@ def remove_integration(
                 path.unlink()
                 messages.append(f"removed {path}; it contained only the Dashpot hooks")
     messages.extend(
-        _remove_skill(skill, skill_directory(spec, home, skill)) for skill in skills
+        _remove_skill(skill, target)
+        for skill, target in _skill_copies(spec, home, skills)
     )
     return messages
 
@@ -504,7 +505,7 @@ def integration_status(
                         messages.append(
                             f"warning: {_linked_worktree_consequence(spec, binding)}"
                         )
-    destinations = [(skill, skill_directory(spec, home, skill)) for skill in skills]
+    destinations = _skill_copies(spec, home, skills)
     messages.extend(
         _skill_status(skill, target, harness=spec.harness)
         for skill, target in destinations
@@ -558,9 +559,31 @@ def skill_directory(spec: HarnessIntegration, home: Path, skill: BundledSkill) -
     return home.parent / spec.skills_home / skill.name
 
 
+def _skill_copies(
+    spec: HarnessIntegration, home: Path, skills: tuple[BundledSkill, ...]
+) -> list[tuple[BundledSkill, Path]]:
+    """Each bundled skill, paired with where this harness keeps its copy."""
+    return [(skill, skill_directory(spec, home, skill)) for skill in skills]
+
+
 def _skill_text(destination: Path) -> str:
     """An installed copy's ``SKILL.md``; raises ``OSError`` or ``ValueError``."""
     return (destination / "SKILL.md").read_text(encoding="utf-8")
+
+
+def _is_managed(skill: BundledSkill, destination: Path) -> bool:
+    """Whether a copy's ``SKILL.md`` is readable and carries this skill's marker."""
+    try:
+        return skill.marker in _skill_text(destination)
+    except (OSError, ValueError):
+        return False
+
+
+def _is_vacant(destination: Path) -> bool:
+    """Whether nothing is at a skill's destination, or only an empty directory."""
+    if not destination.exists():
+        return True
+    return destination.is_dir() and not any(destination.iterdir())
 
 
 def _is_current(skill: BundledSkill, destination: Path) -> bool:
@@ -586,14 +609,7 @@ def _validate_skill_destinations(destinations: list[tuple[BundledSkill, Path]]) 
                 f"cannot install the Dashpot {skill.label} at {destination}: "
                 "the path is not a directory; move it and retry"
             )
-            continue
-        if not destination.exists() or not any(destination.iterdir()):
-            continue
-        try:
-            managed = skill.marker in _skill_text(destination)
-        except (OSError, ValueError):
-            managed = False
-        if not managed:
+        elif not _is_vacant(destination) and not _is_managed(skill, destination):
             refusals.append(
                 f"cannot install the Dashpot {skill.label} at {destination}: "
                 "an existing skill is not managed by Dashpot; move it and retry"
@@ -620,8 +636,11 @@ def _install_skill(skill: BundledSkill, destination: Path) -> str:
 
 def _remove_skill(skill: BundledSkill, destination: Path) -> str:
     skill_file = destination / "SKILL.md"
-    if not skill_file.is_file():
+    if _is_vacant(destination):
         return f"Dashpot {skill.label} is not installed: no {skill_file}"
+    if not skill_file.is_file():
+        # A file, or a directory holding no SKILL.md, is not Dashpot's copy.
+        return f"left unmanaged {skill.label} unchanged at {destination}"
     try:
         text = _skill_text(destination)
     except (OSError, ValueError) as exc:
@@ -652,14 +671,17 @@ def _remove_skill(skill: BundledSkill, destination: Path) -> str:
 
 def _skill_status(skill: BundledSkill, destination: Path, *, harness: Harness) -> str:
     skill_file = destination / "SKILL.md"
-    if not skill_file.is_file():
+    if _is_vacant(destination):
         return f"{skill.label} not installed: no {skill_file}"
+    conflict = f"{skill.label} conflict at {destination}: not managed by Dashpot"
+    if not skill_file.is_file():
+        return conflict
     try:
         text = _skill_text(destination)
     except (OSError, ValueError) as exc:
         return f"{skill.label} unreadable at {destination}: {exc}"
     if skill.marker not in text:
-        return f"{skill.label} conflict at {destination}: not managed by Dashpot"
+        return conflict
     if not _is_current(skill, destination):
         return (
             f"{skill.label} update available at {destination}; run "
@@ -1025,11 +1047,7 @@ def _opencode_skill_copies(destinations: list[tuple[BundledSkill, Path]]) -> lis
         ):
             if same_path(directory, own) or not (directory / "SKILL.md").is_file():
                 continue
-            try:
-                managed = skill.marker in _skill_text(directory)
-            except (OSError, ValueError):
-                managed = False
-            if not (managed and _is_current(skill, directory)):
+            if not (_is_managed(skill, directory) and _is_current(skill, directory)):
                 messages.append(
                     f"warning: OpenCode also discovers the {skill.label} at "
                     f"{directory}, which differs from this Dashpot's, and may use "
