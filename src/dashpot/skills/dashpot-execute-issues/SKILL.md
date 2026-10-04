@@ -377,10 +377,6 @@ Dashpot fixes it.
   worker as working after it ends, in `work show` and in Cleanup's
   `sub-agent` blocker, until your session ends or returns. Never move the
   lead while a worker runs.
-- **A Codex worker's shell names no session.** Dashpot refuses a Codex
-  worker's `work` commands as running outside any session, and its
-  `work show` prints no session events. Workers run no `work` commands, so
-  this only misleads; it is not a fault in your setup.
 - **A stopped Claude Code worker's wording.** When a worker's stop goes
   unrecorded, as after Claude Code's `TaskStop`, Dashpot explains the held
   `sub-agent` blocker as an interrupted sub-agent's. Read it as covering a

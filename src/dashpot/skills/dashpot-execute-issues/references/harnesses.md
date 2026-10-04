@@ -165,8 +165,8 @@ on a worker that has gone quiet; otherwise `followup_task` it
 with an instruction to stop and hand back.
 
 **Location.** No tool a worker holds moves your session, and Dashpot
-refuses a Codex worker's `work` commands (see
-[Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)).
+refuses a Codex worker's `work` commands that would change your Issue work,
+as running in a sub-agent.
 
 **Reviewer.** A v2 worker can `spawn_agent` its reviewer, but each spawn
 counts against the session's limit. With the default limit and a full

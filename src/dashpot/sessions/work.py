@@ -93,13 +93,20 @@ class IssueWorkError(DashpotError):
 
 @dataclass(frozen=True, slots=True)
 class AgentSessionIdentity:
-    """Represent a confirmed Agent Session and its corroborating process evidence."""
+    """Represent a confirmed Agent Session and its corroborating process evidence.
+
+    ``delegate`` names the Sub-agent the command runs in, when its harness
+    tells a Sub-agent's shell apart from its session's own: the identity is
+    still the session's, so reading resolves to it, but every command that
+    changes the session's Issue work refuses (ADR 0067).
+    """
 
     harness: Harness
     session_key: str
     session_label: str
     process: ProcessIdentity | None
     session_id: str | None = None
+    delegate: str | None = None
 
     @property
     def session_process(self) -> SessionProcess | None:
@@ -152,7 +159,9 @@ def identify_agent_session(
                     "the claimed Agent Session Identity does not corroborate the "
                     "enclosing harness process; nothing was written"
                 )
-            return _process_identity(harness, process, confirmed.session_id)
+            return _process_identity(
+                harness, process, confirmed.session_id, confirmed.claim.delegate
+            )
         return _session_identity(confirmed)
     if validated:
         names = " and ".join(
@@ -201,7 +210,10 @@ def _no_session_message(ancestry: AgentAncestry, environment: Mapping[str, str])
 
 
 def _process_identity(
-    harness: Harness, process: ProcessIdentity, session_id: str
+    harness: Harness,
+    process: ProcessIdentity,
+    session_id: str,
+    delegate: str | None,
 ) -> AgentSessionIdentity:
     return AgentSessionIdentity(
         harness=harness,
@@ -209,6 +221,7 @@ def _process_identity(
         session_label=work_session_label(harness, session_id, pid=process.pid),
         process=process,
         session_id=session_id,
+        delegate=delegate,
     )
 
 
@@ -226,6 +239,25 @@ def _session_identity(confirmed: ValidatedSessionIdentity) -> AgentSessionIdenti
         ),
         process=confirmed.process,
         session_id=confirmed.session_id,
+        delegate=confirmed.claim.delegate,
+    )
+
+
+def _refuse_delegate(session: AgentSessionIdentity, command: str) -> None:
+    """Refuse a command that changes Issue work when a Sub-agent runs it.
+
+    A Sub-agent's work belongs to its session's Agent Run, so only the
+    session itself starts, moves, ends or assigns that run (ADR 0067), as an
+    OpenCode child session is refused (ADR 0090).
+    """
+    if session.delegate is None:
+        return
+    raise IssueWorkError(
+        f"{HARNESS_DISPLAY[session.harness]} sub-agent {session.delegate} is "
+        f"refused (delegated-session): it is a sub-agent of session "
+        f"{session.session_id}, whose Agent Run its work belongs to; run "
+        f"'dashpot work {command}' from session {session.session_id}, so "
+        f"nothing was written"
     )
 
 
@@ -251,6 +283,7 @@ def start_issue_work(
         lookup, environ=environ, worktree=root, stores=stores
     )
     note.identify(harness=session.harness, session_id=session.session_id)
+    _refuse_delegate(session, "start")
     issue = resolve_issue(root, reference, timeout)
     note.identify(issue_id=issue.id)
     location = _session_location(session, stores, lookup)
@@ -412,6 +445,7 @@ def relocate_issue_work(
         lookup, environ=environ, worktree=root, stores=stores
     )
     note.identify(harness=session.harness, session_id=session.session_id)
+    _refuse_delegate(session, "relocate")
     if session.harness != "codex":
         raise IssueWorkError(
             "work relocate is for a sequential Codex resume; Claude Code moves "
@@ -552,6 +586,7 @@ def stop_issue_work(
             stores=reachable_hook_stores(worktrees),
         )
         note.identify(harness=session.harness, session_id=session.session_id)
+        _refuse_delegate(session, "stop")
         stopped, diagnostics = _stop_elsewhere(session, worktrees, None, lookup)
         # Unreadable records are surfaced beside the outcome: this session's
         # run may be among the records that could not be read.
@@ -759,6 +794,7 @@ def assign_worker(
         lookup, environ=environ, worktree=root, stores=stores
     )
     note.identify(harness=session.harness, session_id=session.session_id)
+    _refuse_delegate(session, "assign")
     store, work = _assigning_run(session, worktrees, lookup)
     if work.evidence.process_key not in (None, session.process_key):
         # The run is orphaned under a Host Process that is gone (the runtime
@@ -850,6 +886,7 @@ def unassign_worker(
         stores=reachable_hook_stores(worktrees),
     )
     note.identify(harness=session.harness, session_id=session.session_id)
+    _refuse_delegate(session, "unassign")
     store, work = _assigning_run(session, worktrees, lookup)
     previous = next(
         (item for item in work.workers if item.worker_id == worker_id), None
@@ -1011,8 +1048,9 @@ def show_session_events(
     Its hook and command outcomes, Agent Session and Agent Run changes and
     failures, at most :data:`RECENT_SESSION_EVENTS` of them from the last
     :data:`RECENT_SESSION_DAYS` days, read from every Worktree of the
-    Repository and the machine-local fallback. A command no supported
-    session encloses lists nothing, as does a session with no such events.
+    Repository and the machine-local fallback. A command a Sub-agent runs
+    lists its session's. A command no supported session encloses lists
+    nothing, as does a session with no such events.
     """
     root = worktree_root(current)
     worktrees = repository_worktrees(root)

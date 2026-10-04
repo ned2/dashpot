@@ -257,7 +257,6 @@ def test_each_known_dashpot_gap_is_named_for_removal() -> None:
     # entry here and there when the installed Dashpot fixes its gap.
     assert re.findall(r"- \*\*(.+?)\*\*", gaps) == [
         "A relocated lead keeps a finished worker listed.",
-        "A Codex worker's shell names no session.",
         "A stopped Claude Code worker's wording.",
         "An unloaded Codex lead drops its workers' blocker.",
     ]

@@ -301,6 +301,9 @@ Both findings are reported, not fixed here.
   sub-agent's shell by `CODEX_SESSION_ID` ≠ `CODEX_THREAD_ID`, as in
   [section 5](#5-shared-agent-session), so that its refusal names a
   sub-agent and the session events of `work show` resolve the root session.
+  Dashpot has since done so, as
+  [How the session is identified](../agent-sessions.md#how-the-session-is-identified)
+  describes.
 - **An unloaded lead's run ends while its worker works:
   [#431](https://github.com/ned2/dashpot/issues/431).** In the `lead-unload` scenario,
   lead N held Issue 3 in the `third` Worktree, and its worker G ran four
