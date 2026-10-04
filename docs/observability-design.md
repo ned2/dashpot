@@ -206,9 +206,9 @@ focus or a reattached client ends it. A runtime value that does not
 fit its field, such as a Branch name Git would refuse, is left out of the
 event rather than failing the work. The reader is tolerant: it ignores fields a newer Dashpot added and skips a line
 it cannot read, whose `schema` is newer, or whose `event.name` it does not
-know. A change a tolerant reader could not read bumps `schema`; a new value
-of an existing field does not, since an older reader skips that line as
-one it cannot read. `dashpot events --json` is the published interface under
+know. A change an older reader would misread, rather than skip, bumps
+`schema`; a new value of an existing field does not, since an older reader
+skips that line as one it cannot read. `dashpot events --json` is the published interface under
 [ADR 0034](adr/0034-publish-an-alpha-with-patch-compatible-interfaces.md);
 the file format is not. Each event in it keeps the field names above, with
 an absent field as `null`, rather than the camelCase of the other `--json`

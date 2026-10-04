@@ -9,7 +9,8 @@ otherwise, so the models set their aliases explicitly rather than taking
 ``DashpotModel``'s camelCase ones.
 
 Writing is strict; :func:`read_runtime_event` is tolerant of fields a newer
-Dashpot added, and a change it could not read bumps :data:`SCHEMA_VERSION`.
+Dashpot added and skips a line it cannot read, so only a change an older
+reader would misread, rather than skip, bumps :data:`SCHEMA_VERSION`.
 """
 
 from __future__ import annotations
