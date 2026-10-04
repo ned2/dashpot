@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Observability design
@@ -122,7 +122,9 @@ Each event is one JSON object on its own line. The envelope and the process
 identity are flattened beside the event's own fields, so a line reads the
 way OpenTelemetry's log data model and semantic conventions name things;
 where no convention exists the field is `dashpot.*`. The models override
-Dashpot's camelCase aliases with these names explicitly.
+Dashpot's camelCase aliases with these names explicitly. Every
+`dashpot.duration_seconds` is written to the microsecond, and a reader takes
+any precision, so lines written before #337 still read.
 
 | Field | Carried by | Meaning |
 |---|---|---|
@@ -229,15 +231,18 @@ output.
   running dashboard that lasts for that run and never rewrites
   `config.toml`. There is no command-line flag. A settings file that fails
   to load leaves `standard`, silently in hooks and commands.
-- **Volume.** A GitHub request span is about 620 bytes on disk, a command
-  span about 460, and an observation, query or refresh span 360 to 460
-  ([measurements](#measurements)). At `standard` the bulk is GitHub request
-  spans: about 4.5 MB a day at the roughly 5 requests per 60-second GitHub
-  refresh the dashboard sends since #303, #305 and #310 landed, and about
-  50 MB a day at #308's earlier 14 requests per 15 seconds. At `full`, about
-  200 MB a day on Dashpot's own Repository with ten Worktrees at the
-  15-second local period, almost all of it command spans, growing with
-  Worktrees and Branches.
+- **Volume.** A GitHub request span is about 680 bytes on disk, a command
+  or observation span about 510, a query span 480 and a refresh span 420
+  ([measurements](#measurements)). Most of a line is its envelope and its
+  field names, about 300 bytes of envelope on a dashboard's span: the price
+  of a self-describing wide event, which rounding durations trims by only 1
+  to 2.5%. At `standard` a dashboard writes about 4 to 5.5 MB a day, almost
+  all GitHub request spans, and stops with its GitHub requests while an
+  Unattended Pause holds. Each hook run adds about 1.6 KB to the shared
+  file, its `process.start`, `hook.outcome` and `process.end` together. At
+  `full`, about 100 MB a day on Dashpot's own Repository with 16 Worktrees
+  at the 15-second local period, four fifths of it command spans, growing
+  with Worktrees and Branches.
 
 ## Where the Event Log lives
 
@@ -283,7 +288,16 @@ output.
   notices a moved or deleted current file by its inode and opens a new one.
   An `event-log-large` Diagnostic warns without acting when the dashboard's
   checkout's Event Log passes 200 MB; the dashboard measures it off the
-  event loop when it starts and on each local or requested refresh.
+  event loop when it starts and on each local or requested refresh. The
+  threshold stays at 200 MB, and `full` keeps every span, by #337's
+  decision. At `standard` a busy checkout reaches it in roughly four to six
+  weeks, which is when old files are worth removing. A dashboard left at
+  `full` reaches it in about two days, which suits `full` as a short-lived
+  level for developing Dashpot: the warning is the intended prompt to
+  remove old files or return to `standard`. A larger threshold would keep a
+  week at `full` quiet but would rarely warn at `standard`, and writing
+  fewer command spans at `full` would lose the per-command trail `full`
+  exists to keep.
 - **Writing never fails the work.** A failed write is dropped. The dashboard
   records the failure as an `event_log.write_failed` event in its in-memory
   buffer, where Runtime Stats counts it, and the first raises an
@@ -412,6 +426,23 @@ output.
   200 MB a day at `full`; at `standard` the GitHub request spans alone are
   about 14 KB in the same time — 23 requests, from the first load and three
   GitHub refreshes — or about 4.5 MB a day at 5 requests a minute.
+  Superseded by the next measurement.
+- **Span volume** (2026-10-04, #337, `scripts/experiments/event-volume-337.py`:
+  the real dashboard, headless, on Dashpot's own Repository with 16
+  Worktrees at `full` for 586 seconds, default periods, durations written to
+  the microsecond, the Event Log in a temporary directory): 1,417 lines,
+  730 KB. 1,150 command spans averaged 511 bytes (about 29 commands per
+  local refresh after #317), 120 observation spans 520, 56 GitHub request
+  spans 683, 49 refresh spans 421 and 33 query spans 480. Leaving out the
+  first 90 seconds, that is about 97 MB a day at `full` and 5.2 MB a day at
+  `standard`. Three of this machine's own dashboards, run for an hour or
+  more each that day, wrote 155 to 232 KB of `standard` lines an hour, about
+  3.7 to 5.6 MB a day, almost all GitHub request spans averaging 750 bytes:
+  a GraphQL request's span carries four rate-limit fields and is about 750
+  bytes, a REST request's about 440.
+- **Duration rounding** (2026-10-04, #337, 2,781 lines written before it):
+  writing `dashpot.duration_seconds` to the microsecond saves about 10
+  bytes a line, 1.3% of a GitHub request span and 2.5% of a `process.end`.
 - **GitHub spend** (2026-09-26, process sampling, recorded in #308): 14
   requests per 15 seconds then; about 5 per 60-second GitHub refresh after
   #303, #305 and #310.
@@ -437,6 +468,12 @@ output.
   about 560 and a `diagnostic.changed` about 420; they follow commands a
   person runs and changes a dashboard observes, so they are a small part of
   a day's `standard` volume, which GitHub request spans dominate.
+- **Hook volume** (2026-10-04, #337, this checkout's shared file over four
+  and a half hours of several Claude Code sessions): 759 hook and command
+  processes wrote 1.2 MB. A hook run's `process.start` averaged 615 bytes,
+  its `hook.outcome` 533 and its `process.end` 438, about 1.6 KB a run
+  together, so 1,500 hook runs a day add about 2.4 MB rather than the
+  0.9 MB `hook.outcome` alone accounts for.
 
 ## Sources
 
