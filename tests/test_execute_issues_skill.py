@@ -222,7 +222,7 @@ def test_the_lead_binds_through_the_issue_work_skill_before_any_worktree() -> No
     assert "Do not enter an Issue Worktree yourself" in setup
     flowed = " ".join(text.split())
     assert flowed.index("Establish the workflow") < flowed.index(
-        "<dashpot> worktree create <n> --json"
+        "<dashpot> worktree create <n> --base"
     )
     close_out = section(text, "5. Close out")
     assert close_out.index("Once no worker is live, remove the Worktrees") < (
@@ -248,6 +248,135 @@ def test_the_lead_merges_only_with_granted_authority() -> None:
     assert "Read CI from `statusCheckRollup`, never from the worker's report" in merge
     assert "--match-head-commit <full headRefOid>" in merge
     assert "Without authority, tell the user it is ready" in merge
+
+
+def test_a_maintainers_instruction_is_checked_before_it_is_briefed() -> None:
+    mapping = section(shipped("SKILL.md"), "1. Map the arc")
+    assert (
+        "Before you restate one in a brief, check it against both. Where they "
+        "conflict, brief the intent and the conflict, and record on the Issue "
+        "which one you chose."
+    ) in mapping
+
+
+def test_the_lead_finds_every_other_open_arc_by_its_opening_line() -> None:
+    mapping = section(shipped("SKILL.md"), "1. Map the arc")
+    search = re.search(
+        r"`gh issue list --state open --search '\"(.+?)\" in:body'`", mapping
+    )
+    assert search is not None
+    records = shipped("references/run-records.md")
+    opening = re.search(r"```markdown\n(Tracking Issue for a .+?)\n```", records)
+    assert opening is not None
+    # GitHub's search ignores the backticks the opening line carries.
+    assert opening.group(1).replace("`", "").startswith(search.group(1))
+    flowed_records = " ".join(records.split())
+    assert "For an epic, add it at the top of the epic's body" in flowed_records
+    assert "The record Issue's body opens with this line" in flowed_records
+    assert (
+        "note the files its collision plan owns, the numbers it reserved, "
+        "and its share of the machine's cores"
+    ) in mapping
+    assert (
+        "settle its ownership with the other arc's lead through the user, or sequence"
+        in mapping
+    )
+    dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
+    assert "A file another open arc owns stays with it" in dispatch
+
+
+def test_reservations_and_cores_are_shared_with_every_live_arc() -> None:
+    setup = section(shipped("SKILL.md"), "2. Set up")
+    assert "and the reservations of every other open arc" in setup
+    assert (
+        "A clash found before dispatch: the arc whose arc map posted later "
+        "takes the next free numbers. A clash found after dispatch: the arc "
+        "that dispatched the number later renumbers, and its lead broadcasts "
+        "the new number to its workers."
+    ) in setup
+    assert "Divide the machine's cores between every live arc, yours included" in setup
+    assert "record yours in the arc map" in setup
+    assert "who asks the other lead to shrink its share" in setup
+    assert "create the first Worktree: until it is posted" in setup
+    dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
+    assert "re-split the cores between the live arcs" in dispatch
+    arc_map = section(shipped("references/run-records.md"), "The arc map")
+    assert "Posted once, at setup, before you create the first Worktree:" in arc_map
+    assert "your share of the machine's cores" in arc_map
+    wave = " ".join(
+        shipped("references/brief-template.md").split("## The wave block", 1)[1].split()
+    )
+    assert "Other arcs hold <numbers, by record Issue>: never take them." in wave
+    assert "- Another arc, record Issue #<t>: <files>." in wave
+
+
+def test_each_worktree_is_cut_from_a_freshly_fetched_tip() -> None:
+    dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
+    assert (
+        "Run `git fetch`, then at once "
+        "`<dashpot> worktree create <n> --base origin/<integration-branch> --json`"
+    ) in dispatch
+    assert (
+        "Check that the `baseCommit` it reports is "
+        "`git rev-parse origin/<integration-branch>`"
+    ) in dispatch
+    assert "`git -C <path> merge --ff-only origin/<integration-branch>`" in dispatch
+    assert "including each one a merge unblocks" in dispatch
+
+
+def test_a_merge_lands_only_what_ci_tested() -> None:
+    merge = section(shipped("SKILL.md"), "4. Handle each hand-back")
+    assert "several merges behind" not in merge
+    check = merge.index("**Check that CI tested what will land.**")
+    assert check < merge.index("--match-head-commit")
+    assert (
+        "`git merge-base --is-ancestor origin/<integration-branch> <headRefOid>` "
+        "succeeds: the head already contains the integration branch's tip."
+    ) in merge
+    assert "it also did when the run's **tested base** is that tip" in merge
+    assert "Where CI checks out the head alone, only the first test applies." in merge
+    assert (
+        "Merge directly only when one test holds. Otherwise, whoever moved the "
+        "branch, do one of these:"
+    ) in merge
+    assert "Re-running the old run tests the old revision again." in merge
+    assert (
+        "`git log --oneline <last-broadcast>..origin/<integration-branch>`"
+    ) in merge
+    assert "names every merge in that range, whoever made it" in merge
+    assert "Record the merge with the SHA you broadcast, at once" in merge
+    record = section(shipped("references/run-records.md"), "A merge")
+    assert (
+        "the merge SHA and the SHA you broadcast are posted at once: the next "
+        "broadcast starts from the SHA you broadcast."
+    ) in record
+    assert "how you checked that CI tested what lands" in record
+
+
+def test_close_out_waits_for_another_sessions_sub_agents() -> None:
+    close_out = section(shipped("SKILL.md"), "5. Close out")
+    assert "**A removal refused for another session's sub-agents** waits" in close_out
+    assert "tell the user which sessions the blockers name" in close_out
+    assert "wait for their sub-agents to finish, and retry the dry run" in close_out
+    assert (
+        "A blocker that says its session ended never clears by waiting: give the "
+        "user the command it names, and leave running it to them"
+    ) in close_out
+    assert "Bypass Dashpot only when the user explicitly tells you to" in close_out
+    for check in (
+        "`git -C <path> status --porcelain` prints nothing",
+        "its PR shows `MERGED`",
+        "no process has its working directory inside it",
+        "the dry run lists no blocker but those sessions' `sub-agent` ones",
+    ):
+        assert check in close_out, check
+    # One sentence names the bypass, so a Dashpot override can replace it.
+    assert close_out.count("The bypass is plain git:") == 1
+    assert "Record the bypass, the user's instruction and each check's result" in (
+        close_out
+    )
+    record = section(shipped("references/run-records.md"), "The close-out")
+    assert "each Worktree removed with plain git rather than Dashpot" in record
 
 
 def test_each_known_dashpot_gap_is_named_for_removal() -> None:

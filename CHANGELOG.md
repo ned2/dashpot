@@ -82,7 +82,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   quoting the repository's own gates and review process into each worker's
   brief and recording the arc in Issue comments. It merges only when the
   user grants it, and bundles a reviewer prompt for repositories that name
-  no review process.
+  no review process. Concurrent leads find each other's arcs by the opening
+  line of each record Issue, and share out files, reserved numbers and
+  cores. A lead cuts each Worktree from a freshly fetched tip, merges only
+  what CI tested as it will land, and at close-out removes a Worktree
+  another session's sub-agents block only on the user's instruction.
 - A lead assigns each worker to the Issue it implements with `dashpot work
   assign <issue> --worker <id> --worktree <path>`, and the Issues pane shows
   that Issue running while the lead's hooks report the worker working,

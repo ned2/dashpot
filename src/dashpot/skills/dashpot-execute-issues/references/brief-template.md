@@ -120,10 +120,11 @@ heading, or delete it.
 **Live siblings.** Each in its own Worktree, all based on <integration branch> <sha>:
 - #<a>: <one line>
 
-**Reserved numbers.** Use only your own: #<a>: <numbers>. <number> is spare and belongs to no one.
+**Reserved numbers.** Use only your own: #<a>: <numbers>. <number> is spare and belongs to no one. Other arcs hold <numbers, by record Issue>: never take them.
 
 **Who owns which files.** An edit outside your area goes to the lead first.
 - #<a>: <files, functions, document sections>
+- Another arc, record Issue #<t>: <files>. Leave them to it.
 
 **Shared core.** Tell the lead before you change a signature or behaviour in: <modules>.
 
