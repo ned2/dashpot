@@ -36,8 +36,8 @@ WAY_OUT = (
 # recorded them: no ``SubagentStop`` follows in either order.
 STRANDING_ORDERS = {
     # The dispatching turn ends, and the lead's next turn calls ``TaskStop``:
-    # the task-notification it gets says ``stopped``. Two more turns follow.
-    "taskstop": ["Stop", *["UserPromptSubmit", "Stop"] * 3],
+    # the task-notification it gets says ``killed``. Two more turns follow.
+    "headless-taskstop": ["Stop", *["UserPromptSubmit", "Stop"] * 3],
     # The SDK host interrupts the dispatching turn, which publishes no
     # ``Stop``; the host's next prompt starts a turn that ends normally.
     "headless-interrupt": ["UserPromptSubmit", "Stop"],

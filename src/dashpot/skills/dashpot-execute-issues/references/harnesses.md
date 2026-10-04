@@ -56,8 +56,8 @@ again.
 
 **Stopping a worker.** Avoid `TaskStop`: it publishes no stop to Dashpot,
 which leaves the `sub-agent` blocker up until your session ends. It also
-leaves the worker's Issue reading `running` until you unassign it. Message the worker
-to stop and hand back instead. A headless host that interrupts you stops
+leaves the worker's Issue reading `running` until you unassign it. Message
+the worker to stop and hand back instead. A headless host that interrupts you stops
 your workers without telling you; treat a worker you never hear from again
 as a blocker.
 

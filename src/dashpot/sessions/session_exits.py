@@ -92,8 +92,8 @@ def unreported_subagent_stop(harness: Harness) -> str:
     ``SubagentStop``, or until the session ends, starts again or its Host
     Process is gone. Some harnesses end a sub-agent without one: a Codex
     child interrupted through its own thread (#374), and a Claude Code
-    worker its lead stops with ``TaskStop`` or that a headless SDK interrupt
-    kills (#419). So the sentence names neither mechanism, covers a stopped
+    sub-agent its session stops with ``TaskStop``, or one a headless SDK
+    interrupt kills (#419). So the sentence names neither mechanism, covers a stopped
     sub-agent as well as an interrupted one, and names the harness's way to
     end the session rather than guessing which sub-agent is still working.
     """

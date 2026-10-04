@@ -146,13 +146,12 @@ also says that a sub-agent stays listed until its harness reports that it
 stopped, which one that was stopped or interrupted may never do, so if none
 is still working, the way out is to end that session, in the
 [harness's words](#agent-sessions-and-worktree-cleanup). A Codex child
-interrupted through its own thread
-([#374](https://github.com/ned2/dashpot/issues/374)) reports no stop, nor
-does a Claude Code worker its lead stops with `TaskStop` or that a headless
+interrupted through its own thread reports no stop
+([#374](https://github.com/ned2/dashpot/issues/374)). Neither does a Claude
+Code sub-agent that its session stops with `TaskStop`, or that a headless
 SDK interrupt kills ([#419](https://github.com/ned2/dashpot/issues/419)).
 The blocker clears when the last sub-agent's `SubagentStop` arrives, when a
-live session
-starts again, or when the session's process is gone. A sub-agent
+live session starts again, or when the session's process is gone. A sub-agent
 dispatched before its session entered another Worktree is listed both in
 the record left behind and in the record the session moved to, and holds
 the block while it works. Its `SubagentStop` removes it from both: the
@@ -371,13 +370,14 @@ In the dashboard, a Claude Code session's state means:
 
 - **Running or waiting.** Its Host Process is live, and the state is that of
   its current turn; a sub-agent still working holds it running after the
-  main turn stops. Claude Code publishes no `SubagentStop` for a worker its
-  lead stops with `TaskStop`, or for one a headless SDK interrupt kills, so
-  a worker stopped either way holds the session running, and blocks Cleanup
-  across the Repository, until the session ends or starts again or its Host
-  Process is gone; `dashpot work show` and the `sub-agent` blocker say so
+  main turn stops. Claude Code publishes no `SubagentStop` for a sub-agent
+  its session stops with `TaskStop`, or for one a headless SDK interrupt
+  kills, so a sub-agent stopped either way holds the session running, and
+  blocks Cleanup across the Repository, until the session ends or starts
+  again or its Host Process is gone; `dashpot work show` and the
+  `sub-agent` blocker say so
   ([#419](https://github.com/ned2/dashpot/issues/419)). Esc in an
-  interactive terminal strands no worker: it works on to its own
+  interactive terminal strands no sub-agent: it works on to its own
   `SubagentStop`. A compaction keeps the state: `/compact` publishes no
   prompt and no `Stop`, so a waiting session stays waiting, and automatic
   compaction runs inside a turn, which reads running until its `Stop`
@@ -750,9 +750,9 @@ Worktree of the Repository, `dashpot work show` adds an indented line naming
 them. They hold the run running until the harness reports each one stopped,
 which one that was stopped or interrupted may never do: a Codex child
 interrupted through its own thread
-([#374](https://github.com/ned2/dashpot/issues/374)), or a Claude Code worker
-its lead stops with `TaskStop` or that a headless SDK interrupt kills
-([#419](https://github.com/ned2/dashpot/issues/419)). So the line names the
+([#374](https://github.com/ned2/dashpot/issues/374)), or a Claude Code
+sub-agent its session stops with `TaskStop`, or one a headless SDK interrupt
+kills ([#419](https://github.com/ned2/dashpot/issues/419)). So the line names the
 harness's way to end the session if none is still working, as the
 [`sub-agent` blocker](#sub-agents-and-worktree-cleanup) does.
 

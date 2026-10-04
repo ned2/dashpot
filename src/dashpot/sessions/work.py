@@ -981,8 +981,9 @@ def show_issue_work(
     """Read the active Agent Runs recorded at the current Worktree.
 
     A run whose session has sub-agents listed as working is followed by
-    them: they hold the run running, and one that was interrupted may never
-    be reported stopped, so the line names the harness's way out (#374).
+    them: they hold the run running, and one that was stopped or interrupted
+    may never be reported stopped, so the line names the harness's way out
+    (#374, #419).
     Then come the Workers the run assigned (ADR 0096), each saying whether
     its session lists it as working.
     """

@@ -253,8 +253,8 @@ def test_the_lead_merges_only_with_granted_authority() -> None:
 def test_each_known_dashpot_gap_is_named_for_removal() -> None:
     text = shipped("SKILL.md")
     gaps = section(text, "Known Dashpot gaps")
-    # One entry per open Dashpot Issue, mapped in the skill's ADR; drop an
-    # entry here and there when the installed Dashpot fixes its gap.
+    # One entry per Dashpot gap a lead works around; drop an entry here and
+    # there when the installed Dashpot fixes its gap.
     assert re.findall(r"- \*\*(.+?)\*\*", gaps) == [
         "An unloaded Codex lead ends its workers' Issue work.",
     ]
