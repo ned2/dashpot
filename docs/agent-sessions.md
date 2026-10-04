@@ -856,6 +856,33 @@ Claude Code's claimed host PID must also agree when present. Process evidence
 alone cannot authorize starting, switching, stopping, or relocating Issue work,
 even if only one session hook is currently visible.
 
+A Codex command's claim comes from two variables Codex's shell tool exports:
+`CODEX_THREAD_ID`, the thread the command runs in, and `CODEX_SESSION_ID`,
+the root thread of its Agent Session, which is the `session_id` every hook
+of the session publishes. A root's or a fork's shell carries one thread in
+both. A Sub-agent's shell carries its own thread beside its root's, no hook
+publishes that thread as a session, and the session's `SubagentStart` pairs
+the root's `session_id` with it as `agent_id`. The
+[worker mechanics trace](spikes/codex-worker-mechanics-spike.md#5-shared-agent-session)
+measured this at 0.160.0 for every lead and worker shell, v1 and v2 workers
+alike. So the claim names the root, and the root's hook record confirms it
+like any other claim. Neither variable is user-documented: the 0.160.0
+source describes `CODEX_SESSION_ID` as the shared root-session identity,
+and only the TypeScript SDK's README shows `CODEX_THREAD_ID`. A shell
+without a readable `CODEX_THREAD_ID` makes no claim, and one without a
+readable `CODEX_SESSION_ID`, as before 0.155.1, claims its thread alone.
+
+A command a Codex Sub-agent runs therefore resolves to its root Agent
+Session: from the Sub-agent's shell, `dashpot work show` lists that
+session's recent events, and `dashpot integrate codex --status` reports the
+root's identity. `work start`, `relocate`, `stop`, `assign` and `unassign`
+refuse it as `delegated-session`, naming the Sub-agent and its session,
+because a Sub-agent's work belongs to its session's Agent Run
+([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)),
+as an OpenCode child session's command is refused. A Claude Code
+Sub-agent's shell carries its session's own identity, so Dashpot cannot
+tell it apart from the session's own command and does not refuse it.
+
 New Agent Runs use a deterministic harness-prefixed SHA-256 digest of the native
 session ID as their storage key. Full stored identity remains authoritative:
 a conflicting or unreadable destination is refused. Existing process-keyed

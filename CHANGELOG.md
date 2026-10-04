@@ -83,6 +83,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
 - Read a Host Process's whole command line when its hooks inherit a narrow
   `COLUMNS`, which had cut a managed Codex daemon's `--managed-daemon` flag
   and could misclassify any Host Process whose adapter reads its arguments.
+- Resolve a command a Codex sub-agent runs to its root Agent Session, by the
+  `CODEX_SESSION_ID` its shell carries beside its own thread: `dashpot work
+  show` lists that session's recent events, and `work start`, `relocate`,
+  `stop`, `assign` and `unassign` refuse it as `delegated-session`, naming
+  the sub-agent and its session, instead of finding no session at all.
 
 This release establishes the first compatibility baseline. Documented commands,
 JSON key sets and semantics, Local Issue Markdown, and `.dashpot/config.json`

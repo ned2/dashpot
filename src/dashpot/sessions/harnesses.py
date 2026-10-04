@@ -73,12 +73,17 @@ class SessionIdentityClaim:
     A claim is evidence to validate against the harness's hook record, never
     identity in itself. ``pid`` is the host PID the environment attributes to
     the harness, when it names one, and must agree with the record.
+    ``delegate`` is the Sub-agent whose own shell made the claim, when the
+    harness names the session that Sub-agent belongs to beside it: the claim
+    then names that session, which the Sub-agent may read as but never act
+    for (ADR 0067).
     """
 
     harness: Harness
     session_id: str
     source: str
     pid: int | None = None
+    delegate: str | None = None
 
 
 # A native hook event, as the harness wrote it to the publisher's stdin.
@@ -232,14 +237,32 @@ def _claude_code_locates(event: HookEvent) -> bool:
     return action == "keep"
 
 
+# Codex's shell tool exports the thread a command runs in and, since
+# 0.155.1, the root thread of its Agent Session, which is the ``session_id``
+# every hook of the session publishes, its Sub-agents' included.
+CODEX_THREAD_VARIABLE = "CODEX_THREAD_ID"
+CODEX_SESSION_VARIABLE = "CODEX_SESSION_ID"
+
+
 def _codex_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
-    # Codex's shell tool exports its thread identifier, which is the
-    # ``session_id`` its hooks publish. The variable is undocumented, so the
-    # claim is only ever accepted when a Codex hook record confirms it.
-    session_id = _identity(environ.get("CODEX_THREAD_ID"))
-    if session_id is None:
+    # A root's or a fork's shell carries one thread in both variables. A
+    # Sub-agent's carries its own thread beside its root's, and no hook
+    # publishes the Sub-agent's thread as a session (measured at 0.160.0),
+    # so the claim names the root and the differing thread is the Sub-agent
+    # the command runs in. Neither variable is documented, so the claim is
+    # only ever accepted when a Codex hook record confirms the root.
+    thread = _identity(environ.get(CODEX_THREAD_VARIABLE))
+    if thread is None:
         return None
-    return SessionIdentityClaim("codex", session_id, "Codex environment")
+    root = _identity(environ.get(CODEX_SESSION_VARIABLE))
+    if root is None or root == thread:
+        return SessionIdentityClaim("codex", thread, "Codex environment")
+    return SessionIdentityClaim(
+        "codex",
+        root,
+        f"Codex environment of sub-agent {thread}",
+        delegate=thread,
+    )
 
 
 def _claude_code_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:

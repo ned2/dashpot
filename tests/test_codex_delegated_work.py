@@ -9,32 +9,51 @@ them: a sub-agent's boundaries and its own events carry the root thread's
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.model import AgentRun
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
+from dashpot.sessions.integrate import codex_integration_status
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work import (
     IssueWorkError,
+    assign_worker,
     forget_session_subagents,
+    identify_agent_session,
+    relocate_issue_work,
     show_issue_work,
+    show_session_events,
     start_issue_work,
+    stop_issue_work,
+    unassign_worker,
 )
 from dashpot.sessions.work_store import WorkStore
 from factories import CODEX
 from helpers import present
-from test_work import CODEX_SESSION, codex_lookup, target, two_worktrees
+from test_work import (
+    CODEX_SESSION,
+    codex_lookup,
+    session_event_log,
+    target,
+    two_worktrees,
+)
 
 # A second root thread on the same Codex Host Process, as on the managed daemon.
 SIBLING = "01a05099-1563-79a3-8504-e30d50949cb7"
 CHILD = "01a05099-1d2a-7c30-9a8e-3f1d2c4b5a01"
 SECOND_CHILD = "01a05099-1d2a-7c30-9a8e-3f1d2c4b5a02"
+# A Sub-agent's shell as Codex 0.160.0 prepares it: its own thread beside its
+# root's (docs/spikes/measurements/issue-420-codex-trace.jsonl).
+CHILD_SHELL = {"CODEX_SESSION_ID": CODEX_SESSION, "CODEX_THREAD_ID": CHILD}
 
 
 @pytest.fixture(autouse=True)
@@ -488,14 +507,11 @@ def test_a_child_working_elsewhere_never_moves_or_rebinds_its_parent(
     publish(a, "SubagentStart", CHILD)
     publish(a, "Stop")
 
-    # The child's events report another Worktree, and its shell claims its
-    # own thread there.
+    # The child's events report another Worktree, and its shell runs there.
     for event in ("UserPromptSubmit", "Stop"):
         assert publish(b, event, CHILD).work == "unchanged"
-    with pytest.raises(IssueWorkError):
-        start_issue_work(
-            b, "fix-crash", lookup=codex_lookup, environ={"CODEX_THREAD_ID": CHILD}
-        )
+    with pytest.raises(IssueWorkError, match="delegated-session"):
+        start_issue_work(b, "fix-crash", lookup=codex_lookup, environ=CHILD_SHELL)
     publish(b, "SubagentStop", CHILD)
 
     assert WorkStore(a).active()[0] == [work]
@@ -509,6 +525,145 @@ def test_a_child_working_elsewhere_never_moves_or_rebinds_its_parent(
         str(a),
         "waiting",
     )
+
+
+# --- A child's shell resolves to its root session (#428) -----------------------
+
+# Each command that changes Issue work, as the child's shell runs it at ``a``,
+# with ``b`` as the other Worktree it names.
+CHANGES_WORK: dict[str, Callable[[Path, Path, OutcomeNote], list[str]]] = {
+    "start": lambda a, _b, note: start_issue_work(
+        a, "fix-crash", lookup=codex_lookup, environ=CHILD_SHELL, outcome=note
+    ),
+    "relocate": lambda a, b, note: relocate_issue_work(
+        a, b, lookup=codex_lookup, environ=CHILD_SHELL, outcome=note
+    ),
+    "stop": lambda a, _b, note: stop_issue_work(
+        a, lookup=codex_lookup, environ=CHILD_SHELL, outcome=note
+    ),
+    "assign": lambda a, b, note: assign_worker(
+        a,
+        "fix-crash",
+        SECOND_CHILD,
+        b,
+        lookup=codex_lookup,
+        environ=CHILD_SHELL,
+        outcome=note,
+    ),
+    "unassign": lambda a, _b, note: unassign_worker(
+        a, SECOND_CHILD, lookup=codex_lookup, environ=CHILD_SHELL, outcome=note
+    ),
+}
+
+
+@pytest.mark.parametrize("command", list(CHANGES_WORK))
+def test_a_childs_command_that_changes_work_is_refused_as_a_sub_agents(
+    tmp_path: Path, command: str
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    bound_session(a)
+    publish(a, "SubagentStart", CHILD)
+    publish(a, "SubagentStart", SECOND_CHILD)
+    before = WorkStore(a).active()[0]
+    note = OutcomeNote()
+
+    with pytest.raises(IssueWorkError) as refusal:
+        CHANGES_WORK[command](a, b, note)
+
+    assert str(refusal.value) == (
+        f"Codex sub-agent {CHILD} is refused (delegated-session): it is a "
+        f"sub-agent of session {CODEX_SESSION}, whose Agent Run its work "
+        f"belongs to; run 'dashpot work {command}' from session "
+        f"{CODEX_SESSION}, so nothing was written"
+    )
+    # The refusal is the root session's, and its run is untouched.
+    assert (note.harness, note.session_id, note.action) == (
+        "codex",
+        CODEX_SESSION,
+        None,
+    )
+    assert WorkStore(a).active()[0] == before
+    assert WorkStore(b).active()[0] == []
+    assert recorded(a)["liveSubagents"] == [CHILD, SECOND_CHILD]
+
+
+def test_a_childs_shell_identifies_its_root_session(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    bound_session(a)
+    publish(a, "SubagentStart", CHILD)
+
+    # Wherever the child's shell runs, as the root's own shell would.
+    for at in (a, b):
+        session = identify_agent_session(codex_lookup, environ=CHILD_SHELL, worktree=at)
+        root = identify_agent_session(
+            codex_lookup, environ={"CODEX_THREAD_ID": CODEX_SESSION}, worktree=at
+        )
+
+        assert (session.session_id, session.delegate) == (CODEX_SESSION, CHILD)
+        assert (session.session_key, session.session_label) == (
+            root.session_key,
+            root.session_label,
+        )
+        assert root.delegate is None
+
+
+def test_a_childs_work_show_lists_its_root_sessions_events(tmp_path: Path) -> None:
+    a, b = two_worktrees(tmp_path)
+    bound_session(a)
+    publish(a, "SubagentStart", CHILD)
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
+    log = session_event_log(a, CODEX_SESSION, now - timedelta(hours=1))
+    log.end(1)
+    root_shell = {"CODEX_SESSION_ID": CODEX_SESSION, "CODEX_THREAD_ID": CODEX_SESSION}
+
+    listed = show_session_events(a, lookup=codex_lookup, environ=root_shell, now=now)
+
+    assert listed[0] == "recent events of codex pid 4242:"
+    assert len(listed) == 2
+    for at in (a, b):
+        assert (
+            show_session_events(at, lookup=codex_lookup, environ=CHILD_SHELL, now=now)
+            == listed
+        )
+
+
+def test_a_childs_integrate_status_reports_its_root_sessions_identity(
+    tmp_path: Path,
+) -> None:
+    a, _b = two_worktrees(tmp_path)
+    bound_session(a)
+    publish(a, "SubagentStart", CHILD)
+    home = tmp_path / "codex-home"
+    home.mkdir()
+
+    messages = codex_integration_status(
+        home,
+        state_dir=tmp_path / "global-state",
+        current=a,
+        lookup=codex_lookup,
+        environ=CHILD_SHELL,
+    )
+
+    assert [m for m in messages if "identity claimed here" in m] == [
+        f"Agent Session identity claimed here: Codex session {CODEX_SESSION} "
+        f"(from Codex environment of sub-agent {CHILD}), confirmed by its live "
+        f"hook record"
+    ]
+
+
+def test_a_child_of_an_unrecorded_root_is_refused_naming_both(
+    tmp_path: Path,
+) -> None:
+    a, _b = two_worktrees(tmp_path)
+
+    with pytest.raises(IssueWorkError) as refusal:
+        start_issue_work(a, "fix-crash", lookup=codex_lookup, environ=CHILD_SHELL)
+
+    assert (
+        f"no lifecycle hook record for Codex session {CODEX_SESSION} (from "
+        f"Codex environment of sub-agent {CHILD})"
+    ) in str(refusal.value)
+    assert WorkStore(a).active()[0] == []
 
 
 # --- Another root thread on the same Host Process ------------------------------

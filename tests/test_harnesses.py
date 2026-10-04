@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import cast
+import json
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -149,6 +151,100 @@ def test_codex_adapter_claims_the_thread_identity_its_hooks_publish() -> None:
     assert CODEX.claim_session_identity({"CODEX_THREAD_ID": "not valid!"}) is None
     claim = CODEX.claim_session_identity({"CODEX_THREAD_ID": "01a0-thread"})
     assert claim == SessionIdentityClaim("codex", "01a0-thread", "Codex environment")
+
+
+def test_a_codex_root_shell_claims_its_own_thread() -> None:
+    # A root's or a fork's shell carries one thread in both variables.
+    environ = {"CODEX_SESSION_ID": "01a0-root", "CODEX_THREAD_ID": "01a0-root"}
+
+    claim = CODEX.claim_session_identity(environ)
+
+    assert claim == SessionIdentityClaim("codex", "01a0-root", "Codex environment")
+
+
+def test_a_codex_sub_agent_shell_claims_its_root_session() -> None:
+    environ = {"CODEX_SESSION_ID": "01a0-root", "CODEX_THREAD_ID": "01a0-child"}
+
+    claim = CODEX.claim_session_identity(environ)
+
+    assert claim == SessionIdentityClaim(
+        "codex",
+        "01a0-root",
+        "Codex environment of sub-agent 01a0-child",
+        delegate="01a0-child",
+    )
+
+
+@pytest.mark.parametrize(
+    "environ",
+    [
+        pytest.param({"CODEX_SESSION_ID": "01a0-root"}, id="no-thread"),
+        pytest.param(
+            {"CODEX_SESSION_ID": "01a0-root", "CODEX_THREAD_ID": "not valid!"},
+            id="unparseable-thread",
+        ),
+    ],
+)
+def test_a_codex_root_alone_is_no_claim(environ: dict[str, str]) -> None:
+    # Codex always exports the thread beside the root, so a root alone is
+    # not a shell Codex prepared, and an OpenCode shell blanks the thread.
+    assert CODEX.claim_session_identity(environ) is None
+
+
+@pytest.mark.parametrize("root", ["", "not valid!"])
+def test_a_codex_thread_without_a_readable_root_claims_the_thread(root: str) -> None:
+    # A release before 0.155.1 exports the thread alone, as an empty or
+    # unreadable root leaves it.
+    environ = {"CODEX_SESSION_ID": root, "CODEX_THREAD_ID": "01a0-thread"}
+
+    claim = CODEX.claim_session_identity(environ)
+
+    assert claim == SessionIdentityClaim("codex", "01a0-thread", "Codex environment")
+
+
+MEASUREMENTS = Path(__file__).resolve().parents[1] / "docs/spikes/measurements"
+
+
+@pytest.mark.parametrize(
+    "trace", ["issue-420-codex-trace.jsonl", "issue-448-codex-trace.jsonl"]
+)
+def test_every_measured_codex_shell_claims_the_session_its_hooks_publish(
+    trace: str,
+) -> None:
+    # Codex 0.160.0's retained traces: each shell a lead or worker ran, and
+    # each hook the session published. A worker's hooks carry the root's
+    # ``session_id``, and its ``SubagentStart`` pairs that with its thread.
+    records: list[dict[str, Any]] = [
+        json.loads(line)
+        for line in (MEASUREMENTS / trace).read_text(encoding="utf-8").splitlines()
+    ]
+    hooks = [record["payload"] for record in records if record["kind"] == "hook"]
+    sessions = {hook["session_id"] for hook in hooks}
+    started = {
+        (hook["session_id"], hook["agent_id"])
+        for hook in hooks
+        if hook["hook_event_name"] == "SubagentStart"
+    }
+    shells = [
+        record["env"]
+        for record in records
+        if record["kind"] == "command" and record["phase"] == "start"
+    ]
+    claims = [CODEX.claim_session_identity(environ) for environ in shells]
+
+    assert shells
+    assert any(claim is not None and claim.delegate is None for claim in claims)
+    assert any(claim is not None and claim.delegate is not None for claim in claims)
+    for environ, claim in zip(shells, claims, strict=True):
+        assert claim is not None
+        assert claim.session_id in sessions
+        thread = environ["CODEX_THREAD_ID"]
+        if claim.delegate is None:
+            assert claim.session_id == thread
+        else:
+            assert claim.delegate == thread
+            assert (claim.session_id, thread) in started
+            assert thread not in sessions
 
 
 def test_claude_code_adapter_claims_session_identity_with_its_host_pid() -> None:
